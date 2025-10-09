@@ -18,7 +18,7 @@ return new class extends Migration
             $table->time('end_time');
             $table->foreignId('branch_id')->constrained('branches')->cascadeOnDelete();
             $table->boolean('is_active')->default(true);
-            $table->timestamp('created_at')->useCurrent();
+            $table->timestamps();
 
             $table->index('branch_id');
             $table->unique(['branch_id', 'start_time', 'end_time'], 'unique_shift_time');
