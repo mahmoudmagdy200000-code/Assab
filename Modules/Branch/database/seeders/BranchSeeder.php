@@ -17,7 +17,6 @@ class BranchSeeder extends Seeder
             [
                 'location' => '123 Main St, City, Country',
                 
-
             ]
         );
     }
