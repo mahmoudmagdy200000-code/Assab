@@ -3,7 +3,7 @@
 namespace Modules\BranchManagers\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-use Modules\BranchManagers\Services\CashierService;
+use Modules\Cashier\Services\CashierService;
 use Modules\BranchManagers\Traits\ApiResponseTrait;
 use Illuminate\Http\Request;
 use Modules\Cashier\Transformers\CashierResource;

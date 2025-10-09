@@ -1,6 +1,6 @@
 <?php
 
-namespace Modules\BranchManagers\Services;
+namespace Modules\Cashier\Services;
 
 use Illuminate\Support\Facades\Auth;
 use Modules\Cashier\Models\Cashier;
@@ -8,7 +8,6 @@ use Modules\Cashier\Transformers\CashierResource;
 
 class CashierService
 {
-
 
 
     /**
