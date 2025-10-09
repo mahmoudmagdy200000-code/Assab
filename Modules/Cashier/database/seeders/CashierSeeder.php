@@ -21,7 +21,7 @@ class CashierSeeder extends Seeder
                 'status' => 'active',
                 'branch_id' => 1,
                 'created_by' => 1,
-                'updated_by' => 1,
+             
                 'image' => null,
                 'activated_at' => now(),
                 'deactivated_at' => null,
