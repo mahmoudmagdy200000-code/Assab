@@ -31,7 +31,7 @@ return new class extends Migration
             $table->text('handover_notes')->nullable();
 
             $table->foreignId('original_cashier_id')->nullable()->constrained('cashiers')->nullOnDelete();
-            $table->foreignId('reassigned_by')->nullable()->constrained('branch_managers');
+            $table->foreignId('reassigned_by')->nullable()->constrained('branch_managers')->nullOnDelete();;
             $table->text('reassignment_reason')->nullable();
             $table->timestamp('reassigned_at')->nullable();
 
