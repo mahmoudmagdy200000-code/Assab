@@ -1,3 +1,4 @@
 {
-    "BranchManagers": true
+    "BranchManagers": true,
+    "Cashier": true
 }
