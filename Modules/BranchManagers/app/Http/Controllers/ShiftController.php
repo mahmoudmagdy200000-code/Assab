@@ -5,7 +5,7 @@ namespace Modules\BranchManagers\Http\Controllers;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 
-class BranchManagersController extends Controller
+class ShiftController extends Controller
 {
     /**
      * Display a listing of the resource.

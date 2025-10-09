@@ -1,11 +1,9 @@
 <?php
 
-
-use Modules\BranchManagers\Http\Controllers\BranchManagersController;
-
-
 use Illuminate\Support\Facades\Route;
 use Modules\BranchManagers\Http\Controllers\AuthController;
+use Modules\BranchManagers\Http\Controllers\CashierController;
+use Modules\BranchManagers\Http\Controllers\BranchManagersController;
 
 /*
 |--------------------------------------------------------------------------
@@ -15,7 +13,7 @@ use Modules\BranchManagers\Http\Controllers\AuthController;
 
 Route::prefix('branch-manager')->group(function () {
 
-    // Public routes (without authentication)
+    // Public routes (no authentication)
     Route::post('auth/first-login', [AuthController::class, 'firstLogin']);
     Route::post('auth/login', [AuthController::class, 'login']);
     Route::post('auth/forgot-password', [AuthController::class, 'forgotPassword']);
@@ -28,7 +26,13 @@ Route::prefix('branch-manager')->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::get('auth/me', [AuthController::class, 'me']);
 
-        // Add other protected routes here
-        // Route::get('dashboard', [DashboardController::class, 'index']);
+        // ✅ Group for cashiers routes
+        Route::prefix('cashiers')->controller(CashierController::class)->group(function () {
+            Route::get('/', 'index'); // GET /branch-manager/cashiers
+            Route::get('{id}', 'show'); // GET /branch-manager/cashiers/{id}
+            Route::post('/', 'store'); // POST /branch-manager/cashiers
+            Route::put('{id}', 'update'); // PUT /branch-manager/cashiers/{id}
+            Route::delete('{id}', 'destroy'); // DELETE /branch-manager/cashiers/{id}
+        });
     });
 });

@@ -1,4 +1,8 @@
 {
     "BranchManagers": true,
-    "Cashier": true
+    "Cashier": true,
+    "Branch": true,
+    "Shift": true,
+    "Settings": true,
+    "Admin": true
 }

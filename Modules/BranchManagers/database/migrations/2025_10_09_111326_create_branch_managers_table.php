@@ -23,7 +23,7 @@ return new class extends Migration
             $table->softDeletes();
         });
 
-        // جدول لحفظ OTP
+        //  OTP
         Schema::create('branch_manager_otps', function (Blueprint $table) {
             $table->id();
             $table->string('identifier'); // email or phone
@@ -34,12 +34,18 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        // جدول لحفظ Password Reset Tokens
+        // Password Reset Tokens
         Schema::create('branch_manager_password_resets', function (Blueprint $table) {
             $table->string('email')->index();
             $table->string('token');
             $table->timestamp('created_at')->nullable();
         });
+
+        // Add indexes for performance
+        // Schema::table('branch_manager_otps', function (Blueprint $table) {
+        //     $table->index(['identifier', 'type']);
+        //     $table->index('expires_at');
+        // });
     }
 
     public function down()
