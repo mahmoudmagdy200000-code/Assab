@@ -12,6 +12,20 @@ class CashierResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        return parent::toArray($request);
+        return [
+            'id' => $this->id,
+            'name' => $this->name,
+            'email' => $this->email,
+            'phone' => $this->phone,
+            'image' => $this->image,
+            'branch_id' => $this->branch_id,
+            'status' => $this->status,
+            'created_by' => $this->created_by,
+            'activated_at' => $this->activated_at,
+            'deactivated_at' => $this->deactivated_at,
+            'created_at' => $this->created_at,
+            'updated_at' => $this->updated_at,
+
+        ];
     }
 }
