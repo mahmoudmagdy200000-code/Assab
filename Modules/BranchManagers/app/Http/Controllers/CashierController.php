@@ -28,12 +28,9 @@ class CashierController extends Controller
     {
         $cashiers = $this->cashierService->index($request);
 
-        // نحول الـ resource collection إلى array صافي
-        $formatted = CashierResource::collection($cashiers)->response()->getData(true);
-
         return $this->successResponse(
             'Cashiers retrieved successfully',
-            ['cashiers' => $formatted['data']] // ناخد الـ data فقط
+            ['cashiers' => $cashiers]
         );
     }
 }
