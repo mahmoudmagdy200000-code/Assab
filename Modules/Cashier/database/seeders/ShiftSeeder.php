@@ -27,6 +27,8 @@ class ShiftSeeder extends Seeder
                 'end_time' => '16:00',
                 'branch_id' => $branch->id,
                 'is_active' => true,
+                'updated_at' => now(),
+                'created_at' => now(),
             ]);
 
             Shift::create([
@@ -35,6 +37,8 @@ class ShiftSeeder extends Seeder
                 'end_time' => '00:00',
                 'branch_id' => $branch->id,
                 'is_active' => true,
+                'updated_at' => now(),
+                'created_at' => now(),
             ]);
         }
 
