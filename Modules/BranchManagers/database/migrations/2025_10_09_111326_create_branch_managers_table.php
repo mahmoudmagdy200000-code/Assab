@@ -14,6 +14,10 @@ return new class extends Migration
             $table->string('email')->unique();
             $table->string('phone')->unique()->nullable();
             $table->string('password');
+            // $table->unsignedBigInteger('branch_id');
+            $table->foreignId('branch_id')->references('id')->on('branches')->onDelete('cascade');
+            $table->enum('status', ['active', 'inactive'])->default('active');
+            // $table->unsignedBigInteger('created_by')->nullable();
             $table->boolean('is_active')->default(true);
             $table->boolean('is_first_login')->default(true);
             $table->timestamp('email_verified_at')->nullable();
