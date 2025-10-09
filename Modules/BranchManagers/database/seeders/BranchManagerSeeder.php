@@ -16,6 +16,8 @@ class BranchManagerSeeder extends Seeder
                 'name' => 'Test Branch Manager',
                 'email' => 'branchmanager@test.com',
                 'phone' => '+201234567890',
+                'branch_id' => 1,
+                'status' => 'active',
                 'password' => Hash::make('Password123'),
                 'is_first_login' => true,
             ]
