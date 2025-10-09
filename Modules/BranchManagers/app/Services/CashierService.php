@@ -32,7 +32,6 @@ class CashierService
                 ->with(['branch', 'creator', 'shifts'])
                 ->paginate($perPage);
 
-
             return CashierResource::collection($cashiers);
         } catch (\Throwable $e) {
 

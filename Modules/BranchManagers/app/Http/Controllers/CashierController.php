@@ -30,9 +30,8 @@ class CashierController extends Controller
 
         return $this->successResponse(
             'Cashiers retrieved successfully',
-            [
-                'cashiers' => CashierResource::collection($cashiers),
-            ]
+            ['cashiers' => $cashiers]
         );
     }
 }
+    
