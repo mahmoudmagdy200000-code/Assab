@@ -5,7 +5,7 @@ namespace Modules\BranchManagers\Transformers;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-class Cashier extends JsonResource
+class CashierResource extends JsonResource
 {
     /**
      * Transform the resource into an array.
