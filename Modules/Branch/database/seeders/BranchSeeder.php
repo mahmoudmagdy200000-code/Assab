@@ -3,6 +3,7 @@
 namespace Modules\Branch\Database\Seeders;
 
 use Illuminate\Database\Seeder;
+use Modules\Branch\Models\Branch;
 
 class BranchSeeder extends Seeder
 {
@@ -11,6 +12,13 @@ class BranchSeeder extends Seeder
      */
     public function run(): void
     {
-        // $this->call([]);
+        Branch::updateOrCreate(
+            ['name' => 'Main Branch'],
+            [
+                'location' => '123 Main St, City, Country',
+                
+
+            ]
+        );
     }
 }
