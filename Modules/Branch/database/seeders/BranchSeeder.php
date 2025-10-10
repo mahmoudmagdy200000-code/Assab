@@ -22,5 +22,15 @@ class BranchSeeder extends Seeder
                 'map_coordinates' => '37.7749,-122.4194',
             ]
         );
+        Branch::updateOrCreate(
+            ['name' => 'Main Branch 2'],
+            [
+                'location' => '123 Main St, City, Country',
+
+                'image' => 'branches/main_branch.jpg',
+                'opening_hours' => '08:00 - 22:00',
+                'map_coordinates' => '37.7749,-122.4194',
+            ]
+        );
     }
 }
