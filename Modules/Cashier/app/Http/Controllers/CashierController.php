@@ -4,53 +4,46 @@ namespace Modules\Cashier\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Modules\Cashier\Services\CashierService;
+use Modules\BranchManagers\Traits\ApiResponseTrait;
+use Modules\Cashier\Transformers\CashierResource;
+use Illuminate\Http\JsonResponse;
 
 class CashierController extends Controller
 {
+ use ApiResponseTrait;
+    protected $cashierService;
+
+    public function __construct(CashierService $cashierService)
+    {
+
+        $this->cashierService = $cashierService;
+    }
+
+
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request): JsonResponse
     {
-        return view('cashier::index');
+        $cashiers = $this->cashierService->index($request);
+
+        return $this->successResponse(
+            'Cashiers retrieved successfully',
+            ['cashiers' => $cashiers]
+        );
     }
 
     /**
-     * Show the form for creating a new resource.
+     * Create Cashiers account
      */
-    public function create()
+    public function store(Request $request): JsonResponse
     {
-        return view('cashier::create');
+        $cashier = $this->cashierService->store($request);
+
+        return $this->successResponse(
+            'Cashier created successfully',
+            ['cashier' => new CashierResource($cashier)]
+        );
     }
-
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request) {}
-
-    /**
-     * Show the specified resource.
-     */
-    public function show($id)
-    {
-        return view('cashier::show');
-    }
-
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit($id)
-    {
-        return view('cashier::edit');
-    }
-
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, $id) {}
-
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy($id) {}
 }
