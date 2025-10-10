@@ -4,7 +4,8 @@ namespace Modules\Cashier\Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Modules\Branch\Models\Branch;
-use Modules\Cashier\Models\Shift;
+
+use Modules\Shift\Models\Shift;
 
 class ShiftSeeder extends Seeder
 {
@@ -37,7 +38,7 @@ class ShiftSeeder extends Seeder
                 'end_time' => '00:00',
                 'branch_id' => $branch->id,
                 'is_active' => true,
-                
+
                 'created_at' => now(),
             ]);
         }

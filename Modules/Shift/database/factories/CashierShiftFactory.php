@@ -1,15 +1,15 @@
 <?php
 
-namespace Modules\Cashier\Database\Factories;
+namespace Modules\Shift\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
 
-class ShiftFactory extends Factory
+class CashierShiftFactory extends Factory
 {
     /**
      * The name of the factory's corresponding model.
      */
-    protected $model = \Modules\Cashier\Models\Shift::class;
+    protected $model = \Modules\Shift\Models\CashierShift::class;
 
     /**
      * Define the model's default state.

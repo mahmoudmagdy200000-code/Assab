@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Auth;
 use Modules\Cashier\Http\Requests\StoreCashierRequest;
 use Modules\Cashier\Models\Cashier;
 use Modules\Cashier\Transformers\CashierResource;
+use Modules\Shift\Models\CashierShift;
 
 class CashierService
 {
@@ -68,7 +69,7 @@ class CashierService
                 $shiftIds = $request->shift_ids;
 
 
-                $occupiedShifts = \Modules\Cashier\Models\CashierShift::whereIn('shift_id', $shiftIds)->pluck('shift_id')->toArray();
+                $occupiedShifts = CashierShift::whereIn('shift_id', $shiftIds)->pluck('shift_id')->toArray();
                 $availableShifts = array_diff($shiftIds, $occupiedShifts);
 
                 if (count($availableShifts) !== count($shiftIds)) {
@@ -78,7 +79,7 @@ class CashierService
                     ], 422);
                 }
 
-            
+
                 $cashier->shifts()->attach($availableShifts);
             }
 

@@ -1,6 +1,6 @@
 <?php
 
-namespace Modules\Cashier\Transformers;
+namespace Modules\Shift\Transformers;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -19,7 +19,7 @@ class ShiftResource extends JsonResource
             'end_time' => $this->end_time,
             'branch_id' => $this->branch_id,
             'is_active' => $this->is_active,
-          
+
         ];
     }
 }

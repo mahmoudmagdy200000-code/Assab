@@ -1,6 +1,6 @@
 <?php
 
-namespace Modules\Cashier\Transformers;
+namespace Modules\Shift\Transformers;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;

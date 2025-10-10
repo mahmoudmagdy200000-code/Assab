@@ -1,6 +1,6 @@
 <?php
 
-namespace Modules\Cashier\Http\Controllers;
+namespace Modules\Shift\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;

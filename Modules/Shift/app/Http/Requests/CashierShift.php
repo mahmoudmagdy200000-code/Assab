@@ -1,13 +1,13 @@
 <?php
 
-namespace Modules\Cashier\Models;
+namespace Modules\Shift\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Models\Shift;
 use Modules\BranchManagers\Models\BranchManager;
-use Modules\Cashier\Models\Shift as ModelsShift;
+
 
 class CashierShift extends Model
 {
@@ -51,7 +51,7 @@ class CashierShift extends Model
 
     public function shift()
     {
-        return $this->belongsTo(ModelsShift::class);
+        return $this->belongsTo(Shift::class);
     }
 
     public function nextCashier()

@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Branch\Transformers\BranchResource;
 use Modules\BranchManagers\Transformers\BranchManagerResource;
+use Modules\Shift\Transformers\ShiftResource;
 
 class CashierResource extends JsonResource
 {

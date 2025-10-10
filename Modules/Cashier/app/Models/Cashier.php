@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Shift\Models\CashierShift;
 
 class Cashier extends Model
 {
