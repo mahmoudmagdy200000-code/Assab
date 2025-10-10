@@ -26,11 +26,23 @@ class BranchManagerSeeder extends Seeder
             ['email' => 'branchmanager2@test.com'],
             [
                 'name' => 'Test Branch Manager 2',
-                'email' => 'branchmanager2@test.com', 
+                'email' => 'branchmanager2@test.com',
                 'phone' => '+201234567880',
                 'branch_id' => 2,
                 'status' => 'active',
                 'password' => Hash::make('Password123'),
+                'is_first_login' => true,
+            ]
+        );
+        BranchManager::updateOrCreate(
+            ['email' => 'branchmanager3@test.com'],
+            [
+                'name' => 'Test Branch Manager 3',
+                'email' => 'branchmanager3@test.com',
+                'phone' => '+201234567770',
+                'branch_id' => 2,
+                'status' => 'active',
+                'password' => Hash::make('ploploK@0'),
                 'is_first_login' => true,
             ]
         );
@@ -43,6 +55,10 @@ class BranchManagerSeeder extends Seeder
         $this->command->info('✅ Branch Manager test account created:');
         $this->command->info('Email: branchmanager2@test.com');
         $this->command->info('Password: Password123');
+        $this->command->info('-------------------------');
+        $this->command->info('✅ Branch Manager test account created:');
+        $this->command->info('Email: branchmanager3@test.com');
+        $this->command->info('Password: ploploK@0');
         $this->command->info('-------------------------');
     }
 }
