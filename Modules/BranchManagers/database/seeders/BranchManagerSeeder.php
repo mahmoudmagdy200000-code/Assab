@@ -25,8 +25,8 @@ class BranchManagerSeeder extends Seeder
         BranchManager::updateOrCreate(
             ['email' => 'branchmanager2@test.com'],
             [
-                'name' => 'Test Branch Manager',
-                'email' => 'branchmanager@test.com',
+                'name' => 'Test Branch Manager 2',
+                'email' => 'branchmanager2@test.com', 
                 'phone' => '+201234567880',
                 'branch_id' => 2,
                 'status' => 'active',
@@ -34,6 +34,7 @@ class BranchManagerSeeder extends Seeder
                 'is_first_login' => true,
             ]
         );
+
 
         $this->command->info('✅ Branch Manager test account created:');
         $this->command->info('Email: branchmanager@test.com');
