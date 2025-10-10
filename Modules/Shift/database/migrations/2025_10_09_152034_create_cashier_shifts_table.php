@@ -36,12 +36,12 @@ return new class extends Migration
             $table->timestamp('reassigned_at')->nullable();
 
 
-            $table->decimal('total_sales', 12, 2)->default(0.00)->after('variance');
-            $table->decimal('net_sales', 12, 2)->default(0.00)->after('total_sales');
-            $table->decimal('vat_amount', 12, 2)->default(0.00)->after('net_sales');
-            $table->decimal('cash_collected', 12, 2)->default(0.00)->after('vat_amount');
-            $table->decimal('card_payments', 12, 2)->default(0.00)->after('cash_collected');
-            $table->string('pos_receipt')->nullable()->after('card_payments');
+            $table->decimal('total_sales', 12, 2)->default(0.00);
+            $table->decimal('net_sales', 12, 2)->default(0.00);
+            $table->decimal('vat_amount', 12, 2)->default(0.00);
+            $table->decimal('cash_collected', 12, 2)->default(0.00);
+            $table->decimal('card_payments', 12, 2)->default(0.00);
+            $table->string('pos_receipt')->nullable();
 
             $table->timestamps();
 
