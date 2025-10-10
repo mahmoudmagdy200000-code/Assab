@@ -4,5 +4,6 @@
     "Branch": true,
     "Shift": true,
     "Settings": true,
-    "Admin": true
+    "Admin": true,
+    "Aggregator": true
 }

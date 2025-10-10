@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('cashier_shifts', function (Blueprint $table) {
-           $table->id();
+            $table->id();
             $table->foreignId('cashier_id')->constrained('cashiers')->cascadeOnDelete();
             $table->foreignId('shift_id')->constrained('shifts')->cascadeOnDelete();
             $table->date('shift_date');
@@ -34,6 +34,14 @@ return new class extends Migration
             $table->foreignId('reassigned_by')->nullable()->constrained('branch_managers')->nullOnDelete();;
             $table->text('reassignment_reason')->nullable();
             $table->timestamp('reassigned_at')->nullable();
+
+
+            $table->decimal('total_sales', 12, 2)->default(0.00)->after('variance');
+            $table->decimal('net_sales', 12, 2)->default(0.00)->after('total_sales');
+            $table->decimal('vat_amount', 12, 2)->default(0.00)->after('net_sales');
+            $table->decimal('cash_collected', 12, 2)->default(0.00)->after('vat_amount');
+            $table->decimal('card_payments', 12, 2)->default(0.00)->after('cash_collected');
+            $table->string('pos_receipt')->nullable()->after('card_payments');
 
             $table->timestamps();
 

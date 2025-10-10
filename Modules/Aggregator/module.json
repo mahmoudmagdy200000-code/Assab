@@ -1,0 +1,11 @@
+{
+    "name": "Aggregator",
+    "alias": "aggregator",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\Aggregator\\Providers\\AggregatorServiceProvider"
+    ],
+    "files": []
+}
