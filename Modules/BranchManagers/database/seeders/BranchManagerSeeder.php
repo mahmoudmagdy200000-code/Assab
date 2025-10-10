@@ -39,7 +39,7 @@ class BranchManagerSeeder extends Seeder
             [
                 'name' => 'Test Branch Manager 3',
                 'email' => 'branchmanager3@test.com',
-                'phone' => '+201234567770',
+                'phone' => '+966111111111',
                 'branch_id' => 2,
                 'status' => 'active',
                 'password' => Hash::make('ploploK@0'),
