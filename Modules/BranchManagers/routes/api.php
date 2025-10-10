@@ -2,7 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Modules\BranchManagers\Http\Controllers\AuthController;
-use Modules\BranchManagers\Http\Controllers\CashierController;
+use Modules\Cashier\Http\Controllers\CashierController;
 use Modules\BranchManagers\Http\Controllers\BranchManagersController;
 
 /*

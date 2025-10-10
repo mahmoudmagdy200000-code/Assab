@@ -1,6 +1,6 @@
 <?php
 
-namespace Modules\Cashier\Database\Seeders;
+namespace Modules\Shift\Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Modules\Branch\Models\Branch;
