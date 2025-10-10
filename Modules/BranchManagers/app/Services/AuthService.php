@@ -20,7 +20,7 @@ class AuthService
         $manager = BranchManager::where('email', $email)->first();
 
         if (!$manager || !Hash::check($password, $manager->password)) {
-            throw new \Exception('Invalid credentials');
+            throw new \Exception('Invalid credentials ');
         }
 
         if (!$manager->isActive()) {
@@ -28,7 +28,7 @@ class AuthService
         }
 
         if (!$manager->isFirstLogin()) {
-            throw new \Exception('Please use regular login');
+            throw new \Exception('Account is already acctivated. Please use regular login.');
         }
 
         $token = $manager->createToken('first-login-token')->plainTextToken;
