@@ -41,7 +41,7 @@ class AuthController extends Controller
 
 
             return $this->successResponse(
-                'First login successful. Please reset your password.',
+                __('auth.first_login_success'),
                 [
                     'manager' => new BranchManagerResource($manager),
                     'token' => $token,

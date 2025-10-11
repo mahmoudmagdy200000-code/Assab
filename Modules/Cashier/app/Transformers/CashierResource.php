@@ -23,7 +23,12 @@ class CashierResource extends JsonResource
             'created_by' => $this->created_by,
 
 
-            'branch' => $this->whenLoaded('branch', new BranchResource($this->branch)),
+            'branch' => $this->whenLoaded('branch', function () {
+                return [
+                    'name' => $this->branch->name,
+                ];
+            }),
+
             // 'creator' => $this->whenLoaded('creator', new BranchManagerResource($this->creator)),
             'shifts' => $this->whenLoaded('shifts', ShiftResource::collection($this->shifts))->count(),
 
