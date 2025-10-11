@@ -26,6 +26,7 @@ class CashierResource extends JsonResource
             'branch' => $this->whenLoaded('branch', function () {
                 return [
                     'name' => $this->branch->name,
+                    'location' => $this->branch->location,
                 ];
             }),
 
