@@ -2,153 +2,108 @@
 
 namespace Modules\Cashier\Providers;
 
-use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\ServiceProvider;
-use Nwidart\Modules\Traits\PathNamespace;
-use RecursiveDirectoryIterator;
-use RecursiveIteratorIterator;
+use Illuminate\Support\Facades\Gate;
+use Modules\Cashier\Models\Cashier;
+use Modules\Cashier\Observers\CashierObserver;
+use Modules\Cashier\Policies\CashierPolicy;
+use Modules\Cashier\Repositories\{
+    CashierRepository,
+    CashierRepositoryInterface
+};
 
 class CashierServiceProvider extends ServiceProvider
 {
-    use PathNamespace;
+    protected string $moduleName = 'Cashier';
+    protected string $moduleNameLower = 'cashier';
 
-    protected string $name = 'Cashier';
-
-    protected string $nameLower = 'cashier';
-
-    /**
-     * Boot the application events.
-     */
     public function boot(): void
     {
-        $this->registerCommands();
-        $this->registerCommandSchedules();
         $this->registerTranslations();
         $this->registerConfig();
         $this->registerViews();
-        $this->loadMigrationsFrom(module_path($this->name, 'database/migrations'));
+        $this->loadMigrationsFrom(module_path($this->moduleName, 'Database/Migrations'));
+        $this->registerPolicies();
+        $this->registerObservers();
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                \Modules\Cashier\Console\SendPendingActivationRemindersCommand::class,
+                
+            ]);
+        }
     }
 
-    /**
-     * Register the service provider.
-     */
+    protected function registerObservers(): void
+    {
+        Cashier::observe(CashierObserver::class);
+    }
+
     public function register(): void
     {
-        $this->app->register(EventServiceProvider::class);
         $this->app->register(RouteServiceProvider::class);
+        $this->app->register(EventServiceProvider::class);
+
+        // Register Repositories
+        $this->app->bind(
+            CashierRepositoryInterface::class,
+            CashierRepository::class
+        );
     }
 
-    /**
-     * Register commands in the format of Command::class
-     */
-    protected function registerCommands(): void
-    {
-        // $this->commands([]);
-    }
-
-    /**
-     * Register command Schedules.
-     */
-    protected function registerCommandSchedules(): void
-    {
-        // $this->app->booted(function () {
-        //     $schedule = $this->app->make(Schedule::class);
-        //     $schedule->command('inspire')->hourly();
-        // });
-    }
-
-    /**
-     * Register translations.
-     */
-    public function registerTranslations(): void
-    {
-        $langPath = resource_path('lang/modules/'.$this->nameLower);
-
-        if (is_dir($langPath)) {
-            $this->loadTranslationsFrom($langPath, $this->nameLower);
-            $this->loadJsonTranslationsFrom($langPath);
-        } else {
-            $this->loadTranslationsFrom(module_path($this->name, 'lang'), $this->nameLower);
-            $this->loadJsonTranslationsFrom(module_path($this->name, 'lang'));
-        }
-    }
-
-    /**
-     * Register config.
-     */
     protected function registerConfig(): void
     {
-        $configPath = module_path($this->name, config('modules.paths.generator.config.path'));
+        $this->publishes([
+            module_path($this->moduleName, 'Config/config.php') => config_path($this->moduleNameLower . '.php'),
+        ], 'config');
 
-        if (is_dir($configPath)) {
-            $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($configPath));
+        $this->mergeConfigFrom(
+            module_path($this->moduleName, 'Config/config.php'),
+            $this->moduleNameLower
+        );
+    }
 
-            foreach ($iterator as $file) {
-                if ($file->isFile() && $file->getExtension() === 'php') {
-                    $config = str_replace($configPath.DIRECTORY_SEPARATOR, '', $file->getPathname());
-                    $config_key = str_replace([DIRECTORY_SEPARATOR, '.php'], ['.', ''], $config);
-                    $segments = explode('.', $this->nameLower.'.'.$config_key);
+    protected function registerViews(): void
+    {
+        $viewPath = resource_path('views/modules/' . $this->moduleNameLower);
+        $sourcePath = module_path($this->moduleName, 'Resources/views');
 
-                    // Remove duplicated adjacent segments
-                    $normalized = [];
-                    foreach ($segments as $segment) {
-                        if (end($normalized) !== $segment) {
-                            $normalized[] = $segment;
-                        }
-                    }
+        $this->publishes([
+            $sourcePath => $viewPath
+        ], ['views', $this->moduleNameLower . '-module-views']);
 
-                    $key = ($config === 'config.php') ? $this->nameLower : implode('.', $normalized);
+        $this->loadViewsFrom(array_merge($this->getPublishableViewPaths(), [$sourcePath]), $this->moduleNameLower);
+    }
 
-                    $this->publishes([$file->getPathname() => config_path($config)], 'config');
-                    $this->merge_config_from($file->getPathname(), $key);
-                }
-            }
+    protected function registerTranslations(): void
+    {
+        $langPath = resource_path('lang/modules/' . $this->moduleNameLower);
+
+        if (is_dir($langPath)) {
+            $this->loadTranslationsFrom($langPath, $this->moduleNameLower);
+        } else {
+            $this->loadTranslationsFrom(module_path($this->moduleName, 'Resources/lang'), $this->moduleNameLower);
         }
     }
 
-    /**
-     * Merge config from the given path recursively.
-     */
-    protected function merge_config_from(string $path, string $key): void
+    protected function registerPolicies(): void
     {
-        $existing = config($key, []);
-        $module_config = require $path;
-
-        config([$key => array_replace_recursive($existing, $module_config)]);
+        Gate::policy(Cashier::class, CashierPolicy::class);
     }
 
-    /**
-     * Register views.
-     */
-    public function registerViews(): void
-    {
-        $viewPath = resource_path('views/modules/'.$this->nameLower);
-        $sourcePath = module_path($this->name, 'resources/views');
-
-        $this->publishes([$sourcePath => $viewPath], ['views', $this->nameLower.'-module-views']);
-
-        $this->loadViewsFrom(array_merge($this->getPublishableViewPaths(), [$sourcePath]), $this->nameLower);
-
-        Blade::componentNamespace(config('modules.namespace').'\\' . $this->name . '\\View\\Components', $this->nameLower);
-    }
-
-    /**
-     * Get the services provided by the provider.
-     */
-    public function provides(): array
-    {
-        return [];
-    }
-
-    private function getPublishableViewPaths(): array
+    protected function getPublishableViewPaths(): array
     {
         $paths = [];
         foreach (config('view.paths') as $path) {
-            if (is_dir($path.'/modules/'.$this->nameLower)) {
-                $paths[] = $path.'/modules/'.$this->nameLower;
+            if (is_dir($path . '/modules/' . $this->moduleNameLower)) {
+                $paths[] = $path . '/modules/' . $this->moduleNameLower;
             }
         }
-
         return $paths;
+    }
+
+    public function provides(): array
+    {
+        return [];
     }
 }

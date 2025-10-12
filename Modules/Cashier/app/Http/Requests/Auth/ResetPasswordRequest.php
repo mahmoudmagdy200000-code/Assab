@@ -1,0 +1,38 @@
+<?php
+
+namespace Modules\Cashier\Http\Requests\Auth;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class ResetPasswordRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'identifier' => 'required|string',
+            'reset_token' => 'required|string',
+            'password' => 'required|string|min:8|confirmed',
+            'password_confirmation' => 'required|string|min:8',
+        ];
+    }
+
+    public function withValidator($validator)
+    {
+        $validator->after(function ($validator) {
+            $password = $this->input('password');
+
+            if (!preg_match('/[A-Z]/', $password)) {
+                $validator->errors()->add('password', 'Password must contain at least one uppercase letter');
+            }
+
+            if (!preg_match('/[0-9]/', $password)) {
+                $validator->errors()->add('password', 'Password must contain at least one number');
+            }
+        });
+    }
+}

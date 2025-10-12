@@ -10,9 +10,7 @@
     "extra": {
         "laravel": {
             "providers": [],
-            "aliases": {
-
-            }
+            "aliases": {}
         }
     },
     "autoload": {
@@ -22,6 +20,9 @@
             "Modules\\Cashier\\Database\\Seeders\\": "database/seeders/"
         }
     },
+    "files": [
+        "Helpers/CashierHelper.php"
+    ],
     "autoload-dev": {
         "psr-4": {
             "Modules\\Cashier\\Tests\\": "tests/"

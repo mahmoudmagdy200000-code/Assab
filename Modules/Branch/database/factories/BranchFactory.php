@@ -16,7 +16,13 @@ class BranchFactory extends Factory
      */
     public function definition(): array
     {
-        return [];
+        return [
+            'name' => $this->faker->name(),
+            'location' => $this->faker->address(),
+            'image' => null,
+            'opening_hours' => '09:00-18:00',
+            'map_coordinates' => $this->faker->latitude() . ',' . $this->faker->longitude(),
+        ];
     }
 }
 

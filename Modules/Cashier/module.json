@@ -1,11 +1,14 @@
 {
     "name": "Cashier",
     "alias": "cashier",
-    "description": "",
-    "keywords": [],
-    "priority": 0,
+    "description": "Cashier management module for Assab Application",
+    "keywords": ["cashier", "employee", "staff", "authentication"],
+    "priority": 3,
     "providers": [
-        "Modules\\Cashier\\Providers\\CashierServiceProvider"
+        "Modules\\Cashier\\Providers\\CashierServiceProvider",
+        "Modules\\Cashier\\Providers\\RouteServiceProvider"
     ],
-    "files": []
+    "aliases": {},
+    "files": [],
+    "requires": ["Branch", "BranchManager"]
 }

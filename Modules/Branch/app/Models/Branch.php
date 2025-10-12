@@ -48,4 +48,9 @@ class Branch extends Model
     {
         return $this->aggregators()->wherePivot('is_enabled', true);
     }
+
+    protected static function newFactory()
+    {
+        return \Modules\Branch\Database\Factories\BranchFactory::new();
+    }
 }

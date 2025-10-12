@@ -3,25 +3,33 @@
 namespace Modules\Cashier\Providers;
 
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
+use Modules\Cashier\Events\{
+    CashierCreatedEvent,
+    CashierActivatedEvent,
+    CashierDeactivatedEvent
+};
+use Modules\Cashier\Listeners\{
+    SendActivationNotificationListener,
+    LogCashierActivationListener,
+    HandleCashierDeactivationListener
+};
 
 class EventServiceProvider extends ServiceProvider
 {
-    /**
-     * The event handler mappings for the application.
-     *
-     * @var array<string, array<int, string>>
-     */
-    protected $listen = [];
+    protected $listen = [
+        CashierCreatedEvent::class => [
+            SendActivationNotificationListener::class,
+        ],
+        CashierActivatedEvent::class => [
+            LogCashierActivationListener::class,
+        ],
+        CashierDeactivatedEvent::class => [
+            HandleCashierDeactivationListener::class,
+        ],
+    ];
 
-    /**
-     * Indicates if events should be discovered.
-     *
-     * @var bool
-     */
-    protected static $shouldDiscoverEvents = true;
-
-    /**
-     * Configure the proper event listeners for email verification.
-     */
-    protected function configureEmailVerification(): void {}
+    public function boot(): void
+    {
+        parent::boot();
+    }
 }

@@ -3,20 +3,62 @@
 namespace Modules\Cashier\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Facades\Hash;
+use Modules\Branch\Models\Branch;
+use Modules\BranchManagers\Models\BranchManager;
+use Modules\Cashier\Models\Cashier;
 
 class CashierFactory extends Factory
 {
-    /**
-     * The name of the factory's corresponding model.
-     */
-    protected $model = \Modules\Cashier\Models\Cashier::class;
+    protected $model = Cashier::class;
 
-    /**
-     * Define the model's default state.
-     */
     public function definition(): array
     {
-        return [];
+        return [
+            'name' => $this->faker->name(),
+            'email' => $this->faker->unique()->safeEmail(),
+            'password' => Hash::make('password123'),
+            'phone' => '+9665' . $this->faker->numerify('########'),
+            'image' => null,
+            'branch_id' => Branch::factory(),
+            'status' => 'active',
+            'created_by' => BranchManager::first()->id ?? 1,
+            'activated_at' => now(),
+            'deactivated_at' => null,
+        ];
+    }
+
+    /**
+     * Indicate that the cashier is pending activation
+     */
+    public function pending(): static
+    {
+        return $this->state(fn(array $attributes) => [
+            'status' => 'pending',
+            'activated_at' => null,
+        ]);
+    }
+
+    /**
+     * Indicate that the cashier is deactivated
+     */
+    public function deactivated(): static
+    {
+        return $this->state(fn(array $attributes) => [
+            'status' => 'deactivated',
+            'deactivated_at' => now(),
+        ]);
+    }
+
+    /**
+     * Indicate that the cashier is active
+     */
+    public function active(): static
+    {
+        return $this->state(fn(array $attributes) => [
+            'status' => 'active',
+            'activated_at' => now(),
+            'deactivated_at' => null,
+        ]);
     }
 }
-

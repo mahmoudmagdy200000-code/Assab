@@ -2,41 +2,34 @@
 
 namespace Modules\Cashier\Transformers;
 
-use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Modules\Branch\Transformers\BranchResource;
-use Modules\BranchManagers\Transformers\BranchManagerResource;
-use Modules\Shift\Transformers\ShiftResource;
 
 class CashierResource extends JsonResource
 {
-    public function toArray(Request $request): array
+    public function toArray($request): array
     {
         return [
             'id' => $this->id,
             'name' => $this->name,
-            // 'email' => $this->email,
-            // 'phone' => $this->phone,
-            'image' => $this->image,
-            'branch_id' => $this->branch_id,
-            'status' => $this->status,
-            'created_by' => $this->created_by,
+            'email' => $this->email,
+            'phone' => $this->phone,
+            'image' => $this->image_url,
+            'branch' => [
+                'id' => $this->branch->id,
+                'name' => $this->branch->name,
+            ],
+            'status' => [
+                'value' => $this->status,
 
-
-            'branch' => $this->whenLoaded('branch', function () {
-                return [
-                    'name' => $this->branch->name,
-                    'location' => $this->branch->location,
-                ];
-            }),
-
-            // 'creator' => $this->whenLoaded('creator', new BranchManagerResource($this->creator)),
-            'shifts' => $this->whenLoaded('shifts', ShiftResource::collection($this->shifts))->count(),
-
-            // 'activated_at' => $this->activated_at,
-            // 'deactivated_at' => $this->deactivated_at,
-            // 'created_at' => $this->created_at,
-            // 'updated_at' => $this->updated_at,
+            ],
+            'created_by' => [
+                'id' => $this->creator->id,
+                'name' => $this->creator->name,
+            ],
+            'shifts_count' => $this->shifts_count ?? $this->getTotalShiftsCount(),
+            'activated_at' => $this->activated_at?->format('Y-m-d H:i:s'),
+            'created_at' => $this->created_at->format('Y-m-d H:i:s'),
+        
         ];
     }
 }
