@@ -46,7 +46,7 @@ class BranchManagerDetailResource extends JsonResource
                 'total_cashiers' => $this->getTotalCashiers(),
                 'active_cashiers' => $this->getActiveCashiers(),
                 'today_shifts' => $this->getTodayShifts(),
-                'total_expenses' => (float) $this->getTotalExpenses(),
+                // 'total_expenses' => (float) $this->getTotalExpenses(),
             ],
 
             'timestamps' => [
