@@ -9,7 +9,7 @@ use Modules\BranchManagers\Http\Requests\UploadImageRequest;
 use Modules\BranchManagers\Http\Requests\ChangePasswordRequest;
 use Modules\BranchManagers\Http\Requests\UpdateProfileRequest ;
 use Modules\BranchManagers\Transformers\BranchManagerDetailResource;
-use Modules\Cashier\Services\ProfileService;
+use Modules\BranchManagers\Services\ProfileService;
 use Modules\BranchManagers\Traits\ApiResponseTrait;
 
 class ProfileController extends Controller
