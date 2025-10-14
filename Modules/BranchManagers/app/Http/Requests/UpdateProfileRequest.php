@@ -1,6 +1,7 @@
 <?php
 
 namespace Modules\BranchManagers\Http\Requests;
+
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -20,11 +21,12 @@ class UpdateProfileRequest extends FormRequest
             'phone' => [
                 'nullable',
                 'string',
-                'regex:/^(\+966|966|05)[0-9]{8}$/',
+                'regex:/^(\+9665|9665|05)[0-9]{8}$/',
                 Rule::unique('branch_managers')->ignore($managerId),
             ],
         ];
     }
+
 
     public function messages(): array
     {
