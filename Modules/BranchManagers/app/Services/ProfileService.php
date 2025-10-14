@@ -13,7 +13,7 @@ class ProfileService
      */
     public function getProfile(int $managerId): BranchManager
     {
-        return BranchManager::with(['branch', 'cashiers', 'settings'])
+        return BranchManager::with(['branch', 'cashiers'])
             ->findOrFail($managerId);
     }
 
