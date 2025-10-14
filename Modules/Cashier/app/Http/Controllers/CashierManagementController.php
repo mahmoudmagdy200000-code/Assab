@@ -8,9 +8,11 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Cashier\Services\CashierService;
 use Modules\Cashier\Transformers\CashierResource ;
+use Modules\BranchManagers\Traits\ApiResponseTrait;
 
 class CashierManagementController extends Controller
 {
+    use ApiResponseTrait;
     public function __construct(
         private CashierService $cashierService
     ) {
@@ -31,7 +33,7 @@ class CashierManagementController extends Controller
             branchId: auth()->user()->branch_id
         );
 
-        return response()->success(
+        return $this->successResponse(
         CashierResource::collection($cashiers),
             'Search results retrieved successfully'
         );
@@ -46,7 +48,7 @@ class CashierManagementController extends Controller
 
         $stats = $this->cashierService->getCashierStatistics($branchId);
 
-        return response()->success($stats, 'Statistics retrieved successfully');
+        return  $this->successResponse($stats, 'Statistics retrieved successfully');
     }
 
     /**
@@ -65,7 +67,7 @@ class CashierManagementController extends Controller
             branchId: auth()->user()->branch_id
         );
 
-        return response()->success(
+        return  $this->successResponse(
         CashierResource::collection($availableCashiers),
             'Available cashiers retrieved successfully'
         );
@@ -87,7 +89,7 @@ class CashierManagementController extends Controller
             shiftIds: $request->shift_ids
         );
 
-        return response()->success($result, 'Shifts assigned successfully');
+        return  $this->successResponse($result, 'Shifts assigned successfully');
     }
 
     /**
@@ -106,7 +108,7 @@ class CashierManagementController extends Controller
             shiftIds: $request->shift_ids
         );
 
-        return response()->success($result, 'Shifts updated successfully');
+        return  $this->successResponse($result, 'Shifts updated successfully');
     }
 
     /**
@@ -120,7 +122,7 @@ class CashierManagementController extends Controller
 
         $cashier = $this->cashierService->resendActivationLink($request->cashier_id);
 
-        return response()->success(
+        return  $this->successResponse(
             new CashierResource($cashier),
             'Activation link resent successfully'
         );

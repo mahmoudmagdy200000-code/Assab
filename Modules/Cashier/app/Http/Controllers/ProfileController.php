@@ -10,9 +10,11 @@ use Modules\Cashier\Services\ProfileService;
 use Modules\Cashier\Http\Requests\UpdateProfileRequest;
 use Modules\Cashier\Http\Requests\UploadImageRequest;
 use Modules\Cashier\Transformers\CashierDetailResource;
+use Modules\BranchManagers\Traits\ApiResponseTrait;
 
 class ProfileController extends Controller
 {
+    use ApiResponseTrait;
     public function __construct(
         private ProfileService $profileService
     ) {
@@ -29,7 +31,7 @@ class ProfileController extends Controller
 
         $profileData = $this->profileService->getProfile($cashier->id);
 
-        return response()->success(
+        return  $this->successResponse(
             new CashierDetailResource($profileData),
             'Profile retrieved successfully'
         );
@@ -45,7 +47,7 @@ class ProfileController extends Controller
         $data = $request->validated();
         $updatedCashier = $this->profileService->updateProfile($cashier, $data);
 
-        return response()->success(
+        return  $this->successResponse(
             new CashierDetailResource($updatedCashier),
             'Profile updated successfully'
         );
@@ -63,7 +65,7 @@ class ProfileController extends Controller
             image: $request->file('image')
         );
 
-        return response()->success([
+        return  $this->successResponse([
             'image_url' => asset('storage/' . $imagePath),
         ], 'Profile image uploaded successfully');
     }
@@ -77,6 +79,6 @@ class ProfileController extends Controller
 
         $stats = $this->profileService->getCashierStatistics($cashier->id);
 
-        return response()->success($stats, 'Statistics retrieved successfully');
+        return  $this->successResponse($stats, 'Statistics retrieved successfully');
     }
 }
