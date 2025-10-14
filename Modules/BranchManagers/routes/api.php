@@ -7,6 +7,8 @@ use Modules\BranchManagers\Http\Controllers\NotificationController;
 use Modules\BranchManagers\Http\Controllers\ProfileController;
 use Modules\BranchManagers\Http\Controllers\SettingsController;
 
+//fix
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
