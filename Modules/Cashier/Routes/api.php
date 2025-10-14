@@ -33,7 +33,7 @@ Route::prefix('cashier/auth')->group(function () {
 */
 
 Route::prefix('branch-manager/cashiers')
-    ->middleware(['auth:sanctum', 'branch_manager'])
+    ->middleware(['auth:sanctum', 'branch.manager'])
     ->group(function () {
         // CRUD Operations
         Route::get('/', [CashierController::class, 'index']);

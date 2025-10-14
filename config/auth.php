@@ -40,6 +40,14 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+        'branch_manager' => [
+            'driver' => 'session', // أو 'session' حسب نظامك
+            'provider' => 'branch_managers',
+        ],
+        'cashier' => [
+            'driver' => 'session', // أو 'session' حسب نظامك
+            'provider' => 'cashiers',
+        ],
     ],
 
     /*
@@ -65,10 +73,20 @@ return [
             'model' => env('AUTH_MODEL', App\Models\User::class),
         ],
 
-        // 'users' => [
-        //     'driver' => 'database',
-        //     'table' => 'users',
-        // ],
+        'branches' => [
+            'driver' => 'eloquent',
+            'model' => Modules\Branch\Models\Branch::class,
+        ],
+
+        'cashiers' => [
+            'driver' => 'eloquent',
+            'model' => Modules\Cashier\Models\Cashier::class,
+        ],
+
+        'branch_managers' => [
+            'driver' => 'eloquent',
+            'model' => Modules\BranchManagers\Models\BranchManager::class,
+        ],
     ],
 
     /*
