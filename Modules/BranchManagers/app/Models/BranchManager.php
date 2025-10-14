@@ -80,16 +80,16 @@ class BranchManager extends Authenticatable
         return $this->hasMany(Shift::class, 'created_by');
     }
 
-    public function expenses(): HasMany
-    {
-        return $this->hasMany(Expense::class, 'created_by');
-    }
+    // public function expenses(): HasMany
+    // {
+    //     return $this->hasMany(Expense::class, 'created_by');
+    // }
 
-    public function settings(): HasMany
-    {
-        return $this->hasMany(UserSetting::class, 'user_id')
-            ->where('user_type', self::class);
-    }
+    // public function settings(): HasMany
+    // {
+    //     return $this->hasMany(UserSetting::class, 'user_id')
+    //         ->where('user_type', self::class);
+    // }
 
     // Scopes
     public function scopeActive($query)
