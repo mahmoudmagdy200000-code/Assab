@@ -3,7 +3,6 @@
 use Illuminate\Support\Facades\Route;
 use Modules\BranchManagers\Http\Controllers\AuthController;
 use Modules\Cashier\Http\Controllers\CashierController;
-use Modules\BranchManagers\Http\Controllers\BranchManagersController;
 use Modules\BranchManagers\Http\Controllers\DashboardController;
 use Modules\BranchManagers\Http\Controllers\NotificationController;
 use Modules\BranchManagers\Http\Controllers\ProfileController;
