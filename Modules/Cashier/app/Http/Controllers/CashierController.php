@@ -48,7 +48,7 @@ class CashierController extends Controller
             [
                 'status' => true,
                 'data' => CashierResource::collection($cashiers),
-                'Cashiers retrieved successfully'
+                'message' => 'Cashiers retrieved successfully'
             ],
             200
         );

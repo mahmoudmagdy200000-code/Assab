@@ -3,25 +3,38 @@
 namespace Modules\BranchManagers\Providers;
 
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
+use Modules\BranchManagers\Events\{
+    BranchManagerCreatedEvent,
+    BranchManagerLoggedInEvent,
+    PasswordChangedEvent,
+    BranchManagerSuspendedEvent
+};
+use Modules\BranchManagers\Listeners\{
+    SendWelcomeNotificationListener,
+    LogLoginActivityListener,
+    NotifyPasswordChangedListener,
+    HandleSuspensionListener
+};
 
 class EventServiceProvider extends ServiceProvider
 {
-    /**
-     * The event handler mappings for the application.
-     *
-     * @var array<string, array<int, string>>
-     */
-    protected $listen = [];
+    protected $listen = [
+        BranchManagerCreatedEvent::class => [
+            SendWelcomeNotificationListener::class,
+        ],
+        BranchManagerLoggedInEvent::class => [
+            LogLoginActivityListener::class,
+        ],
+        PasswordChangedEvent::class => [
+            NotifyPasswordChangedListener::class,
+        ],
+        BranchManagerSuspendedEvent::class => [
+            HandleSuspensionListener::class,
+        ],
+    ];
 
-    /**
-     * Indicates if events should be discovered.
-     *
-     * @var bool
-     */
-    protected static $shouldDiscoverEvents = true;
-
-    /**
-     * Configure the proper event listeners for email verification.
-     */
-    protected function configureEmailVerification(): void {}
+    public function boot(): void
+    {
+        parent::boot();
+    }
 }

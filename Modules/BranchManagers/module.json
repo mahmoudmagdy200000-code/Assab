@@ -1,11 +1,15 @@
 {
-    "name": "BranchManagers",
-    "alias": "branchmanagers",
-    "description": "",
-    "keywords": [],
-    "priority": 0,
-    "providers": [
-        "Modules\\BranchManagers\\Providers\\BranchManagersServiceProvider"
-    ],
-    "files": []
+  "name": "BranchManagers",
+  "alias": "branchmanagers",
+  "description": "Branch Manager module for Assab Application",
+  "keywords": ["branch manager", "manager", "authentication", "dashboard"],
+  "priority": 2,
+  "providers": [
+    "Modules\\BranchManagers\\Providers\\BranchManagersServiceProvider",
+    "Modules\\BranchManagers\\Providers\\RouteServiceProvider",
+    "Modules\\BranchManagers\\Providers\\EventServiceProvider"
+  ],
+  "aliases": {},
+  "files": [],
+  "requires": ["Branch"]
 }

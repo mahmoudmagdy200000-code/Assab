@@ -3,62 +3,40 @@
 namespace Modules\BranchManagers\Database\Seeders;
 
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Hash;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Branch\Models\Branch;
+use Illuminate\Support\Facades\Hash;
 
 class BranchManagerSeeder extends Seeder
 {
-    public function run()
+    public function run(): void
     {
-        BranchManager::updateOrCreate(
-            ['email' => 'branchmanager@test.com'],
-            [
-                'name' => 'Test Branch Manager',
-                'email' => 'branchmanager@test.com',
-                'phone' => '+201234567890',
-                'branch_id' => 1,
-                'status' => 'active',
-                'password' => Hash::make('Password123'),
-                'is_first_login' => true,
-            ]
-        );
-        BranchManager::updateOrCreate(
-            ['email' => 'branchmanager2@test.com'],
-            [
-                'name' => 'Test Branch Manager 2',
-                'email' => 'branchmanager2@test.com',
-                'phone' => '+201234567880',
-                'branch_id' => 2,
-                'status' => 'active',
-                'password' => Hash::make('Password123'),
-                'is_first_login' => true,
-            ]
-        );
-        BranchManager::updateOrCreate(
-            ['email' => 'branchmanager3@test.com'],
-            [
-                'name' => 'Test Branch Manager 3',
-                'email' => 'branchmanager3@test.com',
-                'phone' => '+966111111111',
-                'branch_id' => 2,
-                'status' => 'active',
-                'password' => Hash::make('ploploK@0'),
-                'is_first_login' => true,
-            ]
-        );
+        $branch = Branch::first();
 
+        if (!$branch) {
+            $this->command->warn('Please seed branches first.');
+            return;
+        }
 
-        $this->command->info('✅ Branch Manager test account created:');
-        $this->command->info('Email: branchmanager@test.com');
-        $this->command->info('Password: Password123');
-        $this->command->info('-------------------------');
-        $this->command->info('✅ Branch Manager test account created:');
-        $this->command->info('Email: branchmanager2@test.com');
-        $this->command->info('Password: Password123');
-        $this->command->info('-------------------------');
-        $this->command->info('✅ Branch Manager test account created:');
-        $this->command->info('Email: branchmanager3@test.com');
-        $this->command->info('Password: ploploK@0');
-        $this->command->info('-------------------------');
+        // Create default branch manager
+        BranchManager::create([
+            'name' => 'Ahmed Al-Saud',
+            'email' => 'manager@assab.com',
+            'phone' => '+966500000001',
+            'password' => Hash::make('password123'),
+            'branch_id' => $branch->id,
+            'status' => 'active',
+            'is_active' => true,
+            'is_first_login' => false,
+            'email_verified_at' => now(),
+        ]);
+
+        // Create additional managers
+        BranchManager::factory()->count(2)->create([
+            'branch_id' => $branch->id,
+        ]);
+
+        $this->command->info('Branch Managers seeded successfully!');
+        $this->command->info('Default Manager: manager@assab.com / password123');
     }
 }

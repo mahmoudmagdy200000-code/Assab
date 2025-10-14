@@ -3,10 +3,13 @@
 namespace Modules\BranchManagers\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Carbon\Carbon;
 
 class BranchManagerOtp extends Model
 {
+    use HasFactory;
+
     protected $fillable = [
         'identifier',
         'otp',
@@ -20,36 +23,71 @@ class BranchManagerOtp extends Model
         'is_used' => 'boolean',
     ];
 
-    /**
-     * Check if OTP is expired
-     */
-    public function isExpired(): bool
+    // Scopes
+    public function scopeValid($query)
     {
-        return Carbon::now()->isAfter($this->expires_at);
+        return $query->where('is_used', false)
+            ->where('expires_at', '>', now());
     }
 
-    /**
-     * Check if OTP is valid
-     */
+    public function scopeByIdentifier($query, string $identifier)
+    {
+        return $query->where('identifier', $identifier);
+    }
+
+    public function scopeByType($query, string $type)
+    {
+        return $query->where('type', $type);
+    }
+
+    // Methods
+    public function isExpired(): bool
+    {
+        return $this->expires_at->isPast();
+    }
+
     public function isValid(): bool
     {
         return !$this->is_used && !$this->isExpired();
     }
 
-    /**
-     * Mark OTP as used
-     */
     public function markAsUsed(): void
     {
         $this->update(['is_used' => true]);
     }
 
-    /**
-     * Scope for valid OTPs
-     */
-    public function scopeValid($query)
+    public static function generate(string $identifier, string $type, int $expiryMinutes = 10): self
     {
-        return $query->where('is_used', false)
-                    ->where('expires_at', '>', Carbon::now());
+        // Delete old OTPs
+        self::where('identifier', $identifier)
+            ->where('type', $type)
+            ->delete();
+
+        // Generate new OTP
+        $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
+        return self::create([
+            'identifier' => $identifier,
+            'otp' => $otp,
+            'type' => $type,
+            'expires_at' => Carbon::now()->addMinutes($expiryMinutes),
+            'is_used' => false,
+        ]);
+    }
+
+    public static function verify(string $identifier, string $otp, string $type): bool
+    {
+        $record = self::where('identifier', $identifier)
+            ->where('otp', $otp)
+            ->where('type', $type)
+            ->valid()
+            ->first();
+
+        if ($record) {
+            $record->markAsUsed();
+            return true;
+        }
+
+        return false;
     }
 }

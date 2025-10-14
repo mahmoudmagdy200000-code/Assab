@@ -2,24 +2,34 @@
 
 namespace Modules\BranchManagers\Transformers;
 
-use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class BranchManagerResource extends JsonResource
 {
-    /**
-     * Transform the resource into an array.
-     */
-    public function toArray($request)
+    public function toArray($request): array
     {
         return [
-            'id'        => $this->id,
-            'name'      => $this->name,
-            'email'     => $this->email,
-            'phone'     => $this->phone,
-            'branch_id' => $this->branch_id,
-            'is_active' => (bool) $this->is_active,
-            'created_at' => $this->created_at?->toDateTimeString(),
+            'id' => $this->id,
+            'name' => $this->name,
+            'email' => $this->email,
+            'phone' => $this->phone,
+            'image' => $this->image_url,
+            'branch' => [
+                'id' => $this->branch->id,
+                'name' => $this->branch->name,
+                'location' => $this->branch->location,
+                'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
+            ],
+            'status' => [
+                'value' => $this->status,
+                // 'label' => $this->status_label,
+                // 'color' => $this->status_color,
+            ],
+            'is_active' => $this->is_active,
+            'is_first_login' => $this->is_first_login,
+            'email_verified' => $this->isEmailVerified(),
+            'phone_verified' => $this->isPhoneVerified(),
+            'created_at' => $this->created_at->format('Y-m-d H:i:s'),
         ];
     }
 }
