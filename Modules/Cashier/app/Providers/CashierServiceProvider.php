@@ -29,7 +29,7 @@ class CashierServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 \Modules\Cashier\Console\SendPendingActivationRemindersCommand::class,
-                
+
             ]);
         }
     }
@@ -66,7 +66,7 @@ class CashierServiceProvider extends ServiceProvider
     protected function registerViews(): void
     {
         $viewPath = resource_path('views/modules/' . $this->moduleNameLower);
-        $sourcePath = module_path($this->moduleName, 'Resources/views');
+        $sourcePath = module_path($this->moduleName, 'resources/views');
 
         $this->publishes([
             $sourcePath => $viewPath
@@ -82,7 +82,7 @@ class CashierServiceProvider extends ServiceProvider
         if (is_dir($langPath)) {
             $this->loadTranslationsFrom($langPath, $this->moduleNameLower);
         } else {
-            $this->loadTranslationsFrom(module_path($this->moduleName, 'Resources/lang'), $this->moduleNameLower);
+            $this->loadTranslationsFrom(module_path($this->moduleName, 'resources/lang'), $this->moduleNameLower);
         }
     }
 
