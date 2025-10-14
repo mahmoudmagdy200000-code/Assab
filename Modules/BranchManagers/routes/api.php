@@ -2,7 +2,6 @@
 
 use Illuminate\Support\Facades\Route;
 use Modules\BranchManagers\Http\Controllers\AuthController;
-use Modules\Cashier\Http\Controllers\CashierController;
 use Modules\BranchManagers\Http\Controllers\DashboardController;
 use Modules\BranchManagers\Http\Controllers\NotificationController;
 use Modules\BranchManagers\Http\Controllers\ProfileController;
@@ -78,13 +77,6 @@ Route::prefix('branch-manager')->group(function () {
             Route::delete('/clear-all', [NotificationController::class, 'clearAll']);
         });
 
-        // ✅ Group for cashiers routes
-        Route::prefix('cashiers')->controller(CashierController::class)->group(function () {
-            Route::get('/', 'index'); // GET /branch-manager/cashiers
-            Route::get('{id}', 'show'); // GET /branch-manager/cashiers/{id}
-            Route::post('/', 'store'); // POST /branch-manager/cashiers
-            Route::put('{id}', 'update'); // PUT /branch-manager/cashiers/{id}
-            Route::delete('{id}', 'destroy'); // DELETE /branch-manager/cashiers/{id}
-        });
+
     });
 });
