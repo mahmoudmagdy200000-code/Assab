@@ -266,12 +266,12 @@ class BranchManager extends Authenticatable
             ->count();
     }
 
-    public function getTotalExpenses(): float
-    {
-        return $this->expenses()
-            ->where('status', 'approved')
-            ->sum('amount');
-    }
+    // public function getTotalExpenses(): float
+    // {
+    //     return $this->expenses()
+    //         ->where('status', 'approved')
+    //         ->sum('amount');
+    // }
 
     public function hasPermission(string $permission): bool
     {
