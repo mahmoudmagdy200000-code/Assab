@@ -117,8 +117,9 @@ class CashierController extends Controller
         $this->cashierService->deleteCashier($cashier);
 
         return $this->successResponse(
-            null,
-            'Cashier deleted successfully'
+             'Cashier deleted successfully',
+            null
+
         );
     }
 
