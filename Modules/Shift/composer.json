@@ -20,7 +20,10 @@
             "Modules\\Shift\\": "app/",
             "Modules\\Shift\\Database\\Factories\\": "database/factories/",
             "Modules\\Shift\\Database\\Seeders\\": "database/seeders/"
-        }
+        },"files": [
+    "Modules/Shift/Helpers/ShiftHelper.php"
+]
+
     },
     "autoload-dev": {
         "psr-4": {
