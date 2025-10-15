@@ -20,7 +20,7 @@
             "Modules\\Shift\\Database\\Seeders\\": "database/seeders/"
         },
         "files": [
-            "Modules/Shift/Helpers/ShiftHelper.php"
+            "Helpers/ShiftHelper.php"
         ]
     },
     "autoload-dev": {
