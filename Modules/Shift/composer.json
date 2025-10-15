@@ -10,9 +10,7 @@
     "extra": {
         "laravel": {
             "providers": [],
-            "aliases": {
-
-            }
+            "aliases": {}
         }
     },
     "autoload": {
@@ -20,10 +18,10 @@
             "Modules\\Shift\\": "app/",
             "Modules\\Shift\\Database\\Factories\\": "database/factories/",
             "Modules\\Shift\\Database\\Seeders\\": "database/seeders/"
-        },"files": [
-    "Modules/Shift/Helpers/ShiftHelper.php"
-]
-
+        },
+        "files": [
+            "Modules/Shift/Helpers/ShiftHelper.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {

@@ -37,9 +37,7 @@
     "autoload-dev": {
         "psr-4": {
             "Tests\\": "tests/"
-        },"files": [
-            "Modules/Shift/Helpers/ShiftHelper.php"
-        ]
+        }
     },
     "scripts": {
         "setup": [
