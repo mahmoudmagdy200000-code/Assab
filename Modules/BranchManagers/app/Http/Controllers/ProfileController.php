@@ -10,7 +10,7 @@ use Modules\BranchManagers\Http\Requests\ChangePasswordRequest;
 use Modules\BranchManagers\Http\Requests\UpdateProfileRequest ;
 use Modules\BranchManagers\Transformers\BranchManagerDetailResource;
 use Modules\BranchManagers\Services\ProfileService;
-use Modules\BranchManagers\Traits\ApiResponseTrait;
+use App\ApiResponse as ApiResponseTrait;
 
 class ProfileController extends Controller
 {

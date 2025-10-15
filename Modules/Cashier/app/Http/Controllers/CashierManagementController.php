@@ -8,8 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Cashier\Services\CashierService;
 use Modules\Cashier\Transformers\CashierResource ;
-use Modules\BranchManagers\Traits\ApiResponseTrait;
-
+use App\ApiResponse as ApiResponseTrait;
 class CashierManagementController extends Controller
 {
     use ApiResponseTrait;
@@ -34,8 +33,8 @@ class CashierManagementController extends Controller
         );
 
         return $this->successResponse(
+            'Search results retrieved successfully',
         CashierResource::collection($cashiers),
-            'Search results retrieved successfully'
         );
     }
 
@@ -68,8 +67,8 @@ class CashierManagementController extends Controller
         );
 
         return  $this->successResponse(
+            'Available cashiers retrieved successfully',
         CashierResource::collection($availableCashiers),
-            'Available cashiers retrieved successfully'
         );
     }
 
@@ -123,8 +122,8 @@ class CashierManagementController extends Controller
         $cashier = $this->cashierService->resendActivationLink($request->cashier_id);
 
         return  $this->successResponse(
+            'Activation link resent successfully',
             new CashierResource($cashier),
-            'Activation link resent successfully'
         );
     }
 }

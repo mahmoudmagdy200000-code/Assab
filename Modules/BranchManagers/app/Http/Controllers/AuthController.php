@@ -13,9 +13,9 @@ use Modules\BranchManagers\Http\Requests\{
 };
 use Modules\BranchManagers\Services\AuthService;
 use Illuminate\Support\Facades\Auth;
-use Modules\BranchManagers\Traits\ApiResponseTrait;
 use Modules\BranchManagers\Transformers\BranchManagerResource;
 use Illuminate\Http\JsonResponse;
+use App\ApiResponse as ApiResponseTrait;
 
 class AuthController extends Controller
 {

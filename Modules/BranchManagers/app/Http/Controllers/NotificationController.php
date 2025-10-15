@@ -5,8 +5,7 @@ namespace Modules\BranchManagers\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-
-use Modules\BranchManagers\Traits\ApiResponseTrait;
+use App\ApiResponse as ApiResponseTrait;
 class NotificationController extends Controller
 {
     use ApiResponseTrait;

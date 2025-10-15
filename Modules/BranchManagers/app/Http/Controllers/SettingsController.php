@@ -7,9 +7,11 @@ use Illuminate\Routing\Controller;
 use Modules\BranchManagers\Services\SettingsService;
 use Modules\BranchManagers\Http\Requests\UpdateNotificationSettingsRequest;
 use Modules\BranchManagers\Http\Requests\UpdateSystemSettingsRequest;
+use App\ApiResponse as ApiResponseTrait;
 
 class SettingsController extends Controller
 {
+    use ApiResponseTrait;
     public function __construct(
         private SettingsService $settingsService
     ) {
@@ -26,7 +28,7 @@ class SettingsController extends Controller
 
         $settings = $this->settingsService->getAllSettings($manager);
 
-        return response()->success($settings, 'Settings retrieved successfully');
+        return $this->successResponse($settings, 'Settings retrieved successfully');
     }
 
     /**
@@ -38,7 +40,7 @@ class SettingsController extends Controller
 
         $settings = $this->settingsService->getNotificationSettings($manager);
 
-        return response()->success($settings, 'Notification settings retrieved successfully');
+        return $this->successResponse($settings, 'Notification settings retrieved successfully');
     }
 
     /**
@@ -53,7 +55,7 @@ class SettingsController extends Controller
             data: $request->validated()
         );
 
-        return response()->success($settings, 'Notification settings updated successfully');
+        return $this->successResponse($settings, 'Notification settings updated successfully');
     }
 
     /**
@@ -65,7 +67,7 @@ class SettingsController extends Controller
 
         $settings = $this->settingsService->getSystemSettings($manager);
 
-        return response()->success($settings, 'System settings retrieved successfully');
+        return $this->successResponse($settings, 'System settings retrieved successfully');
     }
 
     /**
@@ -80,7 +82,7 @@ class SettingsController extends Controller
             data: $request->validated()
         );
 
-        return response()->success($settings, 'System settings updated successfully');
+        return $this->successResponse($settings, 'System settings updated successfully');
     }
 
     /**
@@ -92,7 +94,7 @@ class SettingsController extends Controller
 
         $settings = $this->settingsService->getBranchSettings($manager);
 
-        return response()->success($settings, 'Branch settings retrieved successfully');
+        return $this->successResponse($settings, 'Branch settings retrieved successfully');
     }
 
     /**
@@ -112,6 +114,6 @@ class SettingsController extends Controller
             aggregatorIds: $request->aggregator_ids
         );
 
-        return response()->success($result, 'Aggregators updated successfully');
+        return $this->successResponse($result, 'Aggregators updated successfully');
     }
 }

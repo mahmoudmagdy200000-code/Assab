@@ -1,11 +1,11 @@
 <?php
 
-namespace Modules\BranchManagers\Traits;
+namespace App;
 
 use Illuminate\Http\JsonResponse;
 use Throwable;
 
-trait ApiResponseTrait
+trait ApiResponse
 {
     protected function successResponse($message = '', $data = null, $code = 200): JsonResponse
     {
@@ -33,4 +33,3 @@ trait ApiResponseTrait
         );
     }
 }
-

@@ -20,8 +20,7 @@ use Modules\Cashier\Models\Cashier;
 use Modules\Cashier\Transformers\CashierDetailResource;
 use Modules\Cashier\Transformers\CashierResource;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
-use Modules\BranchManagers\Traits\ApiResponseTrait;
-
+use App\ApiResponse as ApiResponseTrait;
 
 
 class CashierController extends Controller
