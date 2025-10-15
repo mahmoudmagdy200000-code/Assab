@@ -4,8 +4,12 @@ namespace Modules\Shift\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Cashier\Models\Cashier;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Shift\Enums\ShiftStatus;
 
 class CashierShift extends Model
 {
@@ -55,116 +59,135 @@ class CashierShift extends Model
     ];
 
     // Relationships
-    public function cashier()
+    public function cashier(): BelongsTo
     {
-        return $this->belongsTo(Cashier::class);
+        return $this->belongsTo(Cashier::class, 'cashier_id');
     }
 
-    public function shift()
+    public function shift(): BelongsTo
     {
         return $this->belongsTo(Shift::class);
     }
 
-    public function nextCashier()
+    public function nextCashier(): BelongsTo
     {
         return $this->belongsTo(Cashier::class, 'next_cashier_id');
     }
 
-    public function originalCashier()
+    public function originalCashier(): BelongsTo
     {
         return $this->belongsTo(Cashier::class, 'original_cashier_id');
     }
 
-    public function reassignedBy()
+    public function reassignedBy(): BelongsTo
     {
         return $this->belongsTo(BranchManager::class, 'reassigned_by');
     }
 
-    public function salesBreakdown()
+    public function salesBreakdown(): HasMany
     {
         return $this->hasMany(ShiftSalesBreakdown::class);
     }
 
-    public function varianceDetails()
-    {
-        return $this->hasMany(ShiftVarianceDetail::class);
-    }
-
-    public function handoverStatus()
+    public function handoverStatus(): HasOne
     {
         return $this->hasOne(ShiftHandoverStatus::class);
     }
 
-    public function history()
+    public function varianceDetails(): HasMany
     {
-        return $this->hasMany(CashierShiftHistory::class);
+        return $this->hasMany(ShiftVarianceDetail::class);
     }
 
-    public function varianceAlerts()
+    public function varianceAlerts(): HasMany
     {
         return $this->hasMany(ShiftVarianceAlert::class);
     }
 
-    // Scopes
-    public function scopeNotStarted($query)
+    public function history(): HasMany
     {
-        return $query->where('status', 'not_started');
+        return $this->hasMany(CashierShiftHistory::class);
+    }
+
+    // Scopes
+    public function scopePending($query)
+    {
+        return $query->where('status', ShiftStatus::NOT_STARTED);
     }
 
     public function scopeInProgress($query)
     {
-        return $query->where('status', 'in_progress');
+        return $query->where('status', ShiftStatus::IN_PROGRESS)
+                    ->whereDate('shift_date', today());
     }
 
     public function scopeCompleted($query)
     {
-        return $query->where('status', 'completed');
+        return $query->where('status', ShiftStatus::COMPLETED)
+                    ->orderBy('shift_date', 'desc');
     }
 
     public function scopeReassigned($query)
     {
-        return $query->where('status', 'reassigned');
+        return $query->where('status', ShiftStatus::REASSIGNED)
+                    ->orderBy('reassigned_at', 'desc');
     }
 
-    public function scopeToday($query)
+    // Methods
+    public function startShift(): void
     {
-        return $query->whereDate('shift_date', today());
+        $this->update([
+            'status' => ShiftStatus::IN_PROGRESS,
+            'actual_start_time' => now(),
+        ]);
+
+        $this->recordHistory('started', null, [
+            'status' => ShiftStatus::IN_PROGRESS->value,
+            'actual_start_time' => now(),
+        ]);
     }
 
-    public function scopeUpcoming($query)
+    public function endShift(array $data): void
     {
-        return $query->where('shift_date', '>=', today());
+        $this->update([
+            'status' => ShiftStatus::COMPLETED,
+            'actual_end_time' => now(),
+            'total_sales' => $data['total_sales'],
+            'net_sales' => $data['net_sales'],
+            'vat_amount' => $data['vat_amount'],
+            'cash_collected' => $data['cash_collected'],
+            'card_payments' => $data['card_payments'],
+            'pos_receipt' => $data['pos_receipt'] ?? null,
+        ]);
+
+        $this->recordHistory('ended', [
+            'status' => $this->status->value,
+        ], [
+            'status' => ShiftStatus::COMPLETED->value,
+            'sales_data' => $data,
+        ]);
     }
 
-    // Helper Methods
-    public function calculateVAT()
+    public function calculateVariance(): float
     {
-        if ($this->total_sales > 0) {
-            $this->vat_amount = $this->total_sales * 0.15;
-            $this->net_sales = $this->total_sales - $this->vat_amount;
-            $this->save();
-        }
+        return $this->total_sales - ($this->cash_collected + $this->card_payments);
     }
 
-    public function calculateVariance()
+    public function hasVariance(): bool
     {
-        $this->variance = $this->closing_balance - $this->expected_balance;
-        $this->save();
-        return $this->variance;
+        return abs($this->calculateVariance()) > 0.01;
     }
 
-    public function hasVariance()
+    private function recordHistory(string $action, ?array $oldValue, array $newValue): void
     {
-        return $this->variance != 0;
-    }
-
-    public function isOverVariance()
-    {
-        return $this->variance > 0;
-    }
-
-    public function isShortVariance()
-    {
-        return $this->variance < 0;
+        $this->history()->create([
+            'action' => $action,
+            'performed_by' => auth()->id(),
+            'performed_by_type' => auth()->user()->getMorphClass(),
+            'old_value' => $oldValue ? json_encode($oldValue) : null,
+            'new_value' => json_encode($newValue),
+            'notes' => null,
+        ]);
     }
 }
+

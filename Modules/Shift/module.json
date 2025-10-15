@@ -1,11 +1,14 @@
 {
     "name": "Shift",
     "alias": "shift",
-    "description": "",
-    "keywords": [],
-    "priority": 0,
+    "description": "Shift management module for Assab Application",
+    "keywords": ["shift", "cashier shift", "handover", "variance"],
+    "priority": 4,
     "providers": [
-        "Modules\\Shift\\Providers\\ShiftServiceProvider"
+        "Modules\\Shift\\Providers\\ShiftServiceProvider",
+        "Modules\\Shift\\Providers\\RouteServiceProvider"
     ],
-    "files": []
+    "aliases": {},
+    "files": [],
+    "requires": ["Branch", "Cashier", "Aggregator"]
 }
