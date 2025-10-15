@@ -46,8 +46,8 @@ class CashierController extends Controller
         );
 
         return $this->successResponse(
-            CashierResource::collection($cashiers),
-            'Cashiers retrieved successfully'
+            'Cashiers retrieved successfully',
+            CashierResource::collection($cashiers)
         );
     }
 
@@ -63,8 +63,8 @@ class CashierController extends Controller
         $cashier = $this->cashierService->createCashier($data);
 
         return $this->successResponse(
+            'Cashier created successfully',
             new CashierDetailResource($cashier),
-            'Cashier created successfully'
         );
     }
 
@@ -78,8 +78,8 @@ class CashierController extends Controller
         $cashierDetails = $this->cashierService->getCashierDetails($cashier->id);
 
         return $this->successResponse(
+            'Cashier details retrieved successfully',
             new CashierDetailResource($cashierDetails),
-            'Cashier details retrieved successfully'
         );
     }
 
@@ -94,8 +94,8 @@ class CashierController extends Controller
         $updatedCashier = $this->cashierService->updateCashier($cashier, $data);
 
         return $this->successResponse(
+            'Cashier updated successfully',
             new CashierDetailResource($updatedCashier),
-            'Cashier updated successfully'
         );
     }
 
@@ -137,8 +137,8 @@ class CashierController extends Controller
         $this->cashierService->activateCashier($cashier);
 
         return  $this->successResponse(
+            'Cashier activated successfully',
             new  CashierResource($cashier->fresh()),
-            'Cashier activated successfully'
         );
     }
 
@@ -164,8 +164,8 @@ class CashierController extends Controller
         $this->cashierService->deactivateCashier($cashier);
 
         return $this->successResponse(
+            'Cashier deactivated successfully',
             new  CashierResource($cashier->fresh()),
-            'Cashier deactivated successfully'
         );
     }
 }
