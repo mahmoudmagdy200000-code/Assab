@@ -14,9 +14,8 @@ interface AggregatorRepositoryInterface
     public function getActive(): Collection;
     public function getByIntegrationType(string $type): Collection;
     public function create(array $data): Aggregator;
-    public function update(Aggregator $aggregator, array $data): bool;
+    public function update(Aggregator $aggregator, array $data): Aggregator;
     public function delete(Aggregator $aggregator): bool;
     public function search(string $query): Collection;
     public function hasIntegration(): Collection;
 }
-

@@ -34,9 +34,10 @@ class AggregatorRepository implements AggregatorRepositoryInterface
         return Aggregator::create($data);
     }
 
-    public function update(Aggregator $aggregator, array $data): bool
+    public function update(Aggregator $aggregator, array $data): Aggregator
     {
-        return $aggregator->update($data);
+        $aggregator->update($data);
+        return $aggregator;
     }
 
     public function delete(Aggregator $aggregator): bool
@@ -51,6 +52,9 @@ class AggregatorRepository implements AggregatorRepositoryInterface
 
     public function hasIntegration(): Collection
     {
-        return Aggregator::hasIntegration()->get();
+        return Aggregator::query()
+            ->whereNotNull('api_key')
+            ->whereNotNull('api_endpoint')
+            ->get();
     }
 }
