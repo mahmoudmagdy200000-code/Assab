@@ -26,7 +26,7 @@ class DashboardController extends Controller
 
         $dashboardData = $this->dashboardService->getDashboardData($manager);
 
-        return $this->successResponse($dashboardData, 'Dashboard data retrieved successfully');
+        return $this->successResponse('Dashboard data retrieved successfully',$dashboardData );
     }
 
     /**
@@ -38,7 +38,7 @@ class DashboardController extends Controller
 
         $summary = $this->dashboardService->getTodaySummary($manager);
 
-        return $this->successResponse($summary, 'Today\'s summary retrieved successfully');
+        return $this->successResponse('Today\'s summary retrieved successfully',$summary );
     }
 
     /**
@@ -50,7 +50,7 @@ class DashboardController extends Controller
 
         $stats = $this->dashboardService->getQuickStats($manager);
 
-        return $this->successResponse($stats, 'Statistics retrieved successfully');
+        return $this->successResponse('Statistics retrieved successfully',$stats );
     }
 
     /**
@@ -62,6 +62,6 @@ class DashboardController extends Controller
 
         $activities = $this->dashboardService->getRecentActivities($manager);
 
-        return $this->successResponse($activities, 'Recent activities retrieved successfully');
+        return $this->successResponse('Recent activities retrieved successfully',$activities );
     }
 }
