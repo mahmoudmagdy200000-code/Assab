@@ -11,6 +11,7 @@ use Modules\Branch\Database\Seeders\BranchSeeder;
 use Modules\BranchManagers\Database\Seeders\BranchManagerSeeder;
 use Modules\Cashier\Database\Seeders\CashierSeeder;
 use Modules\Cashier\Database\Seeders\CashierShiftSeeder;
+use Modules\Shift\Database\Seeders\ShiftSeeder;
 
 class DatabaseSeeder extends Seeder
 {
@@ -21,17 +22,22 @@ class DatabaseSeeder extends Seeder
     {
 
         $this->call([
-           BranchManagerSeeder::class,
+            // 1) Core references
             BranchSeeder::class,
-            AggregatorSeeder::class,
-            BranchAggregatorSeeder::class,
-            CashierSeeder::class,
+
+            // 2) Users tied to branches
             BranchManagerSeeder::class,
+
+            // 3) Operational structures tied to branches
+            ShiftSeeder::class,
+
+            // 4) Cashiers and their shifts (require branches/managers/shifts)
+            CashierSeeder::class,
             CashierShiftSeeder::class,
 
+            // 5) Aggregators and branch linkage (require branches)
+            AggregatorSeeder::class,
+            BranchAggregatorSeeder::class,
         ]);
-
-
-
     }
 }
