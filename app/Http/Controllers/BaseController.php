@@ -146,19 +146,30 @@ abstract class BaseController extends Controller
         $data,
         string $message = 'Data retrieved successfully'
     ): JsonResponse {
+        // Support passing a ResourceCollection or a Paginator directly
+        $paginator = method_exists($data, 'currentPage') ? $data : ($data->resource ?? null);
+
+        if (!$paginator || !method_exists($paginator, 'currentPage')) {
+            // Fallback to regular success response if not paginatable
+            return $this->successResponse($data, $message);
+        }
+
         $meta = [
             'pagination' => [
-                'current_page' => $data->currentPage(),
-                'per_page' => $data->perPage(),
-                'total' => $data->total(),
-                'last_page' => $data->lastPage(),
-                'from' => $data->firstItem(),
-                'to' => $data->lastItem(),
-                'has_more_pages' => $data->hasMorePages(),
+                'current_page' => $paginator->currentPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'last_page' => $paginator->lastPage(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+                'has_more_pages' => $paginator->hasMorePages(),
             ]
         ];
 
-        return $this->successResponse($data->items(), $message, 200, $meta);
+        // When a ResourceCollection is passed, it already contains transformed items
+        $items = method_exists($data, 'collection') ? $data->collection : $paginator->items();
+
+        return $this->successResponse($items, $message, 200, $meta);
     }
 
     /**
