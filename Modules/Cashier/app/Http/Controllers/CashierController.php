@@ -13,7 +13,6 @@ use Modules\Cashier\Models\Cashier;
 use Modules\Cashier\Transformers\CashierDetailResource;
 use Modules\Cashier\Transformers\CashierResource;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
-use Modules\Cashier\Transformers\CashierCollection;
 
 class CashierController extends BaseController
 {
@@ -37,7 +36,7 @@ class CashierController extends BaseController
         );
 
         return $this->paginatedResponse(
-            new CashierCollection($cashiers),
+            CashierResource::collection($cashiers),
             'Cashiers retrieved successfully'
         );
     }
