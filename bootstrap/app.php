@@ -16,43 +16,43 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withSchedule(function (Schedule $schedule) {
         // Send shift reminders 15 minutes before shift starts
         $schedule->command('shifts:send-reminders')
-                 ->everyFifteenMinutes()
-                 ->between('8:00', '23:59');
+            ->everyFifteenMinutes()
+            ->between('8:00', '23:59');
 
         // Auto-end shifts that are overdue
         $schedule->command('shifts:auto-end-overdue')
-                 ->hourly()
-                 ->withoutOverlapping();
+            ->hourly()
+            ->withoutOverlapping();
 
         // Generate daily shift reports
         $schedule->command('shifts:generate-daily-report')
-                 ->dailyAt('23:55')
-                 ->timezone('Asia/Riyadh');
+            ->dailyAt('23:55')
+            ->timezone('Asia/Riyadh');
 
         // Clean up old OTP records
         $schedule->command('otp:cleanup')
-                 ->daily()
-                 ->at('02:00');
+            ->daily()
+            ->at('02:00');
 
         // Backup database
         $schedule->command('backup:run')
-                 ->daily()
-                 ->at('03:00')
-                 ->onFailure(function () {
-                     Log::error('Database backup failed');
-                 });
+            ->daily()
+            ->at('03:00')
+            ->onFailure(function () {
+                Log::error('Database backup failed');
+            });
 
         // Clear expired notifications
         $schedule->command('notifications:cleanup')
-                 ->weekly()
-                 ->mondays()
-                 ->at('04:00');
+            ->weekly()
+            ->mondays()
+            ->at('04:00');
 
         // Generate weekly variance report
         $schedule->command('variance:weekly-report')
-                 ->weekly()
-                 ->sundays()
-                 ->at('23:00');
+            ->weekly()
+            ->sundays()
+            ->at('23:00');
     })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
@@ -67,6 +67,12 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        // Exception handling configuration
+        $exceptions->render(function (\Throwable $e) {
+            // Global exception handling
+        });
     })
+    ->withProviders([
+        \App\Providers\ApiResponseServiceProvider::class,
+    ])
     ->create();

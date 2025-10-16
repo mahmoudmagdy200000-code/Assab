@@ -1,3 +1,4 @@
+// Modules/Aggregator/Database/Migrations/2024_01_01_000002_create_branch_aggregators_table.php
 <?php
 
 use Illuminate\Database\Migrations\Migration;
@@ -6,27 +7,27 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('branch_aggregators', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('branch_id')->constrained('branches')->cascadeOnDelete();
-            $table->foreignId('aggregator_id')->constrained('aggregators')->cascadeOnDelete();
+            $table->foreignId('branch_id')->constrained('branches')->onDelete('cascade');
+            $table->foreignId('aggregator_id')->constrained('aggregators')->onDelete('cascade');
             $table->boolean('is_enabled')->default(true);
             $table->timestamps();
 
+            // Unique constraint to prevent duplicates
             $table->unique(['branch_id', 'aggregator_id']);
+
+            // Indexes
+            $table->index(['branch_id', 'is_enabled']);
+            $table->index(['aggregator_id', 'is_enabled']);
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('branch_aggregators');
     }
 };
+

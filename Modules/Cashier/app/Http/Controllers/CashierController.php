@@ -2,30 +2,21 @@
 
 namespace Modules\Cashier\Http\Controllers;
 
-// Modules/Cashier/Http/Controllers/CashierController.php
-
-
+use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Controller;
 use Modules\Cashier\Services\CashierService;
-
 use Modules\Cashier\Http\Requests\UpdateCashierRequest;
 use Modules\Cashier\Http\Requests\FilterCashierRequest;
 use Modules\Cashier\Http\Requests\StoreCashierRequest;
 use Modules\Cashier\Models\Cashier;
-
-
-
 use Modules\Cashier\Transformers\CashierDetailResource;
 use Modules\Cashier\Transformers\CashierResource;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
-use App\ApiResponse as ApiResponseTrait;
 
-
-class CashierController extends Controller
+class CashierController extends BaseController
 {
-    use ApiResponseTrait , AuthorizesRequests;
+    use AuthorizesRequests;
     public function __construct(
         private CashierService $cashierService
     ) {
@@ -44,9 +35,9 @@ class CashierController extends Controller
             filters: $filters
         );
 
-        return $this->successResponse(
-            'Cashiers retrieved successfully',
-            CashierResource::collection($cashiers)
+        return $this->paginatedResponse(
+            $cashiers,
+            'Cashiers retrieved successfully'
         );
     }
 
@@ -61,9 +52,9 @@ class CashierController extends Controller
 
         $cashier = $this->cashierService->createCashier($data);
 
-        return $this->successResponse(
-            'Cashier created successfully',
+        return $this->createdResponse(
             new CashierDetailResource($cashier),
+            'Cashier created successfully'
         );
     }
 
@@ -76,9 +67,9 @@ class CashierController extends Controller
 
         $cashierDetails = $this->cashierService->getCashierDetails($cashier->id);
 
-        return $this->successResponse(
-            'Cashier details retrieved successfully',
+        return $this->resourceResponse(
             new CashierDetailResource($cashierDetails),
+            'Cashier details retrieved successfully'
         );
     }
 
@@ -92,9 +83,9 @@ class CashierController extends Controller
         $data = $request->validated();
         $updatedCashier = $this->cashierService->updateCashier($cashier, $data);
 
-        return $this->successResponse(
-            'Cashier updated successfully',
+        return $this->updatedResponse(
             new CashierDetailResource($updatedCashier),
+            'Cashier updated successfully'
         );
     }
 
@@ -115,11 +106,7 @@ class CashierController extends Controller
 
         $this->cashierService->deleteCashier($cashier);
 
-        return $this->successResponse(
-             'Cashier deleted successfully',
-            null
-
-        );
+        return $this->deletedResponse('Cashier deleted successfully');
     }
 
     /**
@@ -135,9 +122,9 @@ class CashierController extends Controller
 
         $this->cashierService->activateCashier($cashier);
 
-        return  $this->successResponse(
-            'Cashier activated successfully',
-            new  CashierResource($cashier->fresh()),
+        return $this->updatedResponse(
+            new CashierResource($cashier->fresh()),
+            'Cashier activated successfully'
         );
     }
 
@@ -162,9 +149,9 @@ class CashierController extends Controller
 
         $this->cashierService->deactivateCashier($cashier);
 
-        return $this->successResponse(
-            'Cashier deactivated successfully',
-            new  CashierResource($cashier->fresh()),
+        return $this->updatedResponse(
+            new CashierResource($cashier->fresh()),
+            'Cashier deactivated successfully'
         );
     }
 }

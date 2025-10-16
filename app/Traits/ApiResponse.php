@@ -1,0 +1,325 @@
+<?php
+
+namespace App\Traits;
+
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
+
+trait ApiResponse
+{
+    /**
+     * Success response format
+     */
+    protected function successResponse(
+        $data = null,
+        string $message = 'Success',
+        int $status = 200,
+        array $meta = []
+    ): JsonResponse {
+        $response = [
+            'success' => true,
+            'message' => $message,
+            'data' => $data,
+        ];
+
+        if (!empty($meta)) {
+            $response['meta'] = $meta;
+        }
+
+        return response()->json($response, $status);
+    }
+
+    /**
+     * Error response format
+     */
+    protected function errorResponse(
+        string $message = 'Error',
+        int $status = 400,
+        $errors = null,
+        array $meta = []
+    ): JsonResponse {
+        $response = [
+            'success' => false,
+            'message' => $message,
+        ];
+
+        if ($errors !== null) {
+            $response['errors'] = $errors;
+        }
+
+        if (!empty($meta)) {
+            $response['meta'] = $meta;
+        }
+
+        return response()->json($response, $status);
+    }
+
+    /**
+     * Validation error response
+     */
+    protected function validationErrorResponse(
+        $errors,
+        string $message = 'Validation failed'
+    ): JsonResponse {
+        return $this->errorResponse($message, 422, $errors);
+    }
+
+    /**
+     * Not found response
+     */
+    protected function notFoundResponse(
+        string $message = 'Resource not found'
+    ): JsonResponse {
+        return $this->errorResponse($message, 404);
+    }
+
+    /**
+     * Unauthorized response
+     */
+    protected function unauthorizedResponse(
+        string $message = 'Unauthorized access'
+    ): JsonResponse {
+        return $this->errorResponse($message, 401);
+    }
+
+    /**
+     * Forbidden response
+     */
+    protected function forbiddenResponse(
+        string $message = 'Access forbidden'
+    ): JsonResponse {
+        return $this->errorResponse($message, 403);
+    }
+
+    /**
+     * Server error response
+     */
+    protected function serverErrorResponse(
+        string $message = 'Internal server error',
+        \Throwable $exception = null
+    ): JsonResponse {
+        if ($exception) {
+            Log::error('Server Error: ' . $exception->getMessage(), [
+                'exception' => $exception,
+                'trace' => $exception->getTraceAsString()
+            ]);
+        }
+
+        return $this->errorResponse($message, 500);
+    }
+
+    /**
+     * Created response
+     */
+    protected function createdResponse(
+        $data = null,
+        string $message = 'Resource created successfully'
+    ): JsonResponse {
+        return $this->successResponse($data, $message, 201);
+    }
+
+    /**
+     * Updated response
+     */
+    protected function updatedResponse(
+        $data = null,
+        string $message = 'Resource updated successfully'
+    ): JsonResponse {
+        return $this->successResponse($data, $message, 200);
+    }
+
+    /**
+     * Deleted response
+     */
+    protected function deletedResponse(
+        string $message = 'Resource deleted successfully'
+    ): JsonResponse {
+        return $this->successResponse(null, $message, 200);
+    }
+
+    /**
+     * Paginated response
+     */
+    protected function paginatedResponse(
+        $data,
+        string $message = 'Data retrieved successfully'
+    ): JsonResponse {
+        $meta = [
+            'pagination' => [
+                'current_page' => $data->currentPage(),
+                'per_page' => $data->perPage(),
+                'total' => $data->total(),
+                'last_page' => $data->lastPage(),
+                'from' => $data->firstItem(),
+                'to' => $data->lastItem(),
+                'has_more_pages' => $data->hasMorePages(),
+            ]
+        ];
+
+        return $this->successResponse($data->items(), $message, 200, $meta);
+    }
+
+    /**
+     * Collection response
+     */
+    protected function collectionResponse(
+        $data,
+        string $message = 'Data retrieved successfully',
+        array $meta = []
+    ): JsonResponse {
+        return $this->successResponse($data, $message, 200, $meta);
+    }
+
+    /**
+     * Single resource response
+     */
+    protected function resourceResponse(
+        $data,
+        string $message = 'Resource retrieved successfully'
+    ): JsonResponse {
+        return $this->successResponse($data, $message, 200);
+    }
+
+    /**
+     * No content response
+     */
+    protected function noContentResponse(
+        string $message = 'No content'
+    ): JsonResponse {
+        return $this->successResponse(null, $message, 204);
+    }
+
+    /**
+     * Conflict response
+     */
+    protected function conflictResponse(
+        string $message = 'Conflict occurred'
+    ): JsonResponse {
+        return $this->errorResponse($message, 409);
+    }
+
+    /**
+     * Too many requests response
+     */
+    protected function tooManyRequestsResponse(
+        string $message = 'Too many requests'
+    ): JsonResponse {
+        return $this->errorResponse($message, 429);
+    }
+
+    /**
+     * Service unavailable response
+     */
+    protected function serviceUnavailableResponse(
+        string $message = 'Service temporarily unavailable'
+    ): JsonResponse {
+        return $this->errorResponse($message, 503);
+    }
+
+    /**
+     * Handle exceptions in controllers
+     */
+    protected function handleException(\Throwable $exception, string $context = ''): JsonResponse
+    {
+        $message = $context ? "Error in {$context}" : 'An error occurred';
+
+        return match (true) {
+            $exception instanceof \Illuminate\Validation\ValidationException => $this->validationErrorResponse($exception->errors()),
+            $exception instanceof \Illuminate\Database\Eloquent\ModelNotFoundException => $this->notFoundResponse('Resource not found'),
+            $exception instanceof \Illuminate\Auth\Access\AuthorizationException => $this->forbiddenResponse('Access denied'),
+            $exception instanceof \Illuminate\Auth\AuthenticationException => $this->unauthorizedResponse('Authentication required'),
+            $exception instanceof \Illuminate\Database\QueryException => $this->handleDatabaseException($exception),
+            default => $this->serverErrorResponse($message, $exception),
+        };
+    }
+
+    /**
+     * Handle database exceptions
+     */
+    private function handleDatabaseException(\Illuminate\Database\QueryException $exception): JsonResponse
+    {
+        Log::error('Database Error: ' . $exception->getMessage(), [
+            'sql' => $exception->getSql(),
+            'bindings' => $exception->getBindings(),
+        ]);
+
+        return $this->serverErrorResponse('Database error occurred');
+    }
+
+    /**
+     * Format API response with consistent structure
+     */
+    protected function formatApiResponse(
+        bool $success,
+        $data = null,
+        string $message = '',
+        int $status = 200,
+        array $meta = []
+    ): JsonResponse {
+        $response = [
+            'success' => $success,
+            'message' => $message,
+        ];
+
+        if ($data !== null) {
+            $response['data'] = $data;
+        }
+
+        if (!empty($meta)) {
+            $response['meta'] = $meta;
+        }
+
+        return response()->json($response, $status);
+    }
+
+    /**
+     * Response with custom meta data
+     */
+    protected function responseWithMeta(
+        $data,
+        string $message = 'Success',
+        array $meta = [],
+        int $status = 200
+    ): JsonResponse {
+        return $this->successResponse($data, $message, $status, $meta);
+    }
+
+    /**
+     * Response with execution time
+     */
+    protected function responseWithExecutionTime(
+        $data,
+        string $message = 'Success',
+        float $startTime = null,
+        int $status = 200
+    ): JsonResponse {
+        $meta = [];
+
+        if ($startTime) {
+            $meta['execution_time'] = round((microtime(true) - $startTime) * 1000, 2) . 'ms';
+        }
+
+        return $this->successResponse($data, $message, $status, $meta);
+    }
+
+    /**
+     * Response with cache information
+     */
+    protected function responseWithCache(
+        $data,
+        string $message = 'Success',
+        bool $cached = false,
+        int $cacheTtl = null,
+        int $status = 200
+    ): JsonResponse {
+        $meta = [
+            'cached' => $cached,
+        ];
+
+        if ($cacheTtl) {
+            $meta['cache_ttl'] = $cacheTtl;
+        }
+
+        return $this->successResponse($data, $message, $status, $meta);
+    }
+}
