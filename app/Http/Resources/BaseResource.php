@@ -28,13 +28,13 @@ abstract class BaseResource extends JsonResource
     protected function formatStatus(): array
     {
         $status = $this->status ?? $this->is_active ?? null;
-        $label = $this->status_label ?? $this->getStatusLabel($status);
-        $color = $this->status_color ?? $this->getStatusColor($status);
+        // $label = $this->status_label ?? $this->getStatusLabel($status);
+        // $color = $this->status_color ?? $this->getStatusColor($status);
 
         return [
             'value' => $status,
-            'label' => $label,
-            'color' => $color,
+            // 'label' => $label,
+            // 'color' => $color,
         ];
     }
 
@@ -215,8 +215,8 @@ abstract class BaseResource extends JsonResource
     {
         return [
             'value' => (bool) $value,
-            // 'label' => $value ? 'Yes' : 'No',
-            // 'color' => $value ? 'green' : 'red',
+            'label' => $value ? 'Yes' : 'No',
+            'color' => $value ? 'green' : 'red',
         ];
     }
 
