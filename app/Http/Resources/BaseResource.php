@@ -215,8 +215,8 @@ abstract class BaseResource extends JsonResource
     {
         return [
             'value' => (bool) $value,
-            'label' => $value ? 'Yes' : 'No',
-            'color' => $value ? 'green' : 'red',
+            // 'label' => $value ? 'Yes' : 'No',
+            // 'color' => $value ? 'green' : 'red',
         ];
     }
 
