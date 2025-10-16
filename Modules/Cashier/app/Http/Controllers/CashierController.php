@@ -36,7 +36,7 @@ class CashierController extends BaseController
         );
 
         return $this->paginatedResponse(
-            $cashiers,
+            CashierResource::collection($cashiers),
             'Cashiers retrieved successfully'
         );
     }

@@ -12,7 +12,6 @@ use Modules\BranchManagers\Http\Requests\{
     ResetPasswordRequest
 };
 use Modules\BranchManagers\Services\AuthService;
-use Illuminate\Support\Facades\Auth;
 use Modules\BranchManagers\Transformers\BranchManagerResource;
 use Illuminate\Http\JsonResponse;
 use App\ApiResponse as ApiResponseTrait;
