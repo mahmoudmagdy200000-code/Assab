@@ -23,6 +23,8 @@ class FilterCashierRequest extends FormRequest
             'per_page' => 'sometimes|integer|min:5|max:100',
             'sort_by' => 'sometimes|in:name,email,created_at,activated_at',
             'sort_order' => 'sometimes|in:asc,desc',
+
+            ...$this->getPaginationRules(),
         ];
     }
 }

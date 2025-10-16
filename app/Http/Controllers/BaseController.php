@@ -154,22 +154,49 @@ abstract class BaseController extends Controller
             return $this->successResponse($data, $message);
         }
 
+        $currentPage = $paginator->currentPage();
+        $lastPage = $paginator->lastPage();
+
+        // Build Laravel-style page links array
+        $pageLinks = [];
+        for ($i = 1; $i <= $lastPage; $i++) {
+            $pageLinks[] = [
+                'url' => $paginator->url($i),
+                'label' => (string) $i,
+                'active' => $i === $currentPage,
+            ];
+        }
+
+        $links = [
+            'first' => $paginator->url(1),
+            'last' => $paginator->url($lastPage),
+            'prev' => $paginator->previousPageUrl(),
+            'next' => $paginator->nextPageUrl(),
+        ];
+
         $meta = [
-            'pagination' => [
-                'current_page' => $paginator->currentPage(),
-                'per_page' => $paginator->perPage(),
-                'total' => $paginator->total(),
-                'last_page' => $paginator->lastPage(),
-                'from' => $paginator->firstItem(),
-                'to' => $paginator->lastItem(),
-                'has_more_pages' => $paginator->hasMorePages(),
-            ]
+            'current_page' => $currentPage,
+            'from' => $paginator->firstItem(),
+            'last_page' => $lastPage,
+            'links' => $pageLinks,
+            'path' => $paginator->path(),
+            'per_page' => $paginator->perPage(),
+            'to' => $paginator->lastItem(),
+            'total' => $paginator->total(),
         ];
 
         // When a ResourceCollection is passed, it already contains transformed items
         $items = method_exists($data, 'collection') ? $data->collection : $paginator->items();
 
-        return $this->successResponse($items, $message, 200, $meta);
+        $response = [
+            'success' => true,
+            'message' => $message,
+            'data' => $items,
+            'links' => $links,
+            'meta' => $meta,
+        ];
+
+        return response()->json($response, 200);
     }
 
     /**
