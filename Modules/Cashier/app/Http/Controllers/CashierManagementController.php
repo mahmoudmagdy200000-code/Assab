@@ -32,9 +32,9 @@ class CashierManagementController extends Controller
             branchId: auth()->user()->branch_id
         );
 
-        return $this->successResponse(
+        return $this->paginatedResponse(
+            CashierResource::collection($cashiers),
             'Search results retrieved successfully',
-        CashierResource::collection($cashiers),
         );
     }
 
@@ -47,7 +47,10 @@ class CashierManagementController extends Controller
 
         $stats = $this->cashierService->getCashierStatistics($branchId);
 
-        return  $this->successResponse($stats, 'Statistics retrieved successfully');
+        return  $this->paginatedResponse(
+            CashierResource::collection($stats),
+            'Statistics retrieved successfully',
+        );
     }
 
     /**
@@ -66,7 +69,7 @@ class CashierManagementController extends Controller
             branchId: auth()->user()->branch_id
         );
 
-        return  $this->successResponse(
+        return  $this->paginatedResponse(
             'Available cashiers retrieved successfully',
         CashierResource::collection($availableCashiers),
         );
