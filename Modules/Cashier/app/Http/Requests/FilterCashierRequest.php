@@ -24,7 +24,7 @@ class FilterCashierRequest extends FormRequest
             'sort_by' => 'sometimes|in:name,email,created_at,activated_at',
             'sort_order' => 'sometimes|in:asc,desc',
 
-            ...$this->getPaginationRules(),
+
         ];
     }
 }
