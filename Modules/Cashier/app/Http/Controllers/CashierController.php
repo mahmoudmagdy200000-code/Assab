@@ -67,7 +67,7 @@ class CashierController extends BaseController
 
         $cashierDetails = $this->cashierService->getCashierDetails($cashier->id);
 
-        return $this->resourceResponse(
+        return $this->successResponse(
             new CashierDetailResource($cashierDetails),
             'Cashier details retrieved successfully'
         );
