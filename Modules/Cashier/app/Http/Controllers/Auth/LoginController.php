@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Modules\Cashier\Entities\Cashier;
+use Modules\Cashier\Models\Cashier;
 use Modules\Cashier\Http\Requests\Auth\LoginRequest;
 
 class LoginController extends Controller
