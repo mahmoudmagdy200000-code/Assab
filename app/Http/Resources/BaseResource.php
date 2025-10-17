@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Http\Resources\MissingValue;
 use Carbon\Carbon;
 
 abstract class BaseResource extends JsonResource
@@ -232,12 +233,11 @@ abstract class BaseResource extends JsonResource
         return collect($items)->pluck($key)->toArray();
     }
 
-    /**
-     * Format nested resource
-     */
+
+
     protected function formatNestedResource($resource, string $resourceClass = null): ?array
     {
-        if (!$resource) {
+        if (!$resource || $resource instanceof MissingValue) {
             return null;
         }
 
@@ -246,10 +246,11 @@ abstract class BaseResource extends JsonResource
         }
 
         return [
-            'id' => $resource->id,
+            'id' => $resource->id ?? null,
             'name' => $resource->name ?? $resource->title ?? 'Unknown',
         ];
     }
+
 
     /**
      * Format collection of nested resources
