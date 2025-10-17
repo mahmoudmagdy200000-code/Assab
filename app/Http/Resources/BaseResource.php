@@ -4,10 +4,12 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Resources\MissingValue;
+use App\ApiResponse;
 use Carbon\Carbon;
 
 abstract class BaseResource extends JsonResource
 {
+    use ApiResponse;
     private const DATETIME_FORMAT = 'Y-m-d H:i:s';
 
     /**

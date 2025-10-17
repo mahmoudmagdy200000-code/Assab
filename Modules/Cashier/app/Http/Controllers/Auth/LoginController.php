@@ -26,12 +26,12 @@ class LoginController extends BaseController
         $cashier = Cashier::where('email', $credentials['email'])->first();
 
         if (!$cashier || !Hash::check($credentials['password'], $cashier->password)) {
-            return $this->error('Invalid credentials', 401);
+            return $this->errorResponse('Invalid credentials', 401);
         }
 
         // Check if account is active
         if (!$cashier->isActive()) {
-            return $this->error(
+            return $this->errorResponse(
                 'Your account is not active. Please contact your manager.',
                 403
             );
