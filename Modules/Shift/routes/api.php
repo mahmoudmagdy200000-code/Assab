@@ -17,8 +17,8 @@ use Modules\Shift\Http\Controllers\{
 |--------------------------------------------------------------------------
 */
 
-Route::prefix('api/branch-manager')
-    ->middleware(['auth:sanctum', 'role:branch_manager'])
+Route::prefix('branch-manager')
+    ->middleware(['auth:sanctum', 'branch.manager'])
     ->group(function () {
 
     /*
@@ -160,7 +160,7 @@ Route::prefix('api/branch-manager')
 |--------------------------------------------------------------------------
 */
 
-Route::prefix('api/cashier')
+Route::prefix('cashier')
     ->middleware(['auth:sanctum', 'role:cashier'])
     ->group(function () {
 

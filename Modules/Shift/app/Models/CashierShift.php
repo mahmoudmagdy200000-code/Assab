@@ -11,6 +11,7 @@ use Modules\Cashier\Models\Cashier;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Shift\Enums\ShiftStatus;
 
+
 class CashierShift extends Model
 {
     use HasFactory;
@@ -64,10 +65,11 @@ class CashierShift extends Model
         return $this->belongsTo(Cashier::class, 'cashier_id');
     }
 
-    public function shift(): BelongsTo
+    public function shift()
     {
-        return $this->belongsTo(Shift::class);
+        return $this->belongsTo(Shift::class, 'shift_id');
     }
+
 
     public function nextCashier(): BelongsTo
     {
@@ -112,7 +114,7 @@ class CashierShift extends Model
     // Scopes
     public function scopePending($query)
     {
-        return $query->where('status', ShiftStatus::NOT_STARTED);
+        return $query->where('status', ShiftStatus::NOT_STARTED->value);
     }
 
     public function scopeInProgress($query)

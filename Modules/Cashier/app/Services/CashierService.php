@@ -209,8 +209,23 @@ class CashierService
                 $query->whereDate('shift_date', $shiftDate)
                     ->whereIn('status', ['not_started', 'in_progress']);
             })
-            ->get(['id', 'name', 'email', 'image']);
+            ->with(['branch:id,name', 'creator:id,name'])
+            ->withCount('shifts')
+            ->get([
+                'id',
+                'name',
+                'email',
+                'phone',
+                'image',
+                'branch_id',
+                'status',
+                'created_by',
+                'activated_at',
+                'created_at',
+                'updated_at'
+            ]);
     }
+
 
     /**
      * Assign shifts to cashier

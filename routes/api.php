@@ -11,7 +11,7 @@ Route::group(
             'localizationRedirect',
             'localeSessionRedirect',
             'localeCookieRedirect',
-            'apilocale', 
+            'apilocale',
         ],
     ],
     function () {

@@ -27,6 +27,7 @@ class AggregatorServiceProvider extends ServiceProvider
         $this->registerConfig();
         $this->registerViews();
         $this->loadMigrationsFrom(module_path($this->name, 'database/migrations'));
+
     }
 
     /**
@@ -36,6 +37,10 @@ class AggregatorServiceProvider extends ServiceProvider
     {
         $this->app->register(EventServiceProvider::class);
         $this->app->register(RouteServiceProvider::class);
+        $this->app->bind(
+            \Modules\Aggregator\Repositories\AggregatorRepositoryInterface::class,
+            \Modules\Aggregator\Repositories\AggregatorRepository::class
+        );
     }
 
     /**

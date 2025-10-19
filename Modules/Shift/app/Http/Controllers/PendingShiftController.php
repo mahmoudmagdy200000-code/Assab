@@ -6,7 +6,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Shift\Services\ShiftService;
-use Modules\Shift\Transformers\{ShiftResource, ShiftDetailResource};
+use Modules\Shift\Transformers\{CashierShiftResource, ShiftResource, ShiftDetailResource};
 use Modules\Shift\Models\CashierShift;
 
 class PendingShiftController extends Controller
@@ -31,7 +31,7 @@ class PendingShiftController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Pending shifts retrieved successfully',
-                'data' => ShiftResource::collection($shifts),
+                'data' => CashierShiftResource::collection($shifts),
                 'meta' => [
                     'total' => $shifts->count(),
                     'date_range' => [

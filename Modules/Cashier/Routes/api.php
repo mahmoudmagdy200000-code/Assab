@@ -35,6 +35,14 @@ Route::prefix('cashier/auth')->group(function () {
 Route::prefix('branch-manager/cashiers')
     ->middleware(['auth:sanctum', 'branch.manager'])
     ->group(function () {
+        // Shift Management
+        Route::get('/available-for-shift', [CashierManagementController::class, 'availableForShift']);
+        Route::post('/assign-shifts', [CashierManagementController::class, 'assignShifts']);
+        Route::put('/update-shifts', [CashierManagementController::class, 'updateShifts']);
+
+        // Resend Activation
+        Route::post('/resend-activation', [CashierManagementController::class, 'resendActivation']);
+
         // CRUD Operations
         Route::get('/', [CashierController::class, 'index']);
         Route::post('/', [CashierController::class, 'store']);
@@ -49,15 +57,8 @@ Route::prefix('branch-manager/cashiers')
         // Search & Filter
         Route::get('/search', [CashierManagementController::class, 'search']);
         Route::get('/statistics', [CashierManagementController::class, 'statistics']);
-
-        // Shift Management
-        Route::get('/available-for-shift', [CashierManagementController::class, 'availableForShift']);
-        Route::post('/assign-shifts', [CashierManagementController::class, 'assignShifts']);
-        Route::put('/update-shifts', [CashierManagementController::class, 'updateShifts']);
-
-        // Resend Activation
-        Route::post('/resend-activation', [CashierManagementController::class, 'resendActivation']);
     });
+
 
 /*
 |--------------------------------------------------------------------------

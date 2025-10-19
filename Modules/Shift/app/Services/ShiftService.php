@@ -6,6 +6,7 @@ use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Repositories\CashierShiftRepositoryInterface;
 use Illuminate\Support\Collection;
+use Modules\Shift\Models\Shift;
 
 class ShiftService
 {
@@ -17,9 +18,13 @@ class ShiftService
     {
         $query = CashierShift::pending()
             ->with(['cashier', 'shift', 'nextCashier'])
-            ->whereBetween('shift_date', [now(), now()->addMonth()])
+            ->whereDate('shift_date', '>=', now()->toDateString())
+            ->whereDate('shift_date', '<=', now()->addMonth()->toDateString())
             ->orderBy('shift_date')
-            ->orderBy('start_time');
+            ->orderBy(
+                Shift::select('start_time')
+                    ->whereColumn('shifts.id', 'cashier_shifts.shift_id')
+            );
 
         if ($cashierId) {
             $query->where('cashier_id', $cashierId);
@@ -27,6 +32,7 @@ class ShiftService
 
         return $query->get();
     }
+
 
     public function getInProgressShifts(int $cashierId = null): Collection
     {
@@ -75,9 +81,9 @@ class ShiftService
             ]);
 
         if ($cashierId) {
-            $query->where(function($q) use ($cashierId) {
+            $query->where(function ($q) use ($cashierId) {
                 $q->where('cashier_id', $cashierId)
-                  ->orWhere('original_cashier_id', $cashierId);
+                    ->orWhere('original_cashier_id', $cashierId);
             });
         }
 
