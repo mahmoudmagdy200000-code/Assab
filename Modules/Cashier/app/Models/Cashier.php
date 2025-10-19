@@ -16,6 +16,7 @@ use Laravel\Sanctum\HasApiTokens;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Database\Factories\CashierFactory;
+use Modules\Cashier\Notifications\CashierActivationNotification;
 use Modules\Shift\Models\CashierShift;
 
 class Cashier extends Authenticatable
@@ -112,8 +113,8 @@ class Cashier extends Authenticatable
     {
         return $query->where(function ($q) use ($search) {
             $q->where('name', 'like', "%{$search}%")
-              ->orWhere('email', 'like', "%{$search}%")
-              ->orWhere('phone', 'like', "%{$search}%");
+                ->orWhere('email', 'like', "%{$search}%")
+                ->orWhere('phone', 'like', "%{$search}%");
         });
     }
 
@@ -125,7 +126,7 @@ class Cashier extends Authenticatable
     // Accessors
     public function getStatusLabelAttribute(): string
     {
-        return match($this->status) {
+        return match ($this->status) {
             'active' => 'Active',
             'pending' => 'Pending Activation',
             'deactivated' => 'Deactivated',
@@ -135,7 +136,7 @@ class Cashier extends Authenticatable
 
     public function getStatusColorAttribute(): string
     {
-        return match($this->status) {
+        return match ($this->status) {
             'active' => 'green',
             'pending' => 'yellow',
             'deactivated' => 'red',
@@ -208,16 +209,16 @@ class Cashier extends Authenticatable
     // }
 
     public function getNextShift()
-{
-    return $this->shifts()
-        ->where('status', 'not_started')
-        ->where('shift_date', '>=', today())
-        ->join('shifts', 'cashier_shifts.shift_id', '=', 'shifts.id')
-        ->orderBy('cashier_shifts.shift_date', 'asc')
-        ->orderBy('shifts.start_time', 'asc')
-        ->select('cashier_shifts.*') 
-        ->first();
-}
+    {
+        return $this->shifts()
+            ->where('status', 'not_started')
+            ->where('shift_date', '>=', today())
+            ->join('shifts', 'cashier_shifts.shift_id', '=', 'shifts.id')
+            ->orderBy('cashier_shifts.shift_date', 'asc')
+            ->orderBy('shifts.start_time', 'asc')
+            ->select('cashier_shifts.*')
+            ->first();
+    }
 
 
     public function getTotalShiftsCount(): int
