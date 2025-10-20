@@ -5,6 +5,7 @@ namespace Modules\Shift\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Models\CashierShift;
@@ -150,7 +151,7 @@ class ShiftHandoverController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            \Log::error('Handover approval failed', [
+            Log::error('Handover approval failed', [
                 'shift_id' => $shift,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
