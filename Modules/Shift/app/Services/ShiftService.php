@@ -34,6 +34,34 @@ class ShiftService
     }
 
 
+    /**
+     * Retrieve in-progress shifts and the next shift
+     */
+    // public function getInProgressAndNextShift(int $cashierId = null): array
+    // {
+
+    //     $inProgressShifts = CashierShift::inProgress()
+    //         ->with(['cashier', 'shift'])
+    //         ->orderBy('actual_start_time')
+    //         ->when($cashierId, fn($q) => $q->where('cashier_id', $cashierId))
+    //         ->get();
+
+
+    //     $nextShift = CashierShift::where('status', 'not_started')
+    //         ->whereDate('shift_date', today())
+    //         ->join('shifts', 'cashier_shifts.shift_id', '=', 'shifts.id')
+    //         ->when($cashierId, fn($q) => $q->where('cashier_id', $cashierId))
+    //         ->orderBy('shifts.start_time')
+    //         ->select('cashier_shifts.*')
+    //         ->with(['cashier', 'shift'])
+    //         ->first();
+
+    //     return [
+    //         'in_progress' => $inProgressShifts,
+    //         'next_shift' => $nextShift,
+    //     ];
+    // }
+
     public function getInProgressShifts(int $cashierId = null): Collection
     {
         $query = CashierShift::inProgress()

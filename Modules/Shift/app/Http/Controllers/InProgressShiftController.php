@@ -5,6 +5,7 @@ namespace Modules\Shift\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Transformers\{ShiftResource, ShiftDetailResource};
 
@@ -20,36 +21,89 @@ class InProgressShiftController extends Controller
      * @param Request $request
      * @return JsonResponse
      */
+
+
+
     public function index(Request $request): JsonResponse
     {
         try {
             $cashierId = $request->input('cashier_id');
 
-            $shifts = $this->shiftService->getInProgressShifts($cashierId);
+
+            $inProgressShifts = CashierShift::inProgress()
+                ->with(['cashier', 'shift'])
+                ->orderBy('actual_start_time')
+                ->when($cashierId, fn($q) => $q->where('cashier_id', $cashierId))
+                ->get();
+
+
+            $nextShift = CashierShift::where('status', 'not_started')
+                ->whereDate('shift_date', today())
+                ->join('shifts', 'cashier_shifts.shift_id', '=', 'shifts.id')
+                ->when($cashierId, fn($q) => $q->where('cashier_id', $cashierId))
+                ->orderBy('shifts.start_time')
+                ->select('cashier_shifts.*') // مهم لإرجاع بيانات CashierShift فقط
+                ->with(['cashier', 'shift'])
+                ->first();
+
 
             return response()->json([
                 'success' => true,
-                'message' => 'In-progress shifts retrieved successfully',
-                'data' => ShiftResource::collection($shifts),
+                'message' => 'In-progress shifts and next shift retrieved successfully',
+                'data' => ShiftResource::collection($inProgressShifts),
                 'meta' => [
-                    'total' => $shifts->count(),
+                    'total_in_progress' => $inProgressShifts->count(),
                     'date' => now()->format('Y-m-d'),
-                    'next_shift_to_begin' => $shifts->first() ? [
-                        'id' => $shifts->first()->id,
-                        'cashier' => $shifts->first()->cashier->name,
-                        'start_time' => $shifts->first()->actual_start_time->format('H:i'),
-                        'expected_end' => $shifts->first()->shift->end_time,
+                    'next_shift' => $nextShift ? [
+                        'id' => $nextShift->id,
+                        'cashier' => $nextShift->cashier->name,
+                        'start_time' => $nextShift->shift->start_time->format('H:i') ?? null,
+                        'expected_end' => $nextShift->shift->end_time->format('H:i') ?? null,
                     ] : null,
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to retrieve in-progress shifts',
+                'message' => 'Failed to retrieve shifts',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
+
+    //     public function index(Request $request): JsonResponse
+    // {
+    //     try {
+    //         $cashierId = $request->input('cashier_id');
+
+
+    //         $shifts = $this->shiftService->getInProgressShifts($cashierId);
+
+    //         $firstShift = $shifts->first();
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'In-progress shifts retrieved successfully',
+    //             'data' => ShiftResource::collection($shifts),
+    //             'meta' => [
+    //                 'total' => $shifts->count(),
+    //                 'date' => now()->format('Y-m-d'),
+    //                 'next_shift_to_begin' => $firstShift ? [
+    //                     'id' => $firstShift->id,
+    //                     'cashier' => $firstShift->cashier?->name ?? 'N/A',
+    //                     'start_time' => $firstShift->actual_start_time?->format('Y-m-d H:i:s') ?? null,
+    //                     'expected_end' => $firstShift->shift?->end_time?->format('Y-m-d H:i:s') ?? null,
+    //                 ] : null,
+    //             ],
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to retrieve in-progress shifts',
+    //             'error' => $e->getMessage(),
+    //         ], 500);
+    //     }
+    // }
 
     /**
      * Display the specified in-progress shift
@@ -107,4 +161,3 @@ class InProgressShiftController extends Controller
         }
     }
 }
-

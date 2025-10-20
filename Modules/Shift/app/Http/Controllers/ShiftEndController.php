@@ -5,7 +5,11 @@ namespace Modules\Shift\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Modules\Cashier\Models\Cashier;
+use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Services\ShiftEndService;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Transformers\ShiftDetailResource;
@@ -18,11 +22,6 @@ class ShiftEndController extends Controller
 
     /**
      * End shift only (without handover)
-     * Scenario 1: End Shift Only
-     *
-     * @param Request $request
-     * @param int $shift
-     * @return JsonResponse
      */
     public function endShiftOnly(Request $request, int $shift): JsonResponse
     {
@@ -48,15 +47,13 @@ class ShiftEndController extends Controller
         try {
             $shiftModel = CashierShift::findOrFail($shift);
 
-            // Verify shift is in progress
-            if ($shiftModel->status->value !== 'in_progress') {
+            if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 return response()->json([
                     'success' => false,
                     'message' => 'This shift is not in progress',
                 ], 400);
             }
 
-            // Validate payment breakdown
             $isValid = $this->shiftEndService->validatePaymentBreakdown($request->all());
             if (!$isValid) {
                 return response()->json([
@@ -70,19 +67,14 @@ class ShiftEndController extends Controller
                 ], 400);
             }
 
-            // Handle POS receipt upload
             $data = $request->all();
             if ($request->hasFile('pos_receipt')) {
                 $data['pos_receipt'] = $request->file('pos_receipt');
             }
 
-            // End shift
             $updatedShift = $this->shiftEndService->endShiftOnly($shiftModel, $data);
-
-            // Calculate sales breakdown
             $salesCalculation = $this->shiftEndService->calculateNetSales($request->total_sales);
 
-            // Return summary
             return response()->json([
                 'success' => true,
                 'message' => 'Shift ended successfully without handover',
@@ -97,7 +89,7 @@ class ShiftEndController extends Controller
                             'card_payments' => (float) $request->card_payments,
                             'delivery_apps' => collect($request->aggregators ?? [])->sum('amount'),
                         ],
-                        'opening_balance' => 0, // No handover
+                        'opening_balance' => 0,
                         'handover_status' => 'pending',
                     ],
                     'next_actions' => [
@@ -107,6 +99,11 @@ class ShiftEndController extends Controller
                 ]
             ]);
         } catch (\Exception $e) {
+            Log::error('Shift end failed: ' . $e->getMessage(), [
+                'shift_id' => $shift,
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to end shift',
@@ -117,11 +114,6 @@ class ShiftEndController extends Controller
 
     /**
      * End shift with handover
-     * Scenarios 2, 3, 4: With handover (no variance, with variance)
-     *
-     * @param Request $request
-     * @param int $shift
-     * @return JsonResponse
      */
     public function endShiftWithHandover(Request $request, int $shift): JsonResponse
     {
@@ -134,13 +126,9 @@ class ShiftEndController extends Controller
             'aggregators.*.amount' => 'required_with:aggregators|numeric|min:0',
             'aggregators.*.notes' => 'nullable|string|max:255',
             'pos_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
-
-            // Handover data
             'next_cashier_id' => 'required|exists:cashiers,id',
             'handover_amount' => 'required|numeric|min:0',
             'handover_notes' => 'nullable|string|max:500',
-
-            // Variance data (if variance exists)
             'variance' => 'sometimes|array',
             'variance.responsibility_type' => 'required_with:variance|in:self,self_and_others,other_factors,mixed',
             'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|numeric|min:0',
@@ -164,15 +152,22 @@ class ShiftEndController extends Controller
         try {
             $shiftModel = CashierShift::findOrFail($shift);
 
-            // Verify shift is in progress
-            if ($shiftModel->status->value !== 'in_progress') {
+            if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 return response()->json([
                     'success' => false,
                     'message' => 'This shift is not in progress',
                 ], 400);
             }
 
-            // Validate payment breakdown
+            // Fetch the next cashier BEFORE processing
+            $nextCashier = Cashier::find($request->next_cashier_id);
+            if (!$nextCashier) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Next cashier not found',
+                ], 404);
+            }
+
             $isValid = $this->shiftEndService->validatePaymentBreakdown($request->all());
             if (!$isValid) {
                 return response()->json([
@@ -181,28 +176,37 @@ class ShiftEndController extends Controller
                 ], 400);
             }
 
-            // Handle POS receipt upload
             $data = $request->all();
             if ($request->hasFile('pos_receipt')) {
                 $data['pos_receipt'] = $request->file('pos_receipt');
             }
 
-            // Handle variance supporting files
             if ($request->hasFile('variance.supporting_files')) {
                 $data['variance']['supporting_files'] = $request->file('variance.supporting_files');
             }
 
-            // End shift with handover
             $updatedShift = $this->shiftEndService->endShiftWithHandover($shiftModel, $data);
+
+            // Reload the shift with all necessary relationships
+            $updatedShift = CashierShift::with([
+                'nextCashier',
+                'cashier',
+                'shift',
+                'salesBreakdown.aggregator',
+                'handoverStatus',
+                'varianceDetails.responsibleCashier'
+            ])->findOrFail($updatedShift->id);
+
+            // Verify next_cashier_id was set
+            if (!$updatedShift->next_cashier_id) {
+                throw new \RuntimeException('Failed to set next_cashier_id on shift');
+            }
 
             // Calculate variance
             $variance = $request->total_sales - $request->handover_amount;
             $varianceType = $variance > 0 ? 'Over' : ($variance < 0 ? 'Short' : 'None');
-
-            // Calculate sales breakdown
             $salesCalculation = $this->shiftEndService->calculateNetSales($request->total_sales);
 
-            // Return summary
             return response()->json([
                 'success' => true,
                 'message' => 'Shift ended successfully with handover',
@@ -221,14 +225,22 @@ class ShiftEndController extends Controller
                             'handover_amount' => (float) $request->handover_amount,
                             'variance' => (float) $variance,
                             'variance_type' => $varianceType,
-                            'handover_to' => $updatedShift->nextCashier->name,
-                            'next_cashier' => $updatedShift->nextCashier->name,
+                            'handover_to' => $nextCashier->name,
+                            'next_cashier' => $nextCashier->name,
                             'handover_notes' => $request->handover_notes,
                         ]
                     ]
                 ]
             ]);
         } catch (\Exception $e) {
+            Log::error('Shift handover failed: ' . $e->getMessage(), [
+                'shift_id' => $shift,
+                'next_cashier_id' => $request->next_cashier_id ?? null,
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to end shift with handover',
@@ -239,10 +251,6 @@ class ShiftEndController extends Controller
 
     /**
      * Calculate net sales and VAT
-     * Helper endpoint for frontend
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function calculateSales(Request $request): JsonResponse
     {
@@ -266,4 +274,3 @@ class ShiftEndController extends Controller
         ]);
     }
 }
-

@@ -32,6 +32,7 @@ class ShiftVarianceAlert extends Model
         'is_acknowledged' => 'boolean',
         'acknowledged_at' => 'datetime',
     ];
+    public $timestamps = false;
 
     // Relationships
     public function cashierShift()

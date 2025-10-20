@@ -8,6 +8,7 @@ enum AlertType: string
     case MAJOR = 'major';
     case CRITICAL = 'critical';
 
+
     public function label(): string
     {
         return match($this) {

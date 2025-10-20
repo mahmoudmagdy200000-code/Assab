@@ -14,12 +14,11 @@ class ShiftResource extends JsonResource
     {
         return [
             'id' => $this->id,
-            'name' => $this->name,
-            'start_time' => $this->start_time,
-            'end_time' => $this->end_time,
-            'branch_id' => $this->branch_id,
-            'is_active' => $this->is_active,
-
+            'name' => $this->shift?->name ?? 'N/A',
+            'start_time' => $this->shift?->start_time?->format('H:i') ?? null,
+            'end_time' => $this->shift?->end_time?->format('H:i') ?? null,
+            'branch_id' => $this->shift?->branch_id,
+            'is_active' => $this->shift?->is_active ?? false,
         ];
     }
 }

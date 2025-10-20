@@ -14,9 +14,9 @@ return new class extends Migration
         Schema::create('cashier_shift_history', function (Blueprint $table) {
              $table->id();
             $table->foreignId('cashier_shift_id')->constrained('cashier_shifts')->cascadeOnDelete();
-            $table->enum('action', ['assigned', 'started', 'completed', 'reassigned', 'handed_over']);
+           $table->string('action', 50);
             $table->unsignedBigInteger('performed_by');
-            $table->enum('performed_by_type', ['branch_manager', 'cashier', 'system']);
+            $table->string('performed_by_type', 50);
             $table->text('old_value')->nullable();
             $table->text('new_value')->nullable();
             $table->text('notes')->nullable();

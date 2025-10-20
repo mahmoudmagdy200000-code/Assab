@@ -11,7 +11,6 @@ use Modules\Cashier\Models\Cashier;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Shift\Enums\ShiftStatus;
 
-
 class CashierShift extends Model
 {
     use HasFactory;
@@ -57,7 +56,11 @@ class CashierShift extends Model
         'actual_end_time' => 'datetime',
         'handed_over_at' => 'datetime',
         'reassigned_at' => 'datetime',
+        'status' => \Modules\Shift\Enums\ShiftStatus::class,
     ];
+
+    // Default relationships to load
+    protected $with = ['cashier', 'shift'];
 
     // Relationships
     public function cashier(): BelongsTo
@@ -69,7 +72,6 @@ class CashierShift extends Model
     {
         return $this->belongsTo(Shift::class, 'shift_id');
     }
-
 
     public function nextCashier(): BelongsTo
     {
@@ -120,19 +122,19 @@ class CashierShift extends Model
     public function scopeInProgress($query)
     {
         return $query->where('status', ShiftStatus::IN_PROGRESS)
-                    ->whereDate('shift_date', today());
+            ->whereDate('shift_date', today());
     }
 
     public function scopeCompleted($query)
     {
         return $query->where('status', ShiftStatus::COMPLETED)
-                    ->orderBy('shift_date', 'desc');
+            ->orderBy('shift_date', 'desc');
     }
 
     public function scopeReassigned($query)
     {
         return $query->where('status', ShiftStatus::REASSIGNED)
-                    ->orderBy('reassigned_at', 'desc');
+            ->orderBy('reassigned_at', 'desc');
     }
 
     // Methods
@@ -175,21 +177,56 @@ class CashierShift extends Model
         return $this->total_sales - ($this->cash_collected + $this->card_payments);
     }
 
-    public function hasVariance(): bool
+    public function recordHistory(string $action, ?array $oldValue, array $newValue): void
     {
-        return abs($this->calculateVariance()) > 0.01;
-    }
+        $user = auth()->user();
+        $performedBy = $user?->id ?? 0;
+        $performedByType = $user
+            ? match ($user->getMorphClass()) {
+                \Modules\BranchManagers\Models\BranchManager::class => 'branch_manager',
+                \Modules\Cashier\Models\Cashier::class => 'cashier',
+                default => 'system',
+            }
+            : 'system';
 
-    private function recordHistory(string $action, ?array $oldValue, array $newValue): void
-    {
         $this->history()->create([
             'action' => $action,
-            'performed_by' => auth()->id(),
-            'performed_by_type' => auth()->user()->getMorphClass(),
+            'performed_by' => $performedBy,
+            'performed_by_type' => $performedByType,
             'old_value' => $oldValue ? json_encode($oldValue) : null,
             'new_value' => json_encode($newValue),
             'notes' => null,
         ]);
     }
-}
 
+
+    public function hasVariance(): bool
+    {
+        return abs($this->calculateVariance()) > 0.01;
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(\Modules\BranchManagers\Models\BranchManager::class, 'created_by');
+    }
+
+
+
+    /**
+     * Load all necessary relationships for API responses
+     */
+    public function loadFullRelationships(): self
+    {
+        return $this->load([
+            'cashier',
+            'shift.branch',
+            // 'shift.creator',
+            'nextCashier',
+            'originalCashier',
+            'reassignedBy',
+            'salesBreakdown.aggregator',
+            'handoverStatus.reviewedBy',
+            'varianceDetails.responsibleCashier'
+        ]);
+    }
+}

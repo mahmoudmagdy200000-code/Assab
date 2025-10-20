@@ -179,32 +179,37 @@ class VarianceCalculationService
         }
     }
 
-    private function checkVarianceThreshold(
-        CashierShift $shift,
-        float $amount,
-        VarianceType $type
-    ): void {
-        $threshold = 100; // SAR - configurable
-        $percentageThreshold = 5; // % - configurable
+   private function checkVarianceThreshold(
+    CashierShift $shift,
+    float $amount,
+    VarianceType $type
+): void {
+    $threshold = 100; // SAR - configurable
+    $percentageThreshold = 5; // % - configurable
 
-        $percentage = ($amount / $shift->total_sales) * 100;
+    $percentage = ($amount / max($shift->total_sales, 1)) * 100;
 
-        if ($amount >= $threshold || $percentage >= $percentageThreshold) {
-            ShiftVarianceAlert::create([
-                'cashier_shift_id' => $shift->id,
-                'variance_amount' => $amount,
-                'variance_percentage' => $percentage,
-                'alert_type' => $type,
-                'is_acknowledged' => false,
-                'is_acknowledged_by' => null,
-                'acknowledged_at' => null,
-                'notes' => "Variance exceeded threshold: {$amount} SAR ({$percentage}%)",
-            ]);
+    if ($amount >= $threshold || $percentage >= $percentageThreshold) {
 
-            // Send notification to branch manager
-            $this->notificationService->notifyVarianceAlert($shift, $amount, $percentage);
-        }
+        // ✅ نحدد نوع التنبيه بناءً على حجم النقص/الزيادة
+        $alertType = \Modules\Shift\Enums\AlertType::fromVariance($amount, $percentage);
+
+        ShiftVarianceAlert::create([
+            'cashier_shift_id' => $shift->id,
+            'variance_amount' => $amount,
+            'variance_percentage' => $percentage,
+            'alert_type' => $alertType, // ✅ Enum صحيح
+            'is_acknowledged' => false,
+            'is_acknowledged_by' => null,
+            'acknowledged_at' => null,
+            'notes' => "Variance exceeded threshold: {$amount} SAR ({$percentage}%) — Type: {$alertType->label()}",
+        ]);
+
+        // إرسال إشعار للمدير
+        // $this->notificationService->notifyVarianceAlert($shift, $amount, $percentage);
     }
+}
+
 
     private function uploadSupportingFiles(array $files, int $shiftId): string
     {

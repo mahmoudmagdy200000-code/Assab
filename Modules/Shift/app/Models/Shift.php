@@ -35,4 +35,6 @@ class Shift extends Model
     {
         return $this->hasMany(CashierShift::class);
     }
+
+
 }

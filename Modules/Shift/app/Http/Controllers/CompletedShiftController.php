@@ -9,6 +9,7 @@ use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Services\VarianceCalculationService;
 use Modules\Shift\Http\Resources\ShiftResource;
 use Modules\Shift\Http\Resources\ShiftDetailResource;
+use Modules\Shift\Transformers\ShiftResource as TransformersShiftResource;
 
 class CompletedShiftController extends Controller
 {
@@ -32,7 +33,7 @@ class CompletedShiftController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Completed shifts retrieved successfully',
-            'data' => ShiftResource::collection($shifts),
+            'data' => TransformersShiftResource::collection($shifts),
             'meta' => [
                 'total' => $shifts->count(),
                 'filters_applied' => !empty($filters),

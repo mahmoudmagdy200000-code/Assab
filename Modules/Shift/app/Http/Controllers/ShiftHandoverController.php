@@ -10,6 +10,7 @@ use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Transformers\ShiftDetailResource;
 use Modules\Cashier\Models\Cashier;
+use Modules\Shift\Enums\HandoverStatus;
 
 class ShiftHandoverController extends Controller
 {
@@ -101,6 +102,8 @@ class ShiftHandoverController extends Controller
         }
     }
 
+
+
     /**
      * Approve handover
      * Branch Manager approves the handover
@@ -109,52 +112,50 @@ class ShiftHandoverController extends Controller
      * @param int $shift
      * @return JsonResponse
      */
-    public function approveHandover(Request $request, int $shift): JsonResponse
+    public function approveHandover(Request $request, $shift): JsonResponse
     {
         try {
-            $shiftModel = CashierShift::with(['handoverStatus', 'cashier', 'nextCashier'])
-                ->findOrFail($shift);
+            $shiftModel = CashierShift::with(['handoverStatus'])->findOrFail($shift);
 
-            // Verify handover exists and is pending
+            // Check if handover exists and has correct status
             if (!$shiftModel->handoverStatus) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'No handover found for this shift',
+                    'message' => 'No handover found for this shift'
                 ], 404);
             }
 
-            if ($shiftModel->handoverStatus->status !== 'pending') {
+            if ($shiftModel->handoverStatus->status !== HandoverStatus::PENDING) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Handover is not pending approval',
-                    'current_status' => $shiftModel->handoverStatus->status,
+                    'current_status' => $shiftModel->handoverStatus->status->value
                 ], 400);
             }
 
-            // Approve handover
-            $this->handoverService->approveHandover(
+            // Process the approval
+            $result = $this->handoverService->approveHandover(
                 $shiftModel,
                 auth()->id(),
-                'branch_manager'
+                'branch_manager',
+                $request->get('manager_comment')
             );
 
             return response()->json([
                 'success' => true,
                 'message' => 'Handover approved successfully',
                 'data' => [
-                    'shift' => new ShiftDetailResource($shiftModel->fresh()),
-                    'handover_status' => [
-                        'status' => 'accepted',
-                        'reviewed_by' => auth()->user()->name,
-                        'reviewed_at' => now()->format('Y-m-d H:i:s'),
-                    ],
-                    'next_shift_updated' => [
-                        'opening_balance' => (float) $shiftModel->closing_balance,
-                        'next_cashier' => $shiftModel->nextCashier?->name,
-                    ]
+                    'shift' => new ShiftDetailResource($result)
                 ]
             ]);
+
         } catch (\Exception $e) {
+            \Log::error('Handover approval failed', [
+                'shift_id' => $shift,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to approve handover',
@@ -162,6 +163,7 @@ class ShiftHandoverController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Reject handover
@@ -260,7 +262,7 @@ class ShiftHandoverController extends Controller
     {
         try {
             $shiftModel = CashierShift::with([
-                'handoverStatus.reviewer',
+                'handoverStatus.reviewedBy',
                 'cashier',
                 'nextCashier'
             ])->findOrFail($shift);

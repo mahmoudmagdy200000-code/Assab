@@ -17,7 +17,7 @@ class ReassignmentShiftController extends Controller
 {
     public function __construct(
         private ShiftService $shiftService,
-        private ShiftNotificationService $notificationService
+        // private ShiftNotificationService $notificationService
     ) {}
 
     /**
@@ -177,7 +177,7 @@ class ReassignmentShiftController extends Controller
             ]);
 
             // Send notifications
-            $this->notificationService->notifyShiftReassigned($shiftModel->fresh());
+            // $this->notificationService->notifyShiftReassigned($shiftModel->fresh());
 
             DB::commit();
 
