@@ -3,6 +3,7 @@
 namespace Modules\Expense\Database\Seeders;
 
 use Illuminate\Database\Seeder;
+use Modules\Expense\Database\Factories\SupplierFactory;
 use Modules\Expense\Models\Supplier;
 
 class SupplierSeeder extends Seeder
@@ -57,9 +58,9 @@ class SupplierSeeder extends Seeder
         }
 
         // Create additional random suppliers
-        Supplier::factory()->count(15)->create();
+        SupplierFactory::factory()->count(15)->create();
 
         // Create some inactive suppliers
-        Supplier::factory()->count(3)->inactive()->create();
+        SupplierFactory::factory()->count(3)->inactive()->create();
     }
 }
