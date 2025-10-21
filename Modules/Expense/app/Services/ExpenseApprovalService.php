@@ -1,0 +1,139 @@
+<?php
+
+namespace Modules\Expense\Services;
+
+use Modules\Expense\Models\{Expense, ExpenseTimeline};
+use Modules\BranchManagers\Models\BranchManager;
+
+/**
+ * Expense Approval Service
+ * Handles approval/rejection by Brand Owner
+ */
+class ExpenseApprovalService
+{
+    /**
+     * Submit expense for approval
+     */
+    public function submitExpense(Expense $expense): void
+    {
+        if ($expense->status !== 'draft') {
+            throw new \Exception('Only draft expenses can be submitted');
+        }
+
+        $expense->update([
+            'status' => 'pending',
+            'submitted_at' => now(),
+        ]);
+
+        // Create timeline entry
+        $this->createTimelineEntry($expense, 'submit', 'submitted');
+
+        // TODO: Send notification to Brand Owner
+    }
+
+    /**
+     * Approve expense (Brand Owner)
+     */
+    public function approveExpense(Expense $expense, int $brandOwnerId): void
+    {
+        if ($expense->status !== 'pending') {
+            throw new \Exception('Only pending expenses can be approved');
+        }
+
+        $expense->update([
+            'status' => 'approved',
+            'approved_by' => $brandOwnerId,
+            'approved_at' => now(),
+        ]);
+
+        // Create timeline entry
+        $this->createTimelineEntry($expense, 'approve', 'approved', $brandOwnerId, 'brand_owner');
+
+        // TODO: Send notification to Branch Manager
+    }
+
+    /**
+     * Reject expense (Brand Owner)
+     */
+    public function rejectExpense(Expense $expense, int $brandOwnerId, string $reason): void
+    {
+        if ($expense->status !== 'pending') {
+            throw new \Exception('Only pending expenses can be rejected');
+        }
+
+        $expense->update([
+            'status' => 'rejected',
+            'rejected_by' => $brandOwnerId,
+            'rejected_at' => now(),
+            'rejection_reason' => $reason,
+        ]);
+
+        // Create timeline entry
+        $this->createTimelineEntry($expense, 'reject', 'rejected', $brandOwnerId, 'brand_owner', $reason);
+
+        // TODO: Send notification to Branch Manager
+    }
+
+    /**
+     * Re-submit rejected expense
+     */
+    public function resubmitExpense(Expense $expense): void
+    {
+        if ($expense->status !== 'rejected') {
+            throw new \Exception('Only rejected expenses can be resubmitted');
+        }
+
+        $expense->update([
+            'status' => 'pending',
+            'submitted_at' => now(),
+            'rejection_reason' => null,
+        ]);
+
+        // Create timeline entry
+        $this->createTimelineEntry($expense, 'resubmit', 'resubmitted');
+
+        // TODO: Send notification to Brand Owner
+    }
+
+    /**
+     * View expense (Brand Owner)
+     */
+    public function markAsViewed(Expense $expense, int $brandOwnerId): void
+    {
+        // Create timeline entry
+        $this->createTimelineEntry($expense, 'view', 'viewed', $brandOwnerId, 'brand_owner');
+    }
+
+    /**
+     * Edit expense (Brand Owner)
+     */
+    public function recordEdit(Expense $expense, int $brandOwnerId, array $changes): void
+    {
+        // Create timeline entry with changes
+        $this->createTimelineEntry(
+            $expense,
+            'edit',
+            'edited',
+            $brandOwnerId,
+            'brand_owner',
+            json_encode($changes)
+        );
+    }
+
+    private function createTimelineEntry(
+        Expense $expense,
+        string $action,
+        string $status,
+        ?int $performedBy = null,
+        ?string $performedByType = null,
+        ?string $notes = null
+    ): void {
+        $expense->timelines()->create([
+            'action' => $action,
+            'performed_by' => $performedBy ?? auth()->id(),
+            'performed_by_type' => $performedByType ?? 'branch_manager',
+            'status' => $status,
+            'notes' => $notes,
+        ]);
+    }
+}

@@ -1,0 +1,34 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+   public function up(): void
+    {
+        Schema::create('pre_approval_requests', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('expense_id')->constrained('expenses')->cascadeOnDelete();
+            $table->text('purpose');
+            $table->decimal('estimated_amount', 12, 2);
+            $table->enum('priority', ['high', 'medium', 'low'])->default('medium');
+            $table->timestamps();
+
+            $table->unique('expense_id');
+        });
+    }
+
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('pre_approval_requests');
+    }
+};
