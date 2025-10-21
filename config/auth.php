@@ -87,6 +87,7 @@ return [
             'driver' => 'eloquent',
             'model' => Modules\BranchManagers\Models\BranchManager::class,
         ],
+        
     ],
 
     /*
