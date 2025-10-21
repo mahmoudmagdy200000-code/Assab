@@ -19,7 +19,7 @@ use Modules\Expense\Http\Controllers\{
 */
 
 Route::prefix('branch-manager/expenses')
-    ->middleware(['auth:sanctum', 'branch_manager'])
+    ->middleware(['auth:sanctum', 'branch.manager'])
     ->group(function () {
 
     /*
