@@ -18,8 +18,8 @@ use Modules\Expense\Http\Controllers\{
 |--------------------------------------------------------------------------
 */
 
-Route::prefix('api/branch-manager/expenses')
-    ->middleware(['auth:sanctum', 'role:branch_manager'])
+Route::prefix('branch-manager/expenses')
+    ->middleware(['auth:sanctum', 'branch_manager'])
     ->group(function () {
 
     /*
@@ -138,7 +138,7 @@ Route::prefix('api/branch-manager/expenses')
 */
 
 Route::prefix('api/brand-owner/expenses')
-    ->middleware(['auth:sanctum', 'role:brand_owner'])
+    ->middleware(['auth:sanctum', 'brand_owner'])
     ->group(function () {
 
     // View expenses
