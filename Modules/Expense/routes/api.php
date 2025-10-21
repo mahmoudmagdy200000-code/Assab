@@ -112,7 +112,7 @@ Route::prefix('branch-manager/expenses')
     |----------------------------------------------------------------------
     */
     Route::get('/categories', [CategoryController::class, 'index'])->name('expenses.categories.index');
-    Route::get('/categories/{category}', [CategoryController::class, 'show'])->name('expenses.categories.show');
+    // Route::get('/categories/{category}', [CategoryController::class, 'show'])->name('expenses.categories.show');
 
     /*
     |----------------------------------------------------------------------
