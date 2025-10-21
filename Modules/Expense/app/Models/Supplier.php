@@ -26,10 +26,11 @@ class Supplier extends Model
         'is_active' => 'boolean',
     ];
 
-        protected static function newFactory()
+    protected static function newFactory()
     {
-        return SupplierFactory::new();
+        return \Modules\Expense\database\factories\SupplierFactory::new();
     }
+
 
     public function expenses()
     {
