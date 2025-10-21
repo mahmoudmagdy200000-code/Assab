@@ -4,6 +4,7 @@ namespace Modules\Expense\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Modules\Expense\Database\Factories\SupplierFactory;
 
 /**
  * Supplier Model
@@ -24,6 +25,11 @@ class Supplier extends Model
     protected $casts = [
         'is_active' => 'boolean',
     ];
+
+        protected static function newFactory()
+    {
+        return SupplierFactory::new();
+    }
 
     public function expenses()
     {
