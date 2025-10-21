@@ -12,9 +12,9 @@ class ExpenseDatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
-            CategorySeeder::class,
-            SupplierSeeder::class,
-            ExpenseSeeder::class,
+            // CategorySeeder::class,
+            // SupplierSeeder::class,
+            // ExpenseSeeder::class,
         ]);
     }
 }

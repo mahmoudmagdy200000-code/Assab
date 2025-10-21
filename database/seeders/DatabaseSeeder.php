@@ -11,6 +11,9 @@ use Modules\Branch\Database\Seeders\BranchSeeder;
 use Modules\BranchManagers\Database\Seeders\BranchManagerSeeder;
 use Modules\Cashier\Database\Seeders\CashierSeeder;
 use Modules\Cashier\Database\Seeders\CashierShiftSeeder;
+use Modules\Expense\Database\Seeders\CategorySeeder;
+use Modules\Expense\Database\Seeders\ExpenseSeeder;
+use Modules\Expense\Database\Seeders\SupplierSeeder;
 use Modules\Shift\Database\Seeders\ShiftSeeder;
 
 class DatabaseSeeder extends Seeder
@@ -38,6 +41,9 @@ class DatabaseSeeder extends Seeder
             // 5) Aggregators and branch linkage (require branches)
             AggregatorSeeder::class,
             BranchAggregatorSeeder::class,
+             CategorySeeder::class,
+            SupplierSeeder::class,
+            ExpenseSeeder::class,
         ]);
     }
 }

@@ -58,9 +58,9 @@ class SupplierSeeder extends Seeder
         }
 
         // Create additional random suppliers
-        SupplierFactory::factory()->count(15)->create();
+        Supplier::factory()->count(15)->create();
 
         // Create some inactive suppliers
-        SupplierFactory::factory()->count(3)->inactive()->create();
+        Supplier::factory()->count(3)->inactive()->create();
     }
 }

@@ -36,13 +36,13 @@ class CategoryController extends Controller
      * Get category by ID
      * GET /api/branch-manager/expenses/categories/{category}
      */
-    public function show(int $category): JsonResponse
-    {
-        $categoryModel = \Modules\Expense\Models\Category::with('parent', 'children')->findOrFail($category);
+    // public function show(int $category): JsonResponse
+    // {
+    //     $categoryModel = \Modules\Expense\Models\Category::with('parent', 'children')->findOrFail($category);
 
-        return response()->json([
-            'success' => true,
-            'data' => new CategoryResource($categoryModel)
-        ]);
-    }
+    //     return response()->json([
+    //         'success' => true,
+    //         'data' => new CategoryResource($categoryModel)
+    //     ]);
+    // }
 }
