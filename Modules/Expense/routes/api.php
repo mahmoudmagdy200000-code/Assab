@@ -24,7 +24,7 @@ Route::prefix('branch-manager/expenses')
 
         /*
     |----------------------------------------------------------------------
-    | Categories & Suppliers 
+    | Categories & Suppliers
     |----------------------------------------------------------------------
     */
         Route::get('/categories', [CategoryController::class, 'index'])->name('expenses.categories.index');
@@ -84,7 +84,7 @@ Route::prefix('branch-manager/expenses')
 
         /*
     |----------------------------------------------------------------------
-    | General Expense Routes (اللي فيها متغير {expense} تتحط في الآخر)
+    | General Expense Routes
     |----------------------------------------------------------------------
     */
         Route::get('/', [ExpenseController::class, 'index'])->name('expenses.index');

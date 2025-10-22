@@ -15,6 +15,7 @@ use Modules\BranchManager\Database\Factories\BranchManagerFactory;
 use Modules\BranchManagers\Database\Factories\BranchManagerFactory as FactoriesBranchManagerFactory;
 use Modules\BranchManagers\Notifications\ResetPasswordNotification;
 use Modules\Cashier\Models\Cashier;
+use Modules\Expense\Models\Expense;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 
@@ -80,10 +81,10 @@ class BranchManager extends Authenticatable
         return $this->hasMany(Shift::class, 'created_by');
     }
 
-    // public function expenses(): HasMany
-    // {
-    //     return $this->hasMany(Expense::class, 'created_by');
-    // }
+    public function expenses(): HasMany
+    {
+        return $this->hasMany(Expense::class, 'created_by');
+    }
 
     // public function settings(): HasMany
     // {
