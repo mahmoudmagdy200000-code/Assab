@@ -2,7 +2,7 @@
 
 namespace Modules\BranchManagers\Services;
 use Modules\BranchManagers\Models\BranchManager;
-use Modules\Setting\Models\UserSetting;
+use Modules\Settings\Models\UserSetting;
 use Modules\Aggregator\Models\BranchAggregator;
 
 class SettingsService
