@@ -1,6 +1,6 @@
 <?php
 
-namespace Modules\App\Settings\Services;
+namespace Modules\Settings\Services;
 
 use Illuminate\Support\Facades\Storage;
 use Modules\Settings\Models\UserSetting;
