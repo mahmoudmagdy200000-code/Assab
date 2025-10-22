@@ -7,12 +7,13 @@ use Illuminate\Support\Facades\Route;
 
 class RouteServiceProvider extends ServiceProvider
 {
-    protected string $name = 'Settings';
+    /**
+     * The module namespace to assume when generating URLs.
+     */
+    protected string $moduleNamespace = 'Modules\Settings\Http\Controllers';
 
     /**
-     * Called before routes are registered.
-     *
-     * Register any model bindings or pattern based filters.
+     * Boot method
      */
     public function boot(): void
     {
@@ -20,7 +21,7 @@ class RouteServiceProvider extends ServiceProvider
     }
 
     /**
-     * Define the routes for the application.
+     * Map all module routes
      */
     public function map(): void
     {
@@ -29,22 +30,23 @@ class RouteServiceProvider extends ServiceProvider
     }
 
     /**
-     * Define the "web" routes for the application.
-     *
-     * These routes all receive session state, CSRF protection, etc.
+     * Define the "web" routes for the module.
      */
     protected function mapWebRoutes(): void
     {
-        Route::middleware('web')->group(module_path($this->name, '/routes/web.php'));
+        Route::middleware('web')
+            ->namespace($this->moduleNamespace)
+            ->group(module_path('Settings', 'routes/web.php'));
     }
 
     /**
-     * Define the "api" routes for the application.
-     *
-     * These routes are typically stateless.
+     * Define the "api" routes for the module.
      */
     protected function mapApiRoutes(): void
     {
-        Route::middleware('api')->prefix('api')->name('api.')->group(module_path($this->name, '/routes/api.php'));
+        Route::prefix('api/v1')
+            ->middleware('api')
+            ->namespace($this->moduleNamespace)
+            ->group(module_path('Settings', 'routes/api.php'));
     }
 }
