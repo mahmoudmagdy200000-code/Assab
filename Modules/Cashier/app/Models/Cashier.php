@@ -62,6 +62,13 @@ class Cashier extends Authenticatable
         return CashierFactory::new();
     }
 
+
+    public function settings()
+    {
+        return $this->morphOne(\Modules\Settings\Models\UserSetting::class, 'userable');
+    }
+
+
     // Relationships
     public function branch(): BelongsTo
     {

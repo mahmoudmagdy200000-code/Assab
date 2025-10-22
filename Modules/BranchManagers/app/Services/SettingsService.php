@@ -1,6 +1,7 @@
 <?php
 
 namespace Modules\BranchManagers\Services;
+
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Settings\Models\UserSetting;
 use Modules\Aggregator\Models\BranchAggregator;

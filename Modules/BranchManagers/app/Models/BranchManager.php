@@ -92,6 +92,13 @@ class BranchManager extends Authenticatable
     //         ->where('user_type', self::class);
     // }
 
+
+    public function settings()
+    {
+        return $this->morphOne(\Modules\Settings\Models\UserSetting::class, 'userable');
+    }
+
+
     // Scopes
     public function scopeActive($query)
     {
@@ -113,8 +120,8 @@ class BranchManager extends Authenticatable
     {
         return $query->where(function ($q) use ($search) {
             $q->where('name', 'like', "%{$search}%")
-              ->orWhere('email', 'like', "%{$search}%")
-              ->orWhere('phone', 'like', "%{$search}%");
+                ->orWhere('email', 'like', "%{$search}%")
+                ->orWhere('phone', 'like', "%{$search}%");
         });
     }
 
@@ -135,7 +142,7 @@ class BranchManager extends Authenticatable
             return 'Inactive';
         }
 
-        return match($this->status) {
+        return match ($this->status) {
             'active' => 'Active',
             'pending' => 'Pending',
             'suspended' => 'Suspended',
@@ -149,7 +156,7 @@ class BranchManager extends Authenticatable
             return 'gray';
         }
 
-        return match($this->status) {
+        return match ($this->status) {
             'active' => 'green',
             'pending' => 'yellow',
             'suspended' => 'red',
@@ -261,8 +268,8 @@ class BranchManager extends Authenticatable
     public function getTodayShifts(): int
     {
         return CashierShift::whereHas('shift', function ($q) {
-                $q->where('branch_id', $this->branch_id);
-            })
+            $q->where('branch_id', $this->branch_id);
+        })
             ->whereDate('shift_date', today())
             ->count();
     }

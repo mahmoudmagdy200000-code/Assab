@@ -7,15 +7,15 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 /**
  * User Settings Model
- * Stores personalized settings for each user
+ * Stores personalized settings for each user (BranchManager or Cashier)
  */
 class UserSetting extends Model
 {
     use HasFactory;
 
     protected $fillable = [
-        'user_id',
-        'user_type',
+        'userable_id',
+        'userable_type',
         'language',
         'theme',
         'notification_shift_variance',
@@ -33,22 +33,29 @@ class UserSetting extends Model
         'notification_split_shift_handover' => 'boolean',
     ];
 
-    // Polymorphic relationship to user
-    public function user()
+    /**
+     * Polymorphic relationship to BranchManager or Cashier
+     */
+    public function userable()
     {
-        return $this->morphTo(__FUNCTION__, 'user_type', 'user_id');
+        return $this->morphTo();
     }
 
-    // Scopes
+    /**
+     * Scope: filter settings for a specific Branch Manager
+     */
     public function scopeForBranchManager($query, int $userId)
     {
-        return $query->where('user_type', 'branch_manager')
-            ->where('user_id', $userId);
+        return $query->where('userable_type', \Modules\BranchManagers\Models\BranchManager::class)
+                     ->where('userable_id', $userId);
     }
 
+    /**
+     * Scope: filter settings for a specific Cashier
+     */
     public function scopeForCashier($query, int $userId)
     {
-        return $query->where('user_type', 'cashier')
-            ->where('user_id', $userId);
+        return $query->where('userable_type', \Modules\Cashier\Models\Cashier::class)
+                     ->where('userable_id', $userId);
     }
 }
