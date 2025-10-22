@@ -19,8 +19,8 @@ class SettingsService
     {
         return UserSetting::firstOrCreate(
             [
-                'user_id' => $userId,
-                'user_type' => $userType,
+                'userable_id' => $userId,
+                'userable_type' => $userType,
             ],
             [
                 'language' => 'ar',
