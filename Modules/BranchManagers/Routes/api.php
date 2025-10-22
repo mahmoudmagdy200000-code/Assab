@@ -49,21 +49,21 @@ Route::prefix('branch-manager')->group(function () {
         });
 
         // Settings Management
-        Route::prefix('settings')->group(function () {
-            Route::get('/', [SettingsController::class, 'index']);
+        // Route::prefix('settings')->group(function () {
+        //     Route::get('/', [SettingsController::class, 'index']);
 
-            // Notification Settings
-            Route::get('/notifications', [SettingsController::class, 'getNotificationSettings']);
-            Route::put('/notifications', [SettingsController::class, 'updateNotificationSettings']);
+        //     // Notification Settings
+        //     Route::get('/notifications', [SettingsController::class, 'getNotificationSettings']);
+        //     Route::put('/notifications', [SettingsController::class, 'updateNotificationSettings']);
 
-            // System Settings
-            Route::get('/system', [SettingsController::class, 'getSystemSettings']);
-            Route::put('/system', [SettingsController::class, 'updateSystemSettings']);
+        //     // System Settings
+        //     Route::get('/system', [SettingsController::class, 'getSystemSettings']);
+        //     Route::put('/system', [SettingsController::class, 'updateSystemSettings']);
 
-            // Branch Settings
-            Route::get('/branch', [SettingsController::class, 'getBranchSettings']);
-            Route::post('/aggregators', [SettingsController::class, 'updateAggregators']);
-        });
+        //     // Branch Settings
+        //     Route::get('/branch', [SettingsController::class, 'getBranchSettings']);
+        //     Route::post('/aggregators', [SettingsController::class, 'updateAggregators']);
+        // });
 
         // Notifications
         Route::prefix('notifications')->group(function () {
