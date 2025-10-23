@@ -54,16 +54,16 @@ class QuickCashExpenseController extends Controller
 
         // Validate items total equals total_amount
         $itemsTotal = collect($request->items)->sum('amount');
-        if (abs($itemsTotal - $request->total_amount) > 0.01) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Items total must equal total amount',
-                'details' => [
-                    'items_total' => $itemsTotal,
-                    'declared_total' => $request->total_amount,
-                ]
-            ], 400);
-        }
+        // if (abs($itemsTotal - $request->total_amount) > 0.01) {
+        //     return response()->json([
+        //         'success' => false,
+        //         'message' => 'Items total must equal total amount',
+        //         'details' => [
+        //             'items_total' => $itemsTotal,
+        //             'declared_total' => $request->total_amount,
+        //         ]
+        //     ], 400);
+        // }
 
         // Check custody balance if payment method is custody
         if ($request->payment_method === 'custody') {
