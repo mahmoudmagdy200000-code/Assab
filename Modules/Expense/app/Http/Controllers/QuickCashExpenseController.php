@@ -40,7 +40,7 @@ class QuickCashExpenseController extends Controller
             'supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
             'invoice_receipt' => 'sometimes|array|max:5',
             'invoice_receipt.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
-
+            'vat_amount' => 'sometimes|numeric|min:0',
             'is_draft' => 'sometimes|boolean',
         ]);
 
