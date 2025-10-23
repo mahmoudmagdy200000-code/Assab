@@ -179,16 +179,18 @@ class SingleInvoiceExpenseService
             }
         }
 
-        $totalAmount = $itemsTotal + $expensesTotal;
-        $vatAmount = $totalAmount * 0.15;
-        $netAmount = $totalAmount - $vatAmount;
+        $subTotal = $itemsTotal + $expensesTotal;
+        $vatRate = $data['vat_rate'] ?? 0.15;
+        $vatAmount = round($subTotal * $vatRate, 2);
+        $totalAmount = round($subTotal + $vatAmount, 2);
 
         return [
-            'total_amount' => round($totalAmount, 2),
-            'net_amount' => round($netAmount, 2),
-            'vat_amount' => round($vatAmount, 2),
+            'net_amount' => $subTotal,
+            'vat_amount' => $vatAmount,
+            'total_amount' => $totalAmount,
         ];
     }
+
 
     /**
      * Calculate total amount (helper for validation)
