@@ -31,9 +31,9 @@ class QuickCashExpenseController extends Controller
             'expense_date' => 'required|date',
             'expense_name' => 'required|string|max:255',
             'total_amount' => 'required|numeric|min:0|max:500',
-            'items' => 'sometimes|array|min:1',
-            'items.*.title' => 'sometimes|string|max:255',
-            'items.*.amount' => 'sometimes|numeric|min:0',
+            'items' => 'nullable|array',
+            'items.*.title' => 'nullable|string|max:255',
+            'items.*.amount' => 'nullable|numeric|min:0',
             'has_vat' => 'required|boolean',
             'invoice_number' => 'nullable|string|max:100',
             'payment_method' => 'required|in:cash,supplier,custody',
@@ -53,8 +53,9 @@ class QuickCashExpenseController extends Controller
         }
 
         // Validate items total equals total_amount
-        $itemsTotal = collect($request->items)->sum('amount');
-        if (abs($itemsTotal - $request->total_amount) > 0.01) {
+        $itemsTotal = collect($request->items ?? [])->sum('amount');
+
+        if (!empty($request->items) && abs($itemsTotal - $request->total_amount) > 0.01) {
             return response()->json([
                 'success' => false,
                 'message' => 'Items total must equal total amount',
@@ -64,6 +65,7 @@ class QuickCashExpenseController extends Controller
                 ]
             ], 400);
         }
+
 
         // Check custody balance if payment method is custody
         if ($request->payment_method === 'custody') {
