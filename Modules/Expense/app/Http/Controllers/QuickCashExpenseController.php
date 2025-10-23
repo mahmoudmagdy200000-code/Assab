@@ -38,7 +38,9 @@ class QuickCashExpenseController extends Controller
             'invoice_number' => 'nullable|string|max:100',
             'payment_method' => 'required|in:cash,supplier,custody',
             'supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
-            'invoice_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
+            'invoice_receipt' => 'sometimes|array|max:5', 
+            'invoice_receipt.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
+
             'is_draft' => 'sometimes|boolean',
         ]);
 

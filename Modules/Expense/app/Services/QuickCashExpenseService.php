@@ -50,9 +50,13 @@ class QuickCashExpenseService
         }
 
         // Upload invoice receipt if provided
-        if (isset($data['invoice_receipt'])) {
-            $this->uploadInvoiceReceipt($expense, $data['invoice_receipt']);
+        // Upload invoice receipts if provided
+        if (isset($data['invoice_receipt']) && is_array($data['invoice_receipt'])) {
+            foreach ($data['invoice_receipt'] as $file) {
+                $this->uploadInvoiceReceipt($expense, $file);
+            }
         }
+
 
         // Create timeline entry
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
@@ -111,9 +115,12 @@ class QuickCashExpenseService
         }
 
         // Upload new invoice receipt if provided
-        if (isset($data['invoice_receipt'])) {
-            $this->uploadInvoiceReceipt($expense, $data['invoice_receipt']);
+        if (isset($data['invoice_receipt']) && is_array($data['invoice_receipt'])) {
+            foreach ($data['invoice_receipt'] as $file) {
+                $this->uploadInvoiceReceipt($expense, $file);
+            }
         }
+
 
         // Create timeline entry
         $this->createTimelineEntry($expense, 'updated');
