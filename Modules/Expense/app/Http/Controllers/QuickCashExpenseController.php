@@ -35,12 +35,12 @@ class QuickCashExpenseController extends Controller
             'items.*.title' => 'nullable|string|max:255',
             'items.*.amount' => 'nullable|numeric|min:0',
             'has_vat' => 'required|boolean',
+            'vat_amount' => 'nullable|numeric|min:0', // Changed from 'sometimes' to 'nullable' for clarity
             'invoice_number' => 'nullable|string|max:100',
             'payment_method' => 'required|in:cash,supplier,custody',
             'supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
             'invoice_receipt' => 'sometimes|array|max:5',
             'invoice_receipt.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
-            'vat_amount' => 'sometimes|numeric|min:0',
             'is_draft' => 'sometimes|boolean',
         ]);
 
@@ -65,7 +65,6 @@ class QuickCashExpenseController extends Controller
                 ]
             ], 400);
         }
-
 
         // Check custody balance if payment method is custody
         if ($request->payment_method === 'custody') {

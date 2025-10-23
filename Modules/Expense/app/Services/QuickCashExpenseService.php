@@ -16,8 +16,12 @@ class QuickCashExpenseService
      */
     public function createQuickCashExpense(array $data): Expense
     {
-        // Calculate VAT
-        $vatCalculation = $this->calculateVAT($data['total_amount'], $data['has_vat'] ?? false);
+        // Calculate VAT - Support manual VAT input
+        $vatCalculation = $this->calculateVAT(
+            $data['total_amount'],
+            $data['has_vat'] ?? false,
+            $data['vat_amount'] ?? null  // Pass manual VAT if provided
+        );
 
         // Create main expense record
         $expense = Expense::create([
@@ -40,7 +44,6 @@ class QuickCashExpenseService
             'invoice_number' => $data['invoice_number'] ?? null,
         ]);
 
-        // Create quick cash items
         // Create quick cash items if provided
         if (!empty($data['items']) && is_array($data['items'])) {
             foreach ($data['items'] as $item) {
@@ -52,15 +55,12 @@ class QuickCashExpenseService
             }
         }
 
-
-        // Upload invoice receipt if provided
         // Upload invoice receipts if provided
         if (isset($data['invoice_receipt']) && is_array($data['invoice_receipt'])) {
             foreach ($data['invoice_receipt'] as $file) {
                 $this->uploadInvoiceReceipt($expense, $file);
             }
         }
-
 
         // Create timeline entry
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
@@ -77,7 +77,8 @@ class QuickCashExpenseService
         if (isset($data['total_amount'])) {
             $vatCalculation = $this->calculateVAT(
                 $data['total_amount'],
-                $data['has_vat'] ?? $expense->quickCashExpense->has_vat
+                $data['has_vat'] ?? $expense->quickCashExpense->has_vat,
+                $data['vat_amount'] ?? null  // Support manual VAT on update
             );
 
             $expense->update([
@@ -125,7 +126,6 @@ class QuickCashExpenseService
             }
         }
 
-
         // Create timeline entry
         $this->createTimelineEntry($expense, 'updated');
 
@@ -133,9 +133,14 @@ class QuickCashExpenseService
     }
 
     /**
-     * Calculate VAT (15%)
+     * Calculate VAT (15% default or manual input)
+     *
+     * @param float $totalAmount The total amount including VAT
+     * @param bool $hasVat Whether the expense has VAT
+     * @param float|null $manualVatAmount Manual VAT amount if provided
+     * @return array
      */
-    public function calculateVAT(float $totalAmount, bool $hasVat = true): array
+    public function calculateVAT(float $totalAmount, bool $hasVat = true, ?float $manualVatAmount = null): array
     {
         if (!$hasVat) {
             return [
@@ -145,8 +150,16 @@ class QuickCashExpenseService
             ];
         }
 
-        $vatAmount = $totalAmount * 0.15;
-        $netAmount = $totalAmount - $vatAmount;
+        // If manual VAT amount is provided, use it
+        if ($manualVatAmount !== null) {
+            $vatAmount = $manualVatAmount;
+            $netAmount = $totalAmount - $vatAmount;
+        } else {
+            // Otherwise, calculate 15% VAT (assuming total includes VAT)
+            // Formula: VAT = Total * (15/115)
+            $vatAmount = $totalAmount * (15 / 115);
+            $netAmount = $totalAmount - $vatAmount;
+        }
 
         return [
             'total_amount' => round($totalAmount, 2),
