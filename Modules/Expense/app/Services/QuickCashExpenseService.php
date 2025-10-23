@@ -41,13 +41,17 @@ class QuickCashExpenseService
         ]);
 
         // Create quick cash items
-        foreach ($data['items'] as $item) {
-            QuickCashItem::create([
-                'quick_cash_expense_id' => $quickCash->id,
-                'title' => $item['title'],
-                'amount' => $item['amount'],
-            ]);
+        // Create quick cash items if provided
+        if (!empty($data['items']) && is_array($data['items'])) {
+            foreach ($data['items'] as $item) {
+                QuickCashItem::create([
+                    'quick_cash_expense_id' => $quickCash->id,
+                    'title' => $item['title'],
+                    'amount' => $item['amount'],
+                ]);
+            }
         }
+
 
         // Upload invoice receipt if provided
         // Upload invoice receipts if provided
