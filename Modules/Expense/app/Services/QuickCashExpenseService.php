@@ -161,31 +161,40 @@ class QuickCashExpenseService
     /**
      * Calculate VAT (15% default or manual input)
      */
-    public function calculateVAT(float $totalAmount, bool $hasVat = true, ?float $manualVatAmount = null): array
+    public function calculateVAT(array $data): array
     {
-        if (!$hasVat) {
+        //
+        if (isset($data['vat_total_amount'])) {
+            $totalAmount = $data['vat_total_amount'];
+            $vatAmount = $data['vat_amount'] ?? 0;
+            $netAmount = $data['net_amount'] ?? ($totalAmount - $vatAmount);
+
             return [
-                'total_amount' => $totalAmount,
-                'net_amount' => $totalAmount,
-                'vat_amount' => 0,
+                'total_amount' => round($totalAmount, 2),
+                'net_amount' => round($netAmount, 2),
+                'vat_amount' => round($vatAmount, 2),
+                'vat_total_amount' => round($totalAmount, 2),
             ];
         }
 
-        if ($manualVatAmount !== null) {
-            $vatAmount = $manualVatAmount;
-            $netAmount = $totalAmount - $vatAmount;
-        } else {
+        // 
+        $totalAmount = $data['total_amount'];
+        if (!empty($data['has_vat'])) {
             $vatAmount = $totalAmount * (15 / 115);
             $netAmount = $totalAmount - $vatAmount;
+        } else {
+            $vatAmount = 0;
+            $netAmount = $totalAmount;
         }
 
         return [
             'total_amount' => round($totalAmount, 2),
             'net_amount' => round($netAmount, 2),
             'vat_amount' => round($vatAmount, 2),
-            'vat_total_amount' => round($netAmount + $vatAmount, 2), // ✅ جديد
+            'vat_total_amount' => round($netAmount + $vatAmount, 2),
         ];
     }
+
 
     public function getCustodyBalance(int $branchManagerId): float
     {
