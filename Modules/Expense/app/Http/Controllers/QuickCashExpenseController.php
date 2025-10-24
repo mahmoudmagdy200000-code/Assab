@@ -35,15 +35,19 @@ class QuickCashExpenseController extends Controller
             'items' => 'nullable|array',
             'items.*.title' => 'nullable|string|max:255',
             'items.*.amount' => 'nullable|numeric|min:0',
+
             'has_vat' => 'required|boolean',
-            'vat_amount' => 'nullable|numeric|min:0', // Changed from 'sometimes' to 'nullable' for clarity
+            'vat_amount' => 'nullable|numeric|min:0',
             'net_amount' => 'nullable|numeric|min:0',
             'vat_total_amount' => 'nullable|numeric|min:0',
+
             'invoice_number' => 'nullable|string|max:100',
             'payment_method' => 'required|in:cash,supplier,custody',
             'supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
+
             'invoice_receipt' => 'sometimes|array|max:5',
             'invoice_receipt.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
+
             'is_draft' => 'sometimes|boolean',
         ]);
 
@@ -55,9 +59,8 @@ class QuickCashExpenseController extends Controller
             ], 422);
         }
 
-        // Validate items total equals total_amount
+        // ✅ Validate items total equals total_amount
         $itemsTotal = collect($request->items ?? [])->sum('amount');
-
         if (!empty($request->items) && abs($itemsTotal - $request->total_amount) > 0.01) {
             return response()->json([
                 'success' => false,
@@ -69,7 +72,7 @@ class QuickCashExpenseController extends Controller
             ], 400);
         }
 
-        // Check custody balance if payment method is custody
+        // ✅ Check custody balance if payment method is custody
         if ($request->payment_method === 'custody') {
             $custodyBalance = $this->quickCashService->getCustodyBalance(auth()->id());
             if ($custodyBalance < $request->total_amount) {
@@ -87,7 +90,6 @@ class QuickCashExpenseController extends Controller
         DB::beginTransaction();
         try {
             $expense = $this->quickCashService->createQuickCashExpense($request->all());
-
             DB::commit();
 
             return response()->json([
@@ -108,14 +110,12 @@ class QuickCashExpenseController extends Controller
     }
 
     /**
-     * Update Quick Cash Expense (Draft only)
-     * PUT /api/branch-manager/expenses/quick-cash/{expense}
+     * Update Draft Quick Cash Expense
      */
     public function update(Request $request, int $expense): JsonResponse
     {
         $expenseModel = Expense::with('quickCashExpense')->findOrFail($expense);
 
-        // Check authorization
         if ($expenseModel->branch_manager_id !== auth()->id()) {
             return response()->json([
                 'success' => false,
@@ -134,9 +134,11 @@ class QuickCashExpenseController extends Controller
             'expense_date' => 'sometimes|date',
             'expense_name' => 'sometimes|string|max:255',
             'total_amount' => 'sometimes|numeric|min:0|max:500',
+
             'items' => 'sometimes|array|min:1',
             'items.*.title' => 'required_with:items|string|max:255',
             'items.*.amount' => 'required_with:items|numeric|min:0',
+
             'vat_total_amount' => 'nullable|numeric|min:0',
             'net_amount' => 'nullable|numeric|min:0',
             'vat_amount' => 'nullable|numeric|min:0',
@@ -155,11 +157,9 @@ class QuickCashExpenseController extends Controller
             ], 422);
         }
 
-        // Validate items total if provided
         if (isset($request->items)) {
             $itemsTotal = collect($request->items)->sum('amount');
             $totalAmount = $request->total_amount ?? $expenseModel->total_amount;
-
             if (abs($itemsTotal - $totalAmount) > 0.01) {
                 return response()->json([
                     'success' => false,
@@ -171,7 +171,6 @@ class QuickCashExpenseController extends Controller
         DB::beginTransaction();
         try {
             $updated = $this->quickCashService->updateQuickCashExpense($expenseModel, $request->all());
-
             DB::commit();
 
             return response()->json([
@@ -190,47 +189,7 @@ class QuickCashExpenseController extends Controller
     }
 
     /**
-     * Delete Draft Quick Cash Expense
-     * DELETE /api/branch-manager/expenses/quick-cash/{expense}
-     */
-    public function destroy(int $expense): JsonResponse
-    {
-        $expenseModel = Expense::findOrFail($expense);
-
-        // Check authorization
-        if ($expenseModel->branch_manager_id !== auth()->id()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthorized access to this expense'
-            ], 403);
-        }
-
-        if ($expenseModel->status !== 'draft') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Only draft expenses can be deleted',
-            ], 400);
-        }
-
-        try {
-            $expenseModel->delete();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Quick cash expense deleted successfully'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to delete expense',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Calculate VAT for Quick Cash
-     * POST /api/branch-manager/expenses/quick-cash/calculate-vat
+     * Calculate VAT (API)
      */
     public function calculateVAT(Request $request): JsonResponse
     {
@@ -246,6 +205,7 @@ class QuickCashExpenseController extends Controller
             ], 422);
         }
 
+        // ✅ الآن ترسل رقم فقط، والخدمة تتعامل معه بمرونة
         $calculation = $this->quickCashService->calculateVAT(
             $request->total_amount,
             $request->input('has_vat', true)
