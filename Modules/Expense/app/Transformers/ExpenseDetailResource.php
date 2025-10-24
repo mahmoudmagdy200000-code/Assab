@@ -60,6 +60,7 @@ class ExpenseDetailResource extends JsonResource
                 'expense_date' => $quickCash->expense_date->format('Y-m-d'),
                 'expense_name' => $quickCash->expense_name,
                 'has_vat' => $quickCash->has_vat,
+                'vat_total_amount' => (float) $this->quickCashExpense->vat_total_amount,
                 'invoice_number' => $quickCash->invoice_number,
                 'items' => $quickCash->items->map(function ($item) {
                     return [

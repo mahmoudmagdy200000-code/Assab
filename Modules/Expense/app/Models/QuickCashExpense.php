@@ -18,6 +18,7 @@ class QuickCashExpense extends Model
         'expense_name',
         'has_vat',
         'invoice_number',
+        'vat_total_amount',
     ];
 
     protected $casts = [

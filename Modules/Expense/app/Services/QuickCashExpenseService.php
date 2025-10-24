@@ -23,7 +23,7 @@ class QuickCashExpenseService
             $data['vat_amount'] ?? null
         );
 
-        
+
         $netAmount = $data['net_amount'] ?? $vatCalculation['net_amount'];
 
         // تحقق من التناسق بين total و net و vat
@@ -43,14 +43,17 @@ class QuickCashExpenseService
             'supplier_id' => $data['supplier_id'] ?? null,
         ]);
 
+
         // Create quick cash expense details
         $quickCash = QuickCashExpense::create([
             'expense_id' => $expense->id,
             'expense_date' => $data['expense_date'],
             'expense_name' => $data['expense_name'],
             'has_vat' => $data['has_vat'] ?? false,
+            'vat_total_amount' => round($vatCalculation['total_amount'], 2), // ✅
             'invoice_number' => $data['invoice_number'] ?? null,
         ]);
+
 
         // Create quick cash items if provided
         if (!empty($data['items']) && is_array($data['items'])) {
@@ -124,7 +127,11 @@ class QuickCashExpenseService
             'expense_name' => $data['expense_name'] ?? null,
             'has_vat' => $data['has_vat'] ?? null,
             'invoice_number' => $data['invoice_number'] ?? null,
+            'vat_total_amount' => isset($vatCalculation)
+                ? round($vatCalculation['total_amount'], 2)
+                : $expense->quickCashExpense->vat_total_amount,
         ]));
+
 
         // Update items if provided
         if (isset($data['items'])) {
@@ -176,6 +183,7 @@ class QuickCashExpenseService
             'total_amount' => round($totalAmount, 2),
             'net_amount' => round($netAmount, 2),
             'vat_amount' => round($vatAmount, 2),
+            'vat_total_amount' => round($netAmount + $vatAmount, 2), // ✅ جديد
         ];
     }
 

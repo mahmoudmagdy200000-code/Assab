@@ -18,6 +18,7 @@ return new class extends Migration
             $table->string('expense_name', 255);
             $table->boolean('has_vat')->default(true);
             $table->string('invoice_number', 100)->nullable();
+            $table->decimal('vat_total_amount', 12, 2)->nullable();
             $table->timestamps();
 
             $table->unique('expense_id');
