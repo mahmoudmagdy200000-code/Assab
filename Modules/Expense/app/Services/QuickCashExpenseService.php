@@ -17,11 +17,7 @@ class QuickCashExpenseService
     public function createQuickCashExpense(array $data): Expense
     {
         // Calculate VAT - Support manual VAT input
-        $vatCalculation = $this->calculateVAT(
-            $data['total_amount'],
-            $data['has_vat'] ?? false,
-            $data['vat_amount'] ?? null
-        );
+        $vatCalculation = $this->calculateVAT($data);
 
 
         $netAmount = $data['net_amount'] ?? $vatCalculation['net_amount'];
@@ -177,7 +173,7 @@ class QuickCashExpenseService
             ];
         }
 
-        // 
+        //
         $totalAmount = $data['total_amount'];
         if (!empty($data['has_vat'])) {
             $vatAmount = $totalAmount * (15 / 115);
