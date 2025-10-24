@@ -48,6 +48,17 @@ class SingleInvoiceExpenseService
             'due_date' => $data['due_date'] ?? null,
         ]);
 
+        // Save tax invoice extra details if applicable
+        if (!empty($data['is_tax_invoice']) && !empty($data['tax_invoice_details'])) {
+            $invoice->update([
+                'tax_supplier_name' => $data['tax_invoice_details']['supplier_name'] ?? null,
+                'tax_net_amount' => $data['tax_invoice_details']['net_amount'] ?? null,
+                'tax_vat_amount' => $data['tax_invoice_details']['vat_amount'] ?? null,
+                'tax_total_amount' => $data['tax_invoice_details']['total_amount'] ?? null,
+            ]);
+        }
+
+
         // Create expense items (purchases)
         if (!empty($data['items'])) {
             foreach ($data['items'] as $item) {
@@ -115,6 +126,16 @@ class SingleInvoiceExpenseService
                 'due_date' => $data['due_date'] ?? null,
             ]));
         }
+        // Update tax invoice details if applicable
+        if (!empty($data['is_tax_invoice']) && !empty($data['tax_invoice_details'])) {
+            $expense->invoiceDetails()->first()->update([
+                'tax_supplier_name' => $data['tax_invoice_details']['supplier_name'] ?? null,
+                'tax_net_amount' => $data['tax_invoice_details']['net_amount'] ?? null,
+                'tax_vat_amount' => $data['tax_invoice_details']['vat_amount'] ?? null,
+                'tax_total_amount' => $data['tax_invoice_details']['total_amount'] ?? null,
+            ]);
+        }
+
 
         // Update items if provided
         if (isset($data['items'])) {

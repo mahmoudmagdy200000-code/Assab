@@ -9,10 +9,11 @@ return new class extends Migration
     /**
      * Run the migrations.
      */
-   public function up(): void
+    public function up(): void
     {
         Schema::create('invoice_details', function (Blueprint $table) {
             $table->id();
+
             $table->foreignId('expense_id')->constrained('expenses')->cascadeOnDelete();
             $table->foreignId('grouped_invoice_id')->nullable()->constrained('grouped_invoices')->cascadeOnDelete();
             $table->foreignId('supplier_id')->nullable()->constrained('suppliers')->nullOnDelete();
@@ -21,6 +22,12 @@ return new class extends Migration
             $table->date('issue_date');
             $table->boolean('is_tax_invoice')->default(false);
             $table->string('tax_id', 50)->nullable();
+
+
+            $table->string('tax_supplier_name')->nullable();
+            $table->decimal('tax_net_amount', 12, 2)->nullable();
+            $table->decimal('tax_vat_amount', 12, 2)->nullable();
+            $table->decimal('tax_total_amount', 12, 2)->nullable();
 
             $table->enum('payment_type', ['full', 'partial', 'deferred'])->nullable();
             $table->decimal('paid_amount', 12, 2)->default(0);

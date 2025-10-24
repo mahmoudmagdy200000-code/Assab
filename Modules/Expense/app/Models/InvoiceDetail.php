@@ -20,6 +20,13 @@ class InvoiceDetail extends Model
         'issue_date',
         'is_tax_invoice',
         'tax_id',
+
+        // 🧾 تفاصيل الفاتورة الضريبية
+        'tax_supplier_name',
+        'tax_net_amount',
+        'tax_vat_amount',
+        'tax_total_amount',
+
         'payment_type',
         'paid_amount',
         'due_date',
@@ -29,6 +36,9 @@ class InvoiceDetail extends Model
         'issue_date' => 'date',
         'is_tax_invoice' => 'boolean',
         'paid_amount' => 'decimal:2',
+        'tax_net_amount' => 'decimal:2',
+        'tax_vat_amount' => 'decimal:2',
+        'tax_total_amount' => 'decimal:2',
         'due_date' => 'date',
     ];
 

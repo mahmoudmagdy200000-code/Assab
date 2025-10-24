@@ -32,7 +32,13 @@ class SingleInvoiceExpenseController extends Controller
             'invoice_number' => 'required|string|max:100',
             'issue_date' => 'required|date',
             'is_tax_invoice' => 'required|boolean',
-            'tax_id' => 'nullable|string|max:50',
+            // 'tax_id' => 'nullable|string|max:50',
+            'tax_invoice_details' => 'required_if:is_tax_invoice,true|array',
+            'tax_invoice_details.supplier_name' => 'required_if:is_tax_invoice,true|string|max:255',
+            'tax_invoice_details.net_amount' => 'required_if:is_tax_invoice,true|numeric|min:0',
+            'tax_invoice_details.vat_amount' => 'required_if:is_tax_invoice,true|numeric|min:0',
+            'tax_invoice_details.total_amount' => 'required_if:is_tax_invoice,true|numeric|min:0',
+
 
             // Invoice items (purchases)
             'items' => 'sometimes|array',
@@ -133,6 +139,12 @@ class SingleInvoiceExpenseController extends Controller
             'issue_date' => 'sometimes|date',
             'is_tax_invoice' => 'sometimes|boolean',
             'tax_id' => 'nullable|string|max:50',
+            'tax_invoice_details' => 'sometimes|array',
+            'tax_invoice_details.supplier_name' => 'sometimes|string|max:255',
+            'tax_invoice_details.net_amount' => 'sometimes|numeric|min:0',
+            'tax_invoice_details.vat_amount' => 'sometimes|numeric|min:0',
+            'tax_invoice_details.total_amount' => 'sometimes|numeric|min:0',
+
             'items' => 'sometimes|array',
             'expenses' => 'sometimes|array',
             'payment_type' => 'sometimes|in:full,partial,deferred',

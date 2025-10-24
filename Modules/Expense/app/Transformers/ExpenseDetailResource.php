@@ -42,7 +42,7 @@ class ExpenseDetailResource extends JsonResource
 
     private function getTypeSpecificDetails(): array
     {
-        return match($this->expense_type) {
+        return match ($this->expense_type) {
             'quick_cash' => $this->getQuickCashDetails(),
             'single_invoice' => $this->getSingleInvoiceDetails(),
             'grouped_invoice' => $this->getGroupedInvoiceDetails(),
@@ -77,7 +77,7 @@ class ExpenseDetailResource extends JsonResource
     {
         $invoice = $this->invoiceDetails->first();
 
-        return [
+        $data = [
             'single_invoice' => [
                 'invoice_number' => $invoice->invoice_number,
                 'issue_date' => $invoice->issue_date->format('Y-m-d'),
@@ -107,7 +107,20 @@ class ExpenseDetailResource extends JsonResource
             ],
             'attachments' => $this->getAttachments(),
         ];
+
+        // Tax Invoice
+        if ($invoice->is_tax_invoice) {
+            $data['single_invoice']['tax_invoice_details'] = [
+                'supplier_name' => $invoice->supplier?->name,
+                'net_amount'    => (float) $invoice->tax_net_amount,
+                'vat_amount'    => (float) $invoice->tax_vat_amount,
+                'total_amount'  => (float) $invoice->tax_total_amount,
+            ];
+        }
+
+        return $data;
     }
+
 
     private function getGroupedInvoiceDetails(): array
     {
@@ -225,7 +238,7 @@ class ExpenseDetailResource extends JsonResource
 
     private function getExpenseTypeLabel(): string
     {
-        return match($this->expense_type) {
+        return match ($this->expense_type) {
             'quick_cash' => 'Quick Cash Expense',
             'single_invoice' => 'Single Invoice',
             'grouped_invoice' => 'Grouped Invoices',
@@ -236,7 +249,7 @@ class ExpenseDetailResource extends JsonResource
 
     private function getStatusColor(): string
     {
-        return match($this->status) {
+        return match ($this->status) {
             'draft' => 'gray',
             'pending' => 'yellow',
             'approved' => 'green',

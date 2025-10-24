@@ -20,17 +20,25 @@ class QuickCashExpenseService
         $vatCalculation = $this->calculateVAT(
             $data['total_amount'],
             $data['has_vat'] ?? false,
-            $data['vat_amount'] ?? null  // Pass manual VAT if provided
+            $data['vat_amount'] ?? null
         );
+
+        
+        $netAmount = $data['net_amount'] ?? $vatCalculation['net_amount'];
+
+        // تحقق من التناسق بين total و net و vat
+        if (isset($data['vat_amount']) && abs(($netAmount + $data['vat_amount']) - $data['total_amount']) > 0.01) {
+            throw new \Exception('Total amount must equal net + VAT');
+        }
 
         // Create main expense record
         $expense = Expense::create([
             'branch_manager_id' => auth()->id(),
             'expense_type' => 'quick_cash',
             'status' => $data['is_draft'] ?? false ? 'draft' : 'pending',
-            'total_amount' => $vatCalculation['total_amount'],
-            'net_amount' => $vatCalculation['net_amount'],
-            'vat_amount' => $vatCalculation['vat_amount'],
+            'total_amount' => round($data['total_amount'], 2),
+            'net_amount' => round($netAmount, 2),
+            'vat_amount' => round($data['vat_amount'] ?? $vatCalculation['vat_amount'], 2),
             'payment_method' => $data['payment_method'],
             'supplier_id' => $data['supplier_id'] ?? null,
         ]);
@@ -63,7 +71,11 @@ class QuickCashExpenseService
         }
 
         // Create timeline entry
-        $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
+        $this->createTimelineEntry(
+            $expense,
+            'created',
+            $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted'
+        );
 
         return $expense;
     }
@@ -74,17 +86,27 @@ class QuickCashExpenseService
     public function updateQuickCashExpense(Expense $expense, array $data): Expense
     {
         // Calculate VAT if amount changed
-        if (isset($data['total_amount'])) {
+        if (isset($data['total_amount']) || isset($data['vat_amount']) || isset($data['net_amount'])) {
             $vatCalculation = $this->calculateVAT(
-                $data['total_amount'],
+                $data['total_amount'] ?? $expense->total_amount,
                 $data['has_vat'] ?? $expense->quickCashExpense->has_vat,
-                $data['vat_amount'] ?? null  // Support manual VAT on update
+                $data['vat_amount'] ?? null
             );
 
+
+            $netAmount = $data['net_amount'] ?? $vatCalculation['net_amount'];
+            $vatAmount = $data['vat_amount'] ?? $vatCalculation['vat_amount'];
+            $totalAmount = $data['total_amount'] ?? $expense->total_amount;
+
+
+            if (abs(($netAmount + $vatAmount) - $totalAmount) > 0.01) {
+                throw new \Exception('Total amount must equal net + VAT');
+            }
+
             $expense->update([
-                'total_amount' => $vatCalculation['total_amount'],
-                'net_amount' => $vatCalculation['net_amount'],
-                'vat_amount' => $vatCalculation['vat_amount'],
+                'total_amount' => round($totalAmount, 2),
+                'net_amount' => round($netAmount, 2),
+                'vat_amount' => round($vatAmount, 2),
             ]);
         }
 
@@ -106,10 +128,8 @@ class QuickCashExpenseService
 
         // Update items if provided
         if (isset($data['items'])) {
-            // Delete old items
             $expense->quickCashExpense->items()->delete();
 
-            // Create new items
             foreach ($data['items'] as $item) {
                 QuickCashItem::create([
                     'quick_cash_expense_id' => $expense->quickCashExpense->id,
@@ -126,7 +146,6 @@ class QuickCashExpenseService
             }
         }
 
-        // Create timeline entry
         $this->createTimelineEntry($expense, 'updated');
 
         return $expense;
@@ -134,11 +153,6 @@ class QuickCashExpenseService
 
     /**
      * Calculate VAT (15% default or manual input)
-     *
-     * @param float $totalAmount The total amount including VAT
-     * @param bool $hasVat Whether the expense has VAT
-     * @param float|null $manualVatAmount Manual VAT amount if provided
-     * @return array
      */
     public function calculateVAT(float $totalAmount, bool $hasVat = true, ?float $manualVatAmount = null): array
     {
@@ -150,13 +164,10 @@ class QuickCashExpenseService
             ];
         }
 
-        // If manual VAT amount is provided, use it
         if ($manualVatAmount !== null) {
             $vatAmount = $manualVatAmount;
             $netAmount = $totalAmount - $vatAmount;
         } else {
-            // Otherwise, calculate 15% VAT (assuming total includes VAT)
-            // Formula: VAT = Total * (15/115)
             $vatAmount = $totalAmount * (15 / 115);
             $netAmount = $totalAmount - $vatAmount;
         }
@@ -168,9 +179,6 @@ class QuickCashExpenseService
         ];
     }
 
-    /**
-     * Get custody balance for branch manager
-     */
     public function getCustodyBalance(int $branchManagerId): float
     {
         // TODO: Implement custody balance logic
@@ -178,9 +186,6 @@ class QuickCashExpenseService
         return 10000.00; // Placeholder
     }
 
-    /**
-     * Upload invoice receipt
-     */
     private function uploadInvoiceReceipt(Expense $expense, $file): void
     {
         $filename = 'expense_' . $expense->id . '_' . time() . '.' . $file->getClientOriginalExtension();
@@ -194,9 +199,6 @@ class QuickCashExpenseService
         ]);
     }
 
-    /**
-     * Create timeline entry
-     */
     private function createTimelineEntry(Expense $expense, string $action, string $status = null): void
     {
         $expense->timelines()->create([

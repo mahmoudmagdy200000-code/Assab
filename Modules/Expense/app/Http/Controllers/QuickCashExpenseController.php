@@ -36,6 +36,7 @@ class QuickCashExpenseController extends Controller
             'items.*.amount' => 'nullable|numeric|min:0',
             'has_vat' => 'required|boolean',
             'vat_amount' => 'nullable|numeric|min:0', // Changed from 'sometimes' to 'nullable' for clarity
+            'net_amount' => 'nullable|numeric|min:0',
             'invoice_number' => 'nullable|string|max:100',
             'payment_method' => 'required|in:cash,supplier,custody',
             'supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
