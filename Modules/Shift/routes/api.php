@@ -6,10 +6,21 @@ use Modules\Shift\Http\Controllers\{
     InProgressShiftController,
     CompletedShiftController,
     ReassignmentShiftController,
+    ShiftController,
     ShiftEndController,
     ShiftHandoverController,
     ShiftVarianceController
 };
+
+
+
+/*
+|--------------------------------------------------------------------------
+| API Routes for Shift Module
+|--------------------------------------------------------------------------
+*/
+
+
 
 /*
 |--------------------------------------------------------------------------
@@ -20,6 +31,11 @@ use Modules\Shift\Http\Controllers\{
 Route::prefix('branch-manager')
     ->middleware(['auth:sanctum', 'branch.manager'])
     ->group(function () {
+
+
+        Route::prefix('shifts')->group(function () {
+            Route::get('/', [ShiftController::class, 'index'])->name('shifts.index');
+        });
 
         /*
     |----------------------------------------------------------------------

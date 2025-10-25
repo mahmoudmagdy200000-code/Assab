@@ -2,55 +2,34 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Modules\Shift\Models\Shift;
 
-class ShiftController extends Controller
+
+class ShiftController extends BaseController
 {
-    /**
-     * Display a listing of the resource.
-     */
+    // Controller methods will go here
+
+
+    // get all shifts
     public function index()
     {
-        return view('shift::index');
+        // Logic to get all shifts
+
+        $manager = auth()->user();
+
+        // Ensure the user is a branch manager
+        if (!$manager || !$manager->branch_id) {
+            return $this->errorResponse('Unauthorized', 403);
+        }
+
+        // Get all shifts for that branch
+        $shifts = Shift::where('branch_id', $manager->branch_id)
+            ->orderBy('start_time')
+            ->paginate(10);
+
+        return $this->successResponse($shifts, 'Shifts retrieved successfully');
     }
-
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
-    {
-        return view('shift::create');
-    }
-
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request) {}
-
-    /**
-     * Show the specified resource.
-     */
-    public function show($id)
-    {
-        return view('shift::show');
-    }
-
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit($id)
-    {
-        return view('shift::edit');
-    }
-
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, $id) {}
-
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy($id) {}
 }
