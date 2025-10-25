@@ -29,7 +29,7 @@ class SingleInvoiceExpenseService
             'branch_manager_id' => auth()->id(),
             'expense_type' => 'single_invoice',
             'status' => $data['is_draft'] ?? false ? 'draft' : 'pending',
-            'total_amount' => $totals['total_amount'],
+            'total_amount' => $data['total_amount'],
             'net_amount' => $totals['net_amount'],
             'vat_amount' => $totals['vat_amount'],
             'payment_method' => $data['payment_method'] ?? null,
