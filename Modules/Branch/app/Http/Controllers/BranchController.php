@@ -2,55 +2,30 @@
 
 namespace Modules\Branch\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Modules\Branch\Models\Branch;
 
-class BranchController extends Controller
+class BranchController extends BaseController
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index()
     {
-        return view('branch::index');
+        $manager = auth()->user();
+
+        // تأكد إن المستخدم مسجل دخول كـ Branch Manager
+        if (!$manager) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized.',
+            ], 403);
+        }
+
+        // هنا بنجيب كل الفروع - ممكن تضيف شرط لو عايز يجيب بس فروع محددة
+        $branches = Branch::query()
+            ->orderBy('name')
+            ->paginate(10);
+
+        return $this->successResponse($branches, 'Branches retrieved successfully');
     }
-
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
-    {
-        return view('branch::create');
-    }
-
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request) {}
-
-    /**
-     * Show the specified resource.
-     */
-    public function show($id)
-    {
-        return view('branch::show');
-    }
-
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit($id)
-    {
-        return view('branch::edit');
-    }
-
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, $id) {}
-
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy($id) {}
 }

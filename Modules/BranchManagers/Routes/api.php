@@ -31,6 +31,11 @@ Route::prefix('branch-manager')->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::get('auth/me', [AuthController::class, 'me']);
 
+        // Branch Management
+        Route::prefix('branches')->group(function () {
+            Route::get('/', [\Modules\Branch\Http\Controllers\BranchController::class, 'index']);
+        });
+
         // Dashboard
         Route::prefix('dashboard')->group(function () {
             Route::get('/', [DashboardController::class, 'index']);
