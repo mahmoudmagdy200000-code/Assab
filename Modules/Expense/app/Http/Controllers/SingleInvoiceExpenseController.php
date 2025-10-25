@@ -31,6 +31,7 @@ class SingleInvoiceExpenseController extends BaseController
         $validator = Validator::make($request->all(), [
             'supplier_id' => 'required|exists:suppliers,id',
             'invoice_number' => 'required|string|max:100',
+            'total_amount' => 'required|numeric|min:0',
             'issue_date' => 'required|date',
             'is_tax_invoice' => 'required|boolean',
             // 'tax_id' => 'nullable|string|max:50',
