@@ -88,8 +88,10 @@ class SingleInvoiceExpenseService
         }
 
         // Upload invoice receipt
-        if (isset($data['invoice_receipt'])) {
-            $this->uploadInvoiceReceipt($expense, $data['invoice_receipt']);
+        if (isset($data['invoice_receipt']) && is_array($data['invoice_receipt'])) {
+            foreach ($data['invoice_receipt'] as $file) {
+                $this->uploadInvoiceReceipt($expense, $file);
+            }
         }
 
         // Create timeline entry
@@ -170,8 +172,10 @@ class SingleInvoiceExpenseService
         }
 
         // Upload new receipt if provided
-        if (isset($data['invoice_receipt'])) {
-            $this->uploadInvoiceReceipt($expense, $data['invoice_receipt']);
+        if (isset($data['invoice_receipt']) && is_array($data['invoice_receipt'])) {
+            foreach ($data['invoice_receipt'] as $file) {
+                $this->uploadInvoiceReceipt($expense, $file);
+            }
         }
 
         // Create timeline entry

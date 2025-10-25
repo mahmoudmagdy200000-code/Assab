@@ -59,7 +59,8 @@ class SingleInvoiceExpenseController extends Controller
             'paid_amount' => 'required_if:payment_type,partial|numeric|min:0',
             'due_date' => 'required_if:payment_type,partial,deferred|date|after:today',
 
-            'invoice_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
+             'invoice_receipt' => 'sometimes|array|max:5',
+            'invoice_receipt.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
             'is_draft' => 'sometimes|boolean',
         ]);
 
