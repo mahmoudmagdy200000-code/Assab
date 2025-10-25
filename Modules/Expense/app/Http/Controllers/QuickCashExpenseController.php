@@ -10,12 +10,13 @@ use Illuminate\Support\Facades\Validator;
 use Modules\Expense\Services\QuickCashExpenseService;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Transformers\ExpenseDetailResource;
+use App\Http\Controllers\BaseController;
 
 /**
  * Quick Cash Expense Controller
  * For expenses < 500 SAR
  */
-class QuickCashExpenseController extends Controller
+class QuickCashExpenseController extends BaseController
 {
     public function __construct(
         private QuickCashExpenseService $quickCashService
@@ -52,38 +53,31 @@ class QuickCashExpenseController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
+            return $this->errorResponse(
+                'Validation failed',
+                422,
+                $validator->errors()
+            );
         }
 
         // ✅ Validate items total equals total_amount
         $itemsTotal = collect($request->items ?? [])->sum('amount');
         if (!empty($request->items) && abs($itemsTotal - $request->total_amount) > 0.01) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Items total must equal total amount',
-                'details' => [
-                    'items_total' => $itemsTotal,
-                    'declared_total' => $request->total_amount,
-                ]
-            ], 400);
+            return $this->errorResponse(
+                'Items total must equal total amount',
+                400
+            );
         }
 
         // ✅ Check custody balance if payment method is custody
         if ($request->payment_method === 'custody') {
             $custodyBalance = $this->quickCashService->getCustodyBalance(auth()->id());
             if ($custodyBalance < $request->total_amount) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Insufficient custody balance',
-                    'details' => [
-                        'custody_balance' => $custodyBalance,
-                        'required_amount' => $request->total_amount,
-                    ]
-                ], 400);
+                return $this->errorResponse(
+                    'Insufficient custody balance',
+                    400,
+                    ['custody_balance' => $custodyBalance]
+                );
             }
         }
 
@@ -92,13 +86,10 @@ class QuickCashExpenseController extends Controller
             $expense = $this->quickCashService->createQuickCashExpense($request->all());
             DB::commit();
 
-            return response()->json([
-                'success' => true,
-                'message' => $request->is_draft
-                    ? 'Quick cash expense saved as draft'
-                    : 'Quick cash expense created successfully',
-                'data' => new ExpenseDetailResource($expense->fresh())
-            ], 201);
+            return $this->createdResponse(
+                new ExpenseDetailResource($expense),
+                'Quick cash expense created successfully'
+            );
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
@@ -117,17 +108,17 @@ class QuickCashExpenseController extends Controller
         $expenseModel = Expense::with('quickCashExpense')->findOrFail($expense);
 
         if ($expenseModel->branch_manager_id !== auth()->id()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthorized access to this expense'
-            ], 403);
+            return $this->errorResponse(
+                'Unauthorized access to this expense',
+                403
+            );
         }
 
         if ($expenseModel->status !== 'draft') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Only draft expenses can be updated',
-            ], 400);
+            return $this->errorResponse(
+                'Only draft expenses can be updated',
+                400
+            );
         }
 
         $validator = Validator::make($request->all(), [
@@ -150,21 +141,21 @@ class QuickCashExpenseController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
+            return $this->errorResponse(
+                'Validation failed',
+                422,
+                $validator->errors()
+            );
         }
 
         if (isset($request->items)) {
             $itemsTotal = collect($request->items)->sum('amount');
             $totalAmount = $request->total_amount ?? $expenseModel->total_amount;
             if (abs($itemsTotal - $totalAmount) > 0.01) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Items total must equal total amount',
-                ], 400);
+                return $this->errorResponse(
+                    'Items total must equal total amount',
+                    400
+                );
             }
         }
 
@@ -173,11 +164,10 @@ class QuickCashExpenseController extends Controller
             $updated = $this->quickCashService->updateQuickCashExpense($expenseModel, $request->all());
             DB::commit();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Quick cash expense updated successfully',
-                'data' => new ExpenseDetailResource($updated->fresh())
-            ]);
+            return $this->successResponse(
+                new ExpenseDetailResource($updated->fresh()),
+                'Quick cash expense updated successfully'
+            );
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([

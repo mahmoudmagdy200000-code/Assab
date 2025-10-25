@@ -10,12 +10,13 @@ use Illuminate\Support\Facades\Validator;
 use Modules\Expense\Services\SingleInvoiceExpenseService;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Transformers\ExpenseDetailResource;
+use App\Http\Controllers\BaseController;
 
 /**
  * Single Invoice Expense Controller
  * For expenses > 500 SAR
  */
-class SingleInvoiceExpenseController extends Controller
+class SingleInvoiceExpenseController extends BaseController
 {
     public function __construct(
         private SingleInvoiceExpenseService $singleInvoiceService
@@ -65,21 +66,22 @@ class SingleInvoiceExpenseController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
+            return $this->errorResponse(
+                'Validation failed',
+                422,
+                $validator->errors()
+            );
         }
 
         // Validate total amount > 500
         $totalAmount = $this->singleInvoiceService->calculateTotalAmount($request->all());
         if ($totalAmount <= 500) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Single invoice expenses must be greater than 500 SAR',
-                'total_amount' => $totalAmount,
-            ], 400);
+            return $this->errorResponse(
+                'Single invoice expenses must be greater than 500 SAR',
+                400,
+                ['total_amount' => $totalAmount]
+
+            );
         }
 
         // Check custody balance if payment method is custody
@@ -93,20 +95,17 @@ class SingleInvoiceExpenseController extends Controller
 
             DB::commit();
 
-            return response()->json([
-                'success' => true,
-                'message' => $request->is_draft
-                    ? 'Single invoice expense saved as draft'
-                    : 'Single invoice expense created successfully',
-                'data' => new ExpenseDetailResource($expense->fresh())
-            ], 201);
+            return $this->createdResponse(
+                new ExpenseDetailResource($expense),
+                'Single invoice expense created successfully'
+            );
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to create single invoice expense',
-                'error' => $e->getMessage()
-            ], 500);
+            return $this->errorResponse(
+                'Failed to create single invoice expense',
+                500,
+                ['error' => $e->getMessage()]
+            );
         }
     }
 
@@ -121,17 +120,17 @@ class SingleInvoiceExpenseController extends Controller
 
         // Check authorization
         if ($expenseModel->branch_manager_id !== auth()->id()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthorized access to this expense'
-            ], 403);
+            return $this->errorResponse(
+                'Unauthorized access to this expense',
+                403
+            );
         }
 
         if ($expenseModel->status !== 'draft') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Only draft expenses can be updated',
-            ], 400);
+            return $this->errorResponse(
+                'Only draft expenses can be updated',
+                400
+            );
         }
 
         $validator = Validator::make($request->all(), [
@@ -156,11 +155,11 @@ class SingleInvoiceExpenseController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
+            return $this->errorResponse(
+                'Validation failed',
+                422,
+                $validator->errors()
+            );
         }
 
         // Validate total amount > 500 if items/expenses changed
@@ -169,11 +168,11 @@ class SingleInvoiceExpenseController extends Controller
             $totalAmount = $this->singleInvoiceService->calculateTotalAmount($data);
 
             if ($totalAmount <= 500) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Single invoice expenses must be greater than 500 SAR',
-                    'total_amount' => $totalAmount,
-                ], 400);
+                return $this->errorResponse(
+                    'Single invoice expenses must be greater than 500 SAR',
+                    400,
+                    ['total_amount' => $totalAmount]
+                );
             }
         }
 
@@ -183,18 +182,17 @@ class SingleInvoiceExpenseController extends Controller
 
             DB::commit();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Single invoice expense updated successfully',
-                'data' => new ExpenseDetailResource($updated->fresh())
-            ]);
+            return $this->successResponse(
+                new ExpenseDetailResource($updated->fresh()),
+                'Single invoice expense updated successfully'
+            );
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to update single invoice expense',
-                'error' => $e->getMessage()
-            ], 500);
+            return $this->errorResponse(
+                'Failed to update single invoice expense',
+                500,
+                ['error' => $e->getMessage()]
+            );
         }
     }
 
@@ -210,17 +208,16 @@ class SingleInvoiceExpenseController extends Controller
                 $request->input('search')
             );
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Previous invoices retrieved successfully',
-                'data' => $invoices
-            ]);
+            return $this->successResponse(
+                ExpenseDetailResource::collection($invoices),
+                'Previous invoices retrieved successfully'
+            );
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve previous invoices',
-                'error' => $e->getMessage()
-            ], 500);
+            return $this->errorResponse(
+                'Failed to retrieve previous invoices',
+                500,
+                ['error' => $e->getMessage()]
+            );
         }
     }
 }
