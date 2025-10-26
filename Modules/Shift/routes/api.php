@@ -37,6 +37,9 @@ Route::prefix('branch-manager')
             Route::get('/', [ShiftController::class, 'index'])->name('shifts.index');
         });
 
+        Route::get('shifts/cashiers', [ShiftController::class, 'getAllCashiersShifts'])
+            ->name('shifts.cashiers.index');
+
         /*
     |----------------------------------------------------------------------
     | Pending Shifts
