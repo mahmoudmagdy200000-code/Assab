@@ -48,7 +48,7 @@ class ExpenseController extends BaseController
             'pre_approval_total' => (float) $expenses->where('expense_type', 'pre_approval')->sum('total_amount'),
         ];
 
-        return $this->paginatedResponse(
+        return $this->successResponse(
             $summary,
             'Expense summary retrieved successfully'
         );
