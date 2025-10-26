@@ -38,17 +38,17 @@ class ShiftController extends BaseController
     {
         $manager = auth()->user();
 
-        // Ensure the user is a branch manager
         if (!$manager || !$manager->branch_id) {
             return $this->errorResponse('Unauthorized', 403);
         }
 
-        // Get all cashiers' shifts for that branch
-        $shifts = CashierShift::where('branch_id', $manager->branch_id)
+        // Filter by related cashier's branch_id (requires CashierShift::cashier relation)
+        $shifts = CashierShift::whereHas('cashier', function ($q) use ($manager) {
+            $q->where('branch_id', $manager->branch_id);
+        })
             ->orderBy('start_time')
             ->paginate(10);
 
         return $this->paginatedResponse($shifts, 'Cashiers shifts retrieved successfully');
     }
-
 }
