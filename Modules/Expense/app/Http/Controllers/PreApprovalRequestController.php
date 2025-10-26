@@ -2,6 +2,8 @@
 
 namespace Modules\Expense\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
+use Faker\Provider\Base;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -15,7 +17,7 @@ use Modules\Expense\Transformers\ExpenseDetailResource;
  * Pre-Approval Request Controller
  * For expenses > 500 SAR (requires approval before purchase)
  */
-class PreApprovalRequestController extends Controller
+class PreApprovalRequestController extends BaseController
 {
     public function __construct(
         private PreApprovalRequestService $preApprovalService
@@ -52,20 +54,16 @@ class PreApprovalRequestController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
+            return $this->errorResponse(
+                'Validation failed',
+                422,
+                $validator->errors()->toArray()
+            );
         }
 
         // Validate estimated amount >= 500
         if ($request->estimated_amount < 500) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Pre-approval requests must be for amounts >= 500 SAR',
-                'estimated_amount' => $request->estimated_amount,
-            ], 400);
+            return $this->errorResponse('Pre-approval requests must be for amounts >= 500 SAR', 400);
         }
 
         DB::beginTransaction();
@@ -74,20 +72,18 @@ class PreApprovalRequestController extends Controller
 
             DB::commit();
 
-            return response()->json([
-                'success' => true,
-                'message' => $request->is_draft
+            return $this->successResponse(
+                new ExpenseDetailResource($expense),
+                $request->is_draft
                     ? 'Pre-approval request saved as draft'
-                    : 'Pre-approval request created successfully',
-                'data' => new ExpenseDetailResource($expense->fresh())
-            ], 201);
+                    : 'Pre-approval request created successfully'
+            );
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to create pre-approval request',
-                'error' => $e->getMessage()
-            ], 500);
+            return $this->errorResponse(
+                'Failed to create pre-approval request: ' . $e->getMessage(),
+                500
+            );
         }
     }
 
@@ -102,17 +98,11 @@ class PreApprovalRequestController extends Controller
 
         // Check authorization
         if ($expenseModel->branch_manager_id !== auth()->id()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthorized access to this expense'
-            ], 403);
+            return $this->errorResponse('Unauthorized to update this pre-approval request', 403);
         }
 
         if ($expenseModel->status !== 'draft') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Only draft expenses can be updated',
-            ], 400);
+            return $this->errorResponse('Only draft pre-approval requests can be updated', 400);
         }
 
         $validator = Validator::make($request->all(), [
@@ -127,19 +117,16 @@ class PreApprovalRequestController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
+            return $this->errorResponse(
+                'Validation failed',
+                422,
+                $validator->errors()->toArray()
+            );
         }
 
         // Validate estimated amount >= 500 if changed
         if (isset($request->estimated_amount) && $request->estimated_amount < 500) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Pre-approval requests must be for amounts >= 500 SAR',
-            ], 400);
+            return $this->errorResponse('Pre-approval requests must be for amounts >= 500 SAR', 400);
         }
 
         DB::beginTransaction();
@@ -148,18 +135,16 @@ class PreApprovalRequestController extends Controller
 
             DB::commit();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Pre-approval request updated successfully',
-                'data' => new ExpenseDetailResource($updated->fresh())
-            ]);
+            return $this->successResponse(
+                new ExpenseDetailResource($updated),
+                'Pre-approval request updated successfully'
+            );
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to update pre-approval request',
-                'error' => $e->getMessage()
-            ], 500);
+            return $this->errorResponse(
+                'Failed to update pre-approval request: ' . $e->getMessage(),
+                500
+            );
         }
     }
 }

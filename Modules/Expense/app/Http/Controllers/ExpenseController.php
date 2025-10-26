@@ -2,6 +2,7 @@
 
 namespace Modules\Expense\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -13,7 +14,7 @@ use Modules\Expense\Transformers\{ExpenseResource, ExpenseDetailResource, Expens
  * Main Expense Controller
  * General expense operations
  */
-class ExpenseController extends Controller
+class ExpenseController extends BaseController
 {
     public function __construct(
         private ExpenseApprovalService $approvalService,
@@ -47,10 +48,10 @@ class ExpenseController extends Controller
             'pre_approval_total' => (float) $expenses->where('expense_type', 'pre_approval')->sum('total_amount'),
         ];
 
-        return response()->json([
-            'success' => true,
-            'data' => $summary
-        ]);
+        return $this->paginatedResponse(
+            $summary,
+            'Expense summary retrieved successfully'
+        );
     }
 
     /**
@@ -65,11 +66,10 @@ class ExpenseController extends Controller
             ->limit(10)
             ->get();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Recent expenses retrieved successfully',
-            'data' => ExpenseResource::collection($expenses)
-        ]);
+        return $this->successResponse(
+            ExpenseResource::collection($expenses),
+            'Recent expenses retrieved successfully'
+        );
     }
 
     /**
@@ -101,16 +101,10 @@ class ExpenseController extends Controller
         $expenses = $query->orderBy('created_at', 'desc')
             ->paginate($request->input('per_page', 20));
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Expenses retrieved successfully',
-            'data' => ExpenseResource::collection($expenses),
-            'meta' => [
-                'current_page' => $expenses->currentPage(),
-                'total' => $expenses->total(),
-                'per_page' => $expenses->perPage(),
-            ]
-        ]);
+        return $this->paginatedResponse(
+            ExpenseResource::collection($expenses),
+            'Expenses retrieved successfully'
+        );
     }
 
     /**
@@ -133,17 +127,13 @@ class ExpenseController extends Controller
 
         // Check authorization
         if ($expenseModel->branch_manager_id !== auth()->id()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthorized access to this expense'
-            ], 403);
+            return $this->errorResponse('Unauthorized access', 403);
         }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Expense details retrieved successfully',
-            'data' => new ExpenseDetailResource($expenseModel)
-        ]);
+        return $this->successResponse(
+            new ExpenseDetailResource($expenseModel),
+            'Expense details retrieved successfully'
+        );
     }
 
     /**
@@ -155,21 +145,17 @@ class ExpenseController extends Controller
         $expenseModel = Expense::findOrFail($expense);
 
         if ($expenseModel->branch_manager_id !== auth()->id()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthorized access'
-            ], 403);
+            return $this->errorResponse('Unauthorized access', 403);
         }
 
         $timeline = $expenseModel->timelines()
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Expense timeline retrieved successfully',
-            'data' => ExpenseTimelineResource::collection($timeline)
-        ]);
+        return $this->successResponse(
+            ExpenseTimelineResource::collection($timeline),
+            'Expense timeline retrieved successfully'
+        );
     }
 
     /**
@@ -184,11 +170,10 @@ class ExpenseController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Draft expenses retrieved successfully',
-            'data' => ExpenseResource::collection($drafts)
-        ]);
+        return $this->successResponse(
+            ExpenseResource::collection($drafts),
+            'Draft expenses retrieved successfully'
+        );
     }
 
     /**
@@ -201,24 +186,17 @@ class ExpenseController extends Controller
             $expenseModel = Expense::findOrFail($expense);
 
             if ($expenseModel->branch_manager_id !== auth()->id()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthorized'
-                ], 403);
+                return $this->errorResponse('Unauthorized', 403);
             }
 
             $this->approvalService->submitExpense($expenseModel);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Expense submitted for approval successfully',
-                'data' => new ExpenseDetailResource($expenseModel->fresh())
-            ]);
+            return $this->successResponse(
+                new ExpenseDetailResource($expenseModel->fresh()),
+                'Expense submitted for approval successfully'
+            );
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage()
-            ], 400);
+            return $this->errorResponse($e->getMessage());
         }
     }
 
@@ -232,24 +210,17 @@ class ExpenseController extends Controller
             $expenseModel = Expense::findOrFail($expense);
 
             if ($expenseModel->branch_manager_id !== auth()->id()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthorized'
-                ], 403);
+                return $this->errorResponse('Unauthorized', 403);
             }
 
             $this->approvalService->resubmitExpense($expenseModel);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Expense resubmitted successfully',
-                'data' => new ExpenseDetailResource($expenseModel->fresh())
-            ]);
+            return $this->successResponse(
+                new ExpenseDetailResource($expenseModel->fresh()),
+                'Expense resubmitted for approval successfully'
+            );
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage()
-            ], 400);
+            return $this->errorResponse($e->getMessage());
         }
     }
 
@@ -262,32 +233,22 @@ class ExpenseController extends Controller
         $expenseModel = Expense::findOrFail($expense);
 
         if ($expenseModel->branch_manager_id !== auth()->id()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthorized'
-            ], 403);
+            return $this->errorResponse('Unauthorized', 403);
         }
 
         if ($expenseModel->status !== 'draft') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Only draft expenses can be deleted'
-            ], 400);
+            return $this->errorResponse('Only draft expenses can be deleted', 400);
         }
 
         try {
             $expenseModel->delete();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Expense deleted successfully'
-            ]);
+            return $this->successResponse(
+                null,
+                'Expense deleted successfully'
+            );
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to delete expense',
-                'error' => $e->getMessage()
-            ], 500);
+            return $this->errorResponse($e->getMessage());
         }
     }
 
@@ -303,10 +264,10 @@ class ExpenseController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return response()->json([
-            'success' => true,
-            'data' => ExpenseResource::collection($expenses)
-        ]);
+        return $this->successResponse(
+            ExpenseResource::collection($expenses),
+            'Quick Cash expenses retrieved successfully'
+        );
     }
 
     /**
@@ -321,10 +282,10 @@ class ExpenseController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return response()->json([
-            'success' => true,
-            'data' => ExpenseResource::collection($expenses)
-        ]);
+        return $this->successResponse(
+            ExpenseResource::collection($expenses),
+            'Single Invoice expenses retrieved successfully'
+        );
     }
 
     /**
@@ -339,10 +300,10 @@ class ExpenseController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return response()->json([
-            'success' => true,
-            'data' => ExpenseResource::collection($expenses)
-        ]);
+        return $this->successResponse(
+            ExpenseResource::collection($expenses),
+            'Pre-Approval expenses retrieved successfully'
+        );
     }
 
     /**
@@ -357,10 +318,10 @@ class ExpenseController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return response()->json([
-            'success' => true,
-            'data' => ExpenseResource::collection($expenses)
-        ]);
+        return $this->successResponse(
+            ExpenseResource::collection($expenses),
+            'Grouped Invoice expenses retrieved successfully'
+        );
     }
 
     /**
@@ -376,17 +337,15 @@ class ExpenseController extends Controller
         try {
             $data = $this->helperService->parseQRCode($request->qr_code);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'QR code parsed successfully',
-                'data' => $data
-            ]);
+            return $this->successResponse(
+                $data,
+                'QR code parsed successfully'
+            );
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to parse QR code',
-                'error' => $e->getMessage()
-            ], 400);
+            return $this->errorResponse(
+                'Failed to parse QR code: ' . $e->getMessage(),
+                400
+            );
         }
     }
 
@@ -403,17 +362,15 @@ class ExpenseController extends Controller
         try {
             $data = $this->helperService->scanInvoiceCode($request->invoice_code);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Invoice code parsed successfully',
-                'data' => $data
-            ]);
+            return $this->successResponse(
+                $data,
+                'Invoice code parsed successfully'
+            );
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to parse invoice code',
-                'error' => $e->getMessage()
-            ], 400);
+            return $this->errorResponse(
+                'Failed to parse Invoice code: ' . $e->getMessage(),
+                400
+            );
         }
     }
 }

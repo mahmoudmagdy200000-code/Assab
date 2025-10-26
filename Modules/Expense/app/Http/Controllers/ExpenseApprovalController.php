@@ -2,6 +2,7 @@
 
 namespace Modules\Expense\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -14,7 +15,7 @@ use Modules\Expense\Transformers\{ExpenseResource, ExpenseDetailResource, Expens
  * Expense Approval Controller
  * For Brand Owner to approve/reject expenses
  */
-class ExpenseApprovalController extends Controller
+class ExpenseApprovalController extends BaseController
 {
     public function __construct(
         private ExpenseApprovalService $approvalService
@@ -42,16 +43,10 @@ class ExpenseApprovalController extends Controller
         $expenses = $query->orderBy('submitted_at', 'desc')
             ->paginate($request->input('per_page', 20));
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Expenses retrieved successfully',
-            'data' => ExpenseResource::collection($expenses),
-            'meta' => [
-                'current_page' => $expenses->currentPage(),
-                'total' => $expenses->total(),
-                'per_page' => $expenses->perPage(),
-            ]
-        ]);
+        return $this->paginatedResponse(
+            ExpenseResource::collection($expenses),
+            'Expenses retrieved successfully'
+        );
     }
 
     /**
@@ -73,11 +68,10 @@ class ExpenseApprovalController extends Controller
             'branchManager'
         ])->findOrFail($expense);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Expense details retrieved successfully',
-            'data' => new ExpenseDetailResource($expenseModel)
-        ]);
+        return $this->successResponse(
+            new ExpenseDetailResource($expenseModel),
+            'Expense details retrieved successfully'
+        );
     }
 
     /**
@@ -96,11 +90,7 @@ class ExpenseApprovalController extends Controller
                 'message' => 'Expense marked as viewed'
             ]);
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to mark as viewed',
-                'error' => $e->getMessage()
-            ], 500);
+            return $this->errorResponse($e->getMessage());
         }
     }
 
@@ -115,17 +105,10 @@ class ExpenseApprovalController extends Controller
 
             $this->approvalService->approveExpense($expenseModel, auth()->id());
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Expense approved successfully',
-                'data' => [
-                    'expense' => new ExpenseDetailResource($expenseModel->fresh()),
-                    'approval' => [
-                        'approved_by' => auth()->user()->name,
-                        'approved_at' => now()->format('Y-m-d H:i:s'),
-                    ]
-                ]
-            ]);
+            return $this->successResponse(
+                new ExpenseDetailResource($expenseModel->fresh()),
+                'Expense approved successfully'
+            );
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -145,11 +128,11 @@ class ExpenseApprovalController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
+            return $this->errorResponse(
+                'Validation failed',
+                422,
+                $validator->errors()->toArray()
+            );
         }
 
         try {
@@ -157,23 +140,12 @@ class ExpenseApprovalController extends Controller
 
             $this->approvalService->rejectExpense($expenseModel, auth()->id(), $request->reason);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Expense rejected successfully',
-                'data' => [
-                    'expense' => new ExpenseDetailResource($expenseModel->fresh()),
-                    'rejection' => [
-                        'rejected_by' => auth()->user()->name,
-                        'rejected_at' => now()->format('Y-m-d H:i:s'),
-                        'reason' => $request->reason,
-                    ]
-                ]
-            ]);
+            return $this->successResponse(
+                new ExpenseDetailResource($expenseModel->fresh()),
+                'Expense rejected successfully'
+            );
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage()
-            ], 400);
+            return $this->errorResponse($e->getMessage());
         }
     }
 
@@ -192,17 +164,12 @@ class ExpenseApprovalController extends Controller
             // Record the edit in timeline
             $this->approvalService->recordEdit($expenseModel, auth()->id(), $request->all());
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Expense edited successfully',
-                'data' => new ExpenseDetailResource($expenseModel->fresh())
-            ]);
+            return $this->successResponse(
+                new ExpenseDetailResource($expenseModel->fresh()),
+                'Expense edited successfully'
+            );
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to edit expense',
-                'error' => $e->getMessage()
-            ], 500);
+            return $this->errorResponse($e->getMessage());
         }
     }
 
@@ -218,10 +185,9 @@ class ExpenseApprovalController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Expense timeline retrieved successfully',
-            'data' => ExpenseTimelineResource::collection($timeline)
-        ]);
+        return $this->successResponse(
+            ExpenseTimelineResource::collection($timeline),
+            'Expense timeline retrieved successfully'
+        );
     }
 }

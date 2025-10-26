@@ -92,11 +92,7 @@ class QuickCashExpenseController extends BaseController
             );
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to create quick cash expense',
-                'error' => $e->getMessage()
-            ], 500);
+            return $this->errorResponse($e->getMessage());
         }
     }
 
@@ -170,11 +166,7 @@ class QuickCashExpenseController extends BaseController
             );
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to update quick cash expense',
-                'error' => $e->getMessage()
-            ], 500);
+            return $this->errorResponse($e->getMessage());
         }
     }
 
@@ -189,10 +181,11 @@ class QuickCashExpenseController extends BaseController
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors()
-            ], 422);
+            return $this->errorResponse(
+                'Validation failed',
+                422,
+                $validator->errors()
+            );
         }
 
         // ✅ الآن ترسل رقم فقط، والخدمة تتعامل معه بمرونة
@@ -201,9 +194,9 @@ class QuickCashExpenseController extends BaseController
             $request->input('has_vat', true)
         );
 
-        return response()->json([
-            'success' => true,
-            'data' => $calculation
-        ]);
+        return $this->successResponse(
+            $calculation,
+            'VAT calculated successfully',
+        );
     }
 }

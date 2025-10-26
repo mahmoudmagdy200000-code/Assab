@@ -2,6 +2,7 @@
 
 namespace Modules\Expense\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -11,7 +12,7 @@ use Modules\Expense\Transformers\SupplierResource;
 /**
  * Supplier Controller
  */
-class SupplierController extends Controller
+class SupplierController extends BaseController
 {
     public function __construct(
         private ExpenseHelperService $helperService
@@ -25,11 +26,10 @@ class SupplierController extends Controller
     {
         $suppliers = $this->helperService->getSuppliers($request->input('search'));
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Suppliers retrieved successfully',
-            'data' => $suppliers
-        ]);
+        return $this->successResponse(
+            $suppliers,
+            'Suppliers retrieved successfully',
+        );
     }
 
     /**
@@ -40,9 +40,9 @@ class SupplierController extends Controller
     {
         $supplierModel = \Modules\Expense\Models\Supplier::findOrFail($supplier);
 
-        return response()->json([
-            'success' => true,
-            'data' => new SupplierResource($supplierModel)
-        ]);
+        return $this->successResponse(
+            new SupplierResource($supplierModel),
+            'Supplier retrieved successfully'
+        );
     }
 }

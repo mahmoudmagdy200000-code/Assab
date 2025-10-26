@@ -2,6 +2,7 @@
 
 namespace Modules\Expense\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -11,7 +12,7 @@ use Modules\Expense\Transformers\CategoryResource;
 /**
  * Category Controller
  */
-class CategoryController extends Controller
+class CategoryController extends BaseController
 {
     public function __construct(
         private ExpenseHelperService $helperService
@@ -25,11 +26,10 @@ class CategoryController extends Controller
     {
         $categories = $this->helperService->getCategories($request->input('search'));
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Categories retrieved successfully',
-            'data' => $categories
-        ]);
+        return $this->successResponse(
+            'Categories retrieved successfully',
+            $categories
+        );
     }
 
     /**

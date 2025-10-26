@@ -2,6 +2,8 @@
 
 namespace Modules\Expense\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
+use Faker\Provider\Base;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -15,7 +17,7 @@ use Modules\Expense\Transformers\ExpenseDetailResource;
  * Grouped Invoices Controller
  * For multiple invoices > 500 SAR total
  */
-class GroupedInvoiceExpenseController extends Controller
+class GroupedInvoiceExpenseController extends BaseController
 {
     public function __construct(
         private GroupedInvoiceExpenseService $groupedInvoiceService
@@ -61,21 +63,17 @@ class GroupedInvoiceExpenseController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
+            return $this->errorResponse(
+                'Validation failed',
+                422,
+                $validator->errors()->toArray()
+            );
         }
 
         // Validate total amount > 500
         $totalAmount = $this->groupedInvoiceService->calculateTotalAmount($request->invoices);
         if ($totalAmount <= 500) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Grouped invoices total must be greater than 500 SAR',
-                'total_amount' => $totalAmount,
-            ], 400);
+            return $this->errorResponse('Total amount for grouped invoice expenses must exceed 500 SAR', 400);
         }
 
         DB::beginTransaction();
@@ -84,20 +82,13 @@ class GroupedInvoiceExpenseController extends Controller
 
             DB::commit();
 
-            return response()->json([
-                'success' => true,
-                'message' => $request->is_draft
-                    ? 'Grouped invoice expense saved as draft'
-                    : 'Grouped invoice expense created successfully',
-                'data' => new ExpenseDetailResource($expense->fresh())
-            ], 201);
+            return $this->successResponse(
+                new ExpenseDetailResource($expense),
+                'Grouped invoice expense created successfully'
+            );
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to create grouped invoice expense',
-                'error' => $e->getMessage()
-            ], 500);
+            return $this->errorResponse($e->getMessage());
         }
     }
 }
