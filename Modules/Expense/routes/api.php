@@ -92,6 +92,7 @@ Route::prefix('branch-manager/expenses')
         Route::get('/recent', [ExpenseController::class, 'recent'])->name('expenses.recent');
         Route::get('/drafts', [ExpenseController::class, 'drafts'])->name('expenses.drafts');
         Route::get('/filter', [ExpenseController::class, 'filter'])->name('expenses.filter');
+        Route::get('/search', [ExpenseController::class, 'search'])->name('expenses.search');
 
         // ✅ متغيرات في الآخر علشان ما تتعارضش
         Route::get('/{expense}', [ExpenseController::class, 'show'])->name('expenses.show');

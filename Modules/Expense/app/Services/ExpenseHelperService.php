@@ -91,4 +91,7 @@ class ExpenseHelperService
         // Similar to QR code parsing
         return $this->parseQRCode($code);
     }
+
+
+    
 }
