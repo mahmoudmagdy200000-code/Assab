@@ -209,8 +209,7 @@ class SingleInvoiceExpenseController extends BaseController
                 $request->input('search')
             );
 
-            // ❗️ هنا بنرجّع الـ collection مباشرة بدون استخدام Resource
-            // لأن الـ service بترجع arrays بعد map()
+            // ✅ هنا نستخدم paginatedResponse لأن الـ service بترجع Paginator
             return $this->paginatedResponse(
                 $invoices,
                 'Previous invoices retrieved successfully'

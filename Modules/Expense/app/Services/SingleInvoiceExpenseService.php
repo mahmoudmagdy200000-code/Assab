@@ -247,16 +247,11 @@ class SingleInvoiceExpenseService
     {
         $query = Expense::query()
             ->where('expense_type', 'single_invoice')
+            ->where('branch_manager_id', $branchManagerId)
             ->with(['supplier', 'invoiceDetails'])
-            ->orderBy('submitted_at', 'desc')
-            ->limit(20);
+            ->orderBy('submitted_at', 'desc');
 
-        // فلترة حسب المستخدم لو ضروري
-        if ($branchManagerId) {
-            $query->where('branch_manager_id', $branchManagerId);
-        }
-
-        // 🔍 دعم البحث برقم الفاتورة أو اسم المورد
+        // 🔍 دعم البحث بالاسم أو رقم الفاتورة
         if ($search) {
             $search = strtolower(trim($search));
             $query->where(function ($q) use ($search) {
@@ -268,8 +263,11 @@ class SingleInvoiceExpenseService
             });
         }
 
-        // ✅ رجّع مصفوفة جاهزة للعرض
-        return $query->get()->map(function ($expense) {
+        // ✅ نستخدم paginate بدل get + map
+        $paginator = $query->paginate(10);
+
+        // نعمل transform بعد الـ pagination
+        $paginator->getCollection()->transform(function ($expense) {
             return [
                 'id' => $expense->id,
                 'invoice_name' => $expense->invoiceDetails->first()->invoice_number ?? 'N/A',
@@ -279,7 +277,10 @@ class SingleInvoiceExpenseService
                 'status' => $expense->status,
             ];
         });
+
+        return $paginator;
     }
+
 
 
     private function uploadInvoiceReceipt(Expense $expense, $file): void
