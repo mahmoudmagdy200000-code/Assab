@@ -5,6 +5,7 @@ namespace Modules\Shift\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 
@@ -42,12 +43,24 @@ class ShiftController extends BaseController
             return $this->errorResponse('Unauthorized', 403);
         }
 
-        // Filter by related cashier's branch_id (requires CashierShift::cashier relation)
-        $shifts = CashierShift::whereHas('cashier', function ($q) use ($manager) {
+        $query = CashierShift::whereHas('cashier', function ($q) use ($manager) {
             $q->where('branch_id', $manager->branch_id);
-        })
-            ->orderBy('start_time')
-            ->paginate(10);
+        });
+
+        // Prefer ordering by cashier_shifts.start_time if that column exists,
+        // otherwise try to order by related shifts.start_time (join), otherwise fallback.
+        if (Schema::hasColumn('cashier_shifts', 'start_time')) {
+            $query->orderBy('start_time');
+        } elseif (Schema::hasColumn('cashier_shifts', 'shift_id') && Schema::hasColumn('shifts', 'start_time')) {
+            $query = $query
+                ->join('shifts', 'shifts.id', '=', 'cashier_shifts.shift_id')
+                ->orderBy('shifts.start_time')
+                ->select('cashier_shifts.*');
+        } else {
+            $query->orderBy('created_at');
+        }
+
+        $shifts = $query->paginate(10);
 
         return $this->paginatedResponse($shifts, 'Cashiers shifts retrieved successfully');
     }
