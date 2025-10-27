@@ -251,7 +251,7 @@ class SingleInvoiceExpenseService
             ->with(['supplier', 'invoiceDetails'])
             ->orderBy('submitted_at', 'desc');
 
-        // 🔍 دعم البحث بالاسم أو رقم الفاتورة
+        // Apply search filter if provided
         if ($search) {
             $search = strtolower(trim($search));
             $query->where(function ($q) use ($search) {
@@ -263,10 +263,10 @@ class SingleInvoiceExpenseService
             });
         }
 
-        // ✅ نستخدم paginate بدل get + map
+        // ✅ Get paginated results
         $paginator = $query->paginate(10);
 
-        // نعمل transform بعد الـ pagination
+        // \transform each item in the paginator
         $paginator->getCollection()->transform(function ($expense) {
             return [
                 'id' => $expense->id,
