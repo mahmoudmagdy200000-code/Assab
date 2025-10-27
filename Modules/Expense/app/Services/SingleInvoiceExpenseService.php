@@ -253,10 +253,11 @@ class SingleInvoiceExpenseService
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->whereHas('invoiceDetails', function ($sq) use ($search) {
-                    $sq->where('invoice_number', 'like', "%{$search}%");
-                })->orWhereHas('supplier', function ($sq) use ($search) {
-                    $sq->where('name', 'like', "%{$search}%");
-                });
+                    $sq->whereRaw('LOWER(invoice_number) LIKE ?', ['%' . strtolower($search) . '%']);
+                })
+                    ->orWhereHas('supplier', function ($sq) use ($search) {
+                        $sq->whereRaw('LOWER(name) LIKE ?', ['%' . strtolower($search) . '%']);
+                    });
             });
         }
 
