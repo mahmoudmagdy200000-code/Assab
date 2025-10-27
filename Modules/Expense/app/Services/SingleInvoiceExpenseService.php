@@ -2,6 +2,7 @@
 
 namespace Modules\Expense\Services;
 
+use Illuminate\Support\Facades\Log;
 use Modules\Expense\Models\{
     Expense,
     InvoiceDetail,
@@ -243,12 +244,12 @@ class SingleInvoiceExpenseService
      */
     public function getPreviousInvoices(int $branchManagerId, ?string $search = null)
     {
-        $query = Expense::where('branch_manager_id', $branchManagerId)
+        $query = Expense::query()
             ->where('expense_type', 'single_invoice')
-            ->whereNotNull('submitted_at')
             ->with(['supplier', 'invoiceDetails'])
             ->orderBy('submitted_at', 'desc')
             ->limit(20);
+
 
         if ($search) {
             $query->where(function ($q) use ($search) {
@@ -259,6 +260,12 @@ class SingleInvoiceExpenseService
                         $sq->whereRaw('LOWER(name) LIKE ?', ['%' . strtolower($search) . '%']);
                     });
             });
+        }
+        $results = $query->get();
+
+        if ($results->isEmpty()) {
+            Log::info('🔍 No results for search: ' . $search);
+            Log::info('Branch Manager ID: ' . $branchManagerId);
         }
 
         return $query->get()->map(function ($expense) {
