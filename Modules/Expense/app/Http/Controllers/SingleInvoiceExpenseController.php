@@ -211,7 +211,7 @@ class SingleInvoiceExpenseController extends BaseController
 
             // ❗️ هنا بنرجّع الـ collection مباشرة بدون استخدام Resource
             // لأن الـ service بترجع arrays بعد map()
-            return $this->successResponse(
+            return $this->paginatedResponse(
                 $invoices,
                 'Previous invoices retrieved successfully'
             );
