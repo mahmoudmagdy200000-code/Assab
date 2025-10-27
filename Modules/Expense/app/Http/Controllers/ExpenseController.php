@@ -170,7 +170,7 @@ class ExpenseController extends BaseController
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return $this->successResponse(
+        return $this->paginatedResponse(
             ExpenseResource::collection($drafts),
             'Draft expenses retrieved successfully'
         );
@@ -264,7 +264,7 @@ class ExpenseController extends BaseController
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return $this->successResponse(
+        return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
             'Quick Cash expenses retrieved successfully'
         );
@@ -282,7 +282,7 @@ class ExpenseController extends BaseController
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return $this->successResponse(
+        return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
             'Single Invoice expenses retrieved successfully'
         );
@@ -300,7 +300,7 @@ class ExpenseController extends BaseController
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return $this->successResponse(
+        return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
             'Pre-Approval expenses retrieved successfully'
         );
@@ -318,7 +318,7 @@ class ExpenseController extends BaseController
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return $this->successResponse(
+        return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
             'Grouped Invoice expenses retrieved successfully'
         );
