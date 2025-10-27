@@ -61,7 +61,7 @@ class SingleInvoiceExpenseController extends BaseController
             'paid_amount' => 'required_if:payment_type,partial|numeric|min:0',
             'due_date' => 'required_if:payment_type,partial,deferred|date|after:today',
 
-             'invoice_receipt' => 'sometimes|array|max:5',
+            'invoice_receipt' => 'sometimes|array|max:5',
             'invoice_receipt.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
             'is_draft' => 'sometimes|boolean',
         ]);
@@ -209,8 +209,10 @@ class SingleInvoiceExpenseController extends BaseController
                 $request->input('search')
             );
 
+            // ❗️ هنا بنرجّع الـ collection مباشرة بدون استخدام Resource
+            // لأن الـ service بترجع arrays بعد map()
             return $this->successResponse(
-                ExpenseDetailResource::collection($invoices),
+                $invoices,
                 'Previous invoices retrieved successfully'
             );
         } catch (\Exception $e) {

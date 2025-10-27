@@ -250,35 +250,36 @@ class SingleInvoiceExpenseService
             ->orderBy('submitted_at', 'desc')
             ->limit(20);
 
+        // فلترة حسب المستخدم لو ضروري
+        if ($branchManagerId) {
+            $query->where('branch_manager_id', $branchManagerId);
+        }
 
+        // 🔍 دعم البحث برقم الفاتورة أو اسم المورد
         if ($search) {
+            $search = strtolower(trim($search));
             $query->where(function ($q) use ($search) {
                 $q->whereHas('invoiceDetails', function ($sq) use ($search) {
-                    $sq->whereRaw('LOWER(invoice_number) LIKE ?', ['%' . strtolower($search) . '%']);
-                })
-                    ->orWhereHas('supplier', function ($sq) use ($search) {
-                        $sq->whereRaw('LOWER(name) LIKE ?', ['%' . strtolower($search) . '%']);
-                    });
+                    $sq->whereRaw('LOWER(invoice_number) LIKE ?', ["%{$search}%"]);
+                })->orWhereHas('supplier', function ($sq) use ($search) {
+                    $sq->whereRaw('LOWER(name) LIKE ?', ["%{$search}%"]);
+                });
             });
         }
-        // $results = $query->get();
 
-        // if ($results->isEmpty()) {
-        //     Log::info('🔍 No results for search: ' . $search);
-        //     Log::info('Branch Manager ID: ' . $branchManagerId);
-        // }
-
+        // ✅ رجّع مصفوفة جاهزة للعرض
         return $query->get()->map(function ($expense) {
             return [
                 'id' => $expense->id,
                 'invoice_name' => $expense->invoiceDetails->first()->invoice_number ?? 'N/A',
                 'type' => 'Single Invoice',
-                'date_time' => $expense->submitted_at?->format('Y-m-d H:i'),
+                'date_time' => optional($expense->submitted_at)->format('Y-m-d H:i'),
                 'amount' => $expense->total_amount,
                 'status' => $expense->status,
             ];
         });
     }
+
 
     private function uploadInvoiceReceipt(Expense $expense, $file): void
     {
