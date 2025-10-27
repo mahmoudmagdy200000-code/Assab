@@ -40,6 +40,7 @@ class SingleInvoiceExpenseService
         // Create invoice details
         $invoice = InvoiceDetail::create([
             'expense_id' => $expense->id,
+            'supplier_id' => $data['supplier_id'],
             'invoice_number' => $data['invoice_number'],
             'issue_date' => $data['issue_date'],
             'is_tax_invoice' => $data['is_tax_invoice'],
