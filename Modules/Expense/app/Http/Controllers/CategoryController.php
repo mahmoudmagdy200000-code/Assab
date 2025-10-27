@@ -27,8 +27,8 @@ class CategoryController extends BaseController
         $categories = $this->helperService->getCategories($request->input('search'));
 
         return $this->successResponse(
+            $categories,
             'Categories retrieved successfully',
-            $categories
         );
     }
 
