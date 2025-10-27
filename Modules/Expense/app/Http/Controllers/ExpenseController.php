@@ -168,7 +168,7 @@ class ExpenseController extends BaseController
             ->where('status', 'draft')
             ->with(['quickCashExpense', 'invoiceDetails', 'groupedInvoice', 'preApprovalRequest'])
             ->orderBy('created_at', 'desc')
-            ->get();
+            ->paginate($request->input('per_page', 20));
 
         return $this->paginatedResponse(
             ExpenseResource::collection($drafts),
@@ -262,7 +262,7 @@ class ExpenseController extends BaseController
             ->where('expense_type', 'quick_cash')
             ->with('quickCashExpense')
             ->orderBy('created_at', 'desc')
-            ->get();
+            ->paginate($request->input('per_page', 20));
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
@@ -280,7 +280,7 @@ class ExpenseController extends BaseController
             ->where('expense_type', 'single_invoice')
             ->with('invoiceDetails')
             ->orderBy('created_at', 'desc')
-            ->get();
+            ->paginate($request->input('per_page', 20));
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
@@ -298,7 +298,7 @@ class ExpenseController extends BaseController
             ->where('expense_type', 'pre_approval')
             ->with('preApprovalRequest')
             ->orderBy('created_at', 'desc')
-            ->get();
+            ->paginate($request->input('per_page', 20));
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
@@ -316,7 +316,7 @@ class ExpenseController extends BaseController
             ->where('expense_type', 'grouped_invoice')
             ->with('groupedInvoice.invoiceDetails')
             ->orderBy('created_at', 'desc')
-            ->get();
+            ->paginate($request->input('per_page', 20));
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
