@@ -261,12 +261,12 @@ class SingleInvoiceExpenseService
                     });
             });
         }
-        $results = $query->get();
+        // $results = $query->get();
 
-        if ($results->isEmpty()) {
-            Log::info('🔍 No results for search: ' . $search);
-            Log::info('Branch Manager ID: ' . $branchManagerId);
-        }
+        // if ($results->isEmpty()) {
+        //     Log::info('🔍 No results for search: ' . $search);
+        //     Log::info('Branch Manager ID: ' . $branchManagerId);
+        // }
 
         return $query->get()->map(function ($expense) {
             return [
