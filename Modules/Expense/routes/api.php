@@ -118,7 +118,7 @@ Route::prefix('branch-manager/expenses')
 */
 
 Route::prefix('brand-owner/expenses')
-    ->middleware(['auth:sanctum', 'brand_owner'])
+    ->middleware(['auth:sanctum', 'brand.owner'])
     ->group(function () {
 
         // View expenses
