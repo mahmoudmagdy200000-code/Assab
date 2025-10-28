@@ -392,7 +392,7 @@ class ExpenseController extends BaseController
                 'supplier'
             ]);
 
-    
+
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('reference_number', 'like', "%{$search}%")
@@ -402,11 +402,17 @@ class ExpenseController extends BaseController
         }
 
 
+
         if ($type = $request->input('type')) {
             if ($type !== 'all') {
-                $query->where('expense_type', $type);
+                if ($type === 'draft') {
+                    $query->where('status', 'draft');
+                } else {
+                    $query->where('expense_type', $type);
+                }
             }
         }
+
 
 
         if ($status = $request->input('status')) {
