@@ -392,7 +392,7 @@ class ExpenseController extends BaseController
                 'supplier'
             ]);
 
-        // 🔍 البحث العام (مثلاً بالكود أو الاسم أو المورد)
+    
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('reference_number', 'like', "%{$search}%")
@@ -401,19 +401,19 @@ class ExpenseController extends BaseController
             });
         }
 
-        // 📌 الفلترة حسب النوع
+
         if ($type = $request->input('type')) {
             if ($type !== 'all') {
                 $query->where('expense_type', $type);
             }
         }
 
-        // 📌 الفلترة حسب الحالة
+
         if ($status = $request->input('status')) {
             $query->where('status', $status);
         }
 
-        // 🕒 فلترة حسب الفترة الزمنية الجاهزة (آخر 30 يوم / 7 أيام / 24 ساعة)
+        // 🕒
         if ($period = $request->input('period')) {
             switch ($period) {
                 case 'last_30_days':
