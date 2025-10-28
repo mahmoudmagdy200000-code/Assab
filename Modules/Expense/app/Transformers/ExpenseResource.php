@@ -27,6 +27,7 @@ class ExpenseResource extends JsonResource
                 'label' => ucfirst($this->status),
                 'color' => $this->getStatusColor(),
             ],
+            'total_expenses' => (float) $this->total_expenses,
             'created_at' => $this->created_at->format('Y-m-d H:i:s'),
         ];
     }
