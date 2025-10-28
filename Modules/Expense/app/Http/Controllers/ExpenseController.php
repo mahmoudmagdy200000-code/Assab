@@ -437,7 +437,7 @@ class ExpenseController extends BaseController
             }
         }
 
-        // 💰 فلترة حسب المبلغ (اختياري)
+        // 💰ف
         if ($min = $request->input('min_amount')) {
             $query->where('total_amount', '>=', $min);
         }

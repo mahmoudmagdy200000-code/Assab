@@ -71,10 +71,10 @@ class GroupedInvoiceExpenseController extends BaseController
         }
 
         // Validate total amount > 500
-        $totalAmount = $this->groupedInvoiceService->calculateTotalAmount($request->invoices);
-        if ($totalAmount <= 500) {
-            return $this->errorResponse('Total amount for grouped invoice expenses must exceed 500 SAR', 400);
-        }
+        // $totalAmount = $this->groupedInvoiceService->calculateTotalAmount($request->invoices);
+        // if ($totalAmount <= 500) {
+        //     return $this->errorResponse('Total amount for grouped invoice expenses must exceed 500 SAR', 400);
+        // }
 
         DB::beginTransaction();
         try {
