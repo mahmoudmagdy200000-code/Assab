@@ -1,0 +1,30 @@
+{
+    "name": "nwidart/brandowner",
+    "description": "",
+    "authors": [
+        {
+            "name": "Nicolas Widart",
+            "email": "n.widart@gmail.com"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {
+
+            }
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\BrandOwner\\": "app/",
+            "Modules\\BrandOwner\\Database\\Factories\\": "database/factories/",
+            "Modules\\BrandOwner\\Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Modules\\BrandOwner\\Tests\\": "tests/"
+        }
+    }
+}

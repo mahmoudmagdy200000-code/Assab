@@ -1,0 +1,11 @@
+{
+    "name": "BrandOwner",
+    "alias": "brandowner",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\BrandOwner\\Providers\\BrandOwnerServiceProvider"
+    ],
+    "files": []
+}
