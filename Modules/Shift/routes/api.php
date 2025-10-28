@@ -171,6 +171,10 @@ Route::prefix('branch-manager')
     */
         Route::get('shifts/variance/statistics', [ShiftVarianceController::class, 'getVarianceStatistics'])
             ->name('shifts.variance.statistics');
+
+    // filterCashierShifts
+        Route::post('shifts/cashiers/filter', [ShiftController::class, 'filterCashierShifts'])
+            ->name('shifts.cashiers.filter');
     });
 
 /*
