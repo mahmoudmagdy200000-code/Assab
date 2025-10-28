@@ -37,16 +37,16 @@ class ExpenseDetailResource extends JsonResource
         ];
 
         // Add type-specific details
-        return $baseData;
+        return array_merge($baseData, $this->getTypeSpecificDetails());
     }
 
     private function getTypeSpecificDetails(): array
     {
         return match ($this->expense_type) {
-            'quick_cash' => $this->getQuickCashDetails(),
-            'single_invoice' => $this->getSingleInvoiceDetails(),
-            'grouped_invoice' => $this->getGroupedInvoiceDetails(),
-            'pre_approval' => $this->getPreApprovalDetails(),
+            'data' => $this->getQuickCashDetails(),
+            'data' => $this->getSingleInvoiceDetails(),
+            'data' => $this->getGroupedInvoiceDetails(),
+            'data' => $this->getPreApprovalDetails(),
             default => [],
         };
     }
