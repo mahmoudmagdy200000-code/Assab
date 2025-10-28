@@ -376,68 +376,76 @@ class ExpenseController extends BaseController
 
 
 
+
     /**
- * Search & filter expenses
- * GET /api/branch-manager/expenses/search
- */
-public function search(Request $request): JsonResponse
-{
-    $query = Expense::where('branch_manager_id', auth()->id())
-        ->with([
-            'quickCashExpense',
-            'invoiceDetails',
-            'groupedInvoice',
-            'preApprovalRequest',
-            'supplier'
-        ]);
+     * Search & filter expenses
+     * GET /api/branch-manager/expenses/search
+     */
+    public function search(Request $request): JsonResponse
+    {
+        $query = Expense::where('branch_manager_id', auth()->id())
+            ->with([
+                'quickCashExpense',
+                'invoiceDetails',
+                'groupedInvoice',
+                'preApprovalRequest',
+                'supplier'
+            ]);
 
-    // 🔍 البحث العام (مثلاً بالكود أو الاسم أو المورد)
-    if ($search = $request->input('search')) {
-        $query->where(function ($q) use ($search) {
-            $q->where('reference_number', 'like', "%{$search}%")
-              ->orWhereHas('supplier', fn($s) => $s->where('name', 'like', "%{$search}%"))
-              ->orWhere('total_amount', 'like', "%{$search}%");
-        });
-    }
-
-    // 📌 الفلترة حسب النوع
-    if ($type = $request->input('type')) {
-        if ($type !== 'all') {
-            $query->where('expense_type', $type);
+        // 🔍 البحث العام (مثلاً بالكود أو الاسم أو المورد)
+        if ($search = $request->input('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('reference_number', 'like', "%{$search}%")
+                    ->orWhereHas('supplier', fn($s) => $s->where('name', 'like', "%{$search}%"))
+                    ->orWhere('total_amount', 'like', "%{$search}%");
+            });
         }
+
+        // 📌 الفلترة حسب النوع
+        if ($type = $request->input('type')) {
+            if ($type !== 'all') {
+                $query->where('expense_type', $type);
+            }
+        }
+
+        // 📌 الفلترة حسب الحالة
+        if ($status = $request->input('status')) {
+            $query->where('status', $status);
+        }
+
+        // 🕒 فلترة حسب الفترة الزمنية الجاهزة (آخر 30 يوم / 7 أيام / 24 ساعة)
+        if ($period = $request->input('period')) {
+            switch ($period) {
+                case 'last_30_days':
+                    $query->where('created_at', '>=', now()->subDays(30));
+                    break;
+
+                case 'last_7_days':
+                    $query->where('created_at', '>=', now()->subDays(7));
+                    break;
+
+                case 'last_24_hours':
+                    $query->where('created_at', '>=', now()->subDay());
+                    break;
+            }
+        }
+
+        // 💰 فلترة حسب المبلغ (اختياري)
+        if ($min = $request->input('min_amount')) {
+            $query->where('total_amount', '>=', $min);
+        }
+
+        if ($max = $request->input('max_amount')) {
+            $query->where('total_amount', '<=', $max);
+        }
+
+        // 🔢 Pagination
+        $expenses = $query->orderBy('created_at', 'desc')
+            ->paginate($request->input('per_page', 20));
+
+        return $this->paginatedResponse(
+            ExpenseResource::collection($expenses),
+            'Filtered expenses retrieved successfully'
+        );
     }
-
-    // 📌 الفلترة حسب الحالة
-    if ($status = $request->input('status')) {
-        $query->where('status', $status);
-    }
-
-    // 📆 التاريخ من وإلى
-    if ($from = $request->input('date_from')) {
-        $query->whereDate('created_at', '>=', $from);
-    }
-
-    if ($to = $request->input('date_to')) {
-        $query->whereDate('created_at', '<=', $to);
-    }
-
-    // 💰 فلترة حسب المبلغ (اختياري)
-    if ($min = $request->input('min_amount')) {
-        $query->where('total_amount', '>=', $min);
-    }
-
-    if ($max = $request->input('max_amount')) {
-        $query->where('total_amount', '<=', $max);
-    }
-
-    // 🔢 Pagination
-    $expenses = $query->orderBy('created_at', 'desc')
-        ->paginate($request->input('per_page', 20));
-
-    return $this->paginatedResponse(
-        ExpenseResource::collection($expenses),
-        'Filtered expenses retrieved successfully'
-    );
-}
-
 }
