@@ -391,6 +391,7 @@ class ExpenseController extends BaseController
                 'preApprovalRequest',
                 'supplier'
             ]);
+      $total = $query->count();
 
 
         if ($search = $request->input('search')) {
@@ -451,6 +452,7 @@ class ExpenseController extends BaseController
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
+            $total,
             'Filtered expenses retrieved successfully'
         );
     }
