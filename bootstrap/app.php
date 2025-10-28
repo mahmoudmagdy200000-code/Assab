@@ -64,7 +64,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'localeViewPath'        => \Mcamara\LaravelLocalization\Middleware\LaravelLocalizationViewPath::class,
             'branch.manager' => \Modules\BranchManagers\Http\Middleware\BranchManagerMiddleware::class,
             'cashier' => \Modules\Cashier\Http\Middleware\CashierMiddleware::class,
-            // 'brand.owner' => \Modules\BrandOwners\Http\Middleware\BrandOwnerMiddleware::class,
+            'brand.owner' => \Modules\BrandOwners\Http\Middleware\BrandOwnerMiddleware::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
