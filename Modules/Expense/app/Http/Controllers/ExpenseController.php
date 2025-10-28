@@ -452,6 +452,7 @@ class ExpenseController extends BaseController
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
+            $total,
             'Filtered expenses retrieved successfully'
         );
     }

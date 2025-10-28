@@ -27,7 +27,6 @@ class ExpenseResource extends JsonResource
                 'label' => ucfirst($this->status),
                 'color' => $this->getStatusColor(),
             ],
-             'total_expenses_count' => $this->getTotalExpensesCount(),
             'created_at' => $this->created_at->format('Y-m-d H:i:s'),
         ];
     }
@@ -81,10 +80,5 @@ class ExpenseResource extends JsonResource
             'rejected' => 'red',
             default => 'gray',
         };
-    }
-
-    private function getTotalExpensesCount(): int
-    {
-        return $this->resource->count();
     }
 }
