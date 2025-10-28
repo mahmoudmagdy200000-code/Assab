@@ -27,7 +27,7 @@ class ExpenseResource extends JsonResource
                 'label' => ucfirst($this->status),
                 'color' => $this->getStatusColor(),
             ],
-            'total_expenses' => (float) $this->total_expenses,
+            'total_expenses' => (float) $this->getTotalExpenses(),
             'created_at' => $this->created_at->format('Y-m-d H:i:s'),
         ];
     }
@@ -81,5 +81,10 @@ class ExpenseResource extends JsonResource
             'rejected' => 'red',
             default => 'gray',
         };
+    }
+
+    private function getTotalExpenses(): float
+    {
+        return (float) $this->total_expenses;
     }
 }
