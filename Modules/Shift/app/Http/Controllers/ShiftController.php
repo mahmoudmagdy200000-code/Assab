@@ -78,10 +78,10 @@ class ShiftController extends BaseController
                 $q->where('branch_id', $manager->branch_id);
             });
 
-        // 🔍 البحث العام (مثلاً بالكاشير أو كود الشيفت)
+        // 🔍 البحث العام (بالكاشير أو رقم الشيفت)
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
-                $q->where('id', 'like', "%{$search}%")
+                $q->where('cashier_shifts.id', 'like', "%{$search}%")
                     ->orWhereHas('cashier', fn($c) => $c->where('name', 'like', "%{$search}%"));
             });
         }
@@ -90,46 +90,50 @@ class ShiftController extends BaseController
         if ($period = $request->input('period')) {
             switch ($period) {
                 case 'today':
-                    $query->whereDate('start_time', now()->toDateString());
+                    $query->whereDate('cashier_shifts.created_at', now()->toDateString());
                     break;
                 case 'last_7_days':
-                    $query->where('start_time', '>=', now()->subDays(7));
+                    $query->where('cashier_shifts.created_at', '>=', now()->subDays(7));
                     break;
                 case 'last_30_days':
-                    $query->where('start_time', '>=', now()->subDays(30));
+                    $query->where('cashier_shifts.created_at', '>=', now()->subDays(30));
                     break;
                 case 'last_24_hours':
-                    $query->where('start_time', '>=', now()->subDay());
+                    $query->where('cashier_shifts.created_at', '>=', now()->subDay());
                     break;
             }
         }
 
-        // 📆 فلترة بتواريخ مخصصة (اختياري)
+        // 📆 فلترة مخصصة حسب التاريخ
         if ($from = $request->input('date_from')) {
-            $query->whereDate('start_time', '>=', $from);
+            $query->whereDate('cashier_shifts.created_at', '>=', $from);
         }
 
         if ($to = $request->input('date_to')) {
-            $query->whereDate('start_time', '<=', $to);
+            $query->whereDate('cashier_shifts.created_at', '<=', $to);
         }
 
         // 📌 فلترة حسب الحالة (مفتوح / مغلق)
         if ($status = $request->input('status')) {
-            $query->where('status', $status);
+            $query->where('cashier_shifts.status', $status);
         }
 
         // 💰 فلترة حسب المبالغ (اختياري)
         if ($min = $request->input('min_total')) {
-            $query->where('total_sales', '>=', $min);
+            $query->where('cashier_shifts.total_sales', '>=', $min);
         }
 
         if ($max = $request->input('max_total')) {
-            $query->where('total_sales', '<=', $max);
+            $query->where('cashier_shifts.total_sales', '<=', $max);
         }
 
-        // ترتيب و Pagination
-        $shifts = $query->orderBy('start_time', 'desc')
-            ->paginate($request->input('per_page', 20));
+        // 🔄 ترتيب حسب وقت الشيفت الحقيقي من جدول shifts
+        $query->leftJoin('shifts', 'shifts.id', '=', 'cashier_shifts.shift_id')
+            ->orderBy('shifts.start_time', 'desc')
+            ->select('cashier_shifts.*');
+
+        // 📄 Pagination
+        $shifts = $query->paginate($request->input('per_page', 20));
 
         return $this->paginatedResponse($shifts, 'Filtered cashier shifts retrieved successfully');
     }
