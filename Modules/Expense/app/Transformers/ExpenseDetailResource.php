@@ -37,7 +37,7 @@ class ExpenseDetailResource extends JsonResource
         ];
 
         // Add type-specific details
-        return array_merge($baseData, $this->getTypeSpecificDetails());
+        return $baseData;
     }
 
     private function getTypeSpecificDetails(): array
