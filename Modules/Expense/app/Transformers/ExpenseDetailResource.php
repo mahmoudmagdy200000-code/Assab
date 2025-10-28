@@ -43,10 +43,10 @@ class ExpenseDetailResource extends JsonResource
     private function getTypeSpecificDetails(): array
     {
         return match ($this->expense_type) {
-            'data' => $this->getQuickCashDetails(),
-            'data' => $this->getSingleInvoiceDetails(),
-            'data' => $this->getGroupedInvoiceDetails(),
-            'data' => $this->getPreApprovalDetails(),
+            'quick_cash' => $this->getQuickCashDetails(),
+            'single_invoice' => $this->getSingleInvoiceDetails(),
+            'grouped_invoice' => $this->getGroupedInvoiceDetails(),
+            'pre_approval' => $this->getPreApprovalDetails(),
             default => [],
         };
     }
@@ -56,7 +56,7 @@ class ExpenseDetailResource extends JsonResource
         $quickCash = $this->quickCashExpense;
 
         return [
-            'quick_cash' => [
+            'data' => [
                 'expense_date' => $quickCash->expense_date->format('Y-m-d'),
                 'expense_name' => $quickCash->expense_name,
                 'has_vat' => $quickCash->has_vat,
@@ -79,7 +79,7 @@ class ExpenseDetailResource extends JsonResource
         $invoice = $this->invoiceDetails->first();
 
         $data = [
-            'single_invoice' => [
+            'data' => [
                 'invoice_number' => $invoice->invoice_number,
                 'issue_date' => $invoice->issue_date->format('Y-m-d'),
                 'is_tax_invoice' => $invoice->is_tax_invoice,
@@ -128,7 +128,7 @@ class ExpenseDetailResource extends JsonResource
         $grouped = $this->groupedInvoice;
 
         return [
-            'grouped_invoice' => [
+            'data' => [
                 'number_of_suppliers' => $grouped->invoiceDetails->pluck('supplier_id')->unique()->count(),
                 'supplier_names' => $grouped->invoiceDetails->map(fn($inv) => $inv->supplier->name)->unique()->values(),
                 'payment_type' => $grouped->payment_type,
@@ -178,7 +178,7 @@ class ExpenseDetailResource extends JsonResource
         $preApproval = $this->preApprovalRequest;
 
         return [
-            'pre_approval' => [
+            'data' => [
                 'purpose' => $preApproval->purpose,
                 'estimated_amount' => (float) $preApproval->estimated_amount,
                 'priority' => [
