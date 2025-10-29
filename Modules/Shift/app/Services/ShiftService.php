@@ -6,6 +6,7 @@ use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Repositories\CashierShiftRepositoryInterface;
 use Illuminate\Support\Collection;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Modules\Shift\Models\Shift;
 
 class ShiftService
@@ -14,7 +15,7 @@ class ShiftService
         private CashierShiftRepositoryInterface $cashierShiftRepository
     ) {}
 
-    public function getPendingShifts(int $cashierId = null): Collection
+    public function getPendingShifts(int $cashierId = null): LengthAwarePaginator
     {
         $query = CashierShift::pending()
             ->with(['cashier', 'shift', 'nextCashier'])
