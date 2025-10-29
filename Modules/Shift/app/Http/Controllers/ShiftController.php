@@ -18,21 +18,19 @@ class ShiftController extends BaseController
     // get all shifts
     public function index()
     {
-        // Logic to get all shifts
-
         $manager = auth()->user();
 
-        // Ensure the user is a branch manager
         if (!$manager || !$manager->branch_id) {
             return $this->errorResponse('Unauthorized', 403);
         }
 
-        // Get all shifts for that branch
-        $shifts = Shift::where('branch_id', $manager->branch_id)
+        // Load shifts with necessary relationships
+        $shifts = Shift::with(['cashierShifts', 'cashierShifts.cashier'])
+            ->where('branch_id', $manager->branch_id)
             ->orderBy('start_time')
             ->paginate(10);
 
-        return $this->paginatedResponse(
+        return $this->successResponse(
             CashierShiftResource::collection($shifts),
             'Shifts retrieved successfully'
         );
