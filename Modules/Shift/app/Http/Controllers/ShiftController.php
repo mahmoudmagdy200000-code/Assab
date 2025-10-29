@@ -156,4 +156,13 @@ class ShiftController extends BaseController
         }
         return $this->successResponse($cashierShift, 'Cashier Shift retrieved successfully');
     }
+
+    public function getShiftByCashierId($id)
+    {
+        $cashierShift = CashierShift::with(['cashier', 'shift'])->where('cashier_id', $id)->first();
+        if (!$cashierShift) {
+            return $this->errorResponse('Cashier Shift not found', 404);
+        }
+        return $this->successResponse($cashierShift, 'Cashier Shift retrieved successfully');
+    }
 }

@@ -183,7 +183,12 @@ Route::prefix('branch-manager')
     // show shift by id
         Route::get('shifts/{shift}', [ShiftController::class, 'show'])
             ->name('shifts.show');
+
+    // get shift by cashier id
+        Route::get('cashiers/{cashier}/shifts', [ShiftController::class, 'getShiftByCashierId'])
+            ->name('cashiers.shifts.index');
     });
+
 
 /*
 |--------------------------------------------------------------------------
