@@ -30,7 +30,7 @@ class PendingShiftController extends BaseController
 
             $shifts = $this->shiftService->getPendingShifts($cashierId);
 
-            return $this->successResponse(
+            return $this->paginatedResponse(
                 CashierShiftResource::collection($shifts),
                 'Pending shifts retrieved successfully'
             );
