@@ -63,10 +63,14 @@ class PreApprovalRequestService
             }
         }
 
-        // Upload attachment if provided
-        if (isset($data['attachment'])) {
-            $this->uploadAttachment($expense, $data['attachment']);
+
+        // Upload multiple attachments if provided
+        if (!empty($data['attachments'])) {
+            foreach ($data['attachments'] as $file) {
+                $this->uploadAttachment($expense, $file);
+            }
         }
+
 
         // Create timeline entry
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
