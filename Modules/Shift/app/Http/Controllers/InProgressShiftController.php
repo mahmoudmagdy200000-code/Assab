@@ -9,7 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\ShiftService;
-use Modules\Shift\Transformers\{ShiftResource, ShiftDetailResource};
+use Modules\Shift\Transformers\{CashierShiftResource, ShiftResource, ShiftDetailResource};
 
 class InProgressShiftController extends BaseController
 {
@@ -50,7 +50,7 @@ class InProgressShiftController extends BaseController
 
 
             return $this->paginatedResponse(
-                ShiftResource::collection($inProgressShifts),
+                CashierShiftResource::collection($inProgressShifts),
                 'In-progress shifts retrieved successfully',
             );
         } catch (\Exception $e) {
