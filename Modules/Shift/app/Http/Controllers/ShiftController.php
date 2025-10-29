@@ -8,7 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
-
+use Modules\Shift\Transformers\CashierShiftResource;
 
 class ShiftController extends BaseController
 {
@@ -32,7 +32,7 @@ class ShiftController extends BaseController
             ->orderBy('start_time')
             ->paginate(10);
 
-        return $this->successResponse($shifts, 'Shifts retrieved successfully');
+        return $this->successResponse(CashierShiftResource::collection($shifts), 'Shifts retrieved successfully');
     }
 
     public function getAllCashiersShifts(Request $request)
@@ -62,7 +62,10 @@ class ShiftController extends BaseController
 
         $shifts = $query->paginate(10);
 
-        return $this->paginatedResponse($shifts, 'Cashiers shifts retrieved successfully');
+        return $this->paginatedResponse(
+            CashierShiftResource::collection($shifts),
+            'Cashiers shifts retrieved successfully'
+        );
     }
 
     public function filterCashierShifts(Request $request)
@@ -135,7 +138,10 @@ class ShiftController extends BaseController
         // 📄 Pagination
         $shifts = $query->paginate($request->input('per_page', 20));
 
-        return $this->paginatedResponse($shifts, 'Filtered cashier shifts retrieved successfully');
+        return $this->paginatedResponse(
+            CashierShiftResource::collection($shifts),
+            'Filtered cashier shifts retrieved successfully'
+        );
     }
 
     public function show($id)

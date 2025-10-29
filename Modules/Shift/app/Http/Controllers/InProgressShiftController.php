@@ -160,4 +160,35 @@ class InProgressShiftController extends Controller
             ], 500);
         }
     }
+
+    public function getInProgressShiftByCashierId($id): JsonResponse
+    {
+        try {
+            $shift = CashierShift::inProgress()
+                ->where('cashier_id', $id)
+                ->with(['cashier', 'shift'])
+                ->first();
+
+            if (!$shift) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No in-progress shift found for this cashier',
+                ], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'In-progress shift retrieved successfully',
+                'data' => new ShiftDetailResource($shift),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve in-progress shift',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    
 }
