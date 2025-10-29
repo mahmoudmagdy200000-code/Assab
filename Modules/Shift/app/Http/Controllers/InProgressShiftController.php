@@ -2,6 +2,8 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
+use Faker\Provider\Base;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -9,7 +11,7 @@ use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Transformers\{ShiftResource, ShiftDetailResource};
 
-class InProgressShiftController extends Controller
+class InProgressShiftController extends BaseController
 {
     public function __construct(
         private ShiftService $shiftService
@@ -133,25 +135,11 @@ class InProgressShiftController extends Controller
                 $shiftDetails->shift->end_time
             );
 
-            return response()->json([
-                'success' => true,
-                'message' => 'In-progress shift details retrieved successfully',
-                'data' => [
-                    'shift' => new ShiftDetailResource($shiftDetails),
-                    'progress' => $progress,
-                    'real_time' => [
-                        'elapsed_minutes' => $elapsedMinutes,
-                        'total_minutes' => $totalMinutes,
-                        'remaining_minutes' => max(0, $totalMinutes - $elapsedMinutes),
-                        'progress_percentage' => min(100, ($elapsedMinutes / $totalMinutes) * 100),
-                    ],
-                    'actions_available' => [
-                        'view_details' => true,
-                        'end_shift' => true,
-                        'end_shift_with_handover' => true,
-                    ]
-                ]
-            ]);
+            return $this->successResponse(
+                new ShiftDetailResource($shiftDetails),
+                'In-progress shift details retrieved successfully',
+
+            );
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -190,5 +178,5 @@ class InProgressShiftController extends Controller
         }
     }
 
-    
+
 }
