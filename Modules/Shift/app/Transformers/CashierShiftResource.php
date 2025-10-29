@@ -31,6 +31,8 @@ class CashierShiftResource extends JsonResource
                 'actual_end_time' => optional($this->actual_end_time)->format('H:i'),
                 'cash_collected' => $this->cash_collected,
                 'variances' => $this->variances,
+                'assigned_by' => $this->assigned_by,
+                'reAssigned_by' => $this->reassigned_by,
                 'branch_id' => $this->shift?->branch_id,
                 'is_active' => $this->shift?->is_active,
             ],
