@@ -49,9 +49,7 @@ class PreApprovalRequestController extends BaseController
             'expenses.*.description' => 'required_with:expenses|string|max:255',
             'expenses.*.price' => 'required_with:expenses|numeric|min:0',
 
-            'attachments' => 'sometimes|array',
-            'attachments.*' => 'file|mimes:pdf,jpg,jpeg,png|max:5120',
-
+            'attachment' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:5120',
             'is_draft' => 'sometimes|boolean',
         ]);
 
