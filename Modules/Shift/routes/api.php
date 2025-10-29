@@ -175,6 +175,14 @@ Route::prefix('branch-manager')
     // filterCashierShifts
         Route::get('shifts/cashiers/filter', [ShiftController::class, 'filterCashierShifts'])
             ->name('shifts.cashiers.filter');
+
+
+     // Show Cashier Shift
+        Route::get('shifts/cashiers/{shift}', [ShiftController::class, 'getCashierShiftById'])
+            ->name('shifts.cashiers.show');
+    // show shift by id
+        Route::get('shifts/{shift}', [ShiftController::class, 'show'])
+            ->name('shifts.show');
     });
 
 /*

@@ -137,4 +137,23 @@ class ShiftController extends BaseController
 
         return $this->paginatedResponse($shifts, 'Filtered cashier shifts retrieved successfully');
     }
+
+    public function show($id)
+    {
+        // Logic to get a specific shift by ID
+        $shift = Shift::find($id);
+        if (!$shift) {
+            return $this->errorResponse('Shift not found', 404);
+        }
+        return $this->successResponse($shift, 'Shift retrieved successfully');
+    }
+
+    public function getCashierShiftById($id)
+    {
+        $cashierShift = CashierShift::with(['cashier', 'shift'])->find($id);
+        if (!$cashierShift) {
+            return $this->errorResponse('Cashier Shift not found', 404);
+        }
+        return $this->successResponse($cashierShift, 'Cashier Shift retrieved successfully');
+    }
 }
