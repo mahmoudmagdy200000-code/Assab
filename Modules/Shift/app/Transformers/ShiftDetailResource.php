@@ -141,6 +141,11 @@ class ShiftDetailResource extends JsonResource
                     ];
                 })
             ),
+            'progress_data' => $this->progress_data ?? [
+                'progress' => 0,
+                'elapsed_minutes' => 0,
+                'total_minutes' => 0,
+            ],
 
             'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
             'updated_at' => $this->updated_at?->format('Y-m-d H:i:s'),

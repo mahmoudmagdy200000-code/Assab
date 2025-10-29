@@ -124,10 +124,16 @@ class InProgressShiftController extends BaseController
                 $shiftDetails->shift->end_time
             );
 
+            // Add progress data to the shift details
+            $shiftDetails->progress_data = [
+                'progress' => $progress,
+                'elapsed_minutes' => $elapsedMinutes,
+                'total_minutes' => $totalMinutes,
+            ];
+
             return $this->successResponse(
                 new ShiftDetailResource($shiftDetails),
-                'In-progress shift details retrieved successfully',
-
+                'In-progress shift details retrieved successfully'
             );
         } catch (\Exception $e) {
             return response()->json([
