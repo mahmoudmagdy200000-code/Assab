@@ -107,23 +107,21 @@ class CashierShiftResource extends JsonResource
      */
     public function with($request)
     {
-        $collection = $this->resource instanceof \Illuminate\Support\Collection
-            ? $this->resource
-            : collect([$this->resource]);
-
         return [
-            'meta' => [
-                'total' => $collection->count(),
+            'extra_meta' => [
                 'date_range' => [
                     'from' => now()->format('Y-m-d'),
                     'to' => now()->addMonth()->format('Y-m-d'),
                 ],
-                'next_shift' => $collection->first() ? [
-                    'id' => $collection->first()->id,
-                    'date' => $collection->first()->shift_date->format('Y-m-d'),
-                    'time' => $collection->first()->shift->start_time,
-                    'cashier' => $collection->first()->cashier->name,
-                ] : null,
+                'next_shift' => $this->when($this->resource->first(), function () {
+                    $first = $this->resource->first();
+                    return [
+                        'id' => $first->id,
+                        'date' => $first->shift_date->format('Y-m-d'),
+                        'time' => $first->shift->start_time,
+                        'cashier' => $first->cashier->name,
+                    ];
+                }),
             ],
         ];
     }
