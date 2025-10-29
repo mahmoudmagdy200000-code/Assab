@@ -101,4 +101,30 @@ class CashierShiftResource extends JsonResource
             }),
         ];
     }
+
+    /**
+     * Add extra meta info to the resource collection.
+     */
+    public function with($request)
+    {
+        $collection = $this->resource instanceof \Illuminate\Support\Collection
+            ? $this->resource
+            : collect([$this->resource]);
+
+        return [
+            'meta' => [
+                'total' => $collection->count(),
+                'date_range' => [
+                    'from' => now()->format('Y-m-d'),
+                    'to' => now()->addMonth()->format('Y-m-d'),
+                ],
+                'next_shift' => $collection->first() ? [
+                    'id' => $collection->first()->id,
+                    'date' => $collection->first()->shift_date->format('Y-m-d'),
+                    'time' => $collection->first()->shift->start_time,
+                    'cashier' => $collection->first()->cashier->name,
+                ] : null,
+            ],
+        ];
+    }
 }
