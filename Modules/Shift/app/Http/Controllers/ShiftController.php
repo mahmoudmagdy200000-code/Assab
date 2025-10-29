@@ -32,7 +32,10 @@ class ShiftController extends BaseController
             ->orderBy('start_time')
             ->paginate(10);
 
-        return $this->successResponse(CashierShiftResource::collection($shifts), 'Shifts retrieved successfully');
+        return $this->paginatedResponse(
+            CashierShiftResource::collection($shifts),
+            'Shifts retrieved successfully'
+        );
     }
 
     public function getAllCashiersShifts(Request $request)
