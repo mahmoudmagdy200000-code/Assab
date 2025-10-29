@@ -2,16 +2,14 @@
 
 namespace Modules\Shift\Http\Controllers;
 
-use App\Http\Controllers\BaseController;
-use Faker\Provider\Base;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\ShiftService;
-use Modules\Shift\Transformers\{CashierShiftResource, ShiftResource, ShiftDetailResource};
+use Modules\Shift\Transformers\{ShiftResource, ShiftDetailResource};
 
-class InProgressShiftController extends BaseController
+class InProgressShiftController extends Controller
 {
     public function __construct(
         private ShiftService $shiftService
@@ -36,7 +34,7 @@ class InProgressShiftController extends BaseController
                 ->with(['cashier', 'shift'])
                 ->orderBy('actual_start_time')
                 ->when($cashierId, fn($q) => $q->where('cashier_id', $cashierId))
-                ->paginate(10);
+                ->get();
 
 
             $nextShift = CashierShift::where('status', 'not_started')
@@ -49,11 +47,21 @@ class InProgressShiftController extends BaseController
                 ->first();
 
 
-            return $this->paginatedResponse(
-                CashierShiftResource::collection($inProgressShifts),
-                'In-progress shifts retrieved successfully',
-                 new CashierShiftResource($nextShift) ?? null,
-            );
+            return response()->json([
+                'success' => true,
+                'message' => 'In-progress shifts and next shift retrieved successfully',
+                'data' => ShiftResource::collection($inProgressShifts),
+                'meta' => [
+                    'total_in_progress' => $inProgressShifts->count(),
+                    'date' => now()->format('Y-m-d'),
+                    'next_shift' => $nextShift ? [
+                        'id' => $nextShift->id,
+                        'cashier' => $nextShift->cashier->name,
+                        'start_time' => $nextShift->shift->start_time->format('H:i') ?? null,
+                        'expected_end' => $nextShift->shift->end_time->format('H:i') ?? null,
+                    ] : null,
+                ],
+            ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -125,50 +133,29 @@ class InProgressShiftController extends BaseController
                 $shiftDetails->shift->end_time
             );
 
-            // Add progress data to the shift details
-            $shiftDetails->progress_data = [
-                'progress' => $progress,
-                'elapsed_minutes' => $elapsedMinutes,
-                'total_minutes' => $totalMinutes,
-            ];
-
-            return $this->successResponse(
-                new ShiftDetailResource($shiftDetails),
-                'In-progress shift details retrieved successfully'
-            );
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve shift details',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    public function getInProgressShiftByCashierId($id): JsonResponse
-    {
-        try {
-            $shift = CashierShift::inProgress()
-                ->where('cashier_id', $id)
-                ->with(['cashier', 'shift'])
-                ->first();
-
-            if (!$shift) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No in-progress shift found for this cashier',
-                ], 404);
-            }
-
             return response()->json([
                 'success' => true,
-                'message' => 'In-progress shift retrieved successfully',
-                'data' => new ShiftDetailResource($shift),
+                'message' => 'In-progress shift details retrieved successfully',
+                'data' => [
+                    'shift' => new ShiftDetailResource($shiftDetails),
+                    'progress' => $progress,
+                    'real_time' => [
+                        'elapsed_minutes' => $elapsedMinutes,
+                        'total_minutes' => $totalMinutes,
+                        'remaining_minutes' => max(0, $totalMinutes - $elapsedMinutes),
+                        'progress_percentage' => min(100, ($elapsedMinutes / $totalMinutes) * 100),
+                    ],
+                    'actions_available' => [
+                        'view_details' => true,
+                        'end_shift' => true,
+                        'end_shift_with_handover' => true,
+                    ]
+                ]
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to retrieve in-progress shift',
+                'message' => 'Failed to retrieve shift details',
                 'error' => $e->getMessage()
             ], 500);
         }

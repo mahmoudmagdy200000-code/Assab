@@ -2,8 +2,6 @@
 
 namespace Modules\Shift\Http\Controllers;
 
-use App\Http\Controllers\BaseController;
-use Faker\Provider\Base;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -11,7 +9,7 @@ use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Transformers\{CashierShiftResource, ShiftResource, ShiftDetailResource};
 use Modules\Shift\Models\CashierShift;
 
-class PendingShiftController extends BaseController
+class PendingShiftController extends Controller
 {
     public function __construct(
         private ShiftService $shiftService
@@ -30,10 +28,24 @@ class PendingShiftController extends BaseController
 
             $shifts = $this->shiftService->getPendingShifts($cashierId);
 
-            return $this->paginatedResponse(
-                CashierShiftResource::collection($shifts),
-                'Pending shifts retrieved successfully'
-            );
+            return response()->json([
+                'success' => true,
+                'message' => 'Pending shifts retrieved successfully',
+                'data' => CashierShiftResource::collection($shifts),
+                'meta' => [
+                    'total' => $shifts->count(),
+                    'date_range' => [
+                        'from' => now()->format('Y-m-d'),
+                        'to' => now()->addMonth()->format('Y-m-d'),
+                    ],
+                    'next_shift' => $shifts->first() ? [
+                        'id' => $shifts->first()->id,
+                        'date' => $shifts->first()->shift_date->format('Y-m-d'),
+                        'time' => $shifts->first()->shift->start_time,
+                        'cashier' => $shifts->first()->cashier->name,
+                    ] : null,
+                ]
+            ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -85,18 +97,5 @@ class PendingShiftController extends BaseController
                 'error' => $e->getMessage()
             ], 500);
         }
-    }
-
-
-    public function getPendingShiftByCashierId($id)
-    {
-        $cashierShift = CashierShift::with(['cashier', 'shift'])
-            ->where('cashier_id', $id)
-            ->where('status', 'pending')
-            ->first();
-        if (!$cashierShift) {
-            return $this->errorResponse('Cashier Shift not found', 404);
-        }
-        return $this->successResponse($cashierShift, 'Cashier Shift retrieved successfully');
     }
 }

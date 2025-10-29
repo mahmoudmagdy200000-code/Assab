@@ -89,6 +89,8 @@ class CashierShiftResource extends JsonResource
                 });
             }),
 
+
+
             'variance_details' => $this->whenLoaded('varianceDetails', function () {
                 return $this->varianceDetails->map(function ($detail) {
                     return [
@@ -99,30 +101,6 @@ class CashierShiftResource extends JsonResource
                     ];
                 });
             }),
-        ];
-    }
-
-    /**
-     * Add extra meta info to the resource collection.
-     */
-    public function with($request)
-    {
-        return [
-            'extra_meta' => [
-                'date_range' => [
-                    'from' => now()->format('Y-m-d'),
-                    'to' => now()->addMonth()->format('Y-m-d'),
-                ],
-                'next_shift' => $this->when($this->resource->first(), function () {
-                    $first = $this->resource->first();
-                    return [
-                        'id' => $first->id,
-                        'date' => $first->shift_date->format('Y-m-d'),
-                        'time' => $first->shift->start_time,
-                        'cashier' => $first->cashier->name,
-                    ];
-                }),
-            ],
         ];
     }
 }
