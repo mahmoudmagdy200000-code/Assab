@@ -98,4 +98,17 @@ class PendingShiftController extends Controller
             ], 500);
         }
     }
+
+
+    public function getPendingShiftByCashierId($id)
+    {
+        $cashierShift = CashierShift::with(['cashier', 'shift'])
+            ->where('cashier_id', $id)
+            ->where('status', 'pending')
+            ->first();
+        if (!$cashierShift) {
+            return $this->errorResponse('Cashier Shift not found', 404);
+        }
+        return $this->successResponse($cashierShift, 'Cashier Shift retrieved successfully');
+    }
 }

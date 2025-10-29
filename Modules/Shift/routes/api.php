@@ -48,6 +48,8 @@ Route::prefix('branch-manager')
         Route::prefix('shifts/pending')->group(function () {
             Route::get('/', [PendingShiftController::class, 'index'])->name('shifts.pending.index');
             Route::get('/{shift}', [PendingShiftController::class, 'show'])->name('shifts.pending.show');
+            Route::get('/cashiers/{cashier}', [PendingShiftController::class, 'getPendingShiftByCashierId'])
+                ->name('shifts.pending.cashier.show');
         });
 
         /*
