@@ -28,15 +28,6 @@ class PendingShiftController extends Controller
 
             $shifts = $this->shiftService->getPendingShifts($cashierId);
 
-            $nextShift = CashierShift::where('status', 'not_started')
-                ->whereDate('shift_date', today())
-                ->join('shifts', 'cashier_shifts.shift_id', '=', 'shifts.id')
-                ->when($cashierId, fn($q) => $q->where('cashier_id', $cashierId))
-                ->orderBy('shifts.start_time')
-                ->select('cashier_shifts.*')
-                ->with(['cashier', 'shift'])
-                ->first();
-
             return response()->json([
                 'success' => true,
                 'message' => 'Pending shifts retrieved successfully',
@@ -47,11 +38,11 @@ class PendingShiftController extends Controller
                         'from' => now()->format('Y-m-d'),
                         'to' => now()->addMonth()->format('Y-m-d'),
                     ],
-                    'next_shift' => $nextShift ? [
-                        'id' => $nextShift->id ?? null,
-                        'date' => $nextShift->shift_date?->format('Y-m-d') ?? null,
-                        'time' => $nextShift->shift?->start_time ?? null,
-                        'cashier' => $nextShift->cashier?->name ?? null,
+                    'next_shift' => $shifts->first() ? [
+                        'id' => $shifts->first()->id,
+                        'date' => $shifts->first()->shift_date->format('Y-m-d'),
+                        'time' => $shifts->first()->shift->start_time,
+                        'cashier' => $shifts->first()->cashier->name,
                     ] : null,
                 ]
             ]);
