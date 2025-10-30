@@ -62,23 +62,33 @@ class CashierShiftResource extends JsonResource
 
             // Next Cashier
             'next_cashier' => $this->whenLoaded('nextCashier', function () {
-                return [
+                return $this->nextCashier ? [
                     'id' => $this->nextCashier->id,
                     'name' => $this->nextCashier->name,
                     'email' => $this->nextCashier->email ?? null,
                     'phone' => $this->nextCashier->phone ?? null,
-                ];
+                ] : null;
             }),
 
-            // Reassignment Info
-            'reassigned_by' => $this->whenLoaded('reassignedBy', function () {
+            // Reassignment Info (Only show if shift was reassigned)
+            'reassignment' => $this->when($this->status?->value === 'reassigned', function () {
                 return [
-                    'id' => $this->reassignedBy->id,
-                    'name' => $this->reassignedBy->name,
+                    'reassigned_from' => [
+                        'id' => $this->originalCashier?->id,
+                        'name' => $this->originalCashier?->name,
+                    ],
+                    'reassigned_to' => [
+                        'id' => $this->cashier?->id,
+                        'name' => $this->cashier?->name,
+                    ],
+                    'reassigned_by' => [
+                        'id' => $this->reassignedBy?->id,
+                        'name' => $this->reassignedBy?->name,
+                    ],
+                    'reassigned_at' => $this->reassigned_at?->format('Y-m-d H:i'),
+                    'reason' => $this->reassignment_reason,
                 ];
             }),
-            'reassigned_at' => optional($this->reassigned_at)?->format('Y-m-d H:i'),
-            'reassignment_reason' => $this->reassignment_reason,
 
             // Relations
             'sales_breakdown' => $this->whenLoaded('salesBreakdown', function () {
@@ -90,8 +100,6 @@ class CashierShiftResource extends JsonResource
                     ];
                 });
             }),
-
-
 
             'variance_details' => $this->whenLoaded('varianceDetails', function () {
                 return $this->varianceDetails->map(function ($detail) {

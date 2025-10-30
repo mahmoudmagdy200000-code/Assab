@@ -17,8 +17,14 @@ class ShiftService
 
     public function getPendingShifts(int $cashierId = null): LengthAwarePaginator
     {
-        $query = CashierShift::upcoming() // ✅ غيرها لـ upcoming
-            ->with(['cashier', 'shift', 'nextCashier', 'reassignedBy', 'originalCashier'])
+        $query = CashierShift::upcoming() // ✅ استخدم upcoming بدل pending
+            ->with([
+                'cashier',
+                'shift',
+                'nextCashier',
+                'originalCashier',   
+                'reassignedBy'
+            ])
             ->whereDate('shift_date', '>=', now()->subMonth()->toDateString())
             ->whereDate('shift_date', '<=', now()->addMonth()->toDateString())
             ->orderBy('shift_date')
