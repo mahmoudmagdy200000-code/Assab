@@ -48,7 +48,7 @@ class InProgressShiftController extends BaseController
                 ->first();
 
             return $this->paginatedResponse(
-                new CashierShiftResource($inProgressShifts),
+                CashierShiftResource::collection($inProgressShifts),
                 'In-progress shifts retrieved successfully',
             );
         } catch (\Exception $e) {
