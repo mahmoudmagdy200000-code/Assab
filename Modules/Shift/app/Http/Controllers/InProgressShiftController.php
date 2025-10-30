@@ -35,7 +35,7 @@ class InProgressShiftController extends BaseController
                 ->with(['cashier', 'shift'])
                 ->orderBy('actual_start_time')
                 ->when($cashierId, fn($q) => $q->where('cashier_id', $cashierId))
-                ->get();
+                ->paginate(10);
 
 
             $nextShift = CashierShift::where('status', 'not_started')
@@ -48,7 +48,7 @@ class InProgressShiftController extends BaseController
                 ->first();
 
 
-            return $this->successResponse([
+            return $this->paginatedResponse([
                 CashierShiftResource::collection($inProgressShifts),
                 'inprogress retrieved successfully',
             ]);
