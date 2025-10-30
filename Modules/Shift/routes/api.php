@@ -174,19 +174,19 @@ Route::prefix('branch-manager')
         Route::get('shifts/variance/statistics', [ShiftVarianceController::class, 'getVarianceStatistics'])
             ->name('shifts.variance.statistics');
 
-    // filterCashierShifts
+        // filterCashierShifts
         Route::get('shifts/cashiers/filter', [ShiftController::class, 'filterCashierShifts'])
             ->name('shifts.cashiers.filter');
 
 
-     // Show Cashier Shift
+        // Show Cashier Shift
         Route::get('shifts/cashiers/{shift}', [ShiftController::class, 'getCashierShiftById'])
             ->name('shifts.cashiers.show');
-    // show shift by id
+        // show shift by id
         Route::get('shifts/{shift}', [ShiftController::class, 'show'])
             ->name('shifts.show');
 
-    // get shift by cashier id
+        // get shift by cashier id
         Route::get('cashiers/{cashier}/shifts', [ShiftController::class, 'getShiftByCashierId'])
             ->name('cashiers.shifts.index');
     });
