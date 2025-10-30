@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -9,7 +10,7 @@ use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Transformers\{CashierShiftResource, ShiftResource, ShiftDetailResource};
 use Modules\Shift\Models\CashierShift;
 
-class PendingShiftController extends Controller
+class PendingShiftController extends BaseController
 {
     public function __construct(
         private ShiftService $shiftService
@@ -28,10 +29,9 @@ class PendingShiftController extends Controller
 
             $shifts = $this->shiftService->getPendingShifts($cashierId);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Pending shifts retrieved successfully',
+            return $this->paginatedResponse([
                 'data' => CashierShiftResource::collection($shifts),
+                'message' => 'Pending shifts retrieved successfully',
                 'meta' => [
                     'total' => $shifts->count(),
                     'date_range' => [
@@ -44,7 +44,7 @@ class PendingShiftController extends Controller
                         'time' => $shifts->first()->shift->start_time,
                         'cashier' => $shifts->first()->cashier->name,
                     ] : null,
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
