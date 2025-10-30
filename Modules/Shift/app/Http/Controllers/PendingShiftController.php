@@ -7,7 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Shift\Services\ShiftService;
-use Modules\Shift\Transformers\{CashierShiftResource, ShiftResource, ShiftDetailResource};
+use Modules\Shift\Transformers\{CashierShiftCollection, CashierShiftResource, ShiftResource, ShiftDetailResource};
 use Modules\Shift\Models\CashierShift;
 
 class PendingShiftController extends BaseController
@@ -29,23 +29,10 @@ class PendingShiftController extends BaseController
 
             $shifts = $this->shiftService->getPendingShifts($cashierId);
 
-            return $this->paginatedResponse([
-                'data' => CashierShiftResource::collection($shifts),
-                'message' => 'Pending shifts retrieved successfully',
-                'meta' => [
-                    'total' => $shifts->count(),
-                    'date_range' => [
-                        'from' => now()->format('Y-m-d'),
-                        'to' => now()->addMonth()->format('Y-m-d'),
-                    ],
-                    'next_shift' => $shifts->first() ? [
-                        'id' => $shifts->first()->id,
-                        'date' => $shifts->first()->shift_date->format('Y-m-d'),
-                        'time' => $shifts->first()->shift->start_time,
-                        'cashier' => $shifts->first()->cashier->name,
-                    ] : null,
-                ],
-            ]);
+            return $this->paginatedResponse(
+                new CashierShiftCollection($shifts),
+                'Pending shifts retrieved successfully'
+            );
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
