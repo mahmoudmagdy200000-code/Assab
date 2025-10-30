@@ -57,7 +57,9 @@ class GroupedInvoiceExpenseController extends BaseController
             'invoices.*.expenses.*.price' => 'required_with:invoices.*.expenses|numeric|min:0',
 
             // Receipt per invoice
-            'invoices.*.invoice_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
+            'invoices.*.invoice_receipts' => 'sometimes|array',
+            'invoices.*.invoice_receipts.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
+
 
             'is_draft' => 'sometimes|boolean',
         ]);

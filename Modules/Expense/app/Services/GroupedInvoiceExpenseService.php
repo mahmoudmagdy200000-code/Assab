@@ -41,6 +41,7 @@ class GroupedInvoiceExpenseService
             $this->createSingleInvoiceInGroup($expense, $groupedInvoice, $invoiceData);
         }
 
+
         // Create timeline entry
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
@@ -131,9 +132,11 @@ class GroupedInvoiceExpenseService
             }
         }
 
-        // Upload receipt for this invoice
-        if (isset($invoiceData['invoice_receipt'])) {
-            $this->uploadInvoiceReceipt($expense, $invoice, $invoiceData['invoice_receipt']);
+        // Upload multiple receipts for this invoice
+        if (!empty($invoiceData['invoice_receipts'])) {
+            foreach ($invoiceData['invoice_receipts'] as $file) {
+                $this->uploadInvoiceReceipt($expense, $invoice, $file);
+            }
         }
     }
 
