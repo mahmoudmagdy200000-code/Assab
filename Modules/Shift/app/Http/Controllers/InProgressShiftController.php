@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -9,7 +10,7 @@ use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Transformers\{CashierShiftResource, ShiftResource, ShiftDetailResource};
 
-class InProgressShiftController extends Controller
+class InProgressShiftController extends BaseController
 {
     public function __construct(
         private ShiftService $shiftService
@@ -47,20 +48,9 @@ class InProgressShiftController extends Controller
                 ->first();
 
 
-            return response()->json([
-                'success' => true,
-                'message' => 'In-progress shifts and next shift retrieved successfully',
-                'data' => CashierShiftResource::collection($inProgressShifts),
-                'meta' => [
-                    'total_in_progress' => $inProgressShifts->count(),
-                    'date' => now()->format('Y-m-d'),
-                    'next_shift' => $nextShift ? [
-                        'id' => $nextShift->id,
-                        'cashier' => $nextShift->cashier->name,
-                        'start_time' => $nextShift->shift->start_time->format('H:i') ?? null,
-                        'expected_end' => $nextShift->shift->end_time->format('H:i') ?? null,
-                    ] : null,
-                ],
+            return $this->successResponse([
+                CashierShiftResource::collection($inProgressShifts),
+                'inprogress retrieved successfully',
             ]);
         } catch (\Exception $e) {
             return response()->json([
