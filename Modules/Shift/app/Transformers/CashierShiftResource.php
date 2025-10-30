@@ -65,6 +65,8 @@ class CashierShiftResource extends JsonResource
                 return [
                     'id' => $this->nextCashier->id,
                     'name' => $this->nextCashier->name,
+                    'email' => $this->nextCashier->email ?? null,
+                    'phone' => $this->nextCashier->phone ?? null,
                 ];
             }),
 
