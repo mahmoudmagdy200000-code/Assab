@@ -31,7 +31,7 @@ class ShiftService
             $query->where('cashier_id', $cashierId);
         }
 
-        return $query->paginate(10);
+        return $query->get();
     }
 
 
