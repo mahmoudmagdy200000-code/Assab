@@ -211,8 +211,8 @@ class SingleInvoiceExpenseController extends BaseController
 
             // ✅ هنا نستخدم paginatedResponse لأن الـ service بترجع Paginator
             return $this->paginatedResponse(
-                $invoices,
-                'Previous invoices retrieved successfully'
+                new ExpenseDetailResource($invoices),
+                'Single invoice expense created successfully'
             );
         } catch (\Exception $e) {
             return $this->errorResponse(
