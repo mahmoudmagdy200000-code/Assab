@@ -93,7 +93,7 @@ class ShiftService
             $query->whereDate('shift_date', '<=', $filters['date_to']);
         }
 
-        return $query->get();
+        return $query->paginate(10);
     }
 
     public function getReassignedShifts(int $cashierId = null): Collection
