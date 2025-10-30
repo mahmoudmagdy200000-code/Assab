@@ -35,11 +35,7 @@ class PendingShiftController extends BaseController
                 'Pending shifts retrieved successfully'
             );
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve pending shifts',
-                'error' => $e->getMessage()
-            ], 500);
+            return $this->errorResponse($e->getMessage(), 500);
         }
     }
 

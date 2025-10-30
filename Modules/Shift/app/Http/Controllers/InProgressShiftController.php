@@ -2,6 +2,8 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
+use Faker\Provider\Base;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -9,7 +11,7 @@ use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Transformers\{ShiftResource, ShiftDetailResource};
 
-class InProgressShiftController extends Controller
+class InProgressShiftController extends BaseController
 {
     public function __construct(
         private ShiftService $shiftService
@@ -42,32 +44,17 @@ class InProgressShiftController extends Controller
                 ->join('shifts', 'cashier_shifts.shift_id', '=', 'shifts.id')
                 ->when($cashierId, fn($q) => $q->where('cashier_id', $cashierId))
                 ->orderBy('shifts.start_time')
-                ->select('cashier_shifts.*') 
+                ->select('cashier_shifts.*')
                 ->with(['cashier', 'shift'])
                 ->first();
 
 
-            return response()->json([
-                'success' => true,
-                'message' => 'In-progress shifts and next shift retrieved successfully',
-                'data' => ShiftResource::collection($inProgressShifts),
-                'meta' => [
-                    'total_in_progress' => $inProgressShifts->count(),
-                    'date' => now()->format('Y-m-d'),
-                    'next_shift' => $nextShift ? [
-                        'id' => $nextShift->id,
-                        'cashier' => $nextShift->cashier->name,
-                        'start_time' => $nextShift->shift->start_time->format('H:i') ?? null,
-                        'expected_end' => $nextShift->shift->end_time->format('H:i') ?? null,
-                    ] : null,
-                ],
+            return $this->successResponse([
+             CashierShift::collection($inProgressShifts),
+             'inprogress shifts retrieved successfully',
             ]);
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve shifts',
-                'error' => $e->getMessage()
-            ], 500);
+            return $this->errorResponse($e->getMessage(), 500);
         }
     }
 
