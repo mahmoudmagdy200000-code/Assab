@@ -48,7 +48,7 @@ class PendingShiftController extends Controller
                         'to' => now()->addMonth()->format('Y-m-d'),
                     ],
                     'next_shift' => $nextShift->first() ? [
-                        'id' => $nextShift->first()->id,
+                        'id' => $nextShift->first()->id? : null,
                         'date' => $nextShift->first()->shift_date->format('Y-m-d'),
                         'time' => $nextShift->first()->shift->start_time,
                         'cashier' => $nextShift->first()->cashier->name,
