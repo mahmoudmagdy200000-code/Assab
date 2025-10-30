@@ -15,7 +15,7 @@ class ShiftService
         private CashierShiftRepositoryInterface $cashierShiftRepository
     ) {}
 
-    public function getPendingShifts(int $cashierId = null): LengthAwarePaginator
+    public function getPendingShifts(int $cashierId = null): Collection
     {
         $query = CashierShift::pending()
             ->with(['cashier', 'shift', 'nextCashier'])
