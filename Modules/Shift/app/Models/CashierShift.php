@@ -60,7 +60,7 @@ class CashierShift extends Model
     ];
 
     // Default relationships to load
-    protected $with = ['cashier', 'shift'];
+    protected $with = ['cashier', 'shift', 'nextCashier'];
 
     // Relationships
     public function cashier(): BelongsTo
@@ -75,7 +75,7 @@ class CashierShift extends Model
 
     public function nextCashier(): BelongsTo
     {
-        return $this->belongsTo(Cashier::class, 'next_cashier_id');
+        return $this->belongsTo(Cashier::class, 'next_cashier_id')->withTrashed();
     }
 
     public function originalCashier(): BelongsTo
