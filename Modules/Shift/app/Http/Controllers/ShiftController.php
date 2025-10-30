@@ -81,6 +81,11 @@ class ShiftController extends BaseController
                 $q->where('branch_id', $manager->branch_id);
             });
 
+        // 👤 Filter by specific cashier
+        if ($cashierId = $request->input('cashier_id')) {
+            $query->where('cashier_id', $cashierId);
+        }
+
         // 🔍 البحث العام (بالكاشير أو رقم الشيفت)
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
