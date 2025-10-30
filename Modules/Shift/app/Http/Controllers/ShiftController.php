@@ -43,9 +43,15 @@ class ShiftController extends BaseController
             return $this->errorResponse('Unauthorized', 403);
         }
 
-        $query = CashierShift::whereHas('cashier', function ($q) use ($manager) {
-            $q->where('branch_id', $manager->branch_id);
-        });
+        $query = CashierShift::with(['cashier', 'shift'])  // Added eager loading
+            ->whereHas('cashier', function ($q) use ($manager) {
+                $q->where('branch_id', $manager->branch_id);
+            });
+
+        // 👤 Filter by specific cashier
+        if ($cashierId = $request->input('cashier_id')) {
+            $query->where('cashier_id', $cashierId);
+        }
 
         // Prefer ordering by cashier_shifts.start_time if that column exists,
         // otherwise try to order by related shifts.start_time (join), otherwise fallback.
@@ -60,7 +66,7 @@ class ShiftController extends BaseController
             $query->orderBy('created_at');
         }
 
-        $shifts = $query->paginate(10);
+        $shifts = $query->paginate($request->input('per_page', 10));
 
         return $this->paginatedResponse(
             CashierShiftResource::collection($shifts),
