@@ -60,16 +60,7 @@ class InProgressShiftController extends BaseController
                         'from' => $inProgressShifts->firstItem(),
                         'to' => $inProgressShifts->lastItem(),
                     ],
-                    'meta' => [
-                        'total_in_progress' => $inProgressShifts->total(),
-                        'date' => now()->format('Y-m-d'),
-                        'next_shift' => $nextShift ? [
-                            'id' => $nextShift->id,
-                            'cashier' => $nextShift->cashier->name,
-                            'start_time' => $nextShift->shift->start_time->format('H:i'),
-                            'expected_end' => $nextShift->shift->end_time->format('H:i'),
-                        ] : null,
-                    ],
+                    
                 ]
             ]);
         } catch (\Exception $e) {
