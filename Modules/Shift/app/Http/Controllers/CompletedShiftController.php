@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -9,10 +10,11 @@ use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Services\VarianceCalculationService;
 use Modules\Shift\Http\Resources\ShiftResource;
 use Modules\Shift\Http\Resources\ShiftDetailResource;
+use Modules\Shift\Transformers\CashierShiftResource;
 use Modules\Shift\Transformers\ShiftDetailResource as TransformersShiftDetailResource;
 use Modules\Shift\Transformers\ShiftResource as TransformersShiftResource;
 
-class CompletedShiftController extends Controller
+class CompletedShiftController extends BaseController
 {
     public function __construct(
         private ShiftService $shiftService,
@@ -31,15 +33,10 @@ class CompletedShiftController extends Controller
             filters: $filters
         );
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Completed shifts retrieved successfully',
-            'data' => TransformersShiftResource::collection($shifts),
-            'meta' => [
-                'total' => $shifts->count(),
-                'filters_applied' => !empty($filters),
-            ]
-        ]);
+        return $this->paginatedResponse(
+            CashierShiftResource::collection($shifts),
+            'Completed shifts retrieved successfully'
+        );
     }
 
     /**
