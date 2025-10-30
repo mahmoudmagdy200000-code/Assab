@@ -30,10 +30,10 @@ class PendingShiftController extends BaseController
             $shifts = $this->shiftService->getPendingShifts($cashierId);
 
             // استخدم Resource Collection بدلاً من التحويل اليدوي
-            return response()->json([
-                'message' => 'Pending shifts retrieved successfully',
-                'data' => new CashierShiftCollection($shifts),
-            ]);
+            return $this->paginatedResponse(
+                new CashierShiftCollection($shifts),
+                'Pending shifts retrieved successfully'
+            );
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

@@ -119,6 +119,14 @@ class CashierShift extends Model
         return $query->where('status', ShiftStatus::NOT_STARTED->value);
     }
 
+    public function scopeUpcoming($query)
+    {
+        return $query->whereIn('status', [
+            ShiftStatus::NOT_STARTED->value,
+            ShiftStatus::REASSIGNED->value
+        ]);
+    }
+
     public function scopeInProgress($query)
     {
         return $query->where('status', ShiftStatus::IN_PROGRESS)
