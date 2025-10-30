@@ -32,7 +32,7 @@ class InProgressShiftController extends Controller
 
             $inProgressShifts = CashierShift::inProgress()
                 ->with(['cashier', 'shift'])
-                ->orderBy('actual_start_time')
+                // ->orderBy('actual_start_time')
                 ->when($cashierId, fn($q) => $q->where('cashier_id', $cashierId))
                 ->get();
 
