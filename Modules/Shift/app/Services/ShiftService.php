@@ -76,7 +76,7 @@ class ShiftService
         return $query->get();
     }
 
-    public function getCompletedShifts(int $cashierId = null, ?array $filters = []): Collection
+    public function getCompletedShifts(int $cashierId = null, ?array $filters = []): LengthAwarePaginator
     {
         $query = CashierShift::completed()
             ->with(['cashier', 'shift', 'nextCashier', 'handoverStatus', 'varianceDetails']);
