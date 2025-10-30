@@ -19,7 +19,7 @@ class ShiftService
     {
         $query = CashierShift::pending()
             ->with(['cashier', 'shift', 'nextCashier'])
-            ->whereDate('shift_date', '>=', now()->toDateString())
+            ->whereDate('shift_date', '>=', now()->subMonth()->toDateString())
             ->whereDate('shift_date', '<=', now()->addMonth()->toDateString())
             ->orderBy('shift_date')
             ->orderBy(
