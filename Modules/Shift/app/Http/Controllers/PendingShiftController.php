@@ -29,10 +29,30 @@ class PendingShiftController extends BaseController
 
             $shifts = $this->shiftService->getPendingShifts($cashierId);
 
-            return $this->paginatedResponse(
-                new CashierShiftCollection($shifts),
-                'Pending shifts retrieved successfully'
-            );
+            // Transform collection items to ensure next_cashier is present
+            $shifts->getCollection()->transform(function ($shift) {
+                return [
+                    'id' => $shift->id,
+                    'cashier_id' => $shift->cashier_id,
+                    'shift_id' => $shift->shift_id,
+                    'shift_date' => $shift->shift_date?->toDateString(),
+                    'status' => $shift->status?->value,
+                    'opening_balance' => $shift->opening_balance,
+                    'closing_balance' => $shift->closing_balance,
+                    'cashier' => $shift->cashier,
+                    'shift' => $shift->shift,
+                    'next_cashier' => $shift->nextCashier ? [
+                        'id' => $shift->nextCashier->id,
+                        'name' => $shift->nextCashier->name ?? null,
+                        'email' => $shift->nextCashier->email ?? null,
+                    ] : null,
+                ];
+            });
+
+            return response()->json([
+                'message' => 'Pending shifts retrieved successfully',
+                'data' => $shifts,
+            ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
