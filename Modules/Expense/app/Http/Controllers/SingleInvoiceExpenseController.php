@@ -209,14 +209,55 @@ class SingleInvoiceExpenseController extends BaseController
                 $request->input('search')
             );
 
-            // ✅ هنا نستخدم paginatedResponse لأن الـ service بترجع Paginator
+            // Use collection() for paginated data instead of single resource
             return $this->paginatedResponse(
-                new ExpenseDetailResource($invoices),
-                'Single invoice expense created successfully'
+                ExpenseDetailResource::collection($invoices),
+                'Previous invoices retrieved successfully' // Also fixed the success message
             );
         } catch (\Exception $e) {
             return $this->errorResponse(
                 'Failed to retrieve previous invoices',
+                500,
+                ['error' => $e->getMessage()]
+            );
+        }
+    }
+
+    /**
+     * Delete Single Invoice Expense
+     * DELETE /api/branch-manager/expenses/single-invoice/{expense}
+     */
+    public function destroy(int $expense): JsonResponse
+    {
+        $expenseModel = Expense::with(['invoiceDetails', 'items', 'expenseLines'])
+            ->findOrFail($expense);
+        // Check authorization
+        if ($expenseModel->branch_manager_id !== auth()->id()) {
+            return $this->errorResponse(
+                'Unauthorized access to this expense',
+                403
+            );
+        }
+
+        if ($expenseModel->status !== 'draft') {
+            return $this->errorResponse(
+                'Only draft expenses can be deleted',
+                400
+            );
+        }
+        DB::beginTransaction();
+        try {
+            $this->singleInvoiceService->deleteSingleInvoice($expenseModel);
+
+            DB::commit();
+            return $this->successResponse(
+                null,
+                'Single invoice expense deleted successfully'
+            );
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return $this->errorResponse(
+                'Failed to delete single invoice expense',
                 500,
                 ['error' => $e->getMessage()]
             );
