@@ -166,7 +166,8 @@ class ExpenseDetailResource extends JsonResource
                                 'price' => (float) $line->price,
                             ];
                         }),
-                        'receipt' => $this->getInvoiceReceipt($invoice->id),
+                        'receipts' => $this->getInvoiceReceipts($invoice->id),
+
                     ];
                 }),
             ],
@@ -222,19 +223,24 @@ class ExpenseDetailResource extends JsonResource
         })->toArray();
     }
 
-    private function getInvoiceReceipt(int $invoiceId): ?array
+    private function getInvoiceReceipts(int $invoiceId): array
     {
-        $attachment = $this->attachments->where('invoice_detail_id', $invoiceId)->first();
+        $attachments = $this->attachments->where('invoice_detail_id', $invoiceId);
 
-        if (!$attachment) {
-            return null;
+        if ($attachments->isEmpty()) {
+            return [];
         }
 
-        return [
-            'id' => $attachment->id,
-            'file_name' => $attachment->file_name,
-            'url' => asset('storage/' . $attachment->file_path),
-        ];
+        return $attachments->map(function ($attachment) {
+            return [
+                'id' => $attachment->id,
+                'file_name' => $attachment->file_name,
+                'file_type' => $attachment->file_type,
+                'file_size' => $attachment->file_size,
+                'url' => asset('storage/' . $attachment->file_path),
+                'uploaded_at' => $attachment->created_at->format('Y-m-d H:i:s'),
+            ];
+        })->values()->toArray();
     }
 
     private function getExpenseTypeLabel(): string
