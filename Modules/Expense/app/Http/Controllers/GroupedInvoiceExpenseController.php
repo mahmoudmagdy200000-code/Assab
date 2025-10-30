@@ -33,7 +33,7 @@ class GroupedInvoiceExpenseController extends BaseController
             'payment_type' => 'required|in:full,partial,deferred',
             'payment_method' => 'required_if:payment_type,full|in:cash,supplier,custody',
             'paid_amount' => 'required_if:payment_type,partial|numeric|min:0',
-            'due_date' => 'required_if:payment_type,partial,deferred|date|after:today',
+            'due_date' => 'required_if:payment_type,deferred|date|after:today',
 
             // Invoices array
             'invoices' => 'required|array|min:1',
