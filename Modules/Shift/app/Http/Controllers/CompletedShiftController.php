@@ -9,6 +9,7 @@ use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Services\VarianceCalculationService;
 use Modules\Shift\Http\Resources\ShiftResource;
 use Modules\Shift\Http\Resources\ShiftDetailResource;
+use Modules\Shift\Transformers\ShiftDetailResource as TransformersShiftDetailResource;
 use Modules\Shift\Transformers\ShiftResource as TransformersShiftResource;
 
 class CompletedShiftController extends Controller
@@ -61,7 +62,7 @@ class CompletedShiftController extends Controller
             'success' => true,
             'message' => 'Shift details retrieved successfully',
             'data' => [
-                'shift' => new ShiftDetailResource($shift),
+                'shift' => new TransformersShiftDetailResource($shift),
                 'progress' => $progress,
                 'variance_details' => $varianceDetails,
             ]

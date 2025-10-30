@@ -42,7 +42,7 @@ class InProgressShiftController extends Controller
                 ->join('shifts', 'cashier_shifts.shift_id', '=', 'shifts.id')
                 ->when($cashierId, fn($q) => $q->where('cashier_id', $cashierId))
                 ->orderBy('shifts.start_time')
-                ->select('cashier_shifts.*') // مهم لإرجاع بيانات CashierShift فقط
+                ->select('cashier_shifts.*') 
                 ->with(['cashier', 'shift'])
                 ->first();
 
