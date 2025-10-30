@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\ShiftService;
-use Modules\Shift\Transformers\{ShiftResource, ShiftDetailResource};
+use Modules\Shift\Transformers\{CashierShiftResource, ShiftResource, ShiftDetailResource};
 
 class InProgressShiftController extends Controller
 {
@@ -32,7 +32,7 @@ class InProgressShiftController extends Controller
 
             $inProgressShifts = CashierShift::inProgress()
                 ->with(['cashier', 'shift'])
-                // ->orderBy('actual_start_time')
+                ->orderBy('actual_start_time')
                 ->when($cashierId, fn($q) => $q->where('cashier_id', $cashierId))
                 ->get();
 
@@ -50,7 +50,7 @@ class InProgressShiftController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'In-progress shifts and next shift retrieved successfully',
-                'data' => ShiftResource::collection($inProgressShifts),
+                'data' => CashierShiftResource::collection($inProgressShifts),
                 'meta' => [
                     'total_in_progress' => $inProgressShifts->count(),
                     'date' => now()->format('Y-m-d'),
