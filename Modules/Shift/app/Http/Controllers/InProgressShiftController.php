@@ -88,25 +88,10 @@ class InProgressShiftController extends BaseController
                 $shiftDetails->shift->end_time
             );
 
-            return response()->json([
-                'success' => true,
-                'message' => 'In-progress shift details retrieved successfully',
-                'data' => [
-                    'shift' => new ShiftDetailResource($shiftDetails),
-                    'progress' => $progress,
-                    'real_time' => [
-                        'elapsed_minutes' => $elapsedMinutes,
-                        'total_minutes' => $totalMinutes,
-                        'remaining_minutes' => max(0, $totalMinutes - $elapsedMinutes),
-                        'progress_percentage' => min(100, ($elapsedMinutes / $totalMinutes) * 100),
-                    ],
-                    'actions_available' => [
-                        'view_details' => true,
-                        'end_shift' => true,
-                        'end_shift_with_handover' => true,
-                    ]
-                ]
-            ]);
+            return $this->successResponse(
+                new ShiftDetailResource($shiftDetails, $progress, $elapsedMinutes, $totalMinutes),
+                'Shift details retrieved successfully'
+            );
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
