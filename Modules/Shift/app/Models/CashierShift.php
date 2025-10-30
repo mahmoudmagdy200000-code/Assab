@@ -129,7 +129,7 @@ class CashierShift extends Model
 
     public function scopeInProgress($query)
     {
-        return $query->where('status', ShiftStatus::IN_PROGRESS)
+        return $query->where('status', ShiftStatus::IN_PROGRESS->value)
             ->whereDate('shift_date', today());
     }
 
