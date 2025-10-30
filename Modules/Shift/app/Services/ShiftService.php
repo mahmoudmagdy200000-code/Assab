@@ -76,6 +76,13 @@ class ShiftService
         return $query->get();
     }
 
+    /**
+     * Get completed shifts with optional filtering
+     *
+     * @param int|null $cashierId
+     * @param array|null $filters
+     * @return \Illuminate\Contracts\Pagination\LengthAwarePaginator
+     */
     public function getCompletedShifts(int $cashierId = null, ?array $filters = []): LengthAwarePaginator
     {
         $query = CashierShift::completed()
