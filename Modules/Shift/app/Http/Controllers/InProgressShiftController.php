@@ -47,22 +47,10 @@ class InProgressShiftController extends BaseController
                 ->with(['cashier', 'shift'])
                 ->first();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'In-progress shifts retrieved successfully',
-                'data' => [
-                    'shifts' => CashierShiftResource::collection($inProgressShifts->items()),
-                    'pagination' => [
-                        'total' => $inProgressShifts->total(),
-                        'per_page' => $inProgressShifts->perPage(),
-                        'current_page' => $inProgressShifts->currentPage(),
-                        'last_page' => $inProgressShifts->lastPage(),
-                        'from' => $inProgressShifts->firstItem(),
-                        'to' => $inProgressShifts->lastItem(),
-                    ],
-                    
-                ]
-            ]);
+            return $this->paginatedResponse(
+                new CashierShiftResource($inProgressShifts),
+                'In-progress shifts retrieved successfully',
+            );
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
