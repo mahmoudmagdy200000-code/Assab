@@ -43,6 +43,13 @@ class GroupedInvoiceExpenseController extends BaseController
             'invoices.*.is_tax_invoice' => 'required|boolean',
             'invoices.*.tax_id' => 'nullable|string|max:50',
 
+            // ✅ Tax Invoice Details (required if is_tax_invoice = true)
+            'invoices.*.tax_invoice_details' => 'required_if:invoices.*.is_tax_invoice,true|array',
+            'invoices.*.tax_invoice_details.supplier_name' => 'required_if:invoices.*.is_tax_invoice,true|string|max:255',
+            'invoices.*.tax_invoice_details.net_amount' => 'required_if:invoices.*.is_tax_invoice,true|numeric|min:0',
+            'invoices.*.tax_invoice_details.vat_amount' => 'required_if:invoices.*.is_tax_invoice,true|numeric|min:0',
+            'invoices.*.tax_invoice_details.total_amount' => 'required_if:invoices.*.is_tax_invoice,true|numeric|min:0',
+
             // Items per invoice
             'invoices.*.items' => 'sometimes|array',
             'invoices.*.items.*.category_id' => 'required_with:invoices.*.items|exists:categories,id',
@@ -60,7 +67,6 @@ class GroupedInvoiceExpenseController extends BaseController
             'invoices.*.invoice_receipts' => 'sometimes|array',
             'invoices.*.invoice_receipts.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
 
-
             'is_draft' => 'sometimes|boolean',
         ]);
 
@@ -71,12 +77,6 @@ class GroupedInvoiceExpenseController extends BaseController
                 $validator->errors()->toArray()
             );
         }
-
-        // Validate total amount > 500
-        // $totalAmount = $this->groupedInvoiceService->calculateTotalAmount($request->invoices);
-        // if ($totalAmount <= 500) {
-        //     return $this->errorResponse('Total amount for grouped invoice expenses must exceed 500 SAR', 400);
-        // }
 
         DB::beginTransaction();
         try {

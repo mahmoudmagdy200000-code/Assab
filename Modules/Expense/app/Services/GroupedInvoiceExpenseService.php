@@ -88,13 +88,10 @@ class GroupedInvoiceExpenseService
         return $expense;
     }
 
-    /**
-     * Create single invoice within grouped invoice
-     */
     private function createSingleInvoiceInGroup(Expense $expense, GroupedInvoice $groupedInvoice, array $invoiceData): void
     {
-        // Create invoice detail
-        $invoice = InvoiceDetail::create([
+        // 🔹 بيانات الفاتورة الأساسية
+        $invoicePayload = [
             'expense_id' => $expense->id,
             'grouped_invoice_id' => $groupedInvoice->id,
             'invoice_number' => $invoiceData['invoice_number'],
@@ -102,9 +99,20 @@ class GroupedInvoiceExpenseService
             'is_tax_invoice' => $invoiceData['is_tax_invoice'],
             'tax_id' => $invoiceData['tax_id'] ?? null,
             'supplier_id' => $invoiceData['supplier_id'],
-        ]);
+        ];
 
-        // Create items for this invoice
+        // 🔹 لو الفاتورة ضريبية، نضيف بيانات tax_invoice_details
+        if (!empty($invoiceData['is_tax_invoice']) && !empty($invoiceData['tax_invoice_details'])) {
+            $invoicePayload['supplier_name'] = $invoiceData['tax_invoice_details']['supplier_name'] ?? null;
+            $invoicePayload['net_amount'] = $invoiceData['tax_invoice_details']['net_amount'] ?? 0;
+            $invoicePayload['vat_amount'] = $invoiceData['tax_invoice_details']['vat_amount'] ?? 0;
+            $invoicePayload['total_amount'] = $invoiceData['tax_invoice_details']['total_amount'] ?? 0;
+        }
+
+        // 🔸 إنشاء السجل في جدول invoice_details
+        $invoice = InvoiceDetail::create($invoicePayload);
+
+        // باقي الأكواد كما هي 👇
         if (!empty($invoiceData['items'])) {
             foreach ($invoiceData['items'] as $item) {
                 ExpenseItem::create([
@@ -119,7 +127,6 @@ class GroupedInvoiceExpenseService
             }
         }
 
-        // Create expense lines for this invoice
         if (!empty($invoiceData['expenses'])) {
             foreach ($invoiceData['expenses'] as $expenseLine) {
                 ExpenseLine::create([
@@ -132,13 +139,13 @@ class GroupedInvoiceExpenseService
             }
         }
 
-        // Upload multiple receipts for this invoice
         if (!empty($invoiceData['invoice_receipts'])) {
             foreach ($invoiceData['invoice_receipts'] as $file) {
                 $this->uploadInvoiceReceipt($expense, $invoice, $file);
             }
         }
     }
+
 
     /**
      * Calculate grand totals for all invoices
