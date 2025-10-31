@@ -8,6 +8,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Modules\Expense\Services\PreApprovalRequestService;
 use Modules\Expense\Models\Expense;
@@ -349,7 +351,7 @@ class PreApprovalRequestController extends BaseController
             ]);
         } catch (\Exception $e) {
             // Log error but don't fail the whole operation
-            \Log::warning('Failed to duplicate attachment: ' . $e->getMessage());
+            Log::warning('Failed to duplicate attachment: ' . $e->getMessage());
         }
     }
 }
