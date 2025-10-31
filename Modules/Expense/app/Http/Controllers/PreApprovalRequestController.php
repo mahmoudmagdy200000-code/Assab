@@ -149,4 +149,46 @@ class PreApprovalRequestController extends BaseController
             );
         }
     }
+
+
+
+/**
+ * Get previously submitted pre-approval requests
+ * GET /api/branch-manager/expenses/pre-approval/previous
+ */
+public function getPreviousRequests(Request $request): JsonResponse
+{
+    try {
+        $query = Expense::query()
+            ->where('expense_type', 'pre_approval')
+            ->where('branch_manager_id', auth()->id())
+            ->with(['preApprovalRequest', 'supplier'])
+            ->orderBy('submitted_at', 'desc');
+
+        // Apply search filter if provided
+        if ($search = $request->input('search')) {
+            $search = strtolower(trim($search));
+            $query->where(function ($q) use ($search) {
+                $q->whereHas('preApprovalRequest', function ($sq) use ($search) {
+                    $sq->whereRaw('LOWER(purpose) LIKE ?', ["%{$search}%"]);
+                })->orWhereHas('supplier', function ($sq) use ($search) {
+                    $sq->whereRaw('LOWER(name) LIKE ?', ["%{$search}%"]);
+                });
+            });
+        }
+
+        $requests = $query->paginate(10);
+
+        return $this->paginatedResponse(
+            ExpenseDetailResource::collection($requests),
+            'Previous pre-approval requests retrieved successfully'
+        );
+    } catch (\Exception $e) {
+        return $this->errorResponse(
+            'Failed to retrieve previous pre-approval requests',
+            500,
+            ['error' => $e->getMessage()]
+        );
+    }
+}
 }
