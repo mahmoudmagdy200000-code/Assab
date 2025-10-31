@@ -240,6 +240,30 @@ class SingleInvoiceExpenseController extends BaseController
     }
 
 
+   <?php
+
+namespace Modules\Expense\Http\Controllers;
+
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
+use Modules\Expense\Services\SingleInvoiceExpenseService;
+use Modules\Expense\Models\Expense;
+use Modules\Expense\Transformers\ExpenseDetailResource;
+use App\Http\Controllers\BaseController;
+
+/**
+ * Single Invoice Expense Controller
+ * For expenses > 500 SAR
+ */
+class SingleInvoiceExpenseController extends BaseController
+{
+    public function __construct(
+        private SingleInvoiceExpenseService $singleInvoiceService
+    ) {}
+
     /**
      * Duplicate a previous invoice as a new draft
      * POST /api/branch-manager/expenses/single-invoice/{expense}/duplicate
@@ -252,10 +276,11 @@ class SingleInvoiceExpenseController extends BaseController
                 'invoiceDetails',
                 'items',
                 'expenseLines',
-                'supplier'
+                'supplier',
+                'attachments'
             ])
-                ->where('expense_type', 'single_invoice')
-                ->findOrFail($expense);
+            ->where('expense_type', 'single_invoice')
+            ->findOrFail($expense);
 
             // Check authorization - user must own the original expense
             if ($originalExpense->branch_manager_id !== auth()->id()) {
@@ -271,6 +296,7 @@ class SingleInvoiceExpenseController extends BaseController
                 'issue_date' => 'sometimes|date',
                 'supplier_id' => 'sometimes|exists:suppliers,id',
                 'is_draft' => 'sometimes|boolean',
+                'copy_attachments' => 'sometimes|boolean', // New parameter
             ]);
 
             if ($validator->fails()) {
@@ -288,7 +314,7 @@ class SingleInvoiceExpenseController extends BaseController
 
             $duplicateData = [
                 'supplier_id' => $request->input('supplier_id', $originalExpense->supplier_id),
-                'invoice_number' => $request->input('invoice_number', $invoiceDetails->invoice_number . '_copy'),
+                'invoice_number' => $request->input('invoice_number', $invoiceDetails->invoice_number . '_نسخة'),
                 'total_amount' => $originalExpense->total_amount,
                 'issue_date' => $request->input('issue_date', now()->format('Y-m-d')),
                 'is_tax_invoice' => $invoiceDetails->is_tax_invoice,
@@ -336,15 +362,24 @@ class SingleInvoiceExpenseController extends BaseController
             // Create the new expense using the service
             $newExpense = $this->singleInvoiceService->createSingleInvoice($duplicateData);
 
-            // Note: Attachments are NOT duplicated for security/storage reasons
-            // Users will need to re-upload receipts for the new invoice
+            // Copy invoice receipts if requested
+            $copyAttachments = $request->input('copy_attachments', true); // Default true
+            if ($copyAttachments && $originalExpense->attachments->isNotEmpty()) {
+                foreach ($originalExpense->attachments as $attachment) {
+                    $this->duplicateAttachment($newExpense, $attachment);
+                }
+            }
 
             DB::commit();
+
+            // Reload the expense with attachments
+            $newExpense->load('attachments');
 
             return $this->createdResponse(
                 new ExpenseDetailResource($newExpense),
                 'Invoice duplicated successfully as a draft'
             );
+
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return $this->errorResponse(
                 'Original expense not found',
@@ -357,6 +392,41 @@ class SingleInvoiceExpenseController extends BaseController
                 500,
                 ['error' => $e->getMessage()]
             );
+        }
+    }
+
+    /**
+     * Duplicate attachment file (invoice receipt)
+     */
+    private function duplicateAttachment(Expense $newExpense, $originalAttachment): void
+    {
+        try {
+            // Check if original file exists
+            if (!Storage::disk('public')->exists($originalAttachment->file_path)) {
+                return;
+            }
+
+            // Generate new filename
+            $extension = pathinfo($originalAttachment->file_path, PATHINFO_EXTENSION);
+            $newFilename = 'expense_' . $newExpense->id . '_' . time() . '_' . uniqid() . '.' . $extension;
+            $newPath = 'expenses/receipts/' . $newFilename;
+
+            // Copy the file
+            Storage::disk('public')->copy(
+                $originalAttachment->file_path,
+                $newPath
+            );
+
+            // Create new attachment record
+            $newExpense->attachments()->create([
+                'file_path' => $newPath,
+                'file_name' => $originalAttachment->file_name,
+                'file_type' => $originalAttachment->file_type,
+                'file_size' => $originalAttachment->file_size,
+            ]);
+        } catch (\Exception $e) {
+            // Log error but don't fail the whole operation
+            \Log::warning('Failed to duplicate invoice receipt: ' . $e->getMessage());
         }
     }
 }
