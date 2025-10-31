@@ -69,6 +69,7 @@ Route::prefix('branch-manager/expenses')
             Route::get('/', [ExpenseController::class, 'preApprovalList'])->name('expenses.pre-approval.index');
             Route::post('/', [PreApprovalRequestController::class, 'store'])->name('expenses.pre-approval.store');
             Route::put('/{expense}', [PreApprovalRequestController::class, 'update'])->name('expenses.pre-approval.update');
+            Route::get('/previous', [PreApprovalRequestController::class, 'getPreviousRequests'])->name('expenses.pre-approval.previous');
         });
 
         /*
