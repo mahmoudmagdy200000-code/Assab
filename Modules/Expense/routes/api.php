@@ -58,6 +58,8 @@ Route::prefix('branch-manager/expenses')
             Route::get('/previous', [SingleInvoiceExpenseController::class, 'getPreviousInvoices'])->name('expenses.single-invoice.previous');
             Route::post('/', [SingleInvoiceExpenseController::class, 'store'])->name('expenses.single-invoice.store');
             Route::put('/{expense}', [SingleInvoiceExpenseController::class, 'update'])->name('expenses.single-invoice.update');
+            // duplicate
+            Route::post('/{expense}/duplicate', [SingleInvoiceExpenseController::class, 'duplicate'])->name('expenses.single-invoice.duplicate');
         });
 
         /*
@@ -70,6 +72,7 @@ Route::prefix('branch-manager/expenses')
             Route::post('/', [PreApprovalRequestController::class, 'store'])->name('expenses.pre-approval.store');
             Route::put('/{expense}', [PreApprovalRequestController::class, 'update'])->name('expenses.pre-approval.update');
             Route::get('/previous', [PreApprovalRequestController::class, 'getPreviousRequests'])->name('expenses.pre-approval.previous');
+            Route::post('/{expense}/duplicate', [PreApprovalRequestController::class, 'duplicate'])->name('expenses.pre-approval.duplicate');
         });
 
         /*

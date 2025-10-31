@@ -152,43 +152,159 @@ class PreApprovalRequestController extends BaseController
 
 
 
-/**
- * Get previously submitted pre-approval requests
- * GET /api/branch-manager/expenses/pre-approval/previous
- */
-public function getPreviousRequests(Request $request): JsonResponse
-{
-    try {
-        $query = Expense::query()
-            ->where('expense_type', 'pre_approval')
-            ->where('branch_manager_id', auth()->id())
-            ->with(['preApprovalRequest', 'supplier'])
-            ->orderBy('submitted_at', 'desc');
+    /**
+     * Get previously submitted pre-approval requests
+     * GET /api/branch-manager/expenses/pre-approval/previous
+     */
+    public function getPreviousRequests(Request $request): JsonResponse
+    {
+        try {
+            $query = Expense::query()
+                ->where('expense_type', 'pre_approval')
+                ->where('branch_manager_id', auth()->id())
+                ->with(['preApprovalRequest', 'supplier'])
+                ->orderBy('submitted_at', 'desc');
 
-        // Apply search filter if provided
-        if ($search = $request->input('search')) {
-            $search = strtolower(trim($search));
-            $query->where(function ($q) use ($search) {
-                $q->whereHas('preApprovalRequest', function ($sq) use ($search) {
-                    $sq->whereRaw('LOWER(purpose) LIKE ?', ["%{$search}%"]);
-                })->orWhereHas('supplier', function ($sq) use ($search) {
-                    $sq->whereRaw('LOWER(name) LIKE ?', ["%{$search}%"]);
+            // Apply search filter if provided
+            if ($search = $request->input('search')) {
+                $search = strtolower(trim($search));
+                $query->where(function ($q) use ($search) {
+                    $q->whereHas('preApprovalRequest', function ($sq) use ($search) {
+                        $sq->whereRaw('LOWER(purpose) LIKE ?', ["%{$search}%"]);
+                    })->orWhereHas('supplier', function ($sq) use ($search) {
+                        $sq->whereRaw('LOWER(name) LIKE ?', ["%{$search}%"]);
+                    });
                 });
-            });
+            }
+
+            $requests = $query->paginate(10);
+
+            return $this->paginatedResponse(
+                ExpenseDetailResource::collection($requests),
+                'Previous pre-approval requests retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->errorResponse(
+                'Failed to retrieve previous pre-approval requests',
+                500,
+                ['error' => $e->getMessage()]
+            );
         }
-
-        $requests = $query->paginate(10);
-
-        return $this->paginatedResponse(
-            ExpenseDetailResource::collection($requests),
-            'Previous pre-approval requests retrieved successfully'
-        );
-    } catch (\Exception $e) {
-        return $this->errorResponse(
-            'Failed to retrieve previous pre-approval requests',
-            500,
-            ['error' => $e->getMessage()]
-        );
     }
-}
+
+    /**
+     * Duplicate a previous pre-approval request as a new draft
+     * POST /api/branch-manager/expenses/pre-approval/{expense}/duplicate
+     */
+    public function duplicate(Request $request, int $expense): JsonResponse
+    {
+        try {
+            // Find the original pre-approval request with all relationships
+            $originalExpense = Expense::with([
+                'preApprovalRequest',
+                'items',
+                'expenseLines',
+                'supplier'
+            ])
+                ->where('expense_type', 'pre_approval')
+                ->findOrFail($expense);
+
+            // Check authorization - user must own the original request
+            if ($originalExpense->branch_manager_id !== auth()->id()) {
+                return $this->errorResponse(
+                    'Unauthorized to duplicate this pre-approval request',
+                    403
+                );
+            }
+
+            // Validate optional overrides
+            $validator = Validator::make($request->all(), [
+                'purpose' => 'sometimes|string|max:500',
+                'estimated_amount' => 'sometimes|numeric|min:500',
+                'priority' => 'sometimes|in:high,medium,low',
+                'payment_method' => 'sometimes|in:cash,supplier,custody',
+                'supplier_id' => 'sometimes|exists:suppliers,id',
+                'is_draft' => 'sometimes|boolean',
+            ]);
+
+            if ($validator->fails()) {
+                return $this->errorResponse(
+                    'Validation failed',
+                    422,
+                    $validator->errors()->toArray()
+                );
+            }
+
+            DB::beginTransaction();
+
+            // Prepare data for duplication
+            $preApproval = $originalExpense->preApprovalRequest;
+
+            $duplicateData = [
+                'purpose' => $request->input('purpose', $preApproval->purpose . ' (نسخة)'),
+                'estimated_amount' => $request->input('estimated_amount', $preApproval->estimated_amount),
+                'priority' => $request->input('priority', $preApproval->priority),
+                'payment_method' => $request->input('payment_method', $originalExpense->payment_method),
+                'supplier_id' => $request->input('supplier_id', $originalExpense->supplier_id),
+                'is_draft' => $request->input('is_draft', true), // Default to draft
+            ];
+
+            // Validate estimated amount >= 500
+            if ($duplicateData['estimated_amount'] < 500) {
+                DB::rollBack();
+                return $this->errorResponse(
+                    'Pre-approval requests must be for amounts >= 500 SAR',
+                    400
+                );
+            }
+
+            // Duplicate items
+            if ($originalExpense->items->isNotEmpty()) {
+                $duplicateData['items'] = $originalExpense->items->map(function ($item) {
+                    return [
+                        'category_id' => $item->category_id,
+                        'description' => $item->name,
+                        'quantity' => $item->quantity,
+                        'rate' => $item->unit_price,
+                    ];
+                })->toArray();
+            }
+
+            // Duplicate expense lines
+            if ($originalExpense->expenseLines->isNotEmpty()) {
+                $duplicateData['expenses'] = $originalExpense->expenseLines->map(function ($line) {
+                    return [
+                        'category_id' => $line->category_id,
+                        'description' => $line->name,
+                        'price' => $line->price,
+                    ];
+                })->toArray();
+            }
+
+            // Create the new pre-approval request using the service
+            $newExpense = $this->preApprovalService->createPreApprovalRequest($duplicateData);
+
+            // Note: Attachments are NOT duplicated for security/storage reasons
+            // Users will need to re-upload attachments for the new request
+
+            DB::commit();
+
+            return $this->createdResponse(
+                new ExpenseDetailResource($newExpense),
+                'Pre-approval request duplicated successfully as a draft'
+            );
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse(
+                'Original pre-approval request not found',
+                404
+            );
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return $this->errorResponse(
+                'Failed to duplicate pre-approval request',
+                500,
+                ['error' => $e->getMessage()]
+            );
+        }
+    }
 }

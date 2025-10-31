@@ -238,4 +238,125 @@ class SingleInvoiceExpenseController extends BaseController
             );
         }
     }
+
+
+    /**
+     * Duplicate a previous invoice as a new draft
+     * POST /api/branch-manager/expenses/single-invoice/{expense}/duplicate
+     */
+    public function duplicate(Request $request, int $expense): JsonResponse
+    {
+        try {
+            // Find the original expense with all relationships
+            $originalExpense = Expense::with([
+                'invoiceDetails',
+                'items',
+                'expenseLines',
+                'supplier'
+            ])
+                ->where('expense_type', 'single_invoice')
+                ->findOrFail($expense);
+
+            // Check authorization - user must own the original expense
+            if ($originalExpense->branch_manager_id !== auth()->id()) {
+                return $this->errorResponse(
+                    'Unauthorized to duplicate this expense',
+                    403
+                );
+            }
+
+            // Validate optional overrides
+            $validator = Validator::make($request->all(), [
+                'invoice_number' => 'sometimes|string|max:100',
+                'issue_date' => 'sometimes|date',
+                'supplier_id' => 'sometimes|exists:suppliers,id',
+                'is_draft' => 'sometimes|boolean',
+            ]);
+
+            if ($validator->fails()) {
+                return $this->errorResponse(
+                    'Validation failed',
+                    422,
+                    $validator->errors()
+                );
+            }
+
+            DB::beginTransaction();
+
+            // Prepare data for duplication
+            $invoiceDetails = $originalExpense->invoiceDetails->first();
+
+            $duplicateData = [
+                'supplier_id' => $request->input('supplier_id', $originalExpense->supplier_id),
+                'invoice_number' => $request->input('invoice_number', $invoiceDetails->invoice_number . '_copy'),
+                'total_amount' => $originalExpense->total_amount,
+                'issue_date' => $request->input('issue_date', now()->format('Y-m-d')),
+                'is_tax_invoice' => $invoiceDetails->is_tax_invoice,
+                'tax_id' => $invoiceDetails->tax_id,
+                'payment_type' => $invoiceDetails->payment_type,
+                'payment_method' => $originalExpense->payment_method,
+                'paid_amount' => $invoiceDetails->paid_amount,
+                'due_date' => $invoiceDetails->due_date,
+                'is_draft' => $request->input('is_draft', true), // Default to draft
+            ];
+
+            // Add tax invoice details if applicable
+            if ($invoiceDetails->is_tax_invoice) {
+                $duplicateData['tax_invoice_details'] = [
+                    'supplier_name' => $invoiceDetails->tax_supplier_name,
+                    'net_amount' => $invoiceDetails->tax_net_amount,
+                    'vat_amount' => $invoiceDetails->tax_vat_amount,
+                    'total_amount' => $invoiceDetails->tax_total_amount,
+                ];
+            }
+
+            // Duplicate items
+            if ($originalExpense->items->isNotEmpty()) {
+                $duplicateData['items'] = $originalExpense->items->map(function ($item) {
+                    return [
+                        'category_id' => $item->category_id,
+                        'name' => $item->name,
+                        'quantity' => $item->quantity,
+                        'unit_price' => $item->unit_price,
+                    ];
+                })->toArray();
+            }
+
+            // Duplicate expense lines
+            if ($originalExpense->expenseLines->isNotEmpty()) {
+                $duplicateData['expenses'] = $originalExpense->expenseLines->map(function ($line) {
+                    return [
+                        'category_id' => $line->category_id,
+                        'name' => $line->name,
+                        'price' => $line->price,
+                    ];
+                })->toArray();
+            }
+
+            // Create the new expense using the service
+            $newExpense = $this->singleInvoiceService->createSingleInvoice($duplicateData);
+
+            // Note: Attachments are NOT duplicated for security/storage reasons
+            // Users will need to re-upload receipts for the new invoice
+
+            DB::commit();
+
+            return $this->createdResponse(
+                new ExpenseDetailResource($newExpense),
+                'Invoice duplicated successfully as a draft'
+            );
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse(
+                'Original expense not found',
+                404
+            );
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return $this->errorResponse(
+                'Failed to duplicate invoice',
+                500,
+                ['error' => $e->getMessage()]
+            );
+        }
+    }
 }
