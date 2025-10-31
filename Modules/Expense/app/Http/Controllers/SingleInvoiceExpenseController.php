@@ -227,7 +227,7 @@ class SingleInvoiceExpenseController extends BaseController
             $invoices = $query->paginate(10);
 
             return $this->paginatedResponse(
-                ExpenseDetailResource::collection($invoices),
+                ExpenseResource::collection($invoices),
                 'Previous invoices retrieved successfully'
             );
         } catch (\Exception $e) {

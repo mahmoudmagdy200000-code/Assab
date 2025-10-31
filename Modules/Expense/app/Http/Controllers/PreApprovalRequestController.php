@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Validator;
 use Modules\Expense\Services\PreApprovalRequestService;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Transformers\ExpenseDetailResource;
+use Modules\Expense\Transformers\ExpenseResource;
 
 /**
  * Pre-Approval Request Controller
@@ -180,7 +181,7 @@ public function getPreviousRequests(Request $request): JsonResponse
         $requests = $query->paginate(10);
 
         return $this->paginatedResponse(
-            ExpenseDetailResource::collection($requests),
+            ExpenseResource::collection($requests),
             'Previous pre-approval requests retrieved successfully'
         );
     } catch (\Exception $e) {

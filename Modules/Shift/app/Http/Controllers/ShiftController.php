@@ -168,7 +168,7 @@ class ShiftController extends BaseController
     public function getCashierShiftById($id)
     {
         $cashierShift = CashierShift::with(['cashier', 'shift'])->find($id);
-    
+
         if (!$cashierShift) {
             return $this->errorResponse('Cashier Shift not found', 404);
         }
@@ -182,9 +182,9 @@ class ShiftController extends BaseController
     public function getShiftByCashierId($id)
     {
         $cashierShifts = CashierShift::with(['cashier', 'shift'])
-        ->where('cashier_id', $id)
-        ->get();
-    
+            ->where('cashier_id', $id)
+            ->get();
+
         if ($cashierShifts->isEmpty()) {
             return $this->errorResponse('No shifts found for this cashier', 404);
         }
