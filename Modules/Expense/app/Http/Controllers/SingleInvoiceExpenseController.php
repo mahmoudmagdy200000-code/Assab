@@ -203,26 +203,50 @@ class SingleInvoiceExpenseController extends BaseController
      * Get previously submitted invoices for reuse
      * GET /api/branch-manager/expenses/single-invoice/previous
      */
-    public function getPreviousInvoices(int $branchManagerId, ?string $search = null)
+    public function getPreviousInvoices(Request $request): JsonResponse
     {
-        $query = Expense::query()
-            ->where('expense_type', 'single_invoice')
-            ->where('branch_manager_id', $branchManagerId)
-            ->with(['supplier', 'invoiceDetails']) // نحتفظ بالعلاقات المطلوبة
-            ->orderBy('submitted_at', 'desc');
+        try {
+            $query = Expense::query()
+                ->where('expense_type', 'single_invoice')
+                ->where('branch_manager_id', auth()->id())
+                ->with(['supplier', 'invoiceDetails'])
+                ->orderBy('submitted_at', 'desc');
 
-        // Apply search filter if provided
-        if ($search) {
-            $search = strtolower(trim($search));
-            $query->where(function ($q) use ($search) {
-                $q->whereHas('invoiceDetails', function ($sq) use ($search) {
-                    $sq->whereRaw('LOWER(invoice_number) LIKE ?', ["%{$search}%"]);
-                })->orWhereHas('supplier', function ($sq) use ($search) {
-                    $sq->whereRaw('LOWER(name) LIKE ?', ["%{$search}%"]);
+            // Apply search filter if provided
+            if ($search = $request->input('search')) {
+                $search = strtolower(trim($search));
+                $query->where(function ($q) use ($search) {
+                    $q->whereHas('invoiceDetails', function ($sq) use ($search) {
+                        $sq->whereRaw('LOWER(invoice_number) LIKE ?', ["%{$search}%"]);
+                    })->orWhereHas('supplier', function ($sq) use ($search) {
+                        $sq->whereRaw('LOWER(name) LIKE ?', ["%{$search}%"]);
+                    });
                 });
-            });
-        }
+            }
 
-        return $query->paginate(10); // نرجع الموديل مباشرة بدون تحويل
+            $invoices = $query->paginate(10);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Previous invoices retrieved successfully',
+                'data' => [
+                    'invoices' => ExpenseDetailResource::collection($invoices),
+                    'pagination' => [
+                        'current_page' => $invoices->currentPage(),
+                        'per_page' => $invoices->perPage(),
+                        'total' => $invoices->total(),
+                        'last_page' => $invoices->lastPage(),
+                        'from' => $invoices->firstItem(),
+                        'to' => $invoices->lastItem()
+                    ]
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return $this->errorResponse(
+                'Failed to retrieve previous invoices',
+                500,
+                ['error' => $e->getMessage()]
+            );
+        }
     }
 }
