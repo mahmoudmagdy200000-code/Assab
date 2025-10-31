@@ -10,7 +10,9 @@ use Illuminate\Support\Facades\Validator;
 use Modules\Expense\Services\SingleInvoiceExpenseService;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Transformers\ExpenseDetailResource;
+use Modules\Expense\Transformers\PreviousInvoiceResource;
 use App\Http\Controllers\BaseController;
+use Modules\Expense\Transformers\ExpenseResource;
 
 /**
  * Single Invoice Expense Controller
@@ -209,9 +211,8 @@ class SingleInvoiceExpenseController extends BaseController
                 $request->input('search')
             );
 
-            // ✅ هنا نستخدم paginatedResponse لأن الـ service بترجع Paginator
             return $this->paginatedResponse(
-                $invoices,
+                ExpenseResource::collection($invoices),
                 'Previous invoices retrieved successfully'
             );
         } catch (\Exception $e) {
