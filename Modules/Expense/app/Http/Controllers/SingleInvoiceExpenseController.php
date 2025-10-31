@@ -203,24 +203,26 @@ class SingleInvoiceExpenseController extends BaseController
      * Get previously submitted invoices for reuse
      * GET /api/branch-manager/expenses/single-invoice/previous
      */
-    public function getPreviousInvoices(Request $request): JsonResponse
+    public function getPreviousInvoices(int $branchManagerId, ?string $search = null)
     {
-        try {
-            $invoices = $this->singleInvoiceService->getPreviousInvoices(
-                auth()->id(),
-                $request->input('search')
-            );
+        $query = Expense::query()
+            ->where('expense_type', 'single_invoice')
+            ->where('branch_manager_id', $branchManagerId)
+            ->with(['supplier', 'invoiceDetails']) // نحتفظ بالعلاقات المطلوبة
+            ->orderBy('submitted_at', 'desc');
 
-            return $this->paginatedResponse(
-                ExpenseDetailResource::collection($invoices),
-                'Previous invoices retrieved successfully'
-            );
-        } catch (\Exception $e) {
-            return $this->errorResponse(
-                'Failed to retrieve previous invoices',
-                500,
-                ['error' => $e->getMessage()]
-            );
+        // Apply search filter if provided
+        if ($search) {
+            $search = strtolower(trim($search));
+            $query->where(function ($q) use ($search) {
+                $q->whereHas('invoiceDetails', function ($sq) use ($search) {
+                    $sq->whereRaw('LOWER(invoice_number) LIKE ?', ["%{$search}%"]);
+                })->orWhereHas('supplier', function ($sq) use ($search) {
+                    $sq->whereRaw('LOWER(name) LIKE ?', ["%{$search}%"]);
+                });
+            });
         }
+
+        return $query->paginate(10); // نرجع الموديل مباشرة بدون تحويل
     }
 }
