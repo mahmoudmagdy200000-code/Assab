@@ -171,7 +171,10 @@ class ShiftController extends BaseController
         if (!$cashierShift) {
             return $this->errorResponse('Cashier Shift not found', 404);
         }
-        return $this->successResponse($cashierShift, 'Cashier Shift retrieved successfully');
+        return $this->paginatedResponse(
+            CashierShiftResource::collection($cashierShift),
+            'Cashiers shifts retrieved successfully'
+        );
     }
 
     public function getShiftByCashierId($id)
@@ -180,6 +183,9 @@ class ShiftController extends BaseController
         if (!$cashierShift) {
             return $this->errorResponse('Cashier Shift not found', 404);
         }
-        return $this->successResponse($cashierShift, 'Cashier Shift retrieved successfully');
+         return $this->paginatedResponse(
+            CashierShiftResource::collection($cashierShift),
+            'Cashiers shifts retrieved successfully'
+        );
     }
 }
