@@ -171,7 +171,7 @@ class ShiftController extends BaseController
         if (!$cashierShift) {
             return $this->errorResponse('Cashier Shift not found', 404);
         }
-        return $this->paginatedResponse(
+        return $this->successResponse(
             CashierShiftResource::collection($cashierShift),
             'Cashiers shifts retrieved successfully'
         );
@@ -183,7 +183,7 @@ class ShiftController extends BaseController
         if (!$cashierShift) {
             return $this->errorResponse('Cashier Shift not found', 404);
         }
-         return $this->paginatedResponse(
+         return $this->successResponse(
             CashierShiftResource::collection($cashierShift),
             'Cashiers shifts retrieved successfully'
         );
