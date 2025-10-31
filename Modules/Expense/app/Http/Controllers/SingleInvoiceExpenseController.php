@@ -12,6 +12,8 @@ use Modules\Expense\Models\Expense;
 use Modules\Expense\Transformers\ExpenseDetailResource;
 use Modules\Expense\Transformers\PreviousInvoiceResource;
 use App\Http\Controllers\BaseController;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Modules\Expense\Transformers\ExpenseResource;
 
 /**
@@ -240,29 +242,7 @@ class SingleInvoiceExpenseController extends BaseController
     }
 
 
-   <?php
 
-namespace Modules\Expense\Http\Controllers;
-
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Validator;
-use Modules\Expense\Services\SingleInvoiceExpenseService;
-use Modules\Expense\Models\Expense;
-use Modules\Expense\Transformers\ExpenseDetailResource;
-use App\Http\Controllers\BaseController;
-
-/**
- * Single Invoice Expense Controller
- * For expenses > 500 SAR
- */
-class SingleInvoiceExpenseController extends BaseController
-{
-    public function __construct(
-        private SingleInvoiceExpenseService $singleInvoiceService
-    ) {}
 
     /**
      * Duplicate a previous invoice as a new draft
@@ -426,7 +406,7 @@ class SingleInvoiceExpenseController extends BaseController
             ]);
         } catch (\Exception $e) {
             // Log error but don't fail the whole operation
-            \Log::warning('Failed to duplicate invoice receipt: ' . $e->getMessage());
+            Log::warning('Failed to duplicate invoice receipt: ' . $e->getMessage());
         }
     }
 }
