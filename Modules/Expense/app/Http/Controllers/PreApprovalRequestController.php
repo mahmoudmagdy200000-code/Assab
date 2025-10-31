@@ -204,7 +204,8 @@ class PreApprovalRequestController extends BaseController
                 'preApprovalRequest',
                 'items',
                 'expenseLines',
-                'supplier'
+                'supplier',
+                'attachments'
             ])
                 ->where('expense_type', 'pre_approval')
                 ->findOrFail($expense);
@@ -225,6 +226,7 @@ class PreApprovalRequestController extends BaseController
                 'payment_method' => 'sometimes|in:cash,supplier,custody',
                 'supplier_id' => 'sometimes|exists:suppliers,id',
                 'is_draft' => 'sometimes|boolean',
+                'copy_attachments' => 'sometimes|boolean', // New parameter
             ]);
 
             if ($validator->fails()) {
@@ -284,10 +286,18 @@ class PreApprovalRequestController extends BaseController
             // Create the new pre-approval request using the service
             $newExpense = $this->preApprovalService->createPreApprovalRequest($duplicateData);
 
-            // Note: Attachments are NOT duplicated for security/storage reasons
-            // Users will need to re-upload attachments for the new request
+            // Copy attachments if requested
+            $copyAttachments = $request->input('copy_attachments', true); // Default true
+            if ($copyAttachments && $originalExpense->attachments->isNotEmpty()) {
+                foreach ($originalExpense->attachments as $attachment) {
+                    $this->duplicateAttachment($newExpense, $attachment);
+                }
+            }
 
             DB::commit();
+
+            // Reload the expense with attachments
+            $newExpense->load('attachments');
 
             return $this->createdResponse(
                 new ExpenseDetailResource($newExpense),
@@ -305,6 +315,41 @@ class PreApprovalRequestController extends BaseController
                 500,
                 ['error' => $e->getMessage()]
             );
+        }
+    }
+
+    /**
+     * Duplicate attachment file
+     */
+    private function duplicateAttachment(Expense $newExpense, $originalAttachment): void
+    {
+        try {
+            // Check if original file exists
+            if (!Storage::disk('public')->exists($originalAttachment->file_path)) {
+                return;
+            }
+
+            // Generate new filename
+            $extension = pathinfo($originalAttachment->file_path, PATHINFO_EXTENSION);
+            $newFilename = 'expense_' . $newExpense->id . '_' . time() . '_' . uniqid() . '.' . $extension;
+            $newPath = 'expenses/attachments/' . $newFilename;
+
+            // Copy the file
+            Storage::disk('public')->copy(
+                $originalAttachment->file_path,
+                $newPath
+            );
+
+            // Create new attachment record
+            $newExpense->attachments()->create([
+                'file_path' => $newPath,
+                'file_name' => $originalAttachment->file_name,
+                'file_type' => $originalAttachment->file_type,
+                'file_size' => $originalAttachment->file_size,
+            ]);
+        } catch (\Exception $e) {
+            // Log error but don't fail the whole operation
+            \Log::warning('Failed to duplicate attachment: ' . $e->getMessage());
         }
     }
 }
