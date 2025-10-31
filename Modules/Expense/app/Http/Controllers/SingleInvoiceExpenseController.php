@@ -226,21 +226,10 @@ class SingleInvoiceExpenseController extends BaseController
 
             $invoices = $query->paginate(10);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Previous invoices retrieved successfully',
-                'data' => [
-                    'invoices' => ExpenseDetailResource::collection($invoices),
-                    'pagination' => [
-                        'current_page' => $invoices->currentPage(),
-                        'per_page' => $invoices->perPage(),
-                        'total' => $invoices->total(),
-                        'last_page' => $invoices->lastPage(),
-                        'from' => $invoices->firstItem(),
-                        'to' => $invoices->lastItem()
-                    ]
-                ]
-            ]);
+            return $this->paginatedResponse(
+                ExpenseDetailResource::collection($invoices),
+                'Previous invoices retrieved successfully'
+            );
         } catch (\Exception $e) {
             return $this->errorResponse(
                 'Failed to retrieve previous invoices',
