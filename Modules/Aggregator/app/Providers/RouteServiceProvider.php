@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Route;
 
 class RouteServiceProvider extends ServiceProvider
 {
-    protected string $name = 'Aggregator';
+    protected string $moduleNamespace = 'Modules\Aggregator\Http\Controllers';
 
     /**
      * Called before routes are registered.
@@ -35,7 +35,7 @@ class RouteServiceProvider extends ServiceProvider
      */
     protected function mapWebRoutes(): void
     {
-        Route::middleware('web')->group(module_path($this->name, '/routes/web.php'));
+        Route::middleware('web')->group(module_path($this->moduleNamespace, '/routes/web.php'));
     }
 
     /**
@@ -43,8 +43,11 @@ class RouteServiceProvider extends ServiceProvider
      *
      * These routes are typically stateless.
      */
-    protected function mapApiRoutes(): void
+   protected function mapApiRoutes(): void
     {
-        Route::middleware('api')->prefix('api')->name('api.')->group(module_path($this->name, '/routes/api.php'));
+        Route::prefix('api/v1')
+            ->middleware('api')
+            ->namespace($this->moduleNamespace)
+            ->group(module_path('Aggregator', 'routes/api.php'));
     }
 }
