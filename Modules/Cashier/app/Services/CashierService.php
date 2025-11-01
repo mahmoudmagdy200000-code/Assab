@@ -253,6 +253,7 @@ class CashierService
                             'shift_date' => $shiftDate,
                             'status' => 'not_started',
                             'opening_balance' => 0,
+                            'assigned_by' => auth('branch_manager')->id() ?? auth()->id(),
                         ]);
                     }
                 }
@@ -264,6 +265,7 @@ class CashierService
                     'shift_date' => now(),
                     'status' => 'not_started',
                     'opening_balance' => 0,
+                    'assigned_by' => auth('branch_manager')->id() ?? auth()->id(),
                 ]);
             }
         }
