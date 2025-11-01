@@ -62,6 +62,11 @@ class CashierShift extends Model
     // Default relationships to load
     protected $with = ['cashier', 'shift', 'nextCashier'];
 
+
+    public function assignedBy(): BelongsTo
+    {
+        return $this->belongsTo(BranchManager::class, 'assigned_by');
+    }
     // Relationships
     public function cashier(): BelongsTo
     {
