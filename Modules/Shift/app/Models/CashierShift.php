@@ -39,6 +39,7 @@ class CashierShift extends Model
         'reassigned_by',
         'reassignment_reason',
         'reassigned_at',
+        'assigned_by',
     ];
 
     protected $casts = [
