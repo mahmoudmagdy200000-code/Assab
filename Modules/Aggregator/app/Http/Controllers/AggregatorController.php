@@ -35,7 +35,7 @@ class AggregatorController extends BaseController
         /** @var LengthAwarePaginator $aggregators */
         $aggregators = $this->aggregatorService->getAggregators($filters);
 
-        return $this->successResponse(
+        return $this->paginatedResponse(
             TransformersAggregatorResource::collection($aggregators),
             'Aggregators retrieved successfully'
         );
