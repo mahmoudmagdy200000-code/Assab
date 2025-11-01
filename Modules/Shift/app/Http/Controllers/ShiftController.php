@@ -43,7 +43,7 @@ class ShiftController extends BaseController
             return $this->errorResponse('Unauthorized', 403);
         }
 
-        $query = CashierShift::with(['cashier', 'shift'])  // Added eager loading
+        $query = CashierShift::with(['cashier', 'shift', 'assignedBy'])  // Added eager loading
             ->whereHas('cashier', function ($q) use ($manager) {
                 $q->where('branch_id', $manager->branch_id);
             });
@@ -167,7 +167,7 @@ class ShiftController extends BaseController
 
     public function getCashierShiftById($id)
     {
-        $cashierShift = CashierShift::with(['cashier', 'shift'])->find($id);
+        $cashierShift = CashierShift::with(['cashier', 'shift','assignedBy'])->find($id);
 
         if (!$cashierShift) {
             return $this->errorResponse('Cashier Shift not found', 404);
@@ -181,7 +181,7 @@ class ShiftController extends BaseController
 
     public function getShiftByCashierId($id)
     {
-        $cashierShifts = CashierShift::with(['cashier', 'shift'])
+        $cashierShifts = CashierShift::with(['cashier', 'shift','assignedBy'])
             ->where('cashier_id', $id)
             ->get();
 
