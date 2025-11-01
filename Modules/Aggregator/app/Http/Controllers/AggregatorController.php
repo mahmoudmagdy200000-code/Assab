@@ -2,7 +2,8 @@
 
 namespace Modules\Aggregator\Http\Controllers;
 
-
+use App\Http\Controllers\BaseController;
+use Faker\Provider\Base;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 use Modules\Aggregator\Entities\Aggregator;
@@ -12,8 +13,13 @@ use Modules\Aggregator\Http\Requests\UpdateAggregatorRequest;
 use Modules\Aggregator\Http\Requests\FilterAggregatorRequest;
 use Modules\Aggregator\Http\Resources\AggregatorResource;
 use Modules\Aggregator\Http\Resources\AggregatorDetailResource;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Modules\Aggregator\Database\Seeders\AggregatorSeeder;
+use Modules\Aggregator\Models\Aggregator as ModelsAggregator;
+use Modules\Aggregator\Transformers\AggregatorDetailResource as TransformersAggregatorDetailResource;
+use Modules\Aggregator\Transformers\AggregatorResource as TransformersAggregatorResource;
 
-class AggregatorController extends Controller
+class AggregatorController extends BaseController
 {
     public function __construct(
         private AggregatorService $aggregatorService
@@ -28,10 +34,11 @@ class AggregatorController extends Controller
     {
         $filters = $request->validated();
 
+        /** @var LengthAwarePaginator $aggregators */
         $aggregators = $this->aggregatorService->getAggregators($filters);
 
-        return response()->success(
-            AggregatorResource::collection($aggregators),
+        return $this->successResponse(
+            TransformersAggregatorResource::collection($aggregators),
             'Aggregators retrieved successfully'
         );
     }
@@ -46,7 +53,7 @@ class AggregatorController extends Controller
         $aggregator = $this->aggregatorService->createAggregator($data);
 
         return response()->success(
-            new AggregatorDetailResource($aggregator),
+            new TransformersAggregatorDetailResource($aggregator),
             'Aggregator created successfully',
             201
         );
@@ -55,12 +62,12 @@ class AggregatorController extends Controller
     /**
      * Display the specified aggregator
      */
-    public function show(Aggregator $aggregator): JsonResponse
+    public function show(ModelsAggregator $aggregator): JsonResponse
     {
         $aggregatorDetails = $this->aggregatorService->getAggregatorDetails($aggregator->id);
 
-        return response()->success(
-            new AggregatorDetailResource($aggregatorDetails),
+        return $this->successResponse(
+            new TransformersAggregatorDetailResource($aggregatorDetails),
             'Aggregator details retrieved successfully'
         );
     }
@@ -74,8 +81,8 @@ class AggregatorController extends Controller
 
         $updatedAggregator = $this->aggregatorService->updateAggregator($aggregator, $data);
 
-        return response()->success(
-            new AggregatorDetailResource($updatedAggregator),
+        return $this->successResponse(
+            new TransformersAggregatorDetailResource($updatedAggregator),
             'Aggregator updated successfully'
         );
     }
@@ -83,7 +90,7 @@ class AggregatorController extends Controller
     /**
      * Remove the specified aggregator
      */
-    public function destroy(Aggregator $aggregator): JsonResponse
+    public function destroy(AggregatorSeeder $aggregator): JsonResponse
     {
         $this->aggregatorService->deleteAggregator($aggregator);
 
@@ -96,12 +103,12 @@ class AggregatorController extends Controller
     /**
      * Activate the specified aggregator
      */
-    public function activate(Aggregator $aggregator): JsonResponse
+    public function activate(AggregatorSeeder $aggregator): JsonResponse
     {
         $aggregator->activate();
 
         return response()->success(
-            new AggregatorResource($aggregator->fresh()),
+            new TransformersAggregatorResource($aggregator->fresh()),
             'Aggregator activated successfully'
         );
     }
@@ -156,14 +163,13 @@ class AggregatorController extends Controller
      */
     public function available(): JsonResponse
     {
-        $aggregators = Aggregator::active()
+        $aggregators = ModelsAggregator::active()
             ->orderBy('name')
             ->get();
 
         return response()->success(
-            AggregatorResource::collection($aggregators),
+            TransformersAggregatorResource::collection($aggregators),
             'Available aggregators retrieved successfully'
         );
     }
 }
-
