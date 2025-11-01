@@ -2,10 +2,9 @@
 
 namespace Modules\Aggregator\Services;
 
-
 use Modules\Aggregator\Models\Aggregator;
 use Modules\Aggregator\Repositories\AggregatorRepositoryInterface;
-use Illuminate\Support\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\UploadedFile;
@@ -18,8 +17,11 @@ class AggregatorService
 
     /**
      * Get aggregators with filters
+     *
+     * @param array $filters
+     * @return LengthAwarePaginator
      */
-    public function getAggregators(array $filters = []): Collection
+    public function getAggregators(array $filters = []): LengthAwarePaginator
     {
         $query = Aggregator::query();
 

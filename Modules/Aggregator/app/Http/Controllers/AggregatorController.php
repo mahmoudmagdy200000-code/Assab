@@ -3,9 +3,8 @@
 namespace Modules\Aggregator\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
-use Faker\Provider\Base;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Routing\Controller;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Modules\Aggregator\Entities\Aggregator;
 use Modules\Aggregator\Services\AggregatorService;
 use Modules\Aggregator\Http\Requests\CreateAggregatorRequest;
@@ -13,7 +12,6 @@ use Modules\Aggregator\Http\Requests\UpdateAggregatorRequest;
 use Modules\Aggregator\Http\Requests\FilterAggregatorRequest;
 use Modules\Aggregator\Http\Resources\AggregatorResource;
 use Modules\Aggregator\Http\Resources\AggregatorDetailResource;
-use Illuminate\Pagination\LengthAwarePaginator;
 use Modules\Aggregator\Database\Seeders\AggregatorSeeder;
 use Modules\Aggregator\Models\Aggregator as ModelsAggregator;
 use Modules\Aggregator\Transformers\AggregatorDetailResource as TransformersAggregatorDetailResource;
