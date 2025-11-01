@@ -35,7 +35,9 @@ class RouteServiceProvider extends ServiceProvider
      */
     protected function mapWebRoutes(): void
     {
-        Route::middleware('web')->group(module_path($this->moduleNamespace, '/routes/web.php'));
+        Route::middleware('web')
+            ->namespace($this->moduleNamespace)
+            ->group(module_path('Aggregator', '/routes/web.php'));
     }
 
     /**
@@ -43,7 +45,7 @@ class RouteServiceProvider extends ServiceProvider
      *
      * These routes are typically stateless.
      */
-   protected function mapApiRoutes(): void
+    protected function mapApiRoutes(): void
     {
         Route::prefix('api/v1')
             ->middleware('api')
