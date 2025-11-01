@@ -57,6 +57,7 @@ class CashierShiftResource extends JsonResource
 
             // Handover Info
             'handover_notes' => $this->handover_notes,
+            'handover_amount' => $this->handover_amount,
             'handover_status' => $this->whenLoaded('handoverStatus', function () {
                 return [
                     'id' => $this->handoverStatus->id,
