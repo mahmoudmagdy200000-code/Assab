@@ -136,7 +136,7 @@ class ExpenseDetailResource extends JsonResource
                 'due_date' => $grouped->due_date?->format('Y-m-d'),
                 'total_invoices' => $grouped->invoiceDetails->count(),
                 'invoices' => $grouped->invoiceDetails->map(function ($invoice) {
-                    $invoiceData = [
+                    return [
                         'id' => $invoice->id,
                         'supplier' => [
                             'id' => $invoice->supplier->id,
@@ -167,20 +167,8 @@ class ExpenseDetailResource extends JsonResource
                             ];
                         }),
                         'receipts' => $this->getInvoiceReceipts($invoice->id),
+
                     ];
-
-                    // Add tax invoice details if it's a tax invoice
-                    if ($invoice->is_tax_invoice) {
-                        $invoiceData['tax_invoice_details'] = [
-                            // Use the specific tax invoice supplier ID from request
-                            'supplier_id' => $invoice->tax_invoice_supplier_id, // Don't use fallback here
-                            'net_amount' => (float) $invoice->tax_net_amount,
-                            'vat_amount' => (float) $invoice->tax_vat_amount,
-                            'total_amount' => (float) $invoice->tax_total_amount
-                        ];
-                    }
-
-                    return $invoiceData;
                 }),
             ],
         ];
