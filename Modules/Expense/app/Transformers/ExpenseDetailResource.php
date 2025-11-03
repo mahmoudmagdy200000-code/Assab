@@ -146,6 +146,7 @@ class ExpenseDetailResource extends JsonResource
                         'issue_date' => $invoice->issue_date->format('Y-m-d'),
                         'is_tax_invoice' => $invoice->is_tax_invoice,
                         'tax_id' => $invoice->tax_id,
+                        'invoice_supplier_name' => $invoice->supplier?->name,
                         'items_count' => $invoice->items->count(),
                         'expenses_count' => $invoice->expenseLines->count(),
                         'items' => $invoice->items->map(function ($item) {
