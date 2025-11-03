@@ -32,6 +32,7 @@ class GroupedInvoiceExpenseService
         $groupedInvoice = GroupedInvoice::create([
             'expense_id' => $expense->id,
             'payment_type' => $data['payment_type'],
+            'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
             // 'paid_amount' => $this->getPaidAmount($data, $grandTotals['total_amount']),
             'due_date' => $data['due_date'] ?? null,
         ]);
