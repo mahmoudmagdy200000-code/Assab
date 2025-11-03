@@ -129,14 +129,9 @@ class ExpenseDetailResource extends JsonResource
 
         return [
             'data' => [
-                'number_of_suppliers' => $grouped->invoiceDetails->pluck('supplier_id')->unique()->count(),
-                'supplier_names' => $grouped->invoiceDetails->map(fn($inv) => $inv->supplier->name)->unique()->values(),
-                'payment_type' => $grouped->payment_type,
-                'paid_amount' => (float) $grouped->paid_amount,
-                'due_date' => $grouped->due_date?->format('Y-m-d'),
-                'total_invoices' => $grouped->invoiceDetails->count(),
+                // ...existing code...
                 'invoices' => $grouped->invoiceDetails->map(function ($invoice) {
-                    return [
+                    $data = [
                         'id' => $invoice->id,
                         'supplier' => [
                             'id' => $invoice->supplier->id,
@@ -149,31 +144,29 @@ class ExpenseDetailResource extends JsonResource
                         'items_count' => $invoice->items->count(),
                         'expenses_count' => $invoice->expenseLines->count(),
                         'items' => $invoice->items->map(function ($item) {
-                            return [
-                                'id' => $item->id,
-                                'category' => $item->category?->name,
-                                'name' => $item->name,
-                                'quantity' => (float) $item->quantity,
-                                'unit_price' => (float) $item->unit_price,
-                                'total_amount' => (float) $item->total_amount,
-                            ];
+                            // ...existing items mapping...
                         }),
                         'expenses' => $invoice->expenseLines->map(function ($line) {
-                            return [
-                                'id' => $line->id,
-                                'category' => $line->category?->name,
-                                'name' => $line->name,
-                                'price' => (float) $line->price,
-                            ];
+                            // ...existing expenses mapping...
                         }),
                         'receipts' => $this->getInvoiceReceipts($invoice->id),
-
                     ];
+
+                    // Add tax invoice details if it's a tax invoice
+                    if ($invoice->is_tax_invoice) {
+                        $data['tax_invoice_details'] = [
+                            'supplier_id' => $invoice->tax_invoice_supplier_id,
+                            'net_amount' => (float) $invoice->tax_net_amount,
+                            'vat_amount' => (float) $invoice->tax_vat_amount,
+                            'total_amount' => (float) $invoice->tax_total_amount,
+                        ];
+                    }
+
+                    return $data;
                 }),
             ],
         ];
     }
-
     private function getPreApprovalDetails(): array
     {
         $preApproval = $this->preApprovalRequest;

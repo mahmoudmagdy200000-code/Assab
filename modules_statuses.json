@@ -7,5 +7,6 @@
     "Admin": true,
     "Aggregator": true,
     "Expense": true,
-    "BrandOwner": true
+    "BrandOwner": true,
+    "Purchase": true
 }

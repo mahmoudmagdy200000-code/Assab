@@ -39,4 +39,7 @@ class BranchManagerSeeder extends Seeder
         $this->command->info('Branch Managers seeded successfully!');
         $this->command->info('Default Manager: manager@assab.com / password123');
     }
+
+
+
 }
