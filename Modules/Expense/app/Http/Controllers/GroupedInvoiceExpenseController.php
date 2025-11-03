@@ -45,7 +45,7 @@ class GroupedInvoiceExpenseController extends BaseController
 
             // ✅ Tax Invoice Details (required if is_tax_invoice = true)
             'invoices.*.tax_invoice_details' => 'required_if:invoices.*.is_tax_invoice,true|array',
-            'invoices.*.tax_invoice_details.supplier_name' => 'required_if:invoices.*.is_tax_invoice,true|string|max:255',
+            'invoices.*.tax_invoice_details.supplier_id' => 'required_if:invoices.*.is_tax_invoice,true|string|max:255',
             'invoices.*.tax_invoice_details.net_amount' => 'required_if:invoices.*.is_tax_invoice,true|numeric|min:0',
             'invoices.*.tax_invoice_details.vat_amount' => 'required_if:invoices.*.is_tax_invoice,true|numeric|min:0',
             'invoices.*.tax_invoice_details.total_amount' => 'required_if:invoices.*.is_tax_invoice,true|numeric|min:0',
