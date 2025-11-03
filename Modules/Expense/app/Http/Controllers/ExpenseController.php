@@ -62,6 +62,7 @@ class ExpenseController extends BaseController
     {
         $expenses = Expense::where('branch_manager_id', auth()->id())
             ->with(['quickCashExpense', 'invoiceDetails', 'groupedInvoice', 'preApprovalRequest'])
+            ->where('status', '!=', 'pending')
             ->orderBy('created_at', 'desc')
             ->limit(10)
             ->get();
