@@ -36,10 +36,10 @@ class GroupedInvoiceExpenseController extends BaseController
             'paid_amount' => 'required_if:payment_type,partial|numeric|min:0',
             'due_date' => 'required_if:payment_type,in:partial,deferred|date|after:today',
             'custody_balance' => 'required_if:payment_method,custody|numeric|min:0',
-            
+
             // QR Code data (optional)
             'qr_code_data' => 'sometimes|string',
-            
+
             // Invoices array
             'invoices' => 'required|array|min:1',
             'invoices.*.supplier_id' => 'required|exists:suppliers,id',
@@ -90,7 +90,7 @@ class GroupedInvoiceExpenseController extends BaseController
                 );
             }
         }
-        
+
         if ($validator->fails()) {
             return $this->errorResponse(
                 'Validation failed',

@@ -21,7 +21,7 @@ class GroupedInvoiceExpenseService
         $expense = Expense::create([
             'branch_manager_id' => auth()->id(),
             'expense_type' => 'grouped_invoice',
-            'status' => $data['is_draft'] ?? false ? 'draft' : 'pending',
+            'status' => ($data['is_draft'] ?? false) ? 'draft' : 'pending',
             'total_amount' => $grandTotals['total_amount'],
             'net_amount' => $grandTotals['net_amount'],
             'vat_amount' => $grandTotals['vat_amount'],
@@ -31,8 +31,8 @@ class GroupedInvoiceExpenseService
         // Create grouped invoice record
         $groupedInvoice = GroupedInvoice::create([
             'expense_id' => $expense->id,
-            'payment_type' => $data['payment_type'],
-            // 'paid_amount' => $this->getPaidAmount($data, $grandTotals['total_amount']),
+            'payment_type' => $data['payment_type'] ?? null,
+            'paid_amount' => $this->getPaidAmount($data, $grandTotals['total_amount']),
             'due_date' => $data['due_date'] ?? null,
         ]);
 
@@ -43,7 +43,7 @@ class GroupedInvoiceExpenseService
 
 
         // Create timeline entry
-        $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
+        $this->createTimelineEntry($expense, 'created', ($data['is_draft'] ?? false) ? 'saved_as_draft' : 'submitted');
 
         return $expense;
     }
