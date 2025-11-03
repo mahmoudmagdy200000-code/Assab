@@ -194,15 +194,15 @@ class GroupedInvoiceExpenseService
     /**
      * Get paid amount based on payment type
      */
-    // private function getPaidAmount(array $data, float $totalAmount): float
-    // {
-    //     return match ($data['payment_type']) {
-    //         'full' => $totalAmount,
-    //         'partial' => $data['paid_amount'],
-    //         'deferred' => 0,
-    //         default => 0,
-    //     };
-    // }
+    private function getPaidAmount(array $data, float $totalAmount): float
+    {
+        return match ($data['payment_type']) {
+            'full' => $totalAmount,
+            'partial' => $data['paid_amount'] ?? 0,
+            'deferred' => 0,
+            default => 0,
+        };
+    }
 
     private function uploadInvoiceReceipt(Expense $expense, InvoiceDetail $invoice, $file): void
     {
