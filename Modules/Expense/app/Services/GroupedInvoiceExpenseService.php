@@ -103,10 +103,10 @@ class GroupedInvoiceExpenseService
 
         // 🔹 لو الفاتورة ضريبية، نضيف بيانات tax_invoice_details
         if (!empty($invoiceData['is_tax_invoice']) && !empty($invoiceData['tax_invoice_details'])) {
-            $invoicePayload['supplier_name'] = $invoiceData['tax_invoice_details']['supplier_name'] ?? null;
-            $invoicePayload['net_amount'] = $invoiceData['tax_invoice_details']['net_amount'] ?? 0;
-            $invoicePayload['vat_amount'] = $invoiceData['tax_invoice_details']['vat_amount'] ?? 0;
-            $invoicePayload['total_amount'] = $invoiceData['tax_invoice_details']['total_amount'] ?? 0;
+            $invoicePayload['tax_invoice_supplier_id'] = $invoiceData['tax_invoice_details']['supplier_id'] ?? null;  // Changed from supplier_name
+            $invoicePayload['tax_net_amount'] = $invoiceData['tax_invoice_details']['net_amount'] ?? 0;
+            $invoicePayload['tax_vat_amount'] = $invoiceData['tax_invoice_details']['vat_amount'] ?? 0;
+            $invoicePayload['tax_total_amount'] = $invoiceData['tax_invoice_details']['total_amount'] ?? 0;
         }
 
         // 🔸 إنشاء السجل في جدول invoice_details
