@@ -132,6 +132,7 @@ class ExpenseDetailResource extends JsonResource
                 'number_of_suppliers' => $grouped->invoiceDetails->pluck('supplier_id')->unique()->count(),
                 'supplier_names' => $grouped->invoiceDetails->map(fn($inv) => $inv->supplier->name)->unique()->values(),
                 'payment_type' => $grouped->payment_type,
+                'payment_supplier_id' => $grouped->payment_supplier_id,
                 'paid_amount' => (float) $grouped->paid_amount,
                 'due_date' => $grouped->due_date?->format('Y-m-d'),
                 'total_invoices' => $grouped->invoiceDetails->count(),
