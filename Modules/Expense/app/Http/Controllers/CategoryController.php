@@ -36,13 +36,69 @@ class CategoryController extends BaseController
      * Get category by ID
      * GET /api/branch-manager/expenses/categories/{category}
      */
-    // public function show(int $category): JsonResponse
-    // {
-    //     $categoryModel = \Modules\Expense\Models\Category::with('parent', 'children')->findOrFail($category);
+    public function show(int $category): JsonResponse
+    {
+        $categoryModel = \Modules\Expense\Models\Category::with('parent', 'children')->findOrFail($category);
 
-    //     return response()->json([
-    //         'success' => true,
-    //         'data' => new CategoryResource($categoryModel)
-    //     ]);
-    // }
+        return response()->json([
+            'success' => true,
+            'data' => new CategoryResource($categoryModel)
+        ]);
+    }
+
+    /**
+     * Create category
+     * POST /api/branch-manager/expenses/categories
+     */
+    public function store(Request $request): JsonResponse
+    {
+        // Validation
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'parent_id' => 'nullable|exists:categories,id',
+            'type' => 'required|in:purchase,expense',
+            'is_active' => 'required|boolean',
+        ]);
+        $category = $this->helperService->createCategory($request->all());
+
+        return $this->successResponse(
+            $category,
+            'Category created successfully',
+        );
+    }
+    /**
+     * Update category
+     * PUT /api/branch-manager/expenses/categories/{category}
+     */
+    public function update(Request $request, int $category): JsonResponse
+    {
+
+        // Validation
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'parent_id' => 'nullable|exists:categories,id',
+            'type' => 'required|in:purchase,expense',
+            'is_active' => 'required|boolean',
+        ]);
+
+        $categoryModel = $this->helperService->updateCategory($category, $request->all());
+
+        return $this->successResponse(
+            $categoryModel,
+            'Category updated successfully',
+        );
+    }
+    /**
+     * Delete category
+     * DELETE /api/branch-manager/expenses/categories/{category}
+     */
+    public function destroy(int $category): JsonResponse
+    {
+        $this->helperService->deleteCategory($category);
+
+        return $this->successResponse(
+            null,
+            'Category deleted successfully',
+        );
+    }
 }

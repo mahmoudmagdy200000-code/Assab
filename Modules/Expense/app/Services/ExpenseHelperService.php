@@ -35,6 +35,53 @@ class ExpenseHelperService
         });
     }
 
+        /**
+        * Create category
+        */
+    public function createCategory(array $data): Category
+    {
+        return Category::create([
+            'name' => $data['name'],
+            'parent_id' => $data['parent_id'] ?? null,
+            'type' => $data['type'] ?? 'expense',
+            'is_active' => $data['is_active'] ?? true,
+        ]);
+    }
+
+    /**
+     * Get category by ID
+     */
+    public function getCategory(int $category): Category
+    {
+        return Category::with('parent')->findOrFail($category);
+    }
+
+    /**
+     * Update category
+     */
+    public function updateCategory(int $category, array $data): Category
+    {
+        $category = Category::findOrFail($category);
+
+        $category->update([
+            'name' => $data['name'],
+            'parent_id' => $data['parent_id'] ?? null,
+            'type' => $data['type'] ?? 'expense',
+            'is_active' => $data['is_active'] ?? true,
+        ]);
+
+        return $category;
+    }
+
+    /**
+     * Delete category
+     */
+    public function deleteCategory(int $category): void
+    {
+        $category = Category::findOrFail($category);
+        $category->delete();
+    }
+
     /**
      * Get all suppliers
      */
@@ -93,5 +140,5 @@ class ExpenseHelperService
     }
 
 
-    
+
 }
