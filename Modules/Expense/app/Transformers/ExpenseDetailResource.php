@@ -172,9 +172,9 @@ class ExpenseDetailResource extends JsonResource
                     // Add tax invoice details if it's a tax invoice
                     if ($invoice->is_tax_invoice) {
                         $invoiceData['tax_invoice_details'] = [
-                            'supplier_id' => $invoice->tax_invoice_supplier_id,  // Changed field name
+                            'supplier_id' => $invoice->tax_invoice_supplier_id ?? $invoice->supplier->id, // Use supplier ID as fallback
                             'net_amount' => (float) $invoice->tax_net_amount,
-                            'vat_amount' => (float) $invoice->tax_vat_amount, 
+                            'vat_amount' => (float) $invoice->tax_vat_amount,
                             'total_amount' => (float) $invoice->tax_total_amount
                         ];
                     }
