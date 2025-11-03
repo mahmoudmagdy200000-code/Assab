@@ -43,6 +43,8 @@ class GroupedInvoiceExpenseController extends BaseController
             'invoices.*.is_tax_invoice' => 'required|boolean',
             'invoices.*.tax_id' => 'nullable|string|max:50',
 
+            'payment_supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
+
             // ✅ Tax Invoice Details (required if is_tax_invoice = true)
             'invoices.*.tax_invoice_details' => 'required_if:invoices.*.is_tax_invoice,true|array',
             'invoices.*.tax_invoice_details.supplier_name' => 'required_if:invoices.*.is_tax_invoice,true|string|max:255',
