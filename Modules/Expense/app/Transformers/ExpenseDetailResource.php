@@ -180,6 +180,7 @@ class ExpenseDetailResource extends JsonResource
                             'total_amount' => (float) $invoice->tax_total_amount,
                         ];
                     }
+                    return $data;
                 }),
             ],
         ];
