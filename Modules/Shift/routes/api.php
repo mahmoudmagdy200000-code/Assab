@@ -139,9 +139,9 @@ Route::prefix('branch-manager')
                 ->name('shifts.handover.available-cashiers');
         });
 
-                    // Get Handover Summary
-            Route::get('summary', [ShiftHandoverController::class, 'getHandoverSummaries'])
-                ->name('shifts.handover.summary');
+        // Get Handover Summary
+        Route::get('shifts/handover/summary', [ShiftHandoverController::class, 'getHandoverSummaries'])
+            ->name('shifts.handover.summary');
         /*
     |----------------------------------------------------------------------
     | Variance Management
