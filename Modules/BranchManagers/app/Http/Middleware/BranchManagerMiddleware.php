@@ -16,7 +16,7 @@ class BranchManagerMiddleware
     {
         $user = auth()->user();
 
-        
+        // تحقق من المصادقة
         if (!$user) {
             return response()->json([
                 'success' => false,
@@ -24,7 +24,7 @@ class BranchManagerMiddleware
             ], 401);
         }
 
-
+        // تحقق من نوع المستخدم
         if (!$user instanceof BranchManager) {
             return response()->json([
                 'success' => false,
@@ -32,7 +32,7 @@ class BranchManagerMiddleware
             ], 403);
         }
 
-
+        // تحقق من حالة الحساب
         if (!$user->is_active) {
             return response()->json([
                 'success' => false,
@@ -40,7 +40,7 @@ class BranchManagerMiddleware
             ], 403);
         }
 
-
+        // تحقق من الإيقاف
         if (method_exists($user, 'isSuspended') && $user->isSuspended()) {
             return response()->json([
                 'success' => false,
@@ -48,6 +48,16 @@ class BranchManagerMiddleware
             ], 403);
         }
 
+        // ✅ تحقق من ارتباط Branch Manager بفرع
+        if (!$user->branch_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Branch manager is not assigned to any branch. Please contact administrator.'
+            ], 403);
+        }
+
+        // ✅ إضافة branch_id للـ request ليكون متاح في كل الـ Controllers
+        $request->merge(['manager_branch_id' => $user->branch_id]);
 
         return $next($request);
     }

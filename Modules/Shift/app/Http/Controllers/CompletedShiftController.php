@@ -5,14 +5,11 @@ namespace Modules\Shift\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Controller;
 use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Services\VarianceCalculationService;
-use Modules\Shift\Http\Resources\ShiftResource;
-use Modules\Shift\Http\Resources\ShiftDetailResource;
 use Modules\Shift\Transformers\CashierShiftResource;
-use Modules\Shift\Transformers\ShiftDetailResource as TransformersShiftDetailResource;
-use Modules\Shift\Transformers\ShiftResource as TransformersShiftResource;
+use Modules\Shift\Transformers\ShiftDetailResource;
+use Modules\Shift\Models\CashierShift;
 
 class CompletedShiftController extends BaseController
 {
@@ -26,7 +23,9 @@ class CompletedShiftController extends BaseController
      */
     public function index(Request $request): JsonResponse
     {
+        $managerBranchId = $request->manager_branch_id;
         $filters = $request->only(['date_from', 'date_to', 'cashier_id']);
+        $filters['branch_id'] = $managerBranchId;
 
         $shifts = $this->shiftService->getCompletedShifts(
             cashierId: $request->input('cashier_id'),
@@ -44,25 +43,53 @@ class CompletedShiftController extends BaseController
      */
     public function show(int $shiftId): JsonResponse
     {
-        $shift = $this->shiftService->getShiftDetails($shiftId);
+        try {
+            $managerBranchId = request()->manager_branch_id;
 
-        // Get shift progress
-        $progress = $this->shiftService->getShiftProgress($shiftId);
+            $shift = CashierShift::with([
+                'cashier',
+                'shift',
+                'nextCashier',
+                'originalCashier',
+                'reassignedBy',
+                'salesBreakdown.aggregator',
+                'handoverStatus.reviewedBy',
+                'varianceDetails.responsibleCashier',
+                'varianceAlerts',
+                'history'
+            ])
+            ->whereHas('shift', function($q) use ($managerBranchId) {
+                $q->where('branch_id', $managerBranchId);
+            })
+            ->findOrFail($shiftId);
 
-        // Get variance details if variance exists
-        $varianceDetails = null;
-        if ($shift->hasVariance()) {
-            $varianceDetails = $this->varianceService->getVarianceDetails($shift);
+            $progress = $this->shiftService->getShiftProgress($shiftId);
+
+            $varianceDetails = null;
+            if ($shift->hasVariance()) {
+                $varianceDetails = $this->varianceService->getVarianceDetails($shift);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Shift details retrieved successfully',
+                'data' => [
+                    'shift' => new ShiftDetailResource($shift),
+                    'progress' => $progress,
+                    'variance_details' => $varianceDetails,
+                ]
+            ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Shift not found or you do not have access to it',
+            ], 404);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve shift details',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Shift details retrieved successfully',
-            'data' => [
-                'shift' => new TransformersShiftDetailResource($shift),
-                'progress' => $progress,
-                'variance_details' => $varianceDetails,
-            ]
-        ]);
     }
 }

@@ -149,7 +149,6 @@ class ShiftHandoverController extends Controller
                     'shift' => new ShiftDetailResource($result)
                 ]
             ]);
-
         } catch (\Exception $e) {
             Log::error('Handover approval failed', [
                 'shift_id' => $shift,
@@ -284,8 +283,7 @@ class ShiftHandoverController extends Controller
                     'status' => $handoverStatus->status,
                     'handover_amount' => (float) $shiftModel->closing_balance,
                     'variance' => (float) $shiftModel->variance,
-                    'variance_type' => $shiftModel->variance > 0 ? 'Over' :
-                        ($shiftModel->variance < 0 ? 'Short' : 'None'),
+                    'variance_type' => $shiftModel->variance > 0 ? 'Over' : ($shiftModel->variance < 0 ? 'Short' : 'None'),
                     'handover_to' => $shiftModel->nextCashier?->name,
                     'handover_notes' => $shiftModel->handover_notes,
                     'handed_over_at' => $shiftModel->handed_over_at?->format('Y-m-d H:i:s'),
@@ -361,5 +359,44 @@ class ShiftHandoverController extends Controller
             ], 500);
         }
     }
-}
 
+    /**
+     * Get handover summary for all shifts
+     * Restricted to branch managers via middleware
+     */
+    public function getHandoverSummaries(): JsonResponse
+    {
+        try {
+            $user = auth()->user();
+            $branchId = $user->branch_id;
+
+            if (!$branchId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Branch manager is not assigned to any branch',
+                ], 400);
+            }
+
+            $summaries = $this->handoverService->getHandoverSummaries([
+                'branch_id' => $branchId
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Handover summaries retrieved successfully',
+                'data' => $summaries
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to retrieve handover summaries', [
+                'user_id' => auth()->id(),
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve handover summaries',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+}

@@ -5,9 +5,8 @@ namespace Modules\Shift\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Controller;
 use Modules\Shift\Services\ShiftService;
-use Modules\Shift\Transformers\{CashierShiftCollection, CashierShiftResource, ShiftResource, ShiftDetailResource};
+use Modules\Shift\Transformers\{CashierShiftCollection, ShiftDetailResource};
 use Modules\Shift\Models\CashierShift;
 
 class PendingShiftController extends BaseController
@@ -18,18 +17,37 @@ class PendingShiftController extends BaseController
 
     /**
      * Display a listing of pending shifts
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function index(Request $request): JsonResponse
     {
         try {
+            $managerBranchId = $request->manager_branch_id; // من الـ middleware
             $cashierId = $request->input('cashier_id');
 
-            $shifts = $this->shiftService->getPendingShifts($cashierId);
+            // تعديل getPendingShifts ليقبل branch_id
+            $shifts = CashierShift::upcoming()
+                ->with([
+                    'cashier',
+                    'shift',
+                    'nextCashier',
+                    'originalCashier',
+                    'reassignedBy'
+                ])
+                ->whereHas('shift', function ($q) use ($managerBranchId) {
+                    $q->where('branch_id', $managerBranchId);
+                })
+                ->whereDate('shift_date', '>=', now()->subMonth()->toDateString())
+                ->whereDate('shift_date', '<=', now()->addMonth()->toDateString())
+                ->when($cashierId, function ($query, $cashierId) use ($managerBranchId) {
+                    // تأكد إن الكاشير تابع لنفس البرانش
+                    $query->where('cashier_id', $cashierId)
+                        ->whereHas('cashier', function ($q) use ($managerBranchId) {
+                            $q->where('branch_id', $managerBranchId);
+                        });
+                })
+                ->orderBy('shift_date')
+                ->paginate(10);
 
-            // استخدم Resource Collection بدلاً من التحويل اليدوي
             return $this->paginatedResponse(
                 new CashierShiftCollection($shifts),
                 'Pending shifts retrieved successfully'
@@ -41,16 +59,30 @@ class PendingShiftController extends BaseController
 
     /**
      * Display the specified pending shift
-     *
-     * @param int $shift
-     * @return JsonResponse
      */
     public function show(int $shift): JsonResponse
     {
         try {
-            $shiftDetails = $this->shiftService->getShiftDetails($shift);
+            $managerBranchId = request()->manager_branch_id;
 
-            // Verify shift is pending
+            // تحقق من أن الشيفت تابع لبرانش المدير
+            $shiftDetails = CashierShift::with([
+                'cashier',
+                'shift',
+                'nextCashier',
+                'originalCashier',
+                'reassignedBy',
+                'salesBreakdown.aggregator',
+                'handoverStatus.reviewedBy',
+                'varianceDetails.responsibleCashier',
+                'varianceAlerts',
+                'history'
+            ])
+                ->whereHas('shift', function ($q) use ($managerBranchId) {
+                    $q->where('branch_id', $managerBranchId);
+                })
+                ->findOrFail($shift);
+
             if ($shiftDetails->status->value !== 'not_started') {
                 return response()->json([
                     'success' => false,
@@ -58,7 +90,6 @@ class PendingShiftController extends BaseController
                 ], 400);
             }
 
-            // Get shift progress
             $progress = $this->shiftService->getShiftProgress($shift);
 
             return response()->json([
@@ -74,6 +105,11 @@ class PendingShiftController extends BaseController
                     ]
                 ]
             ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Shift not found or you do not have access to it',
+            ], 404);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

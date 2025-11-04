@@ -44,8 +44,16 @@ class ShiftEndController extends Controller
             ], 422);
         }
 
+
+
+
+
         try {
-            $shiftModel = CashierShift::findOrFail($shift);
+            $managerBranchId = $request->manager_branch_id;
+
+            $shiftModel = CashierShift::whereHas('shift', function ($q) use ($managerBranchId) {
+                $q->where('branch_id', $managerBranchId);
+            })->findOrFail($shift);
 
             if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 return response()->json([
@@ -98,11 +106,12 @@ class ShiftEndController extends Controller
                     ]
                 ]
             ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Shift not found or you do not have access to it',
+            ], 404);
         } catch (\Exception $e) {
-            Log::error('Shift end failed: ' . $e->getMessage(), [
-                'shift_id' => $shift,
-                'trace' => $e->getTraceAsString()
-            ]);
 
             return response()->json([
                 'success' => false,
@@ -150,7 +159,11 @@ class ShiftEndController extends Controller
         }
 
         try {
-            $shiftModel = CashierShift::findOrFail($shift);
+            $managerBranchId = $request->manager_branch_id;
+
+            $shiftModel = CashierShift::whereHas('shift', function ($q) use ($managerBranchId) {
+                $q->where('branch_id', $managerBranchId);
+            })->findOrFail($shift);
 
             if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 return response()->json([
@@ -158,6 +171,7 @@ class ShiftEndController extends Controller
                     'message' => 'This shift is not in progress',
                 ], 400);
             }
+
 
             // Fetch the next cashier BEFORE processing
             $nextCashier = Cashier::find($request->next_cashier_id);
@@ -232,15 +246,12 @@ class ShiftEndController extends Controller
                     ]
                 ]
             ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Shift not found or you do not have access to it',
+            ], 404);
         } catch (\Exception $e) {
-            Log::error('Shift handover failed: ' . $e->getMessage(), [
-                'shift_id' => $shift,
-                'next_cashier_id' => $request->next_cashier_id ?? null,
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to end shift with handover',

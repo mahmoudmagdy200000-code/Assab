@@ -282,6 +282,199 @@ class HandoverService
             return null;
         }
     }
+
+
+    /**
+     * Get handover summaries with optional filters
+     *
+     * @param array $filters Optional filters: branch_id, date_from, date_to, status, cashier_id
+     * @return array Summary statistics for handovers
+     */
+    public function getHandoverSummaries(array $filters = []): array
+    {
+        try {
+            $query = CashierShift::with([
+                'handoverStatus',
+                'cashier',
+                'nextCashier',
+                'shift.branch'
+            ])->whereHas('handoverStatus');
+
+            // Apply filters
+            if (!empty($filters['branch_id'])) {
+                $query->whereHas('shift', function ($q) use ($filters) {
+                    $q->where('branch_id', $filters['branch_id']);
+                });
+            }
+
+            if (!empty($filters['date_from'])) {
+                $query->where('shift_date', '>=', $filters['date_from']);
+            }
+
+            if (!empty($filters['date_to'])) {
+                $query->where('shift_date', '<=', $filters['date_to']);
+            }
+
+            if (!empty($filters['status'])) {
+                $query->whereHas('handoverStatus', function ($q) use ($filters) {
+                    $q->where('status', $filters['status']);
+                });
+            }
+
+            if (!empty($filters['cashier_id'])) {
+                $query->where('cashier_id', $filters['cashier_id']);
+            }
+
+            $shifts = $query->get();
+
+            // Calculate statistics
+            $totalHandovers = $shifts->count();
+            $pendingHandovers = $shifts->filter(
+                fn($s) =>
+                $s->handoverStatus?->status === HandoverStatus::PENDING
+            )->count();
+
+            $acceptedHandovers = $shifts->filter(
+                fn($s) =>
+                $s->handoverStatus?->status === HandoverStatus::ACCEPTED
+            )->count();
+
+            $rejectedHandovers = $shifts->filter(
+                fn($s) =>
+                $s->handoverStatus?->status === HandoverStatus::REJECTED
+            )->count();
+
+            // Calculate variance statistics
+            $totalVariance = $shifts->sum('variance');
+            $avgVariance = $totalHandovers > 0 ? $shifts->avg('variance') : 0;
+
+            $overages = $shifts->filter(fn($s) => $s->variance > 0);
+            $shortages = $shifts->filter(fn($s) => $s->variance < 0);
+
+            $totalOverage = $overages->sum('variance');
+            $totalShortage = abs($shortages->sum('variance'));
+
+            // Calculate amounts
+            $totalHandoverAmount = $shifts->sum('closing_balance');
+            $totalExpectedAmount = $shifts->sum('expected_balance');
+
+            // Recent handovers (last 10)
+            $recentHandovers = $shifts->sortByDesc('handed_over_at')
+                ->take(10)
+                ->map(function ($shift) {
+                    return [
+                        'shift_id' => $shift->id,
+                        'shift_date' => $shift->shift_date,
+                        'cashier_name' => $shift->cashier?->name,
+                        'next_cashier_name' => $shift->nextCashier?->name,
+                        'handover_amount' => (float) $shift->closing_balance,
+                        'variance' => (float) $shift->variance,
+                        'status' => $shift->handoverStatus?->status->value,
+                        'handed_over_at' => $shift->handed_over_at?->format('Y-m-d H:i:s'),
+                        'branch_name' => $shift->shift?->branch?->name,
+                    ];
+                })
+                ->values();
+
+            // Status breakdown by branch (if not filtered by branch)
+            $branchBreakdown = [];
+            if (empty($filters['branch_id'])) {
+                $branchBreakdown = $shifts->groupBy('shift.branch.name')
+                    ->map(function ($branchShifts, $branchName) {
+                        return [
+                            'branch_name' => $branchName,
+                            'total' => $branchShifts->count(),
+                            'pending' => $branchShifts->filter(
+                                fn($s) =>
+                                $s->handoverStatus?->status === HandoverStatus::PENDING
+                            )->count(),
+                            'accepted' => $branchShifts->filter(
+                                fn($s) =>
+                                $s->handoverStatus?->status === HandoverStatus::ACCEPTED
+                            )->count(),
+                            'rejected' => $branchShifts->filter(
+                                fn($s) =>
+                                $s->handoverStatus?->status === HandoverStatus::REJECTED
+                            )->count(),
+                            'total_variance' => (float) $branchShifts->sum('variance'),
+                        ];
+                    })
+                    ->values();
+            }
+
+            // Cashier performance summary
+            $cashierPerformance = $shifts->groupBy('cashier_id')
+                ->map(function ($cashierShifts) {
+                    $cashier = $cashierShifts->first()->cashier;
+                    return [
+                        'cashier_id' => $cashier->id,
+                        'cashier_name' => $cashier->name,
+                        'total_handovers' => $cashierShifts->count(),
+                        'accepted' => $cashierShifts->filter(
+                            fn($s) =>
+                            $s->handoverStatus?->status === HandoverStatus::ACCEPTED
+                        )->count(),
+                        'rejected' => $cashierShifts->filter(
+                            fn($s) =>
+                            $s->handoverStatus?->status === HandoverStatus::REJECTED
+                        )->count(),
+                        'pending' => $cashierShifts->filter(
+                            fn($s) =>
+                            $s->handoverStatus?->status === HandoverStatus::PENDING
+                        )->count(),
+                        'total_variance' => (float) $cashierShifts->sum('variance'),
+                        'avg_variance' => (float) $cashierShifts->avg('variance'),
+                        'accuracy_rate' => $cashierShifts->count() > 0
+                            ? round(($cashierShifts->filter(fn($s) => abs($s->variance) < 10)->count() / $cashierShifts->count()) * 100, 2)
+                            : 0,
+                    ];
+                })
+                ->sortByDesc('total_handovers')
+                ->take(10)
+                ->values();
+
+            return [
+                'overview' => [
+                    'total_handovers' => $totalHandovers,
+                    'pending' => $pendingHandovers,
+                    'accepted' => $acceptedHandovers,
+                    'rejected' => $rejectedHandovers,
+                    'acceptance_rate' => $totalHandovers > 0
+                        ? round(($acceptedHandovers / $totalHandovers) * 100, 2)
+                        : 0,
+                    'rejection_rate' => $totalHandovers > 0
+                        ? round(($rejectedHandovers / $totalHandovers) * 100, 2)
+                        : 0,
+                ],
+                'financial_summary' => [
+                    'total_handover_amount' => (float) $totalHandoverAmount,
+                    'total_expected_amount' => (float) $totalExpectedAmount,
+                    'total_variance' => (float) $totalVariance,
+                    'average_variance' => (float) round($avgVariance, 2),
+                    'total_overage' => (float) $totalOverage,
+                    'total_shortage' => (float) $totalShortage,
+                    'variance_breakdown' => [
+                        'overages_count' => $overages->count(),
+                        'shortages_count' => $shortages->count(),
+                        'exact_matches' => $shifts->filter(fn($s) => $s->variance == 0)->count(),
+                    ],
+                ],
+                'recent_handovers' => $recentHandovers,
+                'branch_breakdown' => $branchBreakdown,
+                'cashier_performance' => $cashierPerformance,
+                'filters_applied' => $filters,
+                'generated_at' => now()->format('Y-m-d H:i:s'),
+            ];
+        } catch (\Exception $e) {
+            Log::error('Failed to generate handover summaries', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'filters' => $filters,
+            ]);
+
+            throw $e;
+        }
+    }
 }
 
 
@@ -561,4 +754,3 @@ class HandoverService
 //         }
 //     }
 // }
-

@@ -22,7 +22,7 @@ class ShiftService
                 'cashier',
                 'shift',
                 'nextCashier',
-                'originalCashier',   
+                'originalCashier',
                 'reassignedBy'
             ])
             ->whereDate('shift_date', '>=', now()->subMonth()->toDateString())
@@ -93,6 +93,13 @@ class ShiftService
     {
         $query = CashierShift::completed()
             ->with(['cashier', 'shift', 'nextCashier', 'handoverStatus', 'varianceDetails']);
+
+        // ✅ فلتر حسب البرانش
+        if (!empty($filters['branch_id'])) {
+            $query->whereHas('shift', function ($q) use ($filters) {
+                $q->where('branch_id', $filters['branch_id']);
+            });
+        }
 
         if ($cashierId) {
             $query->where('cashier_id', $cashierId);
