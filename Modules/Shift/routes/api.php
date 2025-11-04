@@ -133,14 +133,15 @@ Route::prefix('branch-manager')
             Route::get('status', [ShiftHandoverController::class, 'getHandoverStatus'])
                 ->name('shifts.handover.status');
 
-            // Get Handover Summary
-            Route::get('summary', [ShiftHandoverController::class, 'getHandoverSummaries'])
-                ->name('shifts.handover.summary');
+
             // Get available cashiers for handover
             Route::get('available-cashiers', [ShiftHandoverController::class, 'getAvailableCashiers'])
                 ->name('shifts.handover.available-cashiers');
         });
 
+                    // Get Handover Summary
+            Route::get('summary', [ShiftHandoverController::class, 'getHandoverSummaries'])
+                ->name('shifts.handover.summary');
         /*
     |----------------------------------------------------------------------
     | Variance Management
