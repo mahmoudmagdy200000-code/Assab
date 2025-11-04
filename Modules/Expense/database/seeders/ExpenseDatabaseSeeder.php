@@ -15,6 +15,7 @@ class ExpenseDatabaseSeeder extends Seeder
             // CategorySeeder::class,
             // SupplierSeeder::class,
             // ExpenseSeeder::class,
+            SingleInvoiceExpenseSeeder::class,
         ]);
     }
 }
