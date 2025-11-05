@@ -8,6 +8,7 @@ use Modules\Shift\Models\ShiftVarianceAlert;
 use Modules\Shift\Enums\VarianceType;
 use Modules\Shift\Enums\ResponsibilityType;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class VarianceCalculationService
@@ -33,19 +34,30 @@ class VarianceCalculationService
             // Handle different responsibility types
             switch ($varianceData['responsibility_type']) {
                 case ResponsibilityType::I_WAS_RESPONSIBLE->value:
+                case 'self': // ✅ Support string values too
                     $this->recordSingleResponsibility($shift, $varianceAmount, $varianceType);
                     break;
 
                 case ResponsibilityType::ME_AND_OTHER_FACTORS->value:
+                case 'self_and_others': // ✅ Support string values too
                     $this->recordSharedResponsibility($shift, $varianceAmount, $varianceType, $varianceData);
                     break;
 
                 case ResponsibilityType::OTHER_FACTORS->value:
+                case 'other_factors': // ✅ Support string values too
                     $this->recordExternalFactors($shift, $varianceAmount, $varianceType, $varianceData);
                     break;
 
                 case ResponsibilityType::MIXED_FACTORS->value:
+                case 'mixed': // ✅ Support string values too
                     $this->recordMixedFactors($shift, $varianceAmount, $varianceType, $varianceData);
+                    break;
+
+                default:
+                    Log::warning('Unknown responsibility type', [
+                        'shift_id' => $shift->id,
+                        'responsibility_type' => $varianceData['responsibility_type']
+                    ]);
                     break;
             }
 
@@ -55,6 +67,11 @@ class VarianceCalculationService
             DB::commit();
         } catch (\Exception $e) {
             DB::rollBack();
+            Log::error('Variance recording failed', [
+                'shift_id' => $shift->id,
+                'error' => $e->getMessage(),
+                'variance_data' => $varianceData
+            ]);
             throw $e;
         }
     }
@@ -96,9 +113,12 @@ class VarianceCalculationService
             'supporting_files' => null,
         ]);
 
+        // ✅ Support both 'other_cashiers' (from controller) and 'cashiers' (legacy)
+        $otherCashiers = $data['other_cashiers'] ?? $data['cashiers'] ?? [];
+
         // Record for other cashiers
-        if (!empty($data['other_cashiers'])) {
-            foreach ($data['other_cashiers'] as $otherCashier) {
+        if (!empty($otherCashiers)) {
+            foreach ($otherCashiers as $otherCashier) {
                 ShiftVarianceDetail::create([
                     'cashier_shift_id' => $shift->id,
                     'variance_amount' => $amount,
@@ -131,7 +151,7 @@ class VarianceCalculationService
             'responsibility_type' => ResponsibilityType::OTHER_FACTORS,
             'responsible_cashier_id' => null,
             'assigned_amount' => $amount,
-            'reason' => $data['reason'],
+            'reason' => $data['reason'] ?? 'External factors',
             'supporting_files' => $supportingFiles,
         ]);
     }
@@ -147,9 +167,19 @@ class VarianceCalculationService
             $supportingFiles = $this->uploadSupportingFiles($data['supporting_files'], $shift->id);
         }
 
+        // ✅ Support both 'other_cashiers' (from controller) and 'cashiers' (legacy)
+        $cashiers = $data['cashiers'] ?? $data['other_cashiers'] ?? [];
+
+        Log::info('Recording mixed factors variance', [
+            'shift_id' => $shift->id,
+            'cashiers_count' => count($cashiers),
+            'has_other_cashiers' => isset($data['other_cashiers']),
+            'has_cashiers' => isset($data['cashiers'])
+        ]);
+
         // Record cashier responsibilities
-        if (!empty($data['cashiers'])) {
-            foreach ($data['cashiers'] as $cashier) {
+        if (!empty($cashiers)) {
+            foreach ($cashiers as $cashier) {
                 ShiftVarianceDetail::create([
                     'cashier_shift_id' => $shift->id,
                     'variance_amount' => $amount,
@@ -164,7 +194,9 @@ class VarianceCalculationService
         }
 
         // Record external factors
-        $externalAmount = $amount - collect($data['cashiers'])->sum('amount');
+        $totalCashierAmount = collect($cashiers)->sum('amount');
+        $externalAmount = $amount - $totalCashierAmount;
+
         if ($externalAmount > 0) {
             ShiftVarianceDetail::create([
                 'cashier_shift_id' => $shift->id,
@@ -173,43 +205,41 @@ class VarianceCalculationService
                 'responsibility_type' => ResponsibilityType::MIXED_FACTORS,
                 'responsible_cashier_id' => null,
                 'assigned_amount' => $externalAmount,
-                'reason' => $data['external_reason'] ?? 'External factors',
+                'reason' => $data['external_reason'] ?? $data['reason'] ?? 'External factors',
                 'supporting_files' => $supportingFiles,
             ]);
         }
     }
 
-   private function checkVarianceThreshold(
-    CashierShift $shift,
-    float $amount,
-    VarianceType $type
-): void {
-    $threshold = 100; // SAR - configurable
-    $percentageThreshold = 5; // % - configurable
+    private function checkVarianceThreshold(
+        CashierShift $shift,
+        float $amount,
+        VarianceType $type
+    ): void {
+        $threshold = 100; // SAR - configurable
+        $percentageThreshold = 5; // % - configurable
 
-    $percentage = ($amount / max($shift->total_sales, 1)) * 100;
+        $percentage = ($amount / max($shift->total_sales, 1)) * 100;
 
-    if ($amount >= $threshold || $percentage >= $percentageThreshold) {
+        if ($amount >= $threshold || $percentage >= $percentageThreshold) {
+            // Determine alert type based on variance amount/percentage
+            $alertType = \Modules\Shift\Enums\AlertType::fromVariance($amount, $percentage);
 
-        // ✅ نحدد نوع التنبيه بناءً على حجم النقص/الزيادة
-        $alertType = \Modules\Shift\Enums\AlertType::fromVariance($amount, $percentage);
+            ShiftVarianceAlert::create([
+                'cashier_shift_id' => $shift->id,
+                'variance_amount' => $amount,
+                'variance_percentage' => $percentage,
+                'alert_type' => $alertType,
+                'is_acknowledged' => false,
+                'is_acknowledged_by' => null,
+                'acknowledged_at' => null,
+                'notes' => "Variance exceeded threshold: {$amount} SAR ({$percentage}%) — Type: {$alertType->label()}",
+            ]);
 
-        ShiftVarianceAlert::create([
-            'cashier_shift_id' => $shift->id,
-            'variance_amount' => $amount,
-            'variance_percentage' => $percentage,
-            'alert_type' => $alertType, // ✅ Enum صحيح
-            'is_acknowledged' => false,
-            'is_acknowledged_by' => null,
-            'acknowledged_at' => null,
-            'notes' => "Variance exceeded threshold: {$amount} SAR ({$percentage}%) — Type: {$alertType->label()}",
-        ]);
-
-        // إرسال إشعار للمدير
-        // $this->notificationService->notifyVarianceAlert($shift, $amount, $percentage);
+            // Send notification to manager
+            // $this->notificationService->notifyVarianceAlert($shift, $amount, $percentage);
+        }
     }
-}
-
 
     private function uploadSupportingFiles(array $files, int $shiftId): string
     {
