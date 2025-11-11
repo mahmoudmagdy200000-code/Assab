@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('purchase_return_items', function (Blueprint $table) {
-             $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('purchase_return_id')->constrained()->cascadeOnDelete();
             $table->foreignUuid('item_id')->constrained()->cascadeOnDelete();
             $table->string('item_name');

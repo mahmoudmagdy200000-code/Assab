@@ -10,7 +10,7 @@ return new class extends Migration
     public function up()
     {
         Schema::create('branch_managers', function (Blueprint $table) {
-            $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->string('name');
             $table->string('email')->unique();
             $table->string('phone')->unique()->nullable();
@@ -30,7 +30,7 @@ return new class extends Migration
 
         //  OTP
         Schema::create('branch_manager_otps', function (Blueprint $table) {
-            $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->string('identifier'); // email or phone
             $table->string('otp');
             $table->enum('type', ['email', 'phone']);

@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('grouped_invoices', function (Blueprint $table) {
-            $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('expense_id')->constrained('expenses')->cascadeOnDelete();
             $table->enum('payment_type', ['full', 'partial', 'deferred']);
             $table->decimal('paid_amount', 12, 2)->default(0);

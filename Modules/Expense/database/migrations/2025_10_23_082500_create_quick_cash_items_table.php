@@ -12,10 +12,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('quick_cash_items', function (Blueprint $table) {
-             $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('quick_cash_expense_id')
-                  ->constrained('quick_cash_expenses')
-                  ->cascadeOnDelete();
+                ->constrained('quick_cash_expenses')
+                ->cascadeOnDelete();
             $table->string('title', 255);
             $table->decimal('amount', 10, 2);
             $table->timestamps();

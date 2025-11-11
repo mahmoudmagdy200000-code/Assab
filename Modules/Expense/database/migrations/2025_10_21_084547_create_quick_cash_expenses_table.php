@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('quick_cash_expenses', function (Blueprint $table) {
-            $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('expense_id')->constrained('expenses')->cascadeOnDelete();
             $table->date('expense_date');
             $table->string('expense_name', 255);

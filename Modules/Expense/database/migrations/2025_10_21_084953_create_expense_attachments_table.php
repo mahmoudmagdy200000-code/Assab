@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('expense_attachments', function (Blueprint $table) {
-             $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('expense_id')->constrained('expenses')->cascadeOnDelete();
             $table->foreignUuid('invoice_detail_id')->nullable()->constrained('invoice_details')->cascadeOnDelete();
 

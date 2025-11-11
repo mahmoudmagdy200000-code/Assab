@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('shift_sales_breakdown', function (Blueprint $table) {
-             $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('cashier_shift_id')->constrained('cashier_shifts')->cascadeOnDelete();
             $table->foreignUuid('aggregator_id')->constrained('aggregators')->cascadeOnDelete();
             $table->decimal('amount', 12, 2);

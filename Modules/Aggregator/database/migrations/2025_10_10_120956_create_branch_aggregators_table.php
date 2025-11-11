@@ -10,7 +10,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('branch_aggregators', function (Blueprint $table) {
-             $table->uuid('id');
+            $table->uuid('id')->primary();
 
             $table->foreignUuid('branch_id')->constrained('branches')->onDelete('cascade');
             $table->foreignUuid('aggregator_id')->constrained('aggregators')->onDelete('cascade');
@@ -31,4 +31,3 @@ return new class extends Migration
         Schema::dropIfExists('branch_aggregators');
     }
 };
-

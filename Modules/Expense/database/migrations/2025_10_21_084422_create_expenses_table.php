@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('expenses', function (Blueprint $table) {
-            $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('branch_manager_id')->constrained('branch_managers')->cascadeOnDelete();
             $table->enum('expense_type', ['quick_cash', 'single_invoice', 'grouped_invoice', 'pre_approval']);
             $table->enum('status', ['draft', 'pending', 'approved', 'rejected'])->default('draft');

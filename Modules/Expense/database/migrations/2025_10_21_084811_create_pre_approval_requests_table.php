@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('pre_approval_requests', function (Blueprint $table) {
-            $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('expense_id')->constrained('expenses')->cascadeOnDelete();
             $table->text('purpose');
             $table->decimal('estimated_amount', 12, 2);

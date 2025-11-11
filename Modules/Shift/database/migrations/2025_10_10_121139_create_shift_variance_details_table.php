@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('shift_variance_details', function (Blueprint $table) {
-             $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('cashier_shift_id')->constrained('cashier_shifts')->cascadeOnDelete();
             $table->decimal('variance_amount', 12, 2);
             $table->enum('variance_type', ['over', 'short']);

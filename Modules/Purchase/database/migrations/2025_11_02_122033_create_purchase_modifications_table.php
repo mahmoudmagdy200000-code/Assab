@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('purchase_modifications', function (Blueprint $table) {
-             $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('purchase_order_id')->constrained('purchase_orders')->cascadeOnDelete();
             $table->foreignUuid('purchase_order_item_id')->nullable()->constrained('purchase_order_items')->cascadeOnDelete();
             $table->unsignedBigInteger('modified_by_id');

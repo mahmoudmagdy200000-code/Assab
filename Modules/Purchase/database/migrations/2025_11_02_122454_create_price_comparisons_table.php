@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('price_comparisons', function (Blueprint $table) {
-             $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('item_id')->constrained()->cascadeOnDelete();
             $table->foreignUuid('branch_id')->constrained()->cascadeOnDelete();
             $table->enum('order_type', ['direct_supplier', 'purchasing_officer', 'internal_transfer']);

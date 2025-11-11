@@ -12,9 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('cashier_shift_history', function (Blueprint $table) {
-              $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('cashier_shift_id')->constrained('cashier_shifts')->cascadeOnDelete();
-           $table->string('action', 50);
+            $table->string('action', 50);
             $table->unsignedBigInteger('performed_by');
             $table->string('performed_by_type', 50);
             $table->text('old_value')->nullable();

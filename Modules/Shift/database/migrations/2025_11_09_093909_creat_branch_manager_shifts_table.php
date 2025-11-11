@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('branch_manager_shifts', function (Blueprint $table) {
-             $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('branch_manager_id')->constrained('branch_managers')->cascadeOnDelete();
             $table->foreignUuid('branch_id')->constrained('branches')->cascadeOnDelete();
             $table->date('shift_date');

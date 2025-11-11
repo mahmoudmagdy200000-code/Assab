@@ -9,10 +9,10 @@ return new class extends Migration
     /**
      * Run the migrations.
      */
-     public function up(): void
+    public function up(): void
     {
         Schema::create('expense_timelines', function (Blueprint $table) {
-             $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('expense_id')->constrained('expenses')->cascadeOnDelete();
 
             $table->enum('action', ['created', 'updated', 'submit', 'view', 'approve', 'reject', 'resubmit', 'edit']);

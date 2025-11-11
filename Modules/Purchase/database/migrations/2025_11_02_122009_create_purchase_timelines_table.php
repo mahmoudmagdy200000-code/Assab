@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('purchase_timelines', function (Blueprint $table) {
-             $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('purchase_order_id')->constrained('purchase_orders')->cascadeOnDelete();
             $table->unsignedBigInteger('user_id');
             $table->string('user_type'); // NEW

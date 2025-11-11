@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('goods_receipt_variances', function (Blueprint $table) {
-             $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('goods_receipt_id')->constrained()->cascadeOnDelete();
             $table->foreignUuid('goods_receipt_item_id')->constrained()->cascadeOnDelete();
             $table->enum('variance_type', ['short', 'damage', 'over']);

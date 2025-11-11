@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('shift_handover_status', function (Blueprint $table) {
-             $table->uuid('id');
+            $table->uuid('id')->primary();
             $table->foreignUuid('cashier_shift_id')->constrained('cashier_shifts')->cascadeOnDelete();
             $table->enum('status', ['pending', 'accepted', 'rejected'])->default('pending');
             $table->foreignUuid('reviewed_by')->nullable()->constrained('cashiers')->nullOnDelete();

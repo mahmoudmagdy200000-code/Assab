@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('user_settings', function (Blueprint $table) {
-             $table->uuid('id');
+            $table->uuid('id')->primary();
 
             // Polymorphic relation: works for both BranchManager and Cashier
             $table->morphs('userable'); // creates userable_id & userable_type columns
