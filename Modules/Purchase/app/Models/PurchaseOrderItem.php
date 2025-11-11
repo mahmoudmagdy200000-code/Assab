@@ -2,11 +2,13 @@
 
 namespace Modules\Purchase\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PurchaseOrderItem extends Model
 {
+    use HasUuids;
     protected $fillable = [
         'purchase_order_id',
         'item_id',
@@ -44,12 +46,12 @@ class PurchaseOrderItem extends Model
 
     public function item(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\Item::class);
+        return $this->belongsTo(Item::class);
     }
 
     public function alternativeItem(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\Item::class, 'alternative_item_id');
+        return $this->belongsTo(Item::class, 'alternative_item_id');
     }
 
     // Calculate total price

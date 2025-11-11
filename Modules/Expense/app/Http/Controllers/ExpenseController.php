@@ -112,7 +112,7 @@ class ExpenseController extends BaseController
      * Get expense details
      * GET /api/branch-manager/expenses/{expense}
      */
-    public function show(int $expense): JsonResponse
+    public function show(string $expense): JsonResponse
     {
         $expenseModel = Expense::with([
             'quickCashExpense.items',
@@ -141,7 +141,7 @@ class ExpenseController extends BaseController
      * Get expense timeline
      * GET /api/branch-manager/expenses/{expense}/timeline
      */
-    public function timeline(int $expense): JsonResponse
+    public function timeline(string $expense): JsonResponse
     {
         $expenseModel = Expense::findOrFail($expense);
 
@@ -181,7 +181,7 @@ class ExpenseController extends BaseController
      * Submit expense for approval
      * POST /api/branch-manager/expenses/{expense}/submit
      */
-    public function submit(int $expense): JsonResponse
+    public function submit(string $expense): JsonResponse
     {
         try {
             $expenseModel = Expense::findOrFail($expense);
@@ -205,7 +205,7 @@ class ExpenseController extends BaseController
      * Resubmit rejected expense
      * POST /api/branch-manager/expenses/{expense}/resubmit
      */
-    public function resubmit(int $expense): JsonResponse
+    public function resubmit(string $expense): JsonResponse
     {
         try {
             $expenseModel = Expense::findOrFail($expense);
@@ -229,7 +229,7 @@ class ExpenseController extends BaseController
      * Delete draft expense
      * DELETE /api/branch-manager/expenses/{expense}
      */
-    public function destroy(int $expense): JsonResponse
+    public function destroy(string $expense): JsonResponse
     {
         $expenseModel = Expense::findOrFail($expense);
 

@@ -2,6 +2,7 @@
 
 namespace Modules\Settings\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
  */
 class UserSetting extends Model
 {
-    use HasFactory;
+    use HasFactory , HasUuids;
 
     protected $fillable = [
         'userable_id',
@@ -44,7 +45,7 @@ class UserSetting extends Model
     /**
      * Scope: filter settings for a specific Branch Manager
      */
-    public function scopeForBranchManager($query, int $userId)
+    public function scopeForBranchManager($query, string $userId)
     {
         return $query->where('userable_type', \Modules\BranchManagers\Models\BranchManager::class)
                      ->where('userable_id', $userId);
@@ -53,7 +54,7 @@ class UserSetting extends Model
     /**
      * Scope: filter settings for a specific Cashier
      */
-    public function scopeForCashier($query, int $userId)
+    public function scopeForCashier($query, string $userId)
     {
         return $query->where('userable_type', \Modules\Cashier\Models\Cashier::class)
                      ->where('userable_id', $userId);

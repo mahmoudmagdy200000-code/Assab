@@ -9,12 +9,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('price_comparisons', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('item_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('branch_id')->constrained()->cascadeOnDelete();
+             $table->uuid('id');
+            $table->foreignUuid('item_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('branch_id')->constrained()->cascadeOnDelete();
             $table->enum('order_type', ['direct_supplier', 'purchasing_officer', 'internal_transfer']);
-            $table->foreignId('supplier_id')->nullable()->constrained()->nullOnDelete();
-            $table->foreignId('transfer_from_branch_id')->nullable()->constrained('branches')->nullOnDelete();
+            $table->foreignUuid('supplier_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignUuid('transfer_from_branch_id')->nullable()->constrained('branches')->nullOnDelete();
             $table->decimal('price', 12, 2)->default(0);
             $table->integer('delivery_days')->default(0);
             $table->decimal('rating', 3, 1)->default(0);

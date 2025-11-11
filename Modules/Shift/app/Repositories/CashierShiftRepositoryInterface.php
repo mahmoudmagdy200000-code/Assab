@@ -8,20 +8,20 @@ use Carbon\Carbon;
 
 interface CashierShiftRepositoryInterface
 {
-    public function findById(int $id): ?CashierShift;
+    public function findById(string $id): ?CashierShift;
 
-    public function getPendingShifts(?int $cashierId = null, ?int $branchId = null): Collection;
+    public function getPendingShifts(?string $cashierId = null, ?string $branchId = null): Collection;
 
-    public function getInProgressShifts(?int $cashierId = null, ?int $branchId = null): Collection;
+    public function getInProgressShifts(?string $cashierId = null, ?string $branchId = null): Collection;
 
     public function getCompletedShifts(
-        ?int $cashierId = null,
-        ?int $branchId = null,
+        ?string $cashierId = null,
+        ?string $branchId = null,
         ?Carbon $dateFrom = null,
         ?Carbon $dateTo = null
     ): Collection;
 
-    public function getReassignedShifts(?int $cashierId = null, ?int $branchId = null): Collection;
+    public function getReassignedShifts(?string $cashierId = null, ?string $branchId = null): Collection;
 
     public function create(array $data): CashierShift;
 
@@ -29,9 +29,9 @@ interface CashierShiftRepositoryInterface
 
     public function delete(CashierShift $shift): bool;
 
-    public function getShiftsByCashierAndDate(int $cashierId, Carbon $date): Collection;
+    public function getShiftsByCashierAndDate(string $cashierId, Carbon $date): Collection;
 
-    public function getNextShift(int $cashierId, Carbon $afterDate): ?CashierShift;
+    public function getNextShift(string $cashierId, Carbon $afterDate): ?CashierShift;
 
-    public function hasOverlappingShift(int $cashierId, int $shiftId, Carbon $date): bool;
+    public function hasOverlappingShift(string $cashierId, string $shiftId, Carbon $date): bool;
 }

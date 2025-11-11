@@ -9,10 +9,10 @@ return new class extends Migration
     public function up(): void
 {
     Schema::create('goods_receipts', function (Blueprint $table) {
-        $table->id();
-        $table->foreignId('purchase_order_id')->nullable()->constrained('purchase_orders')->nullOnDelete();
+         $table->uuid('id');
+        $table->foreignUuid('purchase_order_id')->nullable()->constrained('purchase_orders')->nullOnDelete();
         $table->string('receipt_number')->unique();
-        $table->foreignId('branch_id')->constrained('branches')->cascadeOnDelete();
+        $table->foreignUuid('branch_id')->constrained('branches')->cascadeOnDelete();
         $table->unsignedBigInteger('received_by_id');
         $table->string('received_by_type'); // NEW
         $table->string('driver_name');
@@ -22,7 +22,7 @@ return new class extends Migration
         $table->enum('document_type', ['invoice', 'delivery_note', 'receipt_without_document']);
         $table->string('invoice_number')->nullable();
         $table->date('invoice_date')->nullable();
-        $table->foreignId('supplier_id')->nullable()->constrained('suppliers')->nullOnDelete();
+        $table->foreignUuid('supplier_id')->nullable()->constrained('suppliers')->nullOnDelete();
         $table->decimal('amount_before_tax', 12, 2)->default(0);
         $table->decimal('vat_amount', 12, 2)->default(0);
         $table->decimal('total_amount', 12, 2)->default(0);

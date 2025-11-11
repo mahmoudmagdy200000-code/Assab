@@ -12,9 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('categories', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id');
             $table->string('name', 100);
-            $table->foreignId('parent_id')->nullable()->constrained('categories')->nullOnDelete();
+            $table->foreignUuid('parent_id')->nullable()->constrained('categories')->nullOnDelete();
             $table->enum('type', ['purchase', 'expense'])->default('purchase');
             $table->boolean('is_active')->default(true);
             $table->timestamps();

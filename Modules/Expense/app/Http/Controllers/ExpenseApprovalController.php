@@ -53,7 +53,7 @@ class ExpenseApprovalController extends BaseController
      * View expense details
      * GET /api/brand-owner/expenses/{expense}
      */
-    public function show(int $expense): JsonResponse
+    public function show(string $expense): JsonResponse
     {
         $expenseModel = Expense::with([
             'quickCashExpense.items',
@@ -78,7 +78,7 @@ class ExpenseApprovalController extends BaseController
      * Mark expense as viewed
      * POST /api/brand-owner/expenses/{expense}/view
      */
-    public function markAsViewed(int $expense): JsonResponse
+    public function markAsViewed(string $expense): JsonResponse
     {
         try {
             $expenseModel = Expense::findOrFail($expense);
@@ -98,7 +98,7 @@ class ExpenseApprovalController extends BaseController
      * Approve expense
      * POST /api/brand-owner/expenses/{expense}/approve
      */
-    public function approve(int $expense): JsonResponse
+    public function approve(string $expense): JsonResponse
     {
         try {
             $expenseModel = Expense::findOrFail($expense);
@@ -121,7 +121,7 @@ class ExpenseApprovalController extends BaseController
      * Reject expense
      * POST /api/brand-owner/expenses/{expense}/reject
      */
-    public function reject(Request $request, int $expense): JsonResponse
+    public function reject(Request $request, string $expense): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'reason' => 'required|string|min:10|max:500',
@@ -153,7 +153,7 @@ class ExpenseApprovalController extends BaseController
      * Edit expense (Brand Owner can make corrections)
      * PUT /api/brand-owner/expenses/{expense}/edit
      */
-    public function edit(Request $request, int $expense): JsonResponse
+    public function edit(Request $request, string $expense): JsonResponse
     {
         // This allows brand owner to make minor corrections
         // Implementation depends on what fields can be edited
@@ -177,7 +177,7 @@ class ExpenseApprovalController extends BaseController
      * Get expense timeline
      * GET /api/brand-owner/expenses/{expense}/timeline
      */
-    public function timeline(int $expense): JsonResponse
+    public function timeline(string $expense): JsonResponse
     {
         $expenseModel = Expense::findOrFail($expense);
 

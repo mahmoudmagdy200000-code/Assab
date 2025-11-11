@@ -6,7 +6,7 @@ use Exception;
 
 class ShiftException extends Exception
 {
-    public static function shiftNotFound(int $id): self
+    public static function shiftNotFound(string $id): self
     {
         return new self("Shift with ID {$id} not found", 404);
     }

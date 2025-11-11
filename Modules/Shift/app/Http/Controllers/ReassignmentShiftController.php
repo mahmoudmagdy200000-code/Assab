@@ -53,10 +53,10 @@ class ReassignmentShiftController extends Controller
     /**
      * Display the specified reassigned shift
      *
-     * @param int $shift
+     * @param string $shift
      * @return JsonResponse
      */
-    public function show(int $shift): JsonResponse
+    public function show(string $shift): JsonResponse
     {
         try {
             $shiftDetails = $this->shiftService->getShiftDetails($shift);
@@ -92,10 +92,10 @@ class ReassignmentShiftController extends Controller
      * Reassign a shift to another cashier
      *
      * @param Request $request
-     * @param int $shift
+     * @param string $shift
      * @return JsonResponse
      */
-    public function reassign(Request $request, int $shift): JsonResponse
+    public function reassign(Request $request, string $shift): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'new_cashier_id' => 'required|exists:cashiers,id',
@@ -212,10 +212,10 @@ class ReassignmentShiftController extends Controller
      * Get available cashiers for reassignment
      *
      * @param Request $request
-     * @param int $shift
+     * @param string $shift
      * @return JsonResponse
      */
-    public function getAvailableCashiers(int $shift): JsonResponse
+    public function getAvailableCashiers(string $shift): JsonResponse
     {
         try {
             $shiftModel = CashierShift::with('shift')->findOrFail($shift);

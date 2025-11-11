@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('aggregators', function (Blueprint $table) {
-            $table->id();
+             $table->uuid('id');
             $table->string('name')->unique();
             $table->string('code')->unique();
             $table->string('logo')->nullable();

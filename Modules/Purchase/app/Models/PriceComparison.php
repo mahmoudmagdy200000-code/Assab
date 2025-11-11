@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Branch\Models\Branch;
@@ -9,6 +10,7 @@ use Modules\Expense\Models\Supplier;
 
 class PriceComparison extends Model
 {
+    use HasUuids;
     protected $fillable = [
         'item_id',
         'branch_id',

@@ -12,8 +12,8 @@ return new class extends Migration
      public function up(): void
     {
         Schema::create('expense_timelines', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('expense_id')->constrained('expenses')->cascadeOnDelete();
+             $table->uuid('id');
+            $table->foreignUuid('expense_id')->constrained('expenses')->cascadeOnDelete();
 
             $table->enum('action', ['created', 'updated', 'submit', 'view', 'approve', 'reject', 'resubmit', 'edit']);
             $table->unsignedBigInteger('performed_by');

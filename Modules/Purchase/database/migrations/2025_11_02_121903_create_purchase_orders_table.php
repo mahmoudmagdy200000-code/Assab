@@ -9,16 +9,16 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('purchase_orders', function (Blueprint $table) {
-            $table->id();
+             $table->uuid('id');
             $table->string('order_number')->unique();
-            $table->foreignId('branch_id')->constrained('branches')->cascadeOnDelete();
+            $table->foreignUuid('branch_id')->constrained('branches')->cascadeOnDelete();
             $table->unsignedBigInteger('branch_manager_id');
             $table->string('user_type'); // NEW: stores model class name
             $table->enum('order_type', ['direct_supplier', 'purchasing_officer', 'internal_transfer', 'multiple_sources']);
-            $table->foreignId('supplier_id')->nullable()->constrained('suppliers')->nullOnDelete();
+            $table->foreignUuid('supplier_id')->nullable()->constrained('suppliers')->nullOnDelete();
             $table->unsignedBigInteger('purchasing_officer_id')->nullable();
             $table->string('purchasing_officer_type')->nullable(); // NEW
-            $table->foreignId('transfer_from_branch_id')->nullable()->constrained('branches')->nullOnDelete();
+            $table->foreignUuid('transfer_from_branch_id')->nullable()->constrained('branches')->nullOnDelete();
             $table->enum('status', [
                 'pending',
                 'pending_confirmation',

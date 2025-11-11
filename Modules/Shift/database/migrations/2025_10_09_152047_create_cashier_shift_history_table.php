@@ -12,8 +12,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('cashier_shift_history', function (Blueprint $table) {
-             $table->id();
-            $table->foreignId('cashier_shift_id')->constrained('cashier_shifts')->cascadeOnDelete();
+              $table->uuid('id');
+            $table->foreignUuid('cashier_shift_id')->constrained('cashier_shifts')->cascadeOnDelete();
            $table->string('action', 50);
             $table->unsignedBigInteger('performed_by');
             $table->string('performed_by_type', 50);

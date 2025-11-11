@@ -9,10 +9,9 @@ use Modules\Shift\Http\Controllers\{
     ShiftController,
     ShiftEndController,
     ShiftHandoverController,
-    ShiftVarianceController
+    ShiftVarianceController,
+    BranchManagerShiftController
 };
-
-
 
 /*
 |--------------------------------------------------------------------------
@@ -20,7 +19,49 @@ use Modules\Shift\Http\Controllers\{
 |--------------------------------------------------------------------------
 */
 
+/*
+|--------------------------------------------------------------------------
+| Branch Manager Shift Routes (My Shift)
+|--------------------------------------------------------------------------
+*/
 
+Route::group([
+    'prefix' => 'branch-manager/my-shift',
+    'middleware' => ['auth:sanctum', 'branch.manager']
+], function () {
+
+    // Statistics (يجب أن يكون قبل {id} لتجنب الـ conflict)
+    Route::get('statistics/summary', [BranchManagerShiftController::class, 'statistics'])
+        ->name('branch-manager.shift.statistics');
+
+    // Current Shift (Today's Shift)
+    Route::get('current', [BranchManagerShiftController::class, 'current'])
+        ->name('branch-manager.shift.current');
+
+    // Shift History
+    Route::get('history', [BranchManagerShiftController::class, 'index'])
+        ->name('branch-manager.shift.history');
+
+    // Start Shift
+    Route::post('start', [BranchManagerShiftController::class, 'start'])
+        ->name('branch-manager.shift.start');
+
+    // End Shift Only (Without Handover)
+    Route::post('end', [BranchManagerShiftController::class, 'endOnly'])
+        ->name('branch-manager.shift.end');
+
+    // End Shift With Handover
+    Route::post('end-with-handover', [BranchManagerShiftController::class, 'endWithHandover'])
+        ->name('branch-manager.shift.end-with-handover');
+
+    // Record Handover (After Ending Shift)
+    Route::post('record-handover', [BranchManagerShiftController::class, 'recordHandover'])
+        ->name('branch-manager.shift.record-handover');
+
+    // Shift Details (يجب أن يكون في النهاية)
+    Route::get('{id}', [BranchManagerShiftController::class, 'show'])
+        ->name('branch-manager.shift.show');
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -31,7 +72,6 @@ use Modules\Shift\Http\Controllers\{
 Route::prefix('branch-manager')
     ->middleware(['auth:sanctum', 'branch.manager'])
     ->group(function () {
-
 
         Route::prefix('shifts')->group(function () {
             Route::get('/', [ShiftController::class, 'index'])->name('shifts.index');
@@ -133,7 +173,6 @@ Route::prefix('branch-manager')
             Route::get('status', [ShiftHandoverController::class, 'getHandoverStatus'])
                 ->name('shifts.handover.status');
 
-
             // Get available cashiers for handover
             Route::get('available-cashiers', [ShiftHandoverController::class, 'getAvailableCashiers'])
                 ->name('shifts.handover.available-cashiers');
@@ -142,6 +181,7 @@ Route::prefix('branch-manager')
         // Get Handover Summary
         Route::get('shifts/handover/summary', [ShiftHandoverController::class, 'getHandoverSummaries'])
             ->name('shifts.handover.summary');
+
         /*
     |----------------------------------------------------------------------
     | Variance Management
@@ -182,10 +222,10 @@ Route::prefix('branch-manager')
         Route::get('shifts/cashiers/filter', [ShiftController::class, 'filterCashierShifts'])
             ->name('shifts.cashiers.filter');
 
-
         // Show Cashier Shift
         Route::get('shifts/cashiers/{shift}', [ShiftController::class, 'getCashierShiftById'])
             ->name('shifts.cashiers.show');
+
         // show shift by id
         Route::get('shifts/{shift}', [ShiftController::class, 'show'])
             ->name('shifts.show');
@@ -194,7 +234,6 @@ Route::prefix('branch-manager')
         Route::get('cashiers/{cashier}/shifts', [ShiftController::class, 'getShiftByCashierId'])
             ->name('cashiers.shifts.index');
     });
-
 
 /*
 |--------------------------------------------------------------------------

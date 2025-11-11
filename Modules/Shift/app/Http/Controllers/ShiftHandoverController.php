@@ -24,10 +24,10 @@ class ShiftHandoverController extends Controller
      * Handover Cash Now - After ending shift only
      *
      * @param Request $request
-     * @param int $shift
+     * @param string $shift
      * @return JsonResponse
      */
-    public function recordHandover(Request $request, int $shift): JsonResponse
+    public function recordHandover(Request $request, string $shift): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'next_cashier_id' => 'required|exists:cashiers,id',
@@ -110,7 +110,7 @@ class ShiftHandoverController extends Controller
      * Branch Manager approves the handover
      *
      * @param Request $request
-     * @param int $shift
+     * @param string $shift
      * @return JsonResponse
      */
     public function approveHandover(Request $request, $shift): JsonResponse
@@ -170,10 +170,10 @@ class ShiftHandoverController extends Controller
      * Branch Manager rejects the handover with reason
      *
      * @param Request $request
-     * @param int $shift
+     * @param string $shift
      * @return JsonResponse
      */
-    public function rejectHandover(Request $request, int $shift): JsonResponse
+    public function rejectHandover(Request $request, string $shift): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'rejection_reason' => 'required|string|max:500',
@@ -255,10 +255,10 @@ class ShiftHandoverController extends Controller
     /**
      * Get handover status and details
      *
-     * @param int $shift
+     * @param string $shift
      * @return JsonResponse
      */
-    public function getHandoverStatus(int $shift): JsonResponse
+    public function getHandoverStatus(string $shift): JsonResponse
     {
         try {
             $shiftModel = CashierShift::with([
@@ -310,10 +310,10 @@ class ShiftHandoverController extends Controller
     /**
      * Get available cashiers for handover
      *
-     * @param int $shift
+     * @param string $shift
      * @return JsonResponse
      */
-    public function getAvailableCashiers(int $shift): JsonResponse
+    public function getAvailableCashiers(string $shift): JsonResponse
     {
         try {
             $shiftModel = CashierShift::with('shift')->findOrFail($shift);

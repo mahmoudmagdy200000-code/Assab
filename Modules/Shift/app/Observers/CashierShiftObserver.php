@@ -6,9 +6,20 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Events\ShiftEndedEvent;
+use Modules\Shift\Listeners\BranchManagerShiftListener;
 
 class CashierShiftObserver
 {
+    protected $managerShiftListener;
+
+    public function __construct()
+    {
+        $this->managerShiftListener = new BranchManagerShiftListener();
+    }
+
+    /**
+     * Handle the CashierShift "creating" event.
+     */
     public function creating(CashierShift $shift): void
     {
         // Set default opening balance if not set
@@ -17,6 +28,9 @@ class CashierShiftObserver
         }
     }
 
+    /**
+     * Handle the CashierShift "created" event.
+     */
     public function created(CashierShift $shift): void
     {
         // Log creation
@@ -25,8 +39,14 @@ class CashierShiftObserver
             'cashier_id' => $shift->cashier_id,
             'shift_date' => $shift->shift_date,
         ]);
+
+        // Update branch manager shift statistics
+        $this->updateManagerShift($shift);
     }
 
+    /**
+     * Handle the CashierShift "updating" event.
+     */
     public function updating(CashierShift $shift): void
     {
         // Check if status changed to completed
@@ -35,6 +55,9 @@ class CashierShiftObserver
         }
     }
 
+    /**
+     * Handle the CashierShift "updated" event.
+     */
     public function updated(CashierShift $shift): void
     {
         // Log update
@@ -42,13 +65,40 @@ class CashierShiftObserver
             'shift_id' => $shift->id,
             'changes' => $shift->getChanges(),
         ]);
+
+        // Update branch manager shift if status changed
+        if ($shift->wasChanged('status')) {
+            $this->updateManagerShift($shift);
+        }
     }
 
+    /**
+     * Handle the CashierShift "deleted" event.
+     */
     public function deleted(CashierShift $shift): void
     {
         // Clean up related files
         if ($shift->pos_receipt) {
             Storage::disk('public')->delete($shift->pos_receipt);
+        }
+
+        // Update branch manager shift statistics
+        $this->updateManagerShift($shift);
+    }
+
+    /**
+     * Update branch manager shift statistics
+     */
+    private function updateManagerShift(CashierShift $cashierShift): void
+    {
+        try {
+            $this->managerShiftListener->handle($cashierShift);
+        } catch (\Exception $e) {
+            // Log error but don't fail the main operation
+            Log::error('Failed to update manager shift in observer', [
+                'shift_id' => $cashierShift->id,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 }

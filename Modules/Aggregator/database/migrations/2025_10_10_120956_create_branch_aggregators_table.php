@@ -10,9 +10,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('branch_aggregators', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('branch_id')->constrained('branches')->onDelete('cascade');
-            $table->foreignId('aggregator_id')->constrained('aggregators')->onDelete('cascade');
+             $table->uuid('id');
+
+            $table->foreignUuid('branch_id')->constrained('branches')->onDelete('cascade');
+            $table->foreignUuid('aggregator_id')->constrained('aggregators')->onDelete('cascade');
             $table->boolean('is_enabled')->default(true);
             $table->timestamps();
 

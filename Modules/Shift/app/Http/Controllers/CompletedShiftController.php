@@ -41,7 +41,7 @@ class CompletedShiftController extends BaseController
     /**
      * Display the specified completed shift
      */
-    public function show(int $shiftId): JsonResponse
+    public function show(string $shiftId): JsonResponse
     {
         try {
             $managerBranchId = request()->manager_branch_id;

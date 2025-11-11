@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,7 +13,7 @@ use Modules\Expense\Models\Supplier;
 
 class PurchaseReturn extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes , HasUuids;
 
     protected $fillable = [
         'purchase_order_id',

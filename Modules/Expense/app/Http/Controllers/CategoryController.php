@@ -36,7 +36,7 @@ class CategoryController extends BaseController
      * Get category by ID
      * GET /api/branch-manager/expenses/categories/{category}
      */
-    public function show(int $category): JsonResponse
+    public function show(string $category): JsonResponse
     {
         $categoryModel = \Modules\Expense\Models\Category::with('parent', 'children')->findOrFail($category);
 
@@ -70,7 +70,7 @@ class CategoryController extends BaseController
      * Update category
      * PUT /api/branch-manager/expenses/categories/{category}
      */
-    public function update(Request $request, int $category): JsonResponse
+    public function update(Request $request, string $category): JsonResponse
     {
 
         // Validation
@@ -92,7 +92,7 @@ class CategoryController extends BaseController
      * Delete category
      * DELETE /api/branch-manager/expenses/categories/{category}
      */
-    public function destroy(int $category): JsonResponse
+    public function destroy(string $category): JsonResponse
     {
         $this->helperService->deleteCategory($category);
 

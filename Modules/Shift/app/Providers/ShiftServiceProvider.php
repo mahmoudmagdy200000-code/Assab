@@ -3,6 +3,8 @@
 namespace Modules\Shift\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Observers\CashierShiftObserver;
 use Modules\Shift\Repositories\{
     CashierShiftRepository,
     CashierShiftRepositoryInterface,
@@ -21,6 +23,7 @@ class ShiftServiceProvider extends ServiceProvider
         $this->registerConfig();
         $this->registerViews();
         $this->loadMigrationsFrom(module_path($this->moduleName, 'database/migrations'));
+        CashierShift::observe(CashierShiftObserver::class);
     }
 
     public function register(): void

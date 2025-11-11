@@ -15,7 +15,7 @@ class ShiftService
         private CashierShiftRepositoryInterface $cashierShiftRepository
     ) {}
 
-    public function getPendingShifts(int $cashierId = null): LengthAwarePaginator
+    public function getPendingShifts(string $cashierId = null): LengthAwarePaginator
     {
         $query = CashierShift::upcoming() // ✅ استخدم upcoming بدل pending
             ->with([
@@ -69,7 +69,7 @@ class ShiftService
     //     ];
     // }
 
-    public function getInProgressShifts(int $cashierId = null): Collection
+    public function getInProgressShifts(string $cashierId = null): Collection
     {
         $query = CashierShift::inProgress()
             ->with(['cashier', 'shift', 'nextCashier'])
@@ -85,11 +85,11 @@ class ShiftService
     /**
      * Get completed shifts with optional filtering
      *
-     * @param int|null $cashierId
+     * @param string|null $cashierId
      * @param array|null $filters
      * @return \Illuminate\Contracts\Pagination\LengthAwarePaginator
      */
-    public function getCompletedShifts(int $cashierId = null, ?array $filters = []): LengthAwarePaginator
+    public function getCompletedShifts(string $cashierId = null, ?array $filters = []): LengthAwarePaginator
     {
         $query = CashierShift::completed()
             ->with(['cashier', 'shift', 'nextCashier', 'handoverStatus', 'varianceDetails']);
@@ -116,7 +116,7 @@ class ShiftService
         return $query->paginate(10);
     }
 
-    public function getReassignedShifts(int $cashierId = null): Collection
+    public function getReassignedShifts(string $cashierId = null): Collection
     {
         $query = CashierShift::reassigned()
             ->with([
@@ -139,7 +139,7 @@ class ShiftService
         return $query->get();
     }
 
-    public function getShiftDetails(int $shiftId): CashierShift
+    public function getShiftDetails(string $shiftId): CashierShift
     {
         return CashierShift::with([
             'cashier',
@@ -155,7 +155,7 @@ class ShiftService
         ])->findOrFail($shiftId);
     }
 
-    public function getShiftProgress(int $shiftId): array
+    public function getShiftProgress(string $shiftId): array
     {
         $shift = CashierShift::findOrFail($shiftId);
 

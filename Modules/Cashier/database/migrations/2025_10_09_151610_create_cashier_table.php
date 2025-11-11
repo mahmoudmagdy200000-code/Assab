@@ -12,19 +12,19 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('cashiers', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id');
             $table->string('name');
             $table->string('email')->unique();
             $table->string('password');
             $table->string('phone', 20)->nullable();
             $table->string('image')->nullable();
-            $table->foreignId('branch_id')->constrained('branches')->cascadeOnDelete();
+            $table->foreignUuid('branch_id')->constrained('branches')->cascadeOnDelete();
             $table->enum('status', ['active', 'pending', 'deactivated'])->default('pending');
-            $table->foreignId('created_by')->constrained('branch_managers');
+            $table->foreignUuid('created_by')->constrained('branch_managers');
             $table->timestamps();
             $table->timestamp('activated_at')->nullable();
             $table->timestamp('deactivated_at')->nullable();
-            
+
 
             $table->index('branch_id');
             $table->index('status');

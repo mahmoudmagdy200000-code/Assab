@@ -18,7 +18,7 @@ class HandoverService
      */
     public function approveHandover(
         CashierShift $shift,
-        int $reviewerId,
+        string $reviewerId,
         string $reviewerType,
         ?string $managerComment = null
     ): CashierShift {
@@ -160,7 +160,7 @@ class HandoverService
     /**
      * Accept a handover
      */
-    public function acceptHandover(CashierShift $shift, int $reviewerId, ?string $comment = null): void
+    public function acceptHandover(CashierShift $shift, string $reviewerId, ?string $comment = null): void
     {
         DB::beginTransaction();
         try {
@@ -192,7 +192,7 @@ class HandoverService
      */
     public function rejectHandover(
         CashierShift $shift,
-        int $reviewerId,
+        string $reviewerId,
         string $reason,
         array $files = [],
         ?string $comment = null

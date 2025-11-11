@@ -12,8 +12,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('quick_cash_expenses', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('expense_id')->constrained('expenses')->cascadeOnDelete();
+            $table->uuid('id');
+            $table->foreignUuid('expense_id')->constrained('expenses')->cascadeOnDelete();
             $table->date('expense_date');
             $table->string('expense_name', 255);
             $table->boolean('has_vat')->default(true);

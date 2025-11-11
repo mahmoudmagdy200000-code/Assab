@@ -15,7 +15,7 @@ class PriceComparisonService
     /**
      * Compare prices for multiple items across sources
      */
-    public function compareItemPrices(array $items, int $branchId): array
+    public function compareItemPrices(array $items, string $branchId): array
     {
         $comparisons = [];
 
@@ -94,7 +94,7 @@ class PriceComparisonService
     /**
      * Get price trends for last 3 months
      */
-    public function getPriceTrends(int $itemId, int $branchId): array
+    public function getPriceTrends(string $itemId, string $branchId): array
     {
         $threeMonthsAgo = Carbon::now()->subMonths(3);
 

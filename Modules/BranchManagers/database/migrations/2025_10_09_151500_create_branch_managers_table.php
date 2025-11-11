@@ -6,16 +6,16 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-   public function up()
+    public function up()
     {
         Schema::create('branch_managers', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id');
             $table->string('name');
             $table->string('email')->unique();
             $table->string('phone')->unique()->nullable();
             $table->string('password');
-            // $table->unsignedBigInteger('branch_id');
-            $table->foreignId('branch_id')->references('id')->on('branches')->onDelete('cascade');
+
+            $table->foreignUuid('branch_id')->constrained('branches')->onDelete('cascade');
             $table->enum('status', ['active', 'inactive'])->default('active');
             // $table->unsignedBigInteger('created_by')->nullable();
             $table->boolean('is_active')->default(true);
@@ -29,7 +29,7 @@ return new class extends Migration
 
         //  OTP
         Schema::create('branch_manager_otps', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id');
             $table->string('identifier'); // email or phone
             $table->string('otp');
             $table->enum('type', ['email', 'phone']);

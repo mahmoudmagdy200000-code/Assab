@@ -12,8 +12,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('quick_cash_items', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('quick_cash_expense_id')
+             $table->uuid('id');
+            $table->foreignUuid('quick_cash_expense_id')
                   ->constrained('quick_cash_expenses')
                   ->cascadeOnDelete();
             $table->string('title', 255);

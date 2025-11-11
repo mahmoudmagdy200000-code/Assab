@@ -12,7 +12,7 @@ class ProfileService
     /**
      * Get cashier profile
      */
-    public function getProfile(int $cashierId): Cashier
+    public function getProfile(string $cashierId): Cashier
     {
         return Cashier::with([
             'branch',
@@ -71,7 +71,7 @@ class ProfileService
     /**
      * Get cashier statistics
      */
-    public function getCashierStatistics(int $cashierId): array
+    public function getCashierStatistics(string $cashierId): array
     {
         $cashier = Cashier::with('shifts')->findOrFail($cashierId);
 

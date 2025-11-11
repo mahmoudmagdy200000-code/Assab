@@ -10,12 +10,12 @@ return new class extends Migration
     public function up(): void
 {
     Schema::create('purchase_returns', function (Blueprint $table) {
-        $table->id();
-        $table->foreignId('purchase_order_id')->nullable()->constrained('purchase_orders')->nullOnDelete();
-        $table->foreignId('goods_receipt_id')->nullable()->constrained('goods_receipts')->nullOnDelete();
+         $table->uuid('id');
+        $table->foreignUuid('purchase_order_id')->nullable()->constrained('purchase_orders')->nullOnDelete();
+        $table->foreignUuid('goods_receipt_id')->nullable()->constrained('goods_receipts')->nullOnDelete();
         $table->string('return_number')->unique();
-        $table->foreignId('branch_id')->constrained('branches')->cascadeOnDelete();
-        $table->foreignId('supplier_id')->constrained('suppliers')->cascadeOnDelete();
+        $table->foreignUuid('branch_id')->constrained('branches')->cascadeOnDelete();
+        $table->foreignUuid('supplier_id')->constrained('suppliers')->cascadeOnDelete();
         $table->unsignedBigInteger('created_by_id');
         $table->string('created_by_type'); // NEW
         $table->date('return_date');

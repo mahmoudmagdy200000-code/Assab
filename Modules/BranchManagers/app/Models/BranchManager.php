@@ -2,6 +2,7 @@
 
 namespace Modules\BranchManagers\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -21,7 +22,7 @@ use Modules\Shift\Models\Shift;
 
 class BranchManager extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
+    use HasApiTokens, HasFactory, Notifiable, SoftDeletes , HasUuids;
 
     protected $fillable = [
         'name',
@@ -116,7 +117,7 @@ class BranchManager extends Authenticatable
         return $query->where('is_active', false);
     }
 
-    public function scopeByBranch($query, int $branchId)
+    public function scopeByBranch($query, string $branchId)
     {
         return $query->where('branch_id', $branchId);
     }

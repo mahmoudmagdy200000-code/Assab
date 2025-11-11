@@ -9,11 +9,11 @@ return new class extends Migration
     /**
      * Run the migrations.
      */
-   public function up(): void
+    public function up(): void
     {
         Schema::create('expenses', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('branch_manager_id')->constrained('branch_managers')->cascadeOnDelete();
+            $table->uuid('id');
+            $table->foreignUuid('branch_manager_id')->constrained('branch_managers')->cascadeOnDelete();
             $table->enum('expense_type', ['quick_cash', 'single_invoice', 'grouped_invoice', 'pre_approval']);
             $table->enum('status', ['draft', 'pending', 'approved', 'rejected'])->default('draft');
 
@@ -22,12 +22,12 @@ return new class extends Migration
             $table->decimal('vat_amount', 12, 2)->default(0);
 
             $table->enum('payment_method', ['cash', 'supplier', 'custody'])->nullable();
-            $table->foreignId('supplier_id')->nullable()->constrained('suppliers')->nullOnDelete();
+            $table->foreignUuid('supplier_id')->nullable()->constrained('suppliers')->nullOnDelete();
 
             $table->timestamp('submitted_at')->nullable();
-            $table->foreignId('approved_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignUuid('approved_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('approved_at')->nullable();
-            $table->foreignId('rejected_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignUuid('rejected_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('rejected_at')->nullable();
             $table->text('rejection_reason')->nullable();
 
@@ -40,7 +40,7 @@ return new class extends Migration
             $table->index(['branch_manager_id', 'status']);
         });
     }
-    
+
     /**
      * Reverse the migrations.
      */

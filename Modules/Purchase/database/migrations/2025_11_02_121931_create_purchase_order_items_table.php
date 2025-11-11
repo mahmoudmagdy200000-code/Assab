@@ -9,9 +9,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('purchase_order_items', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('purchase_order_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('item_id')->constrained()->cascadeOnDelete();
+             $table->uuid('id');
+            $table->foreignUuid('purchase_order_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('item_id')->constrained()->cascadeOnDelete();
             $table->string('item_name');
             $table->decimal('quantity', 12, 3)->default(0);
             $table->enum('unit', ['KG', 'PK', 'L']);
@@ -26,7 +26,7 @@ return new class extends Migration
             $table->enum('variance_type', ['short', 'damage', 'over'])->nullable();
             $table->text('rejection_reason')->nullable();
             $table->text('modification_note')->nullable();
-            $table->foreignId('alternative_item_id')->nullable()->constrained('items')->nullOnDelete();
+            $table->foreignUuid('alternative_item_id')->nullable()->constrained('items')->nullOnDelete();
             $table->timestamps();
 
             $table->index('purchase_order_id');

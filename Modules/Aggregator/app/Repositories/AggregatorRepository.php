@@ -9,7 +9,7 @@ use Illuminate\Support\Collection;
 
 class AggregatorRepository implements AggregatorRepositoryInterface
 {
-    public function findById(int $id): ?Aggregator
+    public function findById(string $id): ?Aggregator
     {
         return Aggregator::find($id);
     }

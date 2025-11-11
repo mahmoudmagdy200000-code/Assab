@@ -12,9 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('cashier_shifts', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('cashier_id')->constrained('cashiers')->cascadeOnDelete();
-            $table->foreignId('shift_id')->constrained('shifts')->cascadeOnDelete();
+             $table->uuid('id');
+            $table->foreignUuid('cashier_id')->constrained('cashiers')->cascadeOnDelete();
+            $table->foreignUuid('shift_id')->constrained('shifts')->cascadeOnDelete();
             $table->date('shift_date');
             $table->enum('status', ['not_started', 'in_progress', 'completed', 'reassigned'])->default('not_started');
 
@@ -26,12 +26,12 @@ return new class extends Migration
             $table->timestamp('actual_start_time')->nullable();
             $table->timestamp('actual_end_time')->nullable();
 
-            $table->foreignId('next_cashier_id')->nullable()->constrained('cashiers')->nullOnDelete();
+            $table->foreignUuid('next_cashier_id')->nullable()->constrained('cashiers')->nullOnDelete();
             $table->timestamp('handed_over_at')->nullable();
             $table->text('handover_notes')->nullable();
 
-            $table->foreignId('original_cashier_id')->nullable()->constrained('cashiers')->nullOnDelete();
-            $table->foreignId('reassigned_by')->nullable()->constrained('branch_managers')->nullOnDelete();;
+            $table->foreignUuid('original_cashier_id')->nullable()->constrained('cashiers')->nullOnDelete();
+            $table->foreignUuid('reassigned_by')->nullable()->constrained('branch_managers')->nullOnDelete();;
             $table->text('reassignment_reason')->nullable();
             $table->timestamp('reassigned_at')->nullable();
 

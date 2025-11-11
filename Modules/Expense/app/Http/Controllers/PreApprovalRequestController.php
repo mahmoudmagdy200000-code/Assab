@@ -95,7 +95,7 @@ class PreApprovalRequestController extends BaseController
      * Update Pre-Approval Request (Draft only)
      * PUT /api/branch-manager/expenses/pre-approval/{expense}
      */
-    public function update(Request $request, int $expense): JsonResponse
+    public function update(Request $request, string $expense): JsonResponse
     {
         $expenseModel = Expense::with(['preApprovalRequest', 'items', 'expenseLines'])
             ->findOrFail($expense);
@@ -198,7 +198,7 @@ class PreApprovalRequestController extends BaseController
      * Duplicate a previous pre-approval request as a new draft
      * POST /api/branch-manager/expenses/pre-approval/{expense}/duplicate
      */
-    public function duplicate(Request $request, int $expense): JsonResponse
+    public function duplicate(Request $request, string $expense): JsonResponse
     {
         try {
             // Find the original pre-approval request with all relationships

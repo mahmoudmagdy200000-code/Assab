@@ -36,7 +36,7 @@ class SupplierController extends BaseController
      * Get supplier by ID
      * GET /api/branch-manager/expenses/suppliers/{supplier}
      */
-    public function show(int $supplier): JsonResponse
+    public function show(string $supplier): JsonResponse
     {
         $supplierModel = \Modules\Expense\Models\Supplier::findOrFail($supplier);
 

@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Modules\Cashier\Models\Cashier;
@@ -12,7 +13,7 @@ use Modules\Shift\Enums\{VarianceType, ResponsibilityType};
  */
 class ShiftVarianceDetail extends Model
 {
-    use HasFactory;
+    use HasFactory , HasUuids;
 
     protected $fillable = [
         'cashier_shift_id',

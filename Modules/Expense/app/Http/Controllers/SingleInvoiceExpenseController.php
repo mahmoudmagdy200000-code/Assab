@@ -118,7 +118,7 @@ class SingleInvoiceExpenseController extends BaseController
      * Update Single Invoice Expense (Draft only)
      * PUT /api/branch-manager/expenses/single-invoice/{expense}
      */
-    public function update(Request $request, int $expense): JsonResponse
+    public function update(Request $request, string $expense): JsonResponse
     {
         $expenseModel = Expense::with(['invoiceDetails', 'items', 'expenseLines'])
             ->findOrFail($expense);
@@ -248,7 +248,7 @@ class SingleInvoiceExpenseController extends BaseController
      * Duplicate a previous invoice as a new draft
      * POST /api/branch-manager/expenses/single-invoice/{expense}/duplicate
      */
-    public function duplicate(Request $request, int $expense): JsonResponse
+    public function duplicate(Request $request, string $expense): JsonResponse
     {
         try {
             // Find the original expense with all relationships

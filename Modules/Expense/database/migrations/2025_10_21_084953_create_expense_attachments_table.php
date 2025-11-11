@@ -12,9 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('expense_attachments', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('expense_id')->constrained('expenses')->cascadeOnDelete();
-            $table->foreignId('invoice_detail_id')->nullable()->constrained('invoice_details')->cascadeOnDelete();
+             $table->uuid('id');
+            $table->foreignUuid('expense_id')->constrained('expenses')->cascadeOnDelete();
+            $table->foreignUuid('invoice_detail_id')->nullable()->constrained('invoice_details')->cascadeOnDelete();
 
             $table->string('file_path', 500);
             $table->string('file_name', 255);

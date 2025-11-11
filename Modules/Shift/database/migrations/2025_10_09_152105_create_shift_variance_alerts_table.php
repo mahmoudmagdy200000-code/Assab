@@ -12,13 +12,13 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('shift_variance_alerts', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('cashier_shift_id')->constrained('cashier_shifts')->cascadeOnDelete();
+             $table->uuid('id');
+            $table->foreignUuid('cashier_shift_id')->constrained('cashier_shifts')->cascadeOnDelete();
             $table->decimal('variance_amount', 12, 2);
             $table->decimal('variance_percentage', 5, 2);
             $table->enum('alert_type', ['minor', 'major', 'critical']);
             $table->boolean('is_acknowledged')->default(false);
-            $table->foreignId('acknowledged_by')->nullable()->constrained('branch_managers');
+            $table->foreignUuid('acknowledged_by')->nullable()->constrained('branch_managers');
             $table->timestamp('acknowledged_at')->nullable();
             $table->text('notes')->nullable();
             $table->timestamp('created_at')->useCurrent();

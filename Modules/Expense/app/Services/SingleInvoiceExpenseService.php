@@ -243,7 +243,7 @@ class SingleInvoiceExpenseService
     /**
      * Get previous invoices for reuse
      */
-    public function getPreviousInvoices(int $branchManagerId, ?string $search = null)
+    public function getPreviousInvoices(string $branchManagerId, ?string $search = null)
     {
         $query = Expense::query()
             ->where('expense_type', 'single_invoice')

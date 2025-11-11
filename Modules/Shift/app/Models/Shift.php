@@ -2,13 +2,14 @@
 
 namespace Modules\Shift\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Modules\Branch\Models\Branch;
 
 class Shift extends Model
 {
-    use HasFactory;
+    use HasFactory, HasUuids;
 
     protected $table = 'shifts';
 

@@ -12,11 +12,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('shifts', function (Blueprint $table) {
-             $table->id();
+            $table->uuid('id');
             $table->string('name', 100);
             $table->time('start_time');
             $table->time('end_time');
-            $table->foreignId('branch_id')->constrained('branches')->cascadeOnDelete();
+            $table->uuid('branch_id');
+            $table->foreign('branch_id')->references('id')->on('branches')->cascadeOnDelete();
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 

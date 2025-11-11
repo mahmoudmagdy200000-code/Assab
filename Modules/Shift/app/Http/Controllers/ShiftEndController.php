@@ -23,7 +23,7 @@ class ShiftEndController extends Controller
     /**
      * End shift only (without handover)
      */
-    public function endShiftOnly(Request $request, int $shift): JsonResponse
+    public function endShiftOnly(Request $request, string $shift): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'total_sales' => 'required|numeric|min:0',
@@ -124,7 +124,7 @@ class ShiftEndController extends Controller
     /**
      * End shift with handover
      */
-    public function endShiftWithHandover(Request $request, int $shift): JsonResponse
+    public function endShiftWithHandover(Request $request, string $shift): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'total_sales' => 'required|numeric|min:0',

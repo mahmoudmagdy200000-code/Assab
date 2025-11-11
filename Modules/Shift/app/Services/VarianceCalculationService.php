@@ -241,7 +241,7 @@ class VarianceCalculationService
         }
     }
 
-    private function uploadSupportingFiles(array $files, int $shiftId): string
+    private function uploadSupportingFiles(array $files, string $shiftId): string
     {
         $uploadedFiles = [];
 

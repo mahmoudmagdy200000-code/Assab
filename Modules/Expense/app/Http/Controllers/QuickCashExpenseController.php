@@ -99,7 +99,7 @@ class QuickCashExpenseController extends BaseController
     /**
      * Update Draft Quick Cash Expense
      */
-    public function update(Request $request, int $expense): JsonResponse
+    public function update(Request $request, string $expense): JsonResponse
     {
         $expenseModel = Expense::with('quickCashExpense')->findOrFail($expense);
 

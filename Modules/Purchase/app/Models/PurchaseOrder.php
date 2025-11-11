@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,7 +14,7 @@ use Modules\Expense\Models\Supplier;
 
 class PurchaseOrder extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes , HasUuids;
 
     protected $fillable = [
         'order_number',
@@ -139,16 +140,10 @@ class PurchaseOrder extends Model
         return in_array($this->status, ['pending', 'draft', 'pending_confirmation']);
     }
 
-    public function generateOrderNumber(): string
-    {
-        $prefix = match($this->order_type) {
-            'direct_supplier' => 'DS',
-            'purchasing_officer' => 'PO',
-            'internal_transfer' => 'IT',
-            'multiple_sources' => 'MS',
-            default => 'PO'
-        };
+public function generateOrderNumber(): string
+{
+    $lastId = self::max('id') + 1;
+    return 'PO-' . date('Y') . '-' . str_pad($lastId, 5, '0', STR_PAD_LEFT);
+}
 
-        return $prefix . '-' . date('Ymd') . '-' . str_pad($this->id, 6, '0', STR_PAD_LEFT);
-    }
 }

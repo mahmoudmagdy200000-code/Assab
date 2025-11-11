@@ -9,8 +9,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('purchase_timelines', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('purchase_order_id')->constrained('purchase_orders')->cascadeOnDelete();
+             $table->uuid('id');
+            $table->foreignUuid('purchase_order_id')->constrained('purchase_orders')->cascadeOnDelete();
             $table->unsignedBigInteger('user_id');
             $table->string('user_type'); // NEW
             $table->string('action');

@@ -2,6 +2,7 @@
 
 namespace Modules\Branch\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Modules\Aggregator\Models\Aggregator;
@@ -11,7 +12,8 @@ use Modules\Shift\Models\Shift;
 
 class Branch extends Model
 {
-    use HasFactory;
+    use HasFactory , HasUuids;
+
 
     protected $fillable = [
         'name',

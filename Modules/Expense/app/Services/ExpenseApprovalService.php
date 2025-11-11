@@ -34,7 +34,7 @@ class ExpenseApprovalService
     /**
      * Approve expense (Brand Owner)
      */
-    public function approveExpense(Expense $expense, int $brandOwnerId): void
+    public function approveExpense(Expense $expense, string $brandOwnerId): void
     {
         if ($expense->status !== 'pending') {
             throw new \Exception('Only pending expenses can be approved');
@@ -55,7 +55,7 @@ class ExpenseApprovalService
     /**
      * Reject expense (Brand Owner)
      */
-    public function rejectExpense(Expense $expense, int $brandOwnerId, string $reason): void
+    public function rejectExpense(Expense $expense, string $brandOwnerId, string $reason): void
     {
         if ($expense->status !== 'pending') {
             throw new \Exception('Only pending expenses can be rejected');
@@ -98,7 +98,7 @@ class ExpenseApprovalService
     /**
      * View expense (Brand Owner)
      */
-    public function markAsViewed(Expense $expense, int $brandOwnerId): void
+    public function markAsViewed(Expense $expense, string $brandOwnerId): void
     {
         // Create timeline entry
         $this->createTimelineEntry($expense, 'view', 'viewed', $brandOwnerId, 'brand_owner');
@@ -107,7 +107,7 @@ class ExpenseApprovalService
     /**
      * Edit expense (Brand Owner)
      */
-    public function recordEdit(Expense $expense, int $brandOwnerId, array $changes): void
+    public function recordEdit(Expense $expense, string $brandOwnerId, array $changes): void
     {
         // Create timeline entry with changes
         $this->createTimelineEntry(
@@ -124,7 +124,7 @@ class ExpenseApprovalService
         Expense $expense,
         string $action,
         string $status,
-        ?int $performedBy = null,
+        ?string $performedBy = null,
         ?string $performedByType = null,
         ?string $notes = null
     ): void {

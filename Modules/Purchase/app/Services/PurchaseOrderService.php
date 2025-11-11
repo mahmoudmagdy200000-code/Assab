@@ -25,66 +25,70 @@ class PurchaseOrderService
         return $this->purchaseOrderRepository->getPending($filters);
     }
 
-    public function createOrder(array $data, Authenticatable $user): PurchaseOrder
-    {
-        return DB::transaction(function () use ($data, $user) {
-            $orderData = [
-                'branch_id' => $user->branch_id,
-                'branch_manager_id' => $user->id,
-                'user_type' => get_class($user), // Store the user model class
-                'order_type' => $data['order_type'],
-                'supplier_id' => $data['supplier_id'] ?? null,
-                'purchasing_officer_id' => $data['purchasing_officer_id'] ?? null,
-                'purchasing_officer_type' => isset($data['purchasing_officer_id']) ?
-                    ($data['purchasing_officer_type'] ?? 'App\Models\BranchManager') : null,
-                'transfer_from_branch_id' => $data['transfer_from_branch_id'] ?? null,
-                'status' => $data['status'] ?? 'draft',
-                'priority' => $data['priority'] ?? 'normal',
-                'delivery_date' => $data['delivery_date'] ?? null,
-                'latest_delivery_date' => $data['latest_delivery_date'] ?? null,
-                'special_instructions' => $data['special_instructions'] ?? null,
-                'message' => $data['message'] ?? null,
-                'notification_methods' => $data['notification_methods'] ?? [],
-                'requested_date' => now(),
-            ];
+  public function createOrder(array $data, Authenticatable $user): PurchaseOrder
+{
+    return DB::transaction(function () use ($data, $user) {
 
-            $order = $this->purchaseOrderRepository->create($orderData);
-            $order->order_number = $order->generateOrderNumber();
-            $order->save();
+        $orderData = [
+            'branch_id' => $user->branch_id,
+            'branch_manager_id' => $user->id,
+            'user_type' => get_class($user),
+            'order_type' => $data['order_type'],
+            'supplier_id' => $data['supplier_id'] ?? null,
+            'purchasing_officer_id' => $data['purchasing_officer_id'] ?? null,
+            'purchasing_officer_type' => isset($data['purchasing_officer_id'])
+                ? ($data['purchasing_officer_type'] ?? 'App\\Models\\BranchManager')
+                : null,
+            'transfer_from_branch_id' => $data['transfer_from_branch_id'] ?? null,
+            'status' => $data['status'] ?? 'draft',
+            'priority' => $data['priority'] ?? 'normal',
+            'delivery_date' => $data['delivery_date'] ?? null,
+            'latest_delivery_date' => $data['latest_delivery_date'] ?? null,
+            'special_instructions' => $data['special_instructions'] ?? null,
+            'message' => $data['message'] ?? null,
+            'notification_methods' => $data['notification_methods'] ?? [],
+            'requested_date' => now(),
+        ];
 
-            if (!empty($data['items'])) {
-                foreach ($data['items'] as $item) {
-                    $orderItem = new PurchaseOrderItem([
-                        'item_id' => $item['item_id'],
-                        'item_name' => $item['item_name'],
-                        'quantity' => $item['quantity'],
-                        'unit' => $item['unit'],
-                        'quality' => $item['quality'] ?? 'standard',
-                        'rate' => $item['rate'],
-                        'total_price' => $item['quantity'] * $item['rate'],
-                        'requested_quantity' => $item['quantity'],
-                        'status' => 'pending',
-                    ]);
+        // ✅ أنشئ كائن جديد بدون حفظه بعد
+        $order = new PurchaseOrder($orderData);
+        $order->order_number = $order->generateOrderNumber(); // توليد الرقم قبل الحفظ
+        $order->save();
 
-                    $order->items()->save($orderItem);
-                }
+        // ✅ حفظ العناصر المرتبطة
+        if (!empty($data['items'])) {
+            foreach ($data['items'] as $item) {
+                $orderItem = new PurchaseOrderItem([
+                    'item_id' => $item['item_id'],
+                    'item_name' => $item['item_name'],
+                    'quantity' => $item['quantity'],
+                    'unit' => $item['unit'],
+                    'quality' => $item['quality'] ?? 'standard',
+                    'rate' => $item['rate'],
+                    'total_price' => $item['quantity'] * $item['rate'],
+                    'requested_quantity' => $item['quantity'],
+                    'status' => 'pending',
+                ]);
+                $order->items()->save($orderItem);
             }
+        }
 
-            $order->total_amount = $order->items->sum('total_price');
-            $order->total_items = $order->items->count();
-            $order->save();
+        $order->total_amount = $order->items->sum('total_price');
+        $order->total_items = $order->items->count();
+        $order->save();
 
-            $this->createTimelineEntry(
-                $order,
-                $user,
-                'submitted',
-                'pending',
-                'Order submitted by branch manager'
-            );
+        $this->createTimelineEntry(
+            $order,
+            $user,
+            'submitted',
+            'pending',
+            'Order submitted by branch manager'
+        );
 
-            return $order->fresh(['items', 'timeline']);
-        });
-    }
+        return $order->fresh(['items', 'timeline']);
+    });
+}
+
 
     public function updateOrder($orderId, array $data, Authenticatable $user): PurchaseOrder
     {

@@ -15,7 +15,7 @@ class SettingsService
     /**
      * Get user settings
      */
-    public function getUserSettings(int $userId, string $userType): UserSetting
+    public function getUserSettings(string $userId, string $userType): UserSetting
     {
         return UserSetting::firstOrCreate(
             [
@@ -37,7 +37,7 @@ class SettingsService
     /**
      * Update profile settings
      */
-    public function updateProfile(int $userId, string $userType, array $data)
+    public function updateProfile(string $userId, string $userType, array $data)
     {
         if ($userType === 'branch_manager') {
             $user = BranchManager::findOrFail($userId);
@@ -69,7 +69,7 @@ class SettingsService
     /**
      * Update system settings (language & theme)
      */
-    public function updateSystemSettings(int $userId, string $userType, array $data): UserSetting
+    public function updateSystemSettings(string $userId, string $userType, array $data): UserSetting
     {
         $settings = $this->getUserSettings($userId, $userType);
 
@@ -89,7 +89,7 @@ class SettingsService
     /**
      * Update notification preferences
      */
-    public function updateNotificationSettings(int $userId, string $userType, array $data): UserSetting
+    public function updateNotificationSettings(string $userId, string $userType, array $data): UserSetting
     {
         $settings = $this->getUserSettings($userId, $userType);
 
@@ -121,7 +121,7 @@ class SettingsService
     /**
      * Get account details with branch info
      */
-    public function getAccountDetails(int $branchManagerId): array
+    public function getAccountDetails(string $branchManagerId): array
     {
         $manager = BranchManager::with('branch')->findOrFail($branchManagerId);
 

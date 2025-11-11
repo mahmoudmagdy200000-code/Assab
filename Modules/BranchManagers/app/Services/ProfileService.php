@@ -11,7 +11,7 @@ class ProfileService
     /**
      * Get branch manager profile
      */
-    public function getProfile(int $managerId): BranchManager
+    public function getProfile(string $managerId): BranchManager
     {
         return BranchManager::with(['branch', 'cashiers'])
             ->findOrFail($managerId);

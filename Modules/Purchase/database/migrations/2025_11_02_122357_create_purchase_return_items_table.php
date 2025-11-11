@@ -9,9 +9,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('purchase_return_items', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('purchase_return_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('item_id')->constrained()->cascadeOnDelete();
+             $table->uuid('id');
+            $table->foreignUuid('purchase_return_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('item_id')->constrained()->cascadeOnDelete();
             $table->string('item_name');
             $table->decimal('return_quantity', 12, 3)->default(0);
             $table->enum('unit', ['KG', 'PK', 'L']);

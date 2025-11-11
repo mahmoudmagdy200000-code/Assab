@@ -2,13 +2,14 @@
 
 namespace Modules\Shift\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Modules\Aggregator\Models\Aggregator;
 
 class ShiftSalesBreakdown extends Model
 {
-    use HasFactory;
+    use HasFactory , HasUuids;
 
     protected $table = 'shift_sales_breakdown';
 

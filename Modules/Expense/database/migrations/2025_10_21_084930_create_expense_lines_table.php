@@ -12,10 +12,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('expense_lines', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('expense_id')->constrained('expenses')->cascadeOnDelete();
-            $table->foreignId('invoice_detail_id')->nullable()->constrained('invoice_details')->cascadeOnDelete();
-            $table->foreignId('category_id')->nullable()->constrained('categories')->nullOnDelete();
+             $table->uuid('id');
+            $table->foreignUuid('expense_id')->constrained('expenses')->cascadeOnDelete();
+            $table->foreignUuid('invoice_detail_id')->nullable()->constrained('invoice_details')->cascadeOnDelete();
+            $table->foreignUuid('category_id')->nullable()->constrained('categories')->nullOnDelete();
 
             $table->string('name', 255);
             $table->decimal('price', 10, 2);

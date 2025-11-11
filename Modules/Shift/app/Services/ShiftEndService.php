@@ -91,7 +91,7 @@ class ShiftEndService
         }
     }
 
-    private function uploadPOSReceipt($file, int $shiftId): string
+    private function uploadPOSReceipt($file, string $shiftId): string
     {
         $filename = 'shift_' . $shiftId . '_' . time() . '.' . $file->getClientOriginalExtension();
         return $file->storeAs('receipts', $filename, 'public');

@@ -22,7 +22,7 @@ class CashierService
     /**
      * Get cashiers with filters
      */
-    public function getCashiers(int $branchId, array $filters = []): LengthAwarePaginator
+    public function getCashiers(string $branchId, array $filters = []): LengthAwarePaginator
     {
         $query = Cashier::with(['branch', 'creator'])
             ->where('branch_id', $branchId);
@@ -155,7 +155,7 @@ class CashierService
     /**
      * Get cashier details
      */
-    public function getCashierDetails(int $cashierId): Cashier
+    public function getCashierDetails(string $cashierId): Cashier
     {
         return Cashier::with([
             'branch',
@@ -170,7 +170,7 @@ class CashierService
     /**
      * Search cashiers
      */
-    public function searchCashiers(string $search, int $branchId): Collection
+    public function searchCashiers(string $search, string $branchId): Collection
     {
         return Cashier::where('branch_id', $branchId)
             ->search($search)
@@ -181,7 +181,7 @@ class CashierService
     /**
      * Get cashier statistics
      */
-    public function getCashierStatistics(int $branchId): array
+    public function getCashierStatistics(string $branchId): array
     {
         $cashiers = Cashier::where('branch_id', $branchId);
 
@@ -201,7 +201,7 @@ class CashierService
     /**
      * Get available cashiers for shift
      */
-    public function getAvailableCashiersForShift(int $shiftId, string $shiftDate, int $branchId): Collection
+    public function getAvailableCashiersForShift(string $shiftId, string $shiftDate, string $branchId): Collection
     {
         return Cashier::where('branch_id', $branchId)
             ->where('status', 'active')
@@ -230,7 +230,7 @@ class CashierService
     /**
      * Assign shifts to cashier
      */
-    public function assignShiftsToCashier(int $cashierId, array $shiftIds, bool $forNext30Days = false): array
+    public function assignShiftsToCashier(string $cashierId, array $shiftIds, bool $forNext30Days = false): array
     {
         $cashier = Cashier::findOrFail($cashierId);
         $assignedShifts = [];
@@ -281,7 +281,7 @@ class CashierService
     /**
      * Update cashier shifts
      */
-    public function updateCashierShifts(int $cashierId, array $shiftIds): array
+    public function updateCashierShifts(string $cashierId, array $shiftIds): array
     {
         DB::beginTransaction();
         try {
@@ -308,7 +308,7 @@ class CashierService
     /**
      * Resend activation link
      */
-    public function resendActivationLink(int $cashierId): Cashier
+    public function resendActivationLink(string $cashierId): Cashier
     {
         $cashier = Cashier::findOrFail($cashierId);
 

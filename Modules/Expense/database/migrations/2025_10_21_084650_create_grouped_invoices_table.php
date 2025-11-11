@@ -12,8 +12,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('grouped_invoices', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('expense_id')->constrained('expenses')->cascadeOnDelete();
+            $table->uuid('id');
+            $table->foreignUuid('expense_id')->constrained('expenses')->cascadeOnDelete();
             $table->enum('payment_type', ['full', 'partial', 'deferred']);
             $table->decimal('paid_amount', 12, 2)->default(0);
             $table->date('due_date')->nullable();

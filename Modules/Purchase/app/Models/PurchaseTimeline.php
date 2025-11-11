@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -10,6 +11,7 @@ use Modules\Cashier\Models\Cashier;
 
 class PurchaseTimeline extends Model
 {
+    use HasUuids;
     protected $fillable = [
         'purchase_order_id',
         'user_id',

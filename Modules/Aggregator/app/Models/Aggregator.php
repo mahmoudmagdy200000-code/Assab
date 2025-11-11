@@ -2,8 +2,7 @@
 
 namespace Modules\Aggregator\Models;
 
-
-
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -15,7 +14,7 @@ use Modules\Shift\Models\ShiftSalesBreakdown;
 
 class Aggregator extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes , HasUuids;
 
     protected $fillable = [
         'name',
@@ -318,7 +317,7 @@ class Aggregator extends Model
         })->sortBy('date')->values()->toArray();
     }
 
-    public function enableForBranch(int $branchId): void
+    public function enableForBranch(string $branchId): void
     {
         $this->branches()->updateExistingPivot($branchId, [
             'is_enabled' => true,
@@ -326,7 +325,7 @@ class Aggregator extends Model
         ]);
     }
 
-    public function disableForBranch(int $branchId): void
+    public function disableForBranch(string $branchId): void
     {
         $this->branches()->updateExistingPivot($branchId, [
             'is_enabled' => false,
@@ -334,7 +333,7 @@ class Aggregator extends Model
         ]);
     }
 
-    public function isEnabledForBranch(int $branchId): bool
+    public function isEnabledForBranch(string $branchId): bool
     {
         $pivot = $this->branches()->where('branch_id', $branchId)->first();
         return $pivot ? $pivot->pivot->is_enabled : false;

@@ -9,7 +9,7 @@ use Illuminate\Support\Collection;
 
 interface AggregatorRepositoryInterface
 {
-    public function findById(int $id): ?Aggregator;
+    public function findById(string $id): ?Aggregator;
     public function getAll(): Collection;
     public function getActive(): Collection;
     public function getByIntegrationType(string $type): Collection;

@@ -10,7 +10,7 @@ class PriceComparisonRepository
     /**
      * Get latest price for item by order type
      */
-    public function getLatestPrice(int $itemId, int $branchId, string $orderType): ?PriceComparison
+    public function getLatestPrice(string $itemId, string $branchId, string $orderType): ?PriceComparison
     {
         return PriceComparison::where('item_id', $itemId)
             ->where('branch_id', $branchId)
@@ -23,7 +23,7 @@ class PriceComparisonRepository
     /**
      * Get price history
      */
-    public function getPriceHistory(int $itemId, int $branchId, Carbon $fromDate)
+    public function getPriceHistory(string $itemId, string $branchId, Carbon $fromDate)
     {
         return PriceComparison::where('item_id', $itemId)
             ->where('branch_id', $branchId)

@@ -12,11 +12,11 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('invoice_details', function (Blueprint $table) {
-            $table->id();
+             $table->uuid('id');
 
-            $table->foreignId('expense_id')->constrained('expenses')->cascadeOnDelete();
-            $table->foreignId('grouped_invoice_id')->nullable()->constrained('grouped_invoices')->cascadeOnDelete();
-            $table->foreignId('supplier_id')->nullable()->constrained('suppliers')->nullOnDelete();
+            $table->foreignUuid('expense_id')->constrained('expenses')->cascadeOnDelete();
+            $table->foreignUuid('grouped_invoice_id')->nullable()->constrained('grouped_invoices')->cascadeOnDelete();
+            $table->foreignUuid('supplier_id')->nullable()->constrained('suppliers')->nullOnDelete();
 
             $table->string('invoice_number', 100);
             $table->date('issue_date');

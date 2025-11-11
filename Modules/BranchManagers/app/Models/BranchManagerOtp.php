@@ -5,10 +5,11 @@ namespace Modules\BranchManagers\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
 class BranchManagerOtp extends Model
 {
-    use HasFactory;
+    use HasFactory , HasUuids;
 
     protected $fillable = [
         'identifier',

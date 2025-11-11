@@ -2,6 +2,7 @@
 
 namespace Modules\Expense\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Modules\Expense\Database\Factories\SupplierFactory;
@@ -11,7 +12,7 @@ use Modules\Expense\Database\Factories\SupplierFactory;
  */
 class Supplier extends Model
 {
-    use HasFactory;
+    use HasFactory , HasUuids;
 
     protected $fillable = [
         'name',

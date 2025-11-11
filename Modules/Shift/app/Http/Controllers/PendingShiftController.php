@@ -60,7 +60,7 @@ class PendingShiftController extends BaseController
     /**
      * Display the specified pending shift
      */
-    public function show(int $shift): JsonResponse
+    public function show(string $shift): JsonResponse
     {
         try {
             $managerBranchId = request()->manager_branch_id;

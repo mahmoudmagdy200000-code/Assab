@@ -51,7 +51,7 @@ class ExpenseHelperService
     /**
      * Get category by ID
      */
-    public function getCategory(int $category): Category
+    public function getCategory(string $category): Category
     {
         return Category::with('parent')->findOrFail($category);
     }
@@ -59,7 +59,7 @@ class ExpenseHelperService
     /**
      * Update category
      */
-    public function updateCategory(int $category, array $data): Category
+    public function updateCategory(string $category, array $data): Category
     {
         $category = Category::findOrFail($category);
 
@@ -76,7 +76,7 @@ class ExpenseHelperService
     /**
      * Delete category
      */
-    public function deleteCategory(int $category): void
+    public function deleteCategory(string $category): void
     {
         $category = Category::findOrFail($category);
         $category->delete();

@@ -225,7 +225,7 @@ class ExpenseDetailResource extends JsonResource
         })->toArray();
     }
 
-    private function getInvoiceReceipts(int $invoiceId): array
+    private function getInvoiceReceipts(string $invoiceId): array
     {
         $attachments = $this->attachments->where('invoice_detail_id', $invoiceId);
 

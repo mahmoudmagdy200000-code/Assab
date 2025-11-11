@@ -9,9 +9,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('purchase_modifications', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('purchase_order_id')->constrained('purchase_orders')->cascadeOnDelete();
-            $table->foreignId('purchase_order_item_id')->nullable()->constrained('purchase_order_items')->cascadeOnDelete();
+             $table->uuid('id');
+            $table->foreignUuid('purchase_order_id')->constrained('purchase_orders')->cascadeOnDelete();
+            $table->foreignUuid('purchase_order_item_id')->nullable()->constrained('purchase_order_items')->cascadeOnDelete();
             $table->unsignedBigInteger('modified_by_id');
             $table->string('modified_by_type'); // NEW
             $table->enum('modification_type', [

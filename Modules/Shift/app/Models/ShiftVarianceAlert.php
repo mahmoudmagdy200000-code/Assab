@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Modules\BranchManagers\Models\BranchManager;
@@ -12,7 +13,7 @@ use Modules\Shift\Enums\AlertType;
  */
 class ShiftVarianceAlert extends Model
 {
-    use HasFactory;
+    use HasFactory , HasUuids;
 
     protected $fillable = [
         'cashier_shift_id',
@@ -97,7 +98,7 @@ class ShiftVarianceAlert extends Model
         return $this->alert_type === AlertType::MINOR;
     }
 
-    public function acknowledge(int $userId, ?string $notes = null): void
+    public function acknowledge(string $userId, ?string $notes = null): void
     {
         $this->update([
             'is_acknowledged' => true,

@@ -10,7 +10,7 @@ class BranchAggregatorService
     /**
      * Get all aggregators for a branch
      */
-    public function getBranchAggregators(int $branchId): array
+    public function getBranchAggregators(string $branchId): array
     {
         $branchAggregators = BranchAggregator::with('aggregator')
             ->where('branch_id', $branchId)
@@ -32,7 +32,7 @@ class BranchAggregatorService
     /**
      * Enable aggregator for branch
      */
-    public function enableAggregator(int $branchId, int $aggregatorId): void
+    public function enableAggregator(string $branchId, string $aggregatorId): void
     {
         BranchAggregator::updateOrCreate(
             [
@@ -48,7 +48,7 @@ class BranchAggregatorService
     /**
      * Disable aggregator for branch
      */
-    public function disableAggregator(int $branchId, int $aggregatorId): void
+    public function disableAggregator(string $branchId, string $aggregatorId): void
     {
         BranchAggregator::where('branch_id', $branchId)
             ->where('aggregator_id', $aggregatorId)
@@ -58,7 +58,7 @@ class BranchAggregatorService
     /**
      * Sync aggregators for branch
      */
-    public function syncBranchAggregators(int $branchId, array $aggregatorIds): array
+    public function syncBranchAggregators(string $branchId, array $aggregatorIds): array
     {
         DB::beginTransaction();
         try {
@@ -100,7 +100,7 @@ class BranchAggregatorService
     /**
      * Get enabled aggregators for branch
      */
-    public function getEnabledAggregators(int $branchId): array
+    public function getEnabledAggregators(string $branchId): array
     {
         $branchAggregators = BranchAggregator::with('aggregator')
             ->where('branch_id', $branchId)
@@ -124,7 +124,7 @@ class BranchAggregatorService
     /**
      * Toggle aggregator status for branch
      */
-    public function toggleAggregator(int $branchId, int $aggregatorId): bool
+    public function toggleAggregator(string $branchId, string $aggregatorId): bool
     {
         $branchAggregator = BranchAggregator::where('branch_id', $branchId)
             ->where('aggregator_id', $aggregatorId)

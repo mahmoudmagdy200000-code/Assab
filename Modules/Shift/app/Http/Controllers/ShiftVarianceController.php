@@ -21,10 +21,10 @@ class ShiftVarianceController extends Controller
      * Four scenarios: Self, Self and Others, Other Factors, Mixed
      *
      * @param Request $request
-     * @param int $shift
+     * @param string $shift
      * @return JsonResponse
      */
-    public function recordVariance(Request $request, int $shift): JsonResponse
+    public function recordVariance(Request $request, string $shift): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'responsibility_type' => 'required|in:self,self_and_others,other_factors,mixed',
@@ -126,10 +126,10 @@ class ShiftVarianceController extends Controller
     /**
      * Get variance details for a shift
      *
-     * @param int $shift
+     * @param string $shift
      * @return JsonResponse
      */
-    public function getVarianceDetails(int $shift): JsonResponse
+    public function getVarianceDetails(string $shift): JsonResponse
     {
         try {
             $shiftModel = CashierShift::with(['varianceDetails.responsibleCashier'])
@@ -235,10 +235,10 @@ class ShiftVarianceController extends Controller
      * Acknowledge a variance alert
      *
      * @param Request $request
-     * @param int $alertId
+     * @param string $alertId
      * @return JsonResponse
      */
-    public function acknowledgeAlert(Request $request, int $alertId): JsonResponse
+    public function acknowledgeAlert(Request $request, string $alertId): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'notes' => 'nullable|string|max:500',

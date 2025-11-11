@@ -162,7 +162,7 @@ class QuickCashExpenseService
         ];
     }
 
-    public function getCustodyBalance(int $branchManagerId): float
+    public function getCustodyBalance(string $branchManagerId): float
     {
         return 10000.00; // Placeholder - integrate with custody module
     }

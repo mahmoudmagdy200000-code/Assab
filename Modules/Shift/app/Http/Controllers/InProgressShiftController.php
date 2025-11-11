@@ -54,7 +54,7 @@ class InProgressShiftController extends BaseController
     /**
      * Display the specified in-progress shift
      */
-    public function show(int $shift): JsonResponse
+    public function show(string $shift): JsonResponse
     {
         try {
             $managerBranchId = request()->manager_branch_id;

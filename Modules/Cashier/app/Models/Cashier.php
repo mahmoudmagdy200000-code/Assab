@@ -2,9 +2,7 @@
 
 namespace Modules\Cashier\Models;
 
-
-
-
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -21,7 +19,7 @@ use Modules\Shift\Models\CashierShift;
 
 class Cashier extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
+    use HasApiTokens, HasFactory, Notifiable, SoftDeletes , HasUuids;
 
     protected $fillable = [
         'name',
@@ -111,7 +109,7 @@ class Cashier extends Authenticatable
         return $query->where('status', 'deactivated');
     }
 
-    public function scopeByBranch($query, int $branchId)
+    public function scopeByBranch($query, string $branchId)
     {
         return $query->where('branch_id', $branchId);
     }

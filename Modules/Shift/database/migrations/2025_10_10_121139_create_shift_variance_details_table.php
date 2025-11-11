@@ -12,12 +12,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('shift_variance_details', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('cashier_shift_id')->constrained('cashier_shifts')->cascadeOnDelete();
+             $table->uuid('id');
+            $table->foreignUuid('cashier_shift_id')->constrained('cashier_shifts')->cascadeOnDelete();
             $table->decimal('variance_amount', 12, 2);
             $table->enum('variance_type', ['over', 'short']);
             $table->enum('responsibility_type', ['self', 'self_and_others', 'other_factors', 'mixed']);
-            $table->foreignId('responsible_cashier_id')->nullable()->constrained('cashiers')->nullOnDelete();
+            $table->foreignUuid('responsible_cashier_id')->nullable()->constrained('cashiers')->nullOnDelete();
             $table->decimal('assigned_amount', 12, 2)->nullable();
             $table->text('reason')->nullable();
             $table->json('supporting_files')->nullable();

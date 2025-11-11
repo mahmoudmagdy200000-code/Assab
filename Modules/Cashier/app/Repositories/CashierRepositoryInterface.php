@@ -7,17 +7,17 @@ use Illuminate\Support\Collection;
 
 interface CashierRepositoryInterface
 {
-    public function findById(int $id): ?Cashier;
+    public function findById(string $id): ?Cashier;
 
     public function findByEmail(string $email): ?Cashier;
 
     public function findByPhone(string $phone): ?Cashier;
 
-    public function getByBranch(int $branchId): Collection;
+    public function getByBranch(string $branchId): Collection;
 
-    public function getActive(int $branchId): Collection;
+    public function getActive(string $branchId): Collection;
 
-    public function getPending(int $branchId): Collection;
+    public function getPending(string $branchId): Collection;
 
     public function create(array $data): Cashier;
 
@@ -25,13 +25,13 @@ interface CashierRepositoryInterface
 
     public function delete(Cashier $cashier): bool;
 
-    public function search(string $query, int $branchId): Collection;
+    public function search(string $query, string $branchId): Collection;
 
-    public function getWithShifts(int $cashierId): ?Cashier;
+    public function getWithShifts(string $cashierId): ?Cashier;
 
-    public function getByStatus(string $status, int $branchId): Collection;
+    public function getByStatus(string $status, string $branchId): Collection;
 
-    public function countByBranch(int $branchId): int;
+    public function countByBranch(string $branchId): string;
 
-    public function countByStatus(string $status, int $branchId): int;
+    public function countByStatus(string $status, string $branchId): string;
 }

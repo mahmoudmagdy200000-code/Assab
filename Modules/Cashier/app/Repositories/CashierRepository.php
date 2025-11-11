@@ -7,7 +7,7 @@ use Illuminate\Support\Collection;
 
 class CashierRepository implements CashierRepositoryInterface
 {
-    public function findById(int $id): ?Cashier
+    public function findById(string $id): ?Cashier
     {
         return Cashier::with(['branch', 'creator'])->find($id);
     }
@@ -22,21 +22,21 @@ class CashierRepository implements CashierRepositoryInterface
         return Cashier::where('phone', $phone)->first();
     }
 
-    public function getByBranch(int $branchId): Collection
+    public function getByBranch(string $branchId): Collection
     {
         return Cashier::where('branch_id', $branchId)
             ->with(['branch', 'creator'])
             ->get();
     }
 
-    public function getActive(int $branchId): Collection
+    public function getActive(string $branchId): Collection
     {
         return Cashier::where('branch_id', $branchId)
             ->where('status', 'active')
             ->get();
     }
 
-    public function getPending(int $branchId): Collection
+    public function getPending(string $branchId): Collection
     {
         return Cashier::where('branch_id', $branchId)
             ->where('status', 'pending')
@@ -58,20 +58,20 @@ class CashierRepository implements CashierRepositoryInterface
         return $cashier->delete();
     }
 
-    public function search(string $query, int $branchId): Collection
+    public function search(string $query, string $branchId): Collection
     {
         return Cashier::where('branch_id', $branchId)
             ->search($query)
             ->get();
     }
 
-    public function getWithShifts(int $cashierId): ?Cashier
+    public function getWithShifts(string $cashierId): ?Cashier
     {
         return Cashier::with(['shifts', 'branch', 'creator'])
             ->find($cashierId);
     }
 
-    public function getByStatus(string $status, int $branchId): Collection
+    public function getByStatus(string $status, string $branchId): Collection
     {
         return Cashier::where('branch_id', $branchId)
             ->where('status', $status)
@@ -79,12 +79,12 @@ class CashierRepository implements CashierRepositoryInterface
             ->get();
     }
 
-    public function countByBranch(int $branchId): int
+    public function countByBranch(string $branchId): string
     {
         return Cashier::where('branch_id', $branchId)->count();
     }
 
-    public function countByStatus(string $status, int $branchId): int
+    public function countByStatus(string $status, string $branchId): string
     {
         return Cashier::where('branch_id', $branchId)
             ->where('status', $status)

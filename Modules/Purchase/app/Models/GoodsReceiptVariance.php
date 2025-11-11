@@ -2,11 +2,13 @@
 
 namespace Modules\Purchase\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class GoodsReceiptVariance extends Model
 {
+    use HasUuids;
     protected $fillable = [
         'goods_receipt_id',
         'goods_receipt_item_id',

@@ -137,7 +137,7 @@ class AggregatorService
     /**
      * Get aggregator details with relationships
      */
-    public function getAggregatorDetails(int $aggregatorId): Aggregator
+    public function getAggregatorDetails(string $aggregatorId): Aggregator
     {
         return Aggregator::with([
             'branches',
