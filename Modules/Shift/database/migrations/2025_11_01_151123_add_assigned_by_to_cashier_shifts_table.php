@@ -8,9 +8,7 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::table('cashier_shifts', function (Blueprint $table) {
-            $table->unsignedBigInteger('assigned_by')->nullable()->after('opening_balance');
-
-            // لو عندك جدول users أو branch_managers:
+            $table->uuid('assigned_by')->nullable()->after('opening_balance');
             $table->foreign('assigned_by')->references('id')->on('branch_managers')->nullOnDelete();
         });
     }
