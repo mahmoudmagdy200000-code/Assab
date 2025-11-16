@@ -32,6 +32,8 @@ class BranchManagerSeeder extends Seeder
         ]);
 
         // Create additional managers
+        $branch = Branch::first();
+
         BranchManager::factory()->count(2)->create([
             'branch_id' => $branch->id,
         ]);
@@ -39,7 +41,4 @@ class BranchManagerSeeder extends Seeder
         $this->command->info('Branch Managers seeded successfully!');
         $this->command->info('Default Manager: manager@assab.com / password123');
     }
-
-
-
 }
