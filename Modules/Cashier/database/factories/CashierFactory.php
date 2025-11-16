@@ -14,15 +14,18 @@ class CashierFactory extends Factory
 
     public function definition(): array
     {
+        static $counter = 0;
+        $counter++;
+
         return [
-            'name' => $this->faker->name(),
-            'email' => $this->faker->unique()->safeEmail(),
+            'name' => 'Cashier ' . $counter,
+            'email' => 'cashier' . $counter . time() . '@example.com',
             'password' => Hash::make('password123'),
-            'phone' => '+9665' . $this->faker->numerify('########'),
+            'phone' => '+9665' . str_pad((time() + $counter), 8, '0', STR_PAD_LEFT),
             'image' => null,
-            'branch_id' => Branch::factory(),
+            'branch_id' => null, // Will be passed from seeder
             'status' => 'active',
-            'created_by' => BranchManager::first()->id ?? 1,
+            'created_by' => null, // Will be passed from seeder
             'activated_at' => now(),
             'deactivated_at' => null,
         ];
