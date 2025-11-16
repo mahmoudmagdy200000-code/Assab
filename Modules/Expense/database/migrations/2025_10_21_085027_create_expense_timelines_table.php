@@ -16,7 +16,7 @@ return new class extends Migration
             $table->foreignUuid('expense_id')->constrained('expenses')->cascadeOnDelete();
 
             $table->enum('action', ['created', 'updated', 'submit', 'view', 'approve', 'reject', 'resubmit', 'edit']);
-            $table->unsignedBigInteger('performed_by');
+            $table->uuid('performed_by');
             $table->enum('performed_by_type', ['branch_manager', 'brand_owner', 'system']);
             $table->string('status', 50);
             $table->text('notes')->nullable();
