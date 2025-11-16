@@ -51,7 +51,7 @@ class BranchManagerSeeder extends Seeder
         BranchManager::create([
             'name' => 'Mohamed Ali',
             'email' => 'saifgharib28@gmail.com',
-            'phone' => '01020399344',
+            'phone' => '01020399345',
             'password' => Hash::make('ploploK@0'),
             'branch_id' => $branch->id,
             'role' => 'branch_manager',
