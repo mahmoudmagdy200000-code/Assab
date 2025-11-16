@@ -18,6 +18,9 @@ class BranchManagerSeeder extends Seeder
             return;
         }
 
+        // Clear existing branch managers (optional - remove if you want to keep existing data)
+        BranchManager::truncate();
+
         // Create default branch manager
         BranchManager::create([
             'name' => 'Ahmed Al-Saud',
@@ -32,8 +35,6 @@ class BranchManagerSeeder extends Seeder
         ]);
 
         // Create additional managers
-        $branch = Branch::first();
-
         BranchManager::factory()->count(2)->create([
             'branch_id' => $branch->id,
         ]);

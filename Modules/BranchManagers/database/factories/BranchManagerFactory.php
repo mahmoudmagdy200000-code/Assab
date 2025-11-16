@@ -19,8 +19,8 @@ class BranchManagerFactory extends Factory
 
         return [
             'name' => 'Manager ' . $counter,
-            'email' => 'manager' . $counter . '@example.com',
-            'phone' => '+9665' . str_pad($counter, 8, '0', STR_PAD_LEFT),
+            'email' => 'manager' . $counter . time() . '@example.com',
+            'phone' => '+9665' . str_pad(time() + $counter, 8, '0', STR_PAD_LEFT),
             'password' => Hash::make('password123'),
             'branch_id' => null, // Always pass from Seeder
             'image' => null,
