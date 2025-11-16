@@ -19,56 +19,27 @@ class BranchManagerSeeder extends Seeder
         }
 
         // Create default branch manager
-        BranchManager::firstOrCreate(
-            ['email' => 'manager@assab.com'],
-            [
-                'name' => 'Ahmed Al-Saud',
-                'phone' => '+966500000001',
-                'password' => Hash::make('password123'),
-                'branch_id' => $branch->id,
-                'status' => 'active',
-                'is_active' => true,
-                'is_first_login' => false,
-                'email_verified_at' => now(),
-            ]
-        );
-
-
-        // ➕ Create your custom manager
-        BranchManager::firstOrCreate([
-            'name' => 'Mohamed Ali'], [
-            'email' => 'mohamedali.coder@gmail.com',
-            'phone' => '01020399344',
-            'password' => Hash::make('password'),
-            'branch_id' => $branch->id,
-            'role' => 'branch_manager',
-            'status' => 'active',
-            'is_active' => true,
-            'is_first_login' => true,
-            'email_verified_at' => null,
-            'phone_verified_at' => null,
-        ]);
         BranchManager::create([
-            'name' => 'Mohamed Ali',
-            'email' => 'saifgharib28@gmail.com',
-            'phone' => '01020399345',
-            'password' => Hash::make('ploploK@0'),
+            'name' => 'Ahmed Al-Saud',
+            'email' => 'manager@assab.com',
+            'phone' => '+966500000001',
+            'password' => Hash::make('password123'),
             'branch_id' => $branch->id,
-            'role' => 'branch_manager',
             'status' => 'active',
             'is_active' => true,
-            'is_first_login' => true,
-            'email_verified_at' => null,
-            'phone_verified_at' => null,
+            'is_first_login' => false,
+            'email_verified_at' => now(),
         ]);
 
         // Create additional managers
-        // BranchManager::factory()->count(2)->create([
-        //     'branch_id' => $branch->id,
-        // ]);
+        BranchManager::factory()->count(2)->create([
+            'branch_id' => $branch->id,
+        ]);
 
         $this->command->info('Branch Managers seeded successfully!');
         $this->command->info('Default Manager: manager@assab.com / password123');
-        $this->command->info('Added Manager: mohamedali.coder@gmail.com / password');
     }
+
+
+
 }
