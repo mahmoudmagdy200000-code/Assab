@@ -14,12 +14,11 @@ class BranchManagerFactory extends Factory
     public function definition(): array
     {
         return [
-            'name' => $this->faker->name(),
-            'email' => $this->faker->unique()->safeEmail(),
-            'phone' => '+9665' . $this->faker->numerify('########'),
+            'name' => fake()->name(),
+            'email' => fake()->unique()->safeEmail(),
+            'phone' => '+9665' . fake()->numerify('########'),
             'password' => Hash::make('password123'),
-            'branch_id' => null, // وستمرره دائمًا من Seeder
-
+            'branch_id' => null, // Always pass from Seeder
             'image' => null,
             'status' => 'active',
             'is_active' => true,
