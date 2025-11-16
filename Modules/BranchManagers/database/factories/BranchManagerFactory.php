@@ -18,7 +18,8 @@ class BranchManagerFactory extends Factory
             'email' => $this->faker->unique()->safeEmail(),
             'phone' => '+9665' . $this->faker->numerify('########'),
             'password' => Hash::make('password123'),
-            'branch_id' => Branch::factory(),
+            'branch_id' => null, // وستمرره دائمًا من Seeder
+
             'image' => null,
             'status' => 'active',
             'is_active' => true,
@@ -33,7 +34,7 @@ class BranchManagerFactory extends Factory
      */
     public function pending(): static
     {
-        return $this->state(fn (array $attributes) => [
+        return $this->state(fn(array $attributes) => [
             'status' => 'pending',
         ]);
     }
@@ -43,7 +44,7 @@ class BranchManagerFactory extends Factory
      */
     public function suspended(): static
     {
-        return $this->state(fn (array $attributes) => [
+        return $this->state(fn(array $attributes) => [
             'status' => 'suspended',
             'is_active' => false,
         ]);
@@ -54,7 +55,7 @@ class BranchManagerFactory extends Factory
      */
     public function firstLogin(): static
     {
-        return $this->state(fn (array $attributes) => [
+        return $this->state(fn(array $attributes) => [
             'is_first_login' => true,
         ]);
     }
@@ -64,7 +65,7 @@ class BranchManagerFactory extends Factory
      */
     public function inactive(): static
     {
-        return $this->state(fn (array $attributes) => [
+        return $this->state(fn(array $attributes) => [
             'is_active' => false,
         ]);
     }
