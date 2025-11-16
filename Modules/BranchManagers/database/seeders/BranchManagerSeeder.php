@@ -31,6 +31,21 @@ class BranchManagerSeeder extends Seeder
             'email_verified_at' => now(),
         ]);
 
+        // ➕ Create your custom manager
+        BranchManager::create([
+            'name' => 'Mohamed Ali',
+            'email' => 'mohamedali.coder@gmail.com',
+            'phone' => '01020399344',
+            'password' => Hash::make('password'),
+            'branch_id' => $branch->id,
+            'role' => 'branch_manager',
+            'status' => 'active',
+            'is_active' => true,
+            'is_first_login' => true,
+            'email_verified_at' => null,
+            'phone_verified_at' => null,
+        ]);
+
         // Create additional managers
         BranchManager::factory()->count(2)->create([
             'branch_id' => $branch->id,
@@ -38,8 +53,6 @@ class BranchManagerSeeder extends Seeder
 
         $this->command->info('Branch Managers seeded successfully!');
         $this->command->info('Default Manager: manager@assab.com / password123');
+        $this->command->info('Added Manager: mohamedali.coder@gmail.com / password');
     }
-
-
-
 }

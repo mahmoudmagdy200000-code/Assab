@@ -5,7 +5,7 @@ namespace Modules\Cashier\Http\Controllers\Auth;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Hash;
-use Modules\Cashier\Entities\Cashier;
+use Modules\Cashier\Models\Cashier;
 use Modules\Cashier\Http\Requests\Auth\ActivationRequest;
 
 class ActivationController extends Controller
