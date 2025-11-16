@@ -19,17 +19,20 @@ class BranchManagerSeeder extends Seeder
         }
 
         // Create default branch manager
-        BranchManager::create([
-            'name' => 'Ahmed Al-Saud',
-            'email' => 'manager@assab.com',
-            'phone' => '+966500000001',
-            'password' => Hash::make('password123'),
-            'branch_id' => $branch->id,
-            'status' => 'active',
-            'is_active' => true,
-            'is_first_login' => false,
-            'email_verified_at' => now(),
-        ]);
+        BranchManager::firstOrCreate(
+            ['email' => 'manager@assab.com'],
+            [
+                'name' => 'Ahmed Al-Saud',
+                'phone' => '+966500000001',
+                'password' => Hash::make('password123'),
+                'branch_id' => $branch->id,
+                'status' => 'active',
+                'is_active' => true,
+                'is_first_login' => false,
+                'email_verified_at' => now(),
+            ]
+        );
+
 
         // ➕ Create your custom manager
         BranchManager::create([
