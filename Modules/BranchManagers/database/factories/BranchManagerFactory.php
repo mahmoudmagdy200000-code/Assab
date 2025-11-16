@@ -4,6 +4,7 @@ namespace Modules\BranchManagers\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 
@@ -13,12 +14,13 @@ class BranchManagerFactory extends Factory
 
     public function definition(): array
     {
-        $faker = \Faker\Factory::create();
+        static $counter = 0;
+        $counter++;
 
         return [
-            'name' => $faker->name(),
-            'email' => $faker->unique()->safeEmail(),
-            'phone' => '+9665' . $faker->numerify('########'),
+            'name' => 'Manager ' . $counter,
+            'email' => 'manager' . $counter . '@example.com',
+            'phone' => '+9665' . str_pad($counter, 8, '0', STR_PAD_LEFT),
             'password' => Hash::make('password123'),
             'branch_id' => null, // Always pass from Seeder
             'image' => null,
