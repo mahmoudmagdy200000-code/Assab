@@ -37,7 +37,7 @@ class QuickCashExpenseController extends BaseController
             'items.*.title' => 'nullable|string|max:255',
             'items.*.amount' => 'nullable|numeric|min:0',
 
-            'has_vat' => 'required|boolean',
+            'has_vat' => 'nullable|boolean',
             'vat_amount' => 'nullable|numeric|min:0',
             'net_amount' => 'nullable|numeric|min:0',
             'vat_total_amount' => 'nullable|numeric|min:0',
