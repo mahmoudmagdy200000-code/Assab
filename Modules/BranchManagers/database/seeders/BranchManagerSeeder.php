@@ -18,26 +18,31 @@ class BranchManagerSeeder extends Seeder
             return;
         }
 
-        // Clear existing branch managers (optional - remove if you want to keep existing data)
-        BranchManager::truncate();
+        // Create or update default branch manager
+        BranchManager::updateOrCreate(
+            ['email' => 'manager@assab.com'],
+            [
+                'name' => 'Ahmed Al-Saud',
+                'phone' => '+966500000001',
+                'password' => Hash::make('password123'),
+                'branch_id' => $branch->id,
+                'status' => 'active',
+                'is_active' => true,
+                'is_first_login' => false,
+                'email_verified_at' => now(),
+            ]
+        );
 
-        // Create default branch manager
-        BranchManager::create([
-            'name' => 'Ahmed Al-Saud',
-            'email' => 'manager@assab.com',
-            'phone' => '+966500000001',
-            'password' => Hash::make('password123'),
-            'branch_id' => $branch->id,
-            'status' => 'active',
-            'is_active' => true,
-            'is_first_login' => false,
-            'email_verified_at' => now(),
-        ]);
+        // Check if additional managers already exist
+        $existingCount = BranchManager::where('email', '!=', 'manager@assab.com')->count();
 
-        // Create additional managers
-        BranchManager::factory()->count(2)->create([
-            'branch_id' => $branch->id,
-        ]);
+        if ($existingCount < 2) {
+            // Create additional managers only if they don't exist
+            $needed = 2 - $existingCount;
+            BranchManager::factory()->count($needed)->create([
+                'branch_id' => $branch->id,
+            ]);
+        }
 
         $this->command->info('Branch Managers seeded successfully!');
         $this->command->info('Default Manager: manager@assab.com / password123');
