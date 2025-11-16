@@ -123,7 +123,7 @@ class AuthController extends Controller
         try {
             $this->authService->resetPassword(
                 $request->identifier,
-                $request->otp,
+                // $request->otp,
                 $request->password
             );
 
