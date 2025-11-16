@@ -303,7 +303,7 @@ class SingleInvoiceExpenseController extends BaseController
                 'payment_method' => $originalExpense->payment_method,
                 'paid_amount' => $invoiceDetails->paid_amount,
                 'due_date' => $invoiceDetails->due_date,
-                'is_draft' => $request->input('is_draft', true), // Default to draft
+                'is_draft' => $request->input('is_draft', false), // Default to draft
             ];
 
             // Add tax invoice details if applicable
