@@ -3,10 +3,8 @@
 namespace Modules\Expense\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
-use Faker\Provider\Base;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -38,14 +36,12 @@ class PreApprovalRequestController extends BaseController
             'supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
             'priority' => 'required|in:high,medium,low',
 
-            // Items list
             'items' => 'sometimes|array',
             'items.*.category_id' => 'required_with:items|exists:categories,id',
             'items.*.description' => 'required_with:items|string|max:255',
             'items.*.quantity' => 'required_with:items|numeric|min:0.01',
             'items.*.rate' => 'required_with:items|numeric|min:0',
 
-            // Expenses list
             'expenses' => 'sometimes|array',
             'expenses.*.category_id' => 'required_with:expenses|exists:categories,id',
             'expenses.*.description' => 'required_with:expenses|string|max:255',
@@ -65,7 +61,6 @@ class PreApprovalRequestController extends BaseController
             );
         }
 
-        // Validate estimated amount >= 500
         if ($request->estimated_amount < 500) {
             return $this->errorResponse('Pre-approval requests must be for amounts >= 500 SAR', 400);
         }
@@ -97,10 +92,9 @@ class PreApprovalRequestController extends BaseController
      */
     public function update(Request $request, string $expense): JsonResponse
     {
-        $expenseModel = Expense::with(['preApprovalRequest', 'items', 'expenseLines'])
+        $expenseModel = Expense::with(['preApprovalRequest', 'items', 'expenseLines', 'attachments'])
             ->findOrFail($expense);
 
-        // Check authorization
         if ($expenseModel->branch_manager_id !== auth()->id()) {
             return $this->errorResponse('Unauthorized to update this pre-approval request', 403);
         }
@@ -115,9 +109,25 @@ class PreApprovalRequestController extends BaseController
             'payment_method' => 'sometimes|in:cash,supplier,custody',
             'supplier_id' => 'sometimes|exists:suppliers,id',
             'priority' => 'sometimes|in:high,medium,low',
+
             'items' => 'sometimes|array',
+            'items.*.category_id' => 'required_with:items|exists:categories,id',
+            'items.*.description' => 'required_with:items|string|max:255',
+            'items.*.quantity' => 'required_with:items|numeric|min:0.01',
+            'items.*.rate' => 'required_with:items|numeric|min:0',
+
             'expenses' => 'sometimes|array',
-            'attachment' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:5120',
+            'expenses.*.category_id' => 'required_with:expenses|exists:categories,id',
+            'expenses.*.description' => 'required_with:expenses|string|max:255',
+            'expenses.*.price' => 'required_with:expenses|numeric|min:0',
+
+            // New attachments
+            'attachments' => 'sometimes|array',
+            'attachments.*' => 'file|mimes:pdf,jpg,jpeg,png|max:5120',
+
+            // Delete specific attachments
+            'delete_attachments' => 'sometimes|array',
+            'delete_attachments.*' => 'integer|exists:expense_attachments,id',
         ]);
 
         if ($validator->fails()) {
@@ -128,7 +138,6 @@ class PreApprovalRequestController extends BaseController
             );
         }
 
-        // Validate estimated amount >= 500 if changed
         if (isset($request->estimated_amount) && $request->estimated_amount < 500) {
             return $this->errorResponse('Pre-approval requests must be for amounts >= 500 SAR', 400);
         }
@@ -140,7 +149,7 @@ class PreApprovalRequestController extends BaseController
             DB::commit();
 
             return $this->successResponse(
-                new ExpenseDetailResource($updated),
+                new ExpenseDetailResource($updated->fresh(['attachments'])),
                 'Pre-approval request updated successfully'
             );
         } catch (\Exception $e) {
@@ -151,8 +160,6 @@ class PreApprovalRequestController extends BaseController
             );
         }
     }
-
-
 
     /**
      * Get previously submitted pre-approval requests
@@ -167,7 +174,6 @@ class PreApprovalRequestController extends BaseController
                 ->with(['preApprovalRequest', 'supplier'])
                 ->orderBy('submitted_at', 'desc');
 
-            // Apply search filter if provided
             if ($search = $request->input('search')) {
                 $search = strtolower(trim($search));
                 $query->where(function ($q) use ($search) {
@@ -201,7 +207,6 @@ class PreApprovalRequestController extends BaseController
     public function duplicate(Request $request, string $expense): JsonResponse
     {
         try {
-            // Find the original pre-approval request with all relationships
             $originalExpense = Expense::with([
                 'preApprovalRequest',
                 'items',
@@ -212,7 +217,6 @@ class PreApprovalRequestController extends BaseController
                 ->where('expense_type', 'pre_approval')
                 ->findOrFail($expense);
 
-            // Check authorization - user must own the original request
             if ($originalExpense->branch_manager_id !== auth()->id()) {
                 return $this->errorResponse(
                     'Unauthorized to duplicate this pre-approval request',
@@ -220,7 +224,6 @@ class PreApprovalRequestController extends BaseController
                 );
             }
 
-            // Validate optional overrides
             $validator = Validator::make($request->all(), [
                 'purpose' => 'sometimes|string|max:500',
                 'estimated_amount' => 'sometimes|numeric|min:500',
@@ -228,7 +231,7 @@ class PreApprovalRequestController extends BaseController
                 'payment_method' => 'sometimes|in:cash,supplier,custody',
                 'supplier_id' => 'sometimes|exists:suppliers,id',
                 'is_draft' => 'sometimes|boolean',
-                'copy_attachments' => 'sometimes|boolean', // New parameter
+                'copy_attachments' => 'sometimes|boolean',
             ]);
 
             if ($validator->fails()) {
@@ -241,7 +244,6 @@ class PreApprovalRequestController extends BaseController
 
             DB::beginTransaction();
 
-            // Prepare data for duplication
             $preApproval = $originalExpense->preApprovalRequest;
 
             $duplicateData = [
@@ -250,10 +252,9 @@ class PreApprovalRequestController extends BaseController
                 'priority' => $request->input('priority', $preApproval->priority),
                 'payment_method' => $request->input('payment_method', $originalExpense->payment_method),
                 'supplier_id' => $request->input('supplier_id', $originalExpense->supplier_id),
-                'is_draft' => $request->input('is_draft', true), // Default to draft
+                'is_draft' => $request->input('is_draft', true),
             ];
 
-            // Validate estimated amount >= 500
             if ($duplicateData['estimated_amount'] < 500) {
                 DB::rollBack();
                 return $this->errorResponse(
@@ -262,7 +263,6 @@ class PreApprovalRequestController extends BaseController
                 );
             }
 
-            // Duplicate items
             if ($originalExpense->items->isNotEmpty()) {
                 $duplicateData['items'] = $originalExpense->items->map(function ($item) {
                     return [
@@ -274,7 +274,6 @@ class PreApprovalRequestController extends BaseController
                 })->toArray();
             }
 
-            // Duplicate expense lines
             if ($originalExpense->expenseLines->isNotEmpty()) {
                 $duplicateData['expenses'] = $originalExpense->expenseLines->map(function ($line) {
                     return [
@@ -285,11 +284,9 @@ class PreApprovalRequestController extends BaseController
                 })->toArray();
             }
 
-            // Create the new pre-approval request using the service
             $newExpense = $this->preApprovalService->createPreApprovalRequest($duplicateData);
 
-            // Copy attachments if requested
-            $copyAttachments = $request->input('copy_attachments', true); // Default true
+            $copyAttachments = $request->input('copy_attachments', true);
             if ($copyAttachments && $originalExpense->attachments->isNotEmpty()) {
                 foreach ($originalExpense->attachments as $attachment) {
                     $this->duplicateAttachment($newExpense, $attachment);
@@ -298,7 +295,6 @@ class PreApprovalRequestController extends BaseController
 
             DB::commit();
 
-            // Reload the expense with attachments
             $newExpense->load('attachments');
 
             return $this->createdResponse(
@@ -326,23 +322,19 @@ class PreApprovalRequestController extends BaseController
     private function duplicateAttachment(Expense $newExpense, $originalAttachment): void
     {
         try {
-            // Check if original file exists
             if (!Storage::disk('public')->exists($originalAttachment->file_path)) {
                 return;
             }
 
-            // Generate new filename
             $extension = pathinfo($originalAttachment->file_path, PATHINFO_EXTENSION);
             $newFilename = 'expense_' . $newExpense->id . '_' . time() . '_' . uniqid() . '.' . $extension;
             $newPath = 'expenses/attachments/' . $newFilename;
 
-            // Copy the file
             Storage::disk('public')->copy(
                 $originalAttachment->file_path,
                 $newPath
             );
 
-            // Create new attachment record
             $newExpense->attachments()->create([
                 'file_path' => $newPath,
                 'file_name' => $originalAttachment->file_name,
@@ -350,7 +342,6 @@ class PreApprovalRequestController extends BaseController
                 'file_size' => $originalAttachment->file_size,
             ]);
         } catch (\Exception $e) {
-            // Log error but don't fail the whole operation
             Log::warning('Failed to duplicate attachment: ' . $e->getMessage());
         }
     }

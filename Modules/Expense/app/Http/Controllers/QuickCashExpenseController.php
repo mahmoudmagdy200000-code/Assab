@@ -60,7 +60,7 @@ class QuickCashExpenseController extends BaseController
             );
         }
 
-        // ✅ Validate items total equals total_amount
+        // Validate items total equals total_amount
         $itemsTotal = collect($request->items ?? [])->sum('amount');
         if (!empty($request->items) && abs($itemsTotal - $request->total_amount) > 0.01) {
             return $this->errorResponse(
@@ -69,7 +69,7 @@ class QuickCashExpenseController extends BaseController
             );
         }
 
-        // ✅ Check custody balance if payment method is custody
+        // Check custody balance if payment method is custody
         if ($request->payment_method === 'custody') {
             $custodyBalance = $this->quickCashService->getCustodyBalance(auth()->id());
             if ($custodyBalance < $request->total_amount) {
@@ -92,16 +92,22 @@ class QuickCashExpenseController extends BaseController
             );
         } catch (\Exception $e) {
             DB::rollBack();
-            return $this->errorResponse($e->getMessage());
+            return $this->errorResponse(
+                'Failed to create quick cash expense',
+                500,
+                ['error' => $e->getMessage()]
+            );
         }
     }
 
     /**
      * Update Draft Quick Cash Expense
+     * PUT /api/branch-manager/expenses/quick-cash/{expense}
      */
     public function update(Request $request, string $expense): JsonResponse
     {
-        $expenseModel = Expense::with('quickCashExpense')->findOrFail($expense);
+        $expenseModel = Expense::with(['quickCashExpense', 'quickCashExpense.items', 'attachments'])
+            ->findOrFail($expense);
 
         if ($expenseModel->branch_manager_id !== auth()->id()) {
             return $this->errorResponse(
@@ -122,7 +128,7 @@ class QuickCashExpenseController extends BaseController
             'expense_name' => 'sometimes|string|max:255',
             'total_amount' => 'sometimes|numeric|min:0|max:500',
 
-            'items' => 'sometimes|array|min:1',
+            'items' => 'sometimes|array',
             'items.*.title' => 'required_with:items|string|max:255',
             'items.*.amount' => 'required_with:items|numeric|min:0',
 
@@ -133,7 +139,14 @@ class QuickCashExpenseController extends BaseController
             'invoice_number' => 'nullable|string|max:100',
             'payment_method' => 'sometimes|in:cash,supplier,custody',
             'supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
-            'invoice_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
+
+            // New attachments
+            'invoice_receipt' => 'sometimes|array|max:5',
+            'invoice_receipt.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
+
+            // Delete specific attachments
+            'delete_attachments' => 'sometimes|array',
+            'delete_attachments.*' => 'integer|exists:expense_attachments,id',
         ]);
 
         if ($validator->fails()) {
@@ -144,6 +157,7 @@ class QuickCashExpenseController extends BaseController
             );
         }
 
+        // Validate items total if items are provided
         if (isset($request->items)) {
             $itemsTotal = collect($request->items)->sum('amount');
             $totalAmount = $request->total_amount ?? $expenseModel->total_amount;
@@ -155,23 +169,41 @@ class QuickCashExpenseController extends BaseController
             }
         }
 
+        // Check custody balance if payment method changed to custody
+        if ($request->payment_method === 'custody') {
+            $totalAmount = $request->total_amount ?? $expenseModel->total_amount;
+            $custodyBalance = $this->quickCashService->getCustodyBalance(auth()->id());
+            if ($custodyBalance < $totalAmount) {
+                return $this->errorResponse(
+                    'Insufficient custody balance',
+                    400,
+                    ['custody_balance' => $custodyBalance]
+                );
+            }
+        }
+
         DB::beginTransaction();
         try {
             $updated = $this->quickCashService->updateQuickCashExpense($expenseModel, $request->all());
             DB::commit();
 
             return $this->successResponse(
-                new ExpenseDetailResource($updated->fresh()),
+                new ExpenseDetailResource($updated->fresh(['attachments'])),
                 'Quick cash expense updated successfully'
             );
         } catch (\Exception $e) {
             DB::rollBack();
-            return $this->errorResponse($e->getMessage());
+            return $this->errorResponse(
+                'Failed to update quick cash expense',
+                500,
+                ['error' => $e->getMessage()]
+            );
         }
     }
 
     /**
      * Calculate VAT (API)
+     * POST /api/branch-manager/expenses/quick-cash/calculate-vat
      */
     public function calculateVAT(Request $request): JsonResponse
     {
@@ -188,7 +220,6 @@ class QuickCashExpenseController extends BaseController
             );
         }
 
-        // ✅ الآن ترسل رقم فقط، والخدمة تتعامل معه بمرونة
         $calculation = $this->quickCashService->calculateVAT(
             $request->total_amount,
             $request->input('has_vat', true)
@@ -196,7 +227,7 @@ class QuickCashExpenseController extends BaseController
 
         return $this->successResponse(
             $calculation,
-            'VAT calculated successfully',
+            'VAT calculated successfully'
         );
     }
 }

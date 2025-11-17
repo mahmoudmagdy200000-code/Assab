@@ -3,13 +3,14 @@
 namespace Modules\Expense\Services;
 
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Modules\Expense\Models\{
     Expense,
     InvoiceDetail,
     ExpenseItem,
-    ExpenseLine
+    ExpenseLine,
+    ExpenseAttachment
 };
-use Illuminate\Support\Facades\Storage;
 
 /**
  * Single Invoice Expense Service
@@ -22,10 +23,8 @@ class SingleInvoiceExpenseService
      */
     public function createSingleInvoice(array $data): Expense
     {
-        // Calculate totals
         $totals = $this->calculateTotals($data);
 
-        // Create main expense record
         $expense = Expense::create([
             'branch_manager_id' => auth()->id(),
             'expense_type' => 'single_invoice',
@@ -37,7 +36,6 @@ class SingleInvoiceExpenseService
             'supplier_id' => $data['supplier_id'],
         ]);
 
-        // Create invoice details
         $invoice = InvoiceDetail::create([
             'expense_id' => $expense->id,
             'supplier_id' => $data['supplier_id'],
@@ -50,7 +48,6 @@ class SingleInvoiceExpenseService
             'due_date' => $data['due_date'] ?? null,
         ]);
 
-        // Save tax invoice extra details if applicable
         if (!empty($data['is_tax_invoice']) && !empty($data['tax_invoice_details'])) {
             $invoice->update([
                 'tax_supplier_name' => $data['tax_invoice_details']['supplier_name'] ?? null,
@@ -60,8 +57,6 @@ class SingleInvoiceExpenseService
             ]);
         }
 
-
-        // Create expense items (purchases)
         if (!empty($data['items'])) {
             foreach ($data['items'] as $item) {
                 ExpenseItem::create([
@@ -76,7 +71,6 @@ class SingleInvoiceExpenseService
             }
         }
 
-        // Create expense lines (expenses)
         if (!empty($data['expenses'])) {
             foreach ($data['expenses'] as $expenseLine) {
                 ExpenseLine::create([
@@ -89,14 +83,12 @@ class SingleInvoiceExpenseService
             }
         }
 
-        // Upload invoice receipt
         if (isset($data['invoice_receipt']) && is_array($data['invoice_receipt'])) {
             foreach ($data['invoice_receipt'] as $file) {
                 $this->uploadInvoiceReceipt($expense, $file);
             }
         }
 
-        // Create timeline entry
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
         return $expense;
@@ -107,39 +99,68 @@ class SingleInvoiceExpenseService
      */
     public function updateSingleInvoice(Expense $expense, array $data): Expense
     {
-        // Update main expense if amounts changed
-        if (isset($data['items']) || isset($data['expenses'])) {
-            $totals = $this->calculateTotals($data);
+        // Update basic expense info
+        $updateData = [];
 
-            $expense->update([
-                'total_amount' => $totals['total_amount'],
-                'net_amount' => $totals['net_amount'],
-                'vat_amount' => $totals['vat_amount'],
-            ]);
+        if (isset($data['supplier_id'])) {
+            $updateData['supplier_id'] = $data['supplier_id'];
+        }
+
+        if (isset($data['payment_method'])) {
+            $updateData['payment_method'] = $data['payment_method'];
+        }
+
+        // Recalculate totals if items/expenses changed
+        if (isset($data['items']) || isset($data['expenses']) || isset($data['total_amount'])) {
+            $mergedData = array_merge($expense->toArray(), $data);
+            $totals = $this->calculateTotals($mergedData);
+
+            $updateData['total_amount'] = $data['total_amount'] ?? $totals['total_amount'];
+            $updateData['net_amount'] = $totals['net_amount'];
+            $updateData['vat_amount'] = $totals['vat_amount'];
+        }
+
+        if (!empty($updateData)) {
+            $expense->update($updateData);
         }
 
         // Update invoice details
-        if ($expense->invoiceDetails()->exists()) {
-            $expense->invoiceDetails()->first()->update(array_filter([
+        $invoiceDetail = $expense->invoiceDetails()->first();
+        if ($invoiceDetail) {
+            $invoiceUpdateData = array_filter([
+                'supplier_id' => $data['supplier_id'] ?? null,
                 'invoice_number' => $data['invoice_number'] ?? null,
                 'issue_date' => $data['issue_date'] ?? null,
                 'is_tax_invoice' => $data['is_tax_invoice'] ?? null,
                 'tax_id' => $data['tax_id'] ?? null,
                 'payment_type' => $data['payment_type'] ?? null,
-                'paid_amount' => isset($data['payment_type']) ? $this->getPaidAmount($data) : null,
                 'due_date' => $data['due_date'] ?? null,
-            ]));
-        }
-        // Update tax invoice details if applicable
-        if (!empty($data['is_tax_invoice']) && !empty($data['tax_invoice_details'])) {
-            $expense->invoiceDetails()->first()->update([
-                'tax_supplier_name' => $data['tax_invoice_details']['supplier_name'] ?? null,
-                'tax_net_amount' => $data['tax_invoice_details']['net_amount'] ?? null,
-                'tax_vat_amount' => $data['tax_invoice_details']['vat_amount'] ?? null,
-                'tax_total_amount' => $data['tax_invoice_details']['total_amount'] ?? null,
-            ]);
-        }
+            ], function ($value) {
+                return $value !== null;
+            });
 
+            // Calculate paid amount if payment_type changed
+            if (isset($data['payment_type'])) {
+                $invoiceUpdateData['paid_amount'] = $this->getPaidAmount(array_merge(
+                    $expense->toArray(),
+                    $data
+                ));
+            } elseif (isset($data['paid_amount'])) {
+                $invoiceUpdateData['paid_amount'] = $data['paid_amount'];
+            }
+
+            $invoiceDetail->update($invoiceUpdateData);
+
+            // Update tax invoice details if applicable
+            if (!empty($data['is_tax_invoice']) && !empty($data['tax_invoice_details'])) {
+                $invoiceDetail->update([
+                    'tax_supplier_name' => $data['tax_invoice_details']['supplier_name'] ?? $invoiceDetail->tax_supplier_name,
+                    'tax_net_amount' => $data['tax_invoice_details']['net_amount'] ?? $invoiceDetail->tax_net_amount,
+                    'tax_vat_amount' => $data['tax_invoice_details']['vat_amount'] ?? $invoiceDetail->tax_vat_amount,
+                    'tax_total_amount' => $data['tax_invoice_details']['total_amount'] ?? $invoiceDetail->tax_total_amount,
+                ]);
+            }
+        }
 
         // Update items if provided
         if (isset($data['items'])) {
@@ -148,7 +169,7 @@ class SingleInvoiceExpenseService
             foreach ($data['items'] as $item) {
                 ExpenseItem::create([
                     'expense_id' => $expense->id,
-                    'invoice_detail_id' => $expense->invoiceDetails()->first()->id,
+                    'invoice_detail_id' => $invoiceDetail->id,
                     'category_id' => $item['category_id'],
                     'name' => $item['name'],
                     'quantity' => $item['quantity'],
@@ -165,7 +186,7 @@ class SingleInvoiceExpenseService
             foreach ($data['expenses'] as $expenseLine) {
                 ExpenseLine::create([
                     'expense_id' => $expense->id,
-                    'invoice_detail_id' => $expense->invoiceDetails()->first()->id,
+                    'invoice_detail_id' => $invoiceDetail->id,
                     'category_id' => $expenseLine['category_id'],
                     'name' => $expenseLine['name'],
                     'price' => $expenseLine['price'],
@@ -173,17 +194,43 @@ class SingleInvoiceExpenseService
             }
         }
 
-        // Upload new receipt if provided
+        // Delete specific attachments if requested
+        if (isset($data['delete_attachments']) && is_array($data['delete_attachments'])) {
+            $this->deleteAttachments($expense, $data['delete_attachments']);
+        }
+
+        // Upload new receipts WITHOUT deleting old ones
         if (isset($data['invoice_receipt']) && is_array($data['invoice_receipt'])) {
             foreach ($data['invoice_receipt'] as $file) {
                 $this->uploadInvoiceReceipt($expense, $file);
             }
         }
 
-        // Create timeline entry
         $this->createTimelineEntry($expense, 'updated');
 
         return $expense;
+    }
+
+    /**
+     * Delete specific attachments
+     */
+    private function deleteAttachments(Expense $expense, array $attachmentIds): void
+    {
+        $attachments = $expense->attachments()->whereIn('id', $attachmentIds)->get();
+
+        foreach ($attachments as $attachment) {
+            try {
+                // Delete physical file
+                if (Storage::disk('public')->exists($attachment->file_path)) {
+                    Storage::disk('public')->delete($attachment->file_path);
+                }
+
+                // Delete database record
+                $attachment->delete();
+            } catch (\Exception $e) {
+                Log::warning('Failed to delete attachment: ' . $e->getMessage());
+            }
+        }
     }
 
     /**
@@ -218,7 +265,6 @@ class SingleInvoiceExpenseService
         ];
     }
 
-
     /**
      * Calculate total amount (helper for validation)
      */
@@ -233,59 +279,19 @@ class SingleInvoiceExpenseService
     private function getPaidAmount(array $data): float
     {
         return match ($data['payment_type']) {
-            'full' => $this->calculateTotalAmount($data),
-            'partial' => $data['paid_amount'],
+            'full' => $data['total_amount'] ?? $this->calculateTotalAmount($data),
+            'partial' => $data['paid_amount'] ?? 0,
             'deferred' => 0,
             default => 0,
         };
     }
 
     /**
-     * Get previous invoices for reuse
+     * Upload invoice receipt (adds new without deleting old)
      */
-    public function getPreviousInvoices(string $branchManagerId, ?string $search = null)
-    {
-        $query = Expense::query()
-            ->where('expense_type', 'single_invoice')
-            ->where('branch_manager_id', $branchManagerId)
-            ->with(['supplier', 'invoiceDetails'])
-            ->orderBy('submitted_at', 'desc');
-
-        // Apply search filter if provided
-        if ($search) {
-            $search = strtolower(trim($search));
-            $query->where(function ($q) use ($search) {
-                $q->whereHas('invoiceDetails', function ($sq) use ($search) {
-                    $sq->whereRaw('LOWER(invoice_number) LIKE ?', ["%{$search}%"]);
-                })->orWhereHas('supplier', function ($sq) use ($search) {
-                    $sq->whereRaw('LOWER(name) LIKE ?', ["%{$search}%"]);
-                });
-            });
-        }
-
-        // ✅ Get paginated results
-        $paginator = $query->paginate(10);
-
-        // \transform each item in the paginator
-        $paginator->getCollection()->transform(function ($expense) {
-            return [
-                'id' => $expense->id,
-                'invoice_name' => $expense->invoiceDetails->first()->invoice_number ?? 'N/A',
-                'type' => 'Single Invoice',
-                'date_time' => optional($expense->submitted_at)->format('Y-m-d H:i'),
-                'amount' => $expense->total_amount,
-                'status' => $expense->status,
-            ];
-        });
-
-        return $paginator;
-    }
-
-
-
     private function uploadInvoiceReceipt(Expense $expense, $file): void
     {
-        $filename = 'expense_' . $expense->id . '_' . time() . '.' . $file->getClientOriginalExtension();
+        $filename = 'expense_' . $expense->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
         $path = $file->storeAs('expenses/receipts', $filename, 'public');
 
         $expense->attachments()->create([

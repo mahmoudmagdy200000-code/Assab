@@ -3,6 +3,8 @@
 namespace Modules\Expense\Services;
 
 use Modules\Expense\Models\{Expense, PreApprovalRequest, ExpenseItem, ExpenseLine};
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Pre-Approval Request Service
@@ -14,10 +16,8 @@ class PreApprovalRequestService
      */
     public function createPreApprovalRequest(array $data): Expense
     {
-        // Calculate totals
         $totals = $this->calculateTotals($data);
 
-        // Create main expense record
         $expense = Expense::create([
             'branch_manager_id' => auth()->id(),
             'expense_type' => 'pre_approval',
@@ -29,7 +29,6 @@ class PreApprovalRequestService
             'supplier_id' => $data['supplier_id'] ?? null,
         ]);
 
-        // Create pre-approval request details
         $preApproval = PreApprovalRequest::create([
             'expense_id' => $expense->id,
             'purpose' => $data['purpose'],
@@ -37,7 +36,6 @@ class PreApprovalRequestService
             'priority' => $data['priority'],
         ]);
 
-        // Create items if provided
         if (!empty($data['items'])) {
             foreach ($data['items'] as $item) {
                 ExpenseItem::create([
@@ -51,7 +49,6 @@ class PreApprovalRequestService
             }
         }
 
-        // Create expenses if provided
         if (!empty($data['expenses'])) {
             foreach ($data['expenses'] as $expenseLine) {
                 ExpenseLine::create([
@@ -63,16 +60,12 @@ class PreApprovalRequestService
             }
         }
 
-
-        // Upload multiple attachments if provided
         if (!empty($data['attachments'])) {
             foreach ($data['attachments'] as $file) {
                 $this->uploadAttachment($expense, $file);
             }
         }
 
-
-        // Create timeline entry
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
         return $expense;
@@ -84,19 +77,37 @@ class PreApprovalRequestService
     public function updatePreApprovalRequest(Expense $expense, array $data): Expense
     {
         // Update main expense
-        $expense->update(array_filter([
-            'total_amount' => $data['estimated_amount'] ?? null,
-            'net_amount' => $data['estimated_amount'] ?? null,
-            'payment_method' => $data['payment_method'] ?? null,
-            'supplier_id' => $data['supplier_id'] ?? null,
-        ]));
+        $expenseUpdateData = [];
+
+        if (isset($data['estimated_amount'])) {
+            $expenseUpdateData['total_amount'] = $data['estimated_amount'];
+            $expenseUpdateData['net_amount'] = $data['estimated_amount'];
+        }
+
+        if (isset($data['payment_method'])) {
+            $expenseUpdateData['payment_method'] = $data['payment_method'];
+        }
+
+        if (isset($data['supplier_id'])) {
+            $expenseUpdateData['supplier_id'] = $data['supplier_id'];
+        }
+
+        if (!empty($expenseUpdateData)) {
+            $expense->update($expenseUpdateData);
+        }
 
         // Update pre-approval request details
-        $expense->preApprovalRequest->update(array_filter([
+        $preApprovalUpdateData = array_filter([
             'purpose' => $data['purpose'] ?? null,
             'estimated_amount' => $data['estimated_amount'] ?? null,
             'priority' => $data['priority'] ?? null,
-        ]));
+        ], function ($value) {
+            return $value !== null;
+        });
+
+        if (!empty($preApprovalUpdateData)) {
+            $expense->preApprovalRequest->update($preApprovalUpdateData);
+        }
 
         // Update items if provided
         if (isset($data['items'])) {
@@ -128,15 +139,43 @@ class PreApprovalRequestService
             }
         }
 
-        // Upload new attachment if provided
-        if (isset($data['attachment'])) {
-            $this->uploadAttachment($expense, $data['attachment']);
+        // Delete specific attachments if requested
+        if (isset($data['delete_attachments']) && is_array($data['delete_attachments'])) {
+            $this->deleteAttachments($expense, $data['delete_attachments']);
         }
 
-        // Create timeline entry
+        // Upload new attachments WITHOUT deleting old ones
+        if (isset($data['attachments']) && is_array($data['attachments'])) {
+            foreach ($data['attachments'] as $file) {
+                $this->uploadAttachment($expense, $file);
+            }
+        }
+
         $this->createTimelineEntry($expense, 'updated');
 
         return $expense;
+    }
+
+    /**
+     * Delete specific attachments
+     */
+    private function deleteAttachments(Expense $expense, array $attachmentIds): void
+    {
+        $attachments = $expense->attachments()->whereIn('id', $attachmentIds)->get();
+
+        foreach ($attachments as $attachment) {
+            try {
+                // Delete physical file
+                if (Storage::disk('public')->exists($attachment->file_path)) {
+                    Storage::disk('public')->delete($attachment->file_path);
+                }
+
+                // Delete database record
+                $attachment->delete();
+            } catch (\Exception $e) {
+                Log::warning('Failed to delete attachment: ' . $e->getMessage());
+            }
+        }
     }
 
     private function calculateTotals(array $data): array
@@ -163,9 +202,12 @@ class PreApprovalRequestService
         ];
     }
 
+    /**
+     * Upload attachment (adds new without deleting old)
+     */
     private function uploadAttachment(Expense $expense, $file): void
     {
-        $filename = 'expense_' . $expense->id . '_' . time() . '.' . $file->getClientOriginalExtension();
+        $filename = 'expense_' . $expense->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
         $path = $file->storeAs('expenses/attachments', $filename, 'public');
 
         $expense->attachments()->create([

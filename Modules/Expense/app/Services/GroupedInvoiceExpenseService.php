@@ -3,6 +3,8 @@
 namespace Modules\Expense\Services;
 
 use Modules\Expense\Models\{Expense, GroupedInvoice, InvoiceDetail, ExpenseItem, ExpenseLine};
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Grouped Invoice Expense Service
@@ -14,10 +16,8 @@ class GroupedInvoiceExpenseService
      */
     public function createGroupedInvoice(array $data): Expense
     {
-        // Calculate grand totals
         $grandTotals = $this->calculateGrandTotals($data['invoices']);
 
-        // Create main expense record
         $expense = Expense::create([
             'branch_manager_id' => auth()->id(),
             'expense_type' => 'grouped_invoice',
@@ -28,22 +28,17 @@ class GroupedInvoiceExpenseService
             'payment_method' => $data['payment_method'] ?? null,
         ]);
 
-        // Create grouped invoice record
         $groupedInvoice = GroupedInvoice::create([
             'expense_id' => $expense->id,
             'payment_type' => $data['payment_type'],
             'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
-            // 'paid_amount' => $this->getPaidAmount($data, $grandTotals['total_amount']),
             'due_date' => $data['due_date'] ?? null,
         ]);
 
-        // Create individual invoices
         foreach ($data['invoices'] as $invoiceData) {
             $this->createSingleInvoiceInGroup($expense, $groupedInvoice, $invoiceData);
         }
 
-
-        // Create timeline entry
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
         return $expense;
@@ -54,7 +49,25 @@ class GroupedInvoiceExpenseService
      */
     public function updateGroupedInvoice(Expense $expense, array $data): Expense
     {
-        // Recalculate totals if invoices changed
+        // Update payment info in grouped invoice
+        if (isset($data['payment_type']) || isset($data['payment_supplier_id']) || isset($data['due_date'])) {
+            $groupedInvoiceUpdateData = array_filter([
+                'payment_type' => $data['payment_type'] ?? null,
+                'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
+                'due_date' => $data['due_date'] ?? null,
+            ], function ($value) {
+                return $value !== null;
+            });
+
+            $expense->groupedInvoice->update($groupedInvoiceUpdateData);
+        }
+
+        // Update payment method in main expense
+        if (isset($data['payment_method'])) {
+            $expense->update(['payment_method' => $data['payment_method']]);
+        }
+
+        // Recalculate totals and recreate invoices if invoices changed
         if (isset($data['invoices'])) {
             $grandTotals = $this->calculateGrandTotals($data['invoices']);
 
@@ -64,34 +77,68 @@ class GroupedInvoiceExpenseService
                 'vat_amount' => $grandTotals['vat_amount'],
             ]);
 
-            // Delete old invoices and create new ones
-            $expense->groupedInvoice->invoiceDetails()->delete();
-            $expense->items()->delete();
-            $expense->expenseLines()->delete();
+            // Delete old invoices and their related data
+            foreach ($expense->invoiceDetails as $invoice) {
+                // Delete items and expense lines related to this invoice
+                $expense->items()->where('invoice_detail_id', $invoice->id)->delete();
+                $expense->expenseLines()->where('invoice_detail_id', $invoice->id)->delete();
 
+                // Delete invoice attachments
+                $invoice->attachments()->each(function ($attachment) {
+                    try {
+                        if (Storage::disk('public')->exists($attachment->file_path)) {
+                            Storage::disk('public')->delete($attachment->file_path);
+                        }
+                        $attachment->delete();
+                    } catch (\Exception $e) {
+                        Log::warning('Failed to delete attachment: ' . $e->getMessage());
+                    }
+                });
+            }
+
+            // Delete invoice details
+            $expense->invoiceDetails()->delete();
+
+            // Create new invoices
             foreach ($data['invoices'] as $invoiceData) {
                 $this->createSingleInvoiceInGroup($expense, $expense->groupedInvoice, $invoiceData);
             }
         }
 
-        // Update payment info
-        if (isset($data['payment_type'])) {
-            $expense->groupedInvoice->update([
-                'payment_type' => $data['payment_type'],
-                'paid_amount' => $this->getPaidAmount($data, $expense->total_amount),
-                'due_date' => $data['due_date'] ?? null,
-            ]);
+        // Delete specific attachments if requested
+        if (isset($data['delete_attachments']) && is_array($data['delete_attachments'])) {
+            $this->deleteAttachments($expense, $data['delete_attachments']);
         }
 
-        // Create timeline entry
         $this->createTimelineEntry($expense, 'updated');
 
         return $expense;
     }
 
+    /**
+     * Delete specific attachments
+     */
+    private function deleteAttachments(Expense $expense, array $attachmentIds): void
+    {
+        $attachments = $expense->attachments()->whereIn('id', $attachmentIds)->get();
+
+        foreach ($attachments as $attachment) {
+            try {
+                // Delete physical file
+                if (Storage::disk('public')->exists($attachment->file_path)) {
+                    Storage::disk('public')->delete($attachment->file_path);
+                }
+
+                // Delete database record
+                $attachment->delete();
+            } catch (\Exception $e) {
+                Log::warning('Failed to delete attachment: ' . $e->getMessage());
+            }
+        }
+    }
+
     private function createSingleInvoiceInGroup(Expense $expense, GroupedInvoice $groupedInvoice, array $invoiceData): void
     {
-        // 🔹 بيانات الفاتورة الأساسية
         $invoicePayload = [
             'expense_id' => $expense->id,
             'grouped_invoice_id' => $groupedInvoice->id,
@@ -102,18 +149,15 @@ class GroupedInvoiceExpenseService
             'supplier_id' => $invoiceData['supplier_id'],
         ];
 
-        // 🔹 لو الفاتورة ضريبية، نضيف بيانات tax_invoice_details
         if (!empty($invoiceData['is_tax_invoice']) && !empty($invoiceData['tax_invoice_details'])) {
-            $invoicePayload['supplier_name'] = $invoiceData['tax_invoice_details']['supplier_name'] ?? null;
-            $invoicePayload['net_amount'] = $invoiceData['tax_invoice_details']['net_amount'] ?? 0;
-            $invoicePayload['vat_amount'] = $invoiceData['tax_invoice_details']['vat_amount'] ?? 0;
-            $invoicePayload['total_amount'] = $invoiceData['tax_invoice_details']['total_amount'] ?? 0;
+            $invoicePayload['tax_supplier_name'] = $invoiceData['tax_invoice_details']['supplier_name'] ?? null;
+            $invoicePayload['tax_net_amount'] = $invoiceData['tax_invoice_details']['net_amount'] ?? 0;
+            $invoicePayload['tax_vat_amount'] = $invoiceData['tax_invoice_details']['vat_amount'] ?? 0;
+            $invoicePayload['tax_total_amount'] = $invoiceData['tax_invoice_details']['total_amount'] ?? 0;
         }
 
-        // 🔸 إنشاء السجل في جدول invoice_details
         $invoice = InvoiceDetail::create($invoicePayload);
 
-        // باقي الأكواد كما هي 👇
         if (!empty($invoiceData['items'])) {
             foreach ($invoiceData['items'] as $item) {
                 ExpenseItem::create([
@@ -140,13 +184,13 @@ class GroupedInvoiceExpenseService
             }
         }
 
+        // Upload new receipts WITHOUT deleting old ones
         if (!empty($invoiceData['invoice_receipts'])) {
             foreach ($invoiceData['invoice_receipts'] as $file) {
                 $this->uploadInvoiceReceipt($expense, $invoice, $file);
             }
         }
     }
-
 
     /**
      * Calculate grand totals for all invoices
@@ -193,21 +237,11 @@ class GroupedInvoiceExpenseService
     }
 
     /**
-     * Get paid amount based on payment type
+     * Upload invoice receipt (adds new without deleting old)
      */
-    // private function getPaidAmount(array $data, float $totalAmount): float
-    // {
-    //     return match ($data['payment_type']) {
-    //         'full' => $totalAmount,
-    //         'partial' => $data['paid_amount'],
-    //         'deferred' => 0,
-    //         default => 0,
-    //     };
-    // }
-
     private function uploadInvoiceReceipt(Expense $expense, InvoiceDetail $invoice, $file): void
     {
-        $filename = 'invoice_' . $invoice->id . '_' . time() . '.' . $file->getClientOriginalExtension();
+        $filename = 'invoice_' . $invoice->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
         $path = $file->storeAs('expenses/invoices', $filename, 'public');
 
         $expense->attachments()->create([

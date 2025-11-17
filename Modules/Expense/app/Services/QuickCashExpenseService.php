@@ -4,6 +4,7 @@ namespace Modules\Expense\Services;
 
 use Modules\Expense\Models\{Expense, QuickCashExpense, QuickCashItem};
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 
 class QuickCashExpenseService
 {
@@ -65,34 +66,57 @@ class QuickCashExpenseService
      */
     public function updateQuickCashExpense(Expense $expense, array $data): Expense
     {
-        $vatCalculation = $this->calculateVAT($data);
+        // Prepare data for VAT calculation
+        $calculationData = array_merge($expense->toArray(), $data);
+        $vatCalculation = $this->calculateVAT($calculationData);
 
         $netAmount = $data['net_amount'] ?? $vatCalculation['net_amount'];
         $vatAmount = $data['vat_amount'] ?? $vatCalculation['vat_amount'];
         $totalAmount = $data['total_amount'] ?? $expense->total_amount;
 
+        // Validate total = net + VAT
         if (abs(($netAmount + $vatAmount) - $totalAmount) > 0.01) {
             throw new \Exception('Total amount must equal net + VAT');
         }
 
-        $expense->update([
-            'total_amount' => round($totalAmount, 2),
-            'net_amount' => round($netAmount, 2),
-            'vat_amount' => round($vatAmount, 2),
-            'payment_method' => $data['payment_method'] ?? $expense->payment_method,
-            'supplier_id' => $data['supplier_id'] ?? $expense->supplier_id,
-        ]);
+        // Update main expense record
+        $expenseUpdateData = [];
 
-        $expense->quickCashExpense->update(array_filter([
+        if (isset($data['total_amount'])) {
+            $expenseUpdateData['total_amount'] = round($totalAmount, 2);
+        }
+
+        $expenseUpdateData['net_amount'] = round($netAmount, 2);
+        $expenseUpdateData['vat_amount'] = round($vatAmount, 2);
+
+        if (isset($data['payment_method'])) {
+            $expenseUpdateData['payment_method'] = $data['payment_method'];
+        }
+
+        if (isset($data['supplier_id'])) {
+            $expenseUpdateData['supplier_id'] = $data['supplier_id'];
+        }
+
+        $expense->update($expenseUpdateData);
+
+        // Update quick cash expense details
+        $quickCashUpdateData = array_filter([
             'expense_date' => $data['expense_date'] ?? null,
             'expense_name' => $data['expense_name'] ?? null,
             'has_vat' => $data['has_vat'] ?? null,
             'invoice_number' => $data['invoice_number'] ?? null,
-            'vat_total_amount' => round($vatCalculation['total_amount'], 2),
-        ]));
+        ], function ($value) {
+            return $value !== null;
+        });
 
+        $quickCashUpdateData['vat_total_amount'] = round($vatCalculation['total_amount'], 2);
+
+        $expense->quickCashExpense->update($quickCashUpdateData);
+
+        // Update items if provided
         if (isset($data['items'])) {
             $expense->quickCashExpense->items()->delete();
+
             foreach ($data['items'] as $item) {
                 QuickCashItem::create([
                     'quick_cash_expense_id' => $expense->quickCashExpense->id,
@@ -102,6 +126,12 @@ class QuickCashExpenseService
             }
         }
 
+        // Delete specific attachments if requested
+        if (isset($data['delete_attachments']) && is_array($data['delete_attachments'])) {
+            $this->deleteAttachments($expense, $data['delete_attachments']);
+        }
+
+        // Upload new receipts WITHOUT deleting old ones
         if (isset($data['invoice_receipt']) && is_array($data['invoice_receipt'])) {
             foreach ($data['invoice_receipt'] as $file) {
                 $this->uploadInvoiceReceipt($expense, $file);
@@ -109,11 +139,34 @@ class QuickCashExpenseService
         }
 
         $this->createTimelineEntry($expense, 'updated');
+
         return $expense;
     }
 
     /**
-     * ✅ Flexible VAT Calculation
+     * Delete specific attachments
+     */
+    private function deleteAttachments(Expense $expense, array $attachmentIds): void
+    {
+        $attachments = $expense->attachments()->whereIn('id', $attachmentIds)->get();
+
+        foreach ($attachments as $attachment) {
+            try {
+                // Delete physical file
+                if (Storage::disk('public')->exists($attachment->file_path)) {
+                    Storage::disk('public')->delete($attachment->file_path);
+                }
+
+                // Delete database record
+                $attachment->delete();
+            } catch (\Exception $e) {
+                Log::warning('Failed to delete attachment: ' . $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Flexible VAT Calculation
      * Accepts: array OR (float $amount, bool $hasVAT)
      */
     public function calculateVAT(array|float $data, bool $hasVAT = true): array
@@ -167,9 +220,12 @@ class QuickCashExpenseService
         return 10000.00; // Placeholder - integrate with custody module
     }
 
+    /**
+     * Upload invoice receipt (adds new without deleting old)
+     */
     private function uploadInvoiceReceipt(Expense $expense, $file): void
     {
-        $filename = 'expense_' . $expense->id . '_' . time() . '.' . $file->getClientOriginalExtension();
+        $filename = 'expense_' . $expense->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
         $path = $file->storeAs('expenses/receipts', $filename, 'public');
 
         $expense->attachments()->create([
