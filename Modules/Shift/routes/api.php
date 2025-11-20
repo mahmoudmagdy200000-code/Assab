@@ -129,8 +129,12 @@ Route::prefix('branch-manager')
     */
         Route::post('shifts/{shift}/reassign', [ReassignmentShiftController::class, 'reassign'])
             ->name('shifts.reassign');
+
+        Route::post('shifts/{shift}/reassign-with-handover', [ReassignmentShiftController::class, 'reassignWithHandover']);
+
         Route::get('shifts/{shift}/available-cashiers', [ReassignmentShiftController::class, 'getAvailableCashiers'])
             ->name('shifts.available-cashiers');
+
 
         /*
     |----------------------------------------------------------------------

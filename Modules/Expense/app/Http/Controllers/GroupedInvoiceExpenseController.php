@@ -146,7 +146,7 @@ class GroupedInvoiceExpenseController extends BaseController
 
             // Delete specific invoice receipts
             'delete_attachments' => 'sometimes|array',
-            'delete_attachments.*' => 'integer|exists:expense_attachments,id',
+            'delete_attachments.*' => 'string|exists:expense_attachments,id',
 
             'invoices.*.invoice_receipts' => 'sometimes|array',
             'invoices.*.invoice_receipts.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',

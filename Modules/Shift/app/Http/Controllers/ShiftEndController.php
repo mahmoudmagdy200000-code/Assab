@@ -34,6 +34,17 @@ class ShiftEndController extends Controller
             'aggregators.*.amount' => 'required_with:aggregators|numeric|min:0',
             'aggregators.*.notes' => 'nullable|string|max:255',
             'pos_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
+            // إضافة validation للـ variance (اختياري)
+            'variance' => 'sometimes|array',
+            'variance.responsibility_type' => 'required_with:variance|in:self,self_and_others,other_factors,mixed',
+            'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|numeric|min:0',
+            'variance.other_cashiers' => 'sometimes|array',
+            'variance.other_cashiers.*.cashier_id' => 'required_with:variance.other_cashiers|exists:cashiers,id',
+            'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|numeric|min:0',
+            'variance.other_cashiers.*.notes' => 'nullable|string|max:255',
+            'variance.reason' => 'required_if:variance.responsibility_type,other_factors,mixed|string|max:500',
+            'variance.supporting_files' => 'sometimes|array',
+            'variance.supporting_files.*' => 'file|mimes:pdf,png,jpeg,jpg|max:5120',
         ]);
 
         if ($validator->fails()) {
@@ -43,10 +54,6 @@ class ShiftEndController extends Controller
                 'errors' => $validator->errors()
             ], 422);
         }
-
-
-
-
 
         try {
             $managerBranchId = $request->manager_branch_id;
@@ -80,8 +87,33 @@ class ShiftEndController extends Controller
                 $data['pos_receipt'] = $request->file('pos_receipt');
             }
 
+            // معالجة ملفات الـ variance إذا كانت موجودة
+            if ($request->hasFile('variance.supporting_files')) {
+                $data['variance']['supporting_files'] = $request->file('variance.supporting_files');
+            }
+
             $updatedShift = $this->shiftEndService->endShiftOnly($shiftModel, $data);
             $salesCalculation = $this->shiftEndService->calculateNetSales($request->total_sales);
+
+            // حساب الـ variance إذا كانت موجودة
+            $varianceData = null;
+            if ($request->has('variance')) {
+                $totalVariance = 0;
+
+                if (isset($data['variance']['current_cashier_amount'])) {
+                    $totalVariance += $data['variance']['current_cashier_amount'];
+                }
+
+                if (isset($data['variance']['other_cashiers'])) {
+                    $totalVariance += collect($data['variance']['other_cashiers'])->sum('amount');
+                }
+
+                $varianceData = [
+                    'total_variance' => (float) $totalVariance,
+                    'responsibility_type' => $data['variance']['responsibility_type'],
+                    'variance_type' => $totalVariance > 0 ? 'Over' : ($totalVariance < 0 ? 'Short' : 'None'),
+                ];
+            }
 
             return response()->json([
                 'success' => true,
@@ -99,6 +131,7 @@ class ShiftEndController extends Controller
                         ],
                         'opening_balance' => 0,
                         'handover_status' => 'pending',
+                        'variance' => $varianceData,
                     ],
                     'next_actions' => [
                         'handover_cash_now' => true,
@@ -112,7 +145,6 @@ class ShiftEndController extends Controller
                 'message' => 'Shift not found or you do not have access to it',
             ], 404);
         } catch (\Exception $e) {
-
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to end shift',
@@ -171,7 +203,6 @@ class ShiftEndController extends Controller
                     'message' => 'This shift is not in progress',
                 ], 400);
             }
-
 
             // Fetch the next cashier BEFORE processing
             $nextCashier = Cashier::find($request->next_cashier_id);

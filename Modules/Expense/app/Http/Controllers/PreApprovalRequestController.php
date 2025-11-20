@@ -127,7 +127,7 @@ class PreApprovalRequestController extends BaseController
 
             // Delete specific attachments
             'delete_attachments' => 'sometimes|array',
-            'delete_attachments.*' => 'integer|exists:expense_attachments,id',
+            'delete_attachments.*' => 'string|exists:expense_attachments,id',
         ]);
 
         if ($validator->fails()) {
