@@ -65,6 +65,8 @@ class ExpenseDetailResource extends JsonResource
                 'items' => $quickCash->items->map(function ($item) {
                     return [
                         'id' => $item->id,
+                        'category_id' => $item->category_id,
+                        'category' => $item->category?->name,
                         'title' => $item->title,
                         'amount' => (float) $item->amount,
                     ];
@@ -91,6 +93,7 @@ class ExpenseDetailResource extends JsonResource
                     return [
                         'id' => $item->id,
                         'category' => $item->category?->name,
+                        'category_id' => $item->category_id,
                         'name' => $item->name,
                         'quantity' => (float) $item->quantity,
                         'unit_price' => (float) $item->unit_price,
@@ -154,6 +157,7 @@ class ExpenseDetailResource extends JsonResource
                             return [
                                 'id' => $item->id,
                                 'category' => $item->category?->name,
+                                'category_id' => $item->category_id,
                                 'name' => $item->name,
                                 'quantity' => (float) $item->quantity,
                                 'unit_price' => (float) $item->unit_price,
@@ -192,6 +196,7 @@ class ExpenseDetailResource extends JsonResource
                     return [
                         'id' => $item->id,
                         'category' => $item->category?->name,
+                        'category_id' => $item->category_id,
                         'description' => $item->name,
                         'quantity' => (float) $item->quantity,
                         'rate' => (float) $item->unit_price,
@@ -202,6 +207,7 @@ class ExpenseDetailResource extends JsonResource
                     return [
                         'id' => $line->id,
                         'category' => $line->category?->name,
+                        'category_id' => $line->category_id,
                         'description' => $line->name,
                         'price' => (float) $line->price,
                     ];
