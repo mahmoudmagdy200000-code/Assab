@@ -104,6 +104,7 @@ class ExpenseDetailResource extends JsonResource
                     return [
                         'id' => $line->id,
                         'category' => $line->category?->name,
+                        'category_id' => $line->category_id,
                         'name' => $line->name,
                         'price' => (float) $line->price,
                     ];
@@ -168,6 +169,7 @@ class ExpenseDetailResource extends JsonResource
                             return [
                                 'id' => $line->id,
                                 'category' => $line->category?->name,
+                                'category_id' => $line->category_id,
                                 'name' => $line->name,
                                 'price' => (float) $line->price,
                             ];
