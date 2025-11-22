@@ -216,8 +216,7 @@ class SingleInvoiceExpenseService
             }
         }
 
-        $action = (isset($data['is_draft']) && !$data['is_draft']) ? 'submitted' : 'updated';
-        $this->createTimelineEntry($expense, $action);
+        $this->createTimelineEntry($expense, 'updated');
 
         return $expense;
     }
