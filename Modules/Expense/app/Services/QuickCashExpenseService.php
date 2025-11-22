@@ -38,6 +38,7 @@ class QuickCashExpenseService
             'has_vat' => $data['has_vat'] ?? false,
             'vat_total_amount' => round($vatCalculation['total_amount'], 2),
             'invoice_number' => $data['invoice_number'] ?? null,
+            'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
         ]);
 
         if (!empty($data['items']) && is_array($data['items'])) {
@@ -58,7 +59,7 @@ class QuickCashExpenseService
 
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
-        return $expense;
+        return $expense->load(['quickCashExpense.paymentSupplier']);
     }
 
     /**
@@ -115,6 +116,7 @@ class QuickCashExpenseService
             'expense_name' => $data['expense_name'] ?? null,
             'has_vat' => $data['has_vat'] ?? null,
             'invoice_number' => $data['invoice_number'] ?? null,
+            'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
         ], function ($value) {
             return $value !== null;
         });
@@ -150,7 +152,7 @@ class QuickCashExpenseService
 
         $this->createTimelineEntry($expense, 'updated');
 
-        return $expense;
+        return $expense->load(['quickCashExpense.paymentSupplier']);
     }
 
     /**

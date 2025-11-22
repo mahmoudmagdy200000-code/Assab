@@ -34,6 +34,7 @@ class PreApprovalRequestController extends BaseController
             'estimated_amount' => 'required|numeric|min:500',
             'payment_method' => 'required|in:cash,supplier,custody',
             'supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
+            'payment_supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
             'priority' => 'required|in:high,medium,low',
 
             'items' => 'sometimes|array',
@@ -92,7 +93,7 @@ class PreApprovalRequestController extends BaseController
      */
     public function update(Request $request, string $expense): JsonResponse
     {
-        $expenseModel = Expense::with(['preApprovalRequest', 'items', 'expenseLines', 'attachments'])
+        $expenseModel = Expense::with(['preApprovalRequest', 'preApprovalRequest.paymentSupplier', 'items', 'expenseLines', 'attachments'])
             ->findOrFail($expense);
 
         if ($expenseModel->branch_manager_id !== auth()->id()) {
@@ -108,6 +109,7 @@ class PreApprovalRequestController extends BaseController
             'estimated_amount' => 'sometimes|numeric|min:500',
             'payment_method' => 'sometimes|in:cash,supplier,custody',
             'supplier_id' => 'sometimes|exists:suppliers,id',
+            'payment_supplier_id' => 'sometimes|exists:suppliers,id',
             'priority' => 'sometimes|in:high,medium,low',
 
             'items' => 'sometimes|array',
@@ -151,7 +153,7 @@ class PreApprovalRequestController extends BaseController
             DB::commit();
 
             return $this->successResponse(
-                new ExpenseDetailResource($updated->fresh(['attachments'])),
+                new ExpenseDetailResource($updated->fresh(['attachments', 'preApprovalRequest.paymentSupplier'])),
                 'Pre-approval request updated successfully'
             );
         } catch (\Exception $e) {
@@ -211,6 +213,7 @@ class PreApprovalRequestController extends BaseController
         try {
             $originalExpense = Expense::with([
                 'preApprovalRequest',
+                'preApprovalRequest.paymentSupplier',
                 'items',
                 'expenseLines',
                 'supplier',
@@ -232,6 +235,7 @@ class PreApprovalRequestController extends BaseController
                 'priority' => 'sometimes|in:high,medium,low',
                 'payment_method' => 'sometimes|in:cash,supplier,custody',
                 'supplier_id' => 'sometimes|exists:suppliers,id',
+                'payment_supplier_id' => 'sometimes|exists:suppliers,id',
                 'is_draft' => 'sometimes|boolean',
                 'copy_attachments' => 'sometimes|boolean',
             ]);
@@ -254,6 +258,7 @@ class PreApprovalRequestController extends BaseController
                 'priority' => $request->input('priority', $preApproval->priority),
                 'payment_method' => $request->input('payment_method', $originalExpense->payment_method),
                 'supplier_id' => $request->input('supplier_id', $originalExpense->supplier_id),
+                'payment_supplier_id' => $request->input('payment_supplier_id', $preApproval->payment_supplier_id),
                 'is_draft' => $request->input('is_draft', true),
             ];
 

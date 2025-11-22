@@ -18,6 +18,7 @@ class GroupedInvoice extends Model
         'payment_type',
         'paid_amount',
         'due_date',
+        'payment_supplier_id',
     ];
 
     protected $casts = [
@@ -33,5 +34,10 @@ class GroupedInvoice extends Model
     public function invoiceDetails()
     {
         return $this->hasMany(InvoiceDetail::class);
+    }
+
+    public function paymentSupplier()
+    {
+        return $this->belongsTo(Supplier::class, 'payment_supplier_id');
     }
 }

@@ -20,6 +20,7 @@ class QuickCashExpense extends Model
         'has_vat',
         'invoice_number',
         'vat_total_amount',
+        'payment_supplier_id',
     ];
 
     protected $casts = [
@@ -35,5 +36,10 @@ class QuickCashExpense extends Model
     public function items()
     {
         return $this->hasMany(QuickCashItem::class);
+    }
+
+    public function paymentSupplier()
+    {
+        return $this->belongsTo(Supplier::class, 'payment_supplier_id');
     }
 }

@@ -109,7 +109,7 @@ class GroupedInvoiceExpenseController extends BaseController
      */
     public function update(Request $request, string $expense): JsonResponse
     {
-        $expenseModel = Expense::with(['groupedInvoice', 'invoiceDetails', 'items', 'expenseLines', 'attachments'])
+        $expenseModel = Expense::with(['groupedInvoice', 'groupedInvoice.paymentSupplier', 'invoiceDetails', 'items', 'expenseLines', 'attachments'])
             ->findOrFail($expense);
 
         if ($expenseModel->branch_manager_id !== auth()->id()) {
@@ -148,7 +148,7 @@ class GroupedInvoiceExpenseController extends BaseController
             'delete_attachments' => 'sometimes|array',
             'delete_attachments.*' => 'string|exists:expense_attachments,id',
 
-             'is_draft' => 'sometimes|boolean',
+            'is_draft' => 'sometimes|boolean',
 
             'invoices.*.invoice_receipts' => 'sometimes|array',
             'invoices.*.invoice_receipts.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
@@ -181,7 +181,7 @@ class GroupedInvoiceExpenseController extends BaseController
             DB::commit();
 
             return $this->successResponse(
-                new ExpenseDetailResource($updated->fresh(['attachments'])),
+                new ExpenseDetailResource($updated->fresh(['attachments', 'groupedInvoice.paymentSupplier'])),
                 'Grouped invoice expense updated successfully'
             );
         } catch (\Exception $e) {

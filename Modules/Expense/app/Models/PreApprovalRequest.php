@@ -18,6 +18,7 @@ class PreApprovalRequest extends Model
         'purpose',
         'estimated_amount',
         'priority',
+        'payment_supplier_id',
     ];
 
     protected $casts = [
@@ -27,5 +28,10 @@ class PreApprovalRequest extends Model
     public function expense()
     {
         return $this->belongsTo(Expense::class);
+    }
+
+    public function paymentSupplier()
+    {
+        return $this->belongsTo(Supplier::class, 'payment_supplier_id');
     }
 }

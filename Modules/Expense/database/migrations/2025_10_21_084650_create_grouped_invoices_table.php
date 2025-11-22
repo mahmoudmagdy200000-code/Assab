@@ -17,6 +17,7 @@ return new class extends Migration
             $table->enum('payment_type', ['full', 'partial', 'deferred']);
             $table->decimal('paid_amount', 12, 2)->default(0);
             $table->date('due_date')->nullable();
+            $table->foreignUuid('payment_supplier_id')->nullable()->constrained('suppliers')->nullOnDelete();
             $table->timestamps();
 
             $table->unique('expense_id');

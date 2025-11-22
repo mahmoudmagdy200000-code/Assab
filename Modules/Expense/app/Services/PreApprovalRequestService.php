@@ -34,6 +34,7 @@ class PreApprovalRequestService
             'purpose' => $data['purpose'],
             'estimated_amount' => $data['estimated_amount'],
             'priority' => $data['priority'],
+            'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
         ]);
 
         if (!empty($data['items'])) {
@@ -68,7 +69,7 @@ class PreApprovalRequestService
 
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
-        return $expense;
+        return $expense->load(['preApprovalRequest.paymentSupplier']);
     }
 
     /**
@@ -110,6 +111,7 @@ class PreApprovalRequestService
             'purpose' => $data['purpose'] ?? null,
             'estimated_amount' => $data['estimated_amount'] ?? null,
             'priority' => $data['priority'] ?? null,
+            'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
         ], function ($value) {
             return $value !== null;
         });
@@ -162,7 +164,7 @@ class PreApprovalRequestService
 
         $this->createTimelineEntry($expense, 'updated');
 
-        return $expense;
+        return $expense->load(['preApprovalRequest.paymentSupplier']);
     }
 
     /**

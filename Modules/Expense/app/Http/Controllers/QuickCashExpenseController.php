@@ -45,6 +45,7 @@ class QuickCashExpenseController extends BaseController
             'invoice_number' => 'nullable|string|max:100',
             'payment_method' => 'required|in:cash,supplier,custody',
             'supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
+            'payment_supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
 
             'invoice_receipt' => 'sometimes|array|max:5',
             'invoice_receipt.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
@@ -106,7 +107,7 @@ class QuickCashExpenseController extends BaseController
      */
     public function update(Request $request, string $expense): JsonResponse
     {
-        $expenseModel = Expense::with(['quickCashExpense', 'quickCashExpense.items', 'attachments'])
+        $expenseModel = Expense::with(['quickCashExpense', 'quickCashExpense.items', 'quickCashExpense.paymentSupplier', 'attachments'])
             ->findOrFail($expense);
 
         if ($expenseModel->branch_manager_id !== auth()->id()) {
@@ -139,6 +140,7 @@ class QuickCashExpenseController extends BaseController
             'invoice_number' => 'nullable|string|max:100',
             'payment_method' => 'sometimes|in:cash,supplier,custody',
             'supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
+            'payment_supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
 
             // New attachments
             'invoice_receipt' => 'sometimes|array|max:5',
@@ -190,7 +192,7 @@ class QuickCashExpenseController extends BaseController
             DB::commit();
 
             return $this->successResponse(
-                new ExpenseDetailResource($updated->fresh(['attachments'])),
+                new ExpenseDetailResource($updated->fresh(['attachments', 'quickCashExpense.paymentSupplier'])),
                 'Quick cash expense updated successfully'
             );
         } catch (\Exception $e) {

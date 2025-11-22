@@ -17,6 +17,7 @@ return new class extends Migration
             $table->text('purpose');
             $table->decimal('estimated_amount', 12, 2);
             $table->enum('priority', ['high', 'medium', 'low'])->default('medium');
+            $table->foreignUuid('payment_supplier_id')->nullable()->constrained('suppliers')->nullOnDelete();
             $table->timestamps();
 
             $table->unique('expense_id');

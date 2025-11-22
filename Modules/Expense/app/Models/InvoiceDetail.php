@@ -31,6 +31,7 @@ class InvoiceDetail extends Model
         'payment_type',
         'paid_amount',
         'due_date',
+        'payment_supplier_id',
     ];
 
     protected $casts = [
@@ -71,5 +72,10 @@ class InvoiceDetail extends Model
     public function attachments()
     {
         return $this->hasMany(ExpenseAttachment::class);
+    }
+
+    public function paymentSupplier()
+    {
+        return $this->belongsTo(Supplier::class, 'payment_supplier_id');
     }
 }

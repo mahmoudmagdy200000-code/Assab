@@ -32,6 +32,7 @@ class ExpenseDetailResource extends JsonResource
                 'id' => $this->supplier?->id,
                 'name' => $this->supplier?->name,
             ]),
+            'payment_supplier' => $this->getPaymentSupplier(),
             'created_at' => $this->created_at->format('Y-m-d H:i:s'),
             'submitted_at' => $this->submitted_at?->format('Y-m-d H:i:s'),
         ];
@@ -62,6 +63,10 @@ class ExpenseDetailResource extends JsonResource
                 'has_vat' => $quickCash->has_vat,
                 'vat_total_amount' => (float) $this->quickCashExpense->vat_total_amount,
                 'invoice_number' => $quickCash->invoice_number,
+                'payment_supplier' => $this->when($quickCash->payment_supplier_id, [
+                    'id' => $quickCash->paymentSupplier?->id,
+                    'name' => $quickCash->paymentSupplier?->name,
+                ]),
                 'items' => $quickCash->items->map(function ($item) {
                     return [
                         'id' => $item->id,
@@ -89,6 +94,10 @@ class ExpenseDetailResource extends JsonResource
                 'payment_type' => $invoice->payment_type,
                 'paid_amount' => (float) $invoice->paid_amount,
                 'due_date' => $invoice->due_date?->format('Y-m-d'),
+                'payment_supplier' => $this->when($invoice->payment_supplier_id, [
+                    'id' => $invoice->paymentSupplier?->id,
+                    'name' => $invoice->paymentSupplier?->name,
+                ]),
                 'items' => $this->items->map(function ($item) {
                     return [
                         'id' => $item->id,
@@ -136,7 +145,10 @@ class ExpenseDetailResource extends JsonResource
                 'number_of_suppliers' => $grouped->invoiceDetails->pluck('supplier_id')->unique()->count(),
                 'supplier_names' => $grouped->invoiceDetails->map(fn($inv) => $inv->supplier->name)->unique()->values(),
                 'payment_type' => $grouped->payment_type,
-                'payment_supplier_id' => $grouped->payment_supplier_id,
+                'payment_supplier' => $this->when($grouped->payment_supplier_id, [
+                    'id' => $grouped->paymentSupplier?->id,
+                    'name' => $grouped->paymentSupplier?->name,
+                ]),
                 'paid_amount' => (float) $grouped->paid_amount,
                 'due_date' => $grouped->due_date?->format('Y-m-d'),
                 'total_invoices' => $grouped->invoiceDetails->count(),
@@ -194,6 +206,10 @@ class ExpenseDetailResource extends JsonResource
                     'value' => $preApproval->priority,
                     'label' => ucfirst($preApproval->priority),
                 ],
+                'payment_supplier' => $this->when($preApproval->payment_supplier_id, [
+                    'id' => $preApproval->paymentSupplier?->id,
+                    'name' => $preApproval->paymentSupplier?->name,
+                ]),
                 'items' => $this->items->map(function ($item) {
                     return [
                         'id' => $item->id,
@@ -272,6 +288,32 @@ class ExpenseDetailResource extends JsonResource
             'approved' => 'green',
             'rejected' => 'red',
             default => 'gray',
+        };
+    }
+
+    /**
+     * Get payment supplier based on expense type
+     */
+    private function getPaymentSupplier(): ?array
+    {
+        return match ($this->expense_type) {
+            'quick_cash' => $this->quickCashExpense?->payment_supplier_id ? [
+                'id' => $this->quickCashExpense->paymentSupplier?->id,
+                'name' => $this->quickCashExpense->paymentSupplier?->name,
+            ] : null,
+            'single_invoice' => $this->invoiceDetails->first()?->payment_supplier_id ? [
+                'id' => $this->invoiceDetails->first()->paymentSupplier?->id,
+                'name' => $this->invoiceDetails->first()->paymentSupplier?->name,
+            ] : null,
+            'grouped_invoice' => $this->groupedInvoice?->payment_supplier_id ? [
+                'id' => $this->groupedInvoice->paymentSupplier?->id,
+                'name' => $this->groupedInvoice->paymentSupplier?->name,
+            ] : null,
+            'pre_approval' => $this->preApprovalRequest?->payment_supplier_id ? [
+                'id' => $this->preApprovalRequest->paymentSupplier?->id,
+                'name' => $this->preApprovalRequest->paymentSupplier?->name,
+            ] : null,
+            default => null,
         };
     }
 }

@@ -46,6 +46,7 @@ class SingleInvoiceExpenseService
             'payment_type' => $data['payment_type'],
             'paid_amount' => $this->getPaidAmount($data),
             'due_date' => $data['due_date'] ?? null,
+            'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
         ]);
 
         if (!empty($data['is_tax_invoice']) && !empty($data['tax_invoice_details'])) {
@@ -91,7 +92,7 @@ class SingleInvoiceExpenseService
 
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
-        return $expense;
+        return $expense->load(['invoiceDetails.paymentSupplier']);
     }
 
     /**
@@ -145,6 +146,7 @@ class SingleInvoiceExpenseService
                 'tax_id' => $data['tax_id'] ?? null,
                 'payment_type' => $data['payment_type'] ?? null,
                 'due_date' => $data['due_date'] ?? null,
+                'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
             ], function ($value) {
                 return $value !== null;
             });
@@ -218,7 +220,7 @@ class SingleInvoiceExpenseService
 
         $this->createTimelineEntry($expense, 'updated');
 
-        return $expense;
+        return $expense->load(['invoiceDetails.paymentSupplier']);
     }
 
     /**

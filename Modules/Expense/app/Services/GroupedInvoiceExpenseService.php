@@ -41,7 +41,7 @@ class GroupedInvoiceExpenseService
 
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
-        return $expense;
+        return $expense->load(['groupedInvoice.paymentSupplier']);
     }
 
     /**
@@ -127,7 +127,7 @@ class GroupedInvoiceExpenseService
 
         $this->createTimelineEntry($expense, 'updated');
 
-        return $expense;
+        return $expense->load(['groupedInvoice.paymentSupplier']);
     }
 
     /**

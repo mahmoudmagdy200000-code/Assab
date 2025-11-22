@@ -60,6 +60,7 @@ class SingleInvoiceExpenseController extends BaseController
             // Payment method
             'payment_type' => 'required|in:full,partial,deferred',
             'payment_method' => 'required_if:payment_type,full|in:cash,supplier,custody',
+            'payment_supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
             'paid_amount' => 'required_if:payment_type,partial|numeric|min:0',
             'due_date' => 'required_if:payment_type,partial,deferred|date|after:today',
 
@@ -117,7 +118,7 @@ class SingleInvoiceExpenseController extends BaseController
      */
     public function update(Request $request, string $expense): JsonResponse
     {
-        $expenseModel = Expense::with(['invoiceDetails', 'items', 'expenseLines', 'attachments'])
+        $expenseModel = Expense::with(['invoiceDetails', 'invoiceDetails.paymentSupplier', 'items', 'expenseLines', 'attachments'])
             ->findOrFail($expense);
 
         // Check authorization
@@ -160,6 +161,7 @@ class SingleInvoiceExpenseController extends BaseController
 
             'payment_type' => 'sometimes|in:full,partial,deferred',
             'payment_method' => 'sometimes|in:cash,supplier,custody',
+            'payment_supplier_id' => 'sometimes|exists:suppliers,id',
             'paid_amount' => 'sometimes|numeric|min:0',
             'due_date' => 'sometimes|date|after:today',
 
@@ -203,7 +205,7 @@ class SingleInvoiceExpenseController extends BaseController
             DB::commit();
 
             return $this->successResponse(
-                new ExpenseDetailResource($updated->fresh(['attachments'])),
+                new ExpenseDetailResource($updated->fresh(['attachments', 'invoiceDetails.paymentSupplier'])),
                 'Single invoice expense updated successfully'
             );
         } catch (\Exception $e) {
@@ -265,6 +267,7 @@ class SingleInvoiceExpenseController extends BaseController
         try {
             $originalExpense = Expense::with([
                 'invoiceDetails',
+                'invoiceDetails.paymentSupplier',
                 'items',
                 'expenseLines',
                 'supplier',
@@ -284,6 +287,7 @@ class SingleInvoiceExpenseController extends BaseController
                 'invoice_number' => 'sometimes|string|max:100',
                 'issue_date' => 'sometimes|date',
                 'supplier_id' => 'sometimes|exists:suppliers,id',
+                'payment_supplier_id' => 'sometimes|exists:suppliers,id',
                 'is_draft' => 'sometimes|boolean',
                 'copy_attachments' => 'sometimes|boolean',
             ]);
@@ -309,6 +313,7 @@ class SingleInvoiceExpenseController extends BaseController
                 'tax_id' => $invoiceDetails->tax_id,
                 'payment_type' => $invoiceDetails->payment_type,
                 'payment_method' => $originalExpense->payment_method,
+                'payment_supplier_id' => $request->input('payment_supplier_id', $invoiceDetails->payment_supplier_id),
                 'paid_amount' => $invoiceDetails->paid_amount,
                 'due_date' => $invoiceDetails->due_date,
                 'is_draft' => $request->input('is_draft', true),
