@@ -33,7 +33,7 @@ class PreApprovalRequestController extends BaseController
             'purpose' => 'required|string|max:500',
             'estimated_amount' => 'required|numeric|min:500',
             'payment_method' => 'required|in:cash,supplier,custody',
-            'supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
+            //'supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
             'payment_supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
             'priority' => 'required|in:high,medium,low',
 
