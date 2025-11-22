@@ -144,6 +144,8 @@ class QuickCashExpenseController extends BaseController
             'invoice_receipt' => 'sometimes|array|max:5',
             'invoice_receipt.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
 
+            'is_draft' => 'sometimes|boolean',
+
             // Delete specific attachments
             'delete_attachments' => 'sometimes|array',
             'delete_attachments.*' => 'string|exists:expense_attachments,id',
