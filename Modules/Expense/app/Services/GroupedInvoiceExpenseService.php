@@ -49,6 +49,7 @@ class GroupedInvoiceExpenseService
      */
     public function updateGroupedInvoice(Expense $expense, array $data): Expense
     {
+
         // Update payment info in grouped invoice
         if (isset($data['payment_type']) || isset($data['payment_supplier_id']) || isset($data['due_date'])) {
             $groupedInvoiceUpdateData = array_filter([
@@ -62,11 +63,25 @@ class GroupedInvoiceExpenseService
             $expense->groupedInvoice->update($groupedInvoiceUpdateData);
         }
 
-        // Update payment method in main expense
+        $expenseUpdateData = [];
+        // Update payment method
         if (isset($data['payment_method'])) {
-            $expense->update(['payment_method' => $data['payment_method']]);
+            $expenseUpdateData['payment_method'] = $data['payment_method'];
         }
 
+        // ✅ إضافة معالجة is_draft
+        if (isset($data['is_draft'])) {
+            $expenseUpdateData['status'] = $data['is_draft'] ? 'draft' : 'pending';
+
+            if (!$data['is_draft'] && !$expense->submitted_at) {
+                $expenseUpdateData['submitted_at'] = now();
+            }
+        }
+
+        // Update expense if there are changes
+        if (!empty($expenseUpdateData)) {
+            $expense->update($expenseUpdateData);
+        }
         // Recalculate totals and recreate invoices if invoices changed
         if (isset($data['invoices'])) {
             $grandTotals = $this->calculateGrandTotals($data['invoices']);
@@ -110,7 +125,8 @@ class GroupedInvoiceExpenseService
             $this->deleteAttachments($expense, $data['delete_attachments']);
         }
 
-        $this->createTimelineEntry($expense, 'updated');
+        $action = (isset($data['is_draft']) && !$data['is_draft']) ? 'submitted' : 'updated';
+        $this->createTimelineEntry($expense, $action);
 
         return $expense;
     }

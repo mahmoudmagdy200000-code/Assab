@@ -92,6 +92,15 @@ class PreApprovalRequestService
             $expenseUpdateData['supplier_id'] = $data['supplier_id'];
         }
 
+        // ✅ إضافة معالجة is_draft
+        if (isset($data['is_draft'])) {
+            $expenseUpdateData['status'] = $data['is_draft'] ? 'draft' : 'pending';
+
+            if (!$data['is_draft'] && !$expense->submitted_at) {
+                $expenseUpdateData['submitted_at'] = now();
+            }
+        }
+
         if (!empty($expenseUpdateData)) {
             $expense->update($expenseUpdateData);
         }
@@ -151,7 +160,8 @@ class PreApprovalRequestService
             }
         }
 
-        $this->createTimelineEntry($expense, 'updated');
+        $action = (isset($data['is_draft']) && !$data['is_draft']) ? 'submitted' : 'updated';
+        $this->createTimelineEntry($expense, $action);
 
         return $expense;
     }

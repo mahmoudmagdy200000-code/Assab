@@ -110,6 +110,16 @@ class SingleInvoiceExpenseService
             $updateData['payment_method'] = $data['payment_method'];
         }
 
+        if (isset($data['is_draft'])) {
+
+            $updateData['status'] = $data['is_draft'] ? 'draft' : 'pending';
+
+
+            if (!$data['is_draft'] && !$expense->submitted_at) {
+                $updateData['submitted_at'] = now();
+            }
+        }
+
         // Recalculate totals if items/expenses changed
         if (isset($data['items']) || isset($data['expenses']) || isset($data['total_amount'])) {
             $mergedData = array_merge($expense->toArray(), $data);
@@ -206,7 +216,8 @@ class SingleInvoiceExpenseService
             }
         }
 
-        $this->createTimelineEntry($expense, 'updated');
+        $action = (isset($data['is_draft']) && !$data['is_draft']) ? 'submitted' : 'updated';
+        $this->createTimelineEntry($expense, $action);
 
         return $expense;
     }
