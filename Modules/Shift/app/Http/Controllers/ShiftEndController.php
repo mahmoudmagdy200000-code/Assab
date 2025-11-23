@@ -27,8 +27,8 @@ class ShiftEndController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'total_sales' => 'required|numeric|min:0',
-            'cash_collected' => 'required|numeric|min:0',
-            'card_payments' => 'required|numeric|min:0',
+            'cash_collected' => 'sometimes|numeric|min:0',
+            'card_payments' => 'sometimes|numeric|min:0',
             'aggregators' => 'sometimes|array',
             'aggregators.*.aggregator_id' => 'required_with:aggregators|exists:aggregators,id',
             'aggregators.*.amount' => 'required_with:aggregators|numeric|min:0',
@@ -160,8 +160,8 @@ class ShiftEndController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'total_sales' => 'required|numeric|min:0',
-            'cash_collected' => 'required|numeric|min:0',
-            'card_payments' => 'required|numeric|min:0',
+            'cash_collected' => 'sometimes|numeric|min:0',
+            'card_payments' => 'sometimes|numeric|min:0',
             'aggregators' => 'sometimes|array',
             'aggregators.*.aggregator_id' => 'required_with:aggregators|exists:aggregators,id',
             'aggregators.*.amount' => 'required_with:aggregators|numeric|min:0',
