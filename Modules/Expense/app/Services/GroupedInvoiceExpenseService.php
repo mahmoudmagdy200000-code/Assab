@@ -52,28 +52,30 @@ class GroupedInvoiceExpenseService
      */
     public function updateGroupedInvoice(Expense $expense, array $data): Expense
     {
-
-        // Update payment info in grouped invoice
+        /** ================================
+         * 1) Update Grouped Invoice Header
+         * ================================ */
         if (isset($data['payment_type']) || isset($data['payment_supplier_id']) || isset($data['due_date'])) {
+
             $groupedInvoiceUpdateData = array_filter([
                 'payment_type' => $data['payment_type'] ?? null,
                 'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
                 'default_supplier_id' => $data['default_supplier_id'] ?? null,
                 'due_date' => $data['due_date'] ?? null,
-            ], function ($value) {
-                return $value !== null;
-            });
+            ], fn($v) => $v !== null);
 
             $expense->groupedInvoice->update($groupedInvoiceUpdateData);
         }
 
+        /** ================================
+         * 2) Update Expense Main Data
+         * ================================ */
         $expenseUpdateData = [];
-        // Update payment method
+
         if (isset($data['payment_method'])) {
             $expenseUpdateData['payment_method'] = $data['payment_method'];
         }
 
-        // ✅ إضافة معالجة is_draft
         if (isset($data['is_draft'])) {
             $expenseUpdateData['status'] = $data['is_draft'] ? 'draft' : 'pending';
 
@@ -82,12 +84,15 @@ class GroupedInvoiceExpenseService
             }
         }
 
-        // Update expense if there are changes
         if (!empty($expenseUpdateData)) {
             $expense->update($expenseUpdateData);
         }
-        // Recalculate totals and recreate invoices if invoices changed
+
+        /** =======================================
+         * 3) Update invoices WITHOUT deleting all
+         * ======================================= */
         if (isset($data['invoices'])) {
+
             $grandTotals = $this->calculateGrandTotals($data['invoices']);
 
             $expense->update([
@@ -96,35 +101,44 @@ class GroupedInvoiceExpenseService
                 'vat_amount' => $grandTotals['vat_amount'],
             ]);
 
-            // Delete old invoices and their related data
-            foreach ($expense->invoiceDetails as $invoice) {
-                // Delete items and expense lines related to this invoice
-                $expense->items()->where('invoice_detail_id', $invoice->id)->delete();
-                $expense->expenseLines()->where('invoice_detail_id', $invoice->id)->delete();
-
-                // Delete invoice attachments
-                $invoice->attachments()->each(function ($attachment) {
-                    try {
-                        if (Storage::disk('public')->exists($attachment->file_path)) {
-                            Storage::disk('public')->delete($attachment->file_path);
-                        }
-                        $attachment->delete();
-                    } catch (\Exception $e) {
-                        Log::warning('Failed to delete attachment: ' . $e->getMessage());
-                    }
-                });
-            }
-
-            // Delete invoice details
-            $expense->invoiceDetails()->delete();
-
-            // Create new invoices
+            // Update or create each invoice
             foreach ($data['invoices'] as $invoiceData) {
-                $this->createSingleInvoiceInGroup($expense, $expense->groupedInvoice, $invoiceData);
+
+                if (isset($invoiceData['id'])) {
+                    // UPDATE existing invoice
+                    $invoice = $expense->invoiceDetails()->find($invoiceData['id']);
+
+                    if ($invoice) {
+                        $invoice->update([
+                            'invoice_number' => $invoiceData['invoice_number'] ?? $invoice->invoice_number,
+                            'invoice_date' => $invoiceData['invoice_date'] ?? $invoice->invoice_date,
+                            'net_amount' => $invoiceData['net_amount'] ?? $invoice->net_amount,
+                            'vat_amount' => $invoiceData['vat_amount'] ?? $invoice->vat_amount,
+                            'total_amount' => $invoiceData['total_amount'] ?? $invoice->total_amount,
+                        ]);
+                    }
+                } else {
+                    // CREATE new invoice
+                    $this->createSingleInvoiceInGroup($expense, $expense->groupedInvoice, $invoiceData);
+                }
             }
+
+            // Delete invoices removed by user
+            $sentIds = collect($data['invoices'])->pluck('id')->filter()->toArray();
+            $expense->invoiceDetails()
+                ->whereNotIn('id', $sentIds)
+                ->each(function ($invoice) {
+                    // delete related items
+                    $invoice->items()->delete();
+                    $invoice->expenseLines()->delete();
+                    $invoice->attachments()->delete();
+                    $invoice->delete();
+                });
         }
 
-        // Delete specific attachments if requested
+        /** ================================
+         * 4) Delete specific attachments
+         * ================================ */
         if (isset($data['delete_attachments']) && is_array($data['delete_attachments'])) {
             $this->deleteAttachments($expense, $data['delete_attachments']);
         }
@@ -133,6 +147,7 @@ class GroupedInvoiceExpenseService
 
         return $expense->load(['groupedInvoice.paymentSupplier']);
     }
+
 
     /**
      * Delete specific attachments
@@ -143,18 +158,17 @@ class GroupedInvoiceExpenseService
 
         foreach ($attachments as $attachment) {
             try {
-                // Delete physical file
                 if (Storage::disk('public')->exists($attachment->file_path)) {
                     Storage::disk('public')->delete($attachment->file_path);
                 }
 
-                // Delete database record
                 $attachment->delete();
             } catch (\Exception $e) {
                 Log::warning('Failed to delete attachment: ' . $e->getMessage());
             }
         }
     }
+
 
     private function createSingleInvoiceInGroup(Expense $expense, GroupedInvoice $groupedInvoice, array $invoiceData): void
     {
