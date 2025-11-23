@@ -152,6 +152,8 @@ class ExpenseDetailResource extends JsonResource
                 'paid_amount' => (float) $grouped->paid_amount,
                 'due_date' => $grouped->due_date?->format('Y-m-d'),
                 'total_invoices' => $grouped->invoiceDetails->count(),
+                'default_supplier_id' => $grouped->default_supplier_id ?? null,
+                'default_supplier_name' => $grouped->defaultSupplier?->name,
                 'invoices' => $grouped->invoiceDetails->map(function ($invoice) {
                     return [
                         'id' => $invoice->id,

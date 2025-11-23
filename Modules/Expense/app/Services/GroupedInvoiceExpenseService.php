@@ -20,6 +20,7 @@ class GroupedInvoiceExpenseService
 
         $expense = Expense::create([
             'branch_manager_id' => auth()->id(),
+
             'expense_type' => 'grouped_invoice',
             'status' => $data['is_draft'] ?? false ? 'draft' : 'pending',
             'total_amount' => $grandTotals['total_amount'],
@@ -29,10 +30,12 @@ class GroupedInvoiceExpenseService
         ]);
 
         $groupedInvoice = GroupedInvoice::create([
+
             'expense_id' => $expense->id,
             'payment_type' => $data['payment_type'],
             'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
             'due_date' => $data['due_date'] ?? null,
+            'default_supplier_id' => $data['default_supplier_id'] ?? null,
         ]);
 
         foreach ($data['invoices'] as $invoiceData) {

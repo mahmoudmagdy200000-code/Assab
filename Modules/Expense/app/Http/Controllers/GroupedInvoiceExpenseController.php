@@ -32,6 +32,7 @@ class GroupedInvoiceExpenseController extends BaseController
             'payment_method' => 'required_if:payment_type,full|in:cash,supplier,custody',
             'paid_amount' => 'nullable:payment_type,partial|numeric|min:0',
             'due_date' => 'required_if:payment_type,deferred|date|after:today',
+            'default_supplier_id' => 'nullable|exists:suppliers,id',
 
             'invoices' => 'required|array|min:1',
             'invoices.*.supplier_id' => 'required|exists:suppliers,id',
