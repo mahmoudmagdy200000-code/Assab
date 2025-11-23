@@ -58,6 +58,7 @@ class GroupedInvoiceExpenseService
             $groupedInvoiceUpdateData = array_filter([
                 'payment_type' => $data['payment_type'] ?? null,
                 'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
+                'default_supplier_id' => $data['default_supplier_id'] ?? null,
                 'due_date' => $data['due_date'] ?? null,
             ], function ($value) {
                 return $value !== null;

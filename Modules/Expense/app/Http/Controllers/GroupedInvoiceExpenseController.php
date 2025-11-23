@@ -133,6 +133,7 @@ class GroupedInvoiceExpenseController extends BaseController
             'paid_amount' => 'sometimes|numeric|min:0',
             'due_date' => 'sometimes|date|after:today',
             'payment_supplier_id' => 'sometimes|exists:suppliers,id',
+            'default_supplier_id' => 'sometimes|exists:suppliers,id',
 
             'invoices' => 'sometimes|array|min:1',
             'invoices.*.supplier_id' => 'required_with:invoices|exists:suppliers,id',
