@@ -75,7 +75,7 @@ class ReassignmentShiftController extends Controller
                         'reassigned_from' => $shiftDetails->originalCashier?->name,
                         'reassigned_to' => $shiftDetails->cashier->name,
                         'reassigned_by' => $shiftDetails->reassignedBy?->name,
-                        'reason' => $shiftDetails->reassignment_reason,
+                        // 'reason' => $shiftDetails->reassignment_reason,
                     ]
                 ]
             ]);
@@ -99,7 +99,7 @@ class ReassignmentShiftController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'new_cashier_id' => 'required|exists:cashiers,id',
-            'reason' => 'required|string|max:500',
+            // 'reason' => 'required|string|max:500',
         ]);
 
         if ($validator->fails()) {
@@ -155,7 +155,7 @@ class ReassignmentShiftController extends Controller
                 'cashier_id' => $request->new_cashier_id,
                 'status' => ShiftStatus::REASSIGNED,
                 'reassigned_by' => auth()->id(),
-                'reassignment_reason' => $request->reason,
+                // 'reassignment_reason' => $request->reason,
                 'reassigned_at' => now(),
             ]);
 
@@ -171,7 +171,7 @@ class ReassignmentShiftController extends Controller
                 'new_value' => json_encode([
                     'cashier_id' => $request->new_cashier_id,
                     'cashier_name' => $newCashier->name,
-                    'reason' => $request->reason,
+                    // 'reason' => $request->reason,
                 ]),
                 'notes' => 'Shift reassigned by branch manager',
             ]);
@@ -192,7 +192,7 @@ class ReassignmentShiftController extends Controller
                         'shift_date' => $shiftModel->shift_date->format('Y-m-d'),
                         'start_time' => $shiftModel->shift->start_time,
                         'end_time' => $shiftModel->shift->end_time,
-                        'reason' => $request->reason,
+                        // 'reason' => $request->reason,
                         'reassigned_at' => now()->format('Y-m-d H:i:s'),
                     ],
                     'shift' => new ShiftDetailResource($shiftModel->fresh())
@@ -219,7 +219,7 @@ class ReassignmentShiftController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'new_cashier_id' => 'required|exists:cashiers,id',
-            'reason' => 'required|string|max:500',
+            // 'reason' => 'required|string|max:500',
             'handover_amount' => 'required|numeric|min:0',
             'handover_notes' => 'nullable|string|max:500',
 
@@ -346,7 +346,7 @@ class ReassignmentShiftController extends Controller
                 $variance = $shiftModel->varianceDetails()->create([
                     'responsibility_type' => $varianceInput['responsibility_type'],
                     'current_cashier_amount' => $varianceInput['current_cashier_amount'] ?? null,
-                    'reason' => $varianceInput['reason'] ?? null,
+                    // 'reason' => $varianceInput['reason'] ?? null,
                 ]);
 
                 // 2) Store other cashiers
@@ -381,7 +381,7 @@ class ReassignmentShiftController extends Controller
                 'next_cashier_id' => $request->new_cashier_id,
                 'status' => ShiftStatus::REASSIGNED,
                 'reassigned_by' => auth()->id(),
-                'reassignment_reason' => $request->reason,
+                // 'reassignment_reason' => $request->reason,
                 'reassigned_at' => now(),
                 'handover_completed' => true,
             ]);
@@ -399,7 +399,7 @@ class ReassignmentShiftController extends Controller
                     'cashier_id' => $request->new_cashier_id,
                     'cashier_name' => $newCashier->name,
                     'handover_amount' => $request->handover_amount,
-                    'reason' => $request->reason,
+                    // 'reason' => $request->reason,
                 ]),
                 'notes' => 'Shift reassigned with handover by branch manager',
             ]);
@@ -416,7 +416,7 @@ class ReassignmentShiftController extends Controller
                         'shift_date' => $shiftModel->shift_date->format('Y-m-d'),
                         'start_time' => $shiftModel->shift->start_time,
                         'end_time' => $shiftModel->shift->end_time,
-                        'reason' => $request->reason,
+                        // 'reason' => $request->reason,
                         'reassigned_at' => now()->format('Y-m-d H:i:s'),
                         'handover_details' => [
                             'handover_amount' => (float)$request->handover_amount,
