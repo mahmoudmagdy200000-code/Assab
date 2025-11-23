@@ -47,59 +47,78 @@ class GroupedInvoiceExpenseService
         return $expense->load(['groupedInvoice.paymentSupplier']);
     }
 
+    /**
+     * Update Grouped Invoice Expense
+     */
     public function updateGroupedInvoice(Expense $expense, array $data): Expense
     {
-        /**
-         * --------------------------------------------------------
-         * 1) Update grouped invoice payment info
-         * --------------------------------------------------------
-         */
-        if (
-            isset($data['payment_type']) ||
-            isset($data['payment_supplier_id']) ||
-            isset($data['due_date']) ||
-            isset($data['default_supplier_id'])
-        ) {
-            $groupedInvoiceUpdateData = array_filter([
+        // Update payment info in grouped invoice
+        if (isset($data['payment_type']) || isset($data['payment_supplier_id']) || isset($data['due_date'])) {
+            $expense->groupedInvoice->update(array_filter([
                 'payment_type' => $data['payment_type'] ?? null,
                 'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
                 'default_supplier_id' => $data['default_supplier_id'] ?? null,
                 'due_date' => $data['due_date'] ?? null,
-            ], fn($value) => $value !== null);
-
-            $expense->groupedInvoice->update($groupedInvoiceUpdateData);
+            ], fn($v) => !is_null($v)));
         }
 
-        /**
-         * --------------------------------------------------------
-         * 2) Update expense (status, payment_method, draft logic)
-         * --------------------------------------------------------
-         */
-        $expenseUpdateData = [];
+        // Update expense main data
+        $expenseUpdate = [];
 
         if (isset($data['payment_method'])) {
-            $expenseUpdateData['payment_method'] = $data['payment_method'];
+            $expenseUpdate['payment_method'] = $data['payment_method'];
         }
 
+        // Draft handling
         if (isset($data['is_draft'])) {
-            $expenseUpdateData['status'] = $data['is_draft'] ? 'draft' : 'pending';
-
+            $expenseUpdate['status'] = $data['is_draft'] ? 'draft' : 'pending';
             if (!$data['is_draft'] && !$expense->submitted_at) {
-                $expenseUpdateData['submitted_at'] = now();
+                $expenseUpdate['submitted_at'] = now();
             }
         }
 
-        if (!empty($expenseUpdateData)) {
-            $expense->update($expenseUpdateData);
+        if (!empty($expenseUpdate)) {
+            $expense->update($expenseUpdate);
         }
 
         /**
-         * --------------------------------------------------------
-         * 3) Update invoices ONLY if sent AND not empty
-         * --------------------------------------------------------
+         * -------------------------------------------
+         *  🔥 NEW: Partial Update for Single Invoice
+         * -------------------------------------------
          */
-        if (isset($data['invoices']) && !empty($data['invoices'])) {
+        if (!empty($data['invoice_id'])) {
+            $invoice = $expense->invoiceDetails()->where('id', $data['invoice_id'])->firstOrFail();
 
+            $updatePayload = [];
+
+            if (isset($data['invoice_number'])) {
+                $updatePayload['invoice_number'] = $data['invoice_number'];
+            }
+
+            if (isset($data['issue_date'])) {
+                $updatePayload['issue_date'] = $data['issue_date'];
+            }
+
+            if (isset($data['tax_id'])) {
+                $updatePayload['tax_id'] = $data['tax_id'];
+            }
+
+            if (isset($data['supplier_id'])) {
+                $updatePayload['supplier_id'] = $data['supplier_id'];
+            }
+
+            if (!empty($updatePayload)) {
+                $invoice->update($updatePayload);
+            }
+        }
+
+        /**
+         * -------------------------------------------
+         * OLD: Full invoices replacement stays as is
+         * (Only when invoices array is sent)
+         * -------------------------------------------
+         */
+        if (isset($data['invoices'])) {
             $grandTotals = $this->calculateGrandTotals($data['invoices']);
 
             $expense->update([
@@ -108,38 +127,28 @@ class GroupedInvoiceExpenseService
                 'vat_amount' => $grandTotals['vat_amount'],
             ]);
 
-            // Delete old invoices and related data
+            // Delete old invoices
             foreach ($expense->invoiceDetails as $invoice) {
                 $expense->items()->where('invoice_detail_id', $invoice->id)->delete();
                 $expense->expenseLines()->where('invoice_detail_id', $invoice->id)->delete();
 
-                // Delete attachments
                 $invoice->attachments()->each(function ($attachment) {
-                    try {
-                        if (Storage::disk('public')->exists($attachment->file_path)) {
-                            Storage::disk('public')->delete($attachment->file_path);
-                        }
-                        $attachment->delete();
-                    } catch (\Exception $e) {
-                        Log::warning('Failed to delete attachment: ' . $e->getMessage());
+                    if (Storage::disk('public')->exists($attachment->file_path)) {
+                        Storage::disk('public')->delete($attachment->file_path);
                     }
+                    $attachment->delete();
                 });
             }
 
             $expense->invoiceDetails()->delete();
 
-            // Recreate invoices
             foreach ($data['invoices'] as $invoiceData) {
                 $this->createSingleInvoiceInGroup($expense, $expense->groupedInvoice, $invoiceData);
             }
         }
 
-        /**
-         * --------------------------------------------------------
-         * 4) delete specific attachments (if requested only)
-         * --------------------------------------------------------
-         */
-        if (isset($data['delete_attachments']) && is_array($data['delete_attachments'])) {
+        // Delete specific attachments
+        if (!empty($data['delete_attachments'])) {
             $this->deleteAttachments($expense, $data['delete_attachments']);
         }
 
@@ -147,6 +156,7 @@ class GroupedInvoiceExpenseService
 
         return $expense->load(['groupedInvoice.paymentSupplier']);
     }
+
 
 
     /**
