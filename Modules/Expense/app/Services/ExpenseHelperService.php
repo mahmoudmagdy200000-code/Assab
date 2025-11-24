@@ -1,4 +1,5 @@
 <?php
+
 namespace Modules\Expense\Services;
 
 use Modules\Expense\Models\{Category, Supplier};
@@ -40,7 +41,7 @@ class ExpenseHelperService
      */
     public function getParentCategories(?string $search = null, ?string $type = null)
     {
-        $query = Category::parents() // whereNull('parent_id')
+        $query = Category::whereNull('parent_id')
             ->active()
             ->withCount('children')
             ->orderBy('name');
