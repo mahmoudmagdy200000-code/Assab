@@ -24,16 +24,18 @@ Route::prefix('branch-manager/expenses')
     ->group(function () {
 
         /*
-        |--------------------------------------------------------------------------
-        | Categories & Suppliers
-        |--------------------------------------------------------------------------
-        */
+|--------------------------------------------------------------------------
+| Categories & Suppliers
+|--------------------------------------------------------------------------
+*/
 
         Route::get('/categories', [CategoryController::class, 'index'])->name('expenses.categories.index');
+        // Move these specific routes ABOVE the parameterized routes
+        Route::get('/categories/parent-categories', [CategoryController::class, 'getParentCategories']);
+        Route::get('/categories/{category}/subcategories', [CategoryController::class, 'getSubcategories']);
+        // Then the parameterized routes
         Route::get('/categories/{category}/children', [CategoryController::class, 'children'])->name('expenses.categories.children');
         Route::get('/categories/{category}', [CategoryController::class, 'show'])->name('expenses.categories.show');
-        Route::get('/categories/parent-categories', [CategoryController::class, 'getParentCategories']); // جديد
-        Route::get('/categories/{category}/subcategories', [CategoryController::class, 'getSubcategories']); // جديد
         Route::post('/categories', [CategoryController::class, 'store'])->name('expenses.categories.store');
         Route::put('/categories/{category}', [CategoryController::class, 'update'])->name('expenses.categories.update');
         Route::delete('/categories/{category}', [CategoryController::class, 'destroy'])->name('expenses.categories.destroy');
