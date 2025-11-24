@@ -44,7 +44,7 @@ class Category extends Model
         return $this->hasMany(ExpenseLine::class);
     }
 
-    // Scopes
+    // Scopes - Fixed naming to avoid conflicts
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
@@ -60,7 +60,14 @@ class Category extends Model
         return $query->where('type', 'expense');
     }
 
-    public function scopeParents($query)
+    // Renamed to avoid conflict with parent() relationship
+    public function scopeParentOnly($query)
+    {
+        return $query->whereNull('parent_id');
+    }
+
+    // Alternative name that's also clear
+    public function scopeRootCategories($query)
     {
         return $query->whereNull('parent_id');
     }

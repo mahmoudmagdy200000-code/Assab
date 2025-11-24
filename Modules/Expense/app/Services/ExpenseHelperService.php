@@ -36,12 +36,13 @@ class ExpenseHelperService
         });
     }
 
+  
     /**
      * Get all parent categories (categories without parent_id)
      */
     public function getParentCategories(?string $search = null, ?string $type = null)
     {
-        $query = Category::whereNull('parent_id')
+        $query = Category::whereNull('parent_id') // Use direct whereNull instead of scope
             ->active()
             ->withCount('children')
             ->orderBy('name');
@@ -54,7 +55,14 @@ class ExpenseHelperService
             $query->where('type', $type);
         }
 
-        return $query->get()->map(function ($category) {
+        $categories = $query->get();
+
+        // Handle case when no categories found
+        if ($categories->isEmpty()) {
+            return collect([]);
+        }
+
+        return $categories->map(function ($category) {
             return [
                 'id' => $category->id,
                 'name' => $category->name,

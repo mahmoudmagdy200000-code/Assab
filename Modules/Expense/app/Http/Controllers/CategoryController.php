@@ -1,4 +1,5 @@
 <?php
+
 namespace Modules\Expense\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
@@ -31,21 +32,29 @@ class CategoryController extends BaseController
         );
     }
 
+   
     /**
      * Get all parent categories (categories without parent)
      * GET /api/branch-manager/expenses/categories/parent-categories
      */
     public function getParentCategories(Request $request): JsonResponse
     {
-        $parentCategories = $this->helperService->getParentCategories(
-            $request->input('search'),
-            $request->input('type') // 'purchase' or 'expense'
-        );
+        try {
+            $parentCategories = $this->helperService->getParentCategories(
+                $request->input('search'),
+                $request->input('type') // 'purchase' or 'expense'
+            );
 
-        return $this->successResponse(
-            $parentCategories,
-            'Parent categories retrieved successfully',
-        );
+            return $this->successResponse(
+                $parentCategories,
+                'Parent categories retrieved successfully',
+            );
+        } catch (\Exception $e) {
+            return $this->errorResponse(
+                'Failed to retrieve parent categories: ' . $e->getMessage(),
+                500
+            );
+        }
     }
 
     /**
