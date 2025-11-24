@@ -108,24 +108,20 @@ class GroupedInvoiceExpenseController extends BaseController
      * Update Grouped Invoice Expense (Draft only)
      * PUT /api/branch-manager/expenses/grouped-invoice/{expense}
      */
-    public function update(Request $request, string $expense): JsonResponse
+    public function update(Request $request, Expense $expense): JsonResponse
     {
-        $expenseModel = Expense::with(['groupedInvoice', 'groupedInvoice.paymentSupplier', 'invoiceDetails', 'items', 'expenseLines', 'attachments'])
-            ->findOrFail($expense);
-
-        if ($expenseModel->branch_manager_id !== auth()->id()) {
-            return $this->errorResponse(
-                'Unauthorized access to this expense',
-                403
-            );
+        // Authorization check
+        if ($expense->branch_manager_id !== auth()->id()) {
+            return $this->errorResponse('Unauthorized access to this expense', 403);
         }
 
-        if ($expenseModel->status !== 'draft') {
-            return $this->errorResponse(
-                'Only draft expenses can be updated',
-                400
-            );
+        // Status check
+        if ($expense->status !== 'draft') {
+            return $this->errorResponse('Only draft expenses can be updated', 400);
         }
+
+        // Load relationships
+        $expense->load(['groupedInvoice', 'invoiceDetails', 'items', 'expenseLines', 'attachments']);
 
         $validator = Validator::make($request->all(), [
             'payment_type' => 'sometimes|in:full,partial,deferred',
@@ -135,25 +131,33 @@ class GroupedInvoiceExpenseController extends BaseController
             'payment_supplier_id' => 'sometimes|exists:suppliers,id',
             'default_supplier_id' => 'sometimes|exists:suppliers,id',
 
+            // Single invoice update
+            'invoice_id' => 'sometimes|exists:invoice_details,id',
+            'invoice_number' => 'sometimes|string|max:100',
+            'issue_date' => 'sometimes|date',
+            'tax_id' => 'nullable|string|max:50',
+            'supplier_id' => 'sometimes|exists:suppliers,id',
+            'invoice_receipts' => 'sometimes|array',
+            'invoice_receipts.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
+
+            // Full invoices replacement
             'invoices' => 'sometimes|array|min:1',
             'invoices.*.supplier_id' => 'required_with:invoices|exists:suppliers,id',
             'invoices.*.invoice_number' => 'required_with:invoices|string|max:100',
             'invoices.*.issue_date' => 'required_with:invoices|date',
             'invoices.*.is_tax_invoice' => 'required_with:invoices|boolean',
             'invoices.*.tax_id' => 'nullable|string|max:50',
-
             'invoices.*.tax_invoice_details' => 'sometimes|array',
             'invoices.*.items' => 'sometimes|array',
             'invoices.*.expenses' => 'sometimes|array',
-
-            // Delete specific invoice receipts
-            'delete_attachments' => 'sometimes|array',
-            'delete_attachments.*' => 'string|exists:expense_attachments,id',
-
-            'is_draft' => 'sometimes|boolean',
-
             'invoices.*.invoice_receipts' => 'sometimes|array',
             'invoices.*.invoice_receipts.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
+
+            // Delete attachments
+            'delete_attachments' => 'sometimes|array',
+            'delete_attachments.*' => 'exists:expense_attachments,id',
+
+            'is_draft' => 'sometimes|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -164,30 +168,14 @@ class GroupedInvoiceExpenseController extends BaseController
             );
         }
 
-        // Validate total amount > 500 if invoices changed
-        // if (isset($request->invoices)) {
-        //     $totalAmount = $this->groupedInvoiceService->calculateTotalAmount($request->invoices);
-        //     if ($totalAmount <= 500) {
-        //         return $this->errorResponse(
-        //             'Grouped invoice expenses must be greater than 500 SAR',
-        //             400,
-        //             ['total_amount' => $totalAmount]
-        //         );
-        //     }
-        // }
-
-        DB::beginTransaction();
         try {
-            $updated = $this->groupedInvoiceService->updateGroupedInvoice($expenseModel, $request->all());
-
-            DB::commit();
+            $updated = $this->groupedInvoiceService->updateGroupedInvoice($expense, $request->all());
 
             return $this->successResponse(
-                new ExpenseDetailResource($updated->fresh(['attachments', 'groupedInvoice.paymentSupplier'])),
+                new ExpenseDetailResource($updated),
                 'Grouped invoice expense updated successfully'
             );
         } catch (\Exception $e) {
-            DB::rollBack();
             return $this->errorResponse(
                 'Failed to update grouped invoice expense',
                 500,
