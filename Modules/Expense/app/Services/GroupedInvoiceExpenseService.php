@@ -21,7 +21,6 @@ class GroupedInvoiceExpenseService
 
         $expense = Expense::create([
             'branch_manager_id' => auth()->id(),
-
             'expense_type' => 'grouped_invoice',
             'status' => $data['is_draft'] ?? false ? 'draft' : 'pending',
             'total_amount' => $grandTotals['total_amount'],
@@ -31,7 +30,6 @@ class GroupedInvoiceExpenseService
         ]);
 
         $groupedInvoice = GroupedInvoice::create([
-
             'expense_id' => $expense->id,
             'payment_type' => $data['payment_type'],
             'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
@@ -111,7 +109,7 @@ class GroupedInvoiceExpenseService
                 }
             }
 
-            // Full invoices replacement
+            // Full invoices replacement (UPDATED LOGIC)
             if (isset($data['invoices'])) {
                 $grandTotals = $this->calculateGrandTotals($data['invoices']);
 
@@ -121,8 +119,85 @@ class GroupedInvoiceExpenseService
                     'vat_amount' => $grandTotals['vat_amount'],
                 ]);
 
-                // Delete old invoices and their relations
-                foreach ($expense->invoiceDetails as $invoice) {
+                // Track which invoices were updated (to delete the rest)
+                $updatedInvoiceIds = [];
+
+                foreach ($data['invoices'] as $invoiceData) {
+                    // Check if this is an update (has 'id') or new invoice
+                    if (!empty($invoiceData['id'])) {
+                        // UPDATE EXISTING INVOICE
+                        $existingInvoice = $expense->invoiceDetails()->find($invoiceData['id']);
+
+                        if (!$existingInvoice) {
+                            throw new \Exception("Invoice with ID {$invoiceData['id']} not found");
+                        }
+
+                        $updatedInvoiceIds[] = $existingInvoice->id;
+
+                        // Update invoice details
+                        $existingInvoice->update([
+                            'supplier_id' => $invoiceData['supplier_id'],
+                            'invoice_number' => $invoiceData['invoice_number'],
+                            'issue_date' => $invoiceData['issue_date'],
+                            'is_tax_invoice' => $invoiceData['is_tax_invoice'],
+                            'tax_id' => $invoiceData['tax_id'] ?? null,
+                        ]);
+
+                        // Handle attachments deletion for this invoice
+                        if (!empty($invoiceData['delete_attachments'])) {
+                            $attachmentsToDelete = $existingInvoice->attachments()
+                                ->whereIn('id', $invoiceData['delete_attachments'])
+                                ->get();
+
+                            foreach ($attachmentsToDelete as $attachment) {
+                                if (Storage::disk('public')->exists($attachment->file_path)) {
+                                    Storage::disk('public')->delete($attachment->file_path);
+                                }
+                                $attachment->delete();
+                            }
+                        }
+
+                        // Add new receipts if provided
+                        if (!empty($invoiceData['invoice_receipts'])) {
+                            foreach ($invoiceData['invoice_receipts'] as $file) {
+                                $this->uploadInvoiceReceipt($expense, $existingInvoice, $file);
+                            }
+                        }
+
+                        // Update items if provided
+                        if (isset($invoiceData['items'])) {
+                            // Delete old items
+                            $expense->items()->where('invoice_detail_id', $existingInvoice->id)->delete();
+
+                            // Create new items
+                            foreach ($invoiceData['items'] as $itemData) {
+                                $this->createInvoiceItem($expense, $existingInvoice, $itemData);
+                            }
+                        }
+
+                        // Update expense lines if provided
+                        if (isset($invoiceData['expenses'])) {
+                            // Delete old expense lines
+                            $expense->expenseLines()->where('invoice_detail_id', $existingInvoice->id)->delete();
+
+                            // Create new expense lines
+                            foreach ($invoiceData['expenses'] as $expenseLineData) {
+                                $this->createExpenseLine($expense, $existingInvoice, $expenseLineData);
+                            }
+                        }
+                    } else {
+                        // CREATE NEW INVOICE
+                        $newInvoice = $this->createSingleInvoiceInGroup($expense, $expense->groupedInvoice, $invoiceData);
+                        $updatedInvoiceIds[] = $newInvoice->id;
+                    }
+                }
+
+                // Delete invoices that were not in the update list
+                $invoicesToDelete = $expense->invoiceDetails()
+                    ->whereNotIn('id', $updatedInvoiceIds)
+                    ->get();
+
+                foreach ($invoicesToDelete as $invoice) {
                     // Delete items and lines
                     $expense->items()->where('invoice_detail_id', $invoice->id)->delete();
                     $expense->expenseLines()->where('invoice_detail_id', $invoice->id)->delete();
@@ -134,17 +209,12 @@ class GroupedInvoiceExpenseService
                         }
                         $attachment->delete();
                     });
-                }
 
-                $expense->invoiceDetails()->delete();
-
-                // Create new invoices
-                foreach ($data['invoices'] as $invoiceData) {
-                    $this->createSingleInvoiceInGroup($expense, $expense->groupedInvoice, $invoiceData);
+                    $invoice->delete();
                 }
             }
 
-            // Delete specific attachments
+            // Delete specific attachments (global deletion)
             if (!empty($data['delete_attachments'])) {
                 $this->deleteAttachments($expense, $data['delete_attachments']);
             }
@@ -153,15 +223,13 @@ class GroupedInvoiceExpenseService
 
             DB::commit();
 
-            return $expense->fresh(['groupedInvoice.paymentSupplier', 'invoiceDetails', 'items', 'expenseLines', 'attachments']);
+            return $expense->fresh(['groupedInvoice.paymentSupplier', 'invoiceDetails.attachments', 'items', 'expenseLines', 'attachments']);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Update Grouped Invoice Failed: ' . $e->getMessage());
             throw $e;
         }
     }
-
-
 
     /**
      * Delete specific attachments
@@ -183,8 +251,10 @@ class GroupedInvoiceExpenseService
         }
     }
 
-
-    private function createSingleInvoiceInGroup(Expense $expense, GroupedInvoice $groupedInvoice, array $invoiceData): void
+    /**
+     * Create single invoice in group and return the created invoice
+     */
+    private function createSingleInvoiceInGroup(Expense $expense, GroupedInvoice $groupedInvoice, array $invoiceData): InvoiceDetail
     {
         $invoicePayload = [
             'expense_id' => $expense->id,
@@ -207,27 +277,13 @@ class GroupedInvoiceExpenseService
 
         if (!empty($invoiceData['items'])) {
             foreach ($invoiceData['items'] as $item) {
-                ExpenseItem::create([
-                    'expense_id' => $expense->id,
-                    'invoice_detail_id' => $invoice->id,
-                    'category_id' => $item['category_id'],
-                    'name' => $item['name'],
-                    'quantity' => $item['quantity'],
-                    'unit_price' => $item['unit_price'],
-                    'total_amount' => $item['quantity'] * $item['unit_price'],
-                ]);
+                $this->createInvoiceItem($expense, $invoice, $item);
             }
         }
 
         if (!empty($invoiceData['expenses'])) {
             foreach ($invoiceData['expenses'] as $expenseLine) {
-                ExpenseLine::create([
-                    'expense_id' => $expense->id,
-                    'invoice_detail_id' => $invoice->id,
-                    'category_id' => $expenseLine['category_id'],
-                    'name' => $expenseLine['name'],
-                    'price' => $expenseLine['price'],
-                ]);
+                $this->createExpenseLine($expense, $invoice, $expenseLine);
             }
         }
 
@@ -237,6 +293,38 @@ class GroupedInvoiceExpenseService
                 $this->uploadInvoiceReceipt($expense, $invoice, $file);
             }
         }
+
+        return $invoice;
+    }
+
+    /**
+     * Create invoice item
+     */
+    private function createInvoiceItem(Expense $expense, InvoiceDetail $invoice, array $itemData): ExpenseItem
+    {
+        return ExpenseItem::create([
+            'expense_id' => $expense->id,
+            'invoice_detail_id' => $invoice->id,
+            'category_id' => $itemData['category_id'],
+            'name' => $itemData['name'],
+            'quantity' => $itemData['quantity'],
+            'unit_price' => $itemData['unit_price'],
+            'total_amount' => $itemData['quantity'] * $itemData['unit_price'],
+        ]);
+    }
+
+    /**
+     * Create expense line
+     */
+    private function createExpenseLine(Expense $expense, InvoiceDetail $invoice, array $expenseLineData): ExpenseLine
+    {
+        return ExpenseLine::create([
+            'expense_id' => $expense->id,
+            'invoice_detail_id' => $invoice->id,
+            'category_id' => $expenseLineData['category_id'],
+            'name' => $expenseLineData['name'],
+            'price' => $expenseLineData['price'],
+        ]);
     }
 
     /**
@@ -300,6 +388,9 @@ class GroupedInvoiceExpenseService
         ]);
     }
 
+    /**
+     * Create timeline entry
+     */
     private function createTimelineEntry(Expense $expense, string $action, string $status = null): void
     {
         $expense->timelines()->create([

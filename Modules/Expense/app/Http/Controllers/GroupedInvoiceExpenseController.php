@@ -140,8 +140,9 @@ class GroupedInvoiceExpenseController extends BaseController
             'invoice_receipts' => 'sometimes|array',
             'invoice_receipts.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
 
-            // Full invoices replacement
+            // Full invoices replacement/update
             'invoices' => 'sometimes|array|min:1',
+            'invoices.*.id' => 'sometimes|exists:invoice_details,id', // NEW: للتحديث
             'invoices.*.supplier_id' => 'required_with:invoices|exists:suppliers,id',
             'invoices.*.invoice_number' => 'required_with:invoices|string|max:100',
             'invoices.*.issue_date' => 'required_with:invoices|date',
@@ -152,8 +153,10 @@ class GroupedInvoiceExpenseController extends BaseController
             'invoices.*.expenses' => 'sometimes|array',
             'invoices.*.invoice_receipts' => 'sometimes|array',
             'invoices.*.invoice_receipts.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
+            'invoices.*.delete_attachments' => 'sometimes|array', // NEW: لحذف صور معينة
+            'invoices.*.delete_attachments.*' => 'exists:expense_attachments,id',
 
-            // Delete attachments
+            // Delete attachments (global)
             'delete_attachments' => 'sometimes|array',
             'delete_attachments.*' => 'exists:expense_attachments,id',
 
