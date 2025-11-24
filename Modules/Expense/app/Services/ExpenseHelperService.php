@@ -1,5 +1,4 @@
 <?php
-
 namespace Modules\Expense\Services;
 
 use Modules\Expense\Models\{Category, Supplier};
@@ -31,13 +30,76 @@ class ExpenseHelperService
                     'name' => $category->parent->name,
                 ] : null,
                 'type' => $category->type, // 'purchase' or 'expense'
+                'is_active' => $category->is_active,
             ];
         });
     }
 
-        /**
-        * Create category
-        */
+    /**
+     * Get all parent categories (categories without parent_id)
+     */
+    public function getParentCategories(?string $search = null, ?string $type = null)
+    {
+        $query = Category::parents() // whereNull('parent_id')
+            ->active()
+            ->withCount('children')
+            ->orderBy('name');
+
+        if ($search) {
+            $query->where('name', 'like', "%{$search}%");
+        }
+
+        if ($type) {
+            $query->where('type', $type);
+        }
+
+        return $query->get()->map(function ($category) {
+            return [
+                'id' => $category->id,
+                'name' => $category->name,
+                'type' => $category->type,
+                'is_active' => $category->is_active,
+                'subcategories_count' => $category->children_count,
+            ];
+        });
+    }
+
+    /**
+     * Get subcategories by parent category ID
+     */
+    public function getSubcategories(string $parentId, ?string $search = null)
+    {
+        // Verify parent exists
+        $parent = Category::findOrFail($parentId);
+
+        $query = Category::where('parent_id', $parentId)
+            ->active()
+            ->orderBy('name');
+
+        if ($search) {
+            $query->where('name', 'like', "%{$search}%");
+        }
+
+        return [
+            'parent' => [
+                'id' => $parent->id,
+                'name' => $parent->name,
+                'type' => $parent->type,
+            ],
+            'subcategories' => $query->get()->map(function ($category) {
+                return [
+                    'id' => $category->id,
+                    'name' => $category->name,
+                    'type' => $category->type,
+                    'is_active' => $category->is_active,
+                ];
+            }),
+        ];
+    }
+
+    /**
+     * Create category
+     */
     public function createCategory(array $data): Category
     {
         return Category::create([
@@ -62,7 +124,6 @@ class ExpenseHelperService
     public function updateCategory(string $category, array $data): Category
     {
         $category = Category::findOrFail($category);
-
         $category->update([
             'name' => $data['name'],
             'parent_id' => $data['parent_id'] ?? null,
@@ -79,6 +140,17 @@ class ExpenseHelperService
     public function deleteCategory(string $category): void
     {
         $category = Category::findOrFail($category);
+
+        // Check if category has subcategories
+        if ($category->children()->count() > 0) {
+            throw new \Exception('Cannot delete category with subcategories');
+        }
+
+        // Check if category is used in expenses
+        if ($category->items()->count() > 0 || $category->expenseLines()->count() > 0) {
+            throw new \Exception('Cannot delete category that is being used');
+        }
+
         $category->delete();
     }
 
@@ -111,7 +183,6 @@ class ExpenseHelperService
     {
         // TODO: Implement actual ZATCA QR code parsing
         // This is a placeholder
-
         // ZATCA format: TLV (Tag-Length-Value)
         // Tag 1: Seller name
         // Tag 2: VAT registration number
@@ -138,7 +209,4 @@ class ExpenseHelperService
         // Similar to QR code parsing
         return $this->parseQRCode($code);
     }
-
-
-
 }

@@ -1,5 +1,4 @@
 <?php
-
 namespace Modules\Expense\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
@@ -33,6 +32,40 @@ class CategoryController extends BaseController
     }
 
     /**
+     * Get all parent categories (categories without parent)
+     * GET /api/branch-manager/expenses/categories/parent-categories
+     */
+    public function getParentCategories(Request $request): JsonResponse
+    {
+        $parentCategories = $this->helperService->getParentCategories(
+            $request->input('search'),
+            $request->input('type') // 'purchase' or 'expense'
+        );
+
+        return $this->successResponse(
+            $parentCategories,
+            'Parent categories retrieved successfully',
+        );
+    }
+
+    /**
+     * Get subcategories by parent category ID
+     * GET /api/branch-manager/expenses/categories/{category}/subcategories
+     */
+    public function getSubcategories(string $category, Request $request): JsonResponse
+    {
+        $subcategories = $this->helperService->getSubcategories(
+            $category,
+            $request->input('search')
+        );
+
+        return $this->successResponse(
+            $subcategories,
+            'Subcategories retrieved successfully',
+        );
+    }
+
+    /**
      * Get category by ID
      * GET /api/branch-manager/expenses/categories/{category}
      */
@@ -59,6 +92,7 @@ class CategoryController extends BaseController
             'type' => 'required|in:purchase,expense',
             'is_active' => 'required|boolean',
         ]);
+
         $category = $this->helperService->createCategory($request->all());
 
         return $this->successResponse(
@@ -66,13 +100,13 @@ class CategoryController extends BaseController
             'Category created successfully',
         );
     }
+
     /**
      * Update category
      * PUT /api/branch-manager/expenses/categories/{category}
      */
     public function update(Request $request, string $category): JsonResponse
     {
-
         // Validation
         $request->validate([
             'name' => 'required|string|max:255',
@@ -88,6 +122,7 @@ class CategoryController extends BaseController
             'Category updated successfully',
         );
     }
+
     /**
      * Delete category
      * DELETE /api/branch-manager/expenses/categories/{category}
