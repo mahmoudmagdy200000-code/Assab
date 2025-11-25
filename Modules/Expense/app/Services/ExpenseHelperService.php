@@ -36,7 +36,7 @@ class ExpenseHelperService
         });
     }
 
-  
+
     /**
      * Get all parent categories (categories without parent_id)
      */
@@ -132,15 +132,16 @@ class ExpenseHelperService
      */
     public function updateCategory(string $category, array $data): Category
     {
-        $category = Category::findOrFail($category);
-        $category->update([
-            'name' => $data['name'],
-            'parent_id' => $data['parent_id'] ?? null,
-            'type' => $data['type'] ?? 'expense',
-            'is_active' => $data['is_active'] ?? true,
-        ]);
+        $categoryModel = Category::findOrFail($category);
 
-        return $category;
+        $categoryModel->name = $data['name'];
+        $categoryModel->parent_id = $data['parent_id'] ?? null;
+        $categoryModel->type = $data['type'] ?? 'expense';
+        $categoryModel->is_active = $data['is_active'] ?? true;
+
+        $categoryModel->save();
+
+        return $categoryModel;
     }
 
     /**

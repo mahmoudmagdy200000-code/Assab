@@ -32,7 +32,7 @@ class CategoryController extends BaseController
         );
     }
 
-   
+
     /**
      * Get all parent categories (categories without parent)
      * GET /api/branch-manager/expenses/categories/parent-categories
@@ -117,14 +117,14 @@ class CategoryController extends BaseController
     public function update(Request $request, string $category): JsonResponse
     {
         // Validation
-        $request->validate([
+        $validated = $request->validate([
             'name' => 'required|string|max:255',
             'parent_id' => 'nullable|exists:categories,id',
             'type' => 'required|in:purchase,expense',
-            'is_active' => 'required|boolean',
+            'is_active' => 'nullable|boolean', // خليها nullable بدل required
         ]);
 
-        $categoryModel = $this->helperService->updateCategory($category, $request->all());
+        $categoryModel = $this->helperService->updateCategory($category, $validated);
 
         return $this->successResponse(
             $categoryModel,
