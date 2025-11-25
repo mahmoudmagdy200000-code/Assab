@@ -309,10 +309,11 @@ class ExpenseAttachmentController extends BaseController
             'action' => $action,
             'performed_by' => auth()->id(),
             'performed_by_type' => 'branch_manager',
-            'status' => $action,
+            'status' => $action, 
             'notes' => $notes,
         ]);
     }
+
 
     /**
      * Format file size to human readable format
