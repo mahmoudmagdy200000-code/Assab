@@ -24,10 +24,10 @@ Route::prefix('branch-manager/expenses')
     ->group(function () {
 
         /*
-|--------------------------------------------------------------------------
-| Categories & Suppliers
-|--------------------------------------------------------------------------
-*/
+        |--------------------------------------------------------------------------
+        | Categories & Suppliers
+        |--------------------------------------------------------------------------
+        */
 
         Route::get('/categories', [CategoryController::class, 'index'])->name('expenses.categories.index');
         // Specific routes FIRST
@@ -124,11 +124,14 @@ Route::prefix('branch-manager/expenses')
 
         /*
         |--------------------------------------------------------------------------
-        | NEW - Delete Attachments
+        | Attachments Management
         |--------------------------------------------------------------------------
         */
-        // Route::delete('/{expense}/attachments', [ExpenseAttachmentController::class, 'delete'])
-        //     ->name('expenses.attachments.delete');
+        Route::prefix('{expense}/attachments')->group(function () {
+            Route::get('/', [ExpenseAttachmentController::class, 'index'])->name('expenses.attachments.index');
+            Route::post('/', [ExpenseAttachmentController::class, 'store'])->name('expenses.attachments.store');
+            Route::delete('/', [ExpenseAttachmentController::class, 'destroy'])->name('expenses.attachments.destroy');
+        });
 
         /*
         |--------------------------------------------------------------------------
