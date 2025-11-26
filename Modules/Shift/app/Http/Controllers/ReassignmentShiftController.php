@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -97,6 +98,14 @@ class ReassignmentShiftController extends Controller
      */
     public function reassign(Request $request, string $shift): JsonResponse
     {
+        // Validate UUID format
+        if (!$this->isValidUuid($shift)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid shift ID format',
+            ], 400);
+        }
+
         $validator = Validator::make($request->all(), [
             'new_cashier_id' => 'required|exists:cashiers,id',
             'reason' => 'required|string|max:500',
@@ -112,10 +121,21 @@ class ReassignmentShiftController extends Controller
 
         DB::beginTransaction();
         try {
-            $shiftModel = CashierShift::with(['cashier', 'shift'])->findOrFail($shift);
+            // البحث مرة واحدة فقط داخل ال transaction
+            $shiftModel = CashierShift::with(['cashier', 'shift'])->find($shift);
+
+            if (!$shiftModel) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Shift not found',
+                    'error' => 'The specified shift does not exist'
+                ], 404);
+            }
 
             // Verify shift is pending or not started
             if (!in_array($shiftModel->status->value, ['not_started', 'reassigned'])) {
+                DB::rollBack();
                 return response()->json([
                     'success' => false,
                     'message' => 'Cannot reassign a shift that is already in progress or completed',
@@ -124,13 +144,21 @@ class ReassignmentShiftController extends Controller
 
             // Verify new cashier is not the same as current
             if ($shiftModel->cashier_id == $request->new_cashier_id) {
+                DB::rollBack();
                 return response()->json([
                     'success' => false,
                     'message' => 'Cannot reassign to the same cashier',
                 ], 400);
             }
 
-            $newCashier = Cashier::findOrFail($request->new_cashier_id);
+            $newCashier = Cashier::find($request->new_cashier_id);
+            if (!$newCashier) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'New cashier not found',
+                ], 404);
+            }
 
             // Check if new cashier is already assigned to this shift
             $conflictingShift = CashierShift::where('cashier_id', $newCashier->id)
@@ -140,6 +168,7 @@ class ReassignmentShiftController extends Controller
                 ->first();
 
             if ($conflictingShift) {
+                DB::rollBack();
                 return response()->json([
                     'success' => false,
                     'message' => 'The selected cashier is already assigned to this shift',
@@ -148,6 +177,16 @@ class ReassignmentShiftController extends Controller
 
             // Store original cashier if not already set
             $originalCashierId = $shiftModel->original_cashier_id ?? $shiftModel->cashier_id;
+
+            // البحث عن الكاشير الأصلي
+            $originalCashier = Cashier::find($originalCashierId);
+            if (!$originalCashier) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Original cashier not found',
+                ], 404);
+            }
 
             // Update shift
             $shiftModel->update([
@@ -166,7 +205,7 @@ class ReassignmentShiftController extends Controller
                 'performed_by_type' => 'branch_manager',
                 'old_value' => json_encode([
                     'cashier_id' => $originalCashierId,
-                    'cashier_name' => Cashier::find($originalCashierId)->name,
+                    'cashier_name' => $originalCashier->name,
                 ]),
                 'new_value' => json_encode([
                     'cashier_id' => $request->new_cashier_id,
@@ -187,7 +226,7 @@ class ReassignmentShiftController extends Controller
                 'message' => 'Shift reassigned successfully',
                 'data' => [
                     'summary' => [
-                        'previous_cashier' => Cashier::find($originalCashierId)->name,
+                        'previous_cashier' => $originalCashier->name,
                         'next_cashier_selected' => $newCashier->name,
                         'shift_date' => $shiftModel->shift_date->format('Y-m-d'),
                         'start_time' => $shiftModel->shift->start_time,
@@ -208,6 +247,13 @@ class ReassignmentShiftController extends Controller
         }
     }
 
+    /**
+     * Check if string is valid UUID
+     */
+    private function isValidUuid(string $uuid): bool
+    {
+        return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $uuid);
+    }
     /**
      * Reassign shift with handover (for in-progress shifts)
      *

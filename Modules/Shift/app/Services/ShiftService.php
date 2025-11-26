@@ -141,7 +141,7 @@ class ShiftService
 
     public function getShiftDetails(string $shiftId): CashierShift
     {
-        return CashierShift::with([
+        $shift = CashierShift::with([
             'cashier',
             'shift',
             'nextCashier',
@@ -152,7 +152,13 @@ class ShiftService
             'varianceDetails.responsibleCashier',
             'varianceAlerts',
             'history'
-        ])->findOrFail($shiftId);
+        ])->find($shiftId);
+
+        if (!$shift) {
+            throw new \Illuminate\Database\Eloquent\ModelNotFoundException("Shift not found");
+        }
+
+        return $shift;
     }
 
     public function getShiftProgress(string $shiftId): array

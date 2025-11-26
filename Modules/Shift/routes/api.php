@@ -155,6 +155,25 @@ Route::prefix('branch-manager')
         Route::post('shifts/calculate-sales', [ShiftEndController::class, 'calculateSales'])
             ->name('shifts.calculate-sales');
 
+
+
+        // Temporary test route in your routes file
+        Route::get('/test-shift/{shift}', function ($shift) {
+            $shiftModel = \Modules\Shift\Models\CashierShift::find($shift);
+
+            if ($shiftModel) {
+                return response()->json([
+                    'exists' => true,
+                    'shift' => $shiftModel->toArray()
+                ]);
+            }
+
+            return response()->json([
+                'exists' => false,
+                'message' => 'Shift not found'
+            ], 404);
+        });
+
         /*
     |----------------------------------------------------------------------
     | Handover Management
