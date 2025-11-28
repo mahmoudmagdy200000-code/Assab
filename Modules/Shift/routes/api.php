@@ -30,6 +30,12 @@ Route::group([
     'middleware' => ['auth:sanctum', 'branch.manager']
 ], function () {
 
+    // Routes الجديدة للـ Final Daily Close
+    Route::get('/final-daily-close', [BranchManagerShiftController::class, 'getFinalDailyClose']);
+    Route::put('/final-daily-close/update', [BranchManagerShiftController::class, 'updateFinalDailyClose']);
+    Route::post('/final-daily-close/submit', [BranchManagerShiftController::class, 'submitFinalDailyReport']);
+    Route::get('/submitted-reports', [BranchManagerShiftController::class, 'getSubmittedDailyReports']);
+
     Route::get('allBranchManagerCashiers', [ShiftController::class, 'getAllCashiersAndBranchManagerAccount'])
         ->name('branch-manager.shift.all-cashiers');
     // Statistics (يجب أن يكون قبل {id} لتجنب الـ conflict)
@@ -63,13 +69,6 @@ Route::group([
     // Shift Details (يجب أن يكون في النهاية)
     Route::get('{id}', [BranchManagerShiftController::class, 'show'])
         ->name('branch-manager.shift.show');
-
-
-    // Routes الجديدة للـ Final Daily Close
-    Route::get('/final-daily-close', [BranchManagerShiftController::class, 'getFinalDailyClose']);
-    Route::put('/final-daily-close/update', [BranchManagerShiftController::class, 'updateFinalDailyClose']);
-    Route::post('/final-daily-close/submit', [BranchManagerShiftController::class, 'submitFinalDailyReport']);
-    Route::get('/submitted-reports', [BranchManagerShiftController::class, 'getSubmittedDailyReports']);
 });
 
 /*
