@@ -30,6 +30,8 @@ Route::group([
     'middleware' => ['auth:sanctum', 'branch.manager']
 ], function () {
 
+    Route::get('allBranchManagerCashiers', [ShiftController::class, 'getAllCashiersAndBranchManagerAccount'])
+        ->name('branch-manager.shift.all-cashiers');
     // Statistics (يجب أن يكون قبل {id} لتجنب الـ conflict)
     Route::get('statistics/summary', [BranchManagerShiftController::class, 'statistics'])
         ->name('branch-manager.shift.statistics');

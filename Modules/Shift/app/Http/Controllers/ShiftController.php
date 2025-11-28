@@ -6,6 +6,10 @@ use App\Http\Controllers\BaseController;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
+use Modules\BranchManagers\Models\BranchManager;
+use Modules\BranchManagers\Transformers\BranchManagerResource;
+use Modules\Cashier\Models\Cashier;
+use Modules\Cashier\Transformers\CashierResource;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Transformers\CashierShiftResource;
@@ -167,7 +171,7 @@ class ShiftController extends BaseController
 
     public function getCashierShiftById($id)
     {
-        $cashierShift = CashierShift::with(['cashier', 'shift','assignedBy'])->find($id);
+        $cashierShift = CashierShift::with(['cashier', 'shift', 'assignedBy'])->find($id);
 
         if (!$cashierShift) {
             return $this->errorResponse('Cashier Shift not found', 404);
@@ -181,7 +185,7 @@ class ShiftController extends BaseController
 
     public function getShiftByCashierId($id)
     {
-        $cashierShifts = CashierShift::with(['cashier', 'shift','assignedBy'])
+        $cashierShifts = CashierShift::with(['cashier', 'shift', 'assignedBy'])
             ->where('cashier_id', $id)
             ->get();
 
@@ -193,5 +197,24 @@ class ShiftController extends BaseController
             CashierShiftResource::collection($cashierShifts),
             'Cashier shifts retrieved successfully'
         );
+    }
+
+    public function getAllCashiersAndBranchManagerAccount(Request $request)
+    {
+        $manager = auth()->user();
+
+        if (!$manager || !$manager->branch_id) {
+            return $this->errorResponse('Unauthorized', 403);
+        }
+
+        $cashiers = Cashier::where('branch_id', $manager->branch_id)
+            ->paginate($request->input('per_page', 10));
+
+        $branchManagers = BranchManager::where('branch_id', $manager->branch_id)->get();
+
+        return $this->paginatedResponse([
+            'cashiers' => CashierResource::collection($cashiers),
+            'branch_managers' => BranchManagerResource::collection($branchManagers),
+        ], 'Filtered cashier shifts retrieved successfully');
     }
 }

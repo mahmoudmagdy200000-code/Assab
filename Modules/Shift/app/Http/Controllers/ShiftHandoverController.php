@@ -176,7 +176,7 @@ class ShiftHandoverController extends Controller
     public function rejectHandover(Request $request, string $shift): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'rejection_reason' => 'required|string|max:500',
+            'rejection_reason' => 'nullable|string|max:500',
             'manager_comment' => 'nullable|string|max:500',
             'rejection_files' => 'sometimes|array',
             'rejection_files.*' => 'file|mimes:pdf,png,jpeg,jpg|max:5120',
