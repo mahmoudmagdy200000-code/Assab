@@ -63,6 +63,13 @@ Route::group([
     // Shift Details (يجب أن يكون في النهاية)
     Route::get('{id}', [BranchManagerShiftController::class, 'show'])
         ->name('branch-manager.shift.show');
+
+
+    // Routes الجديدة للـ Final Daily Close
+    Route::get('/final-daily-close', [BranchManagerShiftController::class, 'getFinalDailyClose']);
+    Route::put('/final-daily-close/update', [BranchManagerShiftController::class, 'updateFinalDailyClose']);
+    Route::post('/final-daily-close/submit', [BranchManagerShiftController::class, 'submitFinalDailyReport']);
+    Route::get('/submitted-reports', [BranchManagerShiftController::class, 'getSubmittedDailyReports']);
 });
 
 /*

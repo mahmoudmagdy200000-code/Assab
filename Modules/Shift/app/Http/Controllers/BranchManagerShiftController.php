@@ -36,7 +36,6 @@ class BranchManagerShiftController extends BaseController
                 'progress' => $progress,
                 'cashier_shifts_breakdown' => $breakdown,
             ], 'Current shift retrieved successfully');
-
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -74,7 +73,6 @@ class BranchManagerShiftController extends BaseController
                 BranchManagerShiftResource::collection($shifts),
                 'Shifts history retrieved successfully'
             );
-
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -102,7 +100,6 @@ class BranchManagerShiftController extends BaseController
                 'summary' => $summary,
                 'cashier_shifts_breakdown' => $breakdown,
             ], 'Shift details retrieved successfully');
-
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -133,7 +130,6 @@ class BranchManagerShiftController extends BaseController
                 'progress' => $progress,
                 'message' => 'Your shift has started successfully',
             ], 'Shift started successfully');
-
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -181,7 +177,6 @@ class BranchManagerShiftController extends BaseController
                     'view_details' => true,
                 ],
             ], 'Shift ended successfully');
-
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -240,13 +235,11 @@ class BranchManagerShiftController extends BaseController
                 'handover_details' => [
                     'handover_amount' => (float) $request->handover_amount,
                     'variance' => (float) $managerShift->variance,
-                    'variance_type' => $managerShift->variance > 0 ? 'Over' :
-                                      ($managerShift->variance < 0 ? 'Short' : 'None'),
+                    'variance_type' => $managerShift->variance > 0 ? 'Over' : ($managerShift->variance < 0 ? 'Short' : 'None'),
                     'handover_to' => $managerShift->nextManager->name,
                     'handover_notes' => $request->handover_notes,
                 ],
             ], 'Shift ended with handover successfully');
-
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -294,13 +287,11 @@ class BranchManagerShiftController extends BaseController
                 'handover_details' => [
                     'handover_amount' => (float) $request->handover_amount,
                     'variance' => (float) $managerShift->variance,
-                    'variance_type' => $managerShift->variance > 0 ? 'Over' :
-                                      ($managerShift->variance < 0 ? 'Short' : 'None'),
+                    'variance_type' => $managerShift->variance > 0 ? 'Over' : ($managerShift->variance < 0 ? 'Short' : 'None'),
                     'handover_to' => $managerShift->nextManager->name,
                     'handover_notes' => $request->handover_notes,
                 ],
             ], 'Handover recorded successfully');
-
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -354,7 +345,185 @@ class BranchManagerShiftController extends BaseController
                     'pending' => $shifts->sum('pending_cashier_shifts'),
                 ],
             ], 'Statistics retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
 
+
+    /**
+     * Get final daily close summary - زي الصورة الأولى
+     */
+    public function getFinalDailyClose(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'shift_id' => 'required|exists:branch_manager_shifts,id',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorResponse($validator->errors()->first(), 422);
+        }
+
+        try {
+            $manager = auth()->user();
+
+            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                ->with(['branch', 'branchManager'])
+                ->findOrFail($request->shift_id);
+
+            if ($managerShift->status !== 'completed') {
+                return $this->errorResponse('Shift must be completed first', 400);
+            }
+
+            $summary = $this->shiftService->getFinalDailyCloseSummary($managerShift);
+
+            return $this->successResponse([
+                'shift' => new BranchManagerShiftResource($managerShift),
+                'final_daily_close' => $summary,
+                'can_edit' => !$managerShift->daily_report_submitted,
+                'next_actions' => [
+                    'edit_closing_balance' => !$managerShift->daily_report_submitted,
+                    'submit_daily_report' => !$managerShift->daily_report_submitted,
+                    'view_report' => $managerShift->daily_report_submitted,
+                ]
+            ], 'Final daily close summary retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Update final daily close with adjustments - للتعديل
+     */
+    public function updateFinalDailyClose(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'shift_id' => 'required|exists:branch_manager_shifts,id',
+            'closing_balance' => 'sometimes|numeric|min:0',
+            'expected_balance' => 'sometimes|numeric|min:0',
+            'daily_report_notes' => 'nullable|string|max:1000',
+            'cashier_adjustments' => 'sometimes|array',
+            'cashier_adjustments.*.cashier_shift_id' => 'required|exists:cashier_shifts,id',
+            'cashier_adjustments.*.closing_balance' => 'required|numeric|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorResponse($validator->errors()->first(), 422);
+        }
+
+        try {
+            $manager = auth()->user();
+
+            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                ->findOrFail($request->shift_id);
+
+            if ($managerShift->daily_report_submitted) {
+                return $this->errorResponse('Daily report already submitted', 400);
+            }
+
+            if ($managerShift->status !== 'completed') {
+                return $this->errorResponse('Shift must be completed first', 400);
+            }
+
+            $managerShift = $this->shiftService->updateFinalDailyClose($managerShift, $request->all());
+
+            // Get updated summary
+            $summary = $this->shiftService->getFinalDailyCloseSummary($managerShift);
+
+            return $this->successResponse([
+                'shift' => new BranchManagerShiftResource($managerShift),
+                'final_daily_close' => $summary,
+                'adjustments_applied' => true,
+                'message' => 'Daily close updated successfully'
+            ], 'Daily close updated successfully');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Submit final daily report - للتقديم النهائي
+     */
+    public function submitFinalDailyReport(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'shift_id' => 'required|exists:branch_manager_shifts,id',
+            'closing_balance' => 'sometimes|numeric|min:0',
+            'expected_balance' => 'sometimes|numeric|min:0',
+            'final_notes' => 'nullable|string|max:1000',
+            'cashier_adjustments' => 'sometimes|array',
+            'cashier_adjustments.*.cashier_shift_id' => 'required|exists:cashier_shifts,id',
+            'cashier_adjustments.*.closing_balance' => 'required|numeric|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorResponse($validator->errors()->first(), 422);
+        }
+
+        try {
+            $manager = auth()->user();
+
+            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                ->findOrFail($request->shift_id);
+
+            if ($managerShift->daily_report_submitted) {
+                return $this->errorResponse('Daily report already submitted', 400);
+            }
+
+            if ($managerShift->status !== 'completed') {
+                return $this->errorResponse('Shift must be completed first', 400);
+            }
+
+            // Submit the final report
+            $managerShift = $this->shiftService->submitFinalDailyReport($managerShift, $request->all());
+
+            // Get final summary
+            $summary = $this->shiftService->getFinalDailyCloseSummary($managerShift);
+
+            return $this->successResponse([
+                'shift' => new BranchManagerShiftResource($managerShift),
+                'final_daily_close' => $summary,
+                'submission_details' => [
+                    'submitted_at' => $managerShift->daily_report_submitted_at->format('Y-m-d H:i:s'),
+                    'submitted_by' => $manager->name,
+                    'final_closing_balance' => (float) $managerShift->closing_balance,
+                    'final_variance' => (float) $managerShift->variance,
+                    'notes' => $managerShift->daily_report_notes,
+                ]
+            ], 'Daily report submitted successfully');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Get submitted daily reports
+     */
+    public function getSubmittedDailyReports(Request $request): JsonResponse
+    {
+        try {
+            $manager = auth()->user();
+
+            $query = BranchManagerShift::where('branch_manager_id', $manager->id)
+                ->where('daily_report_submitted', true)
+                ->with(['branch', 'branchManager'])
+                ->orderBy('daily_report_submitted_at', 'desc');
+
+            // Filter by date
+            if ($dateFrom = $request->input('date_from')) {
+                $query->whereDate('shift_date', '>=', $dateFrom);
+            }
+
+            if ($dateTo = $request->input('date_to')) {
+                $query->whereDate('shift_date', '<=', $dateTo);
+            }
+
+            $reports = $query->paginate($request->input('per_page', 10));
+
+            return $this->paginatedResponse(
+                BranchManagerShiftResource::collection($reports),
+                'Submitted daily reports retrieved successfully'
+            );
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
