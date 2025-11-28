@@ -5,6 +5,7 @@ namespace Modules\Shift\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Services\BranchManagerShiftService;
@@ -352,7 +353,7 @@ class BranchManagerShiftController extends BaseController
 
 
     /**
-     * Get final daily close summary - زي الصورة الأولى
+     * Get final daily close summary - معدل
      */
     public function getFinalDailyClose(Request $request): JsonResponse
     {
@@ -368,8 +369,12 @@ class BranchManagerShiftController extends BaseController
             $manager = auth()->user();
 
             $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->with(['branch', 'branchManager'])
-                ->findOrFail($request->shift_id);
+                ->with(['branch', 'branchManager', 'cashierShifts.cashier', 'cashierShifts.shift', 'cashierShifts.handoverStatus', 'cashierShifts.salesBreakdown.aggregator'])
+                ->find($request->shift_id); // استخدم find بدل findOrFail
+
+            if (!$managerShift) {
+                return $this->errorResponse('Shift not found or you do not have permission to access this shift', 404);
+            }
 
             if ($managerShift->status !== 'completed') {
                 return $this->errorResponse('Shift must be completed first', 400);
@@ -388,12 +393,18 @@ class BranchManagerShiftController extends BaseController
                 ]
             ], 'Final daily close summary retrieved successfully');
         } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
+            \Log::error('Final daily close error', [
+                'shift_id' => $request->shift_id,
+                'manager_id' => auth()->id(),
+                'error' => $e->getMessage()
+            ]);
+
+            return $this->errorResponse('Failed to retrieve final daily close: ' . $e->getMessage(), 500);
         }
     }
 
     /**
-     * Update final daily close with adjustments - للتعديل
+     * Update final daily close with adjustments - معدل
      */
     public function updateFinalDailyClose(Request $request): JsonResponse
     {
@@ -415,7 +426,11 @@ class BranchManagerShiftController extends BaseController
             $manager = auth()->user();
 
             $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->findOrFail($request->shift_id);
+                ->find($request->shift_id);
+
+            if (!$managerShift) {
+                return $this->errorResponse('Shift not found or you do not have permission to access this shift', 404);
+            }
 
             if ($managerShift->daily_report_submitted) {
                 return $this->errorResponse('Daily report already submitted', 400);
@@ -437,12 +452,17 @@ class BranchManagerShiftController extends BaseController
                 'message' => 'Daily close updated successfully'
             ], 'Daily close updated successfully');
         } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
+            \Log::error('Update final daily close error', [
+                'shift_id' => $request->shift_id,
+                'error' => $e->getMessage()
+            ]);
+
+            return $this->errorResponse('Failed to update daily close: ' . $e->getMessage(), 500);
         }
     }
 
     /**
-     * Submit final daily report - للتقديم النهائي
+     * Submit final daily report - معدل
      */
     public function submitFinalDailyReport(Request $request): JsonResponse
     {
@@ -464,7 +484,11 @@ class BranchManagerShiftController extends BaseController
             $manager = auth()->user();
 
             $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->findOrFail($request->shift_id);
+                ->find($request->shift_id);
+
+            if (!$managerShift) {
+                return $this->errorResponse('Shift not found or you do not have permission to access this shift', 404);
+            }
 
             if ($managerShift->daily_report_submitted) {
                 return $this->errorResponse('Daily report already submitted', 400);
@@ -492,40 +516,12 @@ class BranchManagerShiftController extends BaseController
                 ]
             ], 'Daily report submitted successfully');
         } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
-        }
-    }
+            Log::error('Submit final daily report error', [
+                'shift_id' => $request->shift_id,
+                'error' => $e->getMessage()
+            ]);
 
-    /**
-     * Get submitted daily reports
-     */
-    public function getSubmittedDailyReports(Request $request): JsonResponse
-    {
-        try {
-            $manager = auth()->user();
-
-            $query = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->where('daily_report_submitted', true)
-                ->with(['branch', 'branchManager'])
-                ->orderBy('daily_report_submitted_at', 'desc');
-
-            // Filter by date
-            if ($dateFrom = $request->input('date_from')) {
-                $query->whereDate('shift_date', '>=', $dateFrom);
-            }
-
-            if ($dateTo = $request->input('date_to')) {
-                $query->whereDate('shift_date', '<=', $dateTo);
-            }
-
-            $reports = $query->paginate($request->input('per_page', 10));
-
-            return $this->paginatedResponse(
-                BranchManagerShiftResource::collection($reports),
-                'Submitted daily reports retrieved successfully'
-            );
-        } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
+            return $this->errorResponse('Failed to submit daily report: ' . $e->getMessage(), 500);
         }
     }
 }
