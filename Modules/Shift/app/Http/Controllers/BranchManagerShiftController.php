@@ -357,6 +357,27 @@ class BranchManagerShiftController extends BaseController
      */
     public function getFinalDailyClose(Request $request): JsonResponse
     {
+        // في أول الـ getFinalDailyClose method
+        Log::info('Final daily close request', [
+            'shift_id' => $request->shift_id,
+            'manager_id' => auth()->id(),
+            'manager_branch_id' => auth()->user()->branch_id
+        ]);
+
+        // شوف لو الشيفت موجود في الداتابيز
+        $exists = BranchManagerShift::where('id', $request->shift_id)->exists();
+        Log::info('Shift exists check', ['exists' => $exists]);
+
+        $managerShift = BranchManagerShift::where('branch_manager_id', auth()->id())
+            ->where('id', $request->shift_id)
+            ->first();
+
+        if (!$managerShift) {
+            Log::warning('Shift not found for manager', [
+                'shift_id' => $request->shift_id,
+                'manager_id' => auth()->id()
+            ]);
+        }
         $validator = Validator::make($request->all(), [
             'shift_id' => 'required|exists:branch_manager_shifts,id',
         ]);
