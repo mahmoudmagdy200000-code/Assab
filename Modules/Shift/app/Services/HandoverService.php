@@ -19,7 +19,7 @@ class HandoverService
     public function approveHandover(
         CashierShift $shift,
         string $reviewerId,
-        string $reviewerType,
+        string $reviewerType, // Full class name like 'App\Models\User'
         ?string $managerComment = null
     ): CashierShift {
         DB::beginTransaction();
@@ -33,11 +33,11 @@ class HandoverService
                 $shift->refresh();
             }
 
-            // Update handover status
+            // Update handover status with polymorphic relationship
             $shift->handoverStatus->update([
                 'status' => HandoverStatus::ACCEPTED,
-                'reviewed_by' => $reviewerId,
-                'reviewer_type' => $reviewerType,
+                'reviewed_by_id' => $reviewerId,      // Use reviewed_by_id
+                'reviewed_by_type' => $reviewerType,  // Use reviewed_by_type
                 'manager_comment' => $managerComment,
                 'reviewed_at' => Carbon::now(),
             ]);
@@ -63,8 +63,8 @@ class HandoverService
                 ['status' => HandoverStatus::PENDING->value],
                 [
                     'status' => HandoverStatus::ACCEPTED->value,
-                    'reviewed_by' => $reviewerId,
-                    'reviewer_type' => $reviewerType,
+                    'reviewed_by_id' => $reviewerId,
+                    'reviewed_by_type' => $reviewerType,
                 ],
                 $managerComment
             );
@@ -93,80 +93,20 @@ class HandoverService
     }
 
     /**
-     * Record a handover
-     */
-    public function recordHandover(CashierShift $shift, array $data): CashierShift
-    {
-        DB::beginTransaction();
-        try {
-            Log::info('Recording handover', [
-                'shift_id' => $shift->id,
-                'next_cashier_id' => $data['next_cashier_id'],
-            ]);
-
-            // Update shift with handover details
-            $shift->update([
-                'next_cashier_id' => $data['next_cashier_id'],
-                'closing_balance' => $data['handover_amount'],
-                'handover_notes' => $data['handover_notes'] ?? null,
-                'handed_over_at' => now(),
-            ]);
-
-            // Calculate variance
-            $expectedBalance = $shift->total_sales;
-            $variance = $expectedBalance - $data['handover_amount'];
-
-            $shift->update([
-                'expected_balance' => $expectedBalance,
-                'variance' => $variance,
-            ]);
-
-            // Create handover status record
-            ShiftHandoverStatus::create([
-                'cashier_shift_id' => $shift->id,
-                'status' => HandoverStatus::PENDING,
-            ]);
-
-            // Record history (using enum)
-            $shift->recordHistory(
-                ShiftHistoryAction::HANDOVER_RECORDED->value,
-                null,
-                [
-                    'next_cashier_id' => $data['next_cashier_id'],
-                    'handover_amount' => $data['handover_amount'],
-                    'variance' => $variance,
-                ]
-            );
-
-            DB::commit();
-
-            Log::info('Handover recorded successfully', [
-                'shift_id' => $shift->id,
-                'next_cashier_id' => $shift->next_cashier_id,
-            ]);
-
-            return $shift->fresh(['nextCashier']);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Failed to record handover', [
-                'shift_id' => $shift->id,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-            throw $e;
-        }
-    }
-
-    /**
      * Accept a handover
      */
-    public function acceptHandover(CashierShift $shift, string $reviewerId, ?string $comment = null): void
-    {
+    public function acceptHandover(
+        CashierShift $shift,
+        string $reviewerId,
+        string $reviewerType,
+        ?string $comment = null
+    ): void {
         DB::beginTransaction();
         try {
             $shift->handoverStatus->update([
                 'status' => HandoverStatus::ACCEPTED,
-                'reviewed_by' => $reviewerId,
+                'reviewed_by_id' => $reviewerId,
+                'reviewed_by_type' => $reviewerType,
                 'manager_comment' => $comment,
                 'reviewed_at' => now(),
             ]);
@@ -176,7 +116,8 @@ class HandoverService
                 ['status' => HandoverStatus::PENDING->value],
                 [
                     'status' => HandoverStatus::ACCEPTED->value,
-                    'reviewed_by' => $reviewerId,
+                    'reviewed_by_id' => $reviewerId,
+                    'reviewed_by_type' => $reviewerType,
                 ]
             );
 
@@ -193,6 +134,7 @@ class HandoverService
     public function rejectHandover(
         CashierShift $shift,
         string $reviewerId,
+        string $reviewerType,
         string $reason,
         array $files = [],
         ?string $comment = null
@@ -208,7 +150,8 @@ class HandoverService
 
             $shift->handoverStatus->update([
                 'status' => HandoverStatus::REJECTED,
-                'reviewed_by' => $reviewerId,
+                'reviewed_by_id' => $reviewerId,
+                'reviewed_by_type' => $reviewerType,
                 'rejection_reason' => $reason,
                 'rejection_files' => $uploadedFiles ? json_encode($uploadedFiles) : null,
                 'manager_comment' => $comment,
@@ -220,7 +163,8 @@ class HandoverService
                 ['status' => HandoverStatus::PENDING->value],
                 [
                     'status' => HandoverStatus::REJECTED->value,
-                    'reviewed_by' => $reviewerId,
+                    'reviewed_by_id' => $reviewerId,
+                    'reviewed_by_type' => $reviewerType,
                     'rejection_reason' => $reason,
                 ]
             );

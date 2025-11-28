@@ -11,6 +11,7 @@ use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Transformers\ShiftDetailResource;
 use Modules\Cashier\Models\Cashier;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Shift\Enums\HandoverStatus;
 
 class ShiftHandoverController extends Controller
@@ -106,12 +107,7 @@ class ShiftHandoverController extends Controller
 
 
     /**
-     * Approve handover
-     * Branch Manager approves the handover
-     *
-     * @param Request $request
-     * @param string $shift
-     * @return JsonResponse
+     * Approve handover - Fixed for BranchManager
      */
     public function approveHandover(Request $request, $shift): JsonResponse
     {
@@ -134,11 +130,14 @@ class ShiftHandoverController extends Controller
                 ], 400);
             }
 
-            // Process the approval
+            // Get the authenticated branch manager
+            $manager = auth()->user();
+
+            // Process the approval with correct class
             $result = $this->handoverService->approveHandover(
                 $shiftModel,
-                auth()->id(),
-                'branch_manager',
+                $manager->id, // BranchManager ID (UUID)
+                get_class($manager), // Full class name like 'Modules\BranchManagers\Models\BranchManager'
                 $request->get('manager_comment')
             );
 
@@ -164,19 +163,13 @@ class ShiftHandoverController extends Controller
         }
     }
 
-
     /**
-     * Reject handover
-     * Branch Manager rejects the handover with reason
-     *
-     * @param Request $request
-     * @param string $shift
-     * @return JsonResponse
+     * Reject handover - Fixed for BranchManager
      */
     public function rejectHandover(Request $request, string $shift): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'rejection_reason' => 'nullable|string|max:500',
+            'rejection_reason' => 'required|string|max:500',
             'manager_comment' => 'nullable|string|max:500',
             'rejection_files' => 'sometimes|array',
             'rejection_files.*' => 'file|mimes:pdf,png,jpeg,jpg|max:5120',
@@ -202,27 +195,26 @@ class ShiftHandoverController extends Controller
                 ], 404);
             }
 
-            if ($shiftModel->handoverStatus->status !== 'pending') {
+            if ($shiftModel->handoverStatus->status !== HandoverStatus::PENDING) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Handover is not pending approval',
-                    'current_status' => $shiftModel->handoverStatus->status,
+                    'current_status' => $shiftModel->handoverStatus->status->value,
                 ], 400);
             }
 
-            // Handle file uploads
-            $data = [
-                'reviewed_by' => auth()->id(),
-                'rejection_reason' => $request->rejection_reason,
-                'manager_comment' => $request->manager_comment,
-            ];
+            // Get the authenticated branch manager
+            $manager = auth()->user();
 
-            if ($request->hasFile('rejection_files')) {
-                $data['rejection_files'] = $request->file('rejection_files');
-            }
-
-            // Reject handover
-            $this->handoverService->rejectHandover($shiftModel, $data);
+            // Reject handover with correct parameters
+            $this->handoverService->rejectHandover(
+                $shiftModel,
+                $manager->id, // BranchManager ID
+                get_class($manager), // BranchManager class
+                $request->rejection_reason,
+                $request->file('rejection_files', []),
+                $request->manager_comment
+            );
 
             return response()->json([
                 'success' => true,
@@ -231,7 +223,7 @@ class ShiftHandoverController extends Controller
                     'shift' => new ShiftDetailResource($shiftModel->fresh()),
                     'rejection_details' => [
                         'status' => 'rejected',
-                        'rejected_by' => auth()->user()->name,
+                        'rejected_by' => $manager->name,
                         'rejection_reason' => $request->rejection_reason,
                         'manager_comment' => $request->manager_comment,
                         'rejected_at' => now()->format('Y-m-d H:i:s'),
@@ -251,6 +243,7 @@ class ShiftHandoverController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Get handover status and details
