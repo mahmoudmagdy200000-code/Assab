@@ -212,9 +212,11 @@ class ShiftController extends BaseController
 
         $branchManagers = BranchManager::where('branch_id', $manager->branch_id)->get();
 
-        return $this->paginatedResponse([
-            'cashiers' => CashierResource::collection($cashiers),
+        $combined = [
             'branch_managers' => BranchManagerResource::collection($branchManagers),
-        ], 'Filtered cashier shifts retrieved successfully');
+            'cashiers' => CashierResource::collection($cashiers),
+        ];
+
+        return $this->successResponse($combined, 'Cashiers and branch managers retrieved successfully');
     }
 }
