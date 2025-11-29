@@ -445,7 +445,7 @@ class ExpenseAttachmentController extends BaseController
     /**
      * Upload single attachment
      */
-    private function uploadAttachment(Expense $expense, $file, ?int $invoiceDetailId = null): array
+    private function uploadAttachment(Expense $expense, $file, string|int|null $invoiceDetailId = null): array
     {
         $folderPath = match ($expense->expense_type) {
             'quick_cash' => 'expenses/quick-cash',
