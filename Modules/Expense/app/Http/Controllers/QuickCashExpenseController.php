@@ -45,7 +45,9 @@ class QuickCashExpenseController extends BaseController
             'invoice_number' => 'nullable|string|max:100',
             'payment_method' => 'required|in:cash,supplier,custody',
             // 'supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
-            'payment_supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
+            // 'payment_supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
+            'supplier_id' => 'nullable|exists:suppliers,id',
+            'payment_supplier_id' => 'nullable|exists:suppliers,id',
 
             'invoice_receipt' => 'sometimes|array|max:5',
             'invoice_receipt.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
@@ -139,8 +141,11 @@ class QuickCashExpenseController extends BaseController
             'has_vat' => 'sometimes|boolean',
             'invoice_number' => 'nullable|string|max:100',
             'payment_method' => 'sometimes|in:cash,supplier,custody',
-            'supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
-            'payment_supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
+            // 'supplier_id' => 'null:payment_method,supplier|exists:suppliers,id',
+            // 'payment_supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
+            'supplier_id' => 'sometimes|exists:suppliers,id',
+            'payment_supplier_id' => 'sometimes|exists:suppliers,id',
+
 
             // New attachments
             'invoice_receipt' => 'sometimes|array|max:5',
