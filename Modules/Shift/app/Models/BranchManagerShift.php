@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -13,7 +14,7 @@ use Modules\Shift\Enums\ShiftStatus;
 
 class BranchManagerShift extends Model
 {
-    use HasFactory , HasUuids;
+    use HasFactory, HasUuids;
 
     protected $fillable = [
         'branch_manager_id',
@@ -38,6 +39,15 @@ class BranchManagerShift extends Model
         'total_cashier_shifts',
         'completed_cashier_shifts',
         'pending_cashier_shifts',
+        'daily_report_submitted',
+        'daily_report_submitted_at',
+        'daily_report_notes',
+        'can_reopen',
+        'reopened_at',
+        'reopen_reason',
+        'approved_by',
+        'approved_at',
+        'archived_at',
     ];
 
     protected $casts = [
@@ -45,6 +55,10 @@ class BranchManagerShift extends Model
         'actual_start_time' => 'datetime',
         'actual_end_time' => 'datetime',
         'handed_over_at' => 'datetime',
+        'daily_report_submitted_at' => 'datetime',
+        'reopened_at' => 'datetime',
+        'approved_at' => 'datetime',
+        'archived_at' => 'datetime',
         'total_sales' => 'decimal:2',
         'net_sales' => 'decimal:2',
         'vat_amount' => 'decimal:2',
@@ -55,6 +69,8 @@ class BranchManagerShift extends Model
         'closing_balance' => 'decimal:2',
         'expected_balance' => 'decimal:2',
         'variance' => 'decimal:2',
+        'daily_report_submitted' => 'boolean',
+        'can_reopen' => 'boolean',
     ];
 
     // Relationships
@@ -71,6 +87,16 @@ class BranchManagerShift extends Model
     public function nextManager(): BelongsTo
     {
         return $this->belongsTo(BranchManager::class, 'next_manager_id');
+    }
+
+    public function approvedBy(): BelongsTo
+    {
+        return $this->belongsTo(BranchManager::class, 'approved_by');
+    }
+
+    public function shift(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Shift\Models\Shift::class, 'shift_id');
     }
 
     public function cashierShifts(): HasMany
@@ -105,6 +131,27 @@ class BranchManagerShift extends Model
     public function scopeForManager($query, string $managerId)
     {
         return $query->where('branch_manager_id', $managerId);
+    }
+
+    public function scopeSubmitted($query)
+    {
+        return $query->where('daily_report_submitted', true);
+    }
+
+    public function scopePendingSubmission($query)
+    {
+        return $query->where('status', 'completed')
+            ->where('daily_report_submitted', false);
+    }
+
+    public function scopeArchived($query)
+    {
+        return $query->whereNotNull('archived_at');
+    }
+
+    public function scopeNotArchived($query)
+    {
+        return $query->whereNull('archived_at');
     }
 
     // Methods
@@ -175,21 +222,53 @@ class BranchManagerShift extends Model
 
     public function canStart(): bool
     {
-        return $this->status === 'not_started' &&
-               $this->shift_date->isToday();
+        return $this->status === 'not_started' && $this->shift_date->isToday();
     }
 
     public function canEnd(): bool
     {
-        return $this->status === 'in_progress';
+        if ($this->status !== 'in_progress') {
+            return false;
+        }
+
+        // Section A requirement: cannot end until End Time is reached
+        if ($this->shift && $this->shift->end_time) {
+            $endDateTime = Carbon::parse($this->shift_date->format('Y-m-d') . ' ' . $this->shift->end_time);
+            return now()->greaterThanOrEqualTo($endDateTime);
+        }
+
+        return true;
     }
 
     public function getProgressPercentage(): float
     {
-        if (!$this->actual_start_time || $this->completed_cashier_shifts === 0) {
+        if (!$this->actual_start_time || $this->total_cashier_shifts === 0) {
             return 0;
         }
 
         return ($this->completed_cashier_shifts / $this->total_cashier_shifts) * 100;
+    }
+
+    public function hasPendingHandoffs(): bool
+    {
+        return $this->cashierShifts()
+            ->whereHas('handoverStatus', function ($q) {
+                $q->where('manager_approval_status', 'pending');
+            })
+            ->exists();
+    }
+
+    public function canSubmitDailyReport(): bool
+    {
+        return $this->status === 'completed'
+            && !$this->daily_report_submitted
+            && !$this->hasPendingHandoffs();
+    }
+
+    public function canReopenShift(): bool
+    {
+        return $this->can_reopen
+            && $this->daily_report_submitted
+            && $this->shift_date->isToday();
     }
 }

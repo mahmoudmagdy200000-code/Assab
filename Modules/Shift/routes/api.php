@@ -29,46 +29,29 @@ Route::group([
     'prefix' => 'branch-manager/my-shift',
     'middleware' => ['auth:sanctum', 'branch.manager']
 ], function () {
+    // Section A & B: Shift Overview and Details
+    Route::get('/current', [BranchManagerShiftController::class, 'current']);
+    Route::get('/history', [BranchManagerShiftController::class, 'index']);
+    Route::get('/{id}', [BranchManagerShiftController::class, 'show']);
+    Route::get('/statistics', [BranchManagerShiftController::class, 'statistics']);
 
-    // Routes الجديدة للـ Final Daily Close
-    Route::get('/final-daily-close', [BranchManagerShiftController::class, 'getFinalDailyClose']);
-    Route::put('/final-daily-close/update', [BranchManagerShiftController::class, 'updateFinalDailyClose']);
+    // Section A: Start Shift
+    Route::post('/start', [BranchManagerShiftController::class, 'start']);
+
+    // Section C: Handoffs Received (Approval System)
+    Route::post('/handoffs/received', [BranchManagerShiftController::class, 'getHandoffsReceived']);
+    Route::post('/handoffs/approve', [BranchManagerShiftController::class, 'approveHandoff']);
+    Route::post('/handoffs/reject', [BranchManagerShiftController::class, 'rejectHandoff']);
+
+    // Section D: End Shift & Manager Handover
+    Route::post('/end', [BranchManagerShiftController::class, 'endShift']);
+    Route::post('/handover/record', [BranchManagerShiftController::class, 'recordManagerHandover']);
+
+    // Section E: Final Daily Close
+    Route::post('/final-daily-close', [BranchManagerShiftController::class, 'getFinalDailyClose']);
+    Route::post('/final-daily-close/update', [BranchManagerShiftController::class, 'updateFinalDailyClose']);
     Route::post('/final-daily-close/submit', [BranchManagerShiftController::class, 'submitFinalDailyReport']);
-    Route::get('/submitted-reports', [BranchManagerShiftController::class, 'getSubmittedDailyReports']);
-
-    Route::get('allBranchManagerCashiers', [ShiftController::class, 'getAllCashiersAndBranchManagerAccount'])
-        ->name('branch-manager.shift.all-cashiers');
-    // Statistics (يجب أن يكون قبل {id} لتجنب الـ conflict)
-    Route::get('statistics/summary', [BranchManagerShiftController::class, 'statistics'])
-        ->name('branch-manager.shift.statistics');
-
-    // Current Shift (Today's Shift)
-    Route::get('current', [BranchManagerShiftController::class, 'current'])
-        ->name('branch-manager.shift.current');
-
-    // Shift History
-    Route::get('history', [BranchManagerShiftController::class, 'index'])
-        ->name('branch-manager.shift.history');
-
-    // Start Shift
-    Route::post('start', [BranchManagerShiftController::class, 'start'])
-        ->name('branch-manager.shift.start');
-
-    // End Shift Only (Without Handover)
-    Route::post('end', [BranchManagerShiftController::class, 'endOnly'])
-        ->name('branch-manager.shift.end');
-
-    // End Shift With Handover
-    Route::post('end-with-handover', [BranchManagerShiftController::class, 'endWithHandover'])
-        ->name('branch-manager.shift.end-with-handover');
-
-    // Record Handover (After Ending Shift)
-    Route::post('record-handover', [BranchManagerShiftController::class, 'recordHandover'])
-        ->name('branch-manager.shift.record-handover');
-
-    // Shift Details (يجب أن يكون في النهاية)
-    Route::get('{id}', [BranchManagerShiftController::class, 'show'])
-        ->name('branch-manager.shift.show');
+    Route::post('/final-daily-close/reopen', [BranchManagerShiftController::class, 'reopenShift']);
 });
 
 /*

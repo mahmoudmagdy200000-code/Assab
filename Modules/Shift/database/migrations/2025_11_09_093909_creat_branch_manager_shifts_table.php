@@ -42,10 +42,28 @@ return new class extends Migration
             $table->integer('completed_cashier_shifts')->default(0);
             $table->integer('pending_cashier_shifts')->default(0);
 
+            // Daily Report Submission - NEW
+            $table->boolean('daily_report_submitted')->default(false);
+            $table->timestamp('daily_report_submitted_at')->nullable();
+            $table->text('daily_report_notes')->nullable();
+
+            // Reopen capability - NEW
+            $table->boolean('can_reopen')->default(false);
+            $table->timestamp('reopened_at')->nullable();
+            $table->text('reopen_reason')->nullable();
+
+            // Final approval tracking - NEW
+            $table->foreignUuid('approved_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->timestamp('approved_at')->nullable();
+
+            // Auto-archive tracking - NEW (Section E)
+            $table->timestamp('archived_at')->nullable();
+
             $table->timestamps();
 
             $table->index(['branch_manager_id', 'shift_date']);
             $table->index('status');
+            $table->index('daily_report_submitted');
             $table->unique(['branch_manager_id', 'shift_date'], 'unique_manager_shift_date');
         });
     }
