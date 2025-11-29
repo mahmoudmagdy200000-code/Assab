@@ -26,7 +26,7 @@ use Modules\Shift\Http\Controllers\{
 */
 
 Route::group([
-    'prefix' => 'branch-manager/my-shift',
+    'prefix' => 'branch-manager',
     'middleware' => ['auth:sanctum', 'branch.manager']
 ], function () {
     // Current shift (today)
