@@ -254,13 +254,13 @@ class BranchManagerShiftController extends BaseController
         }
     }
 
-    /**
-     * End shift - Section D (with optional handover to next manager)
+   /**
+     * End shift - FIXED
      */
     public function endShift(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'shift_id' => 'required|exists:branch_manager_shifts,id',
+            'shift_id' => 'sometimes|exists:branch_manager_shifts,id',
             'next_manager_id' => 'nullable|exists:branch_managers,id',
             'handover_amount' => 'nullable|numeric|min:0',
             'handover_notes' => 'nullable|string|max:500',
@@ -274,8 +274,15 @@ class BranchManagerShiftController extends BaseController
         try {
             $manager = auth()->user();
 
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->findOrFail($request->shift_id);
+            // Get shift - either from request or today's shift
+            if ($request->has('shift_id')) {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->findOrFail($request->shift_id);
+            } else {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->where('shift_date', today())
+                    ->firstOrFail();
+            }
 
             if (!$managerShift->canEnd()) {
                 return $this->errorResponse('Cannot end this shift. Current status: ' . $managerShift->status, 400);
@@ -290,7 +297,7 @@ class BranchManagerShiftController extends BaseController
                 );
             }
 
-            // End shift with optional manager handover
+            // End shift
             $managerShift = $this->shiftService->endShift($managerShift);
 
             // If handover details provided, record it
@@ -324,6 +331,8 @@ class BranchManagerShiftController extends BaseController
                     'submit_daily_report' => true,
                 ],
             ], 'Shift ended successfully. Please review Final Daily Close.');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Shift not found or not accessible', 404);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -388,31 +397,40 @@ class BranchManagerShiftController extends BaseController
     }
 
     /**
-     * Get final daily close summary - Section E
+     * Get final daily close summary - FIXED to auto-get current shift
      */
     public function getFinalDailyClose(Request $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'shift_id' => 'required|exists:branch_manager_shifts,id',
-        ]);
-
-        if ($validator->fails()) {
-            return $this->errorResponse($validator->errors()->first(), 422);
-        }
-
         try {
             $manager = auth()->user();
 
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->with([
-                    'branch',
-                    'branchManager',
-                    'cashierShifts.cashier',
-                    'cashierShifts.shift',
-                    'cashierShifts.handoverStatus',
-                    'cashierShifts.salesBreakdown.aggregator'
-                ])
-                ->findOrFail($request->shift_id);
+            // Option 1: Use shift_id from request if provided
+            if ($request->has('shift_id')) {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->with([
+                        'branch',
+                        'branchManager',
+                        'cashierShifts.cashier',
+                        'cashierShifts.shift',
+                        'cashierShifts.handoverStatus',
+                        'cashierShifts.salesBreakdown.aggregator'
+                    ])
+                    ->findOrFail($request->shift_id);
+            }
+            // Option 2: Auto-get today's shift (for /my-shift/final-daily-close)
+            else {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->where('shift_date', today())
+                    ->with([
+                        'branch',
+                        'branchManager',
+                        'cashierShifts.cashier',
+                        'cashierShifts.shift',
+                        'cashierShifts.handoverStatus',
+                        'cashierShifts.salesBreakdown.aggregator'
+                    ])
+                    ->firstOrFail();
+            }
 
             if ($managerShift->status !== 'completed') {
                 return $this->errorResponse('Shift must be completed first', 400);
@@ -432,9 +450,10 @@ class BranchManagerShiftController extends BaseController
                     'view_report' => $managerShift->daily_report_submitted,
                 ]
             ], 'Final daily close summary retrieved successfully');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('No shift found for today or shift not accessible', 404);
         } catch (\Exception $e) {
             Log::error('Final daily close error', [
-                'shift_id' => $request->shift_id,
                 'manager_id' => auth()->id(),
                 'error' => $e->getMessage()
             ]);
@@ -444,12 +463,12 @@ class BranchManagerShiftController extends BaseController
     }
 
     /**
-     * Update final daily close with adjustments - Section E
+     * Update final daily close - FIXED
      */
     public function updateFinalDailyClose(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'shift_id' => 'required|exists:branch_manager_shifts,id',
+            'shift_id' => 'sometimes|exists:branch_manager_shifts,id',
             'closing_balance' => 'sometimes|numeric|min:0',
             'expected_balance' => 'sometimes|numeric|min:0',
             'daily_report_notes' => 'nullable|string|max:1000',
@@ -465,8 +484,15 @@ class BranchManagerShiftController extends BaseController
         try {
             $manager = auth()->user();
 
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->findOrFail($request->shift_id);
+            // Get shift - either from request or today's shift
+            if ($request->has('shift_id')) {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->findOrFail($request->shift_id);
+            } else {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->where('shift_date', today())
+                    ->firstOrFail();
+            }
 
             if ($managerShift->daily_report_submitted && !$managerShift->can_reopen) {
                 return $this->errorResponse('Daily report already submitted and cannot be edited', 400);
@@ -485,9 +511,10 @@ class BranchManagerShiftController extends BaseController
                 'adjustments_applied' => true,
                 'message' => 'Daily close updated successfully'
             ], 'Daily close updated successfully');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Shift not found or not accessible', 404);
         } catch (\Exception $e) {
             Log::error('Update final daily close error', [
-                'shift_id' => $request->shift_id,
                 'error' => $e->getMessage()
             ]);
 
@@ -496,12 +523,12 @@ class BranchManagerShiftController extends BaseController
     }
 
     /**
-     * Submit final daily report - Section E
+     * Submit final daily report - FIXED
      */
     public function submitFinalDailyReport(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'shift_id' => 'required|exists:branch_manager_shifts,id',
+            'shift_id' => 'sometimes|exists:branch_manager_shifts,id',
             'closing_balance' => 'sometimes|numeric|min:0',
             'expected_balance' => 'sometimes|numeric|min:0',
             'final_notes' => 'nullable|string|max:1000',
@@ -517,8 +544,15 @@ class BranchManagerShiftController extends BaseController
         try {
             $manager = auth()->user();
 
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->findOrFail($request->shift_id);
+            // Get shift - either from request or today's shift
+            if ($request->has('shift_id')) {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->findOrFail($request->shift_id);
+            } else {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->where('shift_date', today())
+                    ->firstOrFail();
+            }
 
             if ($managerShift->daily_report_submitted && !$managerShift->can_reopen) {
                 return $this->errorResponse('Daily report already submitted', 400);
@@ -543,9 +577,10 @@ class BranchManagerShiftController extends BaseController
                 ],
                 'message' => 'Daily report submitted successfully. Waiting for Sales Team approval.'
             ], 'Daily report submitted successfully');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Shift not found or not accessible', 404);
         } catch (\Exception $e) {
             Log::error('Submit final daily report error', [
-                'shift_id' => $request->shift_id,
                 'error' => $e->getMessage()
             ]);
 
@@ -554,12 +589,12 @@ class BranchManagerShiftController extends BaseController
     }
 
     /**
-     * Reopen shift (after Sales Team notification) - Section E
+     * Reopen shift - FIXED
      */
     public function reopenShift(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'shift_id' => 'required|exists:branch_manager_shifts,id',
+            'shift_id' => 'sometimes|exists:branch_manager_shifts,id',
             'reopen_reason' => 'required|string|max:500',
         ]);
 
@@ -570,8 +605,15 @@ class BranchManagerShiftController extends BaseController
         try {
             $manager = auth()->user();
 
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->findOrFail($request->shift_id);
+            // Get shift - either from request or today's shift
+            if ($request->has('shift_id')) {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->findOrFail($request->shift_id);
+            } else {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->where('shift_date', today())
+                    ->firstOrFail();
+            }
 
             if (!$managerShift->can_reopen) {
                 return $this->errorResponse('This shift cannot be reopened', 400);
@@ -581,7 +623,6 @@ class BranchManagerShiftController extends BaseController
                 return $this->errorResponse('Shift must be submitted first', 400);
             }
 
-            // Check if same day
             if (!$managerShift->shift_date->isToday()) {
                 return $this->errorResponse('Can only reopen shift on the same day', 400);
             }
@@ -593,6 +634,45 @@ class BranchManagerShiftController extends BaseController
                 'message' => 'Shift reopened successfully. You can now make changes and resubmit.',
                 'reopened_at' => $managerShift->reopened_at->format('Y-m-d H:i:s')
             ], 'Shift reopened successfully');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Shift not found or not accessible', 404);
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Get handoffs received - FIXED
+     */
+    public function getHandoffsReceived(Request $request): JsonResponse
+    {
+        try {
+            $manager = auth()->user();
+
+            // Get shift - either from request or today's shift
+            if ($request->has('shift_id')) {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->findOrFail($request->shift_id);
+            } else {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->where('shift_date', today())
+                    ->firstOrFail();
+            }
+
+            $handoffs = $this->shiftService->getHandoffsReceived($managerShift);
+
+            return $this->successResponse([
+                'handoffs' => $handoffs,
+                'summary' => [
+                    'total_handoffs' => count($handoffs),
+                    'pending' => collect($handoffs)->where('manager_approval_status', 'pending')->count(),
+                    'approved' => collect($handoffs)->where('manager_approval_status', 'approved')->count(),
+                    'rejected' => collect($handoffs)->where('manager_approval_status', 'rejected')->count(),
+                    'rejected_final' => collect($handoffs)->where('manager_approval_status', 'rejected_final')->count(),
+                ]
+            ], 'Handoffs retrieved successfully');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Shift not found or not accessible', 404);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
