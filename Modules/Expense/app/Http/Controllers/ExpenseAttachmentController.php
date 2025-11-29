@@ -21,10 +21,13 @@ class ExpenseAttachmentController extends BaseController
     /**
      * Add attachments to an expense
      * POST /api/branch-manager/expenses/{expense}/attachments
+     *
+     * For regular expenses: attachments[] = file
+     * For grouped invoices: invoices[invoice_id][attachments][] = file
      */
     public function store(Request $request, string $expense): JsonResponse
     {
-        $expenseModel = Expense::with(['attachments'])->findOrFail($expense);
+        $expenseModel = Expense::with(['attachments', 'invoiceDetails'])->findOrFail($expense);
 
         // Authorization check
         if ($expenseModel->branch_manager_id !== auth()->id()) {
@@ -42,10 +45,144 @@ class ExpenseAttachmentController extends BaseController
             );
         }
 
+        // Check if this is a grouped invoice request
+        $isGroupedInvoice = $request->has('invoices') && $expenseModel->expense_type === 'grouped_invoice';
+
+        if ($isGroupedInvoice) {
+            return $this->storeGroupedInvoiceAttachments($request, $expenseModel);
+        }
+
+        // Regular attachment upload (original logic)
+        return $this->storeRegularAttachments($request, $expenseModel);
+    }
+
+    /**
+     * Store attachments for grouped invoice (multiple invoices)
+     */
+    private function storeGroupedInvoiceAttachments(Request $request, Expense $expenseModel): JsonResponse
+    {
+        // Validate the grouped invoice structure
+        $validator = Validator::make($request->all(), [
+            'invoices' => 'required|array',
+            'invoices.*' => 'array',
+            'invoices.*.attachments' => 'required|array|max:10',
+            'invoices.*.attachments.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120', // 5MB
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorResponse(
+                'Validation failed',
+                422,
+                $validator->errors()->toArray()
+            );
+        }
+
+        $invoicesData = $request->input('invoices');
+        $invoiceIds = array_keys($invoicesData);
+
+        // Validate all invoice IDs belong to this expense
+        $validInvoices = $expenseModel->invoiceDetails()
+            ->whereIn('id', $invoiceIds)
+            ->pluck('id')
+            ->toArray();
+
+        $invalidInvoices = array_diff($invoiceIds, $validInvoices);
+        if (!empty($invalidInvoices)) {
+            return $this->errorResponse(
+                'Some invoice IDs do not belong to this expense',
+                400,
+                ['invalid_invoice_ids' => $invalidInvoices]
+            );
+        }
+
+        // Calculate total attachments count
+        $totalNewAttachments = 0;
+        foreach ($invoicesData as $invoiceId => $invoiceData) {
+            if (isset($invoiceData['attachments'])) {
+                $totalNewAttachments += count($invoiceData['attachments']);
+            }
+        }
+
+        $currentAttachmentsCount = $expenseModel->attachments->count();
+
+        if (($currentAttachmentsCount + $totalNewAttachments) > 15) {
+            return $this->errorResponse(
+                'Maximum 15 attachments allowed per expense',
+                400,
+                [
+                    'current_count' => $currentAttachmentsCount,
+                    'trying_to_add' => $totalNewAttachments,
+                    'max_allowed' => 15
+                ]
+            );
+        }
+
+        DB::beginTransaction();
+        try {
+            $uploadedAttachments = [];
+            $uploadCountPerInvoice = [];
+
+            foreach ($invoicesData as $invoiceId => $invoiceData) {
+                if (!isset($invoiceData['attachments']) || empty($invoiceData['attachments'])) {
+                    continue;
+                }
+
+                $uploadCountPerInvoice[$invoiceId] = 0;
+
+                foreach ($invoiceData['attachments'] as $file) {
+                    $attachment = $this->uploadAttachment($expenseModel, $file, $invoiceId);
+
+                    if (!isset($uploadedAttachments[$invoiceId])) {
+                        $uploadedAttachments[$invoiceId] = [];
+                    }
+
+                    $uploadedAttachments[$invoiceId][] = $attachment;
+                    $uploadCountPerInvoice[$invoiceId]++;
+                }
+            }
+
+            // Create timeline entry
+            $totalUploaded = array_sum($uploadCountPerInvoice);
+            $invoiceCount = count($uploadCountPerInvoice);
+
+            $this->createTimelineEntry(
+                $expenseModel,
+                'attachments_added',
+                "{$totalUploaded} attachment(s) added to {$invoiceCount} invoice(s)"
+            );
+
+            DB::commit();
+
+            return $this->successResponse(
+                [
+                    'total_uploaded' => $totalUploaded,
+                    'upload_per_invoice' => $uploadCountPerInvoice,
+                    'attachments' => $uploadedAttachments,
+                    'expense' => new ExpenseDetailResource($expenseModel->fresh(['attachments', 'invoiceDetails.attachments']))
+                ],
+                'Attachments uploaded successfully to grouped invoices'
+            );
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to upload grouped invoice attachments: ' . $e->getMessage());
+
+            return $this->errorResponse(
+                'Failed to upload attachments',
+                500,
+                ['error' => $e->getMessage()]
+            );
+        }
+    }
+
+    /**
+     * Store regular attachments (original logic)
+     */
+    private function storeRegularAttachments(Request $request, Expense $expenseModel): JsonResponse
+    {
         $validator = Validator::make($request->all(), [
             'attachments' => 'required|array|max:10',
             'attachments.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120', // 5MB
-            'invoice_detail_id' => 'sometimes|exists:invoice_details,id', // For grouped invoices
+            'invoice_detail_id' => 'sometimes|exists:invoice_details,id', // For single invoice
         ]);
 
         if ($validator->fails()) {
@@ -72,7 +209,7 @@ class ExpenseAttachmentController extends BaseController
             );
         }
 
-        // Validate invoice_detail_id belongs to this expense (for grouped invoices)
+        // Validate invoice_detail_id belongs to this expense (if provided)
         if ($request->has('invoice_detail_id')) {
             $invoiceExists = $expenseModel->invoiceDetails()
                 ->where('id', $request->invoice_detail_id)
@@ -226,7 +363,7 @@ class ExpenseAttachmentController extends BaseController
     public function index(string $expense): JsonResponse
     {
         try {
-            $expenseModel = Expense::with(['attachments'])->findOrFail($expense);
+            $expenseModel = Expense::with(['attachments', 'invoiceDetails'])->findOrFail($expense);
 
             // Authorization check
             if ($expenseModel->branch_manager_id !== auth()->id()) {
@@ -236,6 +373,37 @@ class ExpenseAttachmentController extends BaseController
                 );
             }
 
+            // Group attachments by invoice if it's a grouped invoice
+            if ($expenseModel->expense_type === 'grouped_invoice') {
+                $attachmentsByInvoice = [];
+
+                foreach ($expenseModel->invoiceDetails as $invoice) {
+                    $attachmentsByInvoice[$invoice->id] = [
+                        'invoice_number' => $invoice->invoice_number,
+                        'attachments' => $invoice->attachments->map(function ($attachment) {
+                            return [
+                                'id' => $attachment->id,
+                                'file_name' => $attachment->file_name,
+                                'file_type' => $attachment->file_type,
+                                'file_size' => $attachment->file_size,
+                                'file_size_formatted' => $this->formatFileSize($attachment->file_size),
+                                'file_url' => Storage::disk('public')->url($attachment->file_path),
+                                'created_at' => $attachment->created_at,
+                            ];
+                        })
+                    ];
+                }
+
+                return $this->successResponse(
+                    [
+                        'total_count' => $expenseModel->attachments->count(),
+                        'attachments_by_invoice' => $attachmentsByInvoice
+                    ],
+                    'Grouped invoice attachments retrieved successfully'
+                );
+            }
+
+            // Regular attachments listing
             $attachments = $expenseModel->attachments->map(function ($attachment) {
                 return [
                     'id' => $attachment->id,
@@ -296,6 +464,7 @@ class ExpenseAttachmentController extends BaseController
             'file_size' => $attachment->file_size,
             'file_size_formatted' => $this->formatFileSize($attachment->file_size),
             'file_url' => Storage::disk('public')->url($path),
+            'invoice_detail_id' => $invoiceDetailId,
             'created_at' => $attachment->created_at,
         ];
     }
@@ -309,11 +478,10 @@ class ExpenseAttachmentController extends BaseController
             'action' => $action,
             'performed_by' => auth()->id(),
             'performed_by_type' => 'branch_manager',
-            'status' => $action, 
+            'status' => $action,
             'notes' => $notes,
         ]);
     }
-
 
     /**
      * Format file size to human readable format
