@@ -77,7 +77,16 @@ class ExpenseAttachmentController extends BaseController
             );
         }
 
-        $invoicesData = $request->input('invoices');
+        // Get invoices from files (FormData sends files not input)
+        $invoicesData = $request->file('invoices');
+
+        if (!$invoicesData || !is_array($invoicesData)) {
+            return $this->errorResponse(
+                'No invoices data provided',
+                400
+            );
+        }
+
         $invoiceIds = array_keys($invoicesData);
 
         // Validate all invoice IDs belong to this expense
