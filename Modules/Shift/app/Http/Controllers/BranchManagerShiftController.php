@@ -140,38 +140,38 @@ class BranchManagerShiftController extends BaseController
     /**
      * Get handoffs received from cashiers - Section C
      */
-    public function getHandoffsReceived(Request $request): JsonResponse
-    {
-        try {
-            $manager = auth()->user();
+    // public function getHandoffsReceived(Request $request): JsonResponse
+    // {
+    //     try {
+    //         $manager = auth()->user();
 
-            $validator = Validator::make($request->all(), [
-                'shift_id' => 'required|exists:branch_manager_shifts,id',
-            ]);
+    //         $validator = Validator::make($request->all(), [
+    //             'shift_id' => 'required|exists:branch_manager_shifts,id',
+    //         ]);
 
-            if ($validator->fails()) {
-                return $this->errorResponse($validator->errors()->first(), 422);
-            }
+    //         if ($validator->fails()) {
+    //             return $this->errorResponse($validator->errors()->first(), 422);
+    //         }
 
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->findOrFail($request->shift_id);
+    //         $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+    //             ->findOrFail($request->shift_id);
 
-            $handoffs = $this->shiftService->getHandoffsReceived($managerShift);
+    //         $handoffs = $this->shiftService->getHandoffsReceived($managerShift);
 
-            return $this->successResponse([
-                'handoffs' => $handoffs,
-                'summary' => [
-                    'total_handoffs' => count($handoffs),
-                    'pending' => collect($handoffs)->where('manager_approval_status', 'pending')->count(),
-                    'approved' => collect($handoffs)->where('manager_approval_status', 'approved')->count(),
-                    'rejected' => collect($handoffs)->where('manager_approval_status', 'rejected')->count(),
-                    'rejected_final' => collect($handoffs)->where('manager_approval_status', 'rejected_final')->count(),
-                ]
-            ], 'Handoffs retrieved successfully');
-        } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
-        }
-    }
+    //         return $this->successResponse([
+    //             'handoffs' => $handoffs,
+    //             'summary' => [
+    //                 'total_handoffs' => count($handoffs),
+    //                 'pending' => collect($handoffs)->where('manager_approval_status', 'pending')->count(),
+    //                 'approved' => collect($handoffs)->where('manager_approval_status', 'approved')->count(),
+    //                 'rejected' => collect($handoffs)->where('manager_approval_status', 'rejected')->count(),
+    //                 'rejected_final' => collect($handoffs)->where('manager_approval_status', 'rejected_final')->count(),
+    //             ]
+    //         ], 'Handoffs retrieved successfully');
+    //     } catch (\Exception $e) {
+    //         return $this->errorResponse($e->getMessage(), 500);
+    //     }
+    // }
 
     /**
      * Approve handoff from cashier - Section C
