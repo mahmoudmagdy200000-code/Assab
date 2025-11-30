@@ -507,9 +507,14 @@ class BranchManagerShiftService
 
             $managerShift->update([
                 'next_manager_id' => $nextManagerId,
+                'handover_from' => $managerShift->branch_manager_id,  // ✅ Add this
+                'handover_to' => $nextManagerId,                      // ✅ Add this
+                'handover_amount' => $handoverAmount,                 // ✅ Add this
                 'closing_balance' => $handoverAmount,
                 'handed_over_at' => $handoverTime,
                 'handover_notes' => $notes,
+                'handover_timing' => $timing,                         // ✅ Add this
+                'handover_status' => 'pending',                       // ✅ Add this
                 'expected_balance' => $managerShift->total_sales,
                 'variance' => $managerShift->total_sales - $handoverAmount,
             ]);
@@ -595,8 +600,8 @@ class BranchManagerShiftService
             $currentHandover = [
                 'handover_amount' => (float) $managerShift->closing_balance,
                 'status' => $managerShift->handover_status,
-                'handover_from' => $managerShift->branchManager->name,
-                'handover_to' => $managerShift->nextManager?->name,
+                'handover_from' => $managerShift->handoverFrom->name,
+                'handover_to' => $managerShift->handoverTo?->name,
                 'handover_date' => $managerShift->handed_over_at->format('Y-m-d'),
                 'handover_time' => $managerShift->handed_over_at->format('H:i'),
                 'current_time_setting' => $managerShift->handover_timing,
@@ -675,6 +680,9 @@ class BranchManagerShiftService
             // Update with handover details
             $managerShift->update([
                 'next_manager_id' => $nextManagerId,
+                'handover_from' => $managerShift->branch_manager_id,  // ✅ Current manager
+                'handover_to' => $nextManagerId,                      // ✅ Next manager
+                'handover_amount' => $handoverAmount,                 // ✅ Handover amount
                 'closing_balance' => $handoverAmount,
                 'handed_over_at' => $handoverTime,
                 'handover_notes' => $notes,

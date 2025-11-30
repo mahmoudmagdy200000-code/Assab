@@ -30,6 +30,18 @@ class BranchManagerShiftController extends BaseController
                 $manager->branch_id
             );
 
+            // ✅ Load ALL relationships
+            $managerShift->load([
+                'branchManager',
+                'branch',
+                'nextManager',
+                'handoverFrom',
+                'handoverTo',
+                'cashierShifts.cashier',
+                'cashierShifts.shift',
+                'cashierShifts.handoverStatus'
+            ]);
+
             $progress = $this->shiftService->getShiftProgress($managerShift);
             $breakdown = $this->shiftService->getCashierShiftsBreakdown($managerShift);
 
@@ -746,7 +758,7 @@ class BranchManagerShiftController extends BaseController
             // Get today's shift or specific shift
             if ($request->has('shift_id')) {
                 $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                    ->with(['branchManager', 'nextManager', 'cashierShifts.cashier', 'cashierShifts.handoverStatus','handoverFrom', 'handoverTo' ])
+                    ->with(['branchManager', 'nextManager', 'cashierShifts.cashier', 'cashierShifts.handoverStatus', 'handoverFrom', 'handoverTo'])
                     ->findOrFail($request->shift_id);
             } else {
                 $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
