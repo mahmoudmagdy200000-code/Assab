@@ -8,6 +8,13 @@ class BranchManagerShiftResource extends JsonResource
 {
     public function toArray($request)
     {
+        // Get the last completed cashier shift that handed over to this manager
+        $lastCashierHandover = $this->cashierShifts()
+            ->where('status', 'completed')
+            ->whereNotNull('handed_over_at')
+            ->latest('handed_over_at')
+            ->first();
+
         return [
             'id' => $this->id,
             'shift_date' => $this->shift_date->format('Y-m-d'),
@@ -32,7 +39,7 @@ class BranchManagerShiftResource extends JsonResource
                 'aggregator_payments' => (float) $this->aggregator_payments,
             ],
 
-            // Handover - FIXED
+            // Handover - FIXED CORRECTLY
             'handover' => [
                 'opening_balance' => (float) $this->opening_balance,
                 'closing_balance' => (float) $this->closing_balance,
@@ -42,32 +49,44 @@ class BranchManagerShiftResource extends JsonResource
                 'handed_over_at' => $this->handed_over_at?->format('Y-m-d H:i:s'),
                 'handover_status' => $this->handover_status ?? 'not_submitted',
                 'handover_timing' => $this->handover_timing,
-                'handover_amount' => (float) ($this->handover_amount ?? $this->closing_balance),
+                'handover_amount' => (float) ($this->closing_balance ?? 0),
 
-                // ✅ Fixed: Use whenLoaded to avoid errors
-                'handover_from' => $this->whenLoaded('handoverFrom', function () {
-                    return $this->handoverFrom ? [
-                        'id' => $this->handoverFrom->id,
-                        'name' => $this->handoverFrom->name,
-                        'email' => $this->handoverFrom->email ?? null,
-                    ] : null;
+                // ✅ CORRECT: Last cashier who handed over to this manager
+                'handover_from' => $lastCashierHandover ? [
+                    'id' => $lastCashierHandover->cashier->id,
+                    'name' => $lastCashierHandover->cashier->name,
+                    'type' => 'cashier',
+                    'shift_name' => $lastCashierHandover->shift->name,
+                    'handed_over_at' => $lastCashierHandover->handed_over_at->format('Y-m-d H:i:s'),
+                    'handover_amount' => (float) $lastCashierHandover->closing_balance,
+                ] : null,
+
+                // ✅ CORRECT: Current manager (who received from cashiers)
+                'handover_to' => $this->whenLoaded('branchManager', function () {
+                    return [
+                        'id' => $this->branchManager->id,
+                        'name' => $this->branchManager->name,
+                        'type' => 'branch_manager',
+                        'email' => $this->branchManager->email ?? null,
+                    ];
                 }),
 
-                'handover_to' => $this->whenLoaded('handoverTo', function () {
-                    return $this->handoverTo ? [
-                        'id' => $this->handoverTo->id,
-                        'name' => $this->handoverTo->name,
-                        'email' => $this->handoverTo->email ?? null,
-                    ] : null;
-                }),
-
-                'next_manager' => $this->whenLoaded('nextManager', function () {
-                    return $this->nextManager ? [
-                        'id' => $this->nextManager->id,
-                        'name' => $this->nextManager->name,
-                        'email' => $this->nextManager->email ?? null,
-                    ] : null;
-                }),
+                // Manager-to-Manager handover (for next shift)
+                'next_manager_handover' => $this->next_manager_id ? [
+                    'from_manager' => [
+                        'id' => $this->branchManager->id,
+                        'name' => $this->branchManager->name,
+                    ],
+                    'to_manager' => $this->whenLoaded('nextManager', function () {
+                        return [
+                            'id' => $this->nextManager->id,
+                            'name' => $this->nextManager->name,
+                        ];
+                    }),
+                    'amount' => (float) $this->closing_balance,
+                    'status' => $this->handover_status,
+                    'timing' => $this->handover_timing,
+                ] : null,
 
                 'handover_notes' => $this->handover_notes,
             ],

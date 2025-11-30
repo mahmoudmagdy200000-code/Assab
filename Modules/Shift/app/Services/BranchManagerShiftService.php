@@ -574,58 +574,57 @@ class BranchManagerShiftService
      */
     public function getEndShiftDetails(BranchManagerShift $managerShift): array
     {
-        // Check if all cashier handoffs are approved
-        $pendingCashierHandoffs = $this->getPendingHandoffs($managerShift);
-
-        // Get all cashier shifts handovers summary
-        $cashierHandoffs = $managerShift->cashierShifts()
-            ->with(['cashier', 'handoverStatus'])
+        // Get last cashier handover
+        $lastCashierHandover = $managerShift->cashierShifts()
             ->where('status', ShiftStatus::COMPLETED)
-            ->get()
-            ->map(function ($shift) {
-                return [
-                    'cashier_name' => $shift->cashier->name,
-                    'amount' => (float) $shift->closing_balance,
-                    'status' => $shift->handoverStatus?->manager_approval_status ?? 'not_submitted',
-                    'handed_over_at' => $shift->handed_over_at?->format('Y-m-d H:i:s'),
-                ];
-            });
+            ->whereNotNull('handed_over_at')
+            ->with(['cashier', 'shift'])
+            ->latest('handed_over_at')
+            ->first();
 
-        // Calculate expected handover amount (total cash collected from all cashiers)
-        $expectedHandoverAmount = $managerShift->cash_collected + $managerShift->opening_balance;
+        // Get all cashier handovers summary
+        $cashierHandoversSummary = $this->getCashierHandoversSummary($managerShift);
 
-        // Get current handover details if exists
-        $currentHandover = null;
-        if ($managerShift->handed_over_at) {
-            $currentHandover = [
+        return [
+            'can_end_shift' => $this->getPendingHandoffs($managerShift) === 0 && $managerShift->status === 'in_progress',
+            'pending_cashier_handoffs' => $this->getPendingHandoffs($managerShift),
+
+            // ✅ Cashier-to-Manager handover details
+            'cashier_handovers' => $cashierHandoversSummary,
+
+            // ✅ Last cashier who handed over
+            'last_cashier_handover' => $lastCashierHandover ? [
+                'from_cashier' => [
+                    'id' => $lastCashierHandover->cashier->id,
+                    'name' => $lastCashierHandover->cashier->name,
+                ],
+                'to_manager' => [
+                    'id' => $managerShift->branchManager->id,
+                    'name' => $managerShift->branchManager->name,
+                ],
+                'amount' => (float) $lastCashierHandover->closing_balance,
+                'handed_over_at' => $lastCashierHandover->handed_over_at->format('Y-m-d H:i:s'),
+            ] : null,
+
+            'financial_summary' => [
+                'opening_balance' => (float) $managerShift->opening_balance,
+                'total_cash_collected' => (float) $managerShift->cash_collected,
+                'expected_handover_amount' => (float) ($managerShift->cash_collected + $managerShift->opening_balance),
+                'total_sales' => (float) $managerShift->total_sales,
+            ],
+
+            // Manager-to-Manager handover (if recording)
+            'current_handover' => $managerShift->handed_over_at ? [
                 'handover_amount' => (float) $managerShift->closing_balance,
                 'status' => $managerShift->handover_status,
-                'handover_from' => $managerShift->handoverFrom->name,
-                'handover_to' => $managerShift->handoverTo?->name,
+                'handover_from' => $managerShift->branchManager->name,
+                'handover_to' => $managerShift->nextManager?->name,
                 'handover_date' => $managerShift->handed_over_at->format('Y-m-d'),
                 'handover_time' => $managerShift->handed_over_at->format('H:i'),
                 'current_time_setting' => $managerShift->handover_timing,
                 'notes' => $managerShift->handover_notes,
-            ];
-        }
+            ] : null,
 
-        return [
-            'can_end_shift' => $pendingCashierHandoffs === 0 && $managerShift->status === 'in_progress',
-            'pending_cashier_handoffs' => $pendingCashierHandoffs,
-            'cashier_handoffs_summary' => [
-                'total' => $cashierHandoffs->count(),
-                'approved' => $cashierHandoffs->where('status', 'approved')->count(),
-                'pending' => $cashierHandoffs->where('status', 'pending')->count(),
-                'rejected' => $cashierHandoffs->whereIn('status', ['rejected', 'rejected_final'])->count(),
-                'details' => $cashierHandoffs,
-            ],
-            'financial_summary' => [
-                'opening_balance' => (float) $managerShift->opening_balance,
-                'total_cash_collected' => (float) $managerShift->cash_collected,
-                'expected_handover_amount' => (float) $expectedHandoverAmount,
-                'total_sales' => (float) $managerShift->total_sales,
-            ],
-            'current_handover' => $currentHandover,
             'available_managers' => $this->getAvailableNextManagers($managerShift),
         ];
     }
@@ -715,5 +714,39 @@ class BranchManagerShiftService
             DB::rollBack();
             throw $e;
         }
+    }
+
+
+    /**
+     * Get all cashier handovers summary
+     */
+    public function getCashierHandoversSummary(BranchManagerShift $managerShift): array
+    {
+        $cashierHandovers = $managerShift->cashierShifts()
+            ->where('status', ShiftStatus::COMPLETED)
+            ->whereNotNull('handed_over_at')
+            ->with(['cashier', 'shift', 'handoverStatus'])
+            ->orderBy('handed_over_at', 'desc')
+            ->get();
+
+        return [
+            'total_handovers' => $cashierHandovers->count(),
+            'total_amount' => (float) $cashierHandovers->sum('closing_balance'),
+            'handovers' => $cashierHandovers->map(function ($shift) {
+                return [
+                    'cashier_id' => $shift->cashier->id,
+                    'cashier_name' => $shift->cashier->name,
+                    'shift_name' => $shift->shift->name,
+                    'handover_amount' => (float) $shift->closing_balance,
+                    'handed_over_at' => $shift->handed_over_at->format('Y-m-d H:i:s'),
+                    'approval_status' => $shift->handoverStatus?->manager_approval_status ?? 'pending',
+                ];
+            })->toArray(),
+            'last_handover' => $cashierHandovers->first() ? [
+                'from_cashier' => $cashierHandovers->first()->cashier->name,
+                'amount' => (float) $cashierHandovers->first()->closing_balance,
+                'time' => $cashierHandovers->first()->handed_over_at->format('H:i'),
+            ] : null,
+        ];
     }
 }

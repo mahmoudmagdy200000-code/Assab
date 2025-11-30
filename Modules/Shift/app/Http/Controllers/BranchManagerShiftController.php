@@ -21,6 +21,8 @@ class BranchManagerShiftController extends BaseController
     /**
      * Get current shift (today's shift) - Section A & B
      */
+
+
     public function current(Request $request): JsonResponse
     {
         try {
@@ -30,16 +32,17 @@ class BranchManagerShiftController extends BaseController
                 $manager->branch_id
             );
 
-            // ✅ Load ALL relationships
+            // ✅ Load cashier shifts to get last handover
             $managerShift->load([
                 'branchManager',
                 'branch',
                 'nextManager',
-                'handoverFrom',
-                'handoverTo',
-                'cashierShifts.cashier',
-                'cashierShifts.shift',
-                'cashierShifts.handoverStatus'
+                'cashierShifts' => function ($query) {
+                    $query->where('status', 'completed')
+                        ->whereNotNull('handed_over_at')
+                        ->with(['cashier', 'shift'])
+                        ->latest('handed_over_at');
+                }
             ]);
 
             $progress = $this->shiftService->getShiftProgress($managerShift);
