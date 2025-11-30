@@ -7,6 +7,7 @@ use Modules\Shift\Models\{BranchManagerShift, CashierShift, ShiftHandoverStatus 
 use Modules\Shift\Enums\ShiftStatus;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
+use Modules\BranchManagers\Models\BranchManager;
 
 class BranchManagerShiftService
 {
@@ -556,6 +557,152 @@ class BranchManagerShiftService
 
             DB::commit();
             return $managerShift->fresh();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
+
+    /**
+     * Get end shift details with handover information - Section D
+     */
+    public function getEndShiftDetails(BranchManagerShift $managerShift): array
+    {
+        // Check if all cashier handoffs are approved
+        $pendingCashierHandoffs = $this->getPendingHandoffs($managerShift);
+
+        // Get all cashier shifts handovers summary
+        $cashierHandoffs = $managerShift->cashierShifts()
+            ->with(['cashier', 'handoverStatus'])
+            ->where('status', ShiftStatus::COMPLETED)
+            ->get()
+            ->map(function ($shift) {
+                return [
+                    'cashier_name' => $shift->cashier->name,
+                    'amount' => (float) $shift->closing_balance,
+                    'status' => $shift->handoverStatus?->manager_approval_status ?? 'not_submitted',
+                    'handed_over_at' => $shift->handed_over_at?->format('Y-m-d H:i:s'),
+                ];
+            });
+
+        // Calculate expected handover amount (total cash collected from all cashiers)
+        $expectedHandoverAmount = $managerShift->cash_collected + $managerShift->opening_balance;
+
+        // Get current handover details if exists
+        $currentHandover = null;
+        if ($managerShift->handed_over_at) {
+            $currentHandover = [
+                'handover_amount' => (float) $managerShift->closing_balance,
+                'status' => $managerShift->handover_status,
+                'handover_from' => $managerShift->branchManager->name,
+                'handover_to' => $managerShift->nextManager?->name,
+                'handover_date' => $managerShift->handed_over_at->format('Y-m-d'),
+                'handover_time' => $managerShift->handed_over_at->format('H:i'),
+                'current_time_setting' => $managerShift->handover_timing,
+                'notes' => $managerShift->handover_notes,
+            ];
+        }
+
+        return [
+            'can_end_shift' => $pendingCashierHandoffs === 0 && $managerShift->status === 'in_progress',
+            'pending_cashier_handoffs' => $pendingCashierHandoffs,
+            'cashier_handoffs_summary' => [
+                'total' => $cashierHandoffs->count(),
+                'approved' => $cashierHandoffs->where('status', 'approved')->count(),
+                'pending' => $cashierHandoffs->where('status', 'pending')->count(),
+                'rejected' => $cashierHandoffs->whereIn('status', ['rejected', 'rejected_final'])->count(),
+                'details' => $cashierHandoffs,
+            ],
+            'financial_summary' => [
+                'opening_balance' => (float) $managerShift->opening_balance,
+                'total_cash_collected' => (float) $managerShift->cash_collected,
+                'expected_handover_amount' => (float) $expectedHandoverAmount,
+                'total_sales' => (float) $managerShift->total_sales,
+            ],
+            'current_handover' => $currentHandover,
+            'available_managers' => $this->getAvailableNextManagers($managerShift),
+        ];
+    }
+
+    /**
+     * Get available managers for handover
+     */
+    private function getAvailableNextManagers(BranchManagerShift $managerShift): array
+    {
+        return BranchManager::where('branch_id', $managerShift->branch_id)
+            ->where('id', '!=', $managerShift->branch_manager_id)
+            ->where('is_active', true)
+            ->get()
+            ->map(fn($manager) => [
+                'id' => $manager->id,
+                'name' => $manager->name,
+                'email' => $manager->email,
+            ])
+            ->toArray();
+    }
+
+    /**
+     * Complete end shift with handover - Section D (Updated)
+     */
+    public function completeEndShift(
+        BranchManagerShift $managerShift,
+        string $nextManagerId,
+        float $handoverAmount,
+        string $timing = 'today',
+        ?string $notes = null
+    ): BranchManagerShift {
+        DB::beginTransaction();
+        try {
+            // Verify all cashier handoffs are approved
+            $pendingHandoffs = $this->getPendingHandoffs($managerShift);
+            if ($pendingHandoffs > 0) {
+                throw new \Exception("Cannot end shift. {$pendingHandoffs} cashier handoffs pending approval.");
+            }
+
+            if (!$managerShift->canEndShift()) {
+                throw new \Exception('Cannot end this shift. Status: ' . $managerShift->status);
+            }
+
+            // End the shift first
+            $managerShift = $this->endShift($managerShift);
+
+            // Set handover timestamp based on timing
+            $handoverTime = $timing === 'yesterday'
+                ? now()->subDay()->endOfDay()
+                : now();
+
+            // Update with handover details
+            $managerShift->update([
+                'next_manager_id' => $nextManagerId,
+                'closing_balance' => $handoverAmount,
+                'handed_over_at' => $handoverTime,
+                'handover_notes' => $notes,
+                'handover_status' => 'pending',
+                'handover_timing' => $timing,
+                'expected_balance' => $managerShift->total_sales,
+                'variance' => $managerShift->total_sales - $handoverAmount,
+            ]);
+
+            // Create opening balance for next manager's shift
+            $nextShiftDate = $timing === 'yesterday'
+                ? $managerShift->shift_date
+                : $managerShift->shift_date->addDay();
+
+            $nextManagerShift = BranchManagerShift::firstOrCreate([
+                'branch_manager_id' => $nextManagerId,
+                'shift_date' => $nextShiftDate,
+            ], [
+                'branch_id' => $managerShift->branch_id,
+                'status' => 'not_started',
+                'opening_balance' => $handoverAmount,
+            ]);
+
+            // Update handover status to completed once next manager shift is created
+            $managerShift->update(['handover_status' => 'completed']);
+
+            DB::commit();
+            return $managerShift->fresh(['nextManager', 'branchManager']);
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;

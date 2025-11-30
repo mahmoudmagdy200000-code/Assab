@@ -732,5 +732,107 @@ class BranchManagerShiftController extends BaseController
     }
 
 
-    
+
+    /**
+     * Get end shift details - Section D
+     */
+    public function getEndShiftDetails(Request $request): JsonResponse
+    {
+        try {
+            $manager = auth()->user();
+
+            // Get today's shift or specific shift
+            if ($request->has('shift_id')) {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->with(['branchManager', 'nextManager', 'cashierShifts.cashier', 'cashierShifts.handoverStatus'])
+                    ->findOrFail($request->shift_id);
+            } else {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->where('shift_date', today())
+                    ->with(['branchManager', 'nextManager', 'cashierShifts.cashier', 'cashierShifts.handoverStatus'])
+                    ->firstOrFail();
+            }
+
+            $details = $this->shiftService->getEndShiftDetails($managerShift);
+
+            return $this->successResponse([
+                'shift' => new BranchManagerShiftResource($managerShift),
+                'end_shift_details' => $details,
+            ], 'End shift details retrieved successfully');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Shift not found', 404);
+        } catch (\Exception $e) {
+            Log::error('Get end shift details error', [
+                'error' => $e->getMessage()
+            ]);
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Complete end shift with handover - Section D
+     */
+    public function completeEndShift(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'shift_id' => 'sometimes|exists:branch_manager_shifts,id',
+            'next_manager_id' => 'required|exists:branch_managers,id|different:' . auth()->id(),
+            'handover_amount' => 'required|numeric|min:0',
+            'handover_timing' => 'required|in:today,yesterday',
+            'handover_notes' => 'nullable|string|max:500',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorResponse($validator->errors()->first(), 422);
+        }
+
+        try {
+            $manager = auth()->user();
+
+            // Get shift
+            if ($request->has('shift_id')) {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->findOrFail($request->shift_id);
+            } else {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->where('shift_date', today())
+                    ->firstOrFail();
+            }
+
+            // Complete end shift with handover
+            $managerShift = $this->shiftService->completeEndShift(
+                $managerShift,
+                $request->next_manager_id,
+                $request->handover_amount,
+                $request->handover_timing,
+                $request->handover_notes
+            );
+
+            $summary = $this->shiftService->getShiftSummary($managerShift);
+
+            return $this->successResponse([
+                'shift' => new BranchManagerShiftResource($managerShift),
+                'summary' => $summary,
+                'handover_details' => [
+                    'handover_amount' => (float) $managerShift->closing_balance,
+                    'status' => $managerShift->handover_status,
+                    'handover_from' => $manager->name,
+                    'handover_to' => $managerShift->nextManager->name,
+                    'handover_date' => $managerShift->handed_over_at->format('Y-m-d'),
+                    'handover_time' => $managerShift->handed_over_at->format('H:i'),
+                    'current_time_setting' => $managerShift->handover_timing,
+                    'variance' => (float) $managerShift->variance,
+                    'notes' => $managerShift->handover_notes,
+                ],
+                'message' => 'Shift ended and handover completed successfully',
+            ], 'Shift ended successfully');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Shift not found', 404);
+        } catch (\Exception $e) {
+            Log::error('Complete end shift error', [
+                'error' => $e->getMessage()
+            ]);
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
 }

@@ -56,6 +56,14 @@ return new class extends Migration
             $table->foreignUuid('approved_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('approved_at')->nullable();
 
+
+            $table->string('next_manager_id')->nullable();
+            $table->decimal('closing_balance', 10, 2)->default(0);
+            $table->timestamp('handed_over_at')->nullable();
+            $table->text('handover_notes')->nullable();
+            $table->enum('handover_status', ['not_submitted', 'pending', 'completed'])->default('not_submitted');
+            $table->enum('handover_timing', ['today', 'yesterday'])->nullable();
+
             // Auto-archive tracking - NEW (Section E)
             $table->timestamp('archived_at')->nullable();
 

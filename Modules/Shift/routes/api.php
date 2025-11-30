@@ -166,8 +166,15 @@ Route::group([
     Route::get('/shifts/statistics', [BranchManagerShiftController::class, 'statistics']);
 
 
+    // Get end shift details before ending
+    Route::get('/my-shift/end-shift-details', [BranchManagerShiftController::class, 'getEndShiftDetails']);
+
+    // Complete end shift with handover
+    Route::post('/my-shift/complete-end-shift', [BranchManagerShiftController::class, 'completeEndShift']);
+
+
     Route::post('shifts/{shift}/start-by-manager', [ShiftController::class, 'startShiftByManager'])
-    ->name('branch-manager.shifts.start');
+        ->name('branch-manager.shifts.start');
 });
 
 /*

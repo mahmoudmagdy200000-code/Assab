@@ -48,6 +48,8 @@ class BranchManagerShift extends Model
         'approved_by',
         'approved_at',
         'archived_at',
+        'handover_status',
+        'handover_timing',
     ];
 
     protected $casts = [
@@ -71,6 +73,8 @@ class BranchManagerShift extends Model
         'variance' => 'decimal:2',
         'daily_report_submitted' => 'boolean',
         'can_reopen' => 'boolean',
+        'handover_status' => 'string',
+        'handover_timing' => 'string',
     ];
 
     // Relationships
@@ -270,5 +274,38 @@ class BranchManagerShift extends Model
         return $this->can_reopen
             && $this->daily_report_submitted
             && $this->shift_date->isToday();
+    }
+
+    // Helper methods
+    public function canEndShift(): bool
+    {
+        // Check all cashier handoffs are approved
+        $pendingHandoffs = $this->cashierShifts()
+            ->whereHas('handoverStatus', function ($q) {
+                $q->where('manager_approval_status', 'pending');
+            })
+            ->count();
+
+        return $this->status === 'in_progress' && $pendingHandoffs === 0;
+    }
+
+    public function getHandoverStatusAttribute(): string
+    {
+        if (!$this->handed_over_at) {
+            return 'not_submitted';
+        }
+
+        // Check if next manager acknowledged
+        $nextManagerShift = BranchManagerShift::where('branch_manager_id', $this->next_manager_id)
+            ->where('shift_date', $this->handed_over_at->isToday()
+                ? $this->shift_date->addDay()
+                : $this->shift_date)
+            ->first();
+
+        if ($nextManagerShift && $nextManagerShift->opening_balance === $this->closing_balance) {
+            return 'completed';
+        }
+
+        return 'pending';
     }
 }
