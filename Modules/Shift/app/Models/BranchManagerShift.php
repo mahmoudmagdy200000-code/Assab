@@ -50,6 +50,9 @@ class BranchManagerShift extends Model
         'archived_at',
         'handover_status',
         'handover_timing',
+        'handover_from', // ✅ Add this
+        'handover_to',   // ✅ Add this
+        'handover_amount', // ✅ Add this
     ];
 
     protected $casts = [
@@ -71,6 +74,7 @@ class BranchManagerShift extends Model
         'closing_balance' => 'decimal:2',
         'expected_balance' => 'decimal:2',
         'variance' => 'decimal:2',
+        'handover_amount' => 'decimal:2', // ✅ Add this
         'daily_report_submitted' => 'boolean',
         'can_reopen' => 'boolean',
         'handover_status' => 'string',
@@ -91,6 +95,17 @@ class BranchManagerShift extends Model
     public function nextManager(): BelongsTo
     {
         return $this->belongsTo(BranchManager::class, 'next_manager_id');
+    }
+
+    // ✅ Add these missing relationships
+    public function handoverFrom(): BelongsTo
+    {
+        return $this->belongsTo(BranchManager::class, 'handover_from');
+    }
+
+    public function handoverTo(): BelongsTo
+    {
+        return $this->belongsTo(BranchManager::class, 'handover_to');
     }
 
     public function approvedBy(): BelongsTo
