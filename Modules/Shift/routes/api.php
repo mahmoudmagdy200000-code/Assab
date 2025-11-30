@@ -173,7 +173,7 @@ Route::group([
 */
 
 Route::prefix('cashier')
-    ->middleware(['auth:sanctum', 'cashier'])
+    ->middleware(['auth:sanctum', 'cashier' ,'branch.manager'])
     ->group(function () {
         Route::get('my-shifts/pending', [PendingShiftController::class, 'index'])
             ->name('cashier.shifts.pending');
