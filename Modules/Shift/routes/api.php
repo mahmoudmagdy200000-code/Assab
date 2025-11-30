@@ -164,6 +164,10 @@ Route::group([
     Route::get('/shifts/history', [BranchManagerShiftController::class, 'index']);
     Route::get('/shifts/{id}', [BranchManagerShiftController::class, 'show']);
     Route::get('/shifts/statistics', [BranchManagerShiftController::class, 'statistics']);
+
+
+    Route::post('shifts/{shift}/start-by-manager', [ShiftController::class, 'startShiftByManager'])
+    ->name('branch-manager.shifts.start');
 });
 
 /*
@@ -173,7 +177,7 @@ Route::group([
 */
 
 Route::prefix('cashier')
-    ->middleware(['auth:sanctum', 'cashier' ,'branch.manager'])
+    ->middleware(['auth:sanctum', 'cashier'])
     ->group(function () {
         Route::get('my-shifts/pending', [PendingShiftController::class, 'index'])
             ->name('cashier.shifts.pending');

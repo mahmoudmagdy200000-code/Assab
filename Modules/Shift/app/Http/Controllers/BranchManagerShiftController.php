@@ -254,7 +254,7 @@ class BranchManagerShiftController extends BaseController
         }
     }
 
-   /**
+    /**
      * End shift - FIXED
      */
     public function endShift(Request $request): JsonResponse
@@ -730,4 +730,7 @@ class BranchManagerShiftController extends BaseController
             return $this->errorResponse($e->getMessage(), 500);
         }
     }
+
+
+    
 }
