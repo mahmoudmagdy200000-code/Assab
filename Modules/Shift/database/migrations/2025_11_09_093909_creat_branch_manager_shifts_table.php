@@ -57,7 +57,7 @@ return new class extends Migration
             $table->timestamp('approved_at')->nullable();
 
 
-            $table->string('next_manager_id')->nullable();
+            // $table->string('next_manager_id')->nullable();
             $table->decimal('closing_balance', 10, 2)->default(0);
             $table->timestamp('handed_over_at')->nullable();
             $table->text('handover_notes')->nullable();
