@@ -193,9 +193,14 @@ class ShiftEndController extends Controller
         try {
             $managerBranchId = $request->manager_branch_id;
 
-            $shiftModel = CashierShift::whereHas('shift', function ($q) use ($managerBranchId) {
-                $q->where('branch_id', $managerBranchId);
-            })->findOrFail($shift);
+            // $shiftModel = CashierShift::whereHas('shift', function ($q) use ($managerBranchId) {
+            //     $q->where('branch_id', $managerBranchId);
+            // })->findOrFail($shift);
+            $shiftModel = CashierShift::where('id', $shift)
+                ->where('cashier_id', auth()->id())
+                ->where('status', 'in_progress')    
+                ->firstOrFail();
+
 
             if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 return response()->json([
