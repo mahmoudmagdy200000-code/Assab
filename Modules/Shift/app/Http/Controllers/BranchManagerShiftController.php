@@ -37,26 +37,20 @@ class BranchManagerShiftController extends BaseController
                 ]
             );
 
-            // Load handovers
-            $managerShift->load(['cashierHandovers.cashierShift.cashier']);
+            // Load with relationships
+            $managerShift->load([
+                'branch',
+                'nextManager',
+                'cashierHandovers' => function ($query) {
+                    $query->with([
+                        'cashierShift.cashier',
+                        'cashierShift.shift'
+                    ]);
+                }
+            ]);
 
             // Calculate progress
-            $progress = [
-                'title' => "Branch Manager Shift - " . $managerShift->shift_date->format('d M Y'),
-                'description' => "Managing daily operations and cashier handovers",
-                'status' => $managerShift->status,
-                'start_time' => $managerShift->actual_start_time?->format('H:i'),
-                'end_time' => $managerShift->actual_end_time?->format('H:i'),
-                'elapsed_hours' => 0,
-                'progress_percentage' => 0,
-            ];
-
-            if ($managerShift->status === 'in_progress' && $managerShift->actual_start_time) {
-                $totalMinutes = 8 * 60; // 8 hours
-                $elapsedMinutes = now()->diffInMinutes($managerShift->actual_start_time);
-                $progress['elapsed_hours'] = round($elapsedMinutes / 60, 1);
-                $progress['progress_percentage'] = min(($elapsedMinutes / $totalMinutes) * 100, 100);
-            }
+            $progress = $this->calculateShiftProgress($managerShift);
 
             // Get handovers summary
             $handoversSummary = $managerShift->getHandoverSummary();
@@ -96,13 +90,16 @@ class BranchManagerShiftController extends BaseController
 
             // Transform handovers data
             $handoffs = $managerShift->cashierHandovers->map(function ($handover) {
+                $cashierShift = $handover->cashierShift;
+                $shift = $cashierShift->shift;
+
                 return [
-                    'id' => $handover->id,
+                    'handover_id' => $handover->id,
                     'cashier_shift_id' => $handover->cashier_shift_id,
-                    'cashier_name' => $handover->cashierShift->cashier->name,
-                    'shift_time' => $handover->cashierShift->shift->name,
+                    'cashier_name' => $cashierShift->cashier->name,
+                    'shift_time' => $shift ? $shift->name : 'N/A',
                     'handover_amount' => (float) $handover->handover_amount,
-                    'total_sales' => (float) $handover->cashierShift->total_sales,
+                    'total_sales' => (float) $cashierShift->total_sales,
                     'variance_amount' => (float) $handover->variance_amount,
                     'variance_type' => $handover->variance_amount > 0 ? 'Over' : ($handover->variance_amount < 0 ? 'Short' : 'None'),
                     'variance_reason' => $handover->variance_reason,
@@ -229,6 +226,31 @@ class BranchManagerShiftController extends BaseController
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
+    }
+
+    /**
+     * Helper method to calculate shift progress
+     */
+    private function calculateShiftProgress(BranchManagerShift $shift): array
+    {
+        $progress = [
+            'title' => "Branch Manager Shift - " . $shift->shift_date->format('d M Y'),
+            'description' => "Managing daily operations and cashier handovers",
+            'status' => $shift->status,
+            'start_time' => $shift->actual_start_time?->format('H:i'),
+            'end_time' => $shift->actual_end_time?->format('H:i'),
+            'elapsed_hours' => 0,
+            'progress_percentage' => 0,
+        ];
+
+        if ($shift->status === 'in_progress' && $shift->actual_start_time) {
+            $totalMinutes = 8 * 60; // 8 hours
+            $elapsedMinutes = now()->diffInMinutes($shift->actual_start_time);
+            $progress['elapsed_hours'] = round($elapsedMinutes / 60, 1);
+            $progress['progress_percentage'] = min(($elapsedMinutes / $totalMinutes) * 100, 100);
+        }
+
+        return $progress;
     }
 
     /**
@@ -424,27 +446,7 @@ class BranchManagerShiftController extends BaseController
     }
 
     // Helper Methods
-    private function calculateShiftProgress(BranchManagerShift $shift): array
-    {
-        $progress = [
-            'title' => "Branch Manager Shift - " . $shift->shift_date->format('d M Y'),
-            'description' => "Managing daily operations and cashier handovers",
-            'status' => $shift->status,
-            'start_time' => $shift->actual_start_time?->format('H:i'),
-            'end_time' => $shift->actual_end_time?->format('H:i'),
-            'elapsed_hours' => 0,
-            'progress_percentage' => 0,
-        ];
-
-        if ($shift->status === 'in_progress' && $shift->actual_start_time) {
-            $totalMinutes = 8 * 60; // 8 hours
-            $elapsedMinutes = now()->diffInMinutes($shift->actual_start_time);
-            $progress['elapsed_hours'] = round($elapsedMinutes / 60, 1);
-            $progress['progress_percentage'] = min(($elapsedMinutes / $totalMinutes) * 100, 100);
-        }
-
-        return $progress;
-    }
+   
 
     private function calculateFinancialSummary(BranchManagerShift $shift): array
     {

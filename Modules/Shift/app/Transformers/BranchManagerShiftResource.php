@@ -8,10 +8,10 @@ class BranchManagerShiftResource extends JsonResource
 {
     public function toArray($request)
     {
-        // Get the last completed cashier shift that handed over to this manager
-        $lastCashierHandover = $this->cashierShifts()
-            ->where('status', 'completed')
-            ->whereNotNull('handed_over_at')
+        // Get the last cashier handover
+        $lastCashierHandover = $this->cashierHandovers()
+            ->where('status', 'approved')
+            ->with('cashierShift.cashier')
             ->latest('handed_over_at')
             ->first();
 
@@ -39,7 +39,7 @@ class BranchManagerShiftResource extends JsonResource
                 'aggregator_payments' => (float) $this->aggregator_payments,
             ],
 
-            // Handover - FIXED CORRECTLY
+            // Handover Information
             'handover' => [
                 'opening_balance' => (float) $this->opening_balance,
                 'closing_balance' => (float) $this->closing_balance,
@@ -49,41 +49,31 @@ class BranchManagerShiftResource extends JsonResource
                 'handed_over_at' => $this->handed_over_at?->format('Y-m-d H:i:s'),
                 'handover_status' => $this->handover_status ?? 'not_submitted',
                 'handover_timing' => $this->handover_timing,
-                'handover_amount' => (float) ($this->closing_balance ?? 0),
+                'handover_amount' => (float) ($this->handover_amount ?? 0),
 
-                // ✅ CORRECT: Last cashier who handed over to this manager
-                'handover_from' => $lastCashierHandover ? [
-                    'id' => $lastCashierHandover->cashier->id,
-                    'name' => $lastCashierHandover->cashier->name,
-                    'type' => 'cashier',
-                    'shift_name' => $lastCashierHandover->shift->name,
-                    'handed_over_at' => $lastCashierHandover->handed_over_at->format('Y-m-d H:i:s'),
-                    'handover_amount' => (float) $lastCashierHandover->closing_balance,
+                // Last cashier who handed over to this manager
+                'last_cashier_handover' => $lastCashierHandover ? [
+                    'cashier_id' => $lastCashierHandover->cashierShift->cashier->id,
+                    'cashier_name' => $lastCashierHandover->cashierShift->cashier->name,
+                    'handover_amount' => (float) $lastCashierHandover->handover_amount,
+                    'handed_over_at' => $lastCashierHandover->handed_over_at?->format('Y-m-d H:i:s'),
                 ] : null,
 
-                // ✅ CORRECT: Current manager (who received from cashiers)
-                'handover_to' => $this->whenLoaded('branchManager', function () {
-                    return [
-                        'id' => $this->branchManager->id,
-                        'name' => $this->branchManager->name,
-                        'type' => 'branch_manager',
-                        'email' => $this->branchManager->email ?? null,
-                    ];
-                }),
-
-                // Manager-to-Manager handover (for next shift)
+                // Manager-to-Manager handover
                 'next_manager_handover' => $this->next_manager_id ? [
-                    'from_manager' => [
-                        'id' => $this->branchManager->id,
-                        'name' => $this->branchManager->name,
-                    ],
+                    'from_manager' => $this->whenLoaded('branchManager', function () {
+                        return [
+                            'id' => $this->branchManager->id,
+                            'name' => $this->branchManager->name,
+                        ];
+                    }),
                     'to_manager' => $this->whenLoaded('nextManager', function () {
                         return [
                             'id' => $this->nextManager->id,
                             'name' => $this->nextManager->name,
                         ];
                     }),
-                    'amount' => (float) $this->closing_balance,
+                    'amount' => (float) $this->handover_amount,
                     'status' => $this->handover_status,
                     'timing' => $this->handover_timing,
                 ] : null,
@@ -99,6 +89,7 @@ class BranchManagerShiftResource extends JsonResource
                 'completion_rate' => $this->total_cashier_shifts > 0
                     ? round(($this->completed_cashier_shifts / $this->total_cashier_shifts) * 100, 2)
                     : 0,
+                'handovers_summary' => $this->getHandoverSummary(),
             ],
 
             // Manager Info
