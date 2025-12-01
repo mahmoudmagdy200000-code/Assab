@@ -155,7 +155,7 @@ Route::prefix('branch-manager/workday')
 
         // Section A: Shift Overview
         Route::get('/current', [BranchManagerShiftController::class, 'current']);
-        Route::post('/start', [BranchManagerShiftController::class, 'startShift']);
+        Route::post('/start', [BranchManagerShiftController::class, 'start']);
 
         // Section B: Shift Details
         Route::get('/details', [BranchManagerShiftController::class, 'getShiftDetails']);

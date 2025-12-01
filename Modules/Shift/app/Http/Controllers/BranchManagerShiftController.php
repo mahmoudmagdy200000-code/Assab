@@ -17,6 +17,119 @@ class BranchManagerShiftController extends BaseController
         private BranchManagerShiftService $shiftService
     ) {}
 
+
+
+    /**
+     * Section A: Start Shift
+     */
+    public function start(Request $request): JsonResponse
+    {
+        try {
+            $manager = auth()->user();
+
+            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                ->whereDate('shift_date', today())
+                ->firstOrFail();
+
+            if (!$managerShift->canStart()) {
+                return $this->errorResponse('Cannot start shift. Current status: ' . $managerShift->status, 400);
+            }
+
+            $managerShift->update([
+                'status' => 'in_progress',
+                'actual_start_time' => now(),
+            ]);
+
+            $progress = $this->calculateShiftProgress($managerShift);
+
+            return $this->successResponse([
+                'shift' => new BranchManagerShiftResource($managerShift),
+                'progress' => $progress,
+                'message' => 'Shift started successfully'
+            ], 'Shift started successfully');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Section B: Get Shift Details
+     */
+    public function getShiftDetails(Request $request): JsonResponse
+    {
+        try {
+            $manager = auth()->user();
+
+            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                ->with([
+                    'branch',
+                    'nextManager',
+                    'approvedBy',
+                    'cashierHandovers' => function ($query) {
+                        $query->with(['cashierShift.cashier', 'cashierShift.shift']);
+                    }
+                ])
+                ->when($request->has('shift_id'), function ($query) use ($request) {
+                    return $query->where('id', $request->shift_id);
+                }, function ($query) {
+                    return $query->whereDate('shift_date', today());
+                })
+                ->firstOrFail();
+
+            $details = [
+                'assigned_to' => 'Me (Branch Manager)',
+                'assigned_by' => 'Brand Owner',
+                'store_branch' => $managerShift->branch->name,
+                'start_time' => $managerShift->actual_start_time?->format('H:i'),
+                'end_time' => $managerShift->actual_end_time?->format('H:i'),
+                'final_approval_by' => $managerShift->approvedBy?->name ?? 'Pending',
+                'status' => $managerShift->status,
+                'shift_date' => $managerShift->shift_date->format('Y-m-d'),
+            ];
+
+            return $this->successResponse([
+                'shift' => new BranchManagerShiftResource($managerShift),
+                'details' => $details,
+            ], 'Shift details retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Get Shift History
+     */
+    public function getShiftHistory(Request $request): JsonResponse
+    {
+        try {
+            $manager = auth()->user();
+
+            $query = BranchManagerShift::where('branch_manager_id', $manager->id)
+                ->with(['branch', 'nextManager'])
+                ->orderBy('shift_date', 'desc');
+
+            if ($status = $request->input('status')) {
+                $query->where('status', $status);
+            }
+
+            if ($from = $request->input('date_from')) {
+                $query->whereDate('shift_date', '>=', $from);
+            }
+
+            if ($to = $request->input('date_to')) {
+                $query->whereDate('shift_date', '<=', $to);
+            }
+
+            $shifts = $query->paginate($request->input('per_page', 10));
+
+            return $this->paginatedResponse(
+                BranchManagerShiftResource::collection($shifts),
+                'Shifts history retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
     /**
      * Section A: Shift Overview
      */
@@ -446,7 +559,7 @@ class BranchManagerShiftController extends BaseController
     }
 
     // Helper Methods
-   
+
 
     private function calculateFinancialSummary(BranchManagerShift $shift): array
     {
