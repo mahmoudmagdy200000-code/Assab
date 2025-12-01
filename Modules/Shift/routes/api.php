@@ -143,47 +143,44 @@ Route::prefix('branch-manager')
 |--------------------------------------------------------------------------
 */
 
-Route::group([
-    'prefix' => 'branch-manager',
-    'middleware' => ['auth:sanctum', 'branch.manager']
-], function () {
+/*
+|--------------------------------------------------------------------------
+| Branch Manager Workday Management Routes (Section 3.1.3.1)
+|--------------------------------------------------------------------------
+*/
 
-    // ✅ Get end shift details - MUST BE BEFORE /my-shift/end
-    Route::get('/my-shift/end-shift-details', [BranchManagerShiftController::class, 'getEndShiftDetails']);
+Route::prefix('branch-manager/workday')
+    ->middleware(['auth:sanctum', 'branch.manager'])
+    ->group(function () {
 
-    // Current shift operations
-    Route::get('/my-shift/current', [BranchManagerShiftController::class, 'current']);
-    Route::post('/my-shift/start', [BranchManagerShiftController::class, 'start']);
+        // Section A: Shift Overview
+        Route::get('/current', [BranchManagerShiftController::class, 'current']);
+        Route::post('/start', [BranchManagerShiftController::class, 'startShift']);
 
-    // ✅ Complete end shift with handover - MUST BE BEFORE /my-shift/end
-    Route::post('/my-shift/complete-end-shift', [BranchManagerShiftController::class, 'completeEndShift']);
+        // Section B: Shift Details
+        Route::get('/details', [BranchManagerShiftController::class, 'getShiftDetails']);
 
-    // End shift (original endpoint)
-    Route::post('/my-shift/end', [BranchManagerShiftController::class, 'endShift']);
+        // Section C: Handoffs Received
+        Route::get('/handoffs', [BranchManagerShiftController::class, 'getHandoffsReceived']);
+        Route::post('/handoffs/approve', [BranchManagerShiftController::class, 'approveHandoff']);
+        Route::post('/handoffs/reject', [BranchManagerShiftController::class, 'rejectHandoff']);
 
-    // Handover operations
-    Route::post('/my-shift/handover/record', [BranchManagerShiftController::class, 'recordManagerHandover']);
+        // Section D: Final Handover and End Shift
+        Route::post('/end', [BranchManagerShiftController::class, 'endShift']);
 
-    // Final daily close
-    Route::post('/my-shift/final-daily-close', [BranchManagerShiftController::class, 'getFinalDailyClose']);
-    Route::post('/my-shift/final-daily-close/update', [BranchManagerShiftController::class, 'updateFinalDailyClose']);
-    Route::post('/my-shift/final-daily-close/submit', [BranchManagerShiftController::class, 'submitFinalDailyReport']);
-    Route::post('/my-shift/final-daily-close/reopen', [BranchManagerShiftController::class, 'reopenShift']);
+        // Section E: Final Daily Close
+        Route::get('/daily-close', [BranchManagerShiftController::class, 'getFinalDailyClose']);
+        Route::post('/daily-close/submit', [BranchManagerShiftController::class, 'submitDailyReport']);
+        Route::post('/daily-close/reopen', [BranchManagerShiftController::class, 'reopenShift']);
 
-    // Handoffs received from cashiers
-    Route::post('/my-shift/handoffs/received', [BranchManagerShiftController::class, 'getHandoffsReceived']);
-    Route::post('/my-shift/handoffs/approve', [BranchManagerShiftController::class, 'approveHandoff']);
-    Route::post('/my-shift/handoffs/reject', [BranchManagerShiftController::class, 'rejectHandoff']);
+        // Shift History
+        Route::get('/history', [BranchManagerShiftController::class, 'getShiftHistory']);
 
-    // Shift history and statistics
-    Route::get('/shifts/history', [BranchManagerShiftController::class, 'index']);
-    Route::get('/shifts/{id}', [BranchManagerShiftController::class, 'show']);
-    Route::get('/shifts/statistics', [BranchManagerShiftController::class, 'statistics']);
 
-    // Start shift by manager
-    Route::post('shifts/{shift}/start-by-manager', [ShiftController::class, 'startShiftByManager'])
-        ->name('branch-manager.shifts.start');
-});
+        // Start shift by manager
+        Route::post('shifts/{shift}/start-by-manager', [ShiftController::class, 'startShiftByManager'])
+            ->name('branch-manager.shifts.start');
+    });
 
 /*
 |--------------------------------------------------------------------------
