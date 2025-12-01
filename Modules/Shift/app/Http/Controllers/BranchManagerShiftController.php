@@ -435,17 +435,16 @@ class BranchManagerShiftController extends BaseController
     //     }
     // }
 
-    /**
-     * Section D: Final Handover and End Shift
-     */
+  /**
+ * Section D: Final Handover and End Shift
+ */
 public function endShift(Request $request): JsonResponse
 {
     $validator = Validator::make($request->all(), [
-        'cash_collected' => 'required|numeric|min:0',
-        'total_sales' => 'required|numeric|min:0',
-        'card_payments' => 'required|numeric|min:0',
-        'aggregator_payments' => 'required|numeric|min:0',
+        'handover_to' => 'required|exists:branch_managers,id',
+        'handover_amount' => 'required|numeric|min:0',
         'handover_timing' => 'required|in:today,yesterday',
+        'handover_notes' => 'nullable|string|max:500',
     ]);
 
     if ($validator->fails()) {
@@ -463,52 +462,54 @@ public function endShift(Request $request): JsonResponse
             return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved.', 400);
         }
 
+        // Calculate financial summary from cashier shifts
+        $financialSummary = $this->calculateFinancialSummary($managerShift);
+
         // Set handover time based on timing
         $handoverTime = $request->handover_timing === 'yesterday'
             ? now()->subDay()
             : now();
 
-        // Update shift with the values entered by the manager
-        $updateData = [
+        // Update shift with handover details AND financial totals
+        $managerShift->update([
             'status' => 'completed',
             'actual_end_time' => now(),
-
-            // القيم التي أدخلها المدير
-            'total_sales' => $request->total_sales,
-            'cash_collected' => $request->cash_collected,
-            'card_payments' => $request->card_payments,
-            'aggregator_payments' => $request->aggregator_payments,
-            'handover_timing' => $request->handover_timing,
-
-            // الـ handover_amount هو الـ cash_collected
-            'handover_amount' => $request->cash_collected,
-
-            // ✅ بعد إضافة العمودين في قاعدة البيانات
+            'next_manager_id' => $request->handover_to,
+            'handover_amount' => $request->handover_amount,
             'handover_date' => $handoverTime->format('Y-m-d'),
             'handover_time' => $handoverTime,
-
+            'handover_timing' => $request->handover_timing,
             'handover_status' => 'pending',
-            'closing_balance' => $request->cash_collected,
-        ];
-
-        // حساب الـ variance
-        if ($managerShift->opening_balance) {
-            $updateData['variance'] = $request->cash_collected - $managerShift->opening_balance;
-        }
-
-        $managerShift->update($updateData);
+            'handover_notes' => $request->handover_notes,
+            'closing_balance' => $request->handover_amount,
+            'total_sales' => $financialSummary['total_sales'] ?? 0,
+            'cash_collected' => $financialSummary['cash_collected'] ?? 0,
+            'card_payments' => $financialSummary['card_payments'] ?? 0,
+            'aggregator_payments' => $financialSummary['delivery_app_payments'] ?? 0,
+        ]);
 
         return $this->successResponse([
             'shift' => new BranchManagerShiftResource($managerShift),
+            'handover_details' => [
+                'handover_amount' => (float) $request->handover_amount,
+                'handover_from' => $manager->name,
+                'handover_to' => $managerShift->nextManager->name,
+                'handover_date' => $managerShift->handover_date,
+                'handover_time' => $managerShift->handover_time->format('H:i'),
+                'handover_timing' => $managerShift->handover_timing,
+                'status' => $managerShift->handover_status,
+                'notes' => $managerShift->handover_notes,
+            ],
+            // 🔴 هنا أضف المجاميع النهائية لليوم كامل
             'daily_totals' => [
-                'cash_collected' => (float) $request->cash_collected,
-                'total_sales' => (float) $request->total_sales,
-                'card_payments' => (float) $request->card_payments,
-                'aggregator_payments' => (float) $request->aggregator_payments,
-                'handover_timing' => $request->handover_timing,
+                'total_cash_collected' => (float) ($financialSummary['cash_collected'] ?? 0),
+                'total_card_payments' => (float) ($financialSummary['card_payments'] ?? 0),
+                'total_variance' => (float) ($financialSummary['total_variance'] ?? 0),
+                'total_delivery_apps' => (float) ($financialSummary['delivery_app_payments'] ?? 0),
+                'total_sales' => (float) ($financialSummary['total_sales'] ?? 0),
                 'shift_date' => $managerShift->shift_date->format('Y-m-d'),
             ],
-            'message' => 'Shift ended and daily totals recorded successfully'
+            'message' => 'Shift ended and handover recorded successfully'
         ], 'Shift ended successfully');
     } catch (\Exception $e) {
         return $this->errorResponse($e->getMessage(), 500);
