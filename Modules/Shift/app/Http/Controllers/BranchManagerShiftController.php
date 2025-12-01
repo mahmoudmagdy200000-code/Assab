@@ -19,29 +19,44 @@ class BranchManagerShiftController extends BaseController
 
     /**
      * Section A: Shift Overview
-     * Get current shift with progress
      */
     public function current(Request $request): JsonResponse
     {
         try {
             $manager = auth()->user();
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->whereDate('shift_date', today())
-                ->with(['branch', 'cashierHandovers.cashierShift.cashier'])
-                ->first();
 
-            // If no shift exists for today, create one
-            if (!$managerShift) {
-                $managerShift = BranchManagerShift::create([
+            // Get or create today's shift
+            $managerShift = BranchManagerShift::firstOrCreate(
+                [
                     'branch_manager_id' => $manager->id,
-                    'branch_id' => $manager->branch_id,
                     'shift_date' => today(),
+                ],
+                [
+                    'branch_id' => $manager->branch_id,
                     'status' => 'not_started',
-                ]);
-            }
+                ]
+            );
 
-            // Calculate progress based on requirements
-            $progress = $this->calculateShiftProgress($managerShift);
+            // Load handovers
+            $managerShift->load(['cashierHandovers.cashierShift.cashier']);
+
+            // Calculate progress
+            $progress = [
+                'title' => "Branch Manager Shift - " . $managerShift->shift_date->format('d M Y'),
+                'description' => "Managing daily operations and cashier handovers",
+                'status' => $managerShift->status,
+                'start_time' => $managerShift->actual_start_time?->format('H:i'),
+                'end_time' => $managerShift->actual_end_time?->format('H:i'),
+                'elapsed_hours' => 0,
+                'progress_percentage' => 0,
+            ];
+
+            if ($managerShift->status === 'in_progress' && $managerShift->actual_start_time) {
+                $totalMinutes = 8 * 60; // 8 hours
+                $elapsedMinutes = now()->diffInMinutes($managerShift->actual_start_time);
+                $progress['elapsed_hours'] = round($elapsedMinutes / 60, 1);
+                $progress['progress_percentage'] = min(($elapsedMinutes / $totalMinutes) * 100, 100);
+            }
 
             // Get handovers summary
             $handoversSummary = $managerShift->getHandoverSummary();
@@ -60,83 +75,6 @@ class BranchManagerShiftController extends BaseController
     }
 
     /**
-     * Section A: Start Shift
-     */
-    public function startShift(Request $request): JsonResponse
-    {
-        try {
-            $manager = auth()->user();
-
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->whereDate('shift_date', today())
-                ->firstOrFail();
-
-            if (!$managerShift->canStart()) {
-                return $this->errorResponse('Cannot start shift. Current status: ' . $managerShift->status, 400);
-            }
-
-            $managerShift->update([
-                'status' => 'in_progress',
-                'actual_start_time' => now(),
-            ]);
-
-            $progress = $this->calculateShiftProgress($managerShift);
-
-            return $this->successResponse([
-                'shift' => new BranchManagerShiftResource($managerShift),
-                'progress' => $progress,
-                'message' => 'Shift started successfully'
-            ], 'Shift started successfully');
-        } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
-        }
-    }
-
-    /**
-     * Section B: Shift Details
-     */
-    public function getShiftDetails(Request $request): JsonResponse
-    {
-        try {
-            $manager = auth()->user();
-
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->with([
-                    'branch',
-                    'nextManager',
-                    'approvedByAccountant',
-                    'cashierHandovers' => function($query) {
-                        $query->with(['cashierShift.cashier', 'cashierShift.shift']);
-                    }
-                ])
-                ->when($request->has('shift_id'), function($query) use ($request) {
-                    return $query->where('id', $request->shift_id);
-                }, function($query) {
-                    return $query->whereDate('shift_date', today());
-                })
-                ->firstOrFail();
-
-            $details = [
-                'assigned_to' => 'Me (Branch Manager)',
-                'assigned_by' => 'Brand Owner',
-                'store_branch' => $managerShift->branch->name,
-                'start_time' => $managerShift->actual_start_time?->format('H:i'),
-                'end_time' => $managerShift->actual_end_time?->format('H:i'),
-                'final_approval_by' => $managerShift->approvedByAccountant?->name ?? 'Pending',
-                'status' => $managerShift->status,
-                'shift_date' => $managerShift->shift_date->format('Y-m-d'),
-            ];
-
-            return $this->successResponse([
-                'shift' => new BranchManagerShiftResource($managerShift),
-                'details' => $details,
-            ], 'Shift details retrieved successfully');
-        } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
-        }
-    }
-
-    /**
      * Section C: Handoffs Received
      */
     public function getHandoffsReceived(Request $request): JsonResponse
@@ -144,36 +82,41 @@ class BranchManagerShiftController extends BaseController
         try {
             $manager = auth()->user();
 
+            // Get today's shift with handovers
             $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
                 ->whereDate('shift_date', today())
+                ->with(['cashierHandovers' => function ($query) {
+                    $query->with([
+                        'cashierShift.cashier',
+                        'cashierShift.shift',
+                        'approvedBy'
+                    ]);
+                }])
                 ->firstOrFail();
 
-            $handoffs = $managerShift->cashierHandovers()
-                ->with([
-                    'cashierShift.cashier',
-                    'cashierShift.shift',
-                    'approvedBy'
-                ])
-                ->get()
-                ->map(function($handover) {
-                    return [
-                        'id' => $handover->id,
-                        'cashier_name' => $handover->cashierShift->cashier->name,
-                        'shift_time' => $handover->cashierShift->shift->name,
-                        'handover_amount' => (float) $handover->handover_amount,
-                        'total_sales' => (float) $handover->cashierShift->total_sales,
-                        'variance_amount' => (float) $handover->variance_amount,
-                        'variance_type' => $handover->variance_amount > 0 ? 'Over' : ($handover->variance_amount < 0 ? 'Short' : 'None'),
-                        'variance_reason' => $handover->variance_reason,
-                        'attached_files' => $handover->variance_files ?? [],
-                        'status' => $handover->status,
-                        'rejection_reason' => $handover->rejection_reason,
-                        'rejection_count' => $handover->rejection_count,
-                        'handed_over_at' => $handover->handed_over_at?->format('Y-m-d H:i:s'),
-                        'approved_at' => $handover->approved_at?->format('Y-m-d H:i:s'),
-                        'approved_by' => $handover->approvedBy?->name,
-                    ];
-                });
+            // Transform handovers data
+            $handoffs = $managerShift->cashierHandovers->map(function ($handover) {
+                return [
+                    'id' => $handover->id,
+                    'cashier_shift_id' => $handover->cashier_shift_id,
+                    'cashier_name' => $handover->cashierShift->cashier->name,
+                    'shift_time' => $handover->cashierShift->shift->name,
+                    'handover_amount' => (float) $handover->handover_amount,
+                    'total_sales' => (float) $handover->cashierShift->total_sales,
+                    'variance_amount' => (float) $handover->variance_amount,
+                    'variance_type' => $handover->variance_amount > 0 ? 'Over' : ($handover->variance_amount < 0 ? 'Short' : 'None'),
+                    'variance_reason' => $handover->variance_reason,
+                    'attached_files' => $handover->variance_files ?? [],
+                    'status' => $handover->status,
+                    'rejection_reason' => $handover->rejection_reason,
+                    'rejection_count' => $handover->rejection_count,
+                    'handed_over_at' => $handover->handed_over_at?->format('Y-m-d H:i:s'),
+                    'approved_at' => $handover->approved_at?->format('Y-m-d H:i:s'),
+                    'approved_by' => $handover->approvedBy?->name,
+                    'can_approve' => $handover->canApprove(),
+                    'can_reject' => $handover->canReject(),
+                ];
+            });
 
             $summary = $managerShift->getHandoverSummary();
 
@@ -203,14 +146,10 @@ class BranchManagerShiftController extends BaseController
         try {
             $manager = auth()->user();
 
-            $handover = CashierShiftHandover::findOrFail($request->handover_id);
+            $handover = CashierShiftHandover::with('handoverTo')->findOrFail($request->handover_id);
 
-            // Verify this handover belongs to current manager's shift
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->whereDate('shift_date', today())
-                ->firstOrFail();
-
-            if ($handover->handover_to_id !== $manager->id || $handover->handover_to_type !== 'branch_manager') {
+            // Verify this handover is for current manager
+            if (!$handover->handoverTo || $handover->handover_to_id !== $manager->id) {
                 return $this->errorResponse('Unauthorized to approve this handover', 403);
             }
 
@@ -251,10 +190,10 @@ class BranchManagerShiftController extends BaseController
         try {
             $manager = auth()->user();
 
-            $handover = CashierShiftHandover::findOrFail($request->handover_id);
+            $handover = CashierShiftHandover::with('handoverTo')->findOrFail($request->handover_id);
 
-            // Verify this handover belongs to current manager's shift
-            if ($handover->handover_to_id !== $manager->id || $handover->handover_to_type !== 'branch_manager') {
+            // Verify this handover is for current manager
+            if (!$handover->handoverTo || $handover->handover_to_id !== $manager->id) {
                 return $this->errorResponse('Unauthorized to reject this handover', 403);
             }
 
@@ -374,9 +313,9 @@ class BranchManagerShiftController extends BaseController
                     'cashierHandovers.cashierShift.cashier',
                     'cashierHandovers.cashierShift.salesBreakdown'
                 ])
-                ->when($request->has('shift_id'), function($query) use ($request) {
+                ->when($request->has('shift_id'), function ($query) use ($request) {
                     return $query->where('id', $request->shift_id);
-                }, function($query) {
+                }, function ($query) {
                     return $query->whereDate('shift_date', today());
                 })
                 ->firstOrFail();

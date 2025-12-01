@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Branch\Models\Branch;
 
@@ -40,8 +41,8 @@ class BranchManagerShift extends Model
         'handover_amount',
         'handover_date',
         'handover_time',
-        'handover_timing', // today, yesterday
-        'handover_status', // not_submitted, pending, completed
+        'handover_timing',
+        'handover_status',
         'handover_notes',
 
         // Daily Report
@@ -68,7 +69,6 @@ class BranchManagerShift extends Model
         'actual_end_time' => 'datetime',
         'handover_date' => 'date',
         'handover_time' => 'datetime',
-        'handed_over_at' => 'datetime',
         'daily_report_submitted_at' => 'datetime',
         'reopened_at' => 'datetime',
         'approved_at' => 'datetime',
@@ -107,18 +107,23 @@ class BranchManagerShift extends Model
         return $this->belongsTo(BranchManager::class, 'approved_by_accountant_id');
     }
 
+    /**
+     * Cashier shifts for the same branch and date
+     */
     public function cashierShifts(): HasMany
     {
         return $this->hasMany(CashierShift::class, 'branch_id', 'branch_id')
             ->whereDate('shift_date', $this->shift_date);
     }
 
-    public function cashierHandovers(): HasMany
+    /**
+     * Handovers received from cashiers
+     */
+    public function cashierHandovers(): MorphMany
     {
-        return $this->hasMany(CashierShiftHandover::class, 'handover_to_id', 'branch_manager_id')
-            ->where('handover_to_type', 'branch_manager')
-            ->whereHas('cashierShift', function($q) {
-                $q->whereDate('shift_date', $this->shift_date);
+        return $this->morphMany(CashierShiftHandover::class, 'handover_to')
+            ->whereHas('cashierShift', function($query) {
+                $query->whereDate('shift_date', $this->shift_date);
             });
     }
 
@@ -138,11 +143,11 @@ class BranchManagerShift extends Model
         return $query->where('status', 'completed');
     }
 
-    public function scopePendingHandovers($query)
+    public function scopeWithCashierHandovers($query)
     {
-        return $query->whereHas('cashierHandovers', function($q) {
-            $q->where('status', 'pending');
-        });
+        return $query->with(['cashierHandovers' => function($q) {
+            $q->with(['cashierShift.cashier', 'cashierShift.shift', 'approvedBy']);
+        }]);
     }
 
     // Methods
@@ -174,7 +179,7 @@ class BranchManagerShift extends Model
 
     public function getHandoverSummary(): array
     {
-        $handovers = $this->cashierHandovers()->with('cashierShift.cashier')->get();
+        $handovers = $this->cashierHandovers()->get();
 
         $summary = [
             'total_handovers' => $handovers->count(),
@@ -183,6 +188,50 @@ class BranchManagerShift extends Model
             'rejected' => $handovers->whereIn('status', ['rejected', 'rejected_final'])->count(),
             'total_amount' => $handovers->where('status', 'approved')->sum('handover_amount'),
         ];
+
+        return $summary;
+    }
+
+    /**
+     * Get pending handovers count
+     */
+    public function getPendingHandoversCount(): int
+    {
+        return $this->cashierHandovers()->where('status', 'pending')->count();
+    }
+
+    /**
+     * Get all approved cashier handovers
+     */
+    public function getApprovedHandovers()
+    {
+        return $this->cashierHandovers()
+            ->where('status', 'approved')
+            ->with(['cashierShift.cashier', 'cashierShift.shift'])
+            ->get();
+    }
+
+    /**
+     * Calculate financial summary from approved handovers
+     */
+    public function calculateFinancialSummary(): array
+    {
+        $handovers = $this->getApprovedHandovers();
+
+        $summary = [
+            'total_sales' => 0,
+            'cash_collected' => 0,
+            'card_payments' => 0,
+            'delivery_app_payments' => 0,
+        ];
+
+        foreach ($handovers as $handover) {
+            $cashierShift = $handover->cashierShift;
+            $summary['total_sales'] += $cashierShift->total_sales;
+            $summary['cash_collected'] += $cashierShift->cash_collected;
+            $summary['card_payments'] += $cashierShift->card_payments;
+            $summary['delivery_app_payments'] += $cashierShift->aggregator_payments;
+        }
 
         return $summary;
     }

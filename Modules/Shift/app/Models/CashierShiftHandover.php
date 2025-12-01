@@ -17,8 +17,8 @@ class CashierShiftHandover extends Model
 
     protected $fillable = [
         'cashier_shift_id',
-        'handover_to_id',      // ID of Branch Manager or next Cashier
-        'handover_to_type',    // 'branch_manager' or 'cashier'
+        'handover_to_id',
+        'handover_to_type',
         'handover_amount',
         'variance_amount',
         'variance_reason',
@@ -26,7 +26,7 @@ class CashierShiftHandover extends Model
         'handover_notes',
         'handover_date',
         'handover_time',
-        'status',              // pending, approved, rejected, rejected_final
+        'status',
         'rejection_reason',
         'rejection_count',
         'first_rejected_at',
@@ -52,17 +52,42 @@ class CashierShiftHandover extends Model
     // Relationships
     public function cashierShift(): BelongsTo
     {
-        return $this->belongsTo(CashierShift::class);
+        return $this->belongsTo(CashierShift::class, 'cashier_shift_id');
     }
 
+    /**
+     * Polymorphic relationship: who receives the handover
+     */
     public function handoverTo(): MorphTo
     {
         return $this->morphTo();
     }
 
+    /**
+     * Polymorphic relationship: who approved the handover
+     */
     public function approvedBy(): MorphTo
     {
         return $this->morphTo('approved_by');
+    }
+
+    /**
+     * Get cashier details through cashier shift
+     */
+    public function cashier()
+    {
+        return $this->cashierShift?->cashier;
+    }
+
+    /**
+     * Get branch manager if handover is to a manager
+     */
+    public function branchManager()
+    {
+        if ($this->handover_to_type === 'branch_manager') {
+            return $this->handoverTo;
+        }
+        return null;
     }
 
     // Scopes
@@ -79,6 +104,19 @@ class CashierShiftHandover extends Model
     public function scopeRejected($query)
     {
         return $query->whereIn('status', ['rejected', 'rejected_final']);
+    }
+
+    public function scopeForManager($query, $managerId)
+    {
+        return $query->where('handover_to_id', $managerId)
+            ->where('handover_to_type', 'branch_manager');
+    }
+
+    public function scopeForShiftDate($query, $date)
+    {
+        return $query->whereHas('cashierShift', function ($q) use ($date) {
+            $q->whereDate('shift_date', $date);
+        });
     }
 
     // Helper methods
@@ -110,5 +148,34 @@ class CashierShiftHandover extends Model
     public function canReject(): bool
     {
         return $this->isPending() || ($this->status === 'rejected' && $this->rejection_count < 2);
+    }
+
+    /**
+     * Get variance type label
+     */
+    public function getVarianceTypeAttribute(): string
+    {
+        if ($this->variance_amount > 0) {
+            return 'Over';
+        } elseif ($this->variance_amount < 0) {
+            return 'Short';
+        }
+        return 'None';
+    }
+
+    /**
+     * Get formatted handover amount
+     */
+    public function getFormattedHandoverAmountAttribute(): string
+    {
+        return number_format($this->handover_amount, 2);
+    }
+
+    /**
+     * Get formatted variance amount
+     */
+    public function getFormattedVarianceAmountAttribute(): string
+    {
+        return number_format($this->variance_amount, 2);
     }
 }
