@@ -441,7 +441,7 @@ class BranchManagerShiftController extends BaseController
 public function endShift(Request $request): JsonResponse
 {
     $validator = Validator::make($request->all(), [
-        'handover_to' => 'required|exists:branch_managers,id',
+        'handover_to' => 'nullable|exists:branch_managers,id',
         'handover_amount' => 'required|numeric|min:0',
         'handover_timing' => 'required|in:today,yesterday',
         'handover_notes' => 'nullable|string|max:500',
