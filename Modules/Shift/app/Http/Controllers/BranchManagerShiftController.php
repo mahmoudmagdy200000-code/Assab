@@ -366,16 +366,164 @@ class BranchManagerShiftController extends BaseController
         return $progress;
     }
 
-    /**
-     * Section D: Final Handover and End Shift
-     */
+    // /**
+    //  * Section D: Final Handover and End Shift
+    //  */
+    // public function endShift(Request $request): JsonResponse
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'handover_to' => 'required|exists:branch_managers,id',
+    //         'handover_amount' => 'required|numeric|min:0',
+    //         'handover_timing' => 'required|in:today,yesterday',
+    //         'handover_notes' => 'nullable|string|max:500',
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return $this->errorResponse($validator->errors()->first(), 422);
+    //     }
+
+    //     try {
+    //         $manager = auth()->user();
+
+    //         $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+    //             ->whereDate('shift_date', today())
+    //             ->firstOrFail();
+
+    //         if (!$managerShift->canEnd()) {
+    //             return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved.', 400);
+    //         }
+
+    //         // Calculate financial summary from cashier shifts
+    //         $financialSummary = $this->calculateFinancialSummary($managerShift);
+
+    //         // Set handover time based on timing
+    //         $handoverTime = $request->handover_timing === 'yesterday'
+    //             ? now()->subDay()
+    //             : now();
+
+    //         // Update shift with handover details
+    //         $managerShift->update([
+    //             'status' => 'completed',
+    //             'actual_end_time' => now(),
+    //             'next_manager_id' => $request->handover_to,
+    //             'handover_amount' => $request->handover_amount,
+    //             'handover_date' => $handoverTime->format('Y-m-d'),
+    //             'handover_time' => $handoverTime,
+    //             'handover_timing' => $request->handover_timing,
+    //             'handover_status' => 'pending',
+    //             'handover_notes' => $request->handover_notes,
+    //             'closing_balance' => $request->handover_amount,
+    //             ...$financialSummary,
+    //         ]);
+
+    //         return $this->successResponse([
+    //             'shift' => new BranchManagerShiftResource($managerShift),
+    //             'handover_details' => [
+    //                 'handover_amount' => (float) $request->handover_amount,
+    //                 'handover_from' => $manager->name,
+    //                 'handover_to' => $managerShift->nextManager->name,
+    //                 'handover_date' => $managerShift->handover_date,
+    //                 'handover_time' => $managerShift->handover_time->format('H:i'),
+    //                 'handover_timing' => $managerShift->handover_timing,
+    //                 'status' => $managerShift->handover_status,
+    //                 'notes' => $managerShift->handover_notes,
+    //             ],
+    //             'message' => 'Shift ended and handover recorded successfully'
+    //         ], 'Shift ended successfully');
+    //     } catch (\Exception $e) {
+    //         return $this->errorResponse($e->getMessage(), 500);
+    //     }
+    // }
+
+    // /**
+    //  * Section D: Final Handover and End Shift
+    //  */
+    // public function endShift(Request $request): JsonResponse
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'handover_to' => 'required|exists:branch_managers,id',
+    //         'handover_amount' => 'required|numeric|min:0',
+    //         'handover_timing' => 'required|in:today,yesterday',
+    //         'handover_notes' => 'nullable|string|max:500',
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return $this->errorResponse($validator->errors()->first(), 422);
+    //     }
+
+    //     try {
+    //         $manager = auth()->user();
+
+    //         $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+    //             ->whereDate('shift_date', today())
+    //             ->firstOrFail();
+
+    //         if (!$managerShift->canEnd()) {
+    //             return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved.', 400);
+    //         }
+
+    //         // Calculate financial summary from cashier shifts
+    //         $financialSummary = $this->calculateFinancialSummary($managerShift);
+
+    //         // Set handover time based on timing
+    //         $handoverTime = $request->handover_timing === 'yesterday'
+    //             ? now()->subDay()
+    //             : now();
+
+    //         // Update shift with handover details AND financial totals
+    //         $managerShift->update([
+    //             'status' => 'completed',
+    //             'actual_end_time' => now(),
+    //             'next_manager_id' => $request->handover_to,
+    //             'handover_amount' => $request->handover_amount,
+    //             'handover_date' => $handoverTime->format('Y-m-d'),
+    //             'handover_time' => $handoverTime,
+    //             'handover_timing' => $request->handover_timing,
+    //             'handover_status' => 'pending',
+    //             'handover_notes' => $request->handover_notes,
+    //             'closing_balance' => $request->handover_amount,
+    //             'total_sales' => $financialSummary['total_sales'] ?? 0,
+    //             'cash_collected' => $financialSummary['cash_collected'] ?? 0,
+    //             'card_payments' => $financialSummary['card_payments'] ?? 0,
+    //             'aggregator_payments' => $financialSummary['delivery_app_payments'] ?? 0,
+    //         ]);
+
+    //         return $this->successResponse([
+    //             'shift' => new BranchManagerShiftResource($managerShift),
+    //             'handover_details' => [
+    //                 'handover_amount' => (float) $request->handover_amount,
+    //                 'handover_from' => $manager->name,
+    //                 'handover_to' => $managerShift->nextManager->name,
+    //                 'handover_date' => $managerShift->handover_date,
+    //                 'handover_time' => $managerShift->handover_time->format('H:i'),
+    //                 'handover_timing' => $managerShift->handover_timing,
+    //                 'status' => $managerShift->handover_status,
+    //                 'notes' => $managerShift->handover_notes,
+    //             ],
+    //             // 🔴 هنا أضف المجاميع النهائية لليوم كامل
+    //             'daily_totals' => [
+    //                 'total_cash_collected' => (float) ($financialSummary['cash_collected'] ?? 0),
+    //                 'total_card_payments' => (float) ($financialSummary['card_payments'] ?? 0),
+    //                 'total_variance' => (float) ($financialSummary['total_variance'] ?? 0),
+    //                 'total_delivery_apps' => (float) ($financialSummary['delivery_app_payments'] ?? 0),
+    //                 'total_sales' => (float) ($financialSummary['total_sales'] ?? 0),
+    //                 'shift_date' => $managerShift->shift_date->format('Y-m-d'),
+    //             ],
+    //             'message' => 'Shift ended and handover recorded successfully'
+    //         ], 'Shift ended successfully');
+    //     } catch (\Exception $e) {
+    //         return $this->errorResponse($e->getMessage(), 500);
+    //     }
+    // }
+
     public function endShift(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'handover_to' => 'required|exists:branch_managers,id',
-            'handover_amount' => 'required|numeric|min:0',
+            'cash_collected' => 'required|numeric|min:0',
+            'total_sales' => 'required|numeric|min:0',
+            'card_payments' => 'required|numeric|min:0',
+            'aggregator_payments' => 'required|numeric|min:0',
             'handover_timing' => 'required|in:today,yesterday',
-            'handover_notes' => 'nullable|string|max:500',
         ]);
 
         if ($validator->fails()) {
@@ -393,46 +541,62 @@ class BranchManagerShiftController extends BaseController
                 return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved.', 400);
             }
 
-            // Calculate financial summary from cashier shifts
-            $financialSummary = $this->calculateFinancialSummary($managerShift);
-
             // Set handover time based on timing
             $handoverTime = $request->handover_timing === 'yesterday'
                 ? now()->subDay()
                 : now();
 
-            // Update shift with handover details
+            // Update shift with the values entered by the manager
             $managerShift->update([
                 'status' => 'completed',
                 'actual_end_time' => now(),
-                'next_manager_id' => $request->handover_to,
-                'handover_amount' => $request->handover_amount,
+                'handover_amount' => $request->cash_collected, // المبلغ المسلم هو الـ cash_collected
                 'handover_date' => $handoverTime->format('Y-m-d'),
                 'handover_time' => $handoverTime,
                 'handover_timing' => $request->handover_timing,
                 'handover_status' => 'pending',
-                'handover_notes' => $request->handover_notes,
-                'closing_balance' => $request->handover_amount,
-                ...$financialSummary,
+
+                // 🔴 هنا نحفظ القيم التي أدخلها المدير (القيم النهائية لليوم)
+                'total_sales' => $request->total_sales,
+                'cash_collected' => $request->cash_collected,
+                'card_payments' => $request->card_payments,
+                'aggregator_payments' => $request->aggregator_payments,
+
+                // حساب الـ variance بناءً على الـ closing_balance و opening_balance
+                'closing_balance' => $request->cash_collected,
+                'variance' => $this->calculateVariance($managerShift->opening_balance, $request->cash_collected),
             ]);
 
             return $this->successResponse([
                 'shift' => new BranchManagerShiftResource($managerShift),
-                'handover_details' => [
-                    'handover_amount' => (float) $request->handover_amount,
-                    'handover_from' => $manager->name,
-                    'handover_to' => $managerShift->nextManager->name,
-                    'handover_date' => $managerShift->handover_date,
-                    'handover_time' => $managerShift->handover_time->format('H:i'),
-                    'handover_timing' => $managerShift->handover_timing,
-                    'status' => $managerShift->handover_status,
-                    'notes' => $managerShift->handover_notes,
+                'daily_totals' => [
+                    'cash_collected' => (float) $request->cash_collected,
+                    'total_sales' => (float) $request->total_sales,
+                    'card_payments' => (float) $request->card_payments,
+                    'aggregator_payments' => (float) $request->aggregator_payments,
+                    'handover_timing' => $request->handover_timing,
+                    'shift_date' => $managerShift->shift_date->format('Y-m-d'),
                 ],
-                'message' => 'Shift ended and handover recorded successfully'
+                'message' => 'Shift ended and daily totals recorded successfully'
             ], 'Shift ended successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
+    }
+
+    // 🔴 دالة مساعدة لحساب الـ variance
+    private function calculateVariance($openingBalance, $closingBalance)
+    {
+        // الـ variance هو الفرق بين الرصيد الفعلي والرصيد المتوقع
+        // يمكن تعديل هذه الدالة بناءً على منطق عملك
+        if (!$openingBalance) {
+            return 0;
+        }
+
+        // الـ expected_balance هنا قد تحتاج إلى حسابه بشكل مختلف
+        $expectedBalance = $openingBalance; // هذا مثال بسيط
+
+        return $closingBalance - $expectedBalance;
     }
 
     /**
@@ -573,6 +737,7 @@ class BranchManagerShiftController extends BaseController
             'cash_collected' => 0,
             'card_payments' => 0,
             'delivery_app_payments' => 0,
+            'total_variance' => 0, // 🔴 أضف هذا الحقل
         ];
 
         foreach ($cashierShifts as $handover) {
@@ -581,6 +746,7 @@ class BranchManagerShiftController extends BaseController
             $summary['cash_collected'] += $cashierShift->cash_collected;
             $summary['card_payments'] += $cashierShift->card_payments;
             $summary['delivery_app_payments'] += $cashierShift->aggregator_payments;
+            $summary['total_variance'] += $handover->variance_amount; // 🔴 أضف variance
         }
 
         return $summary;
