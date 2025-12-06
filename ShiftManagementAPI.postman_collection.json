@@ -1,0 +1,2183 @@
+{
+    "info": {
+        "name": "Shift Management API - Complete Documentation",
+        "description": "Complete API documentation for Shift Management Module covering Branch Manager and Cashier operations",
+        "version": "2.0.0",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "auth": {
+        "type": "bearer",
+        "bearer": [
+            {
+                "key": "token",
+                "value": "{{bearer_token}}",
+                "type": "string"
+            }
+        ]
+    },
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://localhost:8000/api",
+            "type": "string"
+        },
+        {
+            "key": "bearer_token",
+            "value": "",
+            "type": "string"
+        }
+    ],
+    "item": [
+        {
+            "name": "Branch Manager - Cashier Management",
+            "item": [
+                {
+                    "name": "List Cashiers",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/cashiers",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "cashiers"],
+                            "query": [
+                                {
+                                    "key": "search",
+                                    "value": "",
+                                    "description": "Search by cashier name",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "status",
+                                    "value": "active",
+                                    "description": "Filter by status: active, pending, deactivated",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "date_filter",
+                                    "value": "last_7_days",
+                                    "description": "Filter by date: last_24_hours, last_7_days, last_30_days, last_1_year",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "15",
+                                    "description": "Items per page",
+                                    "disabled": true
+                                }
+                            ]
+                        },
+                        "description": "Section 3.1.2.1.1: Get list of all cashiers with summary by branch"
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "GET",
+                                "header": [],
+                                "url": {
+                                    "raw": "{{base_url}}/branch-manager/cashiers",
+                                    "host": ["{{base_url}}"],
+                                    "path": ["branch-manager", "cashiers"]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n  \"success\": true,\n  \"message\": \"Cashiers retrieved successfully\",\n  \"data\": [\n    {\n      \"id\": \"uuid\",\n      \"name\": \"string\",\n      \"email\": \"string\",\n      \"image\": \"string|null\",\n      \"store_branch_name\": \"string\",\n      \"number_of_shifts_per_day\": \"integer\",\n      \"status\": \"active|pending|deactivated\",\n      \"status_label\": \"string\",\n      \"created_at\": \"datetime\"\n    }\n  ],\n  \"meta\": {\n    \"summary\": {\n      \"total_cashiers\": \"integer\",\n      \"branch_name\": \"string\",\n      \"grouped_by_branch\": {\n        \"branch_id\": \"uuid\",\n        \"branch_name\": \"string\",\n        \"total_cashiers\": \"integer\"\n      }\n    }\n  }\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Create Cashier",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Cashier Name\",\n  \"email\": \"cashier@example.com\",\n  \"store_branch_id\": \"uuid\",\n  \"shift_ids\": [\"uuid1\", \"uuid2\"]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/cashiers",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "cashiers"]
+                        },
+                        "description": "Section 3.1.2.1.1.1: Create new cashier with shift assignments. Cannot assign to occupied shifts."
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "POST",
+                                "header": [],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n  \"name\": \"Cashier Name\",\n  \"email\": \"cashier@example.com\",\n  \"store_branch_id\": \"uuid\",\n  \"shift_ids\": [\"uuid1\", \"uuid2\"]\n}",
+                                    "options": {
+                                        "raw": {
+                                            "language": "json"
+                                        }
+                                    }
+                                },
+                                "url": {
+                                    "raw": "{{base_url}}/branch-manager/cashiers",
+                                    "host": ["{{base_url}}"],
+                                    "path": ["branch-manager", "cashiers"]
+                                }
+                            },
+                            "status": "Created",
+                            "code": 201,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n  \"success\": true,\n  \"message\": \"Cashier created successfully\",\n  \"data\": {\n    \"cashier\": {\n      \"id\": \"uuid\",\n      \"name\": \"string\",\n      \"email\": \"string\",\n      \"role\": \"Cashier\",\n      \"store_branch_name\": \"string\",\n      \"status\": \"pending\"\n    },\n    \"assigned_shifts\": [\n      {\n        \"id\": \"uuid\",\n        \"name\": \"string\",\n        \"start_time\": \"H:i\",\n        \"end_time\": \"H:i\"\n      }\n    ],\n    \"summary\": {\n      \"cashier_information\": {\n        \"name\": \"string\",\n        \"email\": \"string\",\n        \"role\": \"Cashier\",\n        \"store_branch_name\": \"string\"\n      },\n      \"working_shifts\": []\n    },\n    \"activation_link_sent\": true,\n    \"message\": \"Cashier account created successfully. Activation link sent to cashier email.\"\n  }\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Search Cashiers",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/cashiers/search?query=cashier_name",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "cashiers", "search"],
+                            "query": [
+                                {
+                                    "key": "query",
+                                    "value": "cashier_name",
+                                    "description": "Search by cashier name (min 2 characters)"
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "15",
+                                    "disabled": true
+                                }
+                            ]
+                        },
+                        "description": "Section 3.1.2.1.1.2: Search cashiers by name"
+                    }
+                },
+                {
+                    "name": "Filter Cashiers",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/cashiers/filter?date_filter=last_7_days&status[]=active&status[]=pending",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "cashiers", "filter"],
+                            "query": [
+                                {
+                                    "key": "date_filter",
+                                    "value": "last_7_days",
+                                    "description": "last_24_hours, last_7_days, last_30_days, last_1_year"
+                                },
+                                {
+                                    "key": "status[]",
+                                    "value": "active",
+                                    "description": "Multiple selection: active, pending, deactivated"
+                                },
+                                {
+                                    "key": "status[]",
+                                    "value": "pending",
+                                    "disabled": true
+                                }
+                            ]
+                        },
+                        "description": "Section 3.1.2.1.1.3: Filter cashiers by date added and status"
+                    }
+                },
+                {
+                    "name": "Get Cashier Details",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/cashiers/:cashier",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "cashiers", ":cashier"],
+                            "variable": [
+                                {
+                                    "key": "cashier",
+                                    "value": "uuid",
+                                    "description": "Cashier ID"
+                                }
+                            ]
+                        },
+                        "description": "Section 3.1.2.1.1.4: View detailed cashier information with shifts"
+                    }
+                },
+                {
+                    "name": "Update Cashier",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Updated Name\",\n  \"email\": \"updated@example.com\",\n  \"store_branch_id\": \"uuid\",\n  \"status\": \"active|deactivated\",\n  \"shift_ids\": [\"uuid1\", \"uuid2\"]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/cashiers/:cashier",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "cashiers", ":cashier"],
+                            "variable": [
+                                {
+                                    "key": "cashier",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Section 3.1.2.1.1.4: Update cashier information and shifts"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Branch Manager - Cashier Shifts",
+            "item": [
+                {
+                    "name": "Get All Cashier Shifts",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/cashiers",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "shifts", "cashiers"]
+                        },
+                        "description": "Get all cashier shifts for the branch"
+                    }
+                },
+                {
+                    "name": "Get Pending Shifts",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/pending",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "shifts", "pending"]
+                        },
+                        "description": "Section B.1: Get pending shifts (min 1 week, max 1 month, first shift marked)"
+                    }
+                },
+                {
+                    "name": "Get In-Progress Shifts",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/in-progress",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "shifts", "in-progress"]
+                        },
+                        "description": "Section B.2: Get in-progress shifts (today only)"
+                    }
+                },
+                {
+                    "name": "Get Completed Shifts",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/completed",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "shifts", "completed"]
+                        },
+                        "description": "Section B.3: Get completed shifts (sorted descending by date)"
+                    }
+                },
+                {
+                    "name": "Get Reassigned Shifts",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/reassigned",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "shifts", "reassigned"]
+                        },
+                        "description": "Section B.4: Get reassigned shifts"
+                    }
+                },
+                {
+                    "name": "Get Shift Details",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/:shift",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "shifts", ":shift"],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Get detailed shift information"
+                    }
+                },
+                {
+                    "name": "Reassign Shift",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"new_cashier_id\": \"uuid\",\n  \"reason\": \"string (optional, max:500)\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/:shift/reassign",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "branch-manager",
+                                "shifts",
+                                ":shift",
+                                "reassign"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "B.1.2: Reassign shift to another cashier. Cannot reassign to occupied shifts or currently working cashier."
+                    }
+                },
+                {
+                    "name": "Get Available Cashiers for Reassignment",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/:shift/available-cashiers",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "branch-manager",
+                                "shifts",
+                                ":shift",
+                                "available-cashiers"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Get list of available cashiers for reassignment (excludes currently working and originally assigned cashier)"
+                    }
+                },
+                {
+                    "name": "End Shift Only",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"total_sales\": 1000.00,\n  \"cash_collected\": 500.00,\n  \"card_payments\": 300.00,\n  \"aggregators\": [\n    {\n      \"aggregator_id\": \"uuid\",\n      \"amount\": 200.00,\n      \"notes\": \"optional notes\"\n    }\n  ],\n  \"pos_receipt\": \"file (optional, jpg/jpeg/png/pdf, max 5MB)\",\n  \"variance\": {\n    \"responsibility_type\": \"self|self_and_others|other_factors|mixed\",\n    \"current_cashier_amount\": 0.00,\n    \"other_cashiers\": [\n      {\n        \"cashier_id\": \"uuid\",\n        \"amount\": 0.00,\n        \"notes\": \"optional\"\n      }\n    ],\n    \"reason\": \"string (required for other_factors/mixed)\",\n    \"supporting_files\": [\"file1\", \"file2\"]\n  }\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/:shift/end",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "branch-manager",
+                                "shifts",
+                                ":shift",
+                                "end"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Option 1: End shift without handover. System calculates VAT (15%) and Net Sales automatically."
+                    }
+                },
+                {
+                    "name": "End Shift with Handover",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "multipart/form-data"
+                            }
+                        ],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "total_sales",
+                                    "value": "1000.00",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "cash_collected",
+                                    "value": "500.00",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "card_payments",
+                                    "value": "300.00",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "handover_to_type",
+                                    "value": "cashier",
+                                    "type": "text",
+                                    "description": "cashier or branch_manager"
+                                },
+                                {
+                                    "key": "next_cashier_id",
+                                    "value": "uuid",
+                                    "type": "text",
+                                    "description": "Required if handover_to_type is cashier"
+                                },
+                                {
+                                    "key": "handover_amount",
+                                    "value": "500.00",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "handover_notes",
+                                    "value": "optional notes",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "aggregators[0][aggregator_id]",
+                                    "value": "uuid",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "aggregators[0][amount]",
+                                    "value": "200.00",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "pos_receipt",
+                                    "type": "file",
+                                    "src": []
+                                },
+                                {
+                                    "key": "variance[responsibility_type]",
+                                    "value": "self",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "variance[reason]",
+                                    "value": "reason text",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "variance[supporting_files][]",
+                                    "type": "file",
+                                    "src": []
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/:shift/end-with-handover",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "branch-manager",
+                                "shifts",
+                                ":shift",
+                                "end-with-handover"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Options 2-4: End shift with handover. Supports handover to cashier or branch manager. Includes variance handling."
+                    }
+                },
+                {
+                    "name": "Start Handover (After Shift Ended)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"handover_to_type\": \"cashier|branch_manager\",\n  \"next_cashier_id\": \"uuid (if cashier)\",\n  \"handover_amount\": 500.00,\n  \"handover_notes\": \"optional\",\n  \"variance\": {\n    \"responsibility_type\": \"self|self_and_others|other_factors|mixed\",\n    \"reason\": \"required for other_factors/mixed\",\n    \"supporting_files\": []\n  }\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/:shift/start-handover",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "branch-manager",
+                                "shifts",
+                                ":shift",
+                                "start-handover"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Record handover after shift ended without handover"
+                    }
+                },
+                {
+                    "name": "Get Available Recipients for Handover",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/:shift/available-recipients",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "branch-manager",
+                                "shifts",
+                                ":shift",
+                                "available-recipients"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Get list of available cashiers and branch manager for handover"
+                    }
+                },
+                {
+                    "name": "Approve Handover",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"manager_comment\": \"optional comment\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/:shift/handover/approve",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "branch-manager",
+                                "shifts",
+                                ":shift",
+                                "handover",
+                                "approve"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Section C: Approve cashier handover. Changes status from Pending → Approved"
+                    }
+                },
+                {
+                    "name": "Reject Handover",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "multipart/form-data"
+                            }
+                        ],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "rejection_reason",
+                                    "value": "Required reason for rejection",
+                                    "type": "text",
+                                    "required": true
+                                },
+                                {
+                                    "key": "manager_comment",
+                                    "value": "Optional comment",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "rejection_files[]",
+                                    "type": "file",
+                                    "src": [],
+                                    "description": "Optional files (PDF, PNG, JPEG, max 5MB each)"
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/:shift/handover/reject",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "branch-manager",
+                                "shifts",
+                                ":shift",
+                                "handover",
+                                "reject"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Section C: Reject handover. First rejection allows edit, second rejection is permanent."
+                    }
+                },
+                {
+                    "name": "Get Handover Status",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/:shift/handover/status",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "branch-manager",
+                                "shifts",
+                                ":shift",
+                                "handover",
+                                "status"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Get current handover status and details"
+                    }
+                },
+                {
+                    "name": "Calculate Sales",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"total_sales\": 1000.00\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/shifts/calculate-sales",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "branch-manager",
+                                "shifts",
+                                "calculate-sales"
+                            ]
+                        },
+                        "description": "Helper endpoint to calculate Net Sales and VAT (15%) from Total Sales"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Branch Manager - Workday Management",
+            "item": [
+                {
+                    "name": "Get Current Shift",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/workday/current",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "workday", "current"]
+                        },
+                        "description": "Section 3.1.3.1.A: Get current shift overview with progress, handovers summary, and status"
+                    }
+                },
+                {
+                    "name": "Start Shift",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/workday/start",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "workday", "start"]
+                        },
+                        "description": "Section 3.1.3.1.A: Start branch manager shift. Cannot start until shift date is today."
+                    }
+                },
+                {
+                    "name": "Get Shift Details",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/workday/details?shift_id=uuid",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "workday", "details"],
+                            "query": [
+                                {
+                                    "key": "shift_id",
+                                    "value": "uuid",
+                                    "description": "Optional: specific shift ID, defaults to today's shift",
+                                    "disabled": true
+                                }
+                            ]
+                        },
+                        "description": "Section 3.1.3.1.B: Get shift details (Assigned To, Assigned By, Store Branch, Times, Final Approval By)"
+                    }
+                },
+                {
+                    "name": "Get Handoffs Received",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/workday/handoffs",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "workday", "handoffs"]
+                        },
+                        "description": "Section 3.1.3.1.C: Get all handovers received from cashiers with variance details (expandable)"
+                    }
+                },
+                {
+                    "name": "Approve Handoff",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"handover_id\": \"uuid\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/workday/handoffs/approve",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "branch-manager",
+                                "workday",
+                                "handoffs",
+                                "approve"
+                            ]
+                        },
+                        "description": "Section 3.1.3.1.C: Approve handover. Changes status from Pending → Approved"
+                    }
+                },
+                {
+                    "name": "Reject Handoff",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"handover_id\": \"uuid\",\n  \"rejection_reason\": \"Required reason for rejection (max 500 chars)\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/workday/handoffs/reject",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "branch-manager",
+                                "workday",
+                                "handoffs",
+                                "reject"
+                            ]
+                        },
+                        "description": "Section 3.1.3.1.C: Reject handover. Requires reason. Second rejection is permanent."
+                    }
+                },
+                {
+                    "name": "End Shift",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"handover_to\": \"uuid (optional, next manager)\",\n  \"handover_amount\": 5000.00,\n  \"handover_timing\": \"today|yesterday\",\n  \"handover_notes\": \"optional notes\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/workday/end",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "workday", "end"]
+                        },
+                        "description": "Section 3.1.3.1.D: End shift. Can only end after receiving ALL handovers. Includes final handover details."
+                    }
+                },
+                {
+                    "name": "Get Final Daily Close",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/workday/daily-close?shift_id=uuid",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "branch-manager",
+                                "workday",
+                                "daily-close"
+                            ],
+                            "query": [
+                                {
+                                    "key": "shift_id",
+                                    "value": "uuid",
+                                    "description": "Optional: specific shift ID",
+                                    "disabled": true
+                                }
+                            ]
+                        },
+                        "description": "Section 3.1.3.1.E: Get final daily close summary with per-cashier breakdown and totals"
+                    }
+                },
+                {
+                    "name": "Submit Daily Report",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"final_notes\": \"optional notes (max 1000 chars)\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/workday/daily-close/submit",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "branch-manager",
+                                "workday",
+                                "daily-close",
+                                "submit"
+                            ]
+                        },
+                        "description": "Section 3.1.3.1.E: Submit daily report. System updates Final Daily Close section. Can reopen on same day if notification received."
+                    }
+                },
+                {
+                    "name": "Reopen Shift",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"reopen_reason\": \"Required reason for reopening (max 500 chars)\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/workday/daily-close/reopen",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "branch-manager",
+                                "workday",
+                                "daily-close",
+                                "reopen"
+                            ]
+                        },
+                        "description": "Section 3.1.3.1.E: Reopen shift on same day. Allows updates and resubmission."
+                    }
+                },
+                {
+                    "name": "Get Shift History",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/branch-manager/workday/history?status=completed&date_from=2025-01-01&date_to=2025-12-31&per_page=10",
+                            "host": ["{{base_url}}"],
+                            "path": ["branch-manager", "workday", "history"],
+                            "query": [
+                                {
+                                    "key": "status",
+                                    "value": "completed",
+                                    "description": "Filter by status",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "date_from",
+                                    "value": "2025-01-01",
+                                    "description": "Filter from date",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "date_to",
+                                    "value": "2025-12-31",
+                                    "description": "Filter to date",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "10",
+                                    "disabled": true
+                                }
+                            ]
+                        },
+                        "description": "Get shift history with optional filters"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Cashier - Shifts",
+            "item": [
+                {
+                    "name": "Get My Shifts",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/cashier/my-shifts?status=in_progress&date_from=2025-01-01&date_to=2025-12-31&per_page=15",
+                            "host": ["{{base_url}}"],
+                            "path": ["cashier", "my-shifts"],
+                            "query": [
+                                {
+                                    "key": "status",
+                                    "value": "in_progress",
+                                    "description": "Filter by status",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "date_from",
+                                    "value": "2025-01-01",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "date_to",
+                                    "value": "2025-12-31",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "15",
+                                    "disabled": true
+                                }
+                            ]
+                        },
+                        "description": "Section 3.2.2.1.1: Get all assigned shifts with weekly & daily summary"
+                    }
+                },
+                {
+                    "name": "Get Pending Shifts",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/cashier/my-shifts/pending",
+                            "host": ["{{base_url}}"],
+                            "path": ["cashier", "my-shifts", "pending"]
+                        },
+                        "description": "Get pending shifts (min 1 week, max 1 month, first shift marked)"
+                    }
+                },
+                {
+                    "name": "Get In-Progress Shifts",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/cashier/my-shifts/in-progress",
+                            "host": ["{{base_url}}"],
+                            "path": ["cashier", "my-shifts", "in-progress"]
+                        },
+                        "description": "Get in-progress shifts (today only) with real-time progress"
+                    }
+                },
+                {
+                    "name": "Get Completed Shifts",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/cashier/my-shifts/completed?date_filter=last_7_days&date_from=2025-01-01&date_to=2025-12-31",
+                            "host": ["{{base_url}}"],
+                            "path": ["cashier", "my-shifts", "completed"],
+                            "query": [
+                                {
+                                    "key": "date_filter",
+                                    "value": "last_7_days",
+                                    "description": "last_7_days, last_30_days, custom",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "date_from",
+                                    "value": "2025-01-01",
+                                    "description": "Required if date_filter is custom",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "date_to",
+                                    "value": "2025-12-31",
+                                    "description": "Required if date_filter is custom",
+                                    "disabled": true
+                                }
+                            ]
+                        },
+                        "description": "Section 3.2.2.1.2: Get completed shifts with performance metrics"
+                    }
+                },
+                {
+                    "name": "Get Reassigned Shifts",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/cashier/my-shifts/reassigned",
+                            "host": ["{{base_url}}"],
+                            "path": ["cashier", "my-shifts", "reassigned"]
+                        },
+                        "description": "Section 3.2.2.1.2: Get reassigned shifts with reassignment reasons"
+                    }
+                },
+                {
+                    "name": "Get Shift Details",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/cashier/my-shifts/:shift",
+                            "host": ["{{base_url}}"],
+                            "path": ["cashier", "my-shifts", ":shift"],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Section 3.2.2.1.1.2: Get detailed shift information with progress, sales, handover, and variance"
+                    }
+                },
+                {
+                    "name": "Start Shift",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/cashier/shifts/:shift/start",
+                            "host": ["{{base_url}}"],
+                            "path": ["cashier", "shifts", ":shift", "start"],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Section 3.2.2.1.1.1: Start shift. Records actual start time. Status: Pending → In-Progress"
+                    }
+                },
+                {
+                    "name": "End Shift Only",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "multipart/form-data"
+                            }
+                        ],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "total_sales",
+                                    "value": "1000.00",
+                                    "type": "text",
+                                    "required": true
+                                },
+                                {
+                                    "key": "cash_collected",
+                                    "value": "500.00",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "card_payments",
+                                    "value": "300.00",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "aggregators[0][aggregator_id]",
+                                    "value": "uuid",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "aggregators[0][amount]",
+                                    "value": "200.00",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "aggregators[0][notes]",
+                                    "value": "optional",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "pos_receipt",
+                                    "type": "file",
+                                    "src": [],
+                                    "description": "Optional: JPG, JPEG, PNG, PDF (max 5MB)"
+                                },
+                                {
+                                    "key": "variance[responsibility_type]",
+                                    "value": "self",
+                                    "type": "text",
+                                    "description": "self, self_and_others, other_factors, mixed"
+                                },
+                                {
+                                    "key": "variance[reason]",
+                                    "value": "reason text",
+                                    "type": "text",
+                                    "description": "Required for other_factors/mixed"
+                                },
+                                {
+                                    "key": "variance[supporting_files][]",
+                                    "type": "file",
+                                    "src": []
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/cashier/shifts/:shift/end",
+                            "host": ["{{base_url}}"],
+                            "path": ["cashier", "shifts", ":shift", "end"],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Option 1: End shift without handover. System calculates VAT (15%) and Net Sales."
+                    }
+                },
+                {
+                    "name": "End Shift with Handover",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "multipart/form-data"
+                            }
+                        ],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "total_sales",
+                                    "value": "1000.00",
+                                    "type": "text",
+                                    "required": true
+                                },
+                                {
+                                    "key": "cash_collected",
+                                    "value": "500.00",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "card_payments",
+                                    "value": "300.00",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "handover_to_type",
+                                    "value": "cashier",
+                                    "type": "text",
+                                    "description": "cashier or branch_manager"
+                                },
+                                {
+                                    "key": "next_cashier_id",
+                                    "value": "uuid",
+                                    "type": "text",
+                                    "description": "Required if handover_to_type is cashier"
+                                },
+                                {
+                                    "key": "handover_amount",
+                                    "value": "500.00",
+                                    "type": "text",
+                                    "required": true
+                                },
+                                {
+                                    "key": "handover_notes",
+                                    "value": "optional notes",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "aggregators[0][aggregator_id]",
+                                    "value": "uuid",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "aggregators[0][amount]",
+                                    "value": "200.00",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "pos_receipt",
+                                    "type": "file",
+                                    "src": []
+                                },
+                                {
+                                    "key": "variance[responsibility_type]",
+                                    "value": "self",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "variance[current_cashier_amount]",
+                                    "value": "0.00",
+                                    "type": "text",
+                                    "description": "Required for self_and_others/mixed"
+                                },
+                                {
+                                    "key": "variance[other_cashiers][0][cashier_id]",
+                                    "value": "uuid",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "variance[other_cashiers][0][amount]",
+                                    "value": "0.00",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "variance[reason]",
+                                    "value": "reason",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "variance[supporting_files][]",
+                                    "type": "file",
+                                    "src": []
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/cashier/shifts/:shift/end-with-handover",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "cashier",
+                                "shifts",
+                                ":shift",
+                                "end-with-handover"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Options 2-4: End shift with handover. Supports all variance types and handover to cashier or branch manager."
+                    }
+                },
+                {
+                    "name": "Start Handover (After Shift Ended)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"handover_to_type\": \"cashier|branch_manager\",\n  \"next_cashier_id\": \"uuid (if cashier)\",\n  \"handover_amount\": 500.00,\n  \"handover_notes\": \"optional\",\n  \"variance\": {\n    \"responsibility_type\": \"self|self_and_others|other_factors|mixed\",\n    \"reason\": \"required for other_factors/mixed\"\n  }\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/cashier/shifts/:shift/start-handover",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "cashier",
+                                "shifts",
+                                ":shift",
+                                "start-handover"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Record handover after shift ended without handover"
+                    }
+                },
+                {
+                    "name": "Get Available Recipients",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/cashier/shifts/:shift/available-recipients",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "cashier",
+                                "shifts",
+                                ":shift",
+                                "available-recipients"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Get list of available cashiers and branch manager for handover"
+                    }
+                },
+                {
+                    "name": "Accept Handover",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/cashier/shifts/:shift/handover/accept",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "cashier",
+                                "shifts",
+                                ":shift",
+                                "handover",
+                                "accept"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Section 3.2.2.1.1.3: Accept handover from previous cashier. Updates opening balance."
+                    }
+                },
+                {
+                    "name": "Reject Handover",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "multipart/form-data"
+                            }
+                        ],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "reason",
+                                    "value": "Required reason",
+                                    "type": "text",
+                                    "required": true
+                                },
+                                {
+                                    "key": "files[]",
+                                    "type": "file",
+                                    "src": [],
+                                    "description": "Optional rejection files"
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/cashier/shifts/:shift/handover/reject",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "cashier",
+                                "shifts",
+                                ":shift",
+                                "handover",
+                                "reject"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Section 3.2.2.1.1.3: Reject handover from previous cashier with reason and optional files"
+                    }
+                },
+                {
+                    "name": "Edit Handover After Rejection",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"handover_amount\": 500.00,\n  \"handover_notes\": \"updated notes\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/cashier/shifts/:shift/handover/edit",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "cashier",
+                                "shifts",
+                                ":shift",
+                                "handover",
+                                "edit"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Edit handover after manager rejection. Resubmits for approval. Can only edit after first rejection, not after second."
+                    }
+                },
+                {
+                    "name": "Get Handover Status",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/cashier/shifts/:shift/handover/status",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "cashier",
+                                "shifts",
+                                ":shift",
+                                "handover",
+                                "status"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Get current handover status with rejection details if rejected"
+                    }
+                },
+                {
+                    "name": "Get Shift History",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/cashier/shifts/history?status=completed&date_filter=last_7_days",
+                            "host": ["{{base_url}}"],
+                            "path": ["cashier", "shifts", "history"],
+                            "query": [
+                                {
+                                    "key": "status",
+                                    "value": "completed",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "date_filter",
+                                    "value": "last_7_days",
+                                    "description": "last_7_days, last_30_days, custom",
+                                    "disabled": true
+                                }
+                            ]
+                        },
+                        "description": "Section 3.2.2.1.2: Get shift history with filters"
+                    }
+                },
+                {
+                    "name": "Get Weekly Summary",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/cashier/shifts/weekly-summary",
+                            "host": ["{{base_url}}"],
+                            "path": ["cashier", "shifts", "weekly-summary"]
+                        },
+                        "description": "Get weekly summary with total shifts, sales, and variance"
+                    }
+                },
+                {
+                    "name": "Calculate Sales",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"total_sales\": 1000.00\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/cashier/shifts/calculate-sales",
+                            "host": ["{{base_url}}"],
+                            "path": ["cashier", "shifts", "calculate-sales"]
+                        },
+                        "description": "Helper endpoint to calculate Net Sales and VAT (15%) from Total Sales"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Shared Routes",
+            "item": [
+                {
+                    "name": "Get Shift Details",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/shifts/:shift/details",
+                            "host": ["{{base_url}}"],
+                            "path": ["shifts", ":shift", "details"],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Get shift details (accessible by both manager and cashier with appropriate authorization)"
+                    }
+                },
+                {
+                    "name": "Get Shift Progress",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{bearer_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/shifts/:shift/progress",
+                            "host": ["{{base_url}}"],
+                            "path": ["shifts", ":shift", "progress"],
+                            "variable": [
+                                {
+                                    "key": "shift",
+                                    "value": "uuid"
+                                }
+                            ]
+                        },
+                        "description": "Get shift progress with percentage, elapsed time, and remaining time"
+                    }
+                }
+            ]
+        }
+    ],
+    "event": [
+        {
+            "listen": "prerequest",
+            "script": {
+                "type": "text/javascript",
+                "exec": [""]
+            }
+        },
+        {
+            "listen": "test",
+            "script": {
+                "type": "text/javascript",
+                "exec": [""]
+            }
+        }
+    ]
+}

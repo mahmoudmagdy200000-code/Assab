@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Branch\Models\Branch;
+use Modules\Shift\Enums\ShiftStatus;
 
 class BranchManagerShift extends Model
 {
@@ -132,8 +133,8 @@ class BranchManagerShift extends Model
     }
 
     /**
-     * Get cashier shifts through shift relationship
-     * باستخدام HasManyThrough للوصول إلى cashier_shifts عبر shifts
+     * Get all cashier shifts for this manager's shift date and branch
+     * جميع شيفتات الكاشيرز في نفس اليوم والبرانش
      */
     public function cashierShifts(): HasManyThrough
     {
@@ -145,6 +146,20 @@ class BranchManagerShift extends Model
             'branch_id',             // Local key on branch_manager_shifts table
             'id'                     // Local key on shifts table
         )->whereDate('cashier_shifts.shift_date', $this->shift_date);
+    }
+
+    /**
+     * Get all cashier shifts for this manager's shift (direct relationship)
+     * الحصول على جميع شيفتات الكاشيرز في نفس اليوم والبرانش مباشرة
+     */
+    public function getAllCashierShifts()
+    {
+        return CashierShift::whereHas('shift', function ($query) {
+            $query->where('branch_id', $this->branch_id);
+        })
+        ->whereDate('shift_date', $this->shift_date)
+        ->with(['cashier', 'shift', 'salesBreakdown.aggregator', 'varianceDetails'])
+        ->get();
     }
 
     /**
@@ -192,8 +207,31 @@ class BranchManagerShift extends Model
             return false;
         }
 
+        // الحصول على جميع شيفتات الكاشيرز في نفس اليوم والبرانش
+        $allCashierShifts = $this->getAllCashierShifts();
+        
+        // التحقق من أن جميع شيفتات الكاشيرز المكتملة قد تم handover للبرانش مانجر
+        $completedShifts = $allCashierShifts->where('status', \Modules\Shift\Enums\ShiftStatus::COMPLETED);
+        
+        foreach ($completedShifts as $cashierShift) {
+            // التحقق من وجود handover للبرانش مانجر
+            $handover = \Modules\Shift\Models\CashierShiftHandover::where('cashier_shift_id', $cashierShift->id)
+                ->where('handover_to_type', 'branch_manager')
+                ->where('handover_to_id', $this->branch_manager_id)
+                ->first();
+            
+            if (!$handover || $handover->status !== 'approved') {
+                return false;
+            }
+        }
+
         // Check if all cashier handovers are approved
-        $pendingHandovers = $this->cashierHandovers()->where('status', 'pending')->count();
+        $pendingHandovers = $this->cashierHandovers()
+            ->where('handover_to_type', 'branch_manager')
+            ->where('handover_to_id', $this->branch_manager_id)
+            ->where('status', 'pending')
+            ->count();
+            
         return $pendingHandovers === 0;
     }
 

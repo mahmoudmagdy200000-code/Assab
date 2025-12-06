@@ -68,11 +68,29 @@ class ShiftEndService
             // First, end the shift
             $shift = $this->endShiftOnly($shift, $data);
 
+            // تحديد نوع الـ handover: للكاشير التالي أو للبرانش مانجر
+            $handoverToType = $data['handover_to_type'] ?? 'cashier';
+            $handoverToId = null;
+
+            if ($handoverToType === 'branch_manager') {
+                // إذا كان handover للبرانش مانجر، احصل على branch_manager_id من البرانش
+                $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shift->shift->branch_id)
+                    ->first();
+                $handoverToId = $branchManager?->id;
+            } else {
+                // handover للكاشير التالي
+                $handoverToId = $data['next_cashier_id'] ?? null;
+            }
+
             // Then, record handover
             $handoverData = [
-                'next_cashier_id' => $data['next_cashier_id'],
+                'handover_to_type' => $handoverToType,
+                'handover_to_id' => $handoverToId,
+                'next_cashier_id' => $data['next_cashier_id'] ?? null,
                 'handover_amount' => $data['handover_amount'],
                 'handover_notes' => $data['handover_notes'] ?? null,
+                'variance_reason' => $data['variance']['reason'] ?? null,
+                'variance_files' => $data['variance']['supporting_files'] ?? null,
             ];
 
             $this->handoverService->recordHandover($shift, $handoverData);

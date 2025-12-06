@@ -25,30 +25,6 @@ class PendingShiftController extends BaseController
             // من الـ middleware
             $cashierId = $request->input('cashier_id');
 
-            // تعديل getPendingShifts ليقبل branch_id
-            // $shifts = CashierShift::upcoming()
-            //     ->with([
-            //         'cashier',
-            //         'shift',
-            //         'nextCashier',
-            //         'originalCashier',
-            //         'reassignedBy'
-            //     ])
-            //     ->whereHas('shift', function ($q) use ($managerBranchId) {
-            //         $q->where('branch_id', $managerBranchId);
-            //     })
-            //     ->whereDate('shift_date', '>=', now()->subMonth()->toDateString())
-            //     ->whereDate('shift_date', '<=', now()->addMonth()->toDateString())
-            //     ->when($cashierId, function ($query, $cashierId) use ($managerBranchId) {
-            //         // تأكد إن الكاشير تابع لنفس البرانش
-            //         $query->where('cashier_id', $cashierId)
-            //             ->whereHas('cashier', function ($q) use ($managerBranchId) {
-            //                 $q->where('branch_id', $managerBranchId);
-            //             });
-            //     })
-            //     ->orderBy('shift_date')
-            //     ->paginate(10);
-
             $shifts = CashierShift::upcoming()
                 ->with(['cashier', 'shift', 'nextCashier', 'originalCashier', 'reassignedBy'])
                 ->whereHas('shift', fn($q) => $q->where('branch_id', auth()->user()->branch_id))

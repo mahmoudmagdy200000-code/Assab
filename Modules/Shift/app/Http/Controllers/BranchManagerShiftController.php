@@ -168,43 +168,38 @@ class BranchManagerShiftController extends BaseController
             // Get handovers summary
             $handoversSummary = $managerShift->getHandoverSummary();
 
-            return $this->successResponse([
-                'shift' => new BranchManagerShiftResource($managerShift),
-                'shift_progress' => $progress,
-                'handovers_summary' => $handoversSummary,
-                'can_start' => $managerShift->canStart(),
-                'can_end' => $managerShift->canEnd(),
-                'pending_handovers' => $handoversSummary['pending'],
-            ], 'Current shift retrieved successfully');
-        } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
-        }
-    }
-
-    /**
-     * Section C: Handoffs Received
-     */
-    public function getHandoffsReceived(Request $request): JsonResponse
-    {
-        try {
-            $manager = auth()->user();
-
-            // Get today's shift with handovers
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->whereDate('shift_date', today())
-                ->with(['cashierHandovers' => function ($query) {
-                    $query->with([
-                        'cashierShift.cashier',
-                        'cashierShift.shift',
-                        'approvedBy'
-                    ]);
-                }])
-                ->firstOrFail();
-
-            // Transform handovers data
-            $handoffs = $managerShift->cashierHandovers->map(function ($handover) {
+            // Detailed handovers TO BRANCH MANAGER (نفس فورمات getHandoffsReceived)
+            $handoffsToManager = $managerShift->cashierHandovers->map(function ($handover) {
                 $cashierShift = $handover->cashierShift;
                 $shift = $cashierShift->shift;
+
+                $varianceDetails = null;
+                if ($handover->variance_amount != 0) {
+                    $varianceDetails = [
+                        'total_sales' => (float) $cashierShift->total_sales,
+                        'handover_amount' => (float) $handover->handover_amount,
+                        'variance_amount' => (float) $handover->variance_amount,
+                        'variance_type' => $handover->variance_amount > 0 ? 'Over' : 'Short',
+                        'reason_for_variance' => $handover->variance_reason,
+                        'attached_files' => $handover->variance_files ?? [],
+                        'cashier_details' => [
+                            'id' => $cashierShift->cashier_id,
+                            'name' => $cashierShift->cashier->name,
+                            'variance_reason' => $handover->variance_reason,
+                        ],
+                    ];
+
+                    if ($cashierShift->varianceDetails) {
+                        $varianceDetails['other_cashiers'] = $cashierShift->varianceDetails->map(function ($detail) {
+                            return [
+                                'cashier_id' => $detail->responsible_cashier_id,
+                                'cashier_name' => $detail->responsibleCashier?->name,
+                                'amount' => (float) $detail->amount,
+                                'notes' => $detail->notes,
+                            ];
+                        })->toArray();
+                    }
+                }
 
                 return [
                     'handover_id' => $handover->id,
@@ -225,13 +220,270 @@ class BranchManagerShiftController extends BaseController
                     'approved_by' => $handover->approvedBy?->name,
                     'can_approve' => $handover->canApprove(),
                     'can_reject' => $handover->canReject(),
+                    'variance_details' => $varianceDetails,
+                    'handover_to_type' => $handover->handover_to_type,
                 ];
             });
+
+            // Handovers بين الكاشيرز في نفس الفرع واليوم
+            $cashierToCashierHandovers = \Modules\Shift\Models\CashierShiftHandover::query()
+                ->where('handover_to_type', 'cashier')
+                ->whereDate('handover_date', $managerShift->shift_date)
+                ->whereHas('cashierShift.shift', function ($q) use ($managerShift) {
+                    $q->where('branch_id', $managerShift->branch_id);
+                })
+                ->with([
+                    'cashierShift.cashier',
+                    'cashierShift.shift',
+                    'cashierShift.salesBreakdown.aggregator',
+                    'cashierShift.varianceDetails.responsibleCashier',
+                    'approvedBy'
+                ])
+                ->get()
+                ->map(function ($handover) {
+                    $cashierShift = $handover->cashierShift;
+                    $shift = $cashierShift->shift;
+
+                    $varianceDetails = null;
+                    if ($handover->variance_amount != 0) {
+                        $varianceDetails = [
+                            'total_sales' => (float) $cashierShift->total_sales,
+                            'handover_amount' => (float) $handover->handover_amount,
+                            'variance_amount' => (float) $handover->variance_amount,
+                            'variance_type' => $handover->variance_amount > 0 ? 'Over' : 'Short',
+                            'reason_for_variance' => $handover->variance_reason,
+                            'attached_files' => $handover->variance_files ?? [],
+                            'cashier_details' => [
+                                'id' => $cashierShift->cashier_id,
+                                'name' => $cashierShift->cashier->name,
+                                'variance_reason' => $handover->variance_reason,
+                            ],
+                        ];
+
+                        if ($cashierShift->varianceDetails) {
+                            $varianceDetails['other_cashiers'] = $cashierShift->varianceDetails->map(function ($detail) {
+                                return [
+                                    'cashier_id' => $detail->responsible_cashier_id,
+                                    'cashier_name' => $detail->responsibleCashier?->name,
+                                    'amount' => (float) $detail->amount,
+                                    'notes' => $detail->notes,
+                                ];
+                            })->toArray();
+                        }
+                    }
+
+                    return [
+                        'handover_id' => $handover->id,
+                        'cashier_shift_id' => $handover->cashier_shift_id,
+                        'cashier_name' => $cashierShift->cashier->name,
+                        'shift_time' => $shift ? $shift->name : 'N/A',
+                        'handover_amount' => (float) $handover->handover_amount,
+                        'total_sales' => (float) $cashierShift->total_sales,
+                        'variance_amount' => (float) $handover->variance_amount,
+                        'variance_type' => $handover->variance_amount > 0 ? 'Over' : ($handover->variance_amount < 0 ? 'Short' : 'None'),
+                        'variance_reason' => $handover->variance_reason,
+                        'attached_files' => $handover->variance_files ?? [],
+                        'status' => $handover->status,
+                        'rejection_reason' => $handover->rejection_reason,
+                        'rejection_count' => $handover->rejection_count,
+                        'handed_over_at' => $handover->handed_over_at?->format('Y-m-d H:i:s'),
+                        'approved_at' => $handover->approved_at?->format('Y-m-d H:i:s'),
+                        'approved_by' => $handover->approvedBy?->name,
+                        'can_approve' => $handover->canApprove(),
+                        'can_reject' => $handover->canReject(),
+                        'variance_details' => $varianceDetails,
+                        'handover_to_type' => $handover->handover_to_type,
+                    ];
+                });
+
+            // Section A: Shift Overview Response
+            return $this->successResponse([
+                'shift' => new BranchManagerShiftResource($managerShift),
+                'shift_progress' => [
+                    'title' => $progress['title'],
+                    'description' => $progress['description'],
+                    'status' => $progress['status'],
+                    'start_time' => $progress['start_time'],
+                    'end_time' => $progress['end_time'],
+                    'number_of_hours' => $progress['elapsed_hours'],
+                    'progress_percentage' => $progress['progress_percentage'],
+                ],
+                'handovers_summary' => $handoversSummary,
+                'handovers_details' => [
+                    'to_branch_manager' => $handoffsToManager,
+                    'between_cashiers' => $cashierToCashierHandovers,
+                ],
+                'can_start' => $managerShift->canStart(),
+                'can_end' => $managerShift->canEnd(),
+                'pending_handovers' => $handoversSummary['pending'],
+            ], 'Current shift retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Section C: Handoffs Received
+     * الحصول على جميع handovers من الكاشيرز للبرانش مانجر
+     */
+    public function getHandoffsReceived(Request $request): JsonResponse
+    {
+        try {
+            $manager = auth()->user();
+
+            // Get today's shift with handovers to branch manager
+            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                ->whereDate('shift_date', today())
+                ->with(['cashierHandovers' => function ($query) use ($manager) {
+                    $query->where('handover_to_type', 'branch_manager')
+                        ->where('handover_to_id', $manager->id)
+                        ->with([
+                            'cashierShift.cashier',
+                            'cashierShift.shift',
+                            'cashierShift.salesBreakdown.aggregator',
+                            'cashierShift.varianceDetails.responsibleCashier',
+                            'approvedBy'
+                        ]);
+                }])
+                ->firstOrFail();
+
+            // Transform handovers TO BRANCH MANAGER
+            $handoffsToManager = $managerShift->cashierHandovers->map(function ($handover) {
+                $cashierShift = $handover->cashierShift;
+                $shift = $cashierShift->shift;
+
+                // Get variance details
+                $varianceDetails = null;
+                if ($handover->variance_amount != 0) {
+                    $varianceDetails = [
+                        'total_sales' => (float) $cashierShift->total_sales,
+                        'handover_amount' => (float) $handover->handover_amount,
+                        'variance_amount' => (float) $handover->variance_amount,
+                        'variance_type' => $handover->variance_amount > 0 ? 'Over' : 'Short',
+                        'reason_for_variance' => $handover->variance_reason,
+                        'attached_files' => $handover->variance_files ?? [],
+                        'cashier_details' => [
+                            'id' => $cashierShift->cashier_id,
+                            'name' => $cashierShift->cashier->name,
+                            'variance_reason' => $handover->variance_reason,
+                        ],
+                    ];
+
+                    // Add other cashiers if variance involves multiple cashiers
+                    if ($cashierShift->varianceDetails) {
+                        $varianceDetails['other_cashiers'] = $cashierShift->varianceDetails->map(function ($detail) {
+                            return [
+                                'cashier_id' => $detail->responsible_cashier_id,
+                                'cashier_name' => $detail->responsibleCashier?->name,
+                                'amount' => (float) $detail->amount,
+                                'notes' => $detail->notes,
+                            ];
+                        })->toArray();
+                    }
+                }
+
+                return [
+                    'handover_id' => $handover->id,
+                    'cashier_shift_id' => $handover->cashier_shift_id,
+                    'cashier_name' => $cashierShift->cashier->name,
+                    'shift_time' => $shift ? $shift->name : 'N/A',
+                    'handover_amount' => (float) $handover->handover_amount,
+                    'total_sales' => (float) $cashierShift->total_sales,
+                    'variance_amount' => (float) $handover->variance_amount,
+                    'variance_type' => $handover->variance_amount > 0 ? 'Over' : ($handover->variance_amount < 0 ? 'Short' : 'None'),
+                    'variance_reason' => $handover->variance_reason,
+                    'attached_files' => $handover->variance_files ?? [],
+                    'status' => $handover->status,
+                    'rejection_reason' => $handover->rejection_reason,
+                    'rejection_count' => $handover->rejection_count,
+                    'handed_over_at' => $handover->handed_over_at?->format('Y-m-d H:i:s'),
+                    'approved_at' => $handover->approved_at?->format('Y-m-d H:i:s'),
+                    'approved_by' => $handover->approvedBy?->name,
+                    'can_approve' => $handover->canApprove(),
+                    'can_reject' => $handover->canReject(),
+                    'variance_details' => $varianceDetails,
+                    'handover_to_type' => $handover->handover_to_type,
+                ];
+            });
+
+            // 🔹 Handovers بين الكاشيرز في نفس الفرع واليوم
+            $cashierToCashierHandovers = \Modules\Shift\Models\CashierShiftHandover::query()
+                ->where('handover_to_type', 'cashier')
+                ->whereDate('handover_date', $managerShift->shift_date)
+                ->whereHas('cashierShift.shift', function ($q) use ($managerShift) {
+                    $q->where('branch_id', $managerShift->branch_id);
+                })
+                ->with([
+                    'cashierShift.cashier',
+                    'cashierShift.shift',
+                    'cashierShift.salesBreakdown.aggregator',
+                    'cashierShift.varianceDetails.responsibleCashier',
+                    'approvedBy'
+                ])
+                ->get()
+                ->map(function ($handover) {
+                    $cashierShift = $handover->cashierShift;
+                    $shift = $cashierShift->shift;
+
+                    $varianceDetails = null;
+                    if ($handover->variance_amount != 0) {
+                        $varianceDetails = [
+                            'total_sales' => (float) $cashierShift->total_sales,
+                            'handover_amount' => (float) $handover->handover_amount,
+                            'variance_amount' => (float) $handover->variance_amount,
+                            'variance_type' => $handover->variance_amount > 0 ? 'Over' : 'Short',
+                            'reason_for_variance' => $handover->variance_reason,
+                            'attached_files' => $handover->variance_files ?? [],
+                            'cashier_details' => [
+                                'id' => $cashierShift->cashier_id,
+                                'name' => $cashierShift->cashier->name,
+                                'variance_reason' => $handover->variance_reason,
+                            ],
+                        ];
+
+                        if ($cashierShift->varianceDetails) {
+                            $varianceDetails['other_cashiers'] = $cashierShift->varianceDetails->map(function ($detail) {
+                                return [
+                                    'cashier_id' => $detail->responsible_cashier_id,
+                                    'cashier_name' => $detail->responsibleCashier?->name,
+                                    'amount' => (float) $detail->amount,
+                                    'notes' => $detail->notes,
+                                ];
+                            })->toArray();
+                        }
+                    }
+
+                    return [
+                        'handover_id' => $handover->id,
+                        'cashier_shift_id' => $handover->cashier_shift_id,
+                        'cashier_name' => $cashierShift->cashier->name,
+                        'shift_time' => $shift ? $shift->name : 'N/A',
+                        'handover_amount' => (float) $handover->handover_amount,
+                        'total_sales' => (float) $cashierShift->total_sales,
+                        'variance_amount' => (float) $handover->variance_amount,
+                        'variance_type' => $handover->variance_amount > 0 ? 'Over' : ($handover->variance_amount < 0 ? 'Short' : 'None'),
+                        'variance_reason' => $handover->variance_reason,
+                        'attached_files' => $handover->variance_files ?? [],
+                        'status' => $handover->status,
+                        'rejection_reason' => $handover->rejection_reason,
+                        'rejection_count' => $handover->rejection_count,
+                        'handed_over_at' => $handover->handed_over_at?->format('Y-m-d H:i:s'),
+                        'approved_at' => $handover->approved_at?->format('Y-m-d H:i:s'),
+                        'approved_by' => $handover->approvedBy?->name,
+                        'can_approve' => $handover->canApprove(),
+                        'can_reject' => $handover->canReject(),
+                        'variance_details' => $varianceDetails,
+                        'handover_to_type' => $handover->handover_to_type,
+                    ];
+                });
 
             $summary = $managerShift->getHandoverSummary();
 
             return $this->successResponse([
-                'handoffs' => $handoffs,
+                'handoffs' => [
+                    'to_branch_manager' => $handoffsToManager,
+                    'between_cashiers' => $cashierToCashierHandovers,
+                ],
                 'summary' => $summary,
                 'can_end_shift' => $managerShift->canEnd(),
             ], 'Handoffs retrieved successfully');
@@ -346,21 +598,31 @@ class BranchManagerShiftController extends BaseController
      */
     private function calculateShiftProgress(BranchManagerShift $shift): array
     {
+        // Default shift duration: 8 hours (can be configured)
+        $defaultShiftHours = 8;
+        $defaultStartTime = '09:00';
+        $defaultEndTime = '17:00';
+
         $progress = [
             'title' => "Branch Manager Shift - " . $shift->shift_date->format('d M Y'),
             'description' => "Managing daily operations and cashier handovers",
-            'status' => $shift->status,
-            'start_time' => $shift->actual_start_time?->format('H:i'),
-            'end_time' => $shift->actual_end_time?->format('H:i'),
+            'status' => $shift->status === 'not_started' ? 'Not Started' : ($shift->status === 'in_progress' ? 'In Progress' : 'Completed'),
+            'start_time' => $shift->actual_start_time?->format('H:i') ?? $defaultStartTime,
+            'end_time' => $shift->actual_end_time?->format('H:i') ?? $defaultEndTime,
             'elapsed_hours' => 0,
             'progress_percentage' => 0,
         ];
 
         if ($shift->status === 'in_progress' && $shift->actual_start_time) {
-            $totalMinutes = 8 * 60; // 8 hours
+            // Calculate based on actual start time and expected end time
+            $expectedEndTime = $shift->actual_end_time ?? $shift->actual_start_time->copy()->addHours($defaultShiftHours);
+            $totalMinutes = $shift->actual_start_time->diffInMinutes($expectedEndTime);
             $elapsedMinutes = now()->diffInMinutes($shift->actual_start_time);
-            $progress['elapsed_hours'] = round($elapsedMinutes / 60, 1);
-            $progress['progress_percentage'] = min(($elapsedMinutes / $totalMinutes) * 100, 100);
+
+            $progress['elapsed_hours'] = round($elapsedMinutes / 60, 2);
+            $progress['progress_percentage'] = $totalMinutes > 0
+                ? min(($elapsedMinutes / $totalMinutes) * 100, 100)
+                : 0;
         }
 
         return $progress;
@@ -435,86 +697,103 @@ class BranchManagerShiftController extends BaseController
     //     }
     // }
 
-  /**
- * Section D: Final Handover and End Shift
- */
-public function endShift(Request $request): JsonResponse
-{
-    $validator = Validator::make($request->all(), [
-        'handover_to' => 'nullable|exists:branch_managers,id',
-        'handover_amount' => 'required|numeric|min:0',
-        'handover_timing' => 'required|in:today,yesterday',
-        'handover_notes' => 'nullable|string|max:500',
-    ]);
-
-    if ($validator->fails()) {
-        return $this->errorResponse($validator->errors()->first(), 422);
-    }
-
-    try {
-        $manager = auth()->user();
-
-        $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-            ->whereDate('shift_date', today())
-            ->firstOrFail();
-
-        if (!$managerShift->canEnd()) {
-            return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved.', 400);
-        }
-
-        // Calculate financial summary from cashier shifts
-        $financialSummary = $this->calculateFinancialSummary($managerShift);
-
-        // Set handover time based on timing
-        $handoverTime = $request->handover_timing === 'yesterday'
-            ? now()->subDay()
-            : now();
-
-        // Update shift with handover details AND financial totals
-        $managerShift->update([
-            'status' => 'completed',
-            'actual_end_time' => now(),
-            'next_manager_id' => $request->handover_to,
-            'handover_amount' => $request->handover_amount,
-            'handover_date' => $handoverTime->format('Y-m-d'),
-            'handover_time' => $handoverTime,
-            'handover_timing' => $request->handover_timing,
-            'handover_status' => 'pending',
-            'handover_notes' => $request->handover_notes,
-            'closing_balance' => $request->handover_amount,
-            'total_sales' => $financialSummary['total_sales'] ?? 0,
-            'cash_collected' => $financialSummary['cash_collected'] ?? 0,
-            'card_payments' => $financialSummary['card_payments'] ?? 0,
-            'aggregator_payments' => $financialSummary['delivery_app_payments'] ?? 0,
+    /**
+     * Section D: Final Handover and End Shift
+     */
+    public function endShift(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'handover_to' => 'nullable|exists:branch_managers,id',
+            'handover_amount' => 'required|numeric|min:0',
+            'handover_timing' => 'required|in:today,yesterday',
+            'handover_notes' => 'nullable|string|max:500',
         ]);
 
-        return $this->successResponse([
-            'shift' => new BranchManagerShiftResource($managerShift),
-            'handover_details' => [
-                'handover_amount' => (float) $request->handover_amount,
-                'handover_from' => $manager->name,
-                'handover_to' => $managerShift->nextManager->name,
-                'handover_date' => $managerShift->handover_date,
-                'handover_time' => $managerShift->handover_time->format('H:i'),
-                'handover_timing' => $managerShift->handover_timing,
-                'status' => $managerShift->handover_status,
-                'notes' => $managerShift->handover_notes,
-            ],
-            // 🔴 هنا أضف المجاميع النهائية لليوم كامل
-            'daily_totals' => [
-                'total_cash_collected' => (float) ($financialSummary['cash_collected'] ?? 0),
-                'total_card_payments' => (float) ($financialSummary['card_payments'] ?? 0),
-                'total_variance' => (float) ($financialSummary['total_variance'] ?? 0),
-                'total_delivery_apps' => (float) ($financialSummary['delivery_app_payments'] ?? 0),
-                'total_sales' => (float) ($financialSummary['total_sales'] ?? 0),
-                'shift_date' => $managerShift->shift_date->format('Y-m-d'),
-            ],
-            'message' => 'Shift ended and handover recorded successfully'
-        ], 'Shift ended successfully');
-    } catch (\Exception $e) {
-        return $this->errorResponse($e->getMessage(), 500);
+        if ($validator->fails()) {
+            return $this->errorResponse($validator->errors()->first(), 422);
+        }
+
+        try {
+            $manager = auth()->user();
+
+            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                ->whereDate('shift_date', today())
+                ->firstOrFail();
+
+            if (!$managerShift->canEnd()) {
+                return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved.', 400);
+            }
+
+            // Calculate financial summary from cashier shifts
+            $financialSummary = $this->calculateFinancialSummary($managerShift);
+
+            // Set handover time based on timing
+            $handoverTime = $request->handover_timing === 'yesterday'
+                ? now()->subDay()
+                : now();
+
+            // Update shift with handover details AND financial totals
+            $managerShift->update([
+                'status' => 'completed',
+                'actual_end_time' => now(),
+                'next_manager_id' => $request->handover_to,
+                'handover_amount' => $request->handover_amount,
+                'handover_date' => $handoverTime->format('Y-m-d'),
+                'handover_time' => $handoverTime,
+                'handover_timing' => $request->handover_timing,
+                'handover_status' => 'pending',
+                'handover_notes' => $request->handover_notes,
+                'closing_balance' => $request->handover_amount,
+                'total_sales' => $financialSummary['total_sales'] ?? 0,
+                'cash_collected' => $financialSummary['cash_collected'] ?? 0,
+                'card_payments' => $financialSummary['card_payments'] ?? 0,
+                'aggregator_payments' => $financialSummary['delivery_app_payments'] ?? 0,
+            ]);
+
+            // Determine handover status based on requirements
+            // Status: Completed (only when handover is received), Not Submitted, Pending
+            $handoverStatus = 'Not Submitted';
+            if ($managerShift->handover_status === 'completed' || $managerShift->handover_status === 'approved') {
+                $handoverStatus = 'Completed';
+            } elseif ($managerShift->handover_status === 'pending') {
+                $handoverStatus = 'Pending';
+            }
+
+            // Get current time based on handover_timing
+            $currentTime = $request->handover_timing === 'yesterday'
+                ? now()->subDay()->format('Y-m-d H:i:s')
+                : now()->format('Y-m-d H:i:s');
+
+            return $this->successResponse([
+                'shift' => new BranchManagerShiftResource($managerShift),
+                // Section D: Final Handover and End Shift - Exact format as per requirements
+                'final_handover' => [
+                    'handover_amount' => (float) $request->handover_amount,
+                    'status' => $handoverStatus, // Completed, Not Submitted, or Pending
+                    'status_options' => ['Completed', 'Not Submitted', 'Pending'],
+                    'handover_from' => $manager->name,
+                    'handover_to' => $managerShift->nextManager?->name ?? 'Not specified',
+                    'handover_date' => $managerShift->handover_date?->format('Y-m-d') ?? now()->format('Y-m-d'),
+                    'handover_time' => $managerShift->handover_time?->format('H:i:s') ?? now()->format('H:i:s'),
+                    'current_time' => $currentTime,
+                    'current_time_setting' => $request->handover_timing, // 'today' or 'yesterday'
+                    'handover_notes' => $managerShift->handover_notes,
+                ],
+                // Section E: Daily Totals (calculated across all cashiers)
+                'daily_totals' => [
+                    'total_cash_collected' => (float) ($financialSummary['cash_collected'] ?? 0),
+                    'total_card_payments' => (float) ($financialSummary['card_payments'] ?? 0),
+                    'total_delivery_apps' => (float) ($financialSummary['delivery_app_payments'] ?? 0),
+                    'total_variance' => (float) ($financialSummary['total_variance'] ?? 0),
+                    'total_sales' => (float) ($financialSummary['total_sales'] ?? 0),
+                    'shift_date' => $managerShift->shift_date->format('Y-m-d'),
+                ],
+                'message' => 'Shift ended and handover recorded successfully'
+            ], 'Shift ended successfully');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
     }
-}
 
     /**
      * Section E: Final Daily Close
@@ -542,11 +821,26 @@ public function endShift(Request $request): JsonResponse
 
             $dailyClose = $this->prepareDailyCloseSummary($managerShift);
 
+            // Section E: Final Daily Close - Exact format as per requirements
             return $this->successResponse([
                 'shift' => new BranchManagerShiftResource($managerShift),
-                'daily_close_summary' => $dailyClose,
-                'can_submit' => !$managerShift->daily_report_submitted,
-                'can_reopen' => $managerShift->can_reopen && $managerShift->daily_report_submitted,
+                // Per-cashier breakdown (before submission)
+                'cashier_breakdown' => $dailyClose['cashier_breakdown'], // Each cashier: Cash Collected, Card Payments, Delivery App Payments, Variance, Sales
+                // Totals (calculated across all cashiers)
+                'totals' => $dailyClose['totals'], // Total Cash Collected, Total Card Payments, Total Delivery Apps, Total Variance, Total Sales
+                // Submission status
+                'daily_close_status' => [
+                    'is_submitted' => (bool) $managerShift->daily_report_submitted,
+                    'submitted_at' => $managerShift->daily_report_submitted_at?->format('Y-m-d H:i:s'),
+                    'notes' => $managerShift->daily_report_notes,
+                    'can_submit' => !$managerShift->daily_report_submitted,
+                    'can_reopen' => $managerShift->can_reopen && $managerShift->daily_report_submitted,
+                    'reopened_at' => $managerShift->reopened_at?->format('Y-m-d H:i:s'),
+                    'reopen_reason' => $managerShift->reopen_reason,
+                ],
+                // Additional manager summary (optional)
+                'manager_summary' => $dailyClose['manager_summary'] ?? null,
+                'shift_info' => $dailyClose['shift_info'] ?? null,
             ], 'Final daily close summary retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
@@ -642,84 +936,132 @@ public function endShift(Request $request): JsonResponse
     // Helper Methods
 
 
+    /**
+     * Calculate financial summary from all cashier shifts in the same day and branch
+     * حساب الملخص المالي من جميع شيفتات الكاشيرز في نفس اليوم والبرانش
+     */
     private function calculateFinancialSummary(BranchManagerShift $shift): array
     {
-        $cashierShifts = $shift->cashierHandovers()
-            ->where('status', 'approved')
-            ->with('cashierShift')
-            ->get();
+        // الحصول على جميع شيفتات الكاشيرز المكتملة في نفس اليوم والبرانش
+        $allCashierShifts = $shift->getAllCashierShifts()
+            ->where('status', \Modules\Shift\Enums\ShiftStatus::COMPLETED);
 
         $summary = [
             'total_sales' => 0,
             'cash_collected' => 0,
             'card_payments' => 0,
             'delivery_app_payments' => 0,
-            'total_variance' => 0, // 🔴 أضف هذا الحقل
+            'total_variance' => 0,
         ];
 
-        foreach ($cashierShifts as $handover) {
-            $cashierShift = $handover->cashierShift;
-            $summary['total_sales'] += $cashierShift->total_sales;
-            $summary['cash_collected'] += $cashierShift->cash_collected;
-            $summary['card_payments'] += $cashierShift->card_payments;
-            $summary['delivery_app_payments'] += $cashierShift->aggregator_payments;
-            $summary['total_variance'] += $handover->variance_amount; // 🔴 أضف variance
+        foreach ($allCashierShifts as $cashierShift) {
+            // Calculate delivery app payments from sales breakdown (all aggregators)
+            $deliveryApps = $cashierShift->salesBreakdown
+                ->sum('amount');
+
+            $summary['total_sales'] += $cashierShift->total_sales ?? 0;
+            $summary['cash_collected'] += $cashierShift->cash_collected ?? 0;
+            $summary['card_payments'] += $cashierShift->card_payments ?? 0;
+            $summary['delivery_app_payments'] += $deliveryApps;
+
+            // حساب الـ variance من الـ handover إذا كان موجود، أو من الـ shift مباشرة
+            $handover = $cashierShift->handoverStatus;
+            if ($handover && $handover->status === \Modules\Shift\Enums\HandoverStatus::ACCEPTED) {
+                // إذا كان الـ handover للبرانش مانجر، استخدم variance_amount من handover
+                $cashierHandover = \Modules\Shift\Models\CashierShiftHandover::where('cashier_shift_id', $cashierShift->id)
+                    ->where('handover_to_type', 'branch_manager')
+                    ->where('handover_to_id', $shift->branch_manager_id)
+                    ->first();
+
+                if ($cashierHandover) {
+                    $summary['total_variance'] += $cashierHandover->variance_amount ?? 0;
+                } else {
+                    $summary['total_variance'] += $cashierShift->variance ?? 0;
+                }
+            } else {
+                $summary['total_variance'] += $cashierShift->variance ?? 0;
+            }
         }
 
         return $summary;
     }
 
+    /**
+     * Prepare daily close summary from all cashier shifts
+     * إعداد ملخص الإغلاق اليومي من جميع شيفتات الكاشيرز
+     */
     private function prepareDailyCloseSummary(BranchManagerShift $shift): array
     {
-        $cashierHandovers = $shift->cashierHandovers()
-            ->where('status', 'approved')
-            ->with(['cashierShift.cashier', 'cashierShift.salesBreakdown'])
-            ->get();
+        // الحصول على جميع شيفتات الكاشيرز المكتملة في نفس اليوم والبرانش
+        $allCashierShifts = $shift->getAllCashierShifts()
+            ->where('status', \Modules\Shift\Enums\ShiftStatus::COMPLETED);
 
         $cashierBreakdown = [];
         $totals = [
-            'cash_collected' => 0,
-            'card_payments' => 0,
-            'delivery_app_payments' => 0,
-            'variance' => 0,
-            'sales' => 0,
+            'total_cash_collected' => 0,
+            'total_card_payments' => 0,
+            'total_delivery_apps' => 0,
+            'total_variance' => 0,
+            'total_sales' => 0,
         ];
 
-        foreach ($cashierHandovers as $handover) {
-            $cashierShift = $handover->cashierShift;
-
+        foreach ($allCashierShifts as $cashierShift) {
+            // Calculate delivery app payments from sales breakdown (all aggregators)
             $deliveryApps = $cashierShift->salesBreakdown
-                ->where('type', 'delivery_app')
                 ->sum('amount');
 
+            // حساب الـ variance من الـ handover إذا كان موجود
+            $variance = $cashierShift->variance ?? 0;
+            $cashierHandover = \Modules\Shift\Models\CashierShiftHandover::where('cashier_shift_id', $cashierShift->id)
+                ->where('handover_to_type', 'branch_manager')
+                ->where('handover_to_id', $shift->branch_manager_id)
+                ->where('status', 'approved')
+                ->first();
+
+            if ($cashierHandover) {
+                $variance = $cashierHandover->variance_amount ?? $variance;
+            }
+
+            // Section E: Per-cashier breakdown - Exact field names as per requirements
             $breakdown = [
                 'cashier_name' => $cashierShift->cashier->name,
-                'cash_collected' => (float) $cashierShift->cash_collected,
-                'card_payments' => (float) $cashierShift->card_payments,
-                'delivery_app_payments' => (float) $deliveryApps,
-                'variance' => (float) $handover->variance_amount,
-                'sales' => (float) $cashierShift->total_sales,
+                'cashier_id' => $cashierShift->cashier_id,
+                'cash_collected' => (float) ($cashierShift->cash_collected ?? 0), // ✅ Cash Collected
+                'card_payments' => (float) ($cashierShift->card_payments ?? 0), // ✅ Card Payments
+                'delivery_app_payments' => (float) $deliveryApps, // ✅ Delivery App Payments
+                'variance' => (float) $variance, // ✅ Variance
+                'sales' => (float) ($cashierShift->total_sales ?? 0), // ✅ Sales
             ];
 
             $cashierBreakdown[] = $breakdown;
 
-            // Update totals
-            $totals['cash_collected'] += $breakdown['cash_collected'];
-            $totals['card_payments'] += $breakdown['card_payments'];
-            $totals['delivery_app_payments'] += $breakdown['delivery_app_payments'];
-            $totals['variance'] += $breakdown['variance'];
-            $totals['sales'] += $breakdown['sales'];
+            // Update totals according to Section E requirements
+            $totals['total_cash_collected'] += $breakdown['cash_collected'];
+            $totals['total_card_payments'] += $breakdown['card_payments'];
+            $totals['total_delivery_apps'] += $breakdown['delivery_app_payments'];
+            $totals['total_variance'] += $breakdown['variance'];
+            $totals['total_sales'] += $breakdown['sales'];
         }
 
+        // Section E: Final Daily Close - Exact format as per requirements
         return [
-            'cashier_breakdown' => $cashierBreakdown,
-            'totals' => $totals,
+            // Per-cashier breakdown (before submission)
+            'cashier_breakdown' => $cashierBreakdown, // Each item contains: cash_collected, card_payments, delivery_app_payments, variance, sales
+            // Totals (calculated across all cashiers)
+            'totals' => [
+                'total_cash_collected' => (float) $totals['total_cash_collected'],
+                'total_card_payments' => (float) $totals['total_card_payments'],
+                'total_delivery_apps' => (float) $totals['total_delivery_apps'],
+                'total_variance' => (float) $totals['total_variance'],
+                'total_sales' => (float) $totals['total_sales'],
+            ],
+            // Additional manager summary (optional)
             'manager_summary' => [
-                'opening_balance' => (float) $shift->opening_balance,
-                'closing_balance' => (float) $shift->closing_balance,
-                'expected_balance' => (float) $shift->expected_balance,
-                'variance' => (float) $shift->variance,
-                'variance_type' => $shift->variance > 0 ? 'Over' : ($shift->variance < 0 ? 'Short' : 'None'),
+                'opening_balance' => (float) ($shift->opening_balance ?? 0),
+                'closing_balance' => (float) ($shift->closing_balance ?? 0),
+                'expected_balance' => (float) ($shift->expected_balance ?? 0),
+                'variance' => (float) ($shift->variance ?? 0),
+                'variance_type' => ($shift->variance ?? 0) > 0 ? 'Over' : (($shift->variance ?? 0) < 0 ? 'Short' : 'None'),
             ],
             'shift_info' => [
                 'date' => $shift->shift_date->format('Y-m-d'),

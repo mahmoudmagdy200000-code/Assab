@@ -10,7 +10,9 @@ use Modules\Shift\Http\Controllers\{
     ShiftEndController,
     ShiftHandoverController,
     ShiftVarianceController,
-    BranchManagerShiftController
+    BranchManagerShiftController,
+    CashierShiftController,
+    CashierManagementController
 };
 
 /*
@@ -25,21 +27,54 @@ Route::prefix('branch-manager')
 
         /*
         |----------------------------------------------------------------------
-        | CRITICAL: Specific routes MUST come BEFORE wildcard routes
+        | Section 3.1.2.1: Cashiers Management Routes
+        |----------------------------------------------------------------------
+        */
+        Route::prefix('cashiers')->group(function () {
+            // Section 3.1.2.1.1: Cashiers Listing
+            Route::get('/', [CashierManagementController::class, 'index'])
+                ->name('cashiers.index');
+
+            // Section 3.1.2.1.1.1: Manage Cashiers (Create)
+            Route::post('/', [CashierManagementController::class, 'store'])
+                ->name('cashiers.store');
+
+            // Section 3.1.2.1.1.2: Search Cashiers
+            Route::get('/search', [CashierManagementController::class, 'search'])
+                ->name('cashiers.search');
+
+            // Section 3.1.2.1.1.3: Filter Cashiers
+            Route::get('/filter', [CashierManagementController::class, 'filter'])
+                ->name('cashiers.filter');
+
+            // Section 3.1.2.1.1.4: View Detailed Cashier Information
+            Route::get('/{cashier}', [CashierManagementController::class, 'show'])
+                ->name('cashiers.show');
+
+            // Update Cashier
+            Route::put('/{cashier}', [CashierManagementController::class, 'update'])
+                ->name('cashiers.update');
+
+            // Get Cashier's Shifts
+            Route::get('/{cashier}/shifts', [ShiftController::class, 'getShiftByCashierId'])
+                ->name('cashiers.shifts.index');
+        });
+
+        /*
+        |----------------------------------------------------------------------
+        | Section 3.1.2.1.1.4: Cashier Shifts by Status
         |----------------------------------------------------------------------
         */
 
-        // ✅ Specific routes first
+        // All Cashiers Shifts
         Route::get('shifts/cashiers', [ShiftController::class, 'getAllCashiersShifts'])
             ->name('shifts.cashiers.index');
-
         Route::get('shifts/cashiers/filter', [ShiftController::class, 'filterCashierShifts'])
             ->name('shifts.cashiers.filter');
-
         Route::get('shifts/cashiers/{shift}', [ShiftController::class, 'getCashierShiftById'])
             ->name('shifts.cashiers.show');
 
-        // Pending Shifts - specific routes
+        // B.1: Pending Shifts
         Route::prefix('shifts/pending')->group(function () {
             Route::get('/', [PendingShiftController::class, 'index'])->name('shifts.pending.index');
             Route::get('/{shift}', [PendingShiftController::class, 'show'])->name('shifts.pending.show');
@@ -47,33 +82,33 @@ Route::prefix('branch-manager')
                 ->name('shifts.pending.cashier.show');
         });
 
-        // In-Progress Shifts - specific routes
+        // B.2: In-Progress Shifts
         Route::prefix('shifts/in-progress')->group(function () {
             Route::get('/', [InProgressShiftController::class, 'index'])->name('shifts.in-progress.index');
             Route::get('/{shift}', [InProgressShiftController::class, 'show'])->name('shifts.in-progress.show');
         });
 
-        // Completed Shifts - specific routes
+        // B.3: Completed Shifts
         Route::prefix('shifts/completed')->group(function () {
             Route::get('/', [CompletedShiftController::class, 'index'])->name('shifts.completed.index');
             Route::get('/{shift}', [CompletedShiftController::class, 'show'])->name('shifts.completed.show');
         });
 
-        // Reassigned Shifts - specific routes
+        // B.4: Reassigned Shifts
         Route::prefix('shifts/reassigned')->group(function () {
             Route::get('/', [ReassignmentShiftController::class, 'index'])->name('shifts.reassigned.index');
             Route::get('/{shift}', [ReassignmentShiftController::class, 'show'])->name('shifts.reassigned.show');
         });
 
-        // Handover Summary - specific route
+        // Handover Summary
         Route::get('shifts/handover/summary', [ShiftHandoverController::class, 'getHandoverSummaries'])
             ->name('shifts.handover.summary');
 
-        // Variance Statistics - specific route
+        // Variance Statistics
         Route::get('shifts/variance/statistics', [ShiftVarianceController::class, 'getVarianceStatistics'])
             ->name('shifts.variance.statistics');
 
-        // Variance Alerts - specific routes
+        // Variance Alerts
         Route::prefix('shifts/variance-alerts')->group(function () {
             Route::get('/', [ShiftVarianceController::class, 'getVarianceAlerts'])
                 ->name('shifts.variance-alerts.index');
@@ -81,7 +116,11 @@ Route::prefix('branch-manager')
                 ->name('shifts.variance-alerts.acknowledge');
         });
 
-        // ⚠️ Wildcard routes LAST
+        /*
+        |----------------------------------------------------------------------
+        | Shift Operations (with {shift} parameter)
+        |----------------------------------------------------------------------
+        */
         Route::prefix('shifts')->group(function () {
             // General shifts index
             Route::get('/', [ShiftController::class, 'index'])->name('shifts.index');
@@ -90,23 +129,32 @@ Route::prefix('branch-manager')
             Route::post('calculate-sales', [ShiftEndController::class, 'calculateSales'])
                 ->name('shifts.calculate-sales');
 
-            // Single shift operations - these use {shift} parameter
+            // Single shift operations
             Route::prefix('{shift}')->group(function () {
                 // View shift details
                 Route::get('/', [ShiftController::class, 'show'])->name('shifts.show');
 
+                // Start shift by manager (for cashier)
+                Route::post('start-by-manager', [ShiftController::class, 'startShiftByManager'])
+                    ->name('shifts.start-by-manager');
+
                 // Reassignment
                 Route::post('reassign', [ReassignmentShiftController::class, 'reassign'])
                     ->name('shifts.reassign');
-                Route::post('reassign-with-handover', [ReassignmentShiftController::class, 'reassignWithHandover']);
+                Route::post('reassign-with-handover', [ReassignmentShiftController::class, 'reassignWithHandover'])
+                    ->name('shifts.reassign-with-handover');
                 Route::get('available-cashiers', [ReassignmentShiftController::class, 'getAvailableCashiers'])
                     ->name('shifts.available-cashiers');
 
-                // End shift
+                // End shift (Options 1-4)
                 Route::post('end', [ShiftEndController::class, 'endShiftOnly'])
                     ->name('shifts.end');
                 Route::post('end-with-handover', [ShiftEndController::class, 'endShiftWithHandover'])
                     ->name('shifts.end-with-handover');
+                Route::post('start-handover', [ShiftEndController::class, 'startHandover'])
+                    ->name('shifts.start-handover');
+                Route::get('available-recipients', [ShiftEndController::class, 'getAvailableCashiersForHandover'])
+                    ->name('shifts.available-recipients');
 
                 // Handover management
                 Route::prefix('handover')->group(function () {
@@ -131,128 +179,166 @@ Route::prefix('branch-manager')
                 });
             });
         });
-
-        // Get shifts by cashier ID
-        Route::get('cashiers/{cashier}/shifts', [ShiftController::class, 'getShiftByCashierId'])
-            ->name('cashiers.shifts.index');
     });
 
 /*
 |--------------------------------------------------------------------------
-| Branch Manager Shift Routes (My Shift)
+| Section 3.1.3: Branch Manager Workday Management Routes
 |--------------------------------------------------------------------------
 */
-
-/*
-|--------------------------------------------------------------------------
-| Branch Manager Workday Management Routes (Section 3.1.3.1)
-|--------------------------------------------------------------------------
-*/
-
 Route::prefix('branch-manager/workday')
     ->middleware(['auth:sanctum', 'branch.manager'])
     ->group(function () {
 
         // Section A: Shift Overview
-        Route::get('/current', [BranchManagerShiftController::class, 'current']);
-        Route::post('/start', [BranchManagerShiftController::class, 'start']);
+        Route::get('/current', [BranchManagerShiftController::class, 'current'])
+            ->name('workday.current');
+        Route::post('/start', [BranchManagerShiftController::class, 'start'])
+            ->name('workday.start');
 
         // Section B: Shift Details
-        Route::get('/details', [BranchManagerShiftController::class, 'getShiftDetails']);
+        Route::get('/details', [BranchManagerShiftController::class, 'getShiftDetails'])
+            ->name('workday.details');
 
         // Section C: Handoffs Received
-        Route::get('/handoffs', [BranchManagerShiftController::class, 'getHandoffsReceived']);
-        Route::post('/handoffs/approve', [BranchManagerShiftController::class, 'approveHandoff']);
-        Route::post('/handoffs/reject', [BranchManagerShiftController::class, 'rejectHandoff']);
+        Route::get('/handoffs', [BranchManagerShiftController::class, 'getHandoffsReceived'])
+            ->name('workday.handoffs');
+        Route::post('/handoffs/approve', [BranchManagerShiftController::class, 'approveHandoff'])
+            ->name('workday.handoffs.approve');
+        Route::post('/handoffs/reject', [BranchManagerShiftController::class, 'rejectHandoff'])
+            ->name('workday.handoffs.reject');
 
         // Section D: Final Handover and End Shift
-        Route::post('/end', [BranchManagerShiftController::class, 'endShift']);
+        Route::post('/end', [BranchManagerShiftController::class, 'endShift'])
+            ->name('workday.end');
 
         // Section E: Final Daily Close
-        Route::get('/daily-close', [BranchManagerShiftController::class, 'getFinalDailyClose']);
-        Route::post('/daily-close/submit', [BranchManagerShiftController::class, 'submitDailyReport']);
-        Route::post('/daily-close/reopen', [BranchManagerShiftController::class, 'reopenShift']);
+        Route::get('/daily-close', [BranchManagerShiftController::class, 'getFinalDailyClose'])
+            ->name('workday.daily-close');
+        Route::post('/daily-close/submit', [BranchManagerShiftController::class, 'submitDailyReport'])
+            ->name('workday.daily-close.submit');
+        Route::post('/daily-close/reopen', [BranchManagerShiftController::class, 'reopenShift'])
+            ->name('workday.daily-close.reopen');
 
         // Shift History
-        Route::get('/history', [BranchManagerShiftController::class, 'getShiftHistory']);
-
-
-        // Start shift by manager
-        Route::post('shifts/{shift}/start-by-manager', [ShiftController::class, 'startShiftByManager'])
-            ->name('branch-manager.shifts.start');
+        Route::get('/history', [BranchManagerShiftController::class, 'getShiftHistory'])
+            ->name('workday.history');
     });
 
 /*
 |--------------------------------------------------------------------------
-| Cashier - Shift Routes
+| Section 3.2.2: Cashier - Shift Routes
 |--------------------------------------------------------------------------
 */
-
 Route::prefix('cashier')
     ->middleware(['auth:sanctum', 'cashier'])
     ->group(function () {
-        Route::get('my-shifts/pending', [PendingShiftController::class, 'index'])
+
+        /*
+        |----------------------------------------------------------------------
+        | Section 3.2.2.1.1: Shifts Overview
+        |----------------------------------------------------------------------
+        */
+        Route::get('my-shifts', [CashierShiftController::class, 'index'])
+            ->name('cashier.shifts.index');
+
+        // View shifts by status
+        Route::get('my-shifts/pending', [CashierShiftController::class, 'pendingShifts'])
             ->name('cashier.shifts.pending');
-        Route::get('my-shifts/in-progress', [InProgressShiftController::class, 'index'])
+        Route::get('my-shifts/in-progress', [CashierShiftController::class, 'inProgressShifts'])
             ->name('cashier.shifts.in-progress');
-        Route::get('my-shifts/completed', [CompletedShiftController::class, 'index'])
+        Route::get('my-shifts/completed', [CashierShiftController::class, 'completedShifts'])
             ->name('cashier.shifts.completed');
-        Route::get('my-shifts/{shift}', [PendingShiftController::class, 'show'])
+        Route::get('my-shifts/reassigned', [CashierShiftController::class, 'reassignedShifts'])
+            ->name('cashier.shifts.reassigned');
+
+        // View shift details
+        Route::get('my-shifts/{shift}', [CashierShiftController::class, 'show'])
             ->name('cashier.shifts.show');
 
-        Route::post('shifts/{shift}/start', function ($shift) {
-            $shiftModel = \Modules\Shift\Models\CashierShift::findOrFail($shift);
+        /*
+        |----------------------------------------------------------------------
+        | Section 3.2.2.1.1.1: Start Shift
+        |----------------------------------------------------------------------
+        */
+        Route::post('shifts/{shift}/start', [CashierShiftController::class, 'startShift'])
+            ->name('cashier.shifts.start');
 
-            if ($shiftModel->cashier_id !== auth()->id()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthorized: This shift is not assigned to you'
-                ], 403);
-            }
-
-            if ($shiftModel->status->value !== 'not_started') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Shift has already been started'
-                ], 400);
-            }
-
-            $shiftModel->startShift();
-            $shiftModel->loadFullRelationships();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Shift started successfully',
-                'data' => new \Modules\Shift\Transformers\ShiftDetailResource($shiftModel)
-            ]);
-        })->name('cashier.shifts.start');
-
+        /*
+        |----------------------------------------------------------------------
+        | Section 3.2.2.1.1.1: End Shift (Options 1-4)
+        |----------------------------------------------------------------------
+        */
         Route::post('shifts/{shift}/end', [ShiftEndController::class, 'endShiftOnly'])
             ->name('cashier.shifts.end');
         Route::post('shifts/{shift}/end-with-handover', [ShiftEndController::class, 'endShiftWithHandover'])
             ->name('cashier.shifts.end-with-handover');
+        Route::post('shifts/{shift}/start-handover', [ShiftEndController::class, 'startHandover'])
+            ->name('cashier.shifts.start-handover');
+        Route::get('shifts/{shift}/available-recipients', [ShiftEndController::class, 'getAvailableCashiersForHandover'])
+            ->name('cashier.shifts.available-recipients');
 
+        // Calculate sales helper
+        Route::post('shifts/calculate-sales', [ShiftEndController::class, 'calculateSales'])
+            ->name('cashier.shifts.calculate-sales');
+
+        /*
+        |----------------------------------------------------------------------
+        | Section 3.2.2.1.1.3: Handover Management
+        |----------------------------------------------------------------------
+        */
         Route::prefix('shifts/{shift}/handover')->group(function () {
-            Route::post('accept', function ($shift) {
-                $shiftModel = \Modules\Shift\Models\CashierShift::findOrFail($shift);
+            // Record handover
+            Route::post('/', [ShiftHandoverController::class, 'recordHandover'])
+                ->name('cashier.handover.record');
 
-                if ($shiftModel->next_cashier_id !== auth()->id()) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Unauthorized: This handover is not for you'
-                    ], 403);
-                }
+            // Receive Handover - Accept (as next cashier)
+            Route::post('accept', [ShiftHandoverController::class, 'acceptHandover'])
+                ->name('cashier.handover.accept');
 
-                app(\Modules\Shift\Services\HandoverService::class)
-                    ->approveHandover($shiftModel, auth()->id(), 'cashier');
-
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Handover accepted successfully'
-                ]);
-            })->name('cashier.handover.accept');
-
+            // Receive Handover - Reject (as next cashier)
             Route::post('reject', [ShiftHandoverController::class, 'rejectHandover'])
                 ->name('cashier.handover.reject');
+
+            // Edit handover after manager rejection
+            Route::post('edit', [ShiftHandoverController::class, 'editHandoverAfterRejection'])
+                ->name('cashier.handover.edit');
+
+            // Get handover status
+            Route::get('status', [ShiftHandoverController::class, 'getHandoverStatus'])
+                ->name('cashier.handover.status');
+
+            // Get available cashiers for handover
+            Route::get('available-cashiers', [ShiftHandoverController::class, 'getAvailableCashiers'])
+                ->name('cashier.handover.available-cashiers');
         });
+
+        /*
+        |----------------------------------------------------------------------
+        | Section 3.2.2.1.2: Shift History
+        |----------------------------------------------------------------------
+        */
+        Route::get('shifts/history', [CashierShiftController::class, 'shiftHistory'])
+            ->name('cashier.shifts.history');
+        
+        // Weekly summary
+        Route::get('shifts/weekly-summary', [CashierShiftController::class, 'weeklySummary'])
+            ->name('cashier.shifts.weekly-summary');
+    });
+
+/*
+|--------------------------------------------------------------------------
+| Shared Routes (Both Manager and Cashier)
+|--------------------------------------------------------------------------
+*/
+Route::prefix('shifts')
+    ->middleware(['auth:sanctum'])
+    ->group(function () {
+        // Get shift details (with appropriate authorization)
+        Route::get('{shift}/details', [ShiftController::class, 'getShiftDetails'])
+            ->name('shifts.details');
+
+        // Get shift progress
+        Route::get('{shift}/progress', [ShiftController::class, 'getShiftProgress'])
+            ->name('shifts.progress');
     });

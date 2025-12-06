@@ -1,0 +1,11 @@
+{
+    "name": "PurchaseHistory",
+    "alias": "purchasehistory",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\PurchaseHistory\\Providers\\PurchaseHistoryServiceProvider"
+    ],
+    "files": []
+}

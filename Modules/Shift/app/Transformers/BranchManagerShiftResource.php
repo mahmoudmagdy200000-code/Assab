@@ -3,172 +3,268 @@
 namespace Modules\Shift\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
+use Carbon\Carbon;
 
+/**
+ * BranchManagerShiftResource
+ *
+ * Resource for Branch Manager's workday management data
+ * Matches Section 3.1.3 requirements
+ */
 class BranchManagerShiftResource extends JsonResource
 {
-    public function toArray($request)
+    /**
+     * Transform the resource into an array.
+     */
+    public function toArray($request): array
     {
-        // Get the last cashier handover
-        $lastCashierHandover = $this->cashierHandovers()
-            ->where('status', 'approved')
-            ->with('cashierShift.cashier')
-            ->latest('handed_over_at')
-            ->first();
-
         return [
             'id' => $this->id,
-            'shift_date' => $this->shift_date->format('Y-m-d'),
-            'shift_date_formatted' => $this->shift_date->format('d M Y'),
+            'shift_date' => $this->shift_date?->format('Y-m-d'),
             'status' => $this->status,
             'status_label' => $this->getStatusLabel(),
 
-            // Timing
-            'actual_start_time' => $this->actual_start_time?->format('H:i'),
-            'actual_end_time' => $this->actual_end_time?->format('H:i'),
-            'duration_minutes' => $this->actual_start_time && $this->actual_end_time
-                ? $this->actual_start_time->diffInMinutes($this->actual_end_time)
-                : null,
+            // Section A: Shift Overview
+            'shift_overview' => $this->getShiftOverview(),
 
-            // Financial Data
-            'financial' => [
-                'total_sales' => (float) $this->total_sales,
-                'net_sales' => (float) $this->net_sales,
-                'vat_amount' => (float) $this->vat_amount,
-                'cash_collected' => (float) $this->cash_collected,
-                'card_payments' => (float) $this->card_payments,
-                'aggregator_payments' => (float) $this->aggregator_payments,
-            ],
+            // Section B: Shift Details
+            'shift_details' => $this->getShiftDetails(),
 
-            // Handover Information
-            'handover' => [
-                'opening_balance' => (float) $this->opening_balance,
-                'closing_balance' => (float) $this->closing_balance,
-                'expected_balance' => (float) $this->expected_balance,
-                'variance' => (float) $this->variance,
-                'variance_type' => $this->variance > 0 ? 'Over' : ($this->variance < 0 ? 'Short' : 'None'),
-                'handed_over_at' => $this->handed_over_at?->format('Y-m-d H:i:s'),
-                'handover_status' => $this->handover_status ?? 'not_submitted',
-                'handover_timing' => $this->handover_timing,
-                'handover_amount' => (float) ($this->handover_amount ?? 0),
+            // Section C: Handoffs Summary
+            'handoffs_summary' => $this->getHandoffsSummary(),
 
-                // Last cashier who handed over to this manager
-                'last_cashier_handover' => $lastCashierHandover ? [
-                    'cashier_id' => $lastCashierHandover->cashierShift->cashier->id,
-                    'cashier_name' => $lastCashierHandover->cashierShift->cashier->name,
-                    'handover_amount' => (float) $lastCashierHandover->handover_amount,
-                    'handed_over_at' => $lastCashierHandover->handed_over_at?->format('Y-m-d H:i:s'),
-                ] : null,
+            // Section D: Final Handover Info
+            'final_handover' => $this->getFinalHandoverInfo(),
 
-                // Manager-to-Manager handover
-                'next_manager_handover' => $this->next_manager_id ? [
-                    'from_manager' => $this->whenLoaded('branchManager', function () {
-                        return [
-                            'id' => $this->branchManager->id,
-                            'name' => $this->branchManager->name,
-                        ];
-                    }),
-                    'to_manager' => $this->whenLoaded('nextManager', function () {
-                        return [
-                            'id' => $this->nextManager->id,
-                            'name' => $this->nextManager->name,
-                        ];
-                    }),
-                    'amount' => (float) $this->handover_amount,
-                    'status' => $this->handover_status,
-                    'timing' => $this->handover_timing,
-                ] : null,
+            // Section E: Daily Close Summary
+            'daily_close' => $this->getDailyCloseSummary(),
 
-                'handover_notes' => $this->handover_notes,
-            ],
+            // Financial Summary
+            'financial_summary' => $this->getFinancialSummary(),
 
-            // Statistics
-            'statistics' => [
-                'total_cashier_shifts' => $this->total_cashier_shifts,
-                'completed_cashier_shifts' => $this->completed_cashier_shifts,
-                'pending_cashier_shifts' => $this->pending_cashier_shifts,
-                'completion_rate' => $this->total_cashier_shifts > 0
-                    ? round(($this->completed_cashier_shifts / $this->total_cashier_shifts) * 100, 2)
-                    : 0,
-                'handovers_summary' => $this->getHandoverSummary(),
-            ],
-
-            // Manager Info
-            'branch_manager' => $this->whenLoaded('branchManager', function () {
-                return [
-                    'id' => $this->branchManager->id,
-                    'name' => $this->branchManager->name,
-                    'email' => $this->branchManager->email ?? null,
-                ];
-            }),
-
-            // Branch Info
-            'branch' => $this->whenLoaded('branch', function () {
-                return [
-                    'id' => $this->branch->id,
-                    'name' => $this->branch->name,
-                ];
-            }),
-
-            // Daily Report
-            'daily_report' => [
-                'submitted' => $this->daily_report_submitted,
-                'submitted_at' => $this->daily_report_submitted_at?->format('Y-m-d H:i:s'),
-                'notes' => $this->daily_report_notes,
-                'can_reopen' => $this->can_reopen,
-                'reopened_at' => $this->reopened_at?->format('Y-m-d H:i:s'),
-                'reopen_reason' => $this->reopen_reason,
-            ],
-
-            // Actions
-            'actions_available' => $this->getAvailableActions(),
+            // Available Actions
+            'available_actions' => $this->getAvailableActions(),
 
             // Timestamps
-            'created_at' => $this->created_at->format('Y-m-d H:i:s'),
-            'updated_at' => $this->updated_at->format('Y-m-d H:i:s'),
+            'timestamps' => [
+                'actual_start_time' => $this->actual_start_time?->format('Y-m-d H:i:s'),
+                'actual_end_time' => $this->actual_end_time?->format('Y-m-d H:i:s'),
+                'daily_report_submitted_at' => $this->daily_report_submitted_at?->format('Y-m-d H:i:s'),
+                'reopened_at' => $this->reopened_at?->format('Y-m-d H:i:s'),
+                'approved_at' => $this->approved_at?->format('Y-m-d H:i:s'),
+                'archived_at' => $this->archived_at?->format('Y-m-d H:i:s'),
+            ],
         ];
     }
 
+    /**
+     * Get shift overview (Section A)
+     */
+    private function getShiftOverview(): array
+    {
+        $progress = $this->calculateProgress();
+
+        return [
+            'title' => "Branch Manager Shift - " . ($this->shift_date?->format('d M Y') ?? 'Today'),
+            'description' => "Managing daily operations and cashier handovers",
+            'status' => $this->getStatusLabel(),
+            'start_time' => $this->actual_start_time?->format('H:i') ?? '09:00',
+            'end_time' => $this->actual_end_time?->format('H:i') ?? '17:00',
+            'elapsed_hours' => $progress['elapsed_hours'],
+            'progress_percentage' => $progress['progress_percentage'],
+            'can_start' => $this->status === 'not_started' && $this->shift_date?->isToday(),
+            'can_end' => $this->canEnd(),
+        ];
+    }
+
+    /**
+     * Get shift details (Section B)
+     */
+    private function getShiftDetails(): array
+    {
+        return [
+            'assigned_to' => 'Me (Branch Manager)',
+            'assigned_by' => 'Brand Owner',
+            'store_branch' => $this->branch?->name ?? 'N/A',
+            'branch_id' => $this->branch_id,
+            'start_time' => $this->actual_start_time?->format('H:i') ?? 'Not started',
+            'end_time' => $this->actual_end_time?->format('H:i') ?? 'In progress',
+            'final_approval_by' => $this->approvedBy?->name ?? 'Pending (Sales Team Dashboard)',
+            'manager_name' => $this->branchManager?->name ?? 'N/A',
+            'manager_id' => $this->branch_manager_id,
+        ];
+    }
+
+    /**
+     * Get handoffs summary (Section C)
+     */
+    private function getHandoffsSummary(): array
+    {
+        $handovers = $this->whenLoaded('cashierHandovers', fn() => $this->cashierHandovers, collect());
+
+        return [
+            'total_handovers' => $handovers->count(),
+            'approved' => $handovers->where('status', 'approved')->count(),
+            'pending' => $handovers->where('status', 'pending')->count(),
+            'rejected' => $handovers->whereIn('status', ['rejected', 'rejected_final'])->count(),
+            'rejected_final' => $handovers->where('status', 'rejected_final')->count(),
+            'total_amount' => (float) $handovers->where('status', 'approved')->sum('handover_amount'),
+            'total_variance' => (float) $handovers->sum('variance_amount'),
+            'all_received' => $handovers->count() > 0 && $handovers->where('status', 'pending')->count() === 0,
+        ];
+    }
+
+    /**
+     * Get final handover info (Section D)
+     * Exact format as per requirements:
+     * - Handover Amount
+     * - Status: Completed, Not Submitted, Pending
+     * - Handover From
+     * - Handover To
+     * - Handover Date
+     * - Handover Time
+     * - Current Time (Today or Yesterday)
+     */
+    private function getFinalHandoverInfo(): ?array
+    {
+        // Determine status based on requirements
+        $status = 'Not Submitted';
+        if ($this->handover_status === 'completed' || $this->handover_status === 'approved') {
+            $status = 'Completed';
+        } elseif ($this->handover_status === 'pending') {
+            $status = 'Pending';
+        }
+
+        // Get current time based on handover_timing
+        $currentTime = $this->handover_timing === 'yesterday'
+            ? now()->subDay()->format('Y-m-d H:i:s')
+            : now()->format('Y-m-d H:i:s');
+
+        return [
+            'handover_amount' => (float) ($this->handover_amount ?? 0), // ✅ Handover Amount
+            'status' => $status, // ✅ Status: Completed, Not Submitted, or Pending
+            'status_options' => ['Completed', 'Not Submitted', 'Pending'],
+            'handover_from' => $this->branchManager?->name ?? 'N/A', // ✅ Handover From
+            'handover_to' => $this->nextManager?->name ?? 'Not specified', // ✅ Handover To
+            'handover_date' => $this->handover_date?->format('Y-m-d') ?? now()->format('Y-m-d'), // ✅ Handover Date
+            'handover_time' => $this->handover_time?->format('H:i:s') ?? now()->format('H:i:s'), // ✅ Handover Time
+            'current_time' => $currentTime, // ✅ Current Time
+            'current_time_setting' => $this->handover_timing ?? 'today', // Today or Yesterday
+            'handover_notes' => $this->handover_notes,
+            // Additional info
+            'opening_balance' => (float) ($this->opening_balance ?? 0),
+            'closing_balance' => (float) ($this->closing_balance ?? 0),
+            'expected_balance' => (float) ($this->expected_balance ?? 0),
+            'variance' => (float) ($this->variance ?? 0),
+            'variance_type' => $this->variance > 0 ? 'Over' : ($this->variance < 0 ? 'Short' : 'None'),
+        ];
+    }
+
+    /**
+     * Get daily close summary (Section E)
+     * Note: The actual cashier breakdown and totals are returned from prepareDailyCloseSummary()
+     * This method only returns submission status and metadata
+     */
+    private function getDailyCloseSummary(): array
+    {
+        return [
+            'is_submitted' => (bool) $this->daily_report_submitted,
+            'submitted_at' => $this->daily_report_submitted_at?->format('Y-m-d H:i:s'),
+            'notes' => $this->daily_report_notes,
+            'can_reopen' => $this->can_reopen && $this->daily_report_submitted,
+            'reopened_at' => $this->reopened_at?->format('Y-m-d H:i:s'),
+            'reopen_reason' => $this->reopen_reason,
+            'is_archived' => !is_null($this->archived_at),
+            'archived_at' => $this->archived_at?->format('Y-m-d H:i:s'),
+            'approved_by' => $this->approvedBy?->name,
+            'approved_at' => $this->approved_at?->format('Y-m-d H:i:s'),
+        ];
+    }
+
+    /**
+     * Get financial summary
+     */
+    private function getFinancialSummary(): array
+    {
+        return [
+            'total_sales' => (float) ($this->total_sales ?? 0),
+            'net_sales' => (float) ($this->net_sales ?? 0),
+            'vat_amount' => (float) ($this->vat_amount ?? 0),
+            'cash_collected' => (float) ($this->cash_collected ?? 0),
+            'card_payments' => (float) ($this->card_payments ?? 0),
+            'aggregator_payments' => (float) ($this->aggregator_payments ?? 0),
+            'total_variance' => (float) ($this->variance ?? 0),
+        ];
+    }
+
+    /**
+     * Get available actions
+     */
+    private function getAvailableActions(): array
+    {
+        return [
+            'can_start' => $this->status === 'not_started' && $this->shift_date?->isToday(),
+            'can_end' => $this->canEnd(),
+            'can_submit_daily_report' => $this->status === 'completed' && !$this->daily_report_submitted,
+            'can_reopen' => $this->can_reopen && $this->daily_report_submitted && $this->shift_date?->isToday(),
+            'can_approve_handovers' => $this->status === 'in_progress',
+            'can_reject_handovers' => $this->status === 'in_progress',
+        ];
+    }
+
+    /**
+     * Calculate progress
+     */
+    private function calculateProgress(): array
+    {
+        $defaultShiftHours = 8;
+        $elapsedHours = 0;
+        $progressPercentage = 0;
+
+        if ($this->status === 'in_progress' && $this->actual_start_time) {
+            $expectedEndTime = $this->actual_end_time ?? $this->actual_start_time->copy()->addHours($defaultShiftHours);
+            $totalMinutes = $this->actual_start_time->diffInMinutes($expectedEndTime);
+            $elapsedMinutes = now()->diffInMinutes($this->actual_start_time);
+
+            $elapsedHours = round($elapsedMinutes / 60, 2);
+            $progressPercentage = $totalMinutes > 0 ? min(($elapsedMinutes / $totalMinutes) * 100, 100) : 0;
+        } elseif ($this->status === 'completed') {
+            $progressPercentage = 100;
+            if ($this->actual_start_time && $this->actual_end_time) {
+                $elapsedHours = round($this->actual_start_time->diffInMinutes($this->actual_end_time) / 60, 2);
+            }
+        }
+
+        return [
+            'elapsed_hours' => $elapsedHours,
+            'progress_percentage' => round($progressPercentage, 1),
+        ];
+    }
+
+    /**
+     * Get status label
+     */
     private function getStatusLabel(): string
     {
         return match ($this->status) {
             'not_started' => 'Not Started',
             'in_progress' => 'In Progress',
             'completed' => 'Completed',
-            default => ucfirst($this->status),
+            default => 'Unknown',
         };
     }
 
-    private function getAvailableActions(): array
+    /**
+     * Get handover status label
+     */
+    private function getHandoverStatusLabel(): string
     {
-        $actions = [
-            'view_details' => true,
-        ];
-
-        if ($this->status === 'not_started' && $this->shift_date->isToday()) {
-            $actions['start_shift'] = true;
-        }
-
-        if ($this->status === 'in_progress') {
-            $actions['end_shift'] = true;
-            $actions['view_cashier_shifts'] = true;
-            $actions['approve_handoffs'] = true;
-        }
-
-        if ($this->status === 'completed') {
-            if (!$this->handed_over_at) {
-                $actions['record_handover'] = true;
-            }
-
-            if (!$this->daily_report_submitted) {
-                $actions['submit_daily_report'] = true;
-                $actions['view_final_daily_close'] = true;
-            }
-
-            if ($this->can_reopen && $this->daily_report_submitted && $this->shift_date->isToday()) {
-                $actions['reopen_shift'] = true;
-            }
-        }
-
-        return $actions;
+        return match ($this->handover_status) {
+            'pending' => 'Pending',
+            'completed' => 'Completed',
+            'approved' => 'Approved',
+            null => 'Not Submitted',
+            default => ucfirst($this->handover_status ?? 'Unknown'),
+        };
     }
 }

@@ -1,15 +1,9 @@
 {
     "name": "Purchase",
     "alias": "purchase",
-    "description": "Purchase Management Module for Assab Application",
-    "keywords": [
-        "purchase",
-        "order",
-        "goods receipt",
-        "return",
-        "supplier"
-    ],
-    "priority": 1,
+    "description": "",
+    "keywords": [],
+    "priority": 0,
     "providers": [
         "Modules\\Purchase\\Providers\\PurchaseServiceProvider"
     ],

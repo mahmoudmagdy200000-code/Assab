@@ -2,18 +2,17 @@
 
 namespace Modules\Purchase\Providers;
 
-use Illuminate\Support\Facades\Route;
 use Illuminate\Foundation\Support\Providers\RouteServiceProvider as ServiceProvider;
+use Illuminate\Support\Facades\Route;
 
 class RouteServiceProvider extends ServiceProvider
 {
-    /**
-     * The module namespace to assume when generating URLs to actions.
-     */
-    protected string $moduleNamespace = 'Modules\Purchase\Http\Controllers';
+    protected string $name = 'Purchase';
 
     /**
      * Called before routes are registered.
+     *
+     * Register any model bindings or pattern based filters.
      */
     public function boot(): void
     {
@@ -26,16 +25,26 @@ class RouteServiceProvider extends ServiceProvider
     public function map(): void
     {
         $this->mapApiRoutes();
+        $this->mapWebRoutes();
+    }
+
+    /**
+     * Define the "web" routes for the application.
+     *
+     * These routes all receive session state, CSRF protection, etc.
+     */
+    protected function mapWebRoutes(): void
+    {
+        Route::middleware('web')->group(module_path($this->name, '/routes/web.php'));
     }
 
     /**
      * Define the "api" routes for the application.
+     *
+     * These routes are typically stateless.
      */
     protected function mapApiRoutes(): void
     {
-        Route::prefix('api/v1')
-            ->middleware('api')
-            ->namespace($this->moduleNamespace)
-            ->group(module_path('Purchase', '/routes/api.php'));
+        Route::middleware('api')->prefix('api')->name('api.')->group(module_path($this->name, '/routes/api.php'));
     }
 }

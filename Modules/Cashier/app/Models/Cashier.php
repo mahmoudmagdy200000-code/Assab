@@ -16,10 +16,11 @@ use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Database\Factories\CashierFactory;
 use Modules\Cashier\Notifications\CashierActivationNotification;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\Shift;
 
 class Cashier extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable, SoftDeletes , HasUuids;
+    use HasApiTokens, HasFactory, Notifiable, SoftDeletes, HasUuids;
 
     protected $fillable = [
         'name',
@@ -77,15 +78,14 @@ class Cashier extends Authenticatable
     {
         return $this->belongsTo(BranchManager::class, 'created_by');
     }
-
     public function shifts(): HasMany
     {
-        return $this->hasMany(CashierShift::class);
+        return $this->hasMany(CashierShift::class); // تغيير هنا
     }
 
     public function assignedShifts(): HasMany
     {
-        return $this->hasMany(CashierShift::class, 'cashier_id');
+        return $this->hasMany(CashierShift::class, 'cashier_id'); // تغيير هنا
     }
 
     public function receivedHandovers(): HasMany

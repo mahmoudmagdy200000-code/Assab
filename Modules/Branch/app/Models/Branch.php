@@ -12,7 +12,7 @@ use Modules\Shift\Models\Shift;
 
 class Branch extends Model
 {
-    use HasFactory , HasUuids;
+    use HasFactory, HasUuids;
 
 
     protected $fillable = [
@@ -54,5 +54,10 @@ class Branch extends Model
     protected static function newFactory()
     {
         return \Modules\Branch\Database\Factories\BranchFactory::new();
+    }
+
+    public function branchManager()
+    {
+        return $this->belongsTo(BranchManager::class, 'branch_manager_id');
     }
 }

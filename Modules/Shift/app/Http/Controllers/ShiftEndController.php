@@ -11,17 +11,40 @@ use Illuminate\Support\Facades\Validator;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Services\ShiftEndService;
+use Modules\Shift\Services\HandoverService;
+use Modules\Shift\Services\VarianceCalculationService;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Transformers\ShiftDetailResource;
+use Modules\Shift\Http\Requests\EndShiftRequest;
 
+/**
+ * ShiftEndController
+ * 
+ * Handles all 4 shift ending options:
+ * - Option 1: End Shift Only (without handover)
+ * - Option 2: Handover Without Variance
+ * - Option 3: End Shift with Handover (No Variance)
+ * - Option 4: End Shift with Handover and Variance
+ */
 class ShiftEndController extends Controller
 {
     public function __construct(
-        private ShiftEndService $shiftEndService
+        private ShiftEndService $shiftEndService,
+        private HandoverService $handoverService,
+        private VarianceCalculationService $varianceService
     ) {}
 
     /**
-     * End shift only (without handover)
+     * OPTION 1: End Shift Only (without handover)
+     * 
+     * Cashier records:
+     * - Total sales amount
+     * - Cash collections
+     * - Mada card payments
+     * - Payment aggregator collections
+     * - Optional: POS receipt upload
+     * 
+     * Result: Shift completed without handover
      */
     public function endShiftOnly(Request $request, string $shift): JsonResponse
     {
@@ -34,7 +57,7 @@ class ShiftEndController extends Controller
             'aggregators.*.amount' => 'required_with:aggregators|numeric|min:0',
             'aggregators.*.notes' => 'nullable|string|max:255',
             'pos_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
-            // إضافة validation للـ variance (اختياري)
+            // Optional variance for shifts with variance but no handover yet
             'variance' => 'sometimes|array',
             'variance.responsibility_type' => 'required_with:variance|in:self,self_and_others,other_factors,mixed',
             'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|numeric|min:0',
@@ -56,82 +79,77 @@ class ShiftEndController extends Controller
         }
 
         try {
-            $managerBranchId = $request->manager_branch_id;
+            // Get shift model - support both manager and cashier access
+            $user = auth()->user();
+            $shiftModel = $this->getShiftForUser($shift, $user);
 
-            $shiftModel = CashierShift::whereHas('shift', function ($q) use ($managerBranchId) {
-                $q->where('branch_id', $managerBranchId);
-            })->findOrFail($shift);
+            if (!$shiftModel) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Shift not found or you do not have access to it',
+                ], 404);
+            }
 
             if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'This shift is not in progress',
+                    'message' => 'This shift is not in progress. Current status: ' . $shiftModel->status->value,
                 ], 400);
             }
 
+            // Validate payment breakdown
             $isValid = $this->shiftEndService->validatePaymentBreakdown($request->all());
             if (!$isValid) {
+                $calculatedTotal = ($request->cash_collected ?? 0) + ($request->card_payments ?? 0) + 
+                    collect($request->aggregators ?? [])->sum('amount');
+                    
                 return response()->json([
                     'success' => false,
                     'message' => 'Payment breakdown does not match total sales',
                     'details' => [
                         'total_sales' => $request->total_sales,
-                        'calculated_total' => $request->cash_collected + $request->card_payments +
-                            collect($request->aggregators ?? [])->sum('amount'),
+                        'calculated_total' => $calculatedTotal,
+                        'difference' => abs($request->total_sales - $calculatedTotal),
                     ]
                 ], 400);
             }
 
+            // Prepare data
             $data = $request->all();
             if ($request->hasFile('pos_receipt')) {
                 $data['pos_receipt'] = $request->file('pos_receipt');
             }
-
-            // معالجة ملفات الـ variance إذا كانت موجودة
             if ($request->hasFile('variance.supporting_files')) {
                 $data['variance']['supporting_files'] = $request->file('variance.supporting_files');
             }
 
+            // End shift
             $updatedShift = $this->shiftEndService->endShiftOnly($shiftModel, $data);
-            $salesCalculation = $this->shiftEndService->calculateNetSales($request->total_sales);
-
-            // حساب الـ variance إذا كانت موجودة
-            $varianceData = null;
-            if ($request->has('variance')) {
-                $totalVariance = 0;
-
-                if (isset($data['variance']['current_cashier_amount'])) {
-                    $totalVariance += $data['variance']['current_cashier_amount'];
-                }
-
-                if (isset($data['variance']['other_cashiers'])) {
-                    $totalVariance += collect($data['variance']['other_cashiers'])->sum('amount');
-                }
-
-                $varianceData = [
-                    'total_variance' => (float) $totalVariance,
-                    'responsibility_type' => $data['variance']['responsibility_type'],
-                    'variance_type' => $totalVariance > 0 ? 'Over' : ($totalVariance < 0 ? 'Short' : 'None'),
-                ];
+            
+            // Handle variance if provided
+            if ($request->has('variance') && $updatedShift->hasVariance()) {
+                $this->varianceService->recordVariance($updatedShift, $request->variance);
             }
+
+            // Calculate sales
+            $salesCalculation = $this->shiftEndService->calculateNetSales($request->total_sales);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Shift ended successfully without handover',
                 'data' => [
-                    'shift' => new ShiftDetailResource($updatedShift),
+                    'shift' => new ShiftDetailResource($updatedShift->fresh()->loadFullRelationships()),
                     'summary' => [
                         'total_sales' => (float) $salesCalculation['total_sales'],
                         'net_sales' => (float) $salesCalculation['net_sales'],
                         'vat_amount' => (float) $salesCalculation['vat_amount'],
                         'sales_breakdown' => [
-                            'cash_collected' => (float) $request->cash_collected,
-                            'card_payments' => (float) $request->card_payments,
-                            'delivery_apps' => collect($request->aggregators ?? [])->sum('amount'),
+                            'cash_collected' => (float) ($request->cash_collected ?? 0),
+                            'card_payments' => (float) ($request->card_payments ?? 0),
+                            'delivery_apps' => (float) collect($request->aggregators ?? [])->sum('amount'),
                         ],
-                        'opening_balance' => 0,
+                        'opening_balance' => (float) ($updatedShift->opening_balance ?? 0),
                         'handover_status' => 'pending',
-                        'variance' => $varianceData,
                     ],
                     'next_actions' => [
                         'handover_cash_now' => true,
@@ -139,12 +157,18 @@ class ShiftEndController extends Controller
                     ]
                 ]
             ]);
+
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Shift not found or you do not have access to it',
+                'message' => 'Shift not found',
             ], 404);
         } catch (\Exception $e) {
+            Log::error('End shift only failed', [
+                'shift_id' => $shift,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to end shift',
@@ -154,11 +178,18 @@ class ShiftEndController extends Controller
     }
 
     /**
-     * End shift with handover
+     * OPTION 2, 3, 4: End Shift with Handover
+     * 
+     * Supports:
+     * - Handover to next cashier (auto-handover)
+     * - Handover to branch manager (final handover)
+     * - With or without variance
+     * - All 4 variance types
      */
     public function endShiftWithHandover(Request $request, string $shift): JsonResponse
     {
         $validator = Validator::make($request->all(), [
+            // Sales information
             'total_sales' => 'required|numeric|min:0',
             'cash_collected' => 'sometimes|numeric|min:0',
             'card_payments' => 'sometimes|numeric|min:0',
@@ -167,9 +198,16 @@ class ShiftEndController extends Controller
             'aggregators.*.amount' => 'required_with:aggregators|numeric|min:0',
             'aggregators.*.notes' => 'nullable|string|max:255',
             'pos_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
-            'next_cashier_id' => 'required|exists:cashiers,id',
+            
+            // Handover recipient
+            'handover_to_type' => 'sometimes|in:cashier,branch_manager',
+            'next_cashier_id' => 'required_without:handover_to_type|nullable|exists:cashiers,id',
+            
+            // Handover details
             'handover_amount' => 'required|numeric|min:0',
             'handover_notes' => 'nullable|string|max:500',
+            
+            // Variance information
             'variance' => 'sometimes|array',
             'variance.responsibility_type' => 'required_with:variance|in:self,self_and_others,other_factors,mixed',
             'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|numeric|min:0',
@@ -191,16 +229,15 @@ class ShiftEndController extends Controller
         }
 
         try {
-            $managerBranchId = $request->manager_branch_id;
+            $user = auth()->user();
+            $shiftModel = $this->getShiftForUser($shift, $user);
 
-            // $shiftModel = CashierShift::whereHas('shift', function ($q) use ($managerBranchId) {
-            //     $q->where('branch_id', $managerBranchId);
-            // })->findOrFail($shift);
-            $shiftModel = CashierShift::where('id', $shift)
-                ->where('cashier_id', auth()->id())
-                ->where('status', 'in_progress')    
-                ->firstOrFail();
-
+            if (!$shiftModel) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Shift not found or you do not have access to it',
+                ], 404);
+            }
 
             if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 return response()->json([
@@ -209,15 +246,40 @@ class ShiftEndController extends Controller
                 ], 400);
             }
 
-            // Fetch the next cashier BEFORE processing
-            $nextCashier = Cashier::find($request->next_cashier_id);
-            if (!$nextCashier) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Next cashier not found',
-                ], 404);
+            // Determine handover type
+            $handoverToType = $request->input('handover_to_type', 'cashier');
+            $handoverToId = null;
+            $handoverToName = null;
+
+            if ($handoverToType === 'branch_manager') {
+                // Get branch manager for this branch
+                $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
+                    ->where('is_active', true)
+                    ->first();
+                
+                if (!$branchManager) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No active branch manager found for this branch',
+                    ], 400);
+                }
+                
+                $handoverToId = $branchManager->id;
+                $handoverToName = $branchManager->name;
+            } else {
+                // Handover to next cashier
+                $nextCashier = Cashier::find($request->next_cashier_id);
+                if (!$nextCashier) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Next cashier not found',
+                    ], 404);
+                }
+                $handoverToId = $nextCashier->id;
+                $handoverToName = $nextCashier->name;
             }
 
+            // Validate payment breakdown
             $isValid = $this->shiftEndService->validatePaymentBreakdown($request->all());
             if (!$isValid) {
                 return response()->json([
@@ -226,31 +288,30 @@ class ShiftEndController extends Controller
                 ], 400);
             }
 
+            // Prepare data
             $data = $request->all();
+            $data['handover_to_type'] = $handoverToType;
+            $data['handover_to_id'] = $handoverToId;
+            
             if ($request->hasFile('pos_receipt')) {
                 $data['pos_receipt'] = $request->file('pos_receipt');
             }
-
             if ($request->hasFile('variance.supporting_files')) {
                 $data['variance']['supporting_files'] = $request->file('variance.supporting_files');
             }
 
+            // End shift with handover
             $updatedShift = $this->shiftEndService->endShiftWithHandover($shiftModel, $data);
 
-            // Reload the shift with all necessary relationships
+            // Reload with relationships
             $updatedShift = CashierShift::with([
                 'nextCashier',
                 'cashier',
-                'shift',
+                'shift.branch',
                 'salesBreakdown.aggregator',
                 'handoverStatus',
                 'varianceDetails.responsibleCashier'
             ])->findOrFail($updatedShift->id);
-
-            // Verify next_cashier_id was set
-            if (!$updatedShift->next_cashier_id) {
-                throw new \RuntimeException('Failed to set next_cashier_id on shift');
-            }
 
             // Calculate variance
             $variance = $request->total_sales - $request->handover_amount;
@@ -267,30 +328,171 @@ class ShiftEndController extends Controller
                         'net_sales' => (float) $salesCalculation['net_sales'],
                         'vat_amount' => (float) $salesCalculation['vat_amount'],
                         'sales_breakdown' => [
-                            'cash_collected' => (float) $request->cash_collected,
-                            'card_payments' => (float) $request->card_payments,
-                            'delivery_apps' => collect($request->aggregators ?? [])->sum('amount'),
+                            'cash_collected' => (float) ($request->cash_collected ?? 0),
+                            'card_payments' => (float) ($request->card_payments ?? 0),
+                            'delivery_apps' => (float) collect($request->aggregators ?? [])->sum('amount'),
                         ],
                         'handover_details' => [
                             'handover_amount' => (float) $request->handover_amount,
                             'variance' => (float) $variance,
                             'variance_type' => $varianceType,
-                            'handover_to' => $nextCashier->name,
-                            'next_cashier' => $nextCashier->name,
+                            'handover_to_type' => $handoverToType,
+                            'handover_to' => $handoverToName,
+                            'next_cashier' => $handoverToType === 'cashier' ? $handoverToName : null,
                             'handover_notes' => $request->handover_notes,
+                            'status' => 'pending',
                         ]
                     ]
                 ]
             ]);
+
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Shift not found or you do not have access to it',
+                'message' => 'Shift not found',
             ], 404);
         } catch (\Exception $e) {
+            Log::error('End shift with handover failed', [
+                'shift_id' => $shift,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to end shift with handover',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Record handover after shift ended (Start Handover action)
+     * 
+     * Used when cashier ended shift without handover and now wants to do handover
+     */
+    public function startHandover(Request $request, string $shift): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'handover_to_type' => 'sometimes|in:cashier,branch_manager',
+            'next_cashier_id' => 'required_without:handover_to_type|nullable|exists:cashiers,id',
+            'handover_amount' => 'required|numeric|min:0',
+            'handover_notes' => 'nullable|string|max:500',
+            'variance' => 'sometimes|array',
+            'variance.responsibility_type' => 'required_with:variance|in:self,self_and_others,other_factors,mixed',
+            'variance.reason' => 'required_if:variance.responsibility_type,other_factors,mixed|string|max:500',
+            'variance.supporting_files' => 'sometimes|array',
+            'variance.supporting_files.*' => 'file|mimes:pdf,png,jpeg,jpg|max:5120',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $user = auth()->user();
+            $shiftModel = $this->getShiftForUser($shift, $user);
+
+            if (!$shiftModel) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Shift not found',
+                ], 404);
+            }
+
+            // Check if shift can have handover recorded
+            if (!$shiftModel->total_sales) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Shift sales must be recorded before handover',
+                ], 400);
+            }
+
+            // Determine handover type
+            $handoverToType = $request->input('handover_to_type', 'cashier');
+            $handoverToId = null;
+            $handoverToName = null;
+
+            if ($handoverToType === 'branch_manager') {
+                $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
+                    ->where('is_active', true)
+                    ->first();
+                
+                if (!$branchManager) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No active branch manager found',
+                    ], 400);
+                }
+                
+                $handoverToId = $branchManager->id;
+                $handoverToName = $branchManager->name;
+            } else {
+                $nextCashier = Cashier::find($request->next_cashier_id);
+                if (!$nextCashier) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Next cashier not found',
+                    ], 404);
+                }
+                $handoverToId = $nextCashier->id;
+                $handoverToName = $nextCashier->name;
+            }
+
+            // Record handover
+            $handoverData = [
+                'handover_to_type' => $handoverToType,
+                'handover_to_id' => $handoverToId,
+                'next_cashier_id' => $handoverToType === 'cashier' ? $handoverToId : null,
+                'handover_amount' => $request->handover_amount,
+                'handover_notes' => $request->handover_notes,
+            ];
+
+            // Handle variance files
+            if ($request->hasFile('variance.supporting_files')) {
+                $handoverData['variance_files'] = $request->file('variance.supporting_files');
+            }
+            if ($request->has('variance.reason')) {
+                $handoverData['variance_reason'] = $request->input('variance.reason');
+            }
+
+            $updatedShift = $this->handoverService->recordHandover($shiftModel, $handoverData);
+
+            // Record variance if provided
+            if ($request->has('variance') && $updatedShift->hasVariance()) {
+                $this->varianceService->recordVariance($updatedShift, $request->variance);
+            }
+
+            $variance = $shiftModel->total_sales - $request->handover_amount;
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Handover recorded successfully',
+                'data' => [
+                    'shift' => new ShiftDetailResource($updatedShift->fresh()->loadFullRelationships()),
+                    'handover_details' => [
+                        'total_sales' => (float) $shiftModel->total_sales,
+                        'handover_amount' => (float) $request->handover_amount,
+                        'variance' => (float) $variance,
+                        'variance_type' => $variance > 0 ? 'Over' : ($variance < 0 ? 'Short' : 'None'),
+                        'handover_to_type' => $handoverToType,
+                        'handover_to' => $handoverToName,
+                        'status' => 'pending',
+                    ]
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Start handover failed', [
+                'shift_id' => $shift,
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to record handover',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -319,5 +521,108 @@ class ShiftEndController extends Controller
             'success' => true,
             'data' => $calculation
         ]);
+    }
+
+    /**
+     * Get available cashiers for handover
+     */
+    public function getAvailableCashiersForHandover(string $shift): JsonResponse
+    {
+        try {
+            $shiftModel = CashierShift::with('shift')->findOrFail($shift);
+
+            // Get all active cashiers for this branch except current cashier
+            $allCashiers = Cashier::where('branch_id', $shiftModel->shift->branch_id)
+                ->where('status', 'active')
+                ->where('id', '!=', $shiftModel->cashier_id)
+                ->get();
+
+            // Find the next scheduled shift (for auto-handover suggestion)
+            $nextShift = CashierShift::where('shift_date', $shiftModel->shift_date)
+                ->whereHas('shift', function ($q) use ($shiftModel) {
+                    $q->where('branch_id', $shiftModel->shift->branch_id)
+                      ->where('start_time', '>=', $shiftModel->shift->end_time);
+                })
+                ->where('status', ShiftStatus::NOT_STARTED)
+                ->orderBy('shift_id')
+                ->first();
+
+            $suggestedCashierId = $nextShift?->cashier_id;
+
+            // Get branch manager as an option for final handover
+            $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
+                ->where('is_active', true)
+                ->first();
+
+            $availableCashiers = $allCashiers->map(function ($cashier) use ($suggestedCashierId) {
+                return [
+                    'id' => $cashier->id,
+                    'name' => $cashier->name,
+                    'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
+                    'type' => 'cashier',
+                    'is_suggested' => $cashier->id === $suggestedCashierId,
+                    'suggestion_reason' => $cashier->id === $suggestedCashierId 
+                        ? 'Next scheduled cashier (auto-handover)' 
+                        : null,
+                ];
+            });
+
+            // Add branch manager option
+            $recipients = $availableCashiers->toArray();
+            if ($branchManager) {
+                $recipients[] = [
+                    'id' => $branchManager->id,
+                    'name' => $branchManager->name . ' (Branch Manager)',
+                    'image' => $branchManager->image ? asset('storage/' . $branchManager->image) : null,
+                    'type' => 'branch_manager',
+                    'is_suggested' => false,
+                    'suggestion_reason' => 'Final handover to Branch Manager',
+                ];
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Available recipients retrieved successfully',
+                'data' => [
+                    'recipients' => $recipients,
+                    'auto_handover_enabled' => !is_null($suggestedCashierId),
+                    'has_branch_manager' => !is_null($branchManager),
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve available recipients',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Helper: Get shift for current user (supports both cashier and manager)
+     */
+    private function getShiftForUser(string $shiftId, $user): ?CashierShift
+    {
+        $query = CashierShift::with(['shift.branch', 'cashier', 'nextCashier']);
+
+        // If user is cashier, only show their shifts
+        if ($user instanceof \Modules\Cashier\Models\Cashier) {
+            return $query->where('id', $shiftId)
+                ->where('cashier_id', $user->id)
+                ->first();
+        }
+
+        // If user is branch manager, show shifts for their branch
+        if ($user instanceof \Modules\BranchManagers\Models\BranchManager) {
+            return $query->where('id', $shiftId)
+                ->whereHas('shift', function ($q) use ($user) {
+                    $q->where('branch_id', $user->branch_id);
+                })
+                ->first();
+        }
+
+        // Fallback for admin or other users
+        return $query->find($shiftId);
     }
 }

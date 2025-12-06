@@ -20,6 +20,41 @@ class ShiftHandoverController extends Controller
     ) {}
 
     /**
+     * Accept handover (for cashier)
+     */
+    public function acceptHandover(Request $request, string $shift): JsonResponse
+    {
+        try {
+            $cashier = auth()->user();
+            $shiftModel = CashierShift::findOrFail($shift);
+
+            if ($shiftModel->next_cashier_id !== $cashier->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized: This handover is not for you'
+                ], 403);
+            }
+
+            $this->handoverService->approveHandover(
+                $shiftModel,
+                $cashier->id,
+                get_class($cashier)
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Handover accepted successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to accept handover',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Record handover
      */
     public function recordHandover(Request $request, string $shift): JsonResponse

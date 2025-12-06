@@ -72,8 +72,12 @@ class CashierService
             ]);
 
             // Assign shifts (أول مرة فقط)
-            if (!empty($data['shift_ids'])) {
-                $this->assignShiftsToCashier($cashier->id, $data['shift_ids'], $forNext30Days = false);
+            if (!empty($data['shift_ids']) && !empty($data['shift_date'])) {
+                $this->assignShiftsToCashier(
+                    cashierId: $cashier->id,
+                    shiftIds: $data['shift_ids'],
+                    shiftDate: $data['shift_date']
+                );
             }
 
             $this->activationService->sendActivationLink($cashier, $defaultPassword);
@@ -230,7 +234,7 @@ class CashierService
     /**
      * Assign shifts to cashier
      */
-    public function assignShiftsToCashier(string $cashierId, array $shiftIds, bool $forNext30Days = false): array
+    public function assignShiftsToCashier(string $cashierId, array $shiftIds, string $shiftDate, bool $forNext30Days = false): array
     {
         $cashier = Cashier::findOrFail($cashierId);
         $assignedShifts = [];
@@ -238,36 +242,17 @@ class CashierService
         foreach ($shiftIds as $shiftId) {
             $shift = Shift::findOrFail($shiftId);
 
-            if ($forNext30Days) {
-                for ($i = 0; $i < 30; $i++) {
-                    $shiftDate = now()->addDays($i);
-                    $exists = CashierShift::where('cashier_id', $cashierId)
-                        ->where('shift_id', $shiftId)
-                        ->whereDate('shift_date', $shiftDate)
-                        ->exists();
+            // Create cashier shift record for the given date
+            $cashierShift = \Modules\Shift\Models\CashierShift::create([
+                'cashier_id' => $cashierId,
+                'shift_id' => $shiftId,
+                'shift_date' => $shiftDate,
+                'status' => \Modules\Shift\Enums\ShiftStatus::NOT_STARTED->value,
+                'opening_balance' => 0,
+                'assigned_by' => auth('branch_manager')->id() ?? auth()->id(),
+            ]);
 
-                    if (!$exists) {
-                        $assignedShifts[] = CashierShift::create([
-                            'cashier_id' => $cashierId,
-                            'shift_id' => $shiftId,
-                            'shift_date' => $shiftDate,
-                            'status' => 'not_started',
-                            'opening_balance' => 0,
-                            'assigned_by' => auth('branch_manager')->id() ?? auth()->id(),
-                        ]);
-                    }
-                }
-            } else {
-
-                $assignedShifts[] = CashierShift::create([
-                    'cashier_id' => $cashierId,
-                    'shift_id' => $shiftId,
-                    'shift_date' => now(),
-                    'status' => 'not_started',
-                    'opening_balance' => 0,
-                    'assigned_by' => auth('branch_manager')->id() ?? auth()->id(),
-                ]);
-            }
+            $assignedShifts[] = $cashierShift;
         }
 
         return [
@@ -276,6 +261,7 @@ class CashierService
             'shifts' => $assignedShifts,
         ];
     }
+
 
 
     /**
@@ -288,14 +274,18 @@ class CashierService
             $cashier = Cashier::findOrFail($cashierId);
 
             // Remove pending shifts not in the new list
-            CashierShift::where('cashier_id', $cashierId)
+            Shift::where('assigned_to', $cashierId)
                 ->where('status', 'not_started')
                 ->whereDate('shift_date', '>=', today())
-                ->whereNotIn('shift_id', $shiftIds)
+                ->whereNotIn('id', $shiftIds)
                 ->delete();
 
-            // Assign new shifts
-            $result = $this->assignShiftsToCashier($cashierId, $shiftIds);
+            // Assign new shifts for today by default
+            $result = $this->assignShiftsToCashier(
+                cashierId: $cashierId,
+                shiftIds: $shiftIds,
+                shiftDate: today()->toDateString()
+            );
 
             DB::commit();
             return $result;
@@ -304,7 +294,6 @@ class CashierService
             throw $e;
         }
     }
-
     /**
      * Resend activation link
      */

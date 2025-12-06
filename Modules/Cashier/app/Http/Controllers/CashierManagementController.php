@@ -7,8 +7,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Cashier\Services\CashierService;
-use Modules\Cashier\Transformers\CashierResource ;
+use Modules\Cashier\Transformers\CashierResource;
 use App\Http\Controllers\BaseController;
+
 class CashierManagementController extends BaseController
 {
     public function __construct(
@@ -83,11 +84,13 @@ class CashierManagementController extends BaseController
             'cashier_id' => 'required|exists:cashiers,id',
             'shift_ids' => 'required|array|min:1',
             'shift_ids.*' => 'exists:shifts,id',
+            'shift_date' => 'required|date',
         ]);
 
         $result = $this->cashierService->assignShiftsToCashier(
             cashierId: $request->cashier_id,
-            shiftIds: $request->shift_ids
+            shiftIds: $request->shift_ids,
+            shiftDate: $request->shift_date
         );
 
         return  $this->successResponse($result, 'Shifts assigned successfully');
