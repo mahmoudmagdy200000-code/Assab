@@ -72,11 +72,13 @@ class CashierService
             ]);
 
             // Assign shifts (أول مرة فقط)
-            if (!empty($data['shift_ids']) && !empty($data['shift_date'])) {
+            // Use today's date as default if shift_date is not provided
+            if (!empty($data['shift_ids'])) {
+                $shiftDate = $data['shift_date'] ?? now()->toDateString();
                 $this->assignShiftsToCashier(
                     cashierId: $cashier->id,
                     shiftIds: $data['shift_ids'],
-                    shiftDate: $data['shift_date']
+                    shiftDate: $shiftDate
                 );
             }
 
