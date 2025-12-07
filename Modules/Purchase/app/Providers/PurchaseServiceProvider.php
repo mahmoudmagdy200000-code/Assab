@@ -3,7 +3,21 @@
 namespace Modules\Purchase\Providers;
 
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
+use Modules\Purchase\Models\GoodsReceipt;
+use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Models\ReturnOrder;
+use Modules\Purchase\Policies\GoodsReceiptPolicy;
+use Modules\Purchase\Policies\PurchaseOrderPolicy;
+use Modules\Purchase\Policies\ReturnOrderPolicy;
+use Modules\Purchase\Services\CalculationService;
+use Modules\Purchase\Services\GoodsReceiptService;
+use Modules\Purchase\Services\PriceComparisonService;
+use Modules\Purchase\Services\PurchaseOrderService;
+use Modules\Purchase\Services\ReturnManagementService;
+use Modules\Purchase\Services\TimelineService;
+use Modules\Purchase\Services\VarianceService;
 use Nwidart\Modules\Traits\PathNamespace;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -17,6 +31,17 @@ class PurchaseServiceProvider extends ServiceProvider
     protected string $nameLower = 'purchase';
 
     /**
+     * The policy mappings for the module.
+     *
+     * @var array<class-string, class-string>
+     */
+    protected array $policies = [
+        PurchaseOrder::class => PurchaseOrderPolicy::class,
+        GoodsReceipt::class => GoodsReceiptPolicy::class,
+        ReturnOrder::class => ReturnOrderPolicy::class,
+    ];
+
+    /**
      * Boot the application events.
      */
     public function boot(): void
@@ -26,6 +51,7 @@ class PurchaseServiceProvider extends ServiceProvider
         $this->registerTranslations();
         $this->registerConfig();
         $this->registerViews();
+        $this->registerPolicies();
         $this->loadMigrationsFrom(module_path($this->name, 'database/migrations'));
     }
 
@@ -36,6 +62,57 @@ class PurchaseServiceProvider extends ServiceProvider
     {
         $this->app->register(EventServiceProvider::class);
         $this->app->register(RouteServiceProvider::class);
+        
+        // Register Services
+        $this->registerServices();
+    }
+
+    /**
+     * Register module services.
+     */
+    protected function registerServices(): void
+    {
+        $this->app->singleton(CalculationService::class);
+        $this->app->singleton(TimelineService::class);
+        
+        $this->app->singleton(PurchaseOrderService::class, function ($app) {
+            return new PurchaseOrderService(
+                $app->make(TimelineService::class),
+                $app->make(CalculationService::class)
+            );
+        });
+        
+        $this->app->singleton(VarianceService::class, function ($app) {
+            return new VarianceService(
+                $app->make(TimelineService::class)
+            );
+        });
+        
+        $this->app->singleton(GoodsReceiptService::class, function ($app) {
+            return new GoodsReceiptService(
+                $app->make(TimelineService::class),
+                $app->make(VarianceService::class),
+                $app->make(CalculationService::class)
+            );
+        });
+        
+        $this->app->singleton(ReturnManagementService::class, function ($app) {
+            return new ReturnManagementService(
+                $app->make(TimelineService::class)
+            );
+        });
+        
+        $this->app->singleton(PriceComparisonService::class);
+    }
+
+    /**
+     * Register policies.
+     */
+    protected function registerPolicies(): void
+    {
+        foreach ($this->policies as $model => $policy) {
+            Gate::policy($model, $policy);
+        }
     }
 
     /**
@@ -137,7 +214,15 @@ class PurchaseServiceProvider extends ServiceProvider
      */
     public function provides(): array
     {
-        return [];
+        return [
+            PurchaseOrderService::class,
+            GoodsReceiptService::class,
+            VarianceService::class,
+            ReturnManagementService::class,
+            PriceComparisonService::class,
+            TimelineService::class,
+            CalculationService::class,
+        ];
     }
 
     private function getPublishableViewPaths(): array

@@ -1,0 +1,279 @@
+<?php
+
+namespace Modules\Purchase\Http\Controllers;
+
+use App\Http\Controllers\BaseController;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Modules\Purchase\Enums\OrderType;
+use Modules\Purchase\Http\Requests\ComparePricesRequest;
+use Modules\Purchase\Http\Requests\StoreDirectSupplierOrderRequest;
+use Modules\Purchase\Http\Requests\StoreInternalTransferRequest;
+use Modules\Purchase\Http\Requests\StorePurchasingOfficerOrderRequest;
+use Modules\Purchase\Services\PriceComparisonService;
+use Modules\Purchase\Services\PurchaseOrderService;
+use Modules\Purchase\Transformers\OrderSummaryResource;
+use Modules\Purchase\Transformers\PriceComparisonResource;
+use Modules\Purchase\Transformers\PurchaseOrderResource;
+use Modules\Purchase\Transformers\SupplierResource;
+
+class NewOrderController extends BaseController
+{
+    public function __construct(
+        private readonly PurchaseOrderService $orderService,
+        private readonly PriceComparisonService $priceService
+    ) {}
+
+    /**
+     * Compare prices for an item across all sources
+     * 
+     * @group New Order
+     */
+    public function comparePrices(ComparePricesRequest $request): JsonResponse
+    {
+        try {
+            $branchId = $request->get('branch_id', auth()->user()->branch_id);
+            
+            $comparison = $this->priceService->comparePrices(
+                $request->item_id,
+                $request->quantity,
+                $branchId
+            );
+            
+            return $this->successResponse(
+                new PriceComparisonResource($comparison),
+                'Price comparison retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'comparing prices');
+        }
+    }
+
+    /**
+     * Get suppliers for an item
+     * 
+     * @group New Order
+     */
+    public function getSuppliers(Request $request): JsonResponse
+    {
+        try {
+            $itemId = $request->get('item_id');
+            $filters = [
+                'status' => $request->get('status'),
+                'max_delivery_hours' => $request->get('max_delivery_hours'),
+                'search' => $request->get('search'),
+            ];
+            
+            $suppliers = $this->priceService->getSuppliers($itemId, $filters);
+            
+            return $this->successResponse(
+                $suppliers,
+                'Suppliers retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching suppliers');
+        }
+    }
+
+    /**
+     * Get branches with stock for internal transfer
+     * 
+     * @group New Order
+     */
+    public function getBranches(Request $request): JsonResponse
+    {
+        try {
+            $itemId = $request->get('item_id');
+            $quantity = $request->get('quantity', 1);
+            $branchId = auth()->user()->branch_id;
+            
+            $filters = [
+                'min_availability' => $request->get('min_availability'),
+                'search' => $request->get('search'),
+            ];
+            
+            $branches = $this->priceService->getBranchesWithStock($itemId, $quantity, $branchId, $filters);
+            
+            return $this->successResponse(
+                $branches,
+                'Branches retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching branches');
+        }
+    }
+
+    /**
+     * Create direct supplier order
+     * 
+     * @group New Order
+     */
+    public function storeDirectSupplier(StoreDirectSupplierOrderRequest $request): JsonResponse
+    {
+        try {
+            $data = $request->validated();
+            $data['order_type'] = OrderType::DIRECT_SUPPLIER;
+            $data['branch_id'] = auth()->user()->branch_id;
+            $data['requested_by'] = auth()->id();
+            
+            $order = $this->orderService->createOrder($data);
+            
+            return $this->createdResponse(
+                new PurchaseOrderResource($order),
+                'Direct supplier order created successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'creating direct supplier order');
+        }
+    }
+
+    /**
+     * Create via purchasing officer order
+     * 
+     * @group New Order
+     */
+    public function storePurchasingOfficer(StorePurchasingOfficerOrderRequest $request): JsonResponse
+    {
+        try {
+            $data = $request->validated();
+            $data['order_type'] = OrderType::VIA_PURCHASING_OFFICER;
+            $data['branch_id'] = auth()->user()->branch_id;
+            $data['requested_by'] = auth()->id();
+            
+            $order = $this->orderService->createOrder($data);
+            
+            return $this->createdResponse(
+                new PurchaseOrderResource($order),
+                'Purchasing officer order created successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'creating purchasing officer order');
+        }
+    }
+
+    /**
+     * Create internal transfer order
+     * 
+     * @group New Order
+     */
+    public function storeInternalTransfer(StoreInternalTransferRequest $request): JsonResponse
+    {
+        try {
+            $data = $request->validated();
+            $data['order_type'] = OrderType::INTERNAL_TRANSFER;
+            $data['branch_id'] = auth()->user()->branch_id;
+            $data['to_branch_id'] = auth()->user()->branch_id;
+            $data['requested_by'] = auth()->id();
+            
+            $order = $this->orderService->createOrder($data);
+            
+            return $this->createdResponse(
+                new PurchaseOrderResource($order),
+                'Internal transfer order created successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'creating internal transfer order');
+        }
+    }
+
+    /**
+     * Save order as draft
+     * 
+     * @group New Order
+     */
+    public function saveDraft(Request $request): JsonResponse
+    {
+        try {
+            $data = $request->all();
+            $data['branch_id'] = auth()->user()->branch_id;
+            $data['requested_by'] = auth()->id();
+            
+            $order = $this->orderService->saveDraft($data);
+            
+            return $this->createdResponse(
+                new PurchaseOrderResource($order),
+                'Order saved as draft successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'saving draft');
+        }
+    }
+
+    /**
+     * Submit order
+     * 
+     * @group New Order
+     */
+    public function submit(string $id): JsonResponse
+    {
+        try {
+            $order = $this->orderService->getOrderDetails($id);
+            
+            if (!$order) {
+                return $this->notFoundResponse('Order not found');
+            }
+            
+            $success = $this->orderService->submitOrder($order);
+            
+            if (!$success) {
+                return $this->errorResponse('Cannot submit order in current status', 400);
+            }
+            
+            return $this->successResponse(
+                new PurchaseOrderResource($order->fresh(['items', 'supplier', 'branch'])),
+                'Order submitted successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'submitting order');
+        }
+    }
+
+    /**
+     * Get order summary
+     * 
+     * @group New Order
+     */
+    public function getSummary(string $id): JsonResponse
+    {
+        try {
+            $order = $this->orderService->getOrderDetails($id);
+            
+            if (!$order) {
+                return $this->notFoundResponse('Order not found');
+            }
+            
+            return $this->successResponse(
+                new OrderSummaryResource($order),
+                'Order summary retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching order summary');
+        }
+    }
+
+    /**
+     * Update order items
+     * 
+     * @group New Order
+     */
+    public function updateItems(Request $request, string $id): JsonResponse
+    {
+        try {
+            $order = $this->orderService->getOrderDetails($id);
+            
+            if (!$order) {
+                return $this->notFoundResponse('Order not found');
+            }
+            
+            $this->orderService->updateItems($order, $request->get('items', []));
+            
+            return $this->successResponse(
+                new PurchaseOrderResource($order->fresh(['items'])),
+                'Order items updated successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'updating order items');
+        }
+    }
+}
+
