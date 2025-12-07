@@ -5,6 +5,7 @@ namespace Modules\Shift\Transformers;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Carbon\Carbon;
 use Modules\Shift\Models\CashierShiftHandover;
+use Modules\Shift\Models\BranchManagerShift;
 
 /**
  * BranchManagerShiftResource
@@ -101,23 +102,16 @@ class BranchManagerShiftResource extends JsonResource
      */
     private function getHandoffsSummary(): array
     {
-        // Use the same method as getHandoverSummary() to ensure consistency
-        // Try to use loaded relationship first, otherwise use direct query
-        $handovers = $this->whenLoaded('cashierHandovers', 
-            fn() => $this->cashierHandovers, 
-            function() {
-                // Fallback to direct query if relationship not loaded
-                return \Modules\Shift\Models\CashierShiftHandover::where('handover_to_type', 'branch_manager')
-                    ->where('handover_to_id', $this->branch_manager_id)
-                    ->whereHas('cashierShift', function ($query) {
-                        $query->whereDate('shift_date', $this->shift_date)
-                            ->whereHas('shift', function ($q) {
-                                $q->where('branch_id', $this->branch_id);
-                            });
-                    })
-                    ->get();
-            }
-        );
+        // Always use direct query to ensure consistency (same as getHandoverSummary in model)
+        $handovers = \Modules\Shift\Models\CashierShiftHandover::where('handover_to_type', 'branch_manager')
+            ->where('handover_to_id', $this->branch_manager_id)
+            ->whereHas('cashierShift', function ($query) {
+                $query->whereDate('shift_date', $this->shift_date)
+                    ->whereHas('shift', function ($q) {
+                        $q->where('branch_id', $this->branch_id);
+                    });
+            })
+            ->get();
 
         return [
             'total_handovers' => $handovers->count(),
@@ -203,14 +197,59 @@ class BranchManagerShiftResource extends JsonResource
      */
     private function getFinancialSummary(): array
     {
+        // If shift has financial data, use it
+        if ($this->total_sales > 0 || $this->cash_collected > 0 || $this->card_payments > 0) {
+            return [
+                'total_sales' => (float) ($this->total_sales ?? 0),
+                'net_sales' => (float) ($this->net_sales ?? 0),
+                'vat_amount' => (float) ($this->vat_amount ?? 0),
+                'cash_collected' => (float) ($this->cash_collected ?? 0),
+                'card_payments' => (float) ($this->card_payments ?? 0),
+                'aggregator_payments' => (float) ($this->aggregator_payments ?? 0),
+                'total_variance' => (float) ($this->variance ?? 0),
+            ];
+        }
+
+        // Otherwise, calculate from handovers
+        $handovers = \Modules\Shift\Models\CashierShiftHandover::where('handover_to_type', 'branch_manager')
+            ->where('handover_to_id', $this->branch_manager_id)
+            ->whereHas('cashierShift', function ($query) {
+                $query->whereDate('shift_date', $this->shift_date)
+                    ->whereHas('shift', function ($q) {
+                        $q->where('branch_id', $this->branch_id);
+                    });
+            })
+            ->with([
+                'cashierShift.salesBreakdown.aggregator'
+            ])
+            ->get();
+
+        $totalSales = 0;
+        $cashCollected = 0;
+        $cardPayments = 0;
+        $aggregatorPayments = 0;
+        $totalVariance = 0;
+
+        foreach ($handovers as $handover) {
+            $cashierShift = $handover->cashierShift;
+            $totalSales += $cashierShift->total_sales ?? 0;
+            $cashCollected += $cashierShift->cash_collected ?? 0;
+            $cardPayments += $cashierShift->card_payments ?? 0;
+            $aggregatorPayments += $cashierShift->salesBreakdown->sum('amount');
+            $totalVariance += $handover->variance_amount ?? 0;
+        }
+
+        $vatAmount = $totalSales * 0.15;
+        $netSales = $totalSales - $vatAmount;
+
         return [
-            'total_sales' => (float) ($this->total_sales ?? 0),
-            'net_sales' => (float) ($this->net_sales ?? 0),
-            'vat_amount' => (float) ($this->vat_amount ?? 0),
-            'cash_collected' => (float) ($this->cash_collected ?? 0),
-            'card_payments' => (float) ($this->card_payments ?? 0),
-            'aggregator_payments' => (float) ($this->aggregator_payments ?? 0),
-            'total_variance' => (float) ($this->variance ?? 0),
+            'total_sales' => (float) $totalSales,
+            'net_sales' => (float) $netSales,
+            'vat_amount' => (float) $vatAmount,
+            'cash_collected' => (float) $cashCollected,
+            'card_payments' => (float) $cardPayments,
+            'aggregator_payments' => (float) $aggregatorPayments,
+            'total_variance' => (float) $totalVariance,
         ];
     }
 
