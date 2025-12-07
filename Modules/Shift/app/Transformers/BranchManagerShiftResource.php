@@ -4,6 +4,7 @@ namespace Modules\Shift\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 use Carbon\Carbon;
+use Modules\Shift\Models\CashierShiftHandover;
 
 /**
  * BranchManagerShiftResource
@@ -100,7 +101,23 @@ class BranchManagerShiftResource extends JsonResource
      */
     private function getHandoffsSummary(): array
     {
-        $handovers = $this->whenLoaded('cashierHandovers', fn() => $this->cashierHandovers, collect());
+        // Use the same method as getHandoverSummary() to ensure consistency
+        // Try to use loaded relationship first, otherwise use direct query
+        $handovers = $this->whenLoaded('cashierHandovers', 
+            fn() => $this->cashierHandovers, 
+            function() {
+                // Fallback to direct query if relationship not loaded
+                return \Modules\Shift\Models\CashierShiftHandover::where('handover_to_type', 'branch_manager')
+                    ->where('handover_to_id', $this->branch_manager_id)
+                    ->whereHas('cashierShift', function ($query) {
+                        $query->whereDate('shift_date', $this->shift_date)
+                            ->whereHas('shift', function ($q) {
+                                $q->where('branch_id', $this->branch_id);
+                            });
+                    })
+                    ->get();
+            }
+        );
 
         return [
             'total_handovers' => $handovers->count(),
