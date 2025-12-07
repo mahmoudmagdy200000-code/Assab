@@ -7,7 +7,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Modules\Shift\Models\BranchManagerShift;
+use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
+use Modules\Shift\Models\ShiftSalesBreakdown;
 use Modules\Shift\Services\BranchManagerShiftService;
 use Modules\Shift\Transformers\BranchManagerShiftResource;
 
@@ -733,6 +735,14 @@ class BranchManagerShiftController extends BaseController
             'cash_collected' => 'nullable|numeric|min:0',
             'card_payments' => 'nullable|numeric|min:0',
             'aggregator_payments' => 'nullable|numeric|min:0',
+            // Cashier breakdown (optional - can update individual cashier shifts)
+            'cashier_breakdown' => 'nullable|array',
+            'cashier_breakdown.*.cashier_id' => 'required_with:cashier_breakdown|exists:cashiers,id',
+            'cashier_breakdown.*.cash_collected' => 'nullable|numeric|min:0',
+            'cashier_breakdown.*.card_payments' => 'nullable|numeric|min:0',
+            'cashier_breakdown.*.delivery_app_payments' => 'nullable|numeric|min:0',
+            'cashier_breakdown.*.variance' => 'nullable|numeric',
+            'cashier_breakdown.*.sales' => 'nullable|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -750,7 +760,105 @@ class BranchManagerShiftController extends BaseController
                 return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved.', 400);
             }
 
-            // Calculate financial summary from cashier shifts (as fallback)
+            // Get all handovers for this manager shift
+            $handovers = \Modules\Shift\Models\CashierShiftHandover::where('handover_to_type', 'branch_manager')
+                ->where('handover_to_id', $manager->id)
+                ->whereHas('cashierShift', function ($query) use ($managerShift) {
+                    $query->whereDate('shift_date', $managerShift->shift_date)
+                        ->whereHas('shift', function ($q) use ($managerShift) {
+                            $q->where('branch_id', $managerShift->branch_id);
+                        });
+                })
+                ->with([
+                    'cashierShift.cashier',
+                    'cashierShift.salesBreakdown.aggregator'
+                ])
+                ->get();
+
+            // If cashier_breakdown is provided, update each cashier shift
+            if ($request->has('cashier_breakdown') && is_array($request->cashier_breakdown)) {
+                foreach ($request->cashier_breakdown as $breakdown) {
+                    $cashierId = $breakdown['cashier_id'] ?? null;
+                    if (!$cashierId) {
+                        continue;
+                    }
+
+                    // Find the cashier shift for this cashier
+                    $cashierShift = \Modules\Shift\Models\CashierShift::where('cashier_id', $cashierId)
+                        ->whereDate('shift_date', $managerShift->shift_date)
+                        ->whereHas('shift', function ($q) use ($managerShift) {
+                            $q->where('branch_id', $managerShift->branch_id);
+                        })
+                        ->first();
+
+                    if ($cashierShift) {
+                        // Update cashier shift with provided values
+                        $updateCashierData = [];
+
+                        if (isset($breakdown['sales'])) {
+                            $updateCashierData['total_sales'] = $breakdown['sales'];
+                            // Calculate VAT and Net Sales
+                            $updateCashierData['vat_amount'] = $breakdown['sales'] * 0.15;
+                            $updateCashierData['net_sales'] = $breakdown['sales'] - $updateCashierData['vat_amount'];
+                        }
+
+                        if (isset($breakdown['cash_collected'])) {
+                            $updateCashierData['cash_collected'] = $breakdown['cash_collected'];
+                        }
+
+                        if (isset($breakdown['card_payments'])) {
+                            $updateCashierData['card_payments'] = $breakdown['card_payments'];
+                        }
+
+                        // Update variance if provided
+                        if (isset($breakdown['variance'])) {
+                            $updateCashierData['variance'] = $breakdown['variance'];
+                        }
+
+                        // Update delivery app payments if provided
+                        if (isset($breakdown['delivery_app_payments'])) {
+                            // Delete existing sales breakdown and create new one with total amount
+                            // Note: If there are multiple aggregators, we'll sum them into one entry
+                            // Or we can distribute the amount proportionally
+                            $existingBreakdown = $cashierShift->salesBreakdown;
+
+                            if ($existingBreakdown->isNotEmpty()) {
+                                // If there's only one aggregator, update it
+                                if ($existingBreakdown->count() === 1) {
+                                    $existingBreakdown->first()->update(['amount' => $breakdown['delivery_app_payments']]);
+                                } else {
+                                    // If multiple aggregators, delete all and create one with total
+                                    $firstAggregator = $existingBreakdown->first();
+                                    $aggregatorId = $firstAggregator->aggregator_id;
+
+                                    $existingBreakdown->each->delete();
+
+                                    \Modules\Shift\Models\ShiftSalesBreakdown::create([
+                                        'cashier_shift_id' => $cashierShift->id,
+                                        'aggregator_id' => $aggregatorId,
+                                        'amount' => $breakdown['delivery_app_payments'],
+                                    ]);
+                                }
+                            }
+                        }
+
+                        if (!empty($updateCashierData)) {
+                            $cashierShift->update($updateCashierData);
+                        }
+
+                        // Update handover variance if handover exists
+                        $handover = $handovers->firstWhere('cashierShift.cashier_id', $cashierId);
+                        if ($handover && isset($breakdown['variance'])) {
+                            $handover->update(['variance_amount' => $breakdown['variance']]);
+                        }
+                    }
+                }
+
+                // Refresh handovers after updates
+                $handovers->load('cashierShift.cashier', 'cashierShift.salesBreakdown.aggregator');
+            }
+
+            // Calculate financial summary from updated cashier shifts
             $financialSummary = $this->calculateFinancialSummary($managerShift);
 
             // Use provided financial values or calculate from cashier shifts
@@ -838,6 +946,37 @@ class BranchManagerShiftController extends BaseController
             $managerShift->refresh();
             $managerShift->load('nextManager');
 
+            // Prepare cashier breakdown for response (from updated data)
+            $cashierBreakdownResponse = [];
+            $updatedHandovers = \Modules\Shift\Models\CashierShiftHandover::where('handover_to_type', 'branch_manager')
+                ->where('handover_to_id', $manager->id)
+                ->whereHas('cashierShift', function ($query) use ($managerShift) {
+                    $query->whereDate('shift_date', $managerShift->shift_date)
+                        ->whereHas('shift', function ($q) use ($managerShift) {
+                            $q->where('branch_id', $managerShift->branch_id);
+                        });
+                })
+                ->with([
+                    'cashierShift.cashier',
+                    'cashierShift.salesBreakdown.aggregator'
+                ])
+                ->get();
+
+            foreach ($updatedHandovers as $handover) {
+                $cashierShift = $handover->cashierShift;
+                $deliveryApps = $cashierShift->salesBreakdown->sum('amount');
+
+                $cashierBreakdownResponse[] = [
+                    'cashier_name' => $cashierShift->cashier->name,
+                    'cashier_id' => $cashierShift->cashier_id,
+                    'cash_collected' => (float) ($cashierShift->cash_collected ?? 0),
+                    'card_payments' => (float) ($cashierShift->card_payments ?? 0),
+                    'delivery_app_payments' => (float) $deliveryApps,
+                    'variance' => (float) ($handover->variance_amount ?? 0),
+                    'sales' => (float) ($cashierShift->total_sales ?? 0),
+                ];
+            }
+
             return $this->successResponse([
                 'shift' => new BranchManagerShiftResource($managerShift),
                 // Section D: Final Handover and End Shift - Exact format as per requirements
@@ -862,6 +1001,8 @@ class BranchManagerShiftController extends BaseController
                     'total_sales' => (float) $totalSales,
                     'shift_date' => $managerShift->shift_date->format('Y-m-d'),
                 ],
+                // Section E: Cashier Breakdown (per-cashier breakdown)
+                'cashier_breakdown' => $cashierBreakdownResponse,
                 'message' => 'Shift ended and handover recorded successfully'
             ], 'Shift ended successfully');
         } catch (\Exception $e) {
