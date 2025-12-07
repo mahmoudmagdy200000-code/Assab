@@ -129,11 +129,42 @@ class PurchaseOrderService
     public function createOrder(array $data): PurchaseOrder
     {
         return DB::transaction(function () use ($data) {
+            // Set sourceable_type and sourceable_id based on order type
+            $sourceableType = null;
+            $sourceableId = null;
+            
+            $orderType = is_string($data['order_type']) 
+                ? OrderType::from($data['order_type']) 
+                : $data['order_type'];
+            
+            if ($orderType === OrderType::DIRECT_SUPPLIER) {
+                $sourceableType = \Modules\Purchase\Models\PurchaseSupplier::class;
+                $sourceableId = $data['supplier_id'] ?? null;
+                if (!$sourceableId) {
+                    throw new \InvalidArgumentException('Supplier ID is required for direct supplier orders');
+                }
+            } elseif ($orderType === OrderType::VIA_PURCHASING_OFFICER) {
+                // For purchasing officer orders, use the branch manager as source
+                $sourceableType = \Modules\BranchManagers\Models\BranchManager::class;
+                $sourceableId = $data['requested_by'] ?? null;
+                if (!$sourceableId) {
+                    throw new \InvalidArgumentException('Requested by (Branch Manager ID) is required');
+                }
+            } elseif ($orderType === OrderType::INTERNAL_TRANSFER) {
+                $sourceableType = \Modules\Branch\Models\Branch::class;
+                $sourceableId = $data['from_branch_id'] ?? null;
+                if (!$sourceableId) {
+                    throw new \InvalidArgumentException('From branch ID is required for internal transfer orders');
+                }
+            }
+            
             $order = PurchaseOrder::create([
                 'order_type' => $data['order_type'],
                 'status' => $data['status'] ?? OrderStatus::DRAFT,
                 'branch_id' => $data['branch_id'],
                 'requested_by' => $data['requested_by'],
+                'sourceable_type' => $sourceableType,
+                'sourceable_id' => $sourceableId,
                 'supplier_id' => $data['supplier_id'] ?? null,
                 'from_branch_id' => $data['from_branch_id'] ?? null,
                 'to_branch_id' => $data['to_branch_id'] ?? null,

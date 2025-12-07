@@ -1,0 +1,1931 @@
+{
+  "info": {
+    "name": "Purchase Management Module API",
+    "description": "Comprehensive Purchase Management API for Branch Managers - Handles order creation, tracking, receiving goods, and return management",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "assab-purchase-module"
+  },
+  "item": [
+    {
+      "name": "Purchase History (3.1.2.4.1)",
+      "item": [
+        {
+          "name": "Get Purchase History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/history?search=&perspective=submitted&type=all&status[]=closed&date_range=last_30d&per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "history"],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "Search by item name"
+                },
+                {
+                  "key": "perspective",
+                  "value": "submitted",
+                  "description": "Request perspective: submitted or received"
+                },
+                {
+                  "key": "type",
+                  "value": "all",
+                  "description": "Order type: all, direct_supplier, via_purchasing_officer, internal_transfer"
+                },
+                {
+                  "key": "status[]",
+                  "value": "closed",
+                  "description": "Status filter"
+                },
+                {
+                  "key": "date_range",
+                  "value": "last_30d",
+                  "description": "Date range: last_24h, last_7d, last_30d, custom"
+                },
+                {
+                  "key": "per_page",
+                  "value": "15"
+                }
+              ]
+            },
+            "description": "Retrieve list of completed/canceled/closed orders with filtering options"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Order Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/history/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "history", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "Order UUID"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Order Timeline",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/history/:id/timeline",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "history", ":id", "timeline"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "New Order (3.1.2.4.2)",
+      "item": [
+        {
+          "name": "Compare Prices",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"item_id\": \"uuid-here\",\n  \"quantity\": 10.5,\n  \"branch_id\": \"uuid-here\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/orders/compare-prices",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "orders", "compare-prices"]
+            },
+            "description": "Compare prices for an item across Direct Supplier, Via PO, and Internal Transfer"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Suppliers for Item",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/orders/suppliers?item_id=uuid&status=online&max_delivery_hours=24&search=",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "orders", "suppliers"],
+              "query": [
+                {
+                  "key": "item_id",
+                  "value": "uuid",
+                  "description": "Item UUID"
+                },
+                {
+                  "key": "status",
+                  "value": "online",
+                  "description": "Filter by status: online, offline, away"
+                },
+                {
+                  "key": "max_delivery_hours",
+                  "value": "24",
+                  "description": "Maximum delivery time in hours"
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "Search by supplier name"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Branches with Stock",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/orders/branches?item_id=uuid&quantity=10&min_availability=60&search=",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "orders", "branches"],
+              "query": [
+                {
+                  "key": "item_id",
+                  "value": "uuid"
+                },
+                {
+                  "key": "quantity",
+                  "value": "10"
+                },
+                {
+                  "key": "min_availability",
+                  "value": "60",
+                  "description": "Minimum availability percentage (60-100)"
+                },
+                {
+                  "key": "search",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Direct Supplier Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplier_id\": \"uuid-here\",\n  \"quality_level\": \"standard\",\n  \"notification_channels\": [\"email\", \"whatsapp\"],\n  \"message\": \"Please deliver as soon as possible\",\n  \"items\": [\n    {\n      \"item_id\": \"uuid-here\",\n      \"item_name\": \"Fresh Tomatoes\",\n      \"item_logo\": \"https://example.com/logo.jpg\",\n      \"quantity\": 50.5,\n      \"unit\": \"kg\",\n      \"unit_price\": 15.50,\n      \"quality\": \"standard\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/orders/direct-supplier",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "orders", "direct-supplier"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Via Purchasing Officer Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quality_level\": \"premium\",\n  \"processing_time\": \"urgent\",\n  \"preferred_delivery_date\": \"2025-12-15\",\n  \"latest_delivery_date\": \"2025-12-20\",\n  \"special_instructions\": \"Handle with care\",\n  \"items\": [\n    {\n      \"item_name\": \"Premium Rice\",\n      \"quantity\": 100,\n      \"unit\": \"kg\",\n      \"unit_price\": 25.00\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/orders/purchasing-officer",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "orders", "purchasing-officer"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Internal Transfer Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"from_branch_id\": \"uuid-here\",\n  \"priority\": \"high\",\n  \"message\": \"Urgent transfer needed\",\n  \"items\": [\n    {\n      \"item_name\": \"Milk Cartons\",\n      \"quantity\": 20,\n      \"unit\": \"box\",\n      \"quality\": \"standard\",\n      \"available_in_source\": 25,\n      \"expiry_date\": \"2025-12-31\",\n      \"cooling_status\": true\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/orders/internal-transfer",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "orders", "internal-transfer"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Save Order as Draft",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"order_type\": \"direct_supplier\",\n  \"items\": [\n    {\n      \"item_name\": \"Item Name\",\n      \"quantity\": 10,\n      \"unit\": \"kg\",\n      \"unit_price\": 20.00\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/orders/draft",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "orders", "draft"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Order Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/orders/:id/summary",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "orders", ":id", "summary"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Submit Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/orders/:id/submit",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "orders", ":id", "submit"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Pending Orders (3.1.2.4.3)",
+      "item": [
+        {
+          "name": "Get Pending Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/pending?type=direct_supplier&status=pending&date_range=last_7d&per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "pending"],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "direct_supplier"
+                },
+                {
+                  "key": "status",
+                  "value": "pending"
+                },
+                {
+                  "key": "date_range",
+                  "value": "last_7d"
+                },
+                {
+                  "key": "per_page",
+                  "value": "15"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Pending Order Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/pending/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "pending", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Approve Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"item_id\": \"uuid-here\",\n      \"quantity\": 50\n    }\n  ],\n  \"notes\": \"Approved as requested\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/pending/:id/approve",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "pending", ":id", "approve"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Partial Approve Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"item_id\": \"uuid-here\",\n      \"quantity\": 30\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/pending/:id/partial-approve",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "pending", ":id", "partial-approve"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reject Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Items not available at requested quality\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/pending/:id/reject",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "pending", ":id", "reject"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"No longer needed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/pending/:id/cancel",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "pending", ":id", "cancel"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Approve Transfer Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve_all\",\n  \"ready_time\": \"1_hour\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/pending/:id/approve-transfer",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "pending", ":id", "approve-transfer"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Order Timeline",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/pending/:id/timeline",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "pending", ":id", "timeline"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Goods Receiving (3.1.2.4.4)",
+      "item": [
+        {
+          "name": "Get In-Progress Receipts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/in-progress?per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", "in-progress"],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "15"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Orders for Receiving",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/orders?type=direct_supplier&per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", "orders"],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "direct_supplier"
+                },
+                {
+                  "key": "per_page",
+                  "value": "15"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Start Receiving Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/orders/:orderId/start",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", "orders", ":orderId", "start"],
+              "variable": [
+                {
+                  "key": "orderId",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Delivery Details",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driver_name\": \"Ahmed Ali\",\n  \"driver_contact\": \"+966501234567\",\n  \"vehicle_number\": \"ABC-1234\",\n  \"arrival_time\": \"2025-12-07T10:30:00Z\",\n  \"delivery_address\": \"Branch Location\",\n  \"delivery_notes\": \"Delivered on time\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/:id/delivery-details",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", ":id", "delivery-details"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Inspect Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity_received\": 48.5,\n  \"quality\": \"normal\",\n  \"temperature\": 4.5,\n  \"expiry_date\": \"2025-12-31\",\n  \"notes\": \"Good condition\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/:id/items/:itemId/inspect",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", ":id", "items", ":itemId", "inspect"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                },
+                {
+                  "key": "itemId",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Unlisted Item (Gift)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"item_name\": \"Free Sample Product\",\n  \"item_id\": \"uuid-here\",\n  \"unit\": \"kg\",\n  \"quantity\": 5,\n  \"quality\": \"excellent\",\n  \"price_per_unit\": 0,\n  \"supplier_id\": \"uuid-here\",\n  \"reason\": \"Gift from supplier\",\n  \"temperature\": 2.0,\n  \"expiry_date\": \"2025-12-31\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/:id/unlisted-item",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", ":id", "unlisted-item"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Set Document Type",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"document_type\": \"invoice\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/:id/document-type",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", ":id", "document-type"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Invoice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "invoice_number",
+                  "value": "INV-2025-001",
+                  "type": "text"
+                },
+                {
+                  "key": "invoice_date",
+                  "value": "2025-12-07",
+                  "type": "text"
+                },
+                {
+                  "key": "amount_before_tax",
+                  "value": "1000.00",
+                  "type": "text"
+                },
+                {
+                  "key": "tax_rate",
+                  "value": "15.00",
+                  "type": "text"
+                },
+                {
+                  "key": "payment_terms",
+                  "value": "Net 30 days",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/:id/invoice",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", ":id", "invoice"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Complete Inspection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/:id/complete",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", ":id", "complete"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Save Receipt as Draft",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/:id/save-draft",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", ":id", "save-draft"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Draft Receipts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/drafts?per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", "drafts"],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "15"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Draft",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/:id/draft",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", ":id", "draft"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Missing Goods Receipts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/missing?per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", "missing"],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "15"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Completed Receipts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/completed?per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", "completed"],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "15"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Handle Variance Action",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"compensatory_order\",\n  \"supplier_id\": \"uuid-here\",\n  \"deadline\": \"2025-12-15\",\n  \"notes\": \"Urgent replacement needed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/variances/:varianceId/action",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", "variances", ":varianceId", "action"],
+              "variable": [
+                {
+                  "key": "varianceId",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Receive Without Prior Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplier_id\": \"uuid-here\",\n  \"supplier_name\": \"New Supplier\",\n  \"delivery_reference\": \"REF-001\",\n  \"driver_name\": \"Driver Name\",\n  \"driver_contact\": \"+966501234567\",\n  \"vehicle_number\": \"ABC-1234\",\n  \"arrival_time\": \"2025-12-07T10:00:00Z\",\n  \"items\": [\n    {\n      \"product_name\": \"Fresh Vegetables\",\n      \"unit\": \"kg\",\n      \"quantity\": 25.5,\n      \"price_per_unit\": 12.00,\n      \"quality\": \"excellent\",\n      \"temperature\": 4.0,\n      \"expiry_date\": \"2025-12-20\",\n      \"payment_terms\": \"Net 30 days\",\n      \"note\": \"Received in good condition\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/without-order",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", "without-order"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Receipt Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/receiving/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "receiving", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Return Management (3.1.2.4.5)",
+      "item": [
+        {
+          "name": "Get In-Progress Returns",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/returns/in-progress?per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "returns", "in-progress"],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "15"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Draft Returns",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/returns/drafts?per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "returns", "drafts"],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "15"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Completed Returns",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/returns/completed?per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "returns", "completed"],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "15"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Return Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"purchase_order_id\": \"uuid-here\",\n  \"required_action\": \"cash_refund\",\n  \"additional_notes\": \"Items damaged during delivery\",\n  \"items\": [\n    {\n      \"purchase_order_item_id\": \"uuid-here\",\n      \"item_name\": \"Damaged Product\",\n      \"item_logo\": \"https://example.com/logo.jpg\",\n      \"return_quantity\": 10,\n      \"unit\": \"kg\",\n      \"quality_reason\": \"poor\",\n      \"unit_price\": 15.50,\n      \"notes\": \"Product was damaged\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/returns",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "returns"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Return Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/returns/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "returns", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Return Order",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"required_action\": \"replacement\",\n  \"additional_notes\": \"Updated notes\",\n  \"items\": [\n    {\n      \"id\": \"uuid-here\",\n      \"return_quantity\": 15,\n      \"quality_reason\": \"poor\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/returns/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "returns", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Submit Return Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/returns/:id/submit",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "returns", ":id", "submit"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Accept Rejection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/returns/:id/accept-rejection",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "returns", ":id", "accept-rejection"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Escalate Return",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Supplier rejected without valid reason\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/returns/:id/escalate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "returns", ":id", "escalate"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Save Return as Draft",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"purchase_order_id\": \"uuid-here\",\n  \"required_action\": \"cash_refund\",\n  \"items\": [\n    {\n      \"item_name\": \"Item Name\",\n      \"return_quantity\": 10,\n      \"quality_reason\": \"poor\",\n      \"unit_price\": 15.50\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/returns/draft",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "returns", "draft"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Draft Return",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/returns/:id/draft",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "returns", ":id", "draft"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Return Timeline",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/returns/:id/timeline",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "returns", ":id", "timeline"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Suppliers",
+      "item": [
+        {
+          "name": "Get Suppliers List",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/suppliers?status=online&available_only=true&max_delivery_hours=24&min_rating=4.0&search=&per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "suppliers"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "online",
+                  "description": "Filter by status: online, offline, away"
+                },
+                {
+                  "key": "available_only",
+                  "value": "true",
+                  "description": "Show only available suppliers"
+                },
+                {
+                  "key": "max_delivery_hours",
+                  "value": "24",
+                  "description": "Maximum delivery time"
+                },
+                {
+                  "key": "min_rating",
+                  "value": "4.0",
+                  "description": "Minimum rating"
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "Search by supplier name"
+                },
+                {
+                  "key": "per_page",
+                  "value": "15"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Supplier Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/suppliers/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "suppliers", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Supplier Items",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/suppliers/:id/items?available_only=true&per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "suppliers", ":id", "items"],
+              "query": [
+                {
+                  "key": "available_only",
+                  "value": "true"
+                },
+                {
+                  "key": "per_page",
+                  "value": "15"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Supplier Order History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/suppliers/:id/orders?per_page=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "suppliers", ":id", "orders"],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "15"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Supplier Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/suppliers/:id/statistics",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase", "suppliers", ":id", "statistics"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}
+
