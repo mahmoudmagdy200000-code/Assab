@@ -215,6 +215,8 @@ Route::prefix('branch-manager/workday')
         // Section E: Final Daily Close
         Route::get('/daily-close', [BranchManagerShiftController::class, 'getFinalDailyClose'])
             ->name('workday.daily-close');
+        Route::put('/daily-close', [BranchManagerShiftController::class, 'updateFinalDailyClose'])
+            ->name('workday.daily-close.update');
         Route::post('/daily-close/submit', [BranchManagerShiftController::class, 'submitDailyReport'])
             ->name('workday.daily-close.submit');
         Route::post('/daily-close/reopen', [BranchManagerShiftController::class, 'reopenShift'])
@@ -320,7 +322,7 @@ Route::prefix('cashier')
         */
         Route::get('shifts/history', [CashierShiftController::class, 'shiftHistory'])
             ->name('cashier.shifts.history');
-        
+
         // Weekly summary
         Route::get('shifts/weekly-summary', [CashierShiftController::class, 'weeklySummary'])
             ->name('cashier.shifts.weekly-summary');
