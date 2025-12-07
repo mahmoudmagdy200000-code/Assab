@@ -203,6 +203,8 @@ Route::prefix('branch-manager/workday')
         // Section C: Handoffs Received
         Route::get('/handoffs', [BranchManagerShiftController::class, 'getHandoffsReceived'])
             ->name('workday.handoffs');
+        Route::get('/handoffs/cashier/{handoverId}', [BranchManagerShiftController::class, 'getCashierHandoverDetails'])
+            ->name('workday.handoffs.cashier.details');
         Route::post('/handoffs/approve', [BranchManagerShiftController::class, 'approveHandoff'])
             ->name('workday.handoffs.approve');
         Route::post('/handoffs/reject', [BranchManagerShiftController::class, 'rejectHandoff'])
@@ -211,6 +213,8 @@ Route::prefix('branch-manager/workday')
         // Section D: Final Handover and End Shift
         Route::post('/end', [BranchManagerShiftController::class, 'endShift'])
             ->name('workday.end');
+        Route::get('/final-handover/{shiftId}', [BranchManagerShiftController::class, 'getManagerFinalHandover'])
+            ->name('workday.final-handover.details');
 
         // Section E: Final Daily Close
         Route::get('/daily-close', [BranchManagerShiftController::class, 'getFinalDailyClose'])
