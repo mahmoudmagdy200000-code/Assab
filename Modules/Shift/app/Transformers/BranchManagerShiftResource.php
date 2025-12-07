@@ -151,6 +151,14 @@ class BranchManagerShiftResource extends JsonResource
             ? now()->subDay()->format('Y-m-d H:i:s')
             : now()->format('Y-m-d H:i:s');
 
+        // Calculate expected_balance and variance from financial data
+        // expected_balance = total_sales
+        $expectedBalance = (float) ($this->total_sales ?? 0);
+        // closing_balance = handover_amount (المبلغ الذي تم تسليمه)
+        $closingBalance = (float) ($this->handover_amount ?? $this->closing_balance ?? 0);
+        // variance = expected_balance - closing_balance
+        $variance = $expectedBalance - $closingBalance;
+
         return [
             'handover_amount' => (float) ($this->handover_amount ?? 0), // ✅ Handover Amount
             'status' => $status, // ✅ Status: Completed, Not Submitted, or Pending
@@ -164,10 +172,10 @@ class BranchManagerShiftResource extends JsonResource
             'handover_notes' => $this->handover_notes,
             // Additional info
             'opening_balance' => (float) ($this->opening_balance ?? 0),
-            'closing_balance' => (float) ($this->closing_balance ?? 0),
-            'expected_balance' => (float) ($this->expected_balance ?? 0),
-            'variance' => (float) ($this->variance ?? 0),
-            'variance_type' => $this->variance > 0 ? 'Over' : ($this->variance < 0 ? 'Short' : 'None'),
+            'closing_balance' => $closingBalance, // handover_amount
+            'expected_balance' => $expectedBalance, // total_sales
+            'variance' => $variance, // expected_balance - closing_balance
+            'variance_type' => $variance > 0 ? 'Over' : ($variance < 0 ? 'Short' : 'None'),
         ];
     }
 
