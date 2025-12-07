@@ -6,7 +6,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
  * HandoverDetailResource
- * 
+ *
  * Comprehensive resource for handover details
  * Includes expandable variance information as per requirements
  */
@@ -28,8 +28,8 @@ class HandoverDetailResource extends JsonResource
             'cashier' => [
                 'id' => $cashierShift?->cashier_id,
                 'name' => $cashierShift?->cashier?->name ?? 'N/A',
-                'image' => $cashierShift?->cashier?->image 
-                    ? asset('storage/' . $cashierShift->cashier->image) 
+                'image' => $cashierShift?->cashier?->image
+                    ? asset('storage/' . $cashierShift->cashier->image)
                     : null,
             ],
 
@@ -40,12 +40,13 @@ class HandoverDetailResource extends JsonResource
                 'start_time' => $shift?->start_time?->format('H:i'),
                 'end_time' => $shift?->end_time?->format('H:i'),
                 'branch_name' => $shift?->branch?->name ?? 'N/A',
+                'branch_id' => $shift?->branch_id,
             ],
 
             // Handover Details
             'handover_amount' => (float) $this->handover_amount,
             'total_sales' => (float) ($cashierShift?->total_sales ?? 0),
-            
+
             // Status
             'status' => $this->status,
             'status_label' => $this->getStatusLabel(),
@@ -107,7 +108,7 @@ class HandoverDetailResource extends JsonResource
         // Add detailed variance breakdown if exists
         if ($hasVariance) {
             $details['reason_for_variance'] = $this->variance_reason;
-            $details['attached_files'] = $this->variance_files 
+            $details['attached_files'] = $this->variance_files
                 ? array_map(fn($f) => asset('storage/' . $f), $this->variance_files)
                 : [];
 

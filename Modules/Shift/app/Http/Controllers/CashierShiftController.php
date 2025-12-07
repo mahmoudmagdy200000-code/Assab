@@ -13,7 +13,7 @@ use Carbon\Carbon;
 
 /**
  * CashierShiftController
- * 
+ *
  * Handles all shift operations for Cashiers (Section 3.2.2)
  */
 class CashierShiftController extends BaseController
@@ -74,11 +74,12 @@ class CashierShiftController extends BaseController
                         'status' => $shift->status->value,
                         'status_label' => $this->getStatusLabel($shift->status),
                         'branch_name' => $shift->shift->branch->name ?? 'N/A',
+                        'branch_id' => $shift->shift->branch_id,
                         'branch_location' => $shift->shift->branch->address ?? 'N/A',
                         'duration' => $this->calculateDuration($shift),
                         'can_start' => $shift->status === ShiftStatus::NOT_STARTED && $shift->shift_date->isToday(),
                         'can_end' => $shift->status === ShiftStatus::IN_PROGRESS,
-                        'can_handover' => $shift->status === ShiftStatus::IN_PROGRESS || 
+                        'can_handover' => $shift->status === ShiftStatus::IN_PROGRESS ||
                             ($shift->total_sales > 0 && !$shift->handoverStatus?->isManagerApproved()),
                     ];
                 });
@@ -146,12 +147,12 @@ class CashierShiftController extends BaseController
 
             $transformedShifts = $shifts->getCollection()->map(function ($shift, $index) {
                 $isFirstShift = $index === 0;
-                
+
                 return [
                     'id' => $shift->id,
                     'date' => $shift->shift_date->format('Y-m-d'),
                     'status' => $shift->status->value,
-                    'status_label' => $shift->status === ShiftStatus::REASSIGNED 
+                    'status_label' => $shift->status === ShiftStatus::REASSIGNED
                         ? 'Reassigned (from another cashier with variance)'
                         : 'Not Started',
                     'start_time' => $shift->shift->start_time?->format('H:i') ?? 'N/A',
@@ -201,8 +202,8 @@ class CashierShiftController extends BaseController
                         'start_time' => $shift->shift->start_time?->format('H:i') ?? 'N/A',
                         'end_time' => $shift->shift->end_time?->format('H:i') ?? 'N/A',
                         'actual_start_time' => $shift->actual_start_time?->format('H:i:s'),
-                        'opening_balance' => $shift->opening_balance > 0 
-                            ? (float) $shift->opening_balance 
+                        'opening_balance' => $shift->opening_balance > 0
+                            ? (float) $shift->opening_balance
                             : 'Not yet recorded',
                         'assigned_to' => $shift->cashier->name ?? 'N/A',
                         'next_cashier' => $shift->nextCashier?->name ?? 'Auto-assigned',
@@ -343,6 +344,7 @@ class CashierShiftController extends BaseController
                     'variance' => (float) ($shift->variance ?? 0),
                     'variance_type' => $shift->variance > 0 ? 'Over' : ($shift->variance < 0 ? 'Short' : 'None'),
                     'branch_name' => $shift->shift->branch->name ?? 'N/A',
+                    'branch_id' => $shift->shift->branch_id,
                     'performance_metrics' => [
                         'total_sales' => (float) ($shift->total_sales ?? 0),
                         'cash_collected' => (float) ($shift->cash_collected ?? 0),
@@ -384,6 +386,7 @@ class CashierShiftController extends BaseController
                     'reassigned_by' => $shift->reassignedBy?->name ?? 'N/A',
                     'original_cashier' => $shift->originalCashier?->name ?? 'N/A',
                     'branch_name' => $shift->shift->branch->name ?? 'N/A',
+                    'branch_id' => $shift->shift->branch_id,
                     'status' => 'Reassigned',
                 ];
             });
@@ -542,8 +545,8 @@ class CashierShiftController extends BaseController
             $totalMinutes = $start->diffInMinutes($end);
             $elapsedMinutes = now()->diffInMinutes($start);
 
-            $progressPercentage = $totalMinutes > 0 
-                ? min(($elapsedMinutes / $totalMinutes) * 100, 100) 
+            $progressPercentage = $totalMinutes > 0
+                ? min(($elapsedMinutes / $totalMinutes) * 100, 100)
                 : 0;
             $elapsedHours = round($elapsedMinutes / 60, 2);
             $remainingHours = max(0, round(($totalMinutes - $elapsedMinutes) / 60, 2));

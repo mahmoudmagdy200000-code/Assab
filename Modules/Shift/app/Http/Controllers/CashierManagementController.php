@@ -86,6 +86,7 @@ class CashierManagementController extends BaseController
                     'email' => $cashier->email,
                     'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
                     'store_branch_name' => $cashier->branch->name ?? 'N/A',
+                    'store_branch_id' => $cashier->branch_id,
                     'number_of_shifts_per_day' => $shiftsPerDay,
                     'status' => $cashier->status,
                     'status_label' => $cashier->status_label ?? match($cashier->status) {
@@ -180,6 +181,7 @@ class CashierManagementController extends BaseController
                     'email' => $cashier->email,
                     'role' => 'Cashier',
                     'store_branch_name' => $cashier->branch->name ?? 'N/A',
+                    'store_branch_id' => $cashier->branch_id,
                     'status' => $cashier->status,
                 ],
                 'assigned_shifts' => $assignedShifts,
@@ -189,6 +191,7 @@ class CashierManagementController extends BaseController
                         'email' => $cashier->email,
                         'role' => 'Cashier',
                         'store_branch_name' => $cashier->branch->name ?? 'N/A',
+                        'store_branch_id' => $cashier->branch_id,
                     ],
                     'working_shifts' => $assignedShifts,
                 ],

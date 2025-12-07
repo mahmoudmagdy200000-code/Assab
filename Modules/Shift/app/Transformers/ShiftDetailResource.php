@@ -7,7 +7,7 @@ use Carbon\Carbon;
 
 /**
  * ShiftDetailResource
- * 
+ *
  * Comprehensive resource for shift details matching all UI requirements
  * Used for both Branch Manager and Cashier views
  */
@@ -249,7 +249,7 @@ class ShiftDetailResource extends JsonResource
                     'responsible_cashier_id' => $detail->responsible_cashier_id,
                     'assigned_amount' => (float) $detail->assigned_amount,
                     'reason' => $detail->reason,
-                    'supporting_files' => $detail->supporting_files 
+                    'supporting_files' => $detail->supporting_files
                         ? array_map(fn($f) => asset('storage/' . $f), $detail->supporting_files)
                         : [],
                 ];
@@ -314,6 +314,7 @@ class ShiftDetailResource extends JsonResource
     private function getProgressDescription(): string
     {
         $branchName = $this->shift?->branch?->name ?? 'Store';
+        
         $cashierName = $this->cashier?->name ?? 'Cashier';
         return "Working shift at {$branchName} assigned to {$cashierName}";
     }
