@@ -201,7 +201,11 @@ class PurchaseOrderService
      */
     public function addItem(PurchaseOrder $order, array $data): PurchaseOrderItem
     {
-        $totalPrice = ($data['quantity'] * $data['unit_price']) - ($data['discount'] ?? 0);
+        // For internal transfers, unit_price is optional (defaults to 0 - free transfer)
+        // For other order types, unit_price should be provided
+        $unitPrice = $data['unit_price'] ?? 0;
+        
+        $totalPrice = ($data['quantity'] * $unitPrice) - ($data['discount'] ?? 0);
 
         return PurchaseOrderItem::create([
             'purchase_order_id' => $order->id,
@@ -213,7 +217,7 @@ class PurchaseOrderService
             'subcategory' => $data['subcategory'] ?? null,
             'quantity_ordered' => $data['quantity'],
             'unit_of_measurement' => $data['unit'] ?? 'kg',
-            'unit_price' => $data['unit_price'],
+            'unit_price' => $unitPrice,
             'total_price' => $totalPrice,
             'discount' => $data['discount'] ?? 0,
             'quality_ordered' => $data['quality'] ?? null,
