@@ -85,12 +85,15 @@ class HandoverService
                 'status' => 'pending',
             ]);
 
-            // Create ShiftHandoverStatus for approval tracking
-            ShiftHandoverStatus::create([
-                'cashier_shift_id' => $shift->id,
-                'status' => HandoverStatus::PENDING,
-                'manager_approval_status' => 'pending',
-            ]);
+            // Create or update ShiftHandoverStatus for approval tracking
+            // Use updateOrCreate to avoid duplicate entry errors
+            ShiftHandoverStatus::updateOrCreate(
+                ['cashier_shift_id' => $shift->id],
+                [
+                    'status' => HandoverStatus::PENDING,
+                    'manager_approval_status' => 'pending',
+                ]
+            );
 
             // Record history
             $shift->recordHistory(
@@ -146,12 +149,15 @@ class HandoverService
         DB::beginTransaction();
         try {
             // Ensure handoverStatus exists
+            // Use updateOrCreate to avoid duplicate entry errors
             if (!$shift->handoverStatus) {
-                ShiftHandoverStatus::create([
-                    'cashier_shift_id' => $shift->id,
-                    'status' => HandoverStatus::PENDING,
-                    'manager_approval_status' => 'pending',
-                ]);
+                ShiftHandoverStatus::updateOrCreate(
+                    ['cashier_shift_id' => $shift->id],
+                    [
+                        'status' => HandoverStatus::PENDING,
+                        'manager_approval_status' => 'pending',
+                    ]
+                );
                 $shift->refresh();
             }
 
