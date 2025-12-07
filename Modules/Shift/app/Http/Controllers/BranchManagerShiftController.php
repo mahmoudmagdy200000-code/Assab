@@ -1522,6 +1522,13 @@ class BranchManagerShiftController extends BaseController
         }
 
         // Section E: Final Daily Close - Exact format as per requirements
+        // closing_balance = مجموع cash_collected من جميع الكاشيرز
+        $calculatedClosingBalance = $totals['total_cash_collected'];
+        // expected_balance = total_sales
+        $calculatedExpectedBalance = $totals['total_sales'];
+        // variance = expected_balance - closing_balance
+        $calculatedVariance = $calculatedExpectedBalance - $calculatedClosingBalance;
+
         return [
             // Per-cashier breakdown (before submission)
             'cashier_breakdown' => $cashierBreakdown, // Each item contains: cash_collected, card_payments, delivery_app_payments, variance, sales
@@ -1536,10 +1543,10 @@ class BranchManagerShiftController extends BaseController
             // Additional manager summary (optional)
             'manager_summary' => [
                 'opening_balance' => (float) ($shift->opening_balance ?? 0),
-                'closing_balance' => (float) ($shift->closing_balance ?? 0),
-                'expected_balance' => (float) ($shift->expected_balance ?? 0),
-                'variance' => (float) ($shift->variance ?? 0),
-                'variance_type' => ($shift->variance ?? 0) > 0 ? 'Over' : (($shift->variance ?? 0) < 0 ? 'Short' : 'None'),
+                'closing_balance' => (float) $calculatedClosingBalance, // مجموع cash_collected من جميع الكاشيرز
+                'expected_balance' => (float) $calculatedExpectedBalance, // total_sales
+                'variance' => (float) $calculatedVariance,
+                'variance_type' => $calculatedVariance > 0 ? 'Over' : ($calculatedVariance < 0 ? 'Short' : 'None'),
             ],
             'shift_info' => [
                 'date' => $shift->shift_date->format('Y-m-d'),
