@@ -19,7 +19,7 @@ use Modules\Shift\Http\Requests\EndShiftRequest;
 
 /**
  * ShiftEndController
- * 
+ *
  * Handles all 4 shift ending options:
  * - Option 1: End Shift Only (without handover)
  * - Option 2: Handover Without Variance
@@ -36,14 +36,14 @@ class ShiftEndController extends Controller
 
     /**
      * OPTION 1: End Shift Only (without handover)
-     * 
+     *
      * Cashier records:
      * - Total sales amount
      * - Cash collections
      * - Mada card payments
      * - Payment aggregator collections
      * - Optional: POS receipt upload
-     * 
+     *
      * Result: Shift completed without handover
      */
     public function endShiftOnly(Request $request, string $shift): JsonResponse
@@ -100,9 +100,9 @@ class ShiftEndController extends Controller
             // Validate payment breakdown
             $isValid = $this->shiftEndService->validatePaymentBreakdown($request->all());
             if (!$isValid) {
-                $calculatedTotal = ($request->cash_collected ?? 0) + ($request->card_payments ?? 0) + 
+                $calculatedTotal = ($request->cash_collected ?? 0) + ($request->card_payments ?? 0) +
                     collect($request->aggregators ?? [])->sum('amount');
-                    
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Payment breakdown does not match total sales',
@@ -125,7 +125,7 @@ class ShiftEndController extends Controller
 
             // End shift
             $updatedShift = $this->shiftEndService->endShiftOnly($shiftModel, $data);
-            
+
             // Handle variance if provided
             if ($request->has('variance') && $updatedShift->hasVariance()) {
                 $this->varianceService->recordVariance($updatedShift, $request->variance);
@@ -157,7 +157,6 @@ class ShiftEndController extends Controller
                     ]
                 ]
             ]);
-
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
                 'success' => false,
@@ -179,7 +178,7 @@ class ShiftEndController extends Controller
 
     /**
      * OPTION 2, 3, 4: End Shift with Handover
-     * 
+     *
      * Supports:
      * - Handover to next cashier (auto-handover)
      * - Handover to branch manager (final handover)
@@ -198,15 +197,15 @@ class ShiftEndController extends Controller
             'aggregators.*.amount' => 'required_with:aggregators|numeric|min:0',
             'aggregators.*.notes' => 'nullable|string|max:255',
             'pos_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
-            
+
             // Handover recipient
             'handover_to_type' => 'sometimes|in:cashier,branch_manager',
             'next_cashier_id' => 'required_without:handover_to_type|nullable|exists:cashiers,id',
-            
+
             // Handover details
             'handover_amount' => 'required|numeric|min:0',
             'handover_notes' => 'nullable|string|max:500',
-            
+
             // Variance information
             'variance' => 'sometimes|array',
             'variance.responsibility_type' => 'required_with:variance|in:self,self_and_others,other_factors,mixed',
@@ -256,14 +255,14 @@ class ShiftEndController extends Controller
                 $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
                     ->where('is_active', true)
                     ->first();
-                
+
                 if (!$branchManager) {
                     return response()->json([
                         'success' => false,
                         'message' => 'No active branch manager found for this branch',
                     ], 400);
                 }
-                
+
                 $handoverToId = $branchManager->id;
                 $handoverToName = $branchManager->name;
             } else {
@@ -290,9 +289,18 @@ class ShiftEndController extends Controller
 
             // Prepare data
             $data = $request->all();
+            // Ensure handover_to_type and handover_to_id are set correctly
             $data['handover_to_type'] = $handoverToType;
             $data['handover_to_id'] = $handoverToId;
-            
+
+            // Log for debugging
+            Log::info('ShiftEndController: Preparing handover data', [
+                'handover_to_type' => $handoverToType,
+                'handover_to_id' => $handoverToId,
+                'handover_to_name' => $handoverToName,
+                'request_handover_to_type' => $request->input('handover_to_type'),
+            ]);
+
             if ($request->hasFile('pos_receipt')) {
                 $data['pos_receipt'] = $request->file('pos_receipt');
             }
@@ -345,7 +353,6 @@ class ShiftEndController extends Controller
                     ]
                 ]
             ]);
-
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
                 'success' => false,
@@ -367,7 +374,7 @@ class ShiftEndController extends Controller
 
     /**
      * Record handover after shift ended (Start Handover action)
-     * 
+     *
      * Used when cashier ended shift without handover and now wants to do handover
      */
     public function startHandover(Request $request, string $shift): JsonResponse
@@ -420,14 +427,14 @@ class ShiftEndController extends Controller
                 $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
                     ->where('is_active', true)
                     ->first();
-                
+
                 if (!$branchManager) {
                     return response()->json([
                         'success' => false,
                         'message' => 'No active branch manager found',
                     ], 400);
                 }
-                
+
                 $handoverToId = $branchManager->id;
                 $handoverToName = $branchManager->name;
             } else {
@@ -484,7 +491,6 @@ class ShiftEndController extends Controller
                     ]
                 ]
             ]);
-
         } catch (\Exception $e) {
             Log::error('Start handover failed', [
                 'shift_id' => $shift,
@@ -541,7 +547,7 @@ class ShiftEndController extends Controller
             $nextShift = CashierShift::where('shift_date', $shiftModel->shift_date)
                 ->whereHas('shift', function ($q) use ($shiftModel) {
                     $q->where('branch_id', $shiftModel->shift->branch_id)
-                      ->where('start_time', '>=', $shiftModel->shift->end_time);
+                        ->where('start_time', '>=', $shiftModel->shift->end_time);
                 })
                 ->where('status', ShiftStatus::NOT_STARTED)
                 ->orderBy('shift_id')
@@ -561,8 +567,8 @@ class ShiftEndController extends Controller
                     'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
                     'type' => 'cashier',
                     'is_suggested' => $cashier->id === $suggestedCashierId,
-                    'suggestion_reason' => $cashier->id === $suggestedCashierId 
-                        ? 'Next scheduled cashier (auto-handover)' 
+                    'suggestion_reason' => $cashier->id === $suggestedCashierId
+                        ? 'Next scheduled cashier (auto-handover)'
                         : null,
                 ];
             });
@@ -589,7 +595,6 @@ class ShiftEndController extends Controller
                     'has_branch_manager' => !is_null($branchManager),
                 ]
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

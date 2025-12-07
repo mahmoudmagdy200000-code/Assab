@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Branch\Models\Branch;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Models\CashierShiftHandover;
 
 class BranchManagerShift extends Model
 {
@@ -169,7 +170,9 @@ class BranchManagerShift extends Model
     {
         return $this->hasMany(CashierShiftHandover::class, 'handover_to_id', 'branch_manager_id')
             ->where('handover_to_type', 'branch_manager')
-            ->whereDate('handover_date', $this->shift_date);
+            ->whereHas('cashierShift', function ($query) {
+                $query->whereDate('shift_date', $this->shift_date);
+            });
     }
 
     // Scopes
@@ -247,7 +250,16 @@ class BranchManagerShift extends Model
 
     public function getHandoverSummary(): array
     {
-        $handovers = $this->cashierHandovers()->get();
+        // Use direct query to ensure we get all handovers for this manager on this date
+        $handovers = CashierShiftHandover::where('handover_to_type', 'branch_manager')
+            ->where('handover_to_id', $this->branch_manager_id)
+            ->whereHas('cashierShift', function ($query) {
+                $query->whereDate('shift_date', $this->shift_date)
+                    ->whereHas('shift', function ($q) {
+                        $q->where('branch_id', $this->branch_id);
+                    });
+            })
+            ->get();
 
         $summary = [
             'total_handovers' => $handovers->count(),
@@ -265,7 +277,16 @@ class BranchManagerShift extends Model
      */
     public function getPendingHandoversCount(): int
     {
-        return $this->cashierHandovers()->where('status', 'pending')->count();
+        return CashierShiftHandover::where('handover_to_type', 'branch_manager')
+            ->where('handover_to_id', $this->branch_manager_id)
+            ->where('status', 'pending')
+            ->whereHas('cashierShift', function ($query) {
+                $query->whereDate('shift_date', $this->shift_date)
+                    ->whereHas('shift', function ($q) {
+                        $q->where('branch_id', $this->branch_id);
+                    });
+            })
+            ->count();
     }
 
     /**
@@ -273,8 +294,15 @@ class BranchManagerShift extends Model
      */
     public function getApprovedHandovers()
     {
-        return $this->cashierHandovers()
+        return CashierShiftHandover::where('handover_to_type', 'branch_manager')
+            ->where('handover_to_id', $this->branch_manager_id)
             ->where('status', 'approved')
+            ->whereHas('cashierShift', function ($query) {
+                $query->whereDate('shift_date', $this->shift_date)
+                    ->whereHas('shift', function ($q) {
+                        $q->where('branch_id', $this->branch_id);
+                    });
+            })
             ->with(['cashierShift.cashier', 'cashierShift.shift'])
             ->get();
     }

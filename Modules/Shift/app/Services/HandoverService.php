@@ -71,7 +71,7 @@ class HandoverService
             }
 
             // Create CashierShiftHandover record
-            $handover = CashierShiftHandover::create([
+            $handoverData = [
                 'cashier_shift_id' => $shift->id,
                 'handover_to_id' => $handoverToId,
                 'handover_to_type' => $handoverToType,
@@ -83,7 +83,13 @@ class HandoverService
                 'handover_date' => $shift->shift_date,
                 'handover_time' => now(),
                 'status' => 'pending',
+            ];
+
+            Log::info('Creating CashierShiftHandover', [
+                'handover_data' => $handoverData,
             ]);
+
+            $handover = CashierShiftHandover::create($handoverData);
 
             // Create or update ShiftHandoverStatus for approval tracking
             // Use updateOrCreate to avoid duplicate entry errors

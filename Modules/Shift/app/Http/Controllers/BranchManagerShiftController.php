@@ -151,13 +151,17 @@ class BranchManagerShiftController extends BaseController
             );
 
             // Load with relationships
+            // The cashierHandovers relationship already filters by branch_manager_id and handover_to_type
             $managerShift->load([
                 'branch',
                 'nextManager',
                 'cashierHandovers' => function ($query) {
                     $query->with([
                         'cashierShift.cashier',
-                        'cashierShift.shift'
+                        'cashierShift.shift',
+                        'cashierShift.salesBreakdown.aggregator',
+                        'cashierShift.varianceDetails.responsibleCashier',
+                        'approvedBy'
                     ]);
                 }
             ]);
@@ -332,18 +336,17 @@ class BranchManagerShiftController extends BaseController
             $manager = auth()->user();
 
             // Get today's shift with handovers to branch manager
+            // The cashierHandovers relationship already filters by branch_manager_id and handover_to_type
             $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
                 ->whereDate('shift_date', today())
-                ->with(['cashierHandovers' => function ($query) use ($manager) {
-                    $query->where('handover_to_type', 'branch_manager')
-                        ->where('handover_to_id', $manager->id)
-                        ->with([
-                            'cashierShift.cashier',
-                            'cashierShift.shift',
-                            'cashierShift.salesBreakdown.aggregator',
-                            'cashierShift.varianceDetails.responsibleCashier',
-                            'approvedBy'
-                        ]);
+                ->with(['cashierHandovers' => function ($query) {
+                    $query->with([
+                        'cashierShift.cashier',
+                        'cashierShift.shift',
+                        'cashierShift.salesBreakdown.aggregator',
+                        'cashierShift.varianceDetails.responsibleCashier',
+                        'approvedBy'
+                    ]);
                 }])
                 ->firstOrFail();
 
@@ -727,6 +730,24 @@ class BranchManagerShiftController extends BaseController
             // Calculate financial summary from cashier shifts
             $financialSummary = $this->calculateFinancialSummary($managerShift);
 
+            // Calculate closing_balance from approved handovers if handover_amount is not provided
+            $closingBalance = $request->handover_amount;
+            if ($closingBalance === null) {
+                // Calculate from sum of approved cashier handovers to this manager
+                $approvedHandovers = \Modules\Shift\Models\CashierShiftHandover::where('handover_to_type', 'branch_manager')
+                    ->where('handover_to_id', $manager->id)
+                    ->where('status', 'approved')
+                    ->whereHas('cashierShift', function ($query) use ($managerShift) {
+                        $query->whereDate('shift_date', $managerShift->shift_date)
+                            ->whereHas('shift', function ($q) use ($managerShift) {
+                                $q->where('branch_id', $managerShift->branch_id);
+                            });
+                    })
+                    ->sum('handover_amount');
+                
+                $closingBalance = $approvedHandovers ?? 0;
+            }
+
             // Set handover time based on timing
             $handoverTime = $request->handover_timing === 'yesterday'
                 ? now()->subDay()
@@ -737,13 +758,13 @@ class BranchManagerShiftController extends BaseController
                 'status' => 'completed',
                 'actual_end_time' => now(),
                 'next_manager_id' => $request->handover_to,
-                'handover_amount' => $request->handover_amount,
+                'handover_amount' => $request->handover_amount ?? $closingBalance,
                 'handover_date' => $handoverTime->format('Y-m-d'),
                 'handover_time' => $handoverTime,
                 'handover_timing' => $request->handover_timing,
                 'handover_status' => 'pending',
                 'handover_notes' => $request->handover_notes,
-                'closing_balance' => $request->handover_amount,
+                'closing_balance' => $closingBalance,
                 'total_sales' => $financialSummary['total_sales'] ?? 0,
                 'cash_collected' => $financialSummary['cash_collected'] ?? 0,
                 'card_payments' => $financialSummary['card_payments'] ?? 0,
@@ -768,7 +789,7 @@ class BranchManagerShiftController extends BaseController
                 'shift' => new BranchManagerShiftResource($managerShift),
                 // Section D: Final Handover and End Shift - Exact format as per requirements
                 'final_handover' => [
-                    'handover_amount' => (float) $request->handover_amount,
+                    'handover_amount' => (float) ($request->handover_amount ?? $closingBalance),
                     'status' => $handoverStatus, // Completed, Not Submitted, or Pending
                     'status_options' => ['Completed', 'Not Submitted', 'Pending'],
                     'handover_from' => $manager->name,

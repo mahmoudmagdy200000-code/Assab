@@ -70,16 +70,20 @@ class ShiftEndService
 
             // تحديد نوع الـ handover: للكاشير التالي أو للبرانش مانجر
             $handoverToType = $data['handover_to_type'] ?? 'cashier';
-            $handoverToId = null;
+            $handoverToId = $data['handover_to_id'] ?? null;
 
-            if ($handoverToType === 'branch_manager') {
-                // إذا كان handover للبرانش مانجر، احصل على branch_manager_id من البرانش
-                $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shift->shift->branch_id)
-                    ->first();
-                $handoverToId = $branchManager?->id;
-            } else {
-                // handover للكاشير التالي
-                $handoverToId = $data['next_cashier_id'] ?? null;
+            // إذا لم يتم تمرير handover_to_id، ابحث عنه بناءً على النوع
+            if (!$handoverToId) {
+                if ($handoverToType === 'branch_manager') {
+                    // إذا كان handover للبرانش مانجر، احصل على branch_manager_id من البرانش
+                    $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shift->shift->branch_id)
+                        ->where('is_active', true)
+                        ->first();
+                    $handoverToId = $branchManager?->id;
+                } else {
+                    // handover للكاشير التالي
+                    $handoverToId = $data['next_cashier_id'] ?? null;
+                }
             }
 
             // Then, record handover
@@ -92,6 +96,11 @@ class ShiftEndService
                 'variance_reason' => $data['variance']['reason'] ?? null,
                 'variance_files' => $data['variance']['supporting_files'] ?? null,
             ];
+
+            \Illuminate\Support\Facades\Log::info('ShiftEndService: Recording handover', [
+                'handover_data' => $handoverData,
+                'shift_id' => $shift->id,
+            ]);
 
             $this->handoverService->recordHandover($shift, $handoverData);
 
