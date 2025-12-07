@@ -704,7 +704,7 @@ class BranchManagerShiftController extends BaseController
     {
         $validator = Validator::make($request->all(), [
             'handover_to' => 'nullable|exists:branch_managers,id',
-            'handover_amount' => 'required|numeric|min:0',
+            'handover_amount' => 'nullable|numeric|min:0',
             'handover_timing' => 'required|in:today,yesterday',
             'handover_notes' => 'nullable|string|max:500',
         ]);
