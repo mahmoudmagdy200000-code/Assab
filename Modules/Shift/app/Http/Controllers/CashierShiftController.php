@@ -579,8 +579,9 @@ class CashierShiftController extends BaseController
                 ->withCount('shifts')
                 ->paginate($request->input('per_page', 10));
 
-            // Load branch managers with relationships
+            // Load branch managers with relationships (excluding the current manager)
             $branchManagers = BranchManager::where('branch_id', $manager->branch_id)
+                ->where('id', '!=', $manager->id)
                 ->with('branch')
                 ->get();
 
