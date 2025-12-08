@@ -12,6 +12,8 @@ use Modules\Purchase\Http\Requests\StoreInternalTransferRequest;
 use Modules\Purchase\Http\Requests\StorePurchasingOfficerOrderRequest;
 use Modules\Purchase\Services\PriceComparisonService;
 use Modules\Purchase\Services\PurchaseOrderService;
+use Modules\Purchase\Http\Requests\FilterBranchItemsRequest;
+use Modules\Purchase\Transformers\BranchItemResource;
 use Modules\Purchase\Transformers\OrderSummaryResource;
 use Modules\Purchase\Transformers\PriceComparisonResource;
 use Modules\Purchase\Transformers\PurchaseOrderResource;
@@ -28,25 +30,37 @@ class NewOrderController extends BaseController
 
 
     /**
+     * Get branch items with search and filters
      *
-     * get branch items
+     * Filters:
+     * - Search: by item name
+     * - Category: filter by category
+     * - Subcategory: filter by subcategory
+     * - Supplier: filter by supplier (from Expense module)
      *
      * @group New Order
      */
-    public function getBranchItems(Request $request): JsonResponse
+    public function getBranchItems(FilterBranchItemsRequest $request): JsonResponse
     {
-        $branchId = $request->get('branch_id', auth()->user()->branch_id);
-        if (!$branchId) {
-            return $this->errorResponse('Branch ID is required', 400);
+        try {
+            $branchId = $request->get('branch_id', auth()->user()->branch_id);
+
+            if (!$branchId) {
+                return $this->errorResponse('Branch ID is required', 400);
+            }
+
+            $filters = $request->validated();
+            $perPage = $request->get('per_page', 15);
+
+            $branchItems = $this->orderService->getBranchItems($branchId, $filters, $perPage);
+
+            return $this->paginatedResponse(
+                BranchItemResource::collection($branchItems),
+                'Branch items retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching branch items');
         }
-        $branchItems = $this->orderService->getBranchItems($branchId);
-        if (!$branchItems) {
-            return $this->errorResponse('Branch items not found', 404);
-        }
-        return $this->successResponse(
-            $branchItems,
-            'Branch items retrieved successfully'
-        );
     }
 
     /**
@@ -301,4 +315,3 @@ class NewOrderController extends BaseController
         }
     }
 }
-

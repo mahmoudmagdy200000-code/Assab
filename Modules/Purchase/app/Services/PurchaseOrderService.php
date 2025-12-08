@@ -22,11 +22,38 @@ class PurchaseOrderService
     ) {}
 
     /**
-     * Get branch items
+     * Get branch items with filters
+     *
+     * Supports:
+     * - Search by item name
+     * - Filter by category/subcategory
+     * - Filter by supplier (from Expense module)
      */
-    public function getBranchItems(string $branchId): Collection
+    public function getBranchItems(string $branchId, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
-        return BranchItem::where('branch_id', $branchId)->get();
+        $query = BranchItem::where('branch_id', $branchId);
+
+        // Search by item name
+        if (!empty($filters['search'])) {
+            $query->search($filters['search']);
+        }
+
+        // Filter by category
+        if (!empty($filters['category'])) {
+            $query->byCategory($filters['category']);
+        }
+
+        // Filter by subcategory
+        if (!empty($filters['subcategory'])) {
+            $query->bySubcategory($filters['subcategory']);
+        }
+
+        // Filter by supplier (from Expense module)
+        if (!empty($filters['supplier_id'])) {
+            $query->bySupplier($filters['supplier_id']);
+        }
+
+        return $query->orderBy('item_name', 'asc')->paginate($perPage);
     }
 
     /**
@@ -82,7 +109,7 @@ class PurchaseOrderService
                 }
             } else {
                 // Predefined ranges
-                match($filters['date_range']) {
+                match ($filters['date_range']) {
                     'last_24h' => $query->last24Hours(),
                     'last_7d' => $query->last7Days(),
                     'last_30d' => $query->last30Days(),
@@ -520,7 +547,7 @@ class PurchaseOrderService
     private function applyDateFilters($query, array $filters): void
     {
         if (!empty($filters['date_range'])) {
-            match($filters['date_range']) {
+            match ($filters['date_range']) {
                 'last_24h' => $query->last24Hours(),
                 'last_7d' => $query->last7Days(),
                 'last_30d' => $query->last30Days(),
@@ -533,4 +560,3 @@ class PurchaseOrderService
         }
     }
 }
-
