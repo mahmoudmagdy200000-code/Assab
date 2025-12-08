@@ -35,6 +35,10 @@ Route::prefix('cashier/auth')->group(function () {
 Route::prefix('branch-manager/cashiers')
     ->middleware(['auth:sanctum', 'branch.manager'])
     ->group(function () {
+        // Get All Cashiers and Branch Managers (must be before {cashier} route to avoid route model binding conflict)
+        Route::get('/all', [\Modules\Shift\Http\Controllers\CashierShiftController::class, 'getAllCashiersAndBranchManagerAccount'])
+            ->name('cashiers.all');
+        
         // Shift Management
         Route::get('/available-for-shift', [CashierManagementController::class, 'availableForShift']);
         Route::post('/assign-shifts', [CashierManagementController::class, 'assignShifts']);

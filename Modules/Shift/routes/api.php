@@ -32,10 +32,6 @@ Route::prefix('branch-manager')
         |----------------------------------------------------------------------
         */
         Route::prefix('cashiers')->group(function () {
-            // Section 3.1.2.1.1.1: Get All Cashiers and Branch Managers (must be before {cashier} route)
-            Route::get('/all', [CashierShiftController::class, 'getAllCashiersAndBranchManagerAccount'])
-                ->name('cashiers.all');
-
             // Section 3.1.2.1.1: Cashiers Listing
             Route::get('/', [CashierManagementController::class, 'index'])
                 ->name('cashiers.index');
