@@ -608,34 +608,33 @@ class CashierShiftController extends BaseController
     }
 
 
-    
-    public function startShiftByManager($shiftId)
+    /**
+     * Start shift by manager (for cashier)
+     */
+    public function startShiftByManager($shiftId): JsonResponse
     {
-        $shiftModel = \Modules\Shift\Models\CashierShift::findOrFail($shiftId);
-        $branchManager = auth()->user();
+        try {
+            $shiftModel = CashierShift::findOrFail($shiftId);
+            $branchManager = auth()->user();
 
-        // Verify the cashier belongs to the branch manager's branch
-        if ($shiftModel->cashier->branch_id !== $branchManager->branch_id) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthorized: This cashier does not belong to your branch'
-            ], 403);
+            // Verify the cashier belongs to the branch manager's branch
+            if ($shiftModel->cashier->branch_id !== $branchManager->branch_id) {
+                return $this->errorResponse('Unauthorized: This cashier does not belong to your branch', 403);
+            }
+
+            if ($shiftModel->status->value !== 'not_started') {
+                return $this->errorResponse('Shift has already been started', 400);
+            }
+
+            $shiftModel->startShift();
+            $shiftModel->loadFullRelationships();
+
+            return $this->successResponse(
+                new ShiftDetailResource($shiftModel),
+                'Shift started successfully by branch manager'
+            );
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
         }
-
-        if ($shiftModel->status->value !== 'not_started') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Shift has already been started'
-            ], 400);
-        }
-
-        $shiftModel->startShift();
-        $shiftModel->loadFullRelationships();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Shift started successfully by branch manager',
-            'data' => new \Modules\Shift\Transformers\ShiftDetailResource($shiftModel)
-        ]);
     }
 }

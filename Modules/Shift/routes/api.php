@@ -130,13 +130,14 @@ Route::prefix('branch-manager')
             Route::post('calculate-sales', [ShiftEndController::class, 'calculateSales'])
                 ->name('shifts.calculate-sales');
 
+            // Start shift by manager (for cashier) - must be before {shift} route
+            Route::post('start-by-manager/{shiftId}', [CashierShiftController::class, 'startShiftByManager'])
+                ->name('shifts.start-by-manager');
+
             // Single shift operations
             Route::prefix('{shift}')->group(function () {
                 // View shift details
                 Route::get('/', [ShiftController::class, 'show'])->name('shifts.show');
-
-                // Start shift by manager (for cashier)
-                Route::post('start-by-manager/{shiftId}', [ShiftController::class, 'startShiftByManager']);
 
 
                 // Reassignment
