@@ -221,7 +221,7 @@ class PriceComparisonService
             ->filter(fn($o) => isset($o['delivery_days']))
             ->sortBy('delivery_days')
             ->first();
-        
+
         if ($fastest) {
             $insights['fastest_delivery'] = [
                 'type' => $fastest['type'],
@@ -235,7 +235,7 @@ class PriceComparisonService
             ->filter(fn($o) => isset($o['rating']))
             ->sortByDesc('rating')
             ->first();
-        
+
         if ($bestRated) {
             $insights['best_rating'] = [
                 'type' => $bestRated['type'],
@@ -280,7 +280,7 @@ class PriceComparisonService
             $priceScore = $option['unit_price'] ?? 0;
             $deliveryScore = ($option['delivery_days'] ?? 3) * 10;
             $ratingScore = 100 - (($option['rating'] ?? 3) * 20);
-            
+
             return array_merge($option, [
                 'composite_score' => ($priceScore * 0.4) + ($deliveryScore * 0.3) + ($ratingScore * 0.3),
             ]);
@@ -336,18 +336,29 @@ class PriceComparisonService
 
     /**
      * Get branches with stock for internal transfer
+     *
+     * itemId should be BranchItem.id
+     * We search in BranchInventory where item_id matches BranchItem.id
      */
     public function getBranchesWithStock(string $itemId, float $quantity, string $excludeBranchId, array $filters = []): Collection
     {
-        $query = BranchInventory::with('branch')
-            ->byItem($itemId)
+        // Get BranchItem to get item_name for matching
+        $branchItem = BranchItem::find($itemId);
+
+        if (!$branchItem) {
+            return collect([]);
+        }
+
+        // First, try to find BranchInventory records where item_id matches BranchItem.id
+        $query = BranchInventory::with(['branch'])
+            ->where('item_id', $itemId)
             ->where('branch_id', '!=', $excludeBranchId)
-            ->available();
+            ->whereRaw('(available_quantity - reserved_quantity) > 0');
 
         // Filter by minimum availability percentage
         if (!empty($filters['min_availability'])) {
             $minQuantity = $quantity * ($filters['min_availability'] / 100);
-            $query->where('available_quantity', '>=', $minQuantity);
+            $query->whereRaw('(available_quantity - reserved_quantity) >= ?', [$minQuantity]);
         }
 
         // Search by branch name
@@ -355,16 +366,65 @@ class PriceComparisonService
             $query->whereHas('branch', fn($q) => $q->where('name', 'like', "%{$filters['search']}%"));
         }
 
-        return $query->get()->map(function ($inventory) use ($quantity) {
+        $inventories = $query->get();
+
+        // If no results found by item_id, return branches that have this item in their BranchItem list
+        // This handles the case where BranchInventory.item_id doesn't match BranchItem.id
+        if ($inventories->isEmpty()) {
+            // Get all branches that have this item (by item_name)
+            $otherBranchesItems = BranchItem::with('branch')
+                ->where('item_name', $branchItem->item_name)
+                ->where('branch_id', '!=', $excludeBranchId)
+                ->where('item_quantity', '>', 0)
+                ->get();
+
+            return $otherBranchesItems->map(function ($item) use ($quantity) {
+                $branch = $item->branch;
+                $availableQty = (float) $item->item_quantity;
+
+                return [
+                    'branch_id' => $item->branch_id,
+                    'branch' => $branch ? [
+                        'id' => $branch->id,
+                        'name' => $branch->name,
+                        'location' => $branch->location ?? null,
+                        'image' => $branch->image_url ?? null,
+                    ] : null,
+                    'branch_manager' => null, // Will be loaded if needed
+                    'available_quantity' => $availableQty,
+                    'availability_percentage' => min(100, round(($availableQty / $quantity) * 100, 1)),
+                    'quality' => null,
+                    'expiry_date' => null,
+                    'cooling_status' => null,
+                    'last_update' => $item->updated_at?->format('Y-m-d H:i:s'),
+                    'distance' => null,
+                    'response_rate' => null,
+                    'rating' => null,
+                ];
+            });
+        }
+
+        return $inventories->map(function ($inventory) use ($quantity) {
+            $branch = $inventory->branch;
+
             return [
                 'branch_id' => $inventory->branch_id,
-                'branch' => $inventory->branch,
-                'available_quantity' => $inventory->actual_available,
+                'branch' => $branch ? [
+                    'id' => $branch->id,
+                    'name' => $branch->name,
+                    'location' => $branch->location ?? null,
+                    'image' => $branch->image_url ?? null,
+                ] : null,
+                'branch_manager' => null,
+                'available_quantity' => (float) $inventory->actual_available,
                 'availability_percentage' => min(100, round(($inventory->actual_available / $quantity) * 100, 1)),
                 'quality' => $inventory->quality?->value,
-                'expiry_date' => $inventory->earliest_expiry_date,
+                'expiry_date' => $inventory->earliest_expiry_date?->format('Y-m-d'),
                 'cooling_status' => $inventory->cooling_status,
-                'last_update' => $inventory->last_inventory_update,
+                'last_update' => $inventory->last_inventory_update?->format('Y-m-d H:i:s'),
+                'distance' => null,
+                'response_rate' => null,
+                'rating' => null,
             ];
         });
     }
@@ -397,4 +457,3 @@ class PriceComparisonService
         );
     }
 }
-
