@@ -610,19 +610,42 @@ class CashierShiftController extends BaseController
 
     /**
      * Start shift by manager (for cashier)
+     * Accepts either shiftId or cashierId - will find pending shift for cashier if cashierId is provided
      */
     public function startShiftByManager($shiftId): JsonResponse
     {
         try {
-            $shiftModel = CashierShift::findOrFail($shiftId);
             $branchManager = auth()->user();
+
+            // First try to find by shift ID
+            $shiftModel = CashierShift::where('id', $shiftId)
+                ->whereHas('shift', function ($query) use ($branchManager) {
+                    $query->where('branch_id', $branchManager->branch_id);
+                })
+                ->first();
+
+            // If not found, assume it's a cashier_id and find pending shift for that cashier
+            if (!$shiftModel) {
+                $shiftModel = CashierShift::where('cashier_id', $shiftId)
+                    ->whereHas('shift', function ($query) use ($branchManager) {
+                        $query->where('branch_id', $branchManager->branch_id);
+                    })
+                    ->whereIn('status', [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED])
+                    ->whereDate('shift_date', '>=', today())
+                    ->orderBy('shift_date')
+                    ->first();
+            }
+
+            if (!$shiftModel) {
+                return $this->errorResponse('Shift not found or no pending shift available for this cashier', 404);
+            }
 
             // Verify the cashier belongs to the branch manager's branch
             if ($shiftModel->cashier->branch_id !== $branchManager->branch_id) {
                 return $this->errorResponse('Unauthorized: This cashier does not belong to your branch', 403);
             }
 
-            if ($shiftModel->status->value !== 'not_started') {
+            if ($shiftModel->status !== ShiftStatus::NOT_STARTED && $shiftModel->status !== ShiftStatus::REASSIGNED) {
                 return $this->errorResponse('Shift has already been started', 400);
             }
 
