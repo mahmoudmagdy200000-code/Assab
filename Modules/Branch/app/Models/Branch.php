@@ -9,7 +9,7 @@ use Modules\Aggregator\Models\Aggregator;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Models\Shift;
-
+use Modules\Purchase\Models\BranchItem;
 class Branch extends Model
 {
     use HasFactory, HasUuids;
@@ -59,5 +59,9 @@ class Branch extends Model
     public function branchManager()
     {
         return $this->belongsTo(BranchManager::class, 'branch_manager_id');
+    }
+    public function branchItems()
+    {
+        return $this->hasMany(BranchItem::class);
     }
 }

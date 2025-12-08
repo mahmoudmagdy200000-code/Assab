@@ -8,9 +8,11 @@ use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\TimelineEventType;
+use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\OrderTimeline;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
+use Nwidart\Modules\Collection;
 
 class PurchaseOrderService
 {
@@ -20,8 +22,16 @@ class PurchaseOrderService
     ) {}
 
     /**
+     * Get branch items
+     */
+    public function getBranchItems(string $branchId): Collection
+    {
+        return BranchItem::where('branch_id', $branchId)->get();
+    }
+
+    /**
      * Get purchase history with filters
-     * 
+     *
      * Filters:
      * - Search: by item name
      * - Perspective: submitted (Close, Canceled) or received (Confirmed, Partial Confirmation)
@@ -149,11 +159,11 @@ class PurchaseOrderService
             // Set sourceable_type and sourceable_id based on order type
             $sourceableType = null;
             $sourceableId = null;
-            
-            $orderType = is_string($data['order_type']) 
-                ? OrderType::from($data['order_type']) 
+
+            $orderType = is_string($data['order_type'])
+                ? OrderType::from($data['order_type'])
                 : $data['order_type'];
-            
+
             if ($orderType === OrderType::DIRECT_SUPPLIER) {
                 $sourceableType = \Modules\Purchase\Models\PurchaseSupplier::class;
                 $sourceableId = $data['supplier_id'] ?? null;
@@ -174,7 +184,7 @@ class PurchaseOrderService
                     throw new \InvalidArgumentException('From branch ID is required for internal transfer orders');
                 }
             }
-            
+
             $order = PurchaseOrder::create([
                 'order_type' => $data['order_type'],
                 'status' => $data['status'] ?? OrderStatus::DRAFT,
@@ -221,7 +231,7 @@ class PurchaseOrderService
         // For internal transfers, unit_price is optional (defaults to 0 - free transfer)
         // For other order types, unit_price should be provided
         $unitPrice = $data['unit_price'] ?? 0;
-        
+
         $totalPrice = ($data['quantity'] * $unitPrice) - ($data['discount'] ?? 0);
 
         return PurchaseOrderItem::create([
@@ -281,7 +291,7 @@ class PurchaseOrderService
         }
 
         $this->timelineService->logOrderSubmitted($order);
-        
+
         return true;
     }
 
@@ -302,7 +312,7 @@ class PurchaseOrderService
 
             $order->transitionTo(OrderStatus::CONFIRMED);
             $this->timelineService->logOrderConfirmed($order);
-            
+
             return true;
         });
     }
@@ -322,7 +332,7 @@ class PurchaseOrderService
 
             $order->transitionTo(OrderStatus::PARTIAL_CONFIRMATION);
             $this->timelineService->logPartialConfirmation($order);
-            
+
             return true;
         });
     }
@@ -337,7 +347,7 @@ class PurchaseOrderService
         }
 
         $this->timelineService->logOrderRejected($order, $reason);
-        
+
         return true;
     }
 
@@ -351,7 +361,7 @@ class PurchaseOrderService
         }
 
         $this->timelineService->logOrderCanceled($order, $reason);
-        
+
         return true;
     }
 
@@ -365,7 +375,7 @@ class PurchaseOrderService
         }
 
         $this->timelineService->logPreparationStarted($order);
-        
+
         return true;
     }
 
@@ -375,13 +385,13 @@ class PurchaseOrderService
     public function markAsOnTheWay(PurchaseOrder $order, array $deliveryDetails = []): bool
     {
         $order->fill($deliveryDetails);
-        
+
         if (!$order->markAsOnTheWay()) {
             return false;
         }
 
         $this->timelineService->logOutForDelivery($order);
-        
+
         return true;
     }
 
@@ -399,7 +409,7 @@ class PurchaseOrderService
         }
 
         $this->timelineService->logDeliveryDelayed($order, $reason);
-        
+
         return true;
     }
 
@@ -433,7 +443,7 @@ class PurchaseOrderService
         }
 
         $this->timelineService->logModificationsApproved($order);
-        
+
         return true;
     }
 
@@ -447,7 +457,7 @@ class PurchaseOrderService
         }
 
         $this->timelineService->logModificationsRejected($order, $reason);
-        
+
         return true;
     }
 
@@ -461,7 +471,7 @@ class PurchaseOrderService
         }
 
         $this->timelineService->logOrderClosed($order);
-        
+
         return true;
     }
 

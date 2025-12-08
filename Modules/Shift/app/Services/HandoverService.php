@@ -15,7 +15,7 @@ use Modules\Shift\Enums\ShiftStatus;
 
 /**
  * HandoverService
- * 
+ *
  * Manages all handover operations including:
  * - Recording handovers (to cashier or branch manager)
  * - Approval/Rejection workflow with 2-rejection rule
@@ -123,7 +123,6 @@ class HandoverService
             ]);
 
             return $shift->fresh(['nextCashier', 'handoverStatus']);
-
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Failed to record handover', [
@@ -137,7 +136,7 @@ class HandoverService
 
     /**
      * Approve a handover (by Branch Manager)
-     * 
+     *
      * Business Rule: Changes status from Pending → Approved
      *
      * @param CashierShift $shift
@@ -224,7 +223,6 @@ class HandoverService
 
             DB::commit();
             return $shift;
-
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Failed to approve handover', [
@@ -238,7 +236,7 @@ class HandoverService
 
     /**
      * Reject a handover (by Branch Manager)
-     * 
+     *
      * Business Rules:
      * - First rejection: Cashier can edit and resubmit
      * - Second rejection: Status permanently changes to 'rejected_final'
@@ -313,7 +311,6 @@ class HandoverService
                 'rejection_reason' => $reason,
                 'rejected_at' => now()->format('Y-m-d H:i:s'),
             ];
-
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Failed to reject handover', [
@@ -326,7 +323,7 @@ class HandoverService
 
     /**
      * Edit handover after rejection (by Cashier)
-     * 
+     *
      * Business Rule: If cashier edits rejected handover → Can be re-approved or rejected again
      *
      * @param CashierShift $shift
@@ -384,7 +381,6 @@ class HandoverService
 
             DB::commit();
             return $shift->fresh(['handoverStatus', 'nextCashier']);
-
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;
@@ -393,7 +389,7 @@ class HandoverService
 
     /**
      * Accept a handover (by receiving Cashier)
-     * 
+     *
      * Used when next cashier accepts the handover from previous cashier
      *
      * @param CashierShift $shift
@@ -444,7 +440,6 @@ class HandoverService
             );
 
             DB::commit();
-
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;
@@ -502,7 +497,6 @@ class HandoverService
             );
 
             DB::commit();
-
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;
@@ -511,7 +505,7 @@ class HandoverService
 
     /**
      * Automatically hand over to the next scheduled shift
-     * 
+     *
      * Business Rule: System automatically ensures handover from Cashier 1 to Cashier 2
      * when shifts are consecutive (e.g., 9 AM – 6 PM → 6 PM – 12 AM)
      *
@@ -531,7 +525,7 @@ class HandoverService
             $nextShift = CashierShift::where('shift_date', $endedShift->shift_date)
                 ->whereHas('shift', function ($q) use ($endedShift) {
                     $q->where('branch_id', $endedShift->shift->branch_id)
-                      ->where('start_time', '>=', $endedShift->shift->end_time);
+                        ->where('start_time', '>=', $endedShift->shift->end_time);
                 })
                 ->where('status', ShiftStatus::NOT_STARTED)
                 ->orderBy('shift_id')
@@ -566,7 +560,6 @@ class HandoverService
             ]);
 
             return $recorded;
-
         } catch (\Exception $e) {
             Log::error('Auto handover failed', [
                 'shift_id' => $endedShift->id,
@@ -687,7 +680,6 @@ class HandoverService
                 'filters_applied' => $filters,
                 'generated_at' => now()->format('Y-m-d H:i:s'),
             ];
-
         } catch (\Exception $e) {
             Log::error('Failed to generate handover summaries', [
                 'error' => $e->getMessage(),
