@@ -130,6 +130,50 @@ class PurchaseOrderService
     }
 
     /**
+     * Get orders with filters (all orders for the branch)
+     */
+    public function getOrders(array $filters, int $perPage = 15): LengthAwarePaginator
+    {
+        $query = PurchaseOrder::with(['items', 'supplier', 'branch', 'requestedBy', 'fromBranch'])
+            ->orderBy('created_at', 'desc');
+
+        // Filter by branch
+        if (!empty($filters['branch_id'])) {
+            $query->byBranch($filters['branch_id']);
+        }
+
+        // Search by item name or order number
+        if (!empty($filters['search'])) {
+            $query->search($filters['search']);
+        }
+
+        // Filter by order type
+        if (!empty($filters['order_type'])) {
+            try {
+                $orderType = OrderType::from($filters['order_type']);
+                $query->byType($orderType);
+            } catch (\ValueError $e) {
+                Log::warning('Invalid order type filter', ['type' => $filters['order_type']]);
+            }
+        }
+
+        // Filter by status
+        if (!empty($filters['status'])) {
+            try {
+                $status = OrderStatus::from($filters['status']);
+                $query->byStatus($status);
+            } catch (\ValueError $e) {
+                Log::warning('Invalid status filter', ['status' => $filters['status']]);
+            }
+        }
+
+        // Date filters
+        $this->applyDateFilters($query, $filters);
+
+        return $query->paginate($perPage);
+    }
+
+    /**
      * Get pending orders with filters
      */
     public function getPendingOrders(array $filters, int $perPage = 15): LengthAwarePaginator
