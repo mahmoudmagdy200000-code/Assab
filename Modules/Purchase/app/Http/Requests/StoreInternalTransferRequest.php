@@ -15,7 +15,7 @@ class StoreInternalTransferRequest extends FormRequest
     {
         return [
             'from_branch_id' => ['required', 'uuid', 'exists:branches,id'],
-            'priority' => ['required', 'string', 'in:high,normal'],
+            'priority' => ['nullable', 'string', 'in:high,normal'],
             'message' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.item_id' => ['required', 'uuid', 'exists:branch_item,id'],
