@@ -136,8 +136,8 @@ Route::prefix('branch-manager')
                 Route::get('/', [ShiftController::class, 'show'])->name('shifts.show');
 
                 // Start shift by manager (for cashier)
-                Route::post('start-by-manager', [ShiftController::class, 'startShiftByManager'])
-                    ->name('shifts.start-by-manager');
+                Route::post('start-by-manager/{shiftId}', [ShiftController::class, 'startShiftByManager']);
+
 
                 // Reassignment
                 Route::post('reassign', [ReassignmentShiftController::class, 'reassign'])
