@@ -10,6 +10,10 @@ use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Transformers\ShiftDetailResource;
 use Modules\Shift\Enums\ShiftStatus;
 use Carbon\Carbon;
+use Modules\BranchManagers\Models\BranchManager;
+use Modules\BranchManagers\Transformers\BranchManagerResource;
+use Modules\Cashier\Models\Cashier;
+use Modules\Cashier\Transformers\CashierResource;
 
 /**
  * CashierShiftController
@@ -557,5 +561,59 @@ class CashierShiftController extends BaseController
             'elapsed_hours' => $elapsedHours,
             'remaining_hours' => $remainingHours,
         ];
+    }
+
+
+    public function getAllCashiersAndBranchManagerAccount(Request $request)
+    {
+        $manager = auth()->user();
+
+        if (!$manager || !$manager->branch_id) {
+            return $this->errorResponse('Unauthorized', 403);
+        }
+
+        $cashiers = Cashier::where('branch_id', $manager->branch_id)
+            ->paginate($request->input('per_page', 10));
+
+        $branchManagers = BranchManager::where('branch_id', $manager->branch_id)->get();
+
+        $combined = [
+            'branch_managers' => BranchManagerResource::collection($branchManagers),
+            'cashiers' => CashierResource::collection($cashiers),
+        ];
+
+        return $this->successResponse($combined, 'Cashiers and branch managers retrieved successfully');
+    }
+
+
+    
+    public function startShiftByManager($shiftId)
+    {
+        $shiftModel = \Modules\Shift\Models\CashierShift::findOrFail($shiftId);
+        $branchManager = auth()->user();
+
+        // Verify the cashier belongs to the branch manager's branch
+        if ($shiftModel->cashier->branch_id !== $branchManager->branch_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized: This cashier does not belong to your branch'
+            ], 403);
+        }
+
+        if ($shiftModel->status->value !== 'not_started') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Shift has already been started'
+            ], 400);
+        }
+
+        $shiftModel->startShift();
+        $shiftModel->loadFullRelationships();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Shift started successfully by branch manager',
+            'data' => new \Modules\Shift\Transformers\ShiftDetailResource($shiftModel)
+        ]);
     }
 }

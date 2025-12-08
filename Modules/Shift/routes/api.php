@@ -25,6 +25,17 @@ Route::prefix('branch-manager')
     ->middleware(['auth:sanctum', 'branch.manager'])
     ->group(function () {
 
+
+        /*
+        |----------------------------------------------------------------------
+        | Section 3.1.2.1.1.1: Cashiers Listing
+        |----------------------------------------------------------------------
+        */
+        Route::get('/cashiers/all', [CashierShiftController::class, 'getAllCashiersAndBranchManagerAccount'])
+            ->name('cashiers.all');
+        Route::post('/cashiers/{shift}/start-by-manager', [CashierShiftController::class, 'startShiftByManager'])
+            ->name('cashiers.start-by-manager');
+
         /*
         |----------------------------------------------------------------------
         | Section 3.1.2.1: Cashiers Management Routes

@@ -335,7 +335,7 @@ class BranchManagerShiftController extends BaseController
                 'handovers_summary' => $handoversSummary,
                 'handovers_details' => [
                     'to_branch_manager' => $handoffsToManager,
-                    'between_cashiers' => $cashierToCashierHandovers,
+                    // 'between_cashiers' => $cashierToCashierHandovers,
                 ],
                 'can_start' => $managerShift->canStart(),
                 'can_end' => $managerShift->canEnd(),
