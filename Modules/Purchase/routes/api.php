@@ -46,10 +46,8 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         Route::get('/suppliers', [NewOrderController::class, 'getSuppliers'])->name('purchase.orders.suppliers');
         Route::get('/branches', [NewOrderController::class, 'getBranches'])->name('purchase.orders.branches');
 
-        // Order creation by type
-        Route::post('/direct-supplier', [NewOrderController::class, 'storeDirectSupplier'])->name('purchase.orders.store-direct');
-        Route::post('/purchasing-officer', [NewOrderController::class, 'storePurchasingOfficer'])->name('purchase.orders.store-po');
-        Route::post('/internal-transfer', [NewOrderController::class, 'storeInternalTransfer'])->name('purchase.orders.store-transfer');
+        // Order creation (unified endpoint - order_type determines the type)
+        Route::post('/', [NewOrderController::class, 'store'])->name('purchase.orders.store');
 
         // Draft management
         Route::post('/draft', [NewOrderController::class, 'saveDraft'])->name('purchase.orders.save-draft');

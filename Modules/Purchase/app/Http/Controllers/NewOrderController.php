@@ -13,6 +13,7 @@ use Modules\Purchase\Http\Requests\StorePurchasingOfficerOrderRequest;
 use Modules\Purchase\Services\PriceComparisonService;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Http\Requests\FilterBranchItemsRequest;
+use Modules\Purchase\Http\Requests\StorePurchaseOrderRequest;
 use Modules\Purchase\Transformers\BranchItemResource;
 use Modules\Purchase\Transformers\OrderSummaryResource;
 use Modules\Purchase\Transformers\PriceComparisonResource;
@@ -143,75 +144,47 @@ class NewOrderController extends BaseController
     }
 
     /**
-     * Create direct supplier order
+     * Create purchase order
+     *
+     * Unified endpoint for creating orders. The order_type determines the order source:
+     * - direct_supplier: Order from a supplier
+     * - via_purchasing_officer: Order via purchasing officer
+     * - internal_transfer: Transfer from another branch
      *
      * @group New Order
      */
-    public function storeDirectSupplier(StoreDirectSupplierOrderRequest $request): JsonResponse
+    public function store(StorePurchaseOrderRequest $request): JsonResponse
     {
         try {
             $data = $request->validated();
-            $data['order_type'] = OrderType::DIRECT_SUPPLIER;
+
+            // Convert order_type string to enum
+            $data['order_type'] = OrderType::from($data['order_type']);
+
+            // Set common fields
             $data['branch_id'] = auth()->user()->branch_id;
             $data['requested_by'] = auth()->id();
 
-            $order = $this->orderService->createOrder($data);
-
-            return $this->createdResponse(
-                new PurchaseOrderResource($order),
-                'Direct supplier order created successfully'
-            );
-        } catch (\Exception $e) {
-            return $this->handleException($e, 'creating direct supplier order');
-        }
-    }
-
-    /**
-     * Create via purchasing officer order
-     *
-     * @group New Order
-     */
-    public function storePurchasingOfficer(StorePurchasingOfficerOrderRequest $request): JsonResponse
-    {
-        try {
-            $data = $request->validated();
-            $data['order_type'] = OrderType::VIA_PURCHASING_OFFICER;
-            $data['branch_id'] = auth()->user()->branch_id;
-            $data['requested_by'] = auth()->id();
+            // For internal transfer, set to_branch_id
+            if ($data['order_type'] === OrderType::INTERNAL_TRANSFER) {
+                $data['to_branch_id'] = auth()->user()->branch_id;
+            }
 
             $order = $this->orderService->createOrder($data);
 
-            return $this->createdResponse(
-                new PurchaseOrderResource($order),
-                'Purchasing officer order created successfully'
-            );
-        } catch (\Exception $e) {
-            return $this->handleException($e, 'creating purchasing officer order');
-        }
-    }
-
-    /**
-     * Create internal transfer order
-     *
-     * @group New Order
-     */
-    public function storeInternalTransfer(StoreInternalTransferRequest $request): JsonResponse
-    {
-        try {
-            $data = $request->validated();
-            $data['order_type'] = OrderType::INTERNAL_TRANSFER;
-            $data['branch_id'] = auth()->user()->branch_id;
-            $data['to_branch_id'] = auth()->user()->branch_id;
-            $data['requested_by'] = auth()->id();
-
-            $order = $this->orderService->createOrder($data);
+            $orderTypeLabel = match ($data['order_type']) {
+                OrderType::DIRECT_SUPPLIER => 'Direct supplier',
+                OrderType::VIA_PURCHASING_OFFICER => 'Purchasing officer',
+                OrderType::INTERNAL_TRANSFER => 'Internal transfer',
+                default => 'Purchase',
+            };
 
             return $this->createdResponse(
                 new PurchaseOrderResource($order),
-                'Internal transfer order created successfully'
+                "{$orderTypeLabel} order created successfully"
             );
         } catch (\Exception $e) {
-            return $this->handleException($e, 'creating internal transfer order');
+            return $this->handleException($e, 'creating purchase order');
         }
     }
 
