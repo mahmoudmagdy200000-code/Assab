@@ -40,6 +40,9 @@ class NewOrderController extends BaseController
             return $this->errorResponse('Branch ID is required', 400);
         }
         $branchItems = $this->orderService->getBranchItems($branchId);
+        if (!$branchItems) {
+            return $this->errorResponse('Branch items not found', 404);
+        }
         return $this->successResponse(
             $branchItems,
             'Branch items retrieved successfully'

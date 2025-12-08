@@ -12,7 +12,7 @@ use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\OrderTimeline;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
-use Nwidart\Modules\Collection;
+use Illuminate\Database\Eloquent\Collection;
 
 class PurchaseOrderService
 {
