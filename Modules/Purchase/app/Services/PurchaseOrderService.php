@@ -21,10 +21,16 @@ class PurchaseOrderService
 
     /**
      * Get purchase history with filters
+     * 
+     * Filters:
+     * - Search: by item name
+     * - Perspective: submitted (Close, Canceled) or received (Confirmed, Partial Confirmation)
+     * - Type: All, Direct Supplier Order, Via Purchasing Officer, Internal Transfer
+     * - Date: Last 24h, Last 7d, Last 30d, or Custom date range
      */
     public function getHistory(array $filters, int $perPage = 15): LengthAwarePaginator
     {
-        $query = PurchaseOrder::with(['items', 'supplier', 'branch', 'requestedBy'])
+        $query = PurchaseOrder::with(['items', 'supplier', 'branch', 'requestedBy', 'fromBranch'])
             ->history()
             ->orderBy('created_at', 'desc');
 
@@ -33,18 +39,9 @@ class PurchaseOrderService
             $query->search($filters['search']);
         }
 
-        // Filter by status
-        if (!empty($filters['status'])) {
-            $statuses = is_array($filters['status']) ? $filters['status'] : [$filters['status']];
-            $query->whereIn('status', $statuses);
-        }
-
-        // Filter by type
-        if (!empty($filters['type']) && $filters['type'] !== 'all') {
-            $query->where('order_type', $filters['type']);
-        }
-
-        // Filter by perspective (submitted/received)
+        // Filter by perspective (submitted/received) - takes precedence over status
+        // Submitted: Close, Canceled
+        // Received: Confirmed, Partial Confirmation
         if (!empty($filters['perspective'])) {
             if ($filters['perspective'] === 'submitted') {
                 $query->whereIn('status', [OrderStatus::CLOSED, OrderStatus::CANCELED]);
@@ -53,17 +50,37 @@ class PurchaseOrderService
             }
         }
 
-        // Date filters
-        if (!empty($filters['date_range'])) {
-            match($filters['date_range']) {
-                'last_24h' => $query->last24Hours(),
-                'last_7d' => $query->last7Days(),
-                'last_30d' => $query->last30Days(),
-                default => null,
-            };
+        // Filter by type: All, Direct Supplier Order, Via Purchasing Officer, Internal Transfer
+        if (!empty($filters['type']) && $filters['type'] !== 'all') {
+            try {
+                $orderType = OrderType::from($filters['type']);
+                $query->byType($orderType);
+            } catch (\ValueError $e) {
+                // Invalid type, skip filter
+                Log::warning('Invalid order type filter', ['type' => $filters['type']]);
+            }
         }
 
-        if (!empty($filters['date_from']) || !empty($filters['date_to'])) {
+        // Date filters
+        // If date_range is 'custom', use date_from and date_to
+        // Otherwise, use the predefined ranges
+        if (!empty($filters['date_range'])) {
+            if ($filters['date_range'] === 'custom') {
+                // Custom date range
+                if (!empty($filters['date_from']) || !empty($filters['date_to'])) {
+                    $query->byDateRange($filters['date_from'] ?? null, $filters['date_to'] ?? null);
+                }
+            } else {
+                // Predefined ranges
+                match($filters['date_range']) {
+                    'last_24h' => $query->last24Hours(),
+                    'last_7d' => $query->last7Days(),
+                    'last_30d' => $query->last30Days(),
+                    default => null,
+                };
+            }
+        } elseif (!empty($filters['date_from']) || !empty($filters['date_to'])) {
+            // If date_range is not set but date_from/date_to are provided, use them
             $query->byDateRange($filters['date_from'] ?? null, $filters['date_to'] ?? null);
         }
 

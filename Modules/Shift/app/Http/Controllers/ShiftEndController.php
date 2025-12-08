@@ -279,13 +279,13 @@ class ShiftEndController extends Controller
             }
 
             // Validate payment breakdown
-            $isValid = $this->shiftEndService->validatePaymentBreakdown($request->all());
-            if (!$isValid) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Payment breakdown does not match total sales',
-                ], 400);
-            }
+            // $isValid = $this->shiftEndService->validatePaymentBreakdown($request->all());
+            // if (!$isValid) {
+            //     return response()->json([
+            //         'success' => false,
+            //         'message' => 'Payment breakdown does not match total sales',
+            //     ], 400);
+            // }
 
             // Prepare data
             $data = $request->all();
