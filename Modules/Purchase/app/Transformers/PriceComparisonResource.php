@@ -10,18 +10,19 @@ class PriceComparisonResource extends JsonResource
     {
         return [
             'item_id' => $this->resource['item_id'] ?? null,
+            'item_name' => $this->resource['item_name'] ?? null,
             'quantity' => $this->resource['quantity'] ?? null,
-            
+
             // Sources
             'sources' => [
                 'direct_supplier' => $this->resource['sources']['direct_supplier'] ?? [],
                 'via_purchasing_officer' => $this->resource['sources']['via_purchasing_officer'] ?? null,
                 'internal_transfer' => $this->resource['sources']['internal_transfer'] ?? [],
             ],
-            
+
             // Best option
             'best_option' => $this->resource['best_option'] ?? null,
-            
+
             // Insights
             'insights' => [
                 'lowest_price' => $this->resource['insights']['lowest_price'] ?? null,
@@ -29,7 +30,7 @@ class PriceComparisonResource extends JsonResource
                 'best_rating' => $this->resource['insights']['best_rating'] ?? null,
                 'best_compliance' => $this->resource['insights']['best_compliance'] ?? null,
             ],
-            
+
             // Price trends
             'price_trends' => $this->resource['price_trends'] ?? [],
         ];
