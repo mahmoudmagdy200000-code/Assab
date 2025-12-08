@@ -5,6 +5,7 @@ namespace Modules\Purchase\Services;
 use Illuminate\Support\Collection;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\QualityLevel;
+use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Models\PriceHistory;
 use Modules\Purchase\Models\PurchaseSupplier;
@@ -17,8 +18,13 @@ class PriceComparisonService
      */
     public function comparePrices(string $itemId, float $quantity, ?string $branchId = null): array
     {
+        // Get item name from BranchItem
+        $item = BranchItem::find($itemId);
+        $itemName = $item ? $item->item_name : null;
+
         $comparison = [
             'item_id' => $itemId,
+            'item_name' => $itemName,
             'quantity' => $quantity,
             'sources' => [],
             'best_option' => null,
