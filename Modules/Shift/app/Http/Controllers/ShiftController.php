@@ -201,23 +201,41 @@ class ShiftController extends BaseController
 
     public function getAllCashiersAndBranchManagerAccount(Request $request)
     {
-        $manager = auth()->user();
+        try {
+            $manager = auth()->user();
 
-        if (!$manager || !$manager->branch_id) {
-            return $this->errorResponse('Unauthorized', 403);
+            if (!$manager || !$manager->branch_id) {
+                return $this->errorResponse('Unauthorized', 403);
+            }
+
+            // Load cashiers with relationships and count
+            $cashiers = Cashier::where('branch_id', $manager->branch_id)
+                ->with(['branch', 'creator'])
+                ->withCount('shifts')
+                ->paginate($request->input('per_page', 10));
+
+            // Load branch managers with relationships
+            $branchManagers = BranchManager::where('branch_id', $manager->branch_id)
+                ->with('branch')
+                ->get();
+
+            $combined = [
+                'branch_managers' => BranchManagerResource::collection($branchManagers),
+                'cashiers' => CashierResource::collection($cashiers->items()),
+                'pagination' => [
+                    'current_page' => $cashiers->currentPage(),
+                    'per_page' => $cashiers->perPage(),
+                    'total' => $cashiers->total(),
+                    'last_page' => $cashiers->lastPage(),
+                    'from' => $cashiers->firstItem(),
+                    'to' => $cashiers->lastItem(),
+                ],
+            ];
+
+            return $this->successResponse($combined, 'Cashiers and branch managers retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
         }
-
-        $cashiers = Cashier::where('branch_id', $manager->branch_id)
-            ->paginate($request->input('per_page', 10));
-
-        $branchManagers = BranchManager::where('branch_id', $manager->branch_id)->get();
-
-        $combined = [
-            'branch_managers' => BranchManagerResource::collection($branchManagers),
-            'cashiers' => CashierResource::collection($cashiers),
-        ];
-
-        return $this->successResponse($combined, 'Cashiers and branch managers retrieved successfully');
     }
 
 

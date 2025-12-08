@@ -584,9 +584,12 @@ class CashierShiftController extends BaseController
                 ->with('branch')
                 ->get();
 
+            // Get cashiers items safely
+            $cashiersItems = $cashiers->items() ?? [];
+
             $combined = [
                 'branch_managers' => BranchManagerResource::collection($branchManagers),
-                'cashiers' => CashierResource::collection($cashiers->items()),
+                'cashiers' => CashierResource::collection($cashiersItems),
                 'pagination' => [
                     'current_page' => $cashiers->currentPage(),
                     'per_page' => $cashiers->perPage(),

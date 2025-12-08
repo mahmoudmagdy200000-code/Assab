@@ -228,7 +228,11 @@ class Cashier extends Authenticatable
 
     public function getTotalShiftsCount(): int
     {
-        return $this->shifts()->count();
+        try {
+            return $this->shifts()->count();
+        } catch (\Exception $e) {
+            return 0;
+        }
     }
 
     public function getCompletedShiftsCount(): int

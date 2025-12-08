@@ -17,9 +17,27 @@ class CashierResource extends BaseResource
             'branch' => $this->formatNestedResource($this->whenLoaded('branch')),
             'status' => $this->formatStatus(),
             'created_by' => $this->formatNestedResource($this->whenLoaded('creator')),
-            'shifts_count' => $this->shifts_count ?? $this->getTotalShiftsCount(),
+            'shifts_count' => $this->getShiftsCount(),
             'activated_at' => $this->formatDate($this->activated_at),
             'timestamps' => $this->formatTimestamps(),
         ];
+    }
+
+    /**
+     * Safely get shifts count
+     */
+    protected function getShiftsCount(): int
+    {
+        // First check if shifts_count was loaded via withCount
+        if (isset($this->shifts_count) && $this->shifts_count !== null) {
+            return (int) $this->shifts_count;
+        }
+
+        // Fallback to method call with error handling
+        try {
+            return $this->resource->getTotalShiftsCount();
+        } catch (\Exception $e) {
+            return 0;
+        }
     }
 }

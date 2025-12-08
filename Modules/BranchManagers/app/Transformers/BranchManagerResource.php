@@ -14,12 +14,14 @@ class BranchManagerResource extends JsonResource
             'email' => $this->email,
             'phone' => $this->phone,
             'image' => $this->image_url,
-            'branch' => [
-                'id' => $this->branch->id,
-                'name' => $this->branch->name,
-                'location' => $this->branch->location,
-                'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
-            ],
+            'branch' => $this->whenLoaded('branch', function () {
+                return [
+                    'id' => $this->branch->id ?? null,
+                    'name' => $this->branch->name ?? null,
+                    'location' => $this->branch->location ?? null,
+                    'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
+                ];
+            }),
             'status' => [
                 'value' => $this->status,
                 // 'label' => $this->status_label,
