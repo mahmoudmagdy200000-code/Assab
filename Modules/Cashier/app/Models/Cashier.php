@@ -80,7 +80,7 @@ class Cashier extends Authenticatable
     }
     public function shifts(): HasMany
     {
-        return $this->hasMany(CashierShift::class); // تغيير هنا
+        return $this->hasMany(CashierShift::class, 'cashier_id');
     }
 
     public function assignedShifts(): HasMany
