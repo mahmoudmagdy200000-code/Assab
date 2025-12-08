@@ -15,6 +15,7 @@ class BranchItem extends Model
     /**
      * The attributes that are mass assignable.
      */
+    protected $table = 'branch_item';
     protected $fillable = [
         'branch_id',
         'item_name',
@@ -23,6 +24,11 @@ class BranchItem extends Model
         'item_unit',
         'item_price',
         'item_quantity',
+    ];
+    protected $casts = [
+        'item_logo' => 'array',
+        'item_price' => 'decimal:2',
+        'item_quantity' => 'decimal:3',
     ];
 
     public function branch(): BelongsTo
