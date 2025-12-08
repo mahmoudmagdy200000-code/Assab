@@ -13,6 +13,7 @@ use Modules\Purchase\Http\Requests\StorePurchasingOfficerOrderRequest;
 use Modules\Purchase\Services\PriceComparisonService;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Http\Requests\FilterBranchItemsRequest;
+use Modules\Purchase\Http\Requests\FilterOrdersRequest;
 use Modules\Purchase\Http\Requests\StorePurchaseOrderRequest;
 use Modules\Purchase\Transformers\BranchItemResource;
 use Modules\Purchase\Transformers\OrderSummaryResource;
@@ -29,6 +30,35 @@ class NewOrderController extends BaseController
 
 
 
+
+    /**
+     * Get list of purchase orders with filters
+     *
+     * Filters:
+     * - Search: by item name or order number
+     * - Order Type: direct_supplier, via_purchasing_officer, internal_transfer
+     * - Status: filter by order status
+     * - Date: filter by date range
+     *
+     * @group New Order
+     */
+    public function index(FilterOrdersRequest $request): JsonResponse
+    {
+        try {
+            $filters = $request->validated();
+            $filters['branch_id'] = auth()->user()->branch_id;
+            $perPage = $request->get('per_page', 15);
+
+            $orders = $this->orderService->getOrders($filters, $perPage);
+
+            return $this->paginatedResponse(
+                PurchaseOrderResource::collection($orders),
+                'Orders retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching orders');
+        }
+    }
 
     /**
      * Get branch items with search and filters
