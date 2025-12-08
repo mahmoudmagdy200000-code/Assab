@@ -252,25 +252,43 @@ class PurchaseOrderService
 
     /**
      * Add item to order
+     *
+     * Gets item details from BranchItem using item_id
      */
     public function addItem(PurchaseOrder $order, array $data): PurchaseOrderItem
     {
+        // Get item details from BranchItem
+        if (empty($data['item_id'])) {
+            throw new \InvalidArgumentException('Item ID is required');
+        }
+
+        $branchItem = BranchItem::find($data['item_id']);
+        if (!$branchItem) {
+            throw new \InvalidArgumentException('Item not found');
+        }
+
         // For internal transfers, unit_price is optional (defaults to 0 - free transfer)
-        // For other order types, unit_price should be provided
-        $unitPrice = $data['unit_price'] ?? 0;
+        // For other order types, unit_price should be provided or use item_price from BranchItem
+        $unitPrice = $data['unit_price'] ?? ($branchItem->item_price ?? 0);
 
         $totalPrice = ($data['quantity'] * $unitPrice) - ($data['discount'] ?? 0);
 
+        // Handle item_logo - can be array or string
+        $itemLogo = $branchItem->item_logo;
+        if (is_array($itemLogo)) {
+            $itemLogo = $itemLogo[0] ?? null;
+        }
+
         return PurchaseOrderItem::create([
             'purchase_order_id' => $order->id,
-            'item_id' => $data['item_id'] ?? null,
-            'item_name' => $data['item_name'],
-            'item_logo' => $data['item_logo'] ?? null,
-            'item_sku' => $data['item_sku'] ?? null,
-            'category' => $data['category'] ?? null,
-            'subcategory' => $data['subcategory'] ?? null,
+            'item_id' => $data['item_id'],
+            'item_name' => $branchItem->item_name,
+            'item_logo' => $itemLogo,
+            'item_sku' => $branchItem->item_code,
+            'category' => $branchItem->category,
+            'subcategory' => $branchItem->subcategory,
             'quantity_ordered' => $data['quantity'],
-            'unit_of_measurement' => $data['unit'] ?? 'kg',
+            'unit_of_measurement' => $data['unit'] ?? $branchItem->item_unit ?? 'kg',
             'unit_price' => $unitPrice,
             'total_price' => $totalPrice,
             'discount' => $data['discount'] ?? 0,

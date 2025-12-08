@@ -21,11 +21,9 @@ class StorePurchasingOfficerOrderRequest extends FormRequest
             'special_instructions' => ['nullable', 'string', 'max:2000'],
             'message' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.item_id' => ['nullable', 'uuid'],
-            'items.*.item_name' => ['required', 'string', 'max:255'],
-            'items.*.item_logo' => ['nullable', 'string'],
+            'items.*.item_id' => ['required', 'uuid', 'exists:branch_item,id'],
             'items.*.quantity' => ['required', 'numeric', 'min:0.001'],
-            'items.*.unit' => ['required', 'string', 'in:kg,pk,unit,box,liter,piece'],
+            'items.*.unit' => ['nullable', 'string', 'in:kg,pk,unit,box,liter,piece'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
             'items.*.quality' => ['nullable', 'string', 'in:economy,standard,premium'],
         ];
@@ -41,6 +39,11 @@ class StorePurchasingOfficerOrderRequest extends FormRequest
             'latest_delivery_date.required' => 'Latest delivery date is required.',
             'latest_delivery_date.after_or_equal' => 'Latest delivery date must be on or after the preferred date.',
             'items.required' => 'Please add at least one item to the order.',
+            'items.*.item_id.required' => 'Item ID is required for each item.',
+            'items.*.item_id.exists' => 'One or more selected items do not exist.',
+            'items.*.quantity.required' => 'Quantity is required for each item.',
+            'items.*.quantity.min' => 'Quantity must be greater than 0.',
+            'items.*.unit_price.required' => 'Unit price is required for each item.',
         ];
     }
 }
