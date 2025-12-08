@@ -28,20 +28,14 @@ Route::prefix('branch-manager')
 
         /*
         |----------------------------------------------------------------------
-        | Section 3.1.2.1.1.1: Cashiers Listing
-        |----------------------------------------------------------------------
-        */
-        Route::get('/cashiers/all', [CashierShiftController::class, 'getAllCashiersAndBranchManagerAccount'])
-            ->name('cashiers.all');
-        Route::post('/cashiers/{shift}/start-by-manager', [CashierShiftController::class, 'startShiftByManager'])
-            ->name('cashiers.start-by-manager');
-
-        /*
-        |----------------------------------------------------------------------
         | Section 3.1.2.1: Cashiers Management Routes
         |----------------------------------------------------------------------
         */
         Route::prefix('cashiers')->group(function () {
+            // Section 3.1.2.1.1.1: Get All Cashiers and Branch Managers (must be before {cashier} route)
+            Route::get('/all', [CashierShiftController::class, 'getAllCashiersAndBranchManagerAccount'])
+                ->name('cashiers.all');
+
             // Section 3.1.2.1.1: Cashiers Listing
             Route::get('/', [CashierManagementController::class, 'index'])
                 ->name('cashiers.index');
