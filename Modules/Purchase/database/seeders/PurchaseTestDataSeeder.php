@@ -175,8 +175,7 @@ class PurchaseTestDataSeeder extends Seeder
                 ]);
             }
 
-            // Update branch manager_id
-            $branch->update(['branch_manager_id' => $manager->id]);
+            // Note: branch_manager_id is not in branches table, relationship is through branch_id in branch_managers
             $managers[] = $manager;
         }
 
