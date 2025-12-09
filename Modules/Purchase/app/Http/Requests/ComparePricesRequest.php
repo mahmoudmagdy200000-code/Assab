@@ -15,7 +15,7 @@ class ComparePricesRequest extends FormRequest
     {
         return [
             'item_id' => ['required', 'uuid'],
-            'quantity' => ['required', 'numeric', 'min:0.001'],
+            'quantity' => ['nullable', 'numeric', 'min:0.001'],
         ];
     }
 
@@ -23,7 +23,6 @@ class ComparePricesRequest extends FormRequest
     {
         return [
             'item_id.required' => 'Item ID is required for price comparison.',
-            'quantity.required' => 'Quantity is required for price comparison.',
         ];
     }
 }

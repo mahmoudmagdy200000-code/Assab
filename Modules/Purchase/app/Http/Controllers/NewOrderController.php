@@ -104,7 +104,7 @@ class NewOrderController extends BaseController
         try {
             $comparison = $this->priceService->comparePrices(
                 $request->item_id,
-                $request->quantity
+                $request->quantity ?? null
             );
 
             return $this->successResponse(

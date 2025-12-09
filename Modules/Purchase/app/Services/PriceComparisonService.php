@@ -21,14 +21,17 @@ class PriceComparisonService
      *
      * Returns detailed comparison including:
      * - Product Name
-     * - Quantity
+     * - Quantity (optional, defaults to 1)
      * - Period: Last 3 months price trends
      * - Comparison Chart: Monthly price variation
      * - Comparison Table: Price, Delivery Days, Rating for each Order Type
      * - Benefits Analysis: Best option, compliance, fastest delivery, lowest price
      */
-    public function comparePrices(string $itemId, float $quantity): array
+    public function comparePrices(string $itemId, ?float $quantity = null): array
     {
+        // Use default quantity of 1 if not provided
+        $quantity = $quantity ?? 1.0;
+
         // Get item name from BranchItem
         $item = BranchItem::find($itemId);
         $itemName = $item ? $item->item_name : null;
