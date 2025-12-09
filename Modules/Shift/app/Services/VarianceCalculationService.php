@@ -21,6 +21,9 @@ class VarianceCalculationService
     {
         DB::beginTransaction();
         try {
+            // Delete existing variance details to prevent duplicates
+            ShiftVarianceDetail::where('cashier_shift_id', $shift->id)->delete();
+
             $varianceAmount = abs($shift->calculateVariance());
             $varianceType = $shift->calculateVariance() > 0
                 ? VarianceType::OVER
