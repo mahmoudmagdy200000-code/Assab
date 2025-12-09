@@ -40,7 +40,7 @@ class PurchaseTestDataSeeder extends Seeder
 
         // 4. Create Branch Inventory
         $this->command->info('📊 Creating Branch Inventory...');
-        $this->createBranchInventory($branches, $branchItems);
+        $this->createBranchInventory($branchItems);
 
         // 5. Create Suppliers (if not exists)
         $this->command->info('🏪 Creating Suppliers...');
@@ -227,7 +227,7 @@ class PurchaseTestDataSeeder extends Seeder
     /**
      * Create branch inventory
      */
-    private function createBranchInventory(array $branches, array $branchItems): void
+    private function createBranchInventory(array $branchItems): void
     {
         foreach ($branchItems as $item) {
             BranchInventory::updateOrCreate(
@@ -286,7 +286,6 @@ class PurchaseTestDataSeeder extends Seeder
                         'item_id' => $item->id,
                     ],
                     [
-                        'item_name' => $item->item_name,
                         'unit_price' => $item->item_price * (1 + (rand(-10, 20) / 100)), // ±10-20% variation
                         'economy_price' => $item->item_price * 0.85,
                         'standard_price' => $item->item_price,
