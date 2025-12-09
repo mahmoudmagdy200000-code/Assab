@@ -47,7 +47,14 @@ class ShiftController extends BaseController
             return $this->errorResponse('Unauthorized', 403);
         }
 
-        $query = CashierShift::with(['cashier', 'shift', 'assignedBy'])  // Added eager loading
+        $query = CashierShift::with([
+            'cashier:id,name,branch_id',
+            'shift' => function ($q) {
+                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+            },
+            'shift.branch:id,name,address',
+            'assignedBy:id,name'
+        ])
             ->whereHas('cashier', function ($q) use ($manager) {
                 $q->where('branch_id', $manager->branch_id);
             });
@@ -86,7 +93,13 @@ class ShiftController extends BaseController
             return $this->errorResponse('Unauthorized', 403);
         }
 
-        $query = CashierShift::with(['cashier', 'shift'])
+        $query = CashierShift::with([
+            'cashier:id,name,branch_id',
+            'shift' => function ($q) {
+                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+            },
+            'shift.branch:id,name,address'
+        ])
             ->whereHas('cashier', function ($q) use ($manager) {
                 $q->where('branch_id', $manager->branch_id);
             });
@@ -145,10 +158,8 @@ class ShiftController extends BaseController
             $query->where('cashier_shifts.total_sales', '<=', $max);
         }
 
-        // 🔄 ترتيب حسب وقت الشيفت الحقيقي من جدول shifts
-        $query->leftJoin('shifts', 'shifts.id', '=', 'cashier_shifts.shift_id')
-            ->orderBy('shifts.start_time', 'desc')
-            ->select('cashier_shifts.*');
+        // 🔄 ترتيب حسب وقت الشيفت الحقيقي من جدول shifts (optimized - use subquery instead of join)
+        $query->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) DESC');
 
         // 📄 Pagination
         $shifts = $query->paginate($request->input('per_page', 20));
@@ -171,7 +182,14 @@ class ShiftController extends BaseController
 
     public function getCashierShiftById($id)
     {
-        $cashierShift = CashierShift::with(['cashier', 'shift', 'assignedBy'])->find($id);
+        $cashierShift = CashierShift::with([
+            'cashier:id,name,branch_id',
+            'shift' => function ($q) {
+                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+            },
+            'shift.branch:id,name,address',
+            'assignedBy:id,name'
+        ])->find($id);
 
         if (!$cashierShift) {
             return $this->errorResponse('Cashier Shift not found', 404);
@@ -185,7 +203,14 @@ class ShiftController extends BaseController
 
     public function getShiftByCashierId($id)
     {
-        $cashierShifts = CashierShift::with(['cashier', 'shift', 'assignedBy'])
+        $cashierShifts = CashierShift::with([
+            'cashier:id,name,branch_id',
+            'shift' => function ($q) {
+                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+            },
+            'shift.branch:id,name,address',
+            'assignedBy:id,name'
+        ])
             ->where('cashier_id', $id)
             ->get();
 
@@ -214,9 +239,10 @@ class ShiftController extends BaseController
                 ->withCount('shifts')
                 ->paginate($request->input('per_page', 10));
 
-            // Load branch managers with relationships
+            // Load branch managers with relationships (optimized)
             $branchManagers = BranchManager::where('branch_id', $manager->branch_id)
-                ->with('branch')
+                ->with('branch:id,name,address')
+                ->select(['id', 'name', 'email', 'branch_id', 'is_active'])
                 ->get();
 
             $combined = [
@@ -242,7 +268,14 @@ class ShiftController extends BaseController
     // في ShiftController.php أضف:
     public function startShiftByManager($shiftId)
     {
-        $shiftModel = \Modules\Shift\Models\CashierShift::findOrFail($shiftId);
+        $shiftModel = \Modules\Shift\Models\CashierShift::with([
+            'shift' => function ($q) {
+                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+            },
+            'shift.branch:id,name',
+            'cashier:id,name,branch_id',
+            'nextCashier:id,name'
+        ])->findOrFail($shiftId);
         $branchManager = auth()->user();
 
         // Verify the cashier belongs to the branch manager's branch

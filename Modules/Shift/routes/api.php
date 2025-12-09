@@ -48,6 +48,10 @@ Route::prefix('branch-manager')
             Route::get('/filter', [CashierManagementController::class, 'filter'])
                 ->name('cashiers.filter');
 
+            // Get available cashiers for shift assignment/reassignment
+            Route::get('/available-cashiers', [CashierManagementController::class, 'getAvailableCashiers'])
+                ->name('cashiers.available-cashiers');
+
             // Section 3.1.2.1.1.4: View Detailed Cashier Information
             Route::get('/{cashier}', [CashierManagementController::class, 'show'])
                 ->name('cashiers.show');

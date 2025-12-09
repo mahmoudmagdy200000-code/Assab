@@ -89,7 +89,7 @@ class CashierManagementController extends BaseController
                     'store_branch_id' => $cashier->branch_id,
                     'number_of_shifts_per_day' => $shiftsPerDay,
                     'status' => $cashier->status,
-                    'status_label' => $cashier->status_label ?? match($cashier->status) {
+                    'status_label' => $cashier->status_label ?? match ($cashier->status) {
                         'active' => 'Active',
                         'pending' => 'Pending',
                         'deactivated' => 'Deactivated',
@@ -221,16 +221,16 @@ class CashierManagementController extends BaseController
             $shifts = Shift::whereHas('cashierShifts', function ($q) use ($cashier) {
                 $q->where('cashier_id', $cashier);
             })
-            ->where('branch_id', $branchId)
-            ->get()
-            ->map(function ($shift) {
-                return [
-                    'id' => $shift->id,
-                    'name' => $shift->name,
-                    'start_time' => $shift->start_time?->format('H:i'),
-                    'end_time' => $shift->end_time?->format('H:i'),
-                ];
-            });
+                ->where('branch_id', $branchId)
+                ->get()
+                ->map(function ($shift) {
+                    return [
+                        'id' => $shift->id,
+                        'name' => $shift->name,
+                        'start_time' => $shift->start_time?->format('H:i'),
+                        'end_time' => $shift->end_time?->format('H:i'),
+                    ];
+                });
 
             // Get pending, in-progress, and completed shifts
             $pendingShifts = $this->getCashierShiftsByStatus($cashier, ShiftStatus::NOT_STARTED);
@@ -471,6 +471,74 @@ class CashierManagementController extends BaseController
     }
 
     /**
+     * Get available cashiers for shift assignment/reassignment
+     * جلب الكاشيرز المتاحين للتعيين أو إعادة التعيين
+     */
+    public function getAvailableCashiers(Request $request): JsonResponse
+    {
+        try {
+            $manager = auth()->user();
+            $branchId = $manager->branch_id;
+
+            if (!$branchId) {
+                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
+            }
+
+            // Get shift_id and shift_date from query parameters (optional)
+            $shiftId = $request->input('shift_id');
+            $shiftDate = $request->input('shift_date', today()->format('Y-m-d'));
+
+            // Get all active cashiers for this branch (optimized)
+            $allCashiers = Cashier::where('branch_id', $branchId)
+                ->where('status', 'active')
+                ->select(['id', 'name', 'email', 'image', 'branch_id', 'status'])
+                ->get();
+
+            // If shift_id is provided, filter out busy cashiers
+            $busyCashierIds = [];
+            if ($shiftId) {
+                $shiftModel = CashierShift::with([
+                    'shift' => function ($q) {
+                        $q->select(['id', 'name', 'branch_id']);
+                    }
+                ])->find($shiftId);
+
+                if ($shiftModel) {
+                    // Get cashiers who are already working on this date/shift
+                    $busyCashierIds = CashierShift::where('shift_date', $shiftDate)
+                        ->where('shift_id', $shiftModel->shift_id)
+                        ->where('id', '!=', $shiftId)
+                        ->whereIn('status', [ShiftStatus::NOT_STARTED->value, ShiftStatus::IN_PROGRESS->value, ShiftStatus::REASSIGNED->value])
+                        ->pluck('cashier_id')
+                        ->toArray();
+                }
+            }
+
+            // Filter and transform available cashiers
+            $availableCashiers = $allCashiers->map(function ($cashier) use ($busyCashierIds, $shiftId) {
+                $isAvailable = !in_array($cashier->id, $busyCashierIds);
+
+                return [
+                    'id' => $cashier->id,
+                    'name' => $cashier->name,
+                    'email' => $cashier->email,
+                    'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
+                    'is_available' => $isAvailable,
+                    'reason_disabled' => !$isAvailable ? 'Already assigned to this shift' : null,
+                ];
+            })->values();
+
+            return $this->successResponse([
+                'cashiers' => $availableCashiers,
+                'total_count' => $availableCashiers->count(),
+                'available_count' => $availableCashiers->where('is_available', true)->count(),
+            ], 'Available cashiers retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
      * Helper: Get cashier shifts by status
      */
     private function getCashierShiftsByStatus(string $cashierId, ShiftStatus $status, int $limit = 10): array
@@ -512,4 +580,3 @@ class CashierManagementController extends BaseController
         })->toArray();
     }
 }
-

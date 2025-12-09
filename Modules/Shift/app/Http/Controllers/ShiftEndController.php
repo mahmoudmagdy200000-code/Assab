@@ -535,7 +535,12 @@ class ShiftEndController extends Controller
     public function getAvailableCashiersForHandover(string $shift): JsonResponse
     {
         try {
-            $shiftModel = CashierShift::with('shift')->findOrFail($shift);
+            $shiftModel = CashierShift::with([
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                },
+                'shift.branch:id,name'
+            ])->findOrFail($shift);
 
             // Get all active cashiers for this branch except current cashier
             $allCashiers = Cashier::where('branch_id', $shiftModel->shift->branch_id)
@@ -609,7 +614,14 @@ class ShiftEndController extends Controller
      */
     private function getShiftForUser(string $shiftId, $user): ?CashierShift
     {
-        $query = CashierShift::with(['shift.branch', 'cashier', 'nextCashier']);
+        $query = CashierShift::with([
+            'shift' => function ($q) {
+                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+            },
+            'shift.branch:id,name,address',
+            'cashier:id,name,branch_id',
+            'nextCashier:id,name'
+        ]);
 
         // If user is cashier, only show their shifts
         if ($user instanceof \Modules\Cashier\Models\Cashier) {

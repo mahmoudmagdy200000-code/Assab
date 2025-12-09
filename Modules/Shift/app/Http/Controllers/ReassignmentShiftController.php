@@ -542,18 +542,26 @@ class ReassignmentShiftController extends Controller
     public function getAvailableCashiers(string $shift): JsonResponse
     {
         try {
-            $shiftModel = CashierShift::with('shift')->findOrFail($shift);
+            // Optimized eager loading
+            $shiftModel = CashierShift::with([
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'branch_id', 'start_time', 'end_time']);
+                },
+                'shift.branch:id,name',
+                'cashier:id,name,branch_id'
+            ])->findOrFail($shift);
 
-            // Get all active cashiers for this branch
+            // Get all active cashiers for this branch (optimized)
             $allCashiers = Cashier::where('branch_id', $shiftModel->shift->branch_id)
                 ->where('status', 'active')
+                ->select(['id', 'name', 'email', 'image', 'branch_id', 'status'])
                 ->get();
 
-            // Get cashiers who are already working on this date/shift
+            // Get cashiers who are already working on this date/shift (optimized)
             $busyCashierIds = CashierShift::where('shift_date', $shiftModel->shift_date)
                 ->where('shift_id', $shiftModel->shift_id)
                 ->where('id', '!=', $shift)
-                ->whereIn('status', ['not_started', 'in_progress', 'reassigned'])
+                ->whereIn('status', [ShiftStatus::NOT_STARTED->value, ShiftStatus::IN_PROGRESS->value, ShiftStatus::REASSIGNED->value])
                 ->pluck('cashier_id')
                 ->toArray();
 

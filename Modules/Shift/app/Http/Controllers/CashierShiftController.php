@@ -35,7 +35,14 @@ class CashierShiftController extends BaseController
         try {
             $cashier = auth()->user();
 
-            $query = CashierShift::with(['shift.branch', 'nextCashier', 'assignedBy'])
+            $query = CashierShift::with([
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                },
+                'shift.branch:id,name,address',
+                'nextCashier:id,name',
+                'assignedBy:id,name'
+            ])
                 ->where('cashier_id', $cashier->id)
                 ->orderBy('shift_date', 'desc')
                 ->orderBy('created_at', 'desc');
@@ -55,15 +62,22 @@ class CashierShiftController extends BaseController
 
             $shifts = $query->paginate($request->input('per_page', 15));
 
-            // Weekly summary
+            // Weekly summary (optimized - use same query structure)
             $weekStart = Carbon::now()->startOfWeek();
             $weekEnd = Carbon::now()->endOfWeek();
             $weeklyShifts = CashierShift::where('cashier_id', $cashier->id)
                 ->whereBetween('shift_date', [$weekStart, $weekEnd])
                 ->count();
 
-            // Today's shifts with real-time status
-            $todayShifts = CashierShift::with(['shift.branch', 'nextCashier', 'handoverStatus'])
+            // Today's shifts with real-time status (optimized eager loading)
+            $todayShifts = CashierShift::with([
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                },
+                'shift.branch:id,name,address',
+                'nextCashier:id,name',
+                'handoverStatus'
+            ])
                 ->where('cashier_id', $cashier->id)
                 ->whereDate('shift_date', today())
                 ->orderBy('created_at')
@@ -140,7 +154,14 @@ class CashierShiftController extends BaseController
             $minDate = now();
             $maxDate = now()->addMonth();
 
-            $shifts = CashierShift::with(['shift.branch', 'nextCashier', 'assignedBy'])
+            $shifts = CashierShift::with([
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                },
+                'shift.branch:id,name',
+                'nextCashier:id,name',
+                'assignedBy:id,name'
+            ])
                 ->where('cashier_id', $cashier->id)
                 ->whereIn('status', [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED])
                 ->whereDate('shift_date', '>=', $minDate)
@@ -190,7 +211,15 @@ class CashierShiftController extends BaseController
         try {
             $cashier = auth()->user();
 
-            $shifts = CashierShift::with(['shift.branch', 'nextCashier', 'assignedBy', 'handoverStatus'])
+            $shifts = CashierShift::with([
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                },
+                'shift.branch:id,name',
+                'nextCashier:id,name',
+                'assignedBy:id,name',
+                'handoverStatus'
+            ])
                 ->where('cashier_id', $cashier->id)
                 ->where('status', ShiftStatus::IN_PROGRESS)
                 ->whereDate('shift_date', today())
@@ -236,7 +265,14 @@ class CashierShiftController extends BaseController
         try {
             $cashier = auth()->user();
 
-            $shiftModel = CashierShift::with(['shift', 'cashier', 'nextCashier'])
+            $shiftModel = CashierShift::with([
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                },
+                'shift.branch:id,name',
+                'cashier:id,name',
+                'nextCashier:id,name'
+            ])
                 ->where('cashier_id', $cashier->id)
                 ->findOrFail($shift);
 
@@ -307,7 +343,16 @@ class CashierShiftController extends BaseController
         try {
             $cashier = auth()->user();
 
-            $query = CashierShift::with(['shift.branch', 'nextCashier', 'assignedBy', 'salesBreakdown'])
+            $query = CashierShift::with([
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                },
+                'shift.branch:id,name',
+                'nextCashier:id,name',
+                'assignedBy:id,name',
+                'salesBreakdown:id,cashier_shift_id,aggregator_id,amount',
+                'salesBreakdown.aggregator:id,name'
+            ])
                 ->where('cashier_id', $cashier->id)
                 ->where('status', ShiftStatus::COMPLETED)
                 ->orderBy('shift_date', 'desc')
@@ -374,7 +419,14 @@ class CashierShiftController extends BaseController
         try {
             $cashier = auth()->user();
 
-            $shifts = CashierShift::with(['shift.branch', 'originalCashier', 'reassignedBy'])
+            $shifts = CashierShift::with([
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                },
+                'shift.branch:id,name',
+                'originalCashier:id,name',
+                'reassignedBy:id,name'
+            ])
                 ->where('cashier_id', $cashier->id)
                 ->where('status', ShiftStatus::REASSIGNED)
                 ->orderBy('reassigned_at', 'desc')
@@ -411,7 +463,14 @@ class CashierShiftController extends BaseController
         try {
             $cashier = auth()->user();
 
-            $query = CashierShift::with(['shift.branch', 'nextCashier', 'assignedBy'])
+            $query = CashierShift::with([
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                },
+                'shift.branch:id,name',
+                'nextCashier:id,name',
+                'assignedBy:id,name'
+            ])
                 ->where('cashier_id', $cashier->id)
                 ->whereIn('status', [ShiftStatus::COMPLETED, ShiftStatus::REASSIGNED])
                 ->orderBy('shift_date', 'desc');
@@ -461,7 +520,12 @@ class CashierShiftController extends BaseController
             $weekStart = Carbon::now()->startOfWeek();
             $weekEnd = Carbon::now()->endOfWeek();
 
-            $shifts = CashierShift::where('cashier_id', $cashier->id)
+            $shifts = CashierShift::with([
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'start_time', 'end_time']);
+                }
+            ])
+                ->where('cashier_id', $cashier->id)
                 ->whereBetween('shift_date', [$weekStart, $weekEnd])
                 ->get();
 
@@ -577,16 +641,20 @@ class CashierShiftController extends BaseController
                 return $this->errorResponse('Unauthorized', 403);
             }
 
-            // Load cashiers with relationships and count
+            // Load cashiers with relationships and count (optimized)
             $cashiers = Cashier::where('branch_id', $manager->branch_id)
-                ->with(['branch', 'creator'])
+                ->with([
+                    'branch:id,name,address',
+                    'creator:id,name'
+                ])
                 ->withCount('shifts')
                 ->paginate($request->input('per_page', 10));
 
-            // Load branch managers with relationships (excluding the current manager)
+            // Load branch managers with relationships (excluding the current manager) - optimized
             $branchManagers = BranchManager::where('branch_id', $manager->branch_id)
                 ->where('id', '!=', $manager->id)
-                ->with('branch')
+                ->with('branch:id,name,address')
+                ->select(['id', 'name', 'email', 'branch_id', 'is_active'])
                 ->get();
 
             // Create ResourceCollection for cashiers (this preserves pagination)
@@ -618,8 +686,16 @@ class CashierShiftController extends BaseController
         try {
             $branchManager = auth()->user();
 
-            // First try to find by shift ID
-            $shiftModel = CashierShift::where('id', $shiftId)
+            // First try to find by shift ID (optimized eager loading)
+            $shiftModel = CashierShift::with([
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                },
+                'shift.branch:id,name',
+                'cashier:id,name,branch_id',
+                'nextCashier:id,name'
+            ])
+                ->where('id', $shiftId)
                 ->whereHas('shift', function ($query) use ($branchManager) {
                     $query->where('branch_id', $branchManager->branch_id);
                 })
@@ -627,7 +703,15 @@ class CashierShiftController extends BaseController
 
             // If not found, assume it's a cashier_id and find pending shift for that cashier
             if (!$shiftModel) {
-                $shiftModel = CashierShift::where('cashier_id', $shiftId)
+                $shiftModel = CashierShift::with([
+                    'shift' => function ($q) {
+                        $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                    },
+                    'shift.branch:id,name',
+                    'cashier:id,name,branch_id',
+                    'nextCashier:id,name'
+                ])
+                    ->where('cashier_id', $shiftId)
                     ->whereHas('shift', function ($query) use ($branchManager) {
                         $query->where('branch_id', $branchManager->branch_id);
                     })
