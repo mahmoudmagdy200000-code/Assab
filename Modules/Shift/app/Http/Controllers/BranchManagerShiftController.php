@@ -107,7 +107,10 @@ class BranchManagerShiftController extends BaseController
             $manager = auth()->user();
 
             $query = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->with(['branch', 'nextManager'])
+                ->with([
+                    'branch:id,name,location',
+                    'nextManager:id,name'
+                ])
                 ->orderBy('shift_date', 'desc');
 
             if ($status = $request->input('status')) {

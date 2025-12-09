@@ -618,7 +618,7 @@ class ShiftEndController extends Controller
             'shift' => function ($q) {
                 $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
             },
-            'shift.branch:id,name,address',
+            'shift.branch:id,name,location',
             'cashier:id,name,branch_id',
             'nextCashier:id,name'
         ]);

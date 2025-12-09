@@ -52,7 +52,7 @@ class ShiftController extends BaseController
             'shift' => function ($q) {
                 $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
             },
-            'shift.branch:id,name,address',
+            'shift.branch:id,name,location',
             'assignedBy:id,name'
         ])
             ->whereHas('cashier', function ($q) use ($manager) {
@@ -98,7 +98,7 @@ class ShiftController extends BaseController
             'shift' => function ($q) {
                 $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
             },
-            'shift.branch:id,name,address'
+            'shift.branch:id,name,location'
         ])
             ->whereHas('cashier', function ($q) use ($manager) {
                 $q->where('branch_id', $manager->branch_id);
@@ -187,7 +187,7 @@ class ShiftController extends BaseController
             'shift' => function ($q) {
                 $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
             },
-            'shift.branch:id,name,address',
+            'shift.branch:id,name,location',
             'assignedBy:id,name'
         ])->find($id);
 
@@ -208,7 +208,7 @@ class ShiftController extends BaseController
             'shift' => function ($q) {
                 $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
             },
-            'shift.branch:id,name,address',
+            'shift.branch:id,name,location',
             'assignedBy:id,name'
         ])
             ->where('cashier_id', $id)
@@ -233,15 +233,18 @@ class ShiftController extends BaseController
                 return $this->errorResponse('Unauthorized', 403);
             }
 
-            // Load cashiers with relationships and count
+            // Load cashiers with relationships and count (optimized)
             $cashiers = Cashier::where('branch_id', $manager->branch_id)
-                ->with(['branch', 'creator'])
+                ->with([
+                    'branch:id,name,location',
+                    'creator:id,name'
+                ])
                 ->withCount('shifts')
                 ->paginate($request->input('per_page', 10));
 
             // Load branch managers with relationships (optimized)
             $branchManagers = BranchManager::where('branch_id', $manager->branch_id)
-                ->with('branch:id,name,address')
+                ->with('branch:id,name,location')
                 ->select(['id', 'name', 'email', 'branch_id', 'is_active'])
                 ->get();
 

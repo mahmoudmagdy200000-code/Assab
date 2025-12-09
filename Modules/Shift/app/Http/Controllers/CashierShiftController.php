@@ -39,7 +39,7 @@ class CashierShiftController extends BaseController
                 'shift' => function ($q) {
                     $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
                 },
-                'shift.branch:id,name,address',
+                'shift.branch:id,name,location',
                 'nextCashier:id,name',
                 'assignedBy:id,name'
             ])
@@ -74,7 +74,7 @@ class CashierShiftController extends BaseController
                 'shift' => function ($q) {
                     $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
                 },
-                'shift.branch:id,name,address',
+                'shift.branch:id,name,location',
                 'nextCashier:id,name',
                 'handoverStatus'
             ])
@@ -93,7 +93,7 @@ class CashierShiftController extends BaseController
                         'status_label' => $this->getStatusLabel($shift->status),
                         'branch_name' => $shift->shift->branch->name ?? 'N/A',
                         'branch_id' => $shift->shift->branch_id,
-                        'branch_location' => $shift->shift->branch->address ?? 'N/A',
+                        'branch_location' => $shift->shift->branch->location ?? 'N/A',
                         'duration' => $this->calculateDuration($shift),
                         'can_start' => $shift->status === ShiftStatus::NOT_STARTED && $shift->shift_date->isToday(),
                         'can_end' => $shift->status === ShiftStatus::IN_PROGRESS,
@@ -644,7 +644,7 @@ class CashierShiftController extends BaseController
             // Load cashiers with relationships and count (optimized)
             $cashiers = Cashier::where('branch_id', $manager->branch_id)
                 ->with([
-                    'branch:id,name,address',
+                    'branch:id,name,location',
                     'creator:id,name'
                 ])
                 ->withCount('shifts')
@@ -653,7 +653,7 @@ class CashierShiftController extends BaseController
             // Load branch managers with relationships (excluding the current manager) - optimized
             $branchManagers = BranchManager::where('branch_id', $manager->branch_id)
                 ->where('id', '!=', $manager->id)
-                ->with('branch:id,name,address')
+                ->with('branch:id,name,location')
                 ->select(['id', 'name', 'email', 'branch_id', 'is_active'])
                 ->get();
 

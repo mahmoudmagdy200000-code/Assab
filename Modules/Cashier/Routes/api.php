@@ -38,7 +38,10 @@ Route::prefix('branch-manager/cashiers')
         // Get All Cashiers and Branch Managers (must be before {cashier} route to avoid route model binding conflict)
         Route::get('/all', [\Modules\Shift\Http\Controllers\CashierShiftController::class, 'getAllCashiersAndBranchManagerAccount'])
             ->name('cashiers.all');
-        
+
+        // Get available cashiers for shift assignment/reassignment (must be before {cashier} route)
+        Route::get('/available-cashiers', [\Modules\Shift\Http\Controllers\CashierManagementController::class, 'getAvailableCashiers']);
+
         // Shift Management
         Route::get('/available-for-shift', [CashierManagementController::class, 'availableForShift']);
         Route::post('/assign-shifts', [CashierManagementController::class, 'assignShifts']);

@@ -357,7 +357,7 @@ class CashierManagementController extends BaseController
 
             $cashiers = Cashier::where('branch_id', $branchId)
                 ->where('name', 'like', "%{$request->query}%")
-                ->with(['branch'])
+                ->with('branch:id,name,location')
                 ->paginate($request->input('per_page', 15));
 
             return $this->paginatedResponse(
