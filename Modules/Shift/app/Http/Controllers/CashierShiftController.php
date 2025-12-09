@@ -589,23 +589,20 @@ class CashierShiftController extends BaseController
                 ->with('branch')
                 ->get();
 
-            // Get cashiers items safely
-            $cashiersItems = $cashiers->items() ?? [];
+            // Create ResourceCollection for cashiers (this preserves pagination)
+            $cashiersResource = CashierResource::collection($cashiers);
 
-            $combined = [
+            // Get paginated response
+            $response = $this->paginatedResponse($cashiersResource, 'Cashiers and branch managers retrieved successfully');
+
+            // Add branch_managers to the response data
+            $responseData = $response->getData(true);
+            $responseData['data'] = [
                 'branch_managers' => BranchManagerResource::collection($branchManagers),
-                'cashiers' => CashierResource::collection($cashiersItems),
-                'pagination' => [
-                    'current_page' => $cashiers->currentPage(),
-                    'per_page' => $cashiers->perPage(),
-                    'total' => $cashiers->total(),
-                    'last_page' => $cashiers->lastPage(),
-                    'from' => $cashiers->firstItem(),
-                    'to' => $cashiers->lastItem(),
-                ],
+                'cashiers' => $responseData['data'], // Keep the paginated cashiers data
             ];
 
-            return $this->successResponse($combined, 'Cashiers and branch managers retrieved successfully');
+            return response()->json($responseData, 200);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
