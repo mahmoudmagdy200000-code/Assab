@@ -26,6 +26,6 @@ class BranchController extends BaseController
             ->orderBy('name')
             ->paginate(10);
 
-        return $this->successResponse($branches, 'Branches retrieved successfully');
+        return $this->paginatedResponse($branches, 'Branches retrieved successfully');
     }
 }
