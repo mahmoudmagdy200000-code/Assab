@@ -30,7 +30,6 @@ class BranchInventory extends Model
     ];
 
     protected $casts = [
-        'quality' => QualityLevel::class,
         'available_quantity' => 'decimal:3',
         'reserved_quantity' => 'decimal:3',
         'daily_consumption' => 'decimal:3',
@@ -61,6 +60,45 @@ class BranchInventory extends Model
     public function getIsLowStockAttribute(): bool
     {
         return $this->actual_available <= ($this->daily_consumption * 2);
+    }
+
+    /**
+     * Get quality as enum, handling null/empty values safely
+     */
+    public function getQualityAttribute($value): ?QualityLevel
+    {
+        if (empty($value) || $value === '') {
+            return null;
+        }
+
+        try {
+            return QualityLevel::from($value);
+        } catch (\ValueError $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Set quality attribute, handling enum and string values
+     */
+    public function setQualityAttribute($value): void
+    {
+        if ($value === null || $value === '') {
+            $this->attributes['quality'] = null;
+            return;
+        }
+
+        if ($value instanceof QualityLevel) {
+            $this->attributes['quality'] = $value->value;
+            return;
+        }
+
+        try {
+            $enum = QualityLevel::from($value);
+            $this->attributes['quality'] = $enum->value;
+        } catch (\ValueError $e) {
+            $this->attributes['quality'] = null;
+        }
     }
 
     // Scopes
@@ -109,11 +147,12 @@ class BranchInventory extends Model
 
     public function updateInventory(float $quantity, ?string $quality = null): void
     {
-        $this->update([
-            'available_quantity' => $quantity,
-            'quality' => $quality ? QualityLevel::from($quality) : $this->quality,
-            'last_inventory_update' => now(),
-        ]);
+        $this->available_quantity = $quantity;
+        if ($quality !== null) {
+            $this->quality = $quality; // Mutator will handle the conversion
+        }
+        $this->last_inventory_update = now();
+        $this->save();
     }
 }
 
