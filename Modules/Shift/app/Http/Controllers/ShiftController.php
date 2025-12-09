@@ -13,7 +13,6 @@ use Modules\Cashier\Transformers\CashierResource;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Transformers\CashierShiftResource;
-use Modules\Shift\Transformers\ShiftResource;
 
 class ShiftController extends BaseController
 {
@@ -37,7 +36,7 @@ class ShiftController extends BaseController
             ->orderBy('start_time')
             ->paginate(10);
 
-        return $this->paginatedResponse(ShiftResource::collection($shifts), 'Shifts retrieved successfully');
+        return $this->paginatedResponse($shifts, 'Shifts retrieved successfully');
     }
 
     public function getAllCashiersShifts(Request $request)
