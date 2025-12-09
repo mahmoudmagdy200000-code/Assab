@@ -4,6 +4,7 @@ namespace Modules\Shift\Services;
 
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\ShiftSalesBreakdown;
+use Modules\Shift\Enums\ShiftStatus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
@@ -31,6 +32,7 @@ class ShiftEndService
 
             // Update Shift
             $shift->update([
+                'status' => ShiftStatus::COMPLETED,
                 'total_sales' => $totalSales,
                 'net_sales' => $netSales,
                 'vat_amount' => $vatAmount,
@@ -46,7 +48,10 @@ class ShiftEndService
             }
 
             // Record History
-            $shift->recordHistory('ended_without_handover', null, [
+            $shift->recordHistory('ended_without_handover', [
+                'status' => ShiftStatus::IN_PROGRESS->value,
+            ], [
+                'status' => ShiftStatus::COMPLETED->value,
                 'total_sales' => $totalSales,
                 'net_sales' => $netSales,
                 'vat_amount' => $vatAmount,
