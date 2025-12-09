@@ -50,7 +50,7 @@ class ShiftController extends BaseController
         $query = CashierShift::with([
             'cashier:id,name,branch_id',
             'shift' => function ($q) {
-                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
             },
             'shift.branch:id,name,location',
             'assignedBy:id,name'
@@ -96,7 +96,7 @@ class ShiftController extends BaseController
         $query = CashierShift::with([
             'cashier:id,name,branch_id',
             'shift' => function ($q) {
-                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
             },
             'shift.branch:id,name,location'
         ])
@@ -185,7 +185,7 @@ class ShiftController extends BaseController
         $cashierShift = CashierShift::with([
             'cashier:id,name,branch_id',
             'shift' => function ($q) {
-                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
             },
             'shift.branch:id,name,location',
             'assignedBy:id,name'
@@ -206,7 +206,7 @@ class ShiftController extends BaseController
         $cashierShifts = CashierShift::with([
             'cashier:id,name,branch_id',
             'shift' => function ($q) {
-                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
             },
             'shift.branch:id,name,location',
             'assignedBy:id,name'
@@ -273,7 +273,7 @@ class ShiftController extends BaseController
     {
         $shiftModel = \Modules\Shift\Models\CashierShift::with([
             'shift' => function ($q) {
-                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
             },
             'shift.branch:id,name',
             'cashier:id,name,branch_id',
