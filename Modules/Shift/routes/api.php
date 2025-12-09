@@ -141,7 +141,7 @@ Route::prefix('branch-manager')
             // Single shift operations
             Route::prefix('{shift}')->group(function () {
                 // View shift details
-                Route::get('/', [ShiftController::class, 'show'])->name('shifts.show');
+                Route::get('/', [ShiftController::class, 'getCashierShiftById'])->name('shifts.getCashierShiftById');
 
 
                 // Reassignment
