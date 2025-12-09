@@ -31,7 +31,7 @@ class BranchManagerResource extends JsonResource
             'is_first_login' => $this->is_first_login,
             'email_verified' => $this->isEmailVerified(),
             'phone_verified' => $this->isPhoneVerified(),
-            'created_at' => $this->created_at->format('Y-m-d H:i:s'),
+            'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
         ];
     }
 }

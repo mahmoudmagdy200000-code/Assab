@@ -654,7 +654,7 @@ class CashierShiftController extends BaseController
             $branchManagers = BranchManager::where('branch_id', $manager->branch_id)
                 ->where('id', '!=', $manager->id)
                 ->with('branch:id,name,location')
-                ->select(['id', 'name', 'email', 'branch_id', 'is_active'])
+                ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'status', 'is_first_login', 'image', 'email_verified_at', 'phone_verified_at', 'created_at', 'updated_at'])
                 ->get();
 
             // Create ResourceCollection for cashiers (this preserves pagination)
