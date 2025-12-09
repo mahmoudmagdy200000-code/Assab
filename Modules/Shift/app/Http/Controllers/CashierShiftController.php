@@ -520,7 +520,9 @@ class CashierShiftController extends BaseController
         }
 
         $endTime = Carbon::parse($shift->shift->end_time)->setDate(
-            now()->year, now()->month, now()->day
+            now()->year,
+            now()->month,
+            now()->day
         );
 
         if (now()->greaterThan($endTime)) {
@@ -543,7 +545,9 @@ class CashierShiftController extends BaseController
         if ($shift->actual_start_time && $shift->shift->end_time) {
             $start = $shift->actual_start_time;
             $end = Carbon::parse($shift->shift->end_time)->setDate(
-                now()->year, now()->month, now()->day
+                now()->year,
+                now()->month,
+                now()->day
             );
 
             $totalMinutes = $start->diffInMinutes($end);
@@ -601,7 +605,7 @@ class CashierShiftController extends BaseController
                 ],
             ];
 
-            return $this->paginatedResponse($combined, 'Cashiers and branch managers retrieved successfully');
+            return $this->successResponse($combined, 'Cashiers and branch managers retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
