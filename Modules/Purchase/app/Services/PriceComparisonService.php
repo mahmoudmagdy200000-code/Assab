@@ -4,10 +4,13 @@ namespace Modules\Purchase\Services;
 
 use Illuminate\Support\Collection;
 use Modules\Purchase\Enums\OrderType;
+use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\QualityLevel;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Models\PriceHistory;
+use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Purchase\Models\PurchaseSupplier;
 use Modules\Purchase\Models\SupplierItem;
 
@@ -15,8 +18,16 @@ class PriceComparisonService
 {
     /**
      * Compare prices for an item across all sources
+     *
+     * Returns detailed comparison including:
+     * - Product Name
+     * - Quantity
+     * - Period: Last 3 months price trends
+     * - Comparison Chart: Monthly price variation
+     * - Comparison Table: Price, Delivery Days, Rating for each Order Type
+     * - Benefits Analysis: Best option, compliance, fastest delivery, lowest price
      */
-    public function comparePrices(string $itemId, float $quantity, ?string $branchId = null): array
+    public function comparePrices(string $itemId, float $quantity): array
     {
         // Get item name from BranchItem
         $item = BranchItem::find($itemId);
@@ -26,48 +37,43 @@ class PriceComparisonService
             'item_id' => $itemId,
             'item_name' => $itemName,
             'quantity' => $quantity,
+            'period' => 'Last 3 Months',
             'sources' => [],
+            'comparison_table' => [],
             'best_option' => null,
             'insights' => [],
             'price_trends' => [],
+            'price_change' => null,
         ];
 
-        // Direct Supplier prices
+        // Direct Supplier prices (with actual order history from all branches)
         $supplierPrices = $this->getSupplierPrices($itemId, $quantity);
         if ($supplierPrices->isNotEmpty()) {
-            $comparison['sources']['direct_supplier'] = $supplierPrices->map(function ($item) use ($quantity) {
-                return [
-                    'supplier_id' => $item->supplier_id,
-                    'supplier_name' => $item->supplier->name,
-                    'supplier_status' => $item->supplier->status->value,
-                    'unit_price' => $item->unit_price,
-                    'total_price' => $item->unit_price * $quantity,
-                    'delivery_hours' => $item->delivery_hours,
-                    'delivery_days' => ceil($item->delivery_hours / 24),
-                    'rating' => $item->rating ?? $item->supplier->rating,
-                    'is_available' => $item->is_available,
-                ];
-            })->toArray();
+            $comparison['sources']['direct_supplier'] = $supplierPrices->toArray();
         }
 
-        // Via Purchasing Officer (average/estimated prices)
+        // Via Purchasing Officer (average/estimated prices from actual orders from all branches)
         $poPrices = $this->getPurchasingOfficerPrices($itemId);
         if ($poPrices) {
             $comparison['sources']['via_purchasing_officer'] = $poPrices;
         }
 
-        // Internal Transfer options
-        if ($branchId) {
-            $transferOptions = $this->getInternalTransferOptions($itemId, $quantity, $branchId);
-            if ($transferOptions->isNotEmpty()) {
-                $comparison['sources']['internal_transfer'] = $transferOptions->toArray();
-            }
+        // Internal Transfer options (from all branches)
+        $transferOptions = $this->getInternalTransferOptions($itemId, $quantity);
+        if ($transferOptions->isNotEmpty()) {
+            $comparison['sources']['internal_transfer'] = $transferOptions->toArray();
         }
 
-        // Get price trends
+        // Get price trends from actual purchase orders (from all branches)
         $comparison['price_trends'] = $this->getPriceTrends($itemId);
 
-        // Calculate best options
+        // Calculate price change percentage
+        $comparison['price_change'] = $this->calculatePriceChange($comparison['price_trends']);
+
+        // Build comparison table
+        $comparison['comparison_table'] = $this->buildComparisonTable($comparison['sources'], $quantity);
+
+        // Calculate best options and insights
         $comparison['insights'] = $this->calculateInsights($comparison['sources']);
         $comparison['best_option'] = $this->determineBestOption($comparison['sources']);
 
@@ -76,51 +82,152 @@ class PriceComparisonService
 
     /**
      * Get supplier prices for an item
+     * Includes actual order history for delivery days and rating calculation
      */
     private function getSupplierPrices(string $itemId, float $quantity): Collection
     {
-        return SupplierItem::with('supplier')
+        $supplierItems = SupplierItem::with('supplier')
             ->byItem($itemId)
             ->available()
             ->whereHas('supplier', fn($q) => $q->active())
             ->get()
             ->filter(fn($item) => $item->isWithinQuantityLimits($quantity));
+
+        // Get actual order history for this item from last 3 months (from all branches)
+        $threeMonthsAgo = now()->subMonths(3);
+        $orderItems = PurchaseOrderItem::with(['purchaseOrder.supplier'])
+            ->where('item_id', $itemId)
+            ->whereHas('purchaseOrder', function ($query) use ($threeMonthsAgo) {
+                $query->where('order_type', OrderType::DIRECT_SUPPLIER)
+                    ->where('created_at', '>=', $threeMonthsAgo)
+                    ->whereIn('status', [
+                        OrderStatus::CONFIRMED,
+                        OrderStatus::PARTIAL_CONFIRMATION,
+                        OrderStatus::CLOSED,
+                        OrderStatus::DELIVERED,
+                    ]);
+            })
+            ->get();
+
+        // Group order items by supplier_id
+        $supplierHistory = $orderItems->groupBy(function ($item) {
+            return $item->purchaseOrder->supplier_id;
+        });
+
+        // Enhance supplier items with actual order data
+        return $supplierItems->map(function ($supplierItem) use ($supplierHistory, $quantity) {
+            $supplierId = $supplierItem->supplier_id;
+            $history = $supplierHistory->get($supplierId, collect());
+
+            // Calculate average delivery days from actual orders
+            $avgDeliveryDays = null;
+            if ($history->isNotEmpty()) {
+                $deliveryDays = $history->map(function ($item) {
+                    $order = $item->purchaseOrder;
+                    $createdAt = $order->created_at;
+                    $completedAt = $order->confirmed_at ?? $order->received_at ?? $order->closed_at ?? now();
+                    return $createdAt->diffInDays($completedAt);
+                })->avg();
+                $avgDeliveryDays = round($deliveryDays, 1);
+            }
+
+            // Get rating from supplier or calculate from orders
+            $rating = $supplierItem->rating ?? $supplierItem->supplier->rating ?? 4.0;
+
+            return [
+                'supplier_id' => $supplierId,
+                'supplier_name' => $supplierItem->supplier->name,
+                'supplier_status' => $supplierItem->supplier->status->value,
+                'unit_price' => $supplierItem->unit_price,
+                'total_price' => $supplierItem->unit_price * $quantity,
+                'delivery_hours' => $supplierItem->delivery_hours,
+                'delivery_days' => $avgDeliveryDays ?? ceil($supplierItem->delivery_hours / 24),
+                'rating' => round($rating, 1),
+                'is_available' => $supplierItem->is_available,
+                'order_count' => $history->count(),
+            ];
+        });
     }
 
     /**
-     * Get purchasing officer estimated prices
+     * Get purchasing officer prices from actual purchase orders
      */
     private function getPurchasingOfficerPrices(string $itemId): ?array
     {
-        $history = PriceHistory::byItem($itemId)
-            ->bySourceType(OrderType::VIA_PURCHASING_OFFICER)
-            ->lastThreeMonths()
-            ->orderBy('recorded_date', 'desc')
-            ->first();
+        $threeMonthsAgo = now()->subMonths(3);
 
-        if (!$history) {
-            return null;
+        // Get actual orders from last 3 months (from all branches)
+        $orderItems = PurchaseOrderItem::with(['purchaseOrder'])
+            ->where('item_id', $itemId)
+            ->whereHas('purchaseOrder', function ($query) use ($threeMonthsAgo) {
+                $query->where('order_type', OrderType::VIA_PURCHASING_OFFICER)
+                    ->where('created_at', '>=', $threeMonthsAgo)
+                    ->whereIn('status', [
+                        OrderStatus::CONFIRMED,
+                        OrderStatus::PARTIAL_CONFIRMATION,
+                        OrderStatus::CLOSED,
+                        OrderStatus::DELIVERED,
+                    ]);
+            })
+            ->get();
+
+        if ($orderItems->isEmpty()) {
+            // Fallback to PriceHistory if no actual orders found
+            $history = PriceHistory::byItem($itemId)
+                ->bySourceType(OrderType::VIA_PURCHASING_OFFICER)
+                ->lastThreeMonths()
+                ->orderBy('recorded_date', 'desc')
+                ->first();
+
+            if (!$history) {
+                return null;
+            }
+
+            return [
+                'unit_price' => $history->unit_price,
+                'delivery_days' => $history->delivery_days ?? 4,
+                'rating' => $history->rating,
+                'processing_times' => [
+                    'standard' => ['min_days' => 3, 'max_days' => 5],
+                    'urgent' => ['min_days' => 1, 'max_days' => 2],
+                ],
+            ];
         }
 
+        // Calculate average price from actual orders
+        $avgPrice = $orderItems->avg('unit_price');
+
+        // Calculate average delivery days (from created_at to confirmed_at or received_at)
+        $deliveryDays = $orderItems->map(function ($item) {
+            $order = $item->purchaseOrder;
+            $createdAt = $order->created_at;
+            $completedAt = $order->confirmed_at ?? $order->received_at ?? $order->closed_at ?? now();
+
+            return $createdAt->diffInDays($completedAt);
+        })->avg();
+
+        // Get rating from supplier if available, or use default
+        $rating = $orderItems->first()?->purchaseOrder?->supplier?->rating ?? 4.5;
+
         return [
-            'unit_price' => $history->unit_price,
-            'delivery_days' => $history->delivery_days ?? 4, // Default 3-5 days
-            'rating' => $history->rating,
+            'unit_price' => round($avgPrice, 2),
+            'delivery_days' => round($deliveryDays ?? 4, 1),
+            'rating' => round($rating, 1),
             'processing_times' => [
                 'standard' => ['min_days' => 3, 'max_days' => 5],
                 'urgent' => ['min_days' => 1, 'max_days' => 2],
             ],
+            'order_count' => $orderItems->count(),
         ];
     }
 
     /**
-     * Get internal transfer options
+     * Get internal transfer options from all branches
      */
-    private function getInternalTransferOptions(string $itemId, float $quantity, string $excludeBranchId): Collection
+    private function getInternalTransferOptions(string $itemId, float $quantity): Collection
     {
         return BranchInventory::with('branch')
             ->byItem($itemId)
-            ->where('branch_id', '!=', $excludeBranchId)
             ->available()
             ->get()
             ->filter(fn($inv) => $inv->actual_available >= $quantity * 0.6) // At least 60% availability
@@ -145,32 +252,194 @@ class PriceComparisonService
     }
 
     /**
-     * Get price trends for last 3 months
+     * Get price trends for last 3 months from actual purchase orders
+     * Returns actual prices that were paid for this item in the last 3 months (from all branches)
      */
     public function getPriceTrends(string $itemId): array
     {
         $trends = [];
-        $threeMonthsAgo = now()->subMonths(3);
+        $threeMonthsAgo = now()->subMonths(3)->startOfMonth();
 
+        // Get all order items for this item in the last 3 months (from all branches)
+        // Only include completed/confirmed orders (not drafts or canceled)
+        $orderItems = PurchaseOrderItem::with(['purchaseOrder'])
+            ->where('item_id', $itemId)
+            ->whereHas('purchaseOrder', function ($query) use ($threeMonthsAgo) {
+                $query->where('created_at', '>=', $threeMonthsAgo)
+                    ->whereIn('status', [
+                        OrderStatus::CONFIRMED,
+                        OrderStatus::PARTIAL_CONFIRMATION,
+                        OrderStatus::CLOSED,
+                        OrderStatus::DELIVERED,
+                    ]);
+            })
+            ->get();
+
+        // Group by month and order type
         for ($i = 0; $i < 3; $i++) {
             $month = now()->subMonths($i);
             $periodMonth = $month->format('Y-m');
             $monthLabel = $month->format('M Y');
+            $monthStart = $month->copy()->startOfMonth();
+            $monthEnd = $month->copy()->endOfMonth();
 
-            $monthPrices = PriceHistory::byItem($itemId)
-                ->byPeriod($periodMonth)
-                ->get()
-                ->groupBy('source_type');
+            // Filter items for this month
+            $monthItems = $orderItems->filter(function ($item) use ($monthStart, $monthEnd) {
+                $orderDate = $item->purchaseOrder->created_at;
+                return $orderDate >= $monthStart && $orderDate <= $monthEnd;
+            });
+
+            // Group by order type
+            $directSupplierItems = $monthItems->filter(function ($item) {
+                return $item->purchaseOrder->order_type === OrderType::DIRECT_SUPPLIER;
+            });
+
+            $viaPOItems = $monthItems->filter(function ($item) {
+                return $item->purchaseOrder->order_type === OrderType::VIA_PURCHASING_OFFICER;
+            });
+
+            $internalTransferItems = $monthItems->filter(function ($item) {
+                return $item->purchaseOrder->order_type === OrderType::INTERNAL_TRANSFER;
+            });
+
+            // Calculate average prices
+            $directSupplierAvg = $directSupplierItems->isNotEmpty()
+                ? $directSupplierItems->avg('unit_price')
+                : null;
+
+            $viaPOAvg = $viaPOItems->isNotEmpty()
+                ? $viaPOItems->avg('unit_price')
+                : null;
+
+            $internalTransferAvg = $internalTransferItems->isNotEmpty()
+                ? $internalTransferItems->avg('unit_price')
+                : 0; // Internal transfers are usually free
 
             $trends[$periodMonth] = [
                 'month' => $monthLabel,
-                'direct_supplier' => $monthPrices->get(OrderType::DIRECT_SUPPLIER->value)?->avg('unit_price'),
-                'via_purchasing_officer' => $monthPrices->get(OrderType::VIA_PURCHASING_OFFICER->value)?->avg('unit_price'),
-                'internal_transfer' => 0,
+                'direct_supplier' => $directSupplierAvg,
+                'via_purchasing_officer' => $viaPOAvg,
+                'internal_transfer' => $internalTransferAvg,
+                'data_points' => [
+                    'direct_supplier' => $directSupplierItems->count(),
+                    'via_purchasing_officer' => $viaPOItems->count(),
+                    'internal_transfer' => $internalTransferItems->count(),
+                ],
             ];
         }
 
         return array_reverse($trends);
+    }
+
+    /**
+     * Build comparison table with all order types
+     */
+    private function buildComparisonTable(array $sources, float $quantity): array
+    {
+        $table = [];
+
+        // Direct Supplier - get best option (lowest price or highest rating)
+        if (!empty($sources['direct_supplier'])) {
+            $bestSupplier = collect($sources['direct_supplier'])
+                ->sortBy('unit_price')
+                ->first();
+
+            $table[] = [
+                'order_type' => 'direct_supplier',
+                'order_type_label' => OrderType::DIRECT_SUPPLIER->label(),
+                'price' => $bestSupplier['unit_price'],
+                'total_price' => $bestSupplier['unit_price'] * $quantity,
+                'delivery_days' => $bestSupplier['delivery_days'],
+                'rating' => $bestSupplier['rating'],
+                'supplier_name' => $bestSupplier['supplier_name'] ?? null,
+            ];
+        }
+
+        // Via Purchasing Officer
+        if (!empty($sources['via_purchasing_officer'])) {
+            $po = $sources['via_purchasing_officer'];
+            $table[] = [
+                'order_type' => 'via_purchasing_officer',
+                'order_type_label' => OrderType::VIA_PURCHASING_OFFICER->label(),
+                'price' => $po['unit_price'],
+                'total_price' => $po['unit_price'] * $quantity,
+                'delivery_days' => $po['delivery_days'],
+                'rating' => $po['rating'],
+                'supplier_name' => null,
+            ];
+        }
+
+        // Internal Transfer
+        if (!empty($sources['internal_transfer'])) {
+            $transfer = collect($sources['internal_transfer'])->first();
+            $table[] = [
+                'order_type' => 'internal_transfer',
+                'order_type_label' => OrderType::INTERNAL_TRANSFER->label(),
+                'price' => 0, // Free transfer
+                'total_price' => 0,
+                'delivery_days' => 1, // Usually fastest
+                'rating' => null,
+                'supplier_name' => $transfer['branch_name'] ?? null,
+            ];
+        }
+
+        return $table;
+    }
+
+    /**
+     * Calculate price change percentage from trends
+     */
+    private function calculatePriceChange(array $trends): ?array
+    {
+        if (empty($trends)) {
+            return null;
+        }
+
+        $trendsArray = array_values($trends);
+        if (count($trendsArray) < 2) {
+            return null;
+        }
+
+        // Get first and last month prices (average across all types)
+        $firstMonth = $trendsArray[0];
+        $lastMonth = $trendsArray[count($trendsArray) - 1];
+
+        $firstMonthPrice = $this->getAveragePriceForMonth($firstMonth);
+        $lastMonthPrice = $this->getAveragePriceForMonth($lastMonth);
+
+        if ($firstMonthPrice === null || $lastMonthPrice === null || $firstMonthPrice == 0) {
+            return null;
+        }
+
+        $change = (($lastMonthPrice - $firstMonthPrice) / $firstMonthPrice) * 100;
+        $isIncrease = $change > 0;
+
+        return [
+            'percentage' => round(abs($change), 1),
+            'is_increase' => $isIncrease,
+            'label' => $isIncrease
+                ? "+" . round($change, 1) . "% Price Increase"
+                : round($change, 1) . "% Price Decrease",
+            'status' => $isIncrease ? "HIGHER THAN LAST MONTH" : "LOWER THAN LAST MONTH",
+        ];
+    }
+
+    /**
+     * Get average price for a month across all order types
+     */
+    private function getAveragePriceForMonth(array $monthData): ?float
+    {
+        $prices = array_filter([
+            $monthData['direct_supplier'] ?? null,
+            $monthData['via_purchasing_officer'] ?? null,
+            $monthData['internal_transfer'] ?? null,
+        ], fn($price) => $price !== null && $price > 0);
+
+        if (empty($prices)) {
+            return null;
+        }
+
+        return array_sum($prices) / count($prices);
     }
 
     /**

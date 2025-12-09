@@ -89,12 +89,23 @@ class PurchaseOrderService
 
         // Filter by type: All, Direct Supplier Order, Via Purchasing Officer, Internal Transfer
         if (!empty($filters['type']) && $filters['type'] !== 'all') {
-            try {
-                $orderType = OrderType::from($filters['type']);
+            // Try to get OrderType from label first, then from enum value
+            $orderType = OrderType::fromLabel($filters['type']);
+
+            if ($orderType === null) {
+                // Fallback to direct enum value conversion
+                try {
+                    $orderType = OrderType::from($filters['type']);
+                } catch (\ValueError $e) {
+                    // Invalid type, skip filter
+                    Log::warning('Invalid order type filter', ['type' => $filters['type']]);
+                    $orderType = null;
+                }
+            }
+
+            // Apply filter if we have a valid order type
+            if ($orderType !== null) {
                 $query->byType($orderType);
-            } catch (\ValueError $e) {
-                // Invalid type, skip filter
-                Log::warning('Invalid order type filter', ['type' => $filters['type']]);
             }
         }
 

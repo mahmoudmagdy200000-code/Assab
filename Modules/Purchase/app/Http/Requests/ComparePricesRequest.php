@@ -16,7 +16,6 @@ class ComparePricesRequest extends FormRequest
         return [
             'item_id' => ['required', 'uuid'],
             'quantity' => ['required', 'numeric', 'min:0.001'],
-            'branch_id' => ['nullable', 'uuid', 'exists:branches,id'],
         ];
     }
 

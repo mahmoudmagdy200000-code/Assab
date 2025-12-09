@@ -72,5 +72,46 @@ enum OrderType: string
     {
         return !$this->isTransfer();
     }
+
+    /**
+     * Get OrderType from label (case-insensitive)
+     * 
+     * @param string $label The label to search for
+     * @return OrderType|null Returns the matching OrderType or null if not found
+     */
+    public static function fromLabel(string $label): ?OrderType
+    {
+        $label = trim($label);
+        
+        // Try to match by label (case-insensitive)
+        foreach (self::cases() as $case) {
+            if (strcasecmp($case->label(), $label) === 0) {
+                return $case;
+            }
+        }
+        
+        // Try to match by short label (case-insensitive)
+        foreach (self::cases() as $case) {
+            if (strcasecmp($case->shortLabel(), $label) === 0) {
+                return $case;
+            }
+        }
+        
+        // Try to match by enum value (case-insensitive)
+        try {
+            return self::from(strtolower($label));
+        } catch (\ValueError $e) {
+            // Try to match common variations
+            $normalizedLabel = strtolower(str_replace([' ', '-', '_'], '', $label));
+            foreach (self::cases() as $case) {
+                $normalizedCaseLabel = strtolower(str_replace([' ', '-', '_'], '', $case->label()));
+                if ($normalizedCaseLabel === $normalizedLabel) {
+                    return $case;
+                }
+            }
+        }
+        
+        return null;
+    }
 }
 

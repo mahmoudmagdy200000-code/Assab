@@ -102,12 +102,9 @@ class NewOrderController extends BaseController
     public function comparePrices(ComparePricesRequest $request): JsonResponse
     {
         try {
-            $branchId = $request->get('branch_id', auth()->user()->branch_id);
-
             $comparison = $this->priceService->comparePrices(
                 $request->item_id,
-                $request->quantity,
-                $branchId
+                $request->quantity
             );
 
             return $this->successResponse(
