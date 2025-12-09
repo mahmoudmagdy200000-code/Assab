@@ -98,21 +98,21 @@ class ShiftEndController extends Controller
             }
 
             // Validate payment breakdown
-            $isValid = $this->shiftEndService->validatePaymentBreakdown($request->all());
-            if (!$isValid) {
-                $calculatedTotal = ($request->cash_collected ?? 0) + ($request->card_payments ?? 0) +
-                    collect($request->aggregators ?? [])->sum('amount');
+            // $isValid = $this->shiftEndService->validatePaymentBreakdown($request->all());
+            // if (!$isValid) {
+            //     $calculatedTotal = ($request->cash_collected ?? 0) + ($request->card_payments ?? 0) +
+            //         collect($request->aggregators ?? [])->sum('amount');
 
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Payment breakdown does not match total sales',
-                    'details' => [
-                        'total_sales' => $request->total_sales,
-                        'calculated_total' => $calculatedTotal,
-                        'difference' => abs($request->total_sales - $calculatedTotal),
-                    ]
-                ], 400);
-            }
+            //     return response()->json([
+            //         'success' => false,
+            //         'message' => 'Payment breakdown does not match total sales',
+            //         'details' => [
+            //             'total_sales' => $request->total_sales,
+            //             'calculated_total' => $calculatedTotal,
+            //             'difference' => abs($request->total_sales - $calculatedTotal),
+            //         ]
+            //     ], 400);
+            // }
 
             // Prepare data
             $data = $request->all();
