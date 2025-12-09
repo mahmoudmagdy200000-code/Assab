@@ -414,34 +414,45 @@ class ShiftHandoverController extends Controller
     public function getAvailableCashiers(string $shift): JsonResponse
     {
         try {
-            $shiftModel = CashierShift::with('shift')->findOrFail($shift);
+            // Optimized eager loading
+            $shiftModel = CashierShift::with([
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'branch_id']);
+                }
+            ])->findOrFail($shift);
 
+            // Get all active cashiers for this branch (optimized)
             $allCashiers = Cashier::where('branch_id', $shiftModel->shift->branch_id)
                 ->where('status', 'active')
-                ->paginate(10);
+                ->select(['id', 'name', 'email', 'image', 'status'])
+                ->get();
 
-            $nextShift = CashierShift::where('shift_date', $shiftModel->shift_date)
-                ->where('shift_id', '>', $shiftModel->shift_id)
-                ->orderBy('shift_id')
-                ->first();
-
-            $suggestedCashier = $nextShift ? $nextShift->cashier_id : null;
-
-            $availableCashiers = $allCashiers->map(function ($cashier) use ($suggestedCashier) {
+            // Transform cashiers to match required format
+            $availableCashiers = $allCashiers->map(function ($cashier) {
                 return [
                     'id' => $cashier->id,
                     'name' => $cashier->name,
-                    'image' => $cashier->image,
-                    'is_suggested' => $cashier->id == $suggestedCashier,
-                    'suggestion_reason' => $cashier->id == $suggestedCashier
-                        ? 'Next scheduled cashier (auto-handover)'
-                        : null,
+                    'email' => $cashier->email,
+                    'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
+                    'is_available' => true,
+                    'reason_disabled' => null,
                 ];
-            });
+            })->values();
 
-            return $this->paginatedResponse($availableCashiers, 'Available cashiers retrieved successfully');
+            return response()->json([
+                'success' => true,
+                'message' => 'Available cashiers retrieved successfully',
+                'data' => [
+                    'cashiers' => $availableCashiers,
+                    'total_count' => $availableCashiers->count(),
+                    'available_count' => $availableCashiers->where('is_available', true)->count(),
+                ],
+            ], 200);
         } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
         }
     }
 
