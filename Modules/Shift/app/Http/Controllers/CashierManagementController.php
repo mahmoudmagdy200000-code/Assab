@@ -528,11 +528,7 @@ class CashierManagementController extends BaseController
                 ];
             })->values();
 
-            return $this->successResponse([
-                'cashiers' => $availableCashiers,
-                'total_count' => $availableCashiers->count(),
-                'available_count' => $availableCashiers->where('is_available', true)->count(),
-            ], 'Available cashiers retrieved successfully');
+            return $this->paginatedResponse($availableCashiers, 'Available cashiers retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
