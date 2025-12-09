@@ -188,7 +188,10 @@ class ShiftController extends BaseController
                 $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
             },
             'shift.branch:id,name,location',
-            'assignedBy:id,name'
+            'assignedBy:id,name',
+            'nextCashier:id,name,email,phone',
+            'handoverStatus.reviewedBy:id,name',
+            'varianceDetails.responsibleCashier:id,name'
         ])->find($id);
 
         if (!$cashierShift) {
