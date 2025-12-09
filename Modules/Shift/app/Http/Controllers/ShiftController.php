@@ -191,6 +191,7 @@ class ShiftController extends BaseController
             'assignedBy:id,name',
             'nextCashier:id,name,email,phone',
             'handoverStatus.reviewedBy:id,name',
+            'salesBreakdown.aggregator:id,name',
             'varianceDetails.responsibleCashier:id,name'
         ])->find($id);
 
