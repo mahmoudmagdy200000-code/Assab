@@ -488,12 +488,6 @@ class CashierManagementController extends BaseController
             $shiftId = $request->input('shift_id');
             $shiftDate = $request->input('shift_date', today()->format('Y-m-d'));
 
-            // Get all active cashiers for this branch (optimized)
-            $allCashiers = Cashier::where('branch_id', $branchId)
-                ->where('status', 'active')
-                ->select(['id', 'name', 'email', 'image', 'branch_id', 'status'])
-                ->get();
-
             // If shift_id is provided, filter out busy cashiers
             $busyCashierIds = [];
             if ($shiftId) {
@@ -514,8 +508,26 @@ class CashierManagementController extends BaseController
                 }
             }
 
-            // Filter and transform available cashiers
-            $availableCashiers = $allCashiers->map(function ($cashier) use ($busyCashierIds) {
+            // Get all active cashiers for this branch with pagination
+            $query = Cashier::where('branch_id', $branchId)
+                ->where('status', 'active')
+                ->select(['id', 'name', 'email', 'image', 'branch_id', 'status']);
+
+            // Paginate the results
+            $cashiers = $query->paginate($request->input('per_page', 15));
+
+            // Calculate total counts before pagination
+            $totalCount = Cashier::where('branch_id', $branchId)
+                ->where('status', 'active')
+                ->count();
+
+            $availableCount = Cashier::where('branch_id', $branchId)
+                ->where('status', 'active')
+                ->whereNotIn('id', $busyCashierIds)
+                ->count();
+
+            // Transform and filter available cashiers
+            $transformedCashiers = $cashiers->through(function ($cashier) use ($busyCashierIds) {
                 $isAvailable = !in_array($cashier->id, $busyCashierIds);
 
                 return [
@@ -526,13 +538,20 @@ class CashierManagementController extends BaseController
                     'is_available' => $isAvailable,
                     'reason_disabled' => !$isAvailable ? 'Already assigned to this shift' : null,
                 ];
-            })->values();
+            });
 
-            return $this->successResponse([
-                'cashiers' => $availableCashiers,
-                'total_count' => $availableCashiers->count(),
-                'available_count' => $availableCashiers->where('is_available', true)->count(),
-            ], 'Available cashiers retrieved successfully');
+            // Get the response from paginatedResponse
+            $response = $this->paginatedResponse(
+                $transformedCashiers,
+                'Available cashiers retrieved successfully'
+            );
+
+            // Add additional metadata to the response
+            $responseData = json_decode($response->getContent(), true);
+            $responseData['meta']['total_count'] = $totalCount;
+            $responseData['meta']['available_count'] = $availableCount;
+
+            return response()->json($responseData, 200);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
