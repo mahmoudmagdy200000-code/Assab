@@ -132,7 +132,7 @@ class PurchaseTestDataSeeder extends Seeder
 
         foreach ($branches as $index => $branch) {
             $email = 'manager' . ($index + 1) . '@assab.com';
-            
+
             // Find unique phone number
             $phone = '+966' . ($basePhone + $index);
             $phoneExists = BranchManager::where('phone', $phone)->exists();
@@ -142,7 +142,7 @@ class PurchaseTestDataSeeder extends Seeder
                 $phoneExists = BranchManager::where('phone', $phone)->exists();
                 $phoneCounter++;
             }
-            
+
             // Check if manager exists by email
             $manager = BranchManager::where('email', $email)->first();
 
@@ -211,8 +211,10 @@ class PurchaseTestDataSeeder extends Seeder
                         'item_unit' => ['piece', 'kg', 'kg', 'kg', 'liter', 'piece', 'kg', 'liter'][$index] ?? 'kg',
                         'item_price' => [2.5, 45.0, 25.0, 8.0, 6.5, 2.0, 35.0, 45.0][$index] ?? 10.0,
                         'item_quantity' => rand(50, 200),
-                        'category' => ['Beverages', 'Meat', 'Poultry', 'Vegetables', 'Dairy', 'Bakery', 'Grains', 'Oils'][$index] ?? 'General',
-                        'subcategory' => null,
+                        // Note: category and subcategory columns may not exist in database
+                        // If migration 2025_12_09_000001_add_category_to_branch_item_table has been run, uncomment:
+                        // 'category' => ['Beverages', 'Meat', 'Poultry', 'Vegetables', 'Dairy', 'Bakery', 'Grains', 'Oils'][$index] ?? 'General',
+                        // 'subcategory' => null,
                     ]
                 );
                 $items[] = $item;
@@ -365,29 +367,29 @@ class PurchaseTestDataSeeder extends Seeder
                 $itemsCount = rand(1, 3);
                 $branchItemsForBranch = collect($branchItems)->where('branch_id', $branch->id);
                 $maxItems = min($itemsCount, $branchItemsForBranch->count());
-                
+
                 if ($maxItems > 0) {
                     $selectedItems = $branchItemsForBranch->random($maxItems);
 
                     foreach ($selectedItems as $item) {
-                    $quantity = rand(10, 50);
-                    $unitPrice = $item->item_price * (1 + (rand(-5, 15) / 100));
-                    $totalPrice = ($quantity * $unitPrice) - (rand(0, 50)); // With discount
+                        $quantity = rand(10, 50);
+                        $unitPrice = $item->item_price * (1 + (rand(-5, 15) / 100));
+                        $totalPrice = ($quantity * $unitPrice) - (rand(0, 50)); // With discount
 
-                    PurchaseOrderItem::create([
-                        'purchase_order_id' => $order->id,
-                        'item_id' => $item->id,
-                        'item_name' => $item->item_name,
-                        'item_sku' => $item->item_code,
-                        'category' => $item->category,
-                        'quantity_ordered' => $quantity,
-                        'quantity_confirmed' => $status !== OrderStatus::PENDING ? $quantity : null,
-                        'unit_of_measurement' => $item->item_unit ?? 'kg',
-                        'unit_price' => $unitPrice,
-                        'total_price' => $totalPrice,
-                        'discount' => rand(0, 50),
-                        'quality_ordered' => QualityLevel::cases()[array_rand(QualityLevel::cases())],
-                    ]);
+                        PurchaseOrderItem::create([
+                            'purchase_order_id' => $order->id,
+                            'item_id' => $item->id,
+                            'item_name' => $item->item_name,
+                            'item_sku' => $item->item_code,
+                            'category' => $item->category,
+                            'quantity_ordered' => $quantity,
+                            'quantity_confirmed' => $status !== OrderStatus::PENDING ? $quantity : null,
+                            'unit_of_measurement' => $item->item_unit ?? 'kg',
+                            'unit_price' => $unitPrice,
+                            'total_price' => $totalPrice,
+                            'discount' => rand(0, 50),
+                            'quality_ordered' => QualityLevel::cases()[array_rand(QualityLevel::cases())],
+                        ]);
                     }
 
                     // Calculate totals
@@ -450,4 +452,3 @@ class PurchaseTestDataSeeder extends Seeder
         }
     }
 }
-
