@@ -515,7 +515,7 @@ class CashierManagementController extends BaseController
             }
 
             // Filter and transform available cashiers
-            $availableCashiers = $allCashiers->map(function ($cashier) use ($busyCashierIds, $shiftId) {
+            $availableCashiers = $allCashiers->map(function ($cashier) use ($busyCashierIds) {
                 $isAvailable = !in_array($cashier->id, $busyCashierIds);
 
                 return [
@@ -528,7 +528,11 @@ class CashierManagementController extends BaseController
                 ];
             })->values();
 
-            return $this->paginatedResponse($availableCashiers, 'Available cashiers retrieved successfully');
+            return $this->successResponse([
+                'cashiers' => $availableCashiers,
+                'total_count' => $availableCashiers->count(),
+                'available_count' => $availableCashiers->where('is_available', true)->count(),
+            ], 'Available cashiers retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
