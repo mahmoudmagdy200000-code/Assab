@@ -226,15 +226,37 @@ class PriceComparisonService
 
     /**
      * Get internal transfer options from all branches
+     * Uses actual prices from previous orders if available
      */
     private function getInternalTransferOptions(string $itemId, float $quantity): Collection
     {
+        // Get actual average price from previous internal transfer orders (last 3 months)
+        $threeMonthsAgo = now()->subMonths(3);
+        $orderItems = PurchaseOrderItem::with(['purchaseOrder'])
+            ->where('item_id', $itemId)
+            ->whereHas('purchaseOrder', function ($query) use ($threeMonthsAgo) {
+                $query->where('order_type', OrderType::INTERNAL_TRANSFER)
+                    ->where('created_at', '>=', $threeMonthsAgo)
+                    ->whereIn('status', [
+                        OrderStatus::CONFIRMED,
+                        OrderStatus::PARTIAL_CONFIRMATION,
+                        OrderStatus::CLOSED,
+                        OrderStatus::DELIVERED,
+                    ]);
+            })
+            ->get();
+
+        // Calculate average unit price from actual orders
+        $avgUnitPrice = $orderItems->isNotEmpty()
+            ? round($orderItems->avg('unit_price'), 2)
+            : 0; // Default to 0 if no previous orders
+
         return BranchInventory::with('branch')
             ->byItem($itemId)
             ->available()
             ->get()
             ->filter(fn($inv) => $inv->actual_available >= $quantity * 0.6) // At least 60% availability
-            ->map(function ($inventory) use ($quantity) {
+            ->map(function ($inventory) use ($quantity, $avgUnitPrice) {
                 return [
                     'branch_id' => $inventory->branch_id,
                     'branch_name' => $inventory->branch->name,
@@ -245,8 +267,8 @@ class PriceComparisonService
                     'expiry_date' => $inventory->earliest_expiry_date?->format('Y-m-d'),
                     'cooling_status' => $inventory->cooling_status,
                     'last_update' => $inventory->last_inventory_update?->diffForHumans(),
-                    'unit_price' => 0, // Internal transfers are free
-                    'total_price' => 0,
+                    'unit_price' => $avgUnitPrice, // Use actual average price from previous orders
+                    'total_price' => $avgUnitPrice * $quantity,
                     'rating' => null, // Would come from branch manager stats
                     'response_rate' => null,
                     'distance' => null, // Would be calculated from coordinates
