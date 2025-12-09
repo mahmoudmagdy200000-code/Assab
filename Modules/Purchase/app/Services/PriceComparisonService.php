@@ -326,10 +326,7 @@ class PriceComparisonService
                 'data_points' => [
                     'direct_supplier' => $directSupplierItems->count(),
                     'via_purchasing_officer' => $viaPOItems->count(),
-                    'internal_transfer' => $internalTransferItems->sum('purchase_order.total_price'),
-                    'direct_supplier' => $directSupplierItems->sum('purchase_order.total_price'),
-                    'via_purchasing_officer' => $viaPOItems->sum('purchase_order.total_price'),
-                    'internal_transfer' => $internalTransferItems->sum('purchase_order.total_price'),
+                    'internal_transfer' => $internalTransferItems->count(),
                 ],
             ];
         }
