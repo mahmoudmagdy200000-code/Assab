@@ -601,7 +601,7 @@ class CashierShiftController extends BaseController
                 ],
             ];
 
-            return $this->successResponse($combined, 'Cashiers and branch managers retrieved successfully');
+            return $this->paginatedResponse($combined, 'Cashiers and branch managers retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }

@@ -20,6 +20,7 @@ use Modules\Purchase\Transformers\OrderSummaryResource;
 use Modules\Purchase\Transformers\PriceComparisonResource;
 use Modules\Purchase\Transformers\PurchaseOrderResource;
 use Modules\Purchase\Transformers\SupplierResource;
+use Modules\Purchase\Models\PurchaseOrder;
 
 class NewOrderController extends BaseController
 {
@@ -277,7 +278,13 @@ class NewOrderController extends BaseController
     public function getSummary(string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            $order = PurchaseOrder::with([
+                'items',
+                'supplier',
+                'branch',
+                'fromBranch',
+                'requestedBy',
+            ])->find($id);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
