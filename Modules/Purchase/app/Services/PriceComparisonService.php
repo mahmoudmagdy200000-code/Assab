@@ -633,8 +633,19 @@ class PriceComparisonService
     /**
      * Get branches with stock for internal transfer
      *
-     * itemId should be BranchItem.id
-     * We search in BranchInventory where item_id matches BranchItem.id
+     * Returns branches with available stock including:
+     * - Branch Name, Image, Manager Name
+     * - Available Quantity
+     * - Distance (with estimated travel time)
+     * - Response Rate (speed of fulfilling requests)
+     * - Rating
+     * - Last Update
+     *
+     * @param string $itemId BranchItem.id
+     * @param float $quantity Required quantity
+     * @param string $excludeBranchId Branch to exclude (current branch)
+     * @param array $filters Additional filters
+     * @return Collection
      */
     public function getBranchesWithStock(string $itemId, float $quantity, string $excludeBranchId, array $filters = []): Collection
     {
@@ -645,8 +656,15 @@ class PriceComparisonService
             return collect([]);
         }
 
+        // Get current branch for distance calculation
+        $currentBranch = \Modules\Branch\Models\Branch::find($excludeBranchId);
+        $currentCoordinates = $this->parseCoordinates($currentBranch->map_coordinates ?? null);
+
+        // Get response rate and rating data from previous orders
+        $branchStats = $this->getBranchStatsForInternalTransfer($itemId, $excludeBranchId);
+
         // First, try to find BranchInventory records where item_id matches BranchItem.id
-        $query = BranchInventory::with(['branch'])
+        $query = BranchInventory::with(['branch.branchManager'])
             ->where('item_id', $itemId)
             ->where('branch_id', '!=', $excludeBranchId)
             ->whereRaw('(available_quantity - reserved_quantity) > 0');
@@ -665,64 +683,218 @@ class PriceComparisonService
         $inventories = $query->get();
 
         // If no results found by item_id, return branches that have this item in their BranchItem list
-        // This handles the case where BranchInventory.item_id doesn't match BranchItem.id
         if ($inventories->isEmpty()) {
             // Get all branches that have this item (by item_name)
-            $otherBranchesItems = BranchItem::with('branch')
+            $otherBranchesItems = BranchItem::with(['branch.branchManager'])
                 ->where('item_name', $branchItem->item_name)
                 ->where('branch_id', '!=', $excludeBranchId)
                 ->where('item_quantity', '>', 0)
                 ->get();
 
-            return $otherBranchesItems->map(function ($item) use ($quantity) {
+            return $otherBranchesItems->map(function ($item) use ($quantity, $currentCoordinates, $branchStats) {
                 $branch = $item->branch;
                 $availableQty = (float) $item->item_quantity;
+                $branchId = $item->branch_id;
+
+                // Calculate distance
+                $distance = $this->calculateDistance(
+                    $currentCoordinates,
+                    $this->parseCoordinates($branch->map_coordinates ?? null)
+                );
+
+                // Get branch manager info
+                $manager = $branch->branchManager ?? $branch->managers()->active()->first();
 
                 return [
-                    'branch_id' => $item->branch_id,
+                    'branch_id' => $branchId,
                     'branch' => $branch ? [
                         'id' => $branch->id,
                         'name' => $branch->name,
                         'location' => $branch->location ?? null,
-                        'image' => $branch->image_url ?? null,
+                        'image' => $branch->image ? asset('storage/' . $branch->image) : null,
                     ] : null,
-                    'branch_manager' => null, // Will be loaded if needed
+                    'branch_manager' => $manager ? [
+                        'id' => $manager->id,
+                        'name' => $manager->name,
+                        'image' => $manager->image_url ?? null,
+                    ] : null,
                     'available_quantity' => $availableQty,
                     'availability_percentage' => min(100, round(($availableQty / $quantity) * 100, 1)),
                     'quality' => null,
                     'expiry_date' => null,
                     'cooling_status' => null,
                     'last_update' => $item->updated_at?->format('Y-m-d H:i:s'),
-                    'distance' => null,
-                    'response_rate' => null,
-                    'rating' => null,
+                    'distance' => $distance,
+                    'distance_km' => $distance ? round($distance['distance_km'], 2) : null,
+                    'estimated_hours' => $distance ? round($distance['estimated_hours'], 1) : null,
+                    'response_rate' => $branchStats[$branchId]['response_rate'] ?? null,
+                    'rating' => $branchStats[$branchId]['rating'] ?? null,
                 ];
             });
         }
 
-        return $inventories->map(function ($inventory) use ($quantity) {
+        return $inventories->map(function ($inventory) use ($quantity, $currentCoordinates, $branchStats) {
             $branch = $inventory->branch;
+            $branchId = $inventory->branch_id;
+
+            // Calculate distance
+            $distance = $this->calculateDistance(
+                $currentCoordinates,
+                $this->parseCoordinates($branch->map_coordinates ?? null)
+            );
+
+            // Get branch manager info
+            $manager = $branch->branchManager ?? $branch->managers()->active()->first();
 
             return [
-                'branch_id' => $inventory->branch_id,
+                'branch_id' => $branchId,
                 'branch' => $branch ? [
                     'id' => $branch->id,
                     'name' => $branch->name,
                     'location' => $branch->location ?? null,
-                    'image' => $branch->image_url ?? null,
+                    'image' => $branch->image ? asset('storage/' . $branch->image) : null,
                 ] : null,
-                'branch_manager' => null,
+                'branch_manager' => $manager ? [
+                    'id' => $manager->id,
+                    'name' => $manager->name,
+                    'image' => $manager->image_url ?? null,
+                ] : null,
                 'available_quantity' => (float) $inventory->actual_available,
                 'availability_percentage' => min(100, round(($inventory->actual_available / $quantity) * 100, 1)),
                 'quality' => $inventory->quality?->value,
                 'expiry_date' => $inventory->earliest_expiry_date?->format('Y-m-d'),
                 'cooling_status' => $inventory->cooling_status,
                 'last_update' => $inventory->last_inventory_update?->format('Y-m-d H:i:s'),
-                'distance' => null,
-                'response_rate' => null,
-                'rating' => null,
+                'distance' => $distance,
+                'distance_km' => $distance ? round($distance['distance_km'], 2) : null,
+                'estimated_hours' => $distance ? round($distance['estimated_hours'], 1) : null,
+                'response_rate' => $branchStats[$branchId]['response_rate'] ?? null,
+                'rating' => $branchStats[$branchId]['rating'] ?? null,
             ];
         });
+    }
+
+    /**
+     * Parse coordinates from string format (e.g., "24.7136,46.6753" or "lat:24.7136,lng:46.6753")
+     */
+    private function parseCoordinates(?string $coordinates): ?array
+    {
+        if (empty($coordinates)) {
+            return null;
+        }
+
+        // Try different formats
+        if (preg_match('/(\d+\.?\d*)[,\s]+(\d+\.?\d*)/', $coordinates, $matches)) {
+            return [
+                'lat' => (float) $matches[1],
+                'lng' => (float) $matches[2],
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Calculate distance between two coordinates using Haversine formula
+     * Returns distance in km and estimated travel time in hours
+     */
+    private function calculateDistance(?array $from, ?array $to): ?array
+    {
+        if (!$from || !$to) {
+            return null;
+        }
+
+        $earthRadius = 6371; // Earth radius in km
+
+        $latFrom = deg2rad($from['lat']);
+        $lonFrom = deg2rad($from['lng']);
+        $latTo = deg2rad($to['lat']);
+        $lonTo = deg2rad($to['lng']);
+
+        $latDelta = $latTo - $latFrom;
+        $lonDelta = $lonTo - $lonFrom;
+
+        $a = sin($latDelta / 2) ** 2 +
+            cos($latFrom) * cos($latTo) * sin($lonDelta / 2) ** 2;
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+
+        $distanceKm = $earthRadius * $c;
+
+        // Estimate travel time (assuming average speed of 60 km/h for city, 80 km/h for highway)
+        // Using 60 km/h as default
+        $estimatedHours = $distanceKm / 60;
+
+        return [
+            'distance_km' => $distanceKm,
+            'estimated_hours' => $estimatedHours,
+        ];
+    }
+
+    /**
+     * Get branch statistics for internal transfer (response rate and rating)
+     */
+    private function getBranchStatsForInternalTransfer(string $itemId, string $excludeBranchId): array
+    {
+        $sixMonthsAgo = now()->subMonths(6);
+
+        // Get all internal transfer orders from/to these branches in last 6 months
+        $orders = PurchaseOrder::where('order_type', OrderType::INTERNAL_TRANSFER)
+            ->whereHas('items', function ($query) use ($itemId) {
+                $query->where('item_id', $itemId);
+            })
+            ->where(function ($query) use ($excludeBranchId) {
+                $query->where('from_branch_id', '!=', $excludeBranchId)
+                    ->orWhere('to_branch_id', '!=', $excludeBranchId);
+            })
+            ->where('created_at', '>=', $sixMonthsAgo)
+            ->whereIn('status', [
+                OrderStatus::CONFIRMED,
+                OrderStatus::PARTIAL_CONFIRMATION,
+                OrderStatus::CLOSED,
+                OrderStatus::DELIVERED,
+            ])
+            ->get();
+
+        $stats = [];
+
+        foreach ($orders as $order) {
+            $branchId = $order->from_branch_id;
+
+            if (!isset($stats[$branchId])) {
+                $stats[$branchId] = [
+                    'response_times' => [],
+                    'ratings' => [],
+                ];
+            }
+
+            // Calculate response time (from created_at to confirmed_at)
+            if ($order->created_at && $order->confirmed_at) {
+                $responseTime = $order->created_at->diffInHours($order->confirmed_at);
+                $stats[$branchId]['response_times'][] = $responseTime;
+            }
+        }
+
+        // Calculate averages
+        $result = [];
+        foreach ($stats as $branchId => $data) {
+            // Response rate: percentage of orders responded to within 24 hours
+            $respondedWithin24h = count(array_filter($data['response_times'], fn($t) => $t <= 24));
+            $totalOrders = count($data['response_times']);
+            $responseRate = $totalOrders > 0
+                ? round(($respondedWithin24h / $totalOrders) * 100, 1)
+                : null;
+
+            // Rating: default to 4.5 if no rating system exists
+            // This can be enhanced with actual rating system
+            $rating = 4.5; // Default rating
+
+            $result[$branchId] = [
+                'response_rate' => $responseRate,
+                'rating' => $rating,
+            ];
+        }
+
+        return $result;
     }
 
     /**
