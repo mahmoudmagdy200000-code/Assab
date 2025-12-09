@@ -34,8 +34,8 @@ class ShiftEndService
                 'total_sales' => $totalSales,
                 'net_sales' => $netSales,
                 'vat_amount' => $vatAmount,
-                'cash_collected' => $data['cash_collected'],
-                'card_payments' => $data['card_payments'],
+                'cash_collected' => $data['cash_collected'] ?? 0,
+                'card_payments' => $data['card_payments'] ?? 0,
                 'pos_receipt' => $posReceiptPath,
                 'actual_end_time' => now(),
             ]);
