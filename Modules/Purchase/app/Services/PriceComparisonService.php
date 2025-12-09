@@ -314,9 +314,11 @@ class PriceComparisonService
                 ? $viaPOItems->avg('unit_price')
                 : null;
 
+            // For internal transfers, calculate average price if there are items
+            // If no items, return null (not 0) to indicate no data
             $internalTransferAvg = $internalTransferItems->isNotEmpty()
                 ? $internalTransferItems->avg('unit_price')
-                : 0; // Internal transfers are usually free
+                : null;
 
             $trends[$periodMonth] = [
                 'month' => $monthLabel,
