@@ -157,6 +157,8 @@ class NewOrderController extends BaseController
             $filters = [
                 'min_availability' => $request->get('min_availability'),
                 'search' => $request->get('search'),
+                'response_time' => $request->get('response_time'), // fast, normal, slow
+                'max_distance_km' => $request->get('max_distance_km'),
             ];
 
             $branches = $this->priceService->getBranchesWithStock($itemId, $quantity, $branchId, $filters);

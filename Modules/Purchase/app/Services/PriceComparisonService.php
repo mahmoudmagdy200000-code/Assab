@@ -663,6 +663,9 @@ class PriceComparisonService
         // Get response rate and rating data from previous orders
         $branchStats = $this->getBranchStatsForInternalTransfer($itemId, $excludeBranchId);
 
+        // Get average unit price for total amount calculation
+        $avgUnitPrice = $this->getAverageUnitPriceForInternalTransfer($itemId);
+
         // First, try to find BranchInventory records where item_id matches BranchItem.id
         $query = BranchInventory::with(['branch.branchManager'])
             ->where('item_id', $itemId)
@@ -691,7 +694,7 @@ class PriceComparisonService
                 ->where('item_quantity', '>', 0)
                 ->get();
 
-            return $otherBranchesItems->map(function ($item) use ($quantity, $currentCoordinates, $branchStats) {
+            return $otherBranchesItems->map(function ($item) use ($quantity, $currentCoordinates, $branchStats, $branchItem, $avgUnitPrice, $filters) {
                 $branch = $item->branch;
                 $availableQty = (float) $item->item_quantity;
                 $branchId = $item->branch_id;
@@ -704,6 +707,21 @@ class PriceComparisonService
 
                 // Get branch manager info
                 $manager = $branch->branchManager ?? $branch->managers()->active()->first();
+
+                // Calculate total amount
+                $totalAmount = $avgUnitPrice * $quantity;
+
+                // Get response rate
+                $responseRate = $branchStats[$branchId]['response_rate'] ?? null;
+
+                // Apply filters
+                if ($this->shouldFilterByResponseTime($responseRate, $filters)) {
+                    return null;
+                }
+
+                if ($this->shouldFilterByDistance($distance, $filters)) {
+                    return null;
+                }
 
                 return [
                     'branch_id' => $branchId,
@@ -718,22 +736,30 @@ class PriceComparisonService
                         'name' => $manager->name,
                         'image' => $manager->image_url ?? null,
                     ] : null,
+                    // Item Details
+                    'item_title' => $branchItem->item_name,
+                    'item_logo' => $branchItem->item_logo_url,
+                    'quantity' => $quantity,
+                    'total_amount' => round($totalAmount, 2),
+                    // Available Quantity
                     'available_quantity' => $availableQty,
+                    'available_quantity_label' => number_format($availableQty, 2) . ' ' . ($item->item_unit ?? 'kg'),
                     'availability_percentage' => min(100, round(($availableQty / $quantity) * 100, 1)),
                     'quality' => null,
                     'expiry_date' => null,
                     'cooling_status' => null,
                     'last_update' => $item->updated_at?->format('Y-m-d H:i:s'),
+                    // Store Details
                     'distance' => $distance,
                     'distance_km' => $distance ? round($distance['distance_km'], 2) : null,
                     'estimated_hours' => $distance ? round($distance['estimated_hours'], 1) : null,
-                    'response_rate' => $branchStats[$branchId]['response_rate'] ?? null,
+                    'response_rate' => $responseRate,
                     'rating' => $branchStats[$branchId]['rating'] ?? null,
                 ];
-            });
+            })->filter(); // Remove null values from filters
         }
 
-        return $inventories->map(function ($inventory) use ($quantity, $currentCoordinates, $branchStats) {
+        return $inventories->map(function ($inventory) use ($quantity, $currentCoordinates, $branchStats, $branchItem, $avgUnitPrice, $filters) {
             $branch = $inventory->branch;
             $branchId = $inventory->branch_id;
 
@@ -745,6 +771,23 @@ class PriceComparisonService
 
             // Get branch manager info
             $manager = $branch->branchManager ?? $branch->managers()->active()->first();
+
+            // Calculate total amount
+            $totalAmount = $avgUnitPrice * $quantity;
+
+            // Get response rate
+            $responseRate = $branchStats[$branchId]['response_rate'] ?? null;
+
+            // Apply filters
+            if ($this->shouldFilterByResponseTime($responseRate, $filters)) {
+                return null;
+            }
+
+            if ($this->shouldFilterByDistance($distance, $filters)) {
+                return null;
+            }
+
+            $availableQty = (float) $inventory->actual_available;
 
             return [
                 'branch_id' => $branchId,
@@ -759,19 +802,27 @@ class PriceComparisonService
                     'name' => $manager->name,
                     'image' => $manager->image_url ?? null,
                 ] : null,
-                'available_quantity' => (float) $inventory->actual_available,
-                'availability_percentage' => min(100, round(($inventory->actual_available / $quantity) * 100, 1)),
+                // Item Details
+                'item_title' => $branchItem->item_name,
+                'item_logo' => $branchItem->item_logo_url,
+                'quantity' => $quantity,
+                'total_amount' => round($totalAmount, 2),
+                // Available Quantity
+                'available_quantity' => $availableQty,
+                'available_quantity_label' => number_format($availableQty, 2) . ' ' . ($branchItem->item_unit ?? 'kg'),
+                'availability_percentage' => min(100, round(($availableQty / $quantity) * 100, 1)),
                 'quality' => $inventory->quality?->value,
                 'expiry_date' => $inventory->earliest_expiry_date?->format('Y-m-d'),
                 'cooling_status' => $inventory->cooling_status,
                 'last_update' => $inventory->last_inventory_update?->format('Y-m-d H:i:s'),
+                // Store Details
                 'distance' => $distance,
                 'distance_km' => $distance ? round($distance['distance_km'], 2) : null,
                 'estimated_hours' => $distance ? round($distance['estimated_hours'], 1) : null,
-                'response_rate' => $branchStats[$branchId]['response_rate'] ?? null,
+                'response_rate' => $responseRate,
                 'rating' => $branchStats[$branchId]['rating'] ?? null,
             ];
-        });
+        })->filter(); // Remove null values from filters
     }
 
     /**
@@ -923,5 +974,69 @@ class PriceComparisonService
             $deliveryDays,
             $rating
         );
+    }
+
+    /**
+     * Get average unit price for internal transfer orders
+     */
+    private function getAverageUnitPriceForInternalTransfer(string $itemId): float
+    {
+        $threeMonthsAgo = now()->subMonths(3);
+
+        $orderItems = PurchaseOrderItem::with(['purchaseOrder'])
+            ->where('item_id', $itemId)
+            ->whereHas('purchaseOrder', function ($query) use ($threeMonthsAgo) {
+                $query->where('created_at', '>=', $threeMonthsAgo)
+                    ->where('order_type', OrderType::INTERNAL_TRANSFER)
+                    ->whereIn('status', [
+                        OrderStatus::CONFIRMED,
+                        OrderStatus::PARTIAL_CONFIRMATION,
+                        OrderStatus::CLOSED,
+                        OrderStatus::DELIVERED,
+                    ]);
+            })
+            ->get();
+
+        return $orderItems->isNotEmpty()
+            ? round($orderItems->avg('unit_price'), 2)
+            : 0;
+    }
+
+    /**
+     * Check if branch should be filtered by response time
+     */
+    private function shouldFilterByResponseTime(?float $responseRate, array $filters): bool
+    {
+        if (empty($filters['response_time'])) {
+            return false;
+        }
+
+        if ($responseRate === null) {
+            // If no response rate data, exclude from "Fast" filter only
+            return $filters['response_time'] === 'fast';
+        }
+
+        return match ($filters['response_time']) {
+            'fast' => $responseRate < 80,
+            'normal' => $responseRate < 50 || $responseRate >= 80,
+            'slow' => $responseRate >= 50,
+            default => false,
+        };
+    }
+
+    /**
+     * Check if branch should be filtered by distance
+     */
+    private function shouldFilterByDistance(?array $distance, array $filters): bool
+    {
+        if (empty($filters['max_distance_km'])) {
+            return false;
+        }
+
+        if ($distance === null) {
+            return false; // Don't filter if distance can't be calculated
+        }
+
+        return $distance['distance_km'] > $filters['max_distance_km'];
     }
 }
