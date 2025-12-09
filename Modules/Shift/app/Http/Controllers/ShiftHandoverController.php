@@ -418,7 +418,7 @@ class ShiftHandoverController extends Controller
 
             $allCashiers = Cashier::where('branch_id', $shiftModel->shift->branch_id)
                 ->where('status', 'active')
-                ->get();
+                ->paginate(10);
 
             $nextShift = CashierShift::where('shift_date', $shiftModel->shift_date)
                 ->where('shift_id', '>', $shiftModel->shift_id)
@@ -439,20 +439,9 @@ class ShiftHandoverController extends Controller
                 ];
             });
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Available cashiers retrieved successfully',
-                'data' => [
-                    'cashiers' => $availableCashiers->values(),
-                    'auto_handover_enabled' => !is_null($suggestedCashier),
-                ]
-            ]);
+            return $this->paginatedResponse($availableCashiers, 'Available cashiers retrieved successfully');
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve available cashiers',
-                'error' => $e->getMessage()
-            ], 500);
+            return $this->errorResponse($e->getMessage(), 500);
         }
     }
 
