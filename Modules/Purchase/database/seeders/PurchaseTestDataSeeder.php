@@ -127,13 +127,44 @@ class PurchaseTestDataSeeder extends Seeder
     private function createBranchManagers(array $branches): array
     {
         $managers = [];
+        $managerNames = ['Ahmed Al-Saud', 'Mohammed Al-Rashid', 'Khalid Al-Mansouri', 'Fahad Al-Zahrani'];
+        $basePhone = 5000000001; // Start from a unique number
 
         foreach ($branches as $index => $branch) {
-            $manager = BranchManager::updateOrCreate(
-                ['email' => 'manager' . ($index + 1) . '@assab.com'],
-                [
-                    'name' => ['Ahmed Al-Saud', 'Mohammed Al-Rashid', 'Khalid Al-Mansouri', 'Fahad Al-Zahrani'][$index] ?? 'Manager ' . ($index + 1),
-                    'phone' => '+96650000000' . ($index + 1),
+            $email = 'manager' . ($index + 1) . '@assab.com';
+            
+            // Find unique phone number
+            $phone = '+966' . ($basePhone + $index);
+            $phoneExists = BranchManager::where('phone', $phone)->exists();
+            $phoneCounter = 0;
+            while ($phoneExists && $phoneCounter < 100) {
+                $phone = '+966' . ($basePhone + $index + $phoneCounter + 1000);
+                $phoneExists = BranchManager::where('phone', $phone)->exists();
+                $phoneCounter++;
+            }
+            
+            // Check if manager exists by email
+            $manager = BranchManager::where('email', $email)->first();
+
+            if ($manager) {
+                // Update existing manager (only if phone is different)
+                if ($manager->phone !== $phone && !BranchManager::where('phone', $phone)->exists()) {
+                    $manager->update([
+                        'phone' => $phone,
+                    ]);
+                }
+                $manager->update([
+                    'name' => $managerNames[$index] ?? 'Manager ' . ($index + 1),
+                    'branch_id' => $branch->id,
+                    'status' => 'active',
+                    'is_active' => true,
+                ]);
+            } else {
+                // Create new manager
+                $manager = BranchManager::create([
+                    'name' => $managerNames[$index] ?? 'Manager ' . ($index + 1),
+                    'email' => $email,
+                    'phone' => $phone,
                     'password' => bcrypt('password123'),
                     'branch_id' => $branch->id,
                     'status' => 'active',
@@ -141,8 +172,8 @@ class PurchaseTestDataSeeder extends Seeder
                     'is_first_login' => false,
                     'email_verified_at' => now(),
                     'phone_verified_at' => now(),
-                ]
-            );
+                ]);
+            }
 
             // Update branch manager_id
             $branch->update(['branch_manager_id' => $manager->id]);
