@@ -112,7 +112,7 @@ class CashierShiftResource extends JsonResource
                     return [
                         'id' => $detail->id,
                         'responsible_cashier' => $detail->responsibleCashier?->name,
-                        'amount' => $detail->amount,
+                        'amount' => (float) ($detail->assigned_amount ?? 0),
                         'reason' => $detail->reason,
                     ];
                 });
