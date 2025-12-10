@@ -205,7 +205,7 @@ class BranchManagerShiftService
                     $q->select(['id', 'cashier_shift_id', 'aggregator_id', 'amount']);
                 },
                 'cashierShift.salesBreakdown.aggregator:id,name',
-                'cashierShift.varianceDetails:id,cashier_shift_id,responsible_cashier_id,amount,notes',
+                'cashierShift.varianceDetails:id,cashier_shift_id,responsible_cashier_id,assigned_amount,notes',
                 'cashierShift.varianceDetails.responsibleCashier:id,name',
                 'handoverTo:id,name',
                 'approvedBy:id,name'
