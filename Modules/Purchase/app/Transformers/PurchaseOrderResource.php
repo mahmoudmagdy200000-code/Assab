@@ -78,25 +78,36 @@ class PurchaseOrderResource extends JsonResource
 
             // Rejection details (for Internal Transfer)
             'rejection_reason' => $this->when($this->status?->value === 'rejected', $this->rejection_reason),
-            'rejected_by' => $this->when($this->status?->value === 'rejected' && $this->requestedBy, fn() => [
-                'id' => $this->requestedBy->id,
-                'name' => $this->requestedBy->name,
-                'image' => $this->requestedBy->image_url ?? null,
-            ]),
+            'rejected_by' => $this->when(
+                $this->status?->value === 'rejected' && $this->relationLoaded('requestedBy') && $this->requestedBy,
+                fn() => [
+                    'id' => $this->requestedBy->id,
+                    'name' => $this->requestedBy->name,
+                    'image' => $this->requestedBy->image_url ?? null,
+                ]
+            ),
 
             // Status details with dates (for Internal Transfer)
-            'status_details' => $this->when($this->order_type?->isTransfer(), fn() => [
-                'status' => $this->status_label,
-                'status_date' => match($this->status?->value) {
-                    'confirmed' => $this->confirmed_at?->format('Y-m-d H:i:s'),
-                    'partial_confirmation' => $this->confirmed_at?->format('Y-m-d H:i:s'),
-                    'rejected' => $this->rejected_at?->format('Y-m-d H:i:s'),
-                    default => $this->created_at?->format('Y-m-d H:i:s'),
-                },
-                'is_full_approved' => $this->status?->value === 'confirmed',
-                'is_partial_approved' => $this->status?->value === 'partial_confirmation',
-                'is_rejected' => $this->status?->value === 'rejected',
-            }),
+            'status_details' => $this->when(
+                $this->order_type?->isTransfer(),
+                function () {
+                    $statusValue = $this->status?->value;
+                    $statusDate = match($statusValue) {
+                        'confirmed' => $this->confirmed_at?->format('Y-m-d H:i:s'),
+                        'partial_confirmation' => $this->confirmed_at?->format('Y-m-d H:i:s'),
+                        'rejected' => $this->rejected_at?->format('Y-m-d H:i:s'),
+                        default => $this->created_at?->format('Y-m-d H:i:s'),
+                    };
+                    
+                    return [
+                        'status' => $this->status_label,
+                        'status_date' => $statusDate,
+                        'is_full_approved' => $statusValue === 'confirmed',
+                        'is_partial_approved' => $statusValue === 'partial_confirmation',
+                        'is_rejected' => $statusValue === 'rejected',
+                    ];
+                }
+            ),
 
             // Flags
             'can_receive' => $this->can_receive,
