@@ -354,7 +354,8 @@ class ShiftHandoverController extends Controller
         try {
             $shiftModel = CashierShift::with([
                 'handoverStatus.reviewedBy',
-                'handover',
+                'handover.handoverTo',
+                'handover.approvedBy',
                 'cashier',
                 'nextCashier'
             ])->findOrFail($shift);
@@ -367,6 +368,22 @@ class ShiftHandoverController extends Controller
             }
 
             $handoverStatus = $shiftModel->handoverStatus;
+            $handover = $shiftModel->handover;
+
+            // Get handover_to information
+            $handoverToId = $handover?->handover_to_id ?? $shiftModel->nextCashier?->id;
+            $handoverToName = null;
+            $handoverToType = $handover?->handover_to_type ?? null;
+
+            if ($handover && $handover->handoverTo) {
+                $handoverToName = $handover->handoverTo->name;
+            } elseif ($handover && $handover->handover_to_type === 'cashier') {
+                $handoverToName = $shiftModel->nextCashier?->name ?? 'N/A';
+            } elseif ($handover && $handover->handover_to_type === 'branch_manager') {
+                $handoverToName = \Modules\BranchManagers\Models\BranchManager::find($handover->handover_to_id)?->name ?? 'N/A';
+            } else {
+                $handoverToName = $shiftModel->nextCashier?->name ?? 'N/A';
+            }
 
             return response()->json([
                 'success' => true,
@@ -374,21 +391,28 @@ class ShiftHandoverController extends Controller
                 'data' => [
                     'status' => $handoverStatus->status->value,
                     'manager_approval_status' => $handoverStatus->manager_approval_status,
-                    'handover_amount' => (float) ($shiftModel->handover?->handover_amount ?? $shiftModel->handover_amount ?? $shiftModel->closing_balance ?? 0),
+                    'handover_amount' => (float) ($handover?->handover_amount ?? $shiftModel->handover_amount ?? $shiftModel->closing_balance ?? 0),
                     'variance' => (float) $shiftModel->variance,
                     'variance_type' => $shiftModel->variance > 0 ? 'Over' : ($shiftModel->variance < 0 ? 'Short' : 'None'),
+                    'handover_from' => $shiftModel->cashier?->name ?? null,
+                    'handover_from_id' => $shiftModel->cashier_id ?? null,
                     'handover_to' => [
-                        'id' => $shiftModel->handover?->handover_to_id ?? $shiftModel->nextCashier?->id,
-                        'name' => $shiftModel->handover && $shiftModel->handover->handover_to_type === 'cashier'
-                            ? $shiftModel->nextCashier?->name 
-                            : ($shiftModel->handover && $shiftModel->handover->handover_to_type === 'branch_manager'
-                                ? \Modules\BranchManagers\Models\BranchManager::find($shiftModel->handover->handover_to_id)?->name
-                                : $shiftModel->nextCashier?->name ?? 'N/A'),
+                        'id' => $handoverToId,
+                        'name' => $handoverToName,
+                        'type' => $handoverToType,
                     ],
-                    'handover_notes' => $shiftModel->handover_notes,
+                    'handover_date' => $handover?->handover_date?->format('Y-m-d') ?? $shiftModel->handed_over_at?->format('Y-m-d'),
+                    'handover_time' => $handover?->handover_time?->format('H:i:s') ?? $shiftModel->handed_over_at?->format('H:i:s'),
+                    'handover_notes' => $shiftModel->handover_notes ?? $handover?->handover_notes,
                     'handed_over_at' => $shiftModel->handed_over_at?->format('Y-m-d H:i:s'),
                     'reviewed_by' => $handoverStatus->reviewedBy?->name,
                     'reviewed_at' => $handoverStatus->reviewed_at?->format('Y-m-d H:i:s'),
+                    'actioned_by' => $handover?->approvedBy ? [
+                        'id' => $handover->approved_by_id,
+                        'name' => $handover->approvedBy->name,
+                        'type' => $handover->approved_by_type,
+                        'actioned_at' => $handover->approved_at?->format('Y-m-d H:i:s'),
+                    ] : null,
                     'rejection_details' => [
                         'rejection_reason' => $handoverStatus->rejection_reason,
                         'rejection_count' => $handoverStatus->rejection_count,
