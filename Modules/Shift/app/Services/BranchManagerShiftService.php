@@ -276,6 +276,13 @@ class BranchManagerShiftService
             'cashier_name' => $cashierShift->cashier->name,
             'shift_time' => $shift ? $shift->name : 'N/A',
             'handover_amount' => (float) $handover->handover_amount,
+            'handover_date' => $handover->handover_date?->format('Y-m-d H:i:s'),
+            'handover_time' => $handover->handover_time?->format('H:i:s'),
+            'handover_notes' => $handover->handover_notes,
+            'handover_from' => $cashierShift->cashier->name,
+            'handover_to' => $handover->handoverTo?->name,
+            'handover_to_id' => $handover->handover_to_id,
+            'handover_to_type' => $handover->handover_to_type,
             'total_sales' => (float) $cashierShift->total_sales,
             'variance_amount' => (float) $handover->variance_amount,
             'variance_type' => $handover->variance_amount > 0 ? 'Over' : ($handover->variance_amount < 0 ? 'Short' : 'None'),
@@ -290,7 +297,7 @@ class BranchManagerShiftService
             'can_approve' => $handover->canApprove(),
             'can_reject' => $handover->canReject(),
             'variance_details' => $varianceDetails,
-            'handover_to_type' => $handover->handover_to_type,
+        
         ];
     }
 
