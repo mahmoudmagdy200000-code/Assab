@@ -65,7 +65,7 @@ class ShiftEndController extends Controller
             'variance.other_cashiers.*.cashier_id' => 'required_with:variance.other_cashiers|exists:cashiers,id',
             'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|numeric|min:0',
             'variance.other_cashiers.*.notes' => 'nullable|string|max:255',
-            'variance.reason' => 'required_if:variance.responsibility_type,other_factors,mixed|string|max:500',
+            'variance.reason' => 'required_if:variance.responsibility_type,other_factors,mixed|nullable|string|max:500',
             'variance.supporting_files' => 'sometimes|array',
             'variance.supporting_files.*' => 'file|mimes:pdf,png,jpeg,jpg|max:5120',
         ]);
@@ -224,7 +224,7 @@ class ShiftEndController extends Controller
             'variance.other_cashiers.*.cashier_id' => 'required_with:variance.other_cashiers|exists:cashiers,id',
             'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|numeric|min:0',
             'variance.other_cashiers.*.notes' => 'nullable|string|max:255',
-            'variance.reason' => 'required_if:variance.responsibility_type,other_factors,mixed|string|max:500',
+            'variance.reason' => 'required_if:variance.responsibility_type,other_factors,mixed|nullable|string|max:500',
             'variance.supporting_files' => 'sometimes|array',
             'variance.supporting_files.*' => 'file|mimes:pdf,png,jpeg,jpg|max:5120',
         ]);

@@ -105,6 +105,15 @@ class VarianceCalculationService
         // Record for current cashier
         $currentCashierAmount = $data['current_cashier_amount'] ?? 0;
 
+        // Use reason if provided, otherwise use notes, otherwise default
+        $reason = $data['reason'] ?? $data['notes'] ?? 'Shared responsibility';
+
+        // Handle supporting files if provided
+        $supportingFiles = null;
+        if (!empty($data['supporting_files'])) {
+            $supportingFiles = $this->uploadSupportingFiles($data['supporting_files'], $shift->id);
+        }
+
         ShiftVarianceDetail::create([
             'cashier_shift_id' => $shift->id,
             'variance_amount' => $amount,
@@ -112,8 +121,8 @@ class VarianceCalculationService
             'responsibility_type' => ResponsibilityType::ME_AND_OTHER_FACTORS,
             'responsible_cashier_id' => $shift->cashier_id,
             'assigned_amount' => $currentCashierAmount,
-            'reason' => $data['notes'] ?? 'Shared responsibility',
-            'supporting_files' => null,
+            'reason' => $reason,
+            'supporting_files' => $supportingFiles,
         ]);
 
         // ✅ Support both 'other_cashiers' (from controller) and 'cashiers' (legacy)
@@ -287,7 +296,7 @@ class VarianceCalculationService
         $responsibilityType = $mainDetail->responsibility_type?->value ?? $mainDetail->responsibility_type;
 
         // Normalize responsibility_type values
-        $normalizedType = match($responsibilityType) {
+        $normalizedType = match ($responsibilityType) {
             'i_was_responsible', ResponsibilityType::I_WAS_RESPONSIBLE->value => 'self',
             'me_and_other_factors', ResponsibilityType::ME_AND_OTHER_FACTORS->value => 'self_and_others',
             'other_factors', ResponsibilityType::OTHER_FACTORS->value => 'other_factors',
@@ -307,13 +316,14 @@ class VarianceCalculationService
         $currentCashierDetail = $details->firstWhere('responsible_cashier_id', $shift->cashier_id);
         if ($currentCashierDetail) {
             $result['current_cashier_amount'] = (float) $currentCashierDetail->assigned_amount;
+            // Use reason from current cashier detail (this should be the main reason)
             $result['reason'] = $currentCashierDetail->reason;
         }
 
         // Get other cashiers
         $otherCashiers = $details->filter(function ($detail) use ($shift) {
-            return $detail->responsible_cashier_id && 
-                   $detail->responsible_cashier_id !== $shift->cashier_id;
+            return $detail->responsible_cashier_id &&
+                $detail->responsible_cashier_id !== $shift->cashier_id;
         });
 
         foreach ($otherCashiers as $detail) {
@@ -324,30 +334,58 @@ class VarianceCalculationService
             ];
         }
 
-        // Get external factors (null cashier_id) - for other_factors and mixed
-        $externalDetail = $details->firstWhere('responsible_cashier_id', null);
-        if ($externalDetail) {
-            if (empty($result['reason'])) {
-                $result['reason'] = $externalDetail->reason;
+        // Get supporting files from any detail (prefer current cashier, then external, then any other)
+        $supportingFilesDetail = null;
+        if ($currentCashierDetail && !empty($currentCashierDetail->supporting_files)) {
+            $supportingFilesDetail = $currentCashierDetail;
+        } else {
+            $externalDetail = $details->firstWhere('responsible_cashier_id', null);
+            if ($externalDetail && !empty($externalDetail->supporting_files)) {
+                $supportingFilesDetail = $externalDetail;
+            } else {
+                // Try to find any detail with supporting files
+                $supportingFilesDetail = $details->first(function ($detail) {
+                    return !empty($detail->supporting_files);
+                });
             }
-            
-            // Add supporting files from external factors
-            if ($externalDetail->supporting_files) {
-                $files = is_array($externalDetail->supporting_files) 
-                    ? $externalDetail->supporting_files 
-                    : json_decode($externalDetail->supporting_files, true);
-                
-                if ($files) {
+        }
+
+        if ($supportingFilesDetail && !empty($supportingFilesDetail->supporting_files)) {
+            // supporting_files is cast to array in model, so it should already be an array
+            $files = $supportingFilesDetail->supporting_files;
+
+            // Handle both array (from cast) and JSON string (legacy)
+            if (is_array($files) && !empty($files)) {
+                $result['supporting_files'] = array_map(
+                    fn($file) => asset('storage/' . $file),
+                    $files
+                );
+            } elseif (is_string($files)) {
+                // Fallback: if it's still a string (JSON), decode it
+                $decoded = json_decode($files, true);
+                if ($decoded && is_array($decoded) && !empty($decoded)) {
                     $result['supporting_files'] = array_map(
                         fn($file) => asset('storage/' . $file),
-                        $files
+                        $decoded
                     );
                 }
             }
         }
 
-        // If no reason found, use default
-        if (empty($result['reason'])) {
+        // Get external factors (null cashier_id) - for other_factors and mixed
+        $externalDetail = $details->firstWhere('responsible_cashier_id', null);
+        if ($externalDetail) {
+            // For other_factors and mixed, use external detail's reason as main reason
+            if (in_array($normalizedType, ['other_factors', 'mixed'])) {
+                $result['reason'] = $externalDetail->reason;
+            } elseif (empty($result['reason'])) {
+                $result['reason'] = $externalDetail->reason;
+            }
+        }
+
+        // If no reason found, use main detail's reason or default
+        if (empty($result['reason']) || $result['reason'] === 'Shared responsibility') {
+            // Try to get reason from main detail
             $result['reason'] = $mainDetail->reason ?? 'No reason provided';
         }
 

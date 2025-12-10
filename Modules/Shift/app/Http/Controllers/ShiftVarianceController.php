@@ -36,13 +36,13 @@ class ShiftVarianceController extends Controller
             'other_cashiers.*.amount' => 'required_with:other_cashiers|numeric|min:0',
             'other_cashiers.*.notes' => 'nullable|string|max:255',
 
-            // For other_factors and mixed
-            'reason' => 'required_if:responsibility_type,other_factors,mixed|string|max:500',
+            // For other_factors and mixed (required), and optional for self_and_others
+            'reason' => 'required_if:responsibility_type,other_factors,mixed|nullable|string|max:500',
             'external_reason' => 'required_if:responsibility_type,mixed|string|max:500',
             'supporting_files' => 'sometimes|array',
             'supporting_files.*' => 'file|mimes:pdf,png,jpeg,jpg|max:5120',
 
-            // Optional notes for self_and_others
+            // Optional notes for self_and_others (legacy support)
             'notes' => 'nullable|string|max:500',
         ]);
 
