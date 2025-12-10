@@ -1080,8 +1080,18 @@ class BranchManagerShiftController extends BaseController
                 ];
             }
 
+            // Use financial summary values if manager shift values are 0 or null
+            $totalSales = (float) ($managerShift->total_sales > 0 ? $managerShift->total_sales : ($financialSummary['total_sales'] ?? 0));
+            $cashCollected = (float) ($managerShift->cash_collected > 0 ? $managerShift->cash_collected : ($financialSummary['cash_collected'] ?? 0));
+            $cardPayments = (float) ($managerShift->card_payments > 0 ? $managerShift->card_payments : ($financialSummary['card_payments'] ?? 0));
+            $aggregatorPayments = (float) ($managerShift->aggregator_payments > 0 ? $managerShift->aggregator_payments : ($financialSummary['delivery_app_payments'] ?? 0));
+
+            // Calculate VAT and Net Sales from total_sales if not set in manager shift
+            $vatAmount = (float) ($managerShift->vat_amount > 0 ? $managerShift->vat_amount : ($totalSales * 0.15));
+            $netSales = (float) ($managerShift->net_sales > 0 ? $managerShift->net_sales : ($totalSales - $vatAmount));
+
             // Calculate expected_balance and variance
-            $expectedBalance = (float) ($managerShift->total_sales ?? $financialSummary['total_sales'] ?? 0);
+            $expectedBalance = $totalSales;
             $closingBalance = (float) ($managerShift->handover_amount ?? $managerShift->closing_balance ?? 0);
             $variance = $expectedBalance - $closingBalance;
 
@@ -1127,12 +1137,12 @@ class BranchManagerShiftController extends BaseController
                     'variance_type' => $variance > 0 ? 'Over' : ($variance < 0 ? 'Short' : 'None'),
                 ],
                 'financial_summary' => [
-                    'total_sales' => (float) ($managerShift->total_sales ?? $financialSummary['total_sales'] ?? 0),
-                    'net_sales' => (float) ($managerShift->net_sales ?? 0),
-                    'vat_amount' => (float) ($managerShift->vat_amount ?? 0),
-                    'cash_collected' => (float) ($managerShift->cash_collected ?? $financialSummary['cash_collected'] ?? 0),
-                    'card_payments' => (float) ($managerShift->card_payments ?? $financialSummary['card_payments'] ?? 0),
-                    'aggregator_payments' => (float) ($managerShift->aggregator_payments ?? $financialSummary['delivery_app_payments'] ?? 0),
+                    'total_sales' => $totalSales,
+                    'net_sales' => $netSales,
+                    'vat_amount' => $vatAmount,
+                    'cash_collected' => $cashCollected,
+                    'card_payments' => $cardPayments,
+                    'aggregator_payments' => $aggregatorPayments,
                     'total_variance' => (float) ($financialSummary['total_variance'] ?? 0),
                 ],
                 'cashier_breakdown' => $cashierBreakdown,
