@@ -306,6 +306,7 @@ class BranchManagerShiftService
             'can_approve' => $handover->canApprove(),
             'can_reject' => $handover->canReject(),
             'variance_details' => $varianceDetails,
+            'accounting_name' => 'accounting_name',
 
         ];
     }
