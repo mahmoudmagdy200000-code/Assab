@@ -104,14 +104,14 @@ class ShiftVarianceController extends Controller
             $this->varianceService->recordVariance($shiftModel, $data);
 
             // Get variance details
-            $varianceDetails = $this->varianceService->getVarianceDetails($shiftModel->fresh());
+            $variance = $this->varianceService->getVarianceFormatted($shiftModel->fresh());
 
             return response()->json([
                 'success' => true,
                 'message' => 'Variance recorded successfully',
                 'data' => [
                     'shift' => new ShiftDetailResource($shiftModel->fresh()),
-                    'variance_details' => $varianceDetails,
+                    'variance' => $variance,
                 ]
             ]);
         } catch (\Exception $e) {
@@ -146,14 +146,14 @@ class ShiftVarianceController extends Controller
                 ]);
             }
 
-            $varianceDetails = $this->varianceService->getVarianceDetails($shiftModel);
+            $variance = $this->varianceService->getVarianceFormatted($shiftModel);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Variance details retrieved successfully',
                 'data' => [
                     'has_variance' => true,
-                    'variance_details' => $varianceDetails,
+                    'variance' => $variance,
                     'variance_recorded' => $shiftModel->varianceDetails->isNotEmpty(),
                 ]
             ]);
@@ -352,4 +352,3 @@ class ShiftVarianceController extends Controller
         }
     }
 }
-

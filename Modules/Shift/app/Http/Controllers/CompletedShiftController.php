@@ -65,9 +65,9 @@ class CompletedShiftController extends BaseController
 
             $progress = $this->shiftService->getShiftProgress($shiftId);
 
-            $varianceDetails = null;
+            $variance = null;
             if ($shift->hasVariance()) {
-                $varianceDetails = $this->varianceService->getVarianceDetails($shift);
+                $variance = $this->varianceService->getVarianceFormatted($shift);
             }
 
             return response()->json([
@@ -76,7 +76,7 @@ class CompletedShiftController extends BaseController
                 'data' => [
                     'shift' => new ShiftDetailResource($shift),
                     'progress' => $progress,
-                    'variance_details' => $varianceDetails,
+                    'variance' => $variance,
                 ]
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {

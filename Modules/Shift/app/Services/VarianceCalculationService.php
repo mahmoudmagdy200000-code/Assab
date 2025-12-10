@@ -257,26 +257,114 @@ class VarianceCalculationService
         return json_encode($uploadedFiles);
     }
 
-    public function getVarianceDetails(CashierShift $shift): array
+    /**
+     * Get variance details in standardized format
+     * Returns variance in the format:
+     * {
+     *   "responsibility_type": "self_and_others",
+     *   "current_cashier_amount": 20,
+     *   "other_cashiers": [...],
+     *   "reason": "...",
+     *   "supporting_files": []
+     * }
+     */
+    public function getVarianceFormatted(CashierShift $shift): ?array
     {
+        if (!$shift->hasVariance()) {
+            return null;
+        }
+
         $details = ShiftVarianceDetail::where('cashier_shift_id', $shift->id)
             ->with('responsibleCashier')
             ->get();
 
+        if ($details->isEmpty()) {
+            return null;
+        }
+
+        // Get the main responsibility type (should be same for all details)
+        $mainDetail = $details->first();
+        $responsibilityType = $mainDetail->responsibility_type?->value ?? $mainDetail->responsibility_type;
+
+        // Normalize responsibility_type values
+        $normalizedType = match($responsibilityType) {
+            'i_was_responsible', ResponsibilityType::I_WAS_RESPONSIBLE->value => 'self',
+            'me_and_other_factors', ResponsibilityType::ME_AND_OTHER_FACTORS->value => 'self_and_others',
+            'other_factors', ResponsibilityType::OTHER_FACTORS->value => 'other_factors',
+            'mixed_factors', ResponsibilityType::MIXED_FACTORS->value => 'mixed',
+            default => $responsibilityType,
+        };
+
+        $result = [
+            'responsibility_type' => $normalizedType,
+            'current_cashier_amount' => 0,
+            'other_cashiers' => [],
+            'reason' => null,
+            'supporting_files' => [],
+        ];
+
+        // Get current cashier's amount
+        $currentCashierDetail = $details->firstWhere('responsible_cashier_id', $shift->cashier_id);
+        if ($currentCashierDetail) {
+            $result['current_cashier_amount'] = (float) $currentCashierDetail->assigned_amount;
+            $result['reason'] = $currentCashierDetail->reason;
+        }
+
+        // Get other cashiers
+        $otherCashiers = $details->filter(function ($detail) use ($shift) {
+            return $detail->responsible_cashier_id && 
+                   $detail->responsible_cashier_id !== $shift->cashier_id;
+        });
+
+        foreach ($otherCashiers as $detail) {
+            $result['other_cashiers'][] = [
+                'cashier_id' => $detail->responsible_cashier_id,
+                'amount' => (float) $detail->assigned_amount,
+                'notes' => $detail->reason ?? '',
+            ];
+        }
+
+        // Get external factors (null cashier_id) - for other_factors and mixed
+        $externalDetail = $details->firstWhere('responsible_cashier_id', null);
+        if ($externalDetail) {
+            if (empty($result['reason'])) {
+                $result['reason'] = $externalDetail->reason;
+            }
+            
+            // Add supporting files from external factors
+            if ($externalDetail->supporting_files) {
+                $files = is_array($externalDetail->supporting_files) 
+                    ? $externalDetail->supporting_files 
+                    : json_decode($externalDetail->supporting_files, true);
+                
+                if ($files) {
+                    $result['supporting_files'] = array_map(
+                        fn($file) => asset('storage/' . $file),
+                        $files
+                    );
+                }
+            }
+        }
+
+        // If no reason found, use default
+        if (empty($result['reason'])) {
+            $result['reason'] = $mainDetail->reason ?? 'No reason provided';
+        }
+
+        return $result;
+    }
+
+    /**
+     * Get variance details (legacy method - kept for backward compatibility)
+     */
+    public function getVarianceDetails(CashierShift $shift): array
+    {
+        $formatted = $this->getVarianceFormatted($shift);
+
         return [
             'total_variance' => $shift->variance,
             'variance_type' => $shift->variance > 0 ? 'Over' : 'Short',
-            'details' => $details->map(function ($detail) {
-                return [
-                    'responsibility_type' => $detail->responsibility_type->label(),
-                    'cashier_name' => $detail->responsibleCashier?->name ?? 'External Factors',
-                    'assigned_amount' => $detail->assigned_amount,
-                    'reason' => $detail->reason,
-                    'supporting_files' => $detail->supporting_files
-                        ? json_decode($detail->supporting_files)
-                        : [],
-                ];
-            }),
+            'variance' => $formatted,
         ];
     }
 }

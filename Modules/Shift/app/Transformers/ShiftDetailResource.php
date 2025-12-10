@@ -238,22 +238,10 @@ class ShiftDetailResource extends JsonResource
             'variance_type_label' => $variance > 0 ? 'Over (زيادة)' : ($variance < 0 ? 'Short (نقص)' : 'No Variance'),
         ];
 
-        // Add expandable variance details if exists
+        // Add formatted variance if exists
         if ($hasVariance && $this->relationLoaded('varianceDetails') && $this->varianceDetails->isNotEmpty()) {
-            $result['details'] = $this->varianceDetails->map(function ($detail) {
-                return [
-                    'id' => $detail->id,
-                    'responsibility_type' => $detail->responsibility_type?->value ?? $detail->responsibility_type,
-                    'responsibility_type_label' => $detail->responsibility_type?->label() ?? $detail->responsibility_type,
-                    'responsible_cashier' => $detail->responsibleCashier?->name ?? 'External Factors',
-                    'responsible_cashier_id' => $detail->responsible_cashier_id,
-                    'assigned_amount' => (float) $detail->assigned_amount,
-                    'reason' => $detail->reason,
-                    'supporting_files' => $detail->supporting_files
-                        ? array_map(fn($f) => asset('storage/' . $f), $detail->supporting_files)
-                        : [],
-                ];
-            });
+            $varianceService = app(\Modules\Shift\Services\VarianceCalculationService::class);
+            $result['variance'] = $varianceService->getVarianceFormatted($this->resource);
         }
 
         return $result;

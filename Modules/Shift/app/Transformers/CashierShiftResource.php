@@ -107,16 +107,13 @@ class CashierShiftResource extends JsonResource
                 });
             }),
 
-            'variance_details' => $this->whenLoaded('varianceDetails', function () {
-                return $this->varianceDetails->map(function ($detail) {
-                    return [
-                        'id' => $detail->id,
-                        'responsible_cashier' => $detail->responsibleCashier?->name,
-                        'amount' => (float) ($detail->assigned_amount ?? 0),
-                        'reason' => $detail->reason,
-                    ];
-                });
-            }),
+            'variance' => $this->when(
+                $this->hasVariance() && $this->relationLoaded('varianceDetails'),
+                function () {
+                    $varianceService = app(\Modules\Shift\Services\VarianceCalculationService::class);
+                    return $varianceService->getVarianceFormatted($this->resource);
+                }
+            ),
         ];
     }
 }

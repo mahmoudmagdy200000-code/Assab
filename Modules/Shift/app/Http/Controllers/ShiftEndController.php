@@ -131,6 +131,15 @@ class ShiftEndController extends Controller
                 $this->varianceService->recordVariance($updatedShift, $request->variance);
             }
 
+            // Reload shift with relationships
+            $updatedShift = $updatedShift->fresh()->loadFullRelationships();
+
+            // Get variance if exists
+            $variance = null;
+            if ($updatedShift->hasVariance()) {
+                $variance = $this->varianceService->getVarianceFormatted($updatedShift);
+            }
+
             // Calculate sales
             $salesCalculation = $this->shiftEndService->calculateNetSales($request->total_sales);
 
@@ -138,7 +147,8 @@ class ShiftEndController extends Controller
                 'success' => true,
                 'message' => 'Shift ended successfully without handover',
                 'data' => [
-                    'shift' => new ShiftDetailResource($updatedShift->fresh()->loadFullRelationships()),
+                    'shift' => new ShiftDetailResource($updatedShift),
+                    'variance' => $variance,
                     'summary' => [
                         'total_sales' => (float) $salesCalculation['total_sales'],
                         'net_sales' => (float) $salesCalculation['net_sales'],
@@ -321,9 +331,15 @@ class ShiftEndController extends Controller
                 'varianceDetails.responsibleCashier'
             ])->findOrFail($updatedShift->id);
 
-            // Calculate variance
-            $variance = $request->total_sales - $request->handover_amount;
-            $varianceType = $variance > 0 ? 'Over' : ($variance < 0 ? 'Short' : 'None');
+            // Get variance if exists
+            $variance = null;
+            if ($updatedShift->hasVariance()) {
+                $variance = $this->varianceService->getVarianceFormatted($updatedShift);
+            }
+
+            // Calculate variance amount
+            $varianceAmount = $request->total_sales - $request->handover_amount;
+            $varianceType = $varianceAmount > 0 ? 'Over' : ($varianceAmount < 0 ? 'Short' : 'None');
             $salesCalculation = $this->shiftEndService->calculateNetSales($request->total_sales);
 
             return response()->json([
@@ -331,6 +347,7 @@ class ShiftEndController extends Controller
                 'message' => 'Shift ended successfully with handover',
                 'data' => [
                     'shift' => new ShiftDetailResource($updatedShift),
+                    'variance' => $variance,
                     'summary' => [
                         'total_sales' => (float) $salesCalculation['total_sales'],
                         'net_sales' => (float) $salesCalculation['net_sales'],
@@ -342,7 +359,7 @@ class ShiftEndController extends Controller
                         ],
                         'handover_details' => [
                             'handover_amount' => (float) $request->handover_amount,
-                            'variance' => (float) $variance,
+                            'variance' => (float) $varianceAmount,
                             'variance_type' => $varianceType,
                             'handover_to_type' => $handoverToType,
                             'handover_to' => $handoverToName,
