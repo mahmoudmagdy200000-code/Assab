@@ -443,14 +443,17 @@ class CashierManagementController extends BaseController
 
     /**
      * Helper: Check if shifts are already occupied
+     * يتحقق من أن الشيفتات غير متخذة لكاشير آخر في نفس البرانش
+     * نفس الشيفت يمكن أن يكون لكاشيرين مختلفين في برانشات مختلفة
      */
     private function checkOccupiedShifts(array $shiftIds, string $branchId, ?string $excludeCashierId = null): array
     {
         $occupied = [];
 
         foreach ($shiftIds as $shiftId) {
+            // التحقق من أن الشيفت متخذ لكاشير آخر في نفس البرانش فقط
             $query = CashierShift::where('shift_id', $shiftId)
-                ->whereHas('shift', function ($q) use ($branchId) {
+                ->whereHas('cashier', function ($q) use ($branchId) {
                     $q->where('branch_id', $branchId);
                 })
                 ->whereDate('shift_date', '>=', today())
