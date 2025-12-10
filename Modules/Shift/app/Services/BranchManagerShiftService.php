@@ -180,10 +180,9 @@ class BranchManagerShiftService
     {
         $query = CashierShiftHandover::query()
             ->whereHas('cashierShift', function ($query) use ($managerShift) {
-                $query->whereDate('shift_date', $managerShift->shift_date)
-                    ->whereHas('shift', function ($q) use ($managerShift) {
-                        $q->where('branch_id', $managerShift->branch_id);
-                    });
+                $query->whereHas('shift', function ($q) use ($managerShift) {
+                    $q->where('branch_id', $managerShift->branch_id);
+                });
             })
             ->with([
                 'cashierShift' => function ($q) {
@@ -215,7 +214,17 @@ class BranchManagerShiftService
         switch ($handoverType) {
             case 'to_manager':
                 $query->where('handover_to_type', 'branch_manager')
-                    ->where('handover_to_id', $managerShift->branch_manager_id);
+                    ->where('handover_to_id', $managerShift->branch_manager_id)
+                    ->where(function ($q) use ($managerShift) {
+                        // Include handovers where either shift_date or handover_date matches manager's shift_date
+                        // This handles cases where shift ends on a different date than it started
+                        $q->where(function ($subQ) use ($managerShift) {
+                            $subQ->whereHas('cashierShift', function ($cashierQuery) use ($managerShift) {
+                                $cashierQuery->whereDate('shift_date', $managerShift->shift_date);
+                            });
+                        })
+                            ->orWhereDate('handover_date', $managerShift->shift_date);
+                    });
                 break;
 
             case 'between_cashiers':
@@ -297,7 +306,7 @@ class BranchManagerShiftService
             'can_approve' => $handover->canApprove(),
             'can_reject' => $handover->canReject(),
             'variance_details' => $varianceDetails,
-        
+
         ];
     }
 
