@@ -61,6 +61,9 @@ class CompletedShiftController extends BaseController
             ->whereHas('shift', function($q) use ($managerBranchId) {
                 $q->where('branch_id', $managerBranchId);
             })
+            ->whereHas('cashier', function($q) use ($managerBranchId) {
+                $q->where('branch_id', $managerBranchId);
+            })
             ->findOrFail($shiftId);
 
             $progress = $this->shiftService->getShiftProgress($shiftId);

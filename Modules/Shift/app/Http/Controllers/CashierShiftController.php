@@ -699,6 +699,9 @@ class CashierShiftController extends BaseController
                 ->whereHas('shift', function ($query) use ($branchManager) {
                     $query->where('branch_id', $branchManager->branch_id);
                 })
+                ->whereHas('cashier', function ($query) use ($branchManager) {
+                    $query->where('branch_id', $branchManager->branch_id);
+                })
                 ->first();
 
             // If not found, assume it's a cashier_id and find pending shift for that cashier
@@ -713,6 +716,9 @@ class CashierShiftController extends BaseController
                 ])
                     ->where('cashier_id', $shiftId)
                     ->whereHas('shift', function ($query) use ($branchManager) {
+                        $query->where('branch_id', $branchManager->branch_id);
+                    })
+                    ->whereHas('cashier', function ($query) use ($branchManager) {
                         $query->where('branch_id', $branchManager->branch_id);
                     })
                     ->whereIn('status', [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED])

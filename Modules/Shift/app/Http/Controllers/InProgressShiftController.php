@@ -29,11 +29,11 @@ class InProgressShiftController extends BaseController
                 ->whereHas('shift', function ($q) use ($managerBranchId) {
                     $q->where('branch_id', $managerBranchId);
                 })
-                ->when($cashierId, function ($query, $cashierId) use ($managerBranchId) {
-                    $query->where('cashier_id', $cashierId)
-                        ->whereHas('cashier', function ($q) use ($managerBranchId) {
-                            $q->where('branch_id', $managerBranchId);
-                        });
+                ->whereHas('cashier', function ($q) use ($managerBranchId) {
+                    $q->where('branch_id', $managerBranchId);
+                })
+                ->when($cashierId, function ($query, $cashierId) {
+                    $query->where('cashier_id', $cashierId);
                 })
                 ->orderBy('actual_start_time')
                 ->paginate(10);
@@ -72,6 +72,9 @@ class InProgressShiftController extends BaseController
                 'history'
             ])
                 ->whereHas('shift', function ($q) use ($managerBranchId) {
+                    $q->where('branch_id', $managerBranchId);
+                })
+                ->whereHas('cashier', function ($q) use ($managerBranchId) {
                     $q->where('branch_id', $managerBranchId);
                 })
                 ->findOrFail($shift);

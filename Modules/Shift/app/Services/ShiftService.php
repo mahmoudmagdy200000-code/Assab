@@ -94,9 +94,12 @@ class ShiftService
         $query = CashierShift::completed()
             ->with(['cashier', 'shift', 'nextCashier', 'handoverStatus', 'varianceDetails']);
 
-        // ✅ فلتر حسب البرانش
+        // ✅ فلتر حسب البرانش (shift و cashier)
         if (!empty($filters['branch_id'])) {
             $query->whereHas('shift', function ($q) use ($filters) {
+                $q->where('branch_id', $filters['branch_id']);
+            })
+            ->whereHas('cashier', function ($q) use ($filters) {
                 $q->where('branch_id', $filters['branch_id']);
             });
         }

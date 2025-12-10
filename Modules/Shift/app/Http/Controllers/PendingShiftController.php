@@ -27,7 +27,8 @@ class PendingShiftController extends BaseController
 
             $shifts = CashierShift::upcoming()
                 ->with(['cashier', 'shift', 'nextCashier', 'originalCashier', 'reassignedBy'])
-                ->whereHas('shift', fn($q) => $q->where('branch_id', auth()->user()->branch_id))
+                ->whereHas('shift', fn($q) => $q->where('branch_id', $managerBranchId))
+                ->whereHas('cashier', fn($q) => $q->where('branch_id', $managerBranchId))
                 ->whereDate('shift_date', '>=', now()->subMonth())
                 ->whereDate('shift_date', '<=', now()->addMonth())
                 ->when($cashierId, fn($q, $cashierId) => $q->where('cashier_id', $cashierId))
@@ -66,6 +67,9 @@ class PendingShiftController extends BaseController
                 'history'
             ])
                 ->whereHas('shift', function ($q) use ($managerBranchId) {
+                    $q->where('branch_id', $managerBranchId);
+                })
+                ->whereHas('cashier', function ($q) use ($managerBranchId) {
                     $q->where('branch_id', $managerBranchId);
                 })
                 ->findOrFail($shift);
