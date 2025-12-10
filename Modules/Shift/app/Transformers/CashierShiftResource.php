@@ -72,6 +72,28 @@ class CashierShiftResource extends JsonResource
                     ];
                 }
             ),
+            // Detailed Handover Info
+            'handover_details' => $this->when(
+                $this->relationLoaded('handover') && $this->handover,
+                function () {
+                    $handover = $this->handover;
+                    return [
+                        'handover_from' => $this->cashier?->name ?? null,
+                        'handover_from_id' => $this->cashier_id ?? null,
+                        'handover_to' => $handover->handoverTo?->name ?? null,
+                        'handover_to_id' => $handover->handover_to_id ?? null,
+                        'handover_to_type' => $handover->handover_to_type ?? null,
+                        'handover_date' => $handover->handover_date?->format('Y-m-d') ?? null,
+                        'handover_time' => $handover->handover_time?->format('H:i:s') ?? null,
+                        'actioned_by' => $handover->approvedBy ? [
+                            'id' => $handover->approved_by_id,
+                            'name' => $handover->approvedBy->name,
+                            'type' => $handover->approved_by_type,
+                            'actioned_at' => $handover->approved_at?->format('Y-m-d H:i:s'),
+                        ] : null,
+                    ];
+                }
+            ),
 
             // Next Cashier
             'next_cashier' => $this->whenLoaded('nextCashier', function () {

@@ -92,7 +92,15 @@ class ShiftService
     public function getCompletedShifts(string $cashierId = null, ?array $filters = []): LengthAwarePaginator
     {
         $query = CashierShift::completed()
-            ->with(['cashier', 'shift', 'nextCashier', 'handoverStatus', 'handover', 'varianceDetails']);
+            ->with([
+                'cashier', 
+                'shift', 
+                'nextCashier', 
+                'handoverStatus', 
+                'handover.handoverTo', 
+                'handover.approvedBy',
+                'varianceDetails'
+            ]);
 
         // ✅ فلتر حسب البرانش (shift و cashier)
         if (!empty($filters['branch_id'])) {
