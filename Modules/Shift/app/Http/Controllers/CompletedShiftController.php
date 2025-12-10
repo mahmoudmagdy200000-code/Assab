@@ -54,6 +54,7 @@ class CompletedShiftController extends BaseController
                 'reassignedBy',
                 'salesBreakdown.aggregator',
                 'handoverStatus.reviewedBy',
+                'handover',
                 'varianceDetails.responsibleCashier',
                 'varianceAlerts',
                 'history'

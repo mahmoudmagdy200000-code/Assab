@@ -183,12 +183,33 @@ class ShiftDetailResource extends JsonResource
 
         $handoverStatus = $this->handoverStatus;
 
+        // Get handover_to from handover (CashierShiftHandover) if available, otherwise from nextCashier
+        $handoverToId = null;
+        $handoverToName = 'N/A';
+        $handover = $this->relationLoaded('handover') ? $this->handover : null;
+        
+        if ($handover && $handover->handover_to_id) {
+            $handoverToId = $handover->handover_to_id;
+            if ($handover->handover_to_type === 'cashier') {
+                $handoverToName = $this->nextCashier?->name ?? 'N/A';
+            } elseif ($handover->handover_to_type === 'branch_manager') {
+                $manager = \Modules\BranchManagers\Models\BranchManager::find($handover->handover_to_id);
+                $handoverToName = $manager?->name ?? 'N/A';
+            }
+        } elseif ($this->nextCashier) {
+            $handoverToId = $this->nextCashier->id;
+            $handoverToName = $this->nextCashier->name;
+        }
+
         return [
-            'handover_amount' => (float) ($this->closing_balance ?? 0),
+            'handover_amount' => (float) ($handover?->handover_amount ?? $this->handover_amount ?? $this->closing_balance ?? 0),
             'status' => $handoverStatus?->manager_approval_status ?? 'pending',
             'status_label' => $handoverStatus?->status_label ?? 'Pending',
             'handover_from' => $this->cashier?->name ?? 'N/A',
-            'handover_to' => $this->nextCashier?->name ?? 'N/A',
+            'handover_to' => [
+                'id' => $handoverToId,
+                'name' => $handoverToName,
+            ],
             'handover_date' => $this->handed_over_at?->format('Y-m-d'),
             'handover_time' => $this->handed_over_at?->format('H:i:s'),
             'handover_notes' => $this->handover_notes,

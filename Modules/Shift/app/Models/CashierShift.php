@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Cashier\Models\Cashier;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Models\CashierShiftHandover;
 
 class CashierShift extends Model
 {
@@ -103,6 +104,11 @@ class CashierShift extends Model
     public function handoverStatus(): HasOne
     {
         return $this->hasOne(ShiftHandoverStatus::class);
+    }
+
+    public function handover(): HasOne
+    {
+        return $this->hasOne(CashierShiftHandover::class, 'cashier_shift_id');
     }
 
     public function varianceDetails(): HasMany

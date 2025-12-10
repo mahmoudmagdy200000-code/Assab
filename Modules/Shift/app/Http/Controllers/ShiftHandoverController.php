@@ -354,6 +354,7 @@ class ShiftHandoverController extends Controller
         try {
             $shiftModel = CashierShift::with([
                 'handoverStatus.reviewedBy',
+                'handover',
                 'cashier',
                 'nextCashier'
             ])->findOrFail($shift);
@@ -373,10 +374,17 @@ class ShiftHandoverController extends Controller
                 'data' => [
                     'status' => $handoverStatus->status->value,
                     'manager_approval_status' => $handoverStatus->manager_approval_status,
-                    'handover_amount' => (float) $shiftModel->closing_balance,
+                    'handover_amount' => (float) ($shiftModel->handover?->handover_amount ?? $shiftModel->handover_amount ?? $shiftModel->closing_balance ?? 0),
                     'variance' => (float) $shiftModel->variance,
                     'variance_type' => $shiftModel->variance > 0 ? 'Over' : ($shiftModel->variance < 0 ? 'Short' : 'None'),
-                    'handover_to' => $shiftModel->nextCashier?->name,
+                    'handover_to' => [
+                        'id' => $shiftModel->handover?->handover_to_id ?? $shiftModel->nextCashier?->id,
+                        'name' => $shiftModel->handover && $shiftModel->handover->handover_to_type === 'cashier'
+                            ? $shiftModel->nextCashier?->name 
+                            : ($shiftModel->handover && $shiftModel->handover->handover_to_type === 'branch_manager'
+                                ? \Modules\BranchManagers\Models\BranchManager::find($shiftModel->handover->handover_to_id)?->name
+                                : $shiftModel->nextCashier?->name ?? 'N/A'),
+                    ],
                     'handover_notes' => $shiftModel->handover_notes,
                     'handed_over_at' => $shiftModel->handed_over_at?->format('Y-m-d H:i:s'),
                     'reviewed_by' => $handoverStatus->reviewedBy?->name,

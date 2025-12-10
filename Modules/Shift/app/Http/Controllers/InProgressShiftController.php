@@ -25,7 +25,7 @@ class InProgressShiftController extends BaseController
             $cashierId = $request->input('cashier_id');
 
             $inProgressShifts = CashierShift::inProgress()
-                ->with(['cashier', 'shift'])
+                ->with(['cashier', 'shift', 'handover', 'handoverStatus'])
                 ->whereHas('shift', function ($q) use ($managerBranchId) {
                     $q->where('branch_id', $managerBranchId);
                 })
@@ -67,6 +67,7 @@ class InProgressShiftController extends BaseController
                 'reassignedBy',
                 'salesBreakdown.aggregator',
                 'handoverStatus.reviewedBy',
+                'handover',
                 'varianceDetails.responsibleCashier',
                 'varianceAlerts',
                 'history'

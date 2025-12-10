@@ -26,7 +26,7 @@ class PendingShiftController extends BaseController
             $cashierId = $request->input('cashier_id');
 
             $shifts = CashierShift::upcoming()
-                ->with(['cashier', 'shift', 'nextCashier', 'originalCashier', 'reassignedBy'])
+                ->with(['cashier', 'shift', 'nextCashier', 'originalCashier', 'reassignedBy', 'handover', 'handoverStatus'])
                 ->whereHas('shift', fn($q) => $q->where('branch_id', $managerBranchId))
                 ->whereHas('cashier', fn($q) => $q->where('branch_id', $managerBranchId))
                 ->whereDate('shift_date', '>=', now()->subMonth())
@@ -62,6 +62,7 @@ class PendingShiftController extends BaseController
                 'reassignedBy',
                 'salesBreakdown.aggregator',
                 'handoverStatus.reviewedBy',
+                'handover',
                 'varianceDetails.responsibleCashier',
                 'varianceAlerts',
                 'history'

@@ -57,14 +57,21 @@ class CashierShiftResource extends JsonResource
 
             // Handover Info
             'handover_notes' => $this->handover_notes,
-            'handover_amount' => $this->handover_amount,
-            'handover_status' => $this->whenLoaded('handoverStatus', function () {
-                return [
-                    'id' => $this->handoverStatus->id,
-                    'status' => $this->handoverStatus->status ?? null,
-                    'reviewed_by' => $this->handoverStatus->reviewedBy?->name ?? null,
-                ];
-            }),
+            'handover_amount' => $this->when(
+                $this->relationLoaded('handover') && $this->handover,
+                fn() => (float) ($this->handover->handover_amount ?? 0),
+                fn() => $this->handover_amount ? (float) $this->handover_amount : null
+            ),
+            'handover_status' => $this->when(
+                $this->relationLoaded('handoverStatus') && $this->handoverStatus,
+                function () {
+                    return [
+                        'id' => $this->handoverStatus->id,
+                        'status' => $this->handoverStatus->status ?? null,
+                        'reviewed_by' => $this->handoverStatus->reviewedBy?->name ?? null,
+                    ];
+                }
+            ),
 
             // Next Cashier
             'next_cashier' => $this->whenLoaded('nextCashier', function () {
