@@ -23,6 +23,14 @@ class PurchaseOrderItemResource extends JsonResource
             'quantity_received' => $this->quantity_received ? (float) $this->quantity_received : null,
             'unit_of_measurement' => $this->unit_of_measurement,
             
+            // Balance Quantity (for Internal Transfer: Original Quantity - New Quantity)
+            // If no modification, balance is 0 (all quantity is available)
+            'balance_quantity' => $this->when(
+                $this->original_quantity !== null && $this->new_quantity !== null,
+                fn() => (float) max(0, $this->original_quantity - $this->new_quantity),
+                fn() => 0.0
+            ),
+            
             // Pricing
             'unit_price' => (float) $this->unit_price,
             'total_price' => (float) $this->total_price,
@@ -43,6 +51,16 @@ class PurchaseOrderItemResource extends JsonResource
             'expiry_date' => $this->expiry_date?->format('Y-m-d'),
             'temperature' => $this->temperature,
             'cooling_status' => $this->cooling_status,
+            
+            // Transfer Ready (for Internal Transfer: only in Full Approved and Partial Approval)
+            // Note: This requires purchaseOrder relationship to be loaded
+            'transfer_ready' => $this->when(
+                $this->relationLoaded('purchaseOrder') && 
+                $this->purchaseOrder && 
+                $this->purchaseOrder->order_type?->isTransfer() &&
+                in_array($this->purchaseOrder->status?->value, ['confirmed', 'partial_confirmation']),
+                fn() => $this->cooling_status === true
+            ),
             
             // Status
             'status' => $this->status,

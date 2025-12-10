@@ -72,8 +72,31 @@ class PurchaseOrderResource extends JsonResource
             // Timestamps
             'submitted_at' => $this->submitted_at?->format('Y-m-d H:i:s'),
             'confirmed_at' => $this->confirmed_at?->format('Y-m-d H:i:s'),
+            'rejected_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
             'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
             'updated_at' => $this->updated_at?->format('Y-m-d H:i:s'),
+
+            // Rejection details (for Internal Transfer)
+            'rejection_reason' => $this->when($this->status?->value === 'rejected', $this->rejection_reason),
+            'rejected_by' => $this->when($this->status?->value === 'rejected' && $this->requestedBy, fn() => [
+                'id' => $this->requestedBy->id,
+                'name' => $this->requestedBy->name,
+                'image' => $this->requestedBy->image_url ?? null,
+            ]),
+
+            // Status details with dates (for Internal Transfer)
+            'status_details' => $this->when($this->order_type?->isTransfer(), fn() => [
+                'status' => $this->status_label,
+                'status_date' => match($this->status?->value) {
+                    'confirmed' => $this->confirmed_at?->format('Y-m-d H:i:s'),
+                    'partial_confirmation' => $this->confirmed_at?->format('Y-m-d H:i:s'),
+                    'rejected' => $this->rejected_at?->format('Y-m-d H:i:s'),
+                    default => $this->created_at?->format('Y-m-d H:i:s'),
+                },
+                'is_full_approved' => $this->status?->value === 'confirmed',
+                'is_partial_approved' => $this->status?->value === 'partial_confirmation',
+                'is_rejected' => $this->status?->value === 'rejected',
+            }),
 
             // Flags
             'can_receive' => $this->can_receive,
