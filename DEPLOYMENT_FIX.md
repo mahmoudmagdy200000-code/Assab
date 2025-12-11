@@ -14,12 +14,21 @@ require(/path/to/Modules/Cashier/Config/config.php): Failed to open stream: No s
 
 ## الحل المطبق محلياً
 
-تم إنشاء المجلدات الجديدة بأسماء صحيحة:
+### 1. إنشاء المجلدات الجديدة بأسماء صحيحة:
 
 -   ✅ `Modules/Cashier/config/` (تم إنشاؤه)
 -   ✅ `Modules/Cashier/routes/` (تم إنشاؤه)
 -   ✅ `Modules/Cashier/resources/` (تم إنشاؤه)
 -   ✅ `Modules/BranchManagers/routes/` (تم إنشاؤه)
+
+### 2. تحديث Service Providers:
+
+تم تحديث المراجع في Service Providers لاستخدام المسارات الصحيحة:
+
+-   ✅ `Modules/Cashier/app/Providers/RouteServiceProvider.php` - تم تحديث `Routes/` إلى `routes/`
+-   ✅ `Modules/Cashier/app/Providers/CashierServiceProvider.php` - تم تحديث `Config/` و `Resources/` و `Database/` إلى `config/` و `resources/` و `database/`
+-   ✅ `Modules/BranchManagers/app/Providers/RouteServiceProvider.php` - تم تحديث `/Routes/` إلى `/routes/`
+-   ✅ `Modules/BranchManagers/app/Providers/BranchManagersServiceProvider.php` - تم تحديث `database/Migrations` إلى `database/migrations`
 
 ## الخطوات المطلوبة على الخادم
 

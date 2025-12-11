@@ -18,7 +18,7 @@ class BranchManagersServiceProvider extends ServiceProvider
         $this->registerTranslations();
         $this->registerConfig();
         $this->registerViews();
-        $this->loadMigrationsFrom(module_path($this->moduleName, 'database/Migrations'));
+        $this->loadMigrationsFrom(module_path($this->moduleName, 'database/migrations'));
         $this->registerPolicies();
         $this->registerObservers();
     }
@@ -36,7 +36,8 @@ class BranchManagersServiceProvider extends ServiceProvider
         ], 'config');
 
         $this->mergeConfigFrom(
-            module_path($this->moduleName, 'config/config.php'), $this->moduleNameLower
+            module_path($this->moduleName, 'config/config.php'),
+            $this->moduleNameLower
         );
     }
 
