@@ -657,27 +657,29 @@ class CashierShiftController extends BaseController
             $allBranchManagers = BranchManager::where('branch_id', $manager->branch_id)
                 ->where('id', '!=', $manager->id)
                 ->with('branch:id,name,location')
-                ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'status', 'is_first_login', 'image', 'email_verified_at', 'phone_verified_at', 'created_at', 'updated_at'])
                 ->get();
 
-            // Create items with type identifier for merging
+            // Create items with type identifier for merging - mix them together
             $combinedItems = collect();
 
             // Add cashiers with type
             foreach ($allCashiers as $cashier) {
                 $combinedItems->push([
                     'type' => 'cashier',
-                    'resource' => new CashierResource($cashier),
+                    'data' => $cashier,
                 ]);
             }
 
-            // Add branch managers with type
+            // Add branch managers with type - mix them with cashiers
             foreach ($allBranchManagers as $branchManager) {
                 $combinedItems->push([
                     'type' => 'branch_manager',
-                    'resource' => new BranchManagerResource($branchManager),
+                    'data' => $branchManager,
                 ]);
             }
+
+            // Shuffle to mix cashiers and branch managers (optional - remove if you want cashiers first)
+            // $combinedItems = $combinedItems->shuffle();
 
             $totalItems = $combinedItems->count();
 
@@ -691,9 +693,9 @@ class CashierShiftController extends BaseController
 
             foreach ($paginatedItems as $item) {
                 if ($item['type'] === 'cashier') {
-                    $paginatedCashiers->push($item['resource']);
+                    $paginatedCashiers->push(new CashierResource($item['data']));
                 } else {
-                    $paginatedBranchManagers->push($item['resource']);
+                    $paginatedBranchManagers->push(new BranchManagerResource($item['data']));
                 }
             }
 
