@@ -670,7 +670,7 @@ class CashierShiftController extends BaseController
                 'cashiers' => $responseData['data'], // Keep the paginated cashiers data
             ];
 
-            return response()->json($responseData, 200);
+            return $this->paginatedResponse($responseData, 'Cashiers and branch managers retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
