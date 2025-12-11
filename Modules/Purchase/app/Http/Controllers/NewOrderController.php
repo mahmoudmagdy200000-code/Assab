@@ -146,6 +146,17 @@ class NewOrderController extends BaseController
     /**
      * Get branches with stock for internal transfer
      *
+     * Filters:
+     * - min_availability: Minimum availability percentage (0-100)
+     * - search: Search by branch name
+     * - response_time: Filter by response time (fast, normal, slow)
+     *   - fast: response_rate >= 80%
+     *   - normal: 50% <= response_rate < 80%
+     *   - slow: response_rate < 50%
+     * - max_distance_km: Maximum distance in kilometers
+     * - sort_by: Sort results (distance, response_rate, rating, availability)
+     * - sort_order: Sort order (asc, desc)
+     *
      * @group New Order
      */
     public function getBranches(Request $request): JsonResponse
@@ -155,22 +166,83 @@ class NewOrderController extends BaseController
             $quantity = $request->get('quantity', 1);
             $branchId = auth()->user()->branch_id;
 
+            // Validate and prepare filters
             $filters = [
-                'min_availability' => $request->get('min_availability'),
+                'min_availability' => $request->get('min_availability') ? (float) $request->get('min_availability') : null,
                 'search' => $request->get('search'),
                 'response_time' => $request->get('response_time'), // fast, normal, slow
-                'max_distance_km' => $request->get('max_distance_km'),
+                'max_distance_km' => $request->get('max_distance_km') ? (float) $request->get('max_distance_km') : null,
             ];
 
+            // Validate response_time filter
+            if (!empty($filters['response_time']) && !in_array($filters['response_time'], ['fast', 'normal', 'slow'])) {
+                return $this->errorResponse('Invalid response_time filter. Must be: fast, normal, or slow', 400);
+            }
+
+            // Validate max_distance_km
+            if (!empty($filters['max_distance_km']) && $filters['max_distance_km'] < 0) {
+                return $this->errorResponse('max_distance_km must be a positive number', 400);
+            }
+
+            // Get branches with filters applied
             $branches = $this->priceService->getBranchesWithStock($itemId, $quantity, $branchId, $filters);
 
+            // Apply sorting if requested
+            $sortBy = $request->get('sort_by', 'distance'); // default: sort by distance
+            $sortOrder = $request->get('sort_order', 'asc'); // default: ascending
+
+            $branches = $this->sortBranches($branches, $sortBy, $sortOrder);
+
             return $this->successResponse(
-                $branches,
+                $branches->values(),
                 'Branches retrieved successfully'
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'fetching branches');
         }
+    }
+
+    /**
+     * Sort branches by specified criteria
+     */
+    private function sortBranches($branches, string $sortBy, string $sortOrder)
+    {
+        $isAscending = strtolower($sortOrder) === 'asc';
+
+        return $branches->sort(function ($a, $b) use ($sortBy, $isAscending) {
+            $valueA = match ($sortBy) {
+                'distance' => $a['distance_km'] ?? PHP_FLOAT_MAX,
+                'response_rate' => $a['response_rate'] ?? 0,
+                'rating' => $a['rating'] ?? 0,
+                'availability' => $a['availability_percentage'] ?? 0,
+                default => $a['distance_km'] ?? PHP_FLOAT_MAX,
+            };
+
+            $valueB = match ($sortBy) {
+                'distance' => $b['distance_km'] ?? PHP_FLOAT_MAX,
+                'response_rate' => $b['response_rate'] ?? 0,
+                'rating' => $b['rating'] ?? 0,
+                'availability' => $b['availability_percentage'] ?? 0,
+                default => $b['distance_km'] ?? PHP_FLOAT_MAX,
+            };
+
+            // Handle null values - put them at the end
+            if ($valueA === null && $valueB === null) {
+                return 0;
+            }
+            if ($valueA === null) {
+                return 1;
+            }
+            if ($valueB === null) {
+                return -1;
+            }
+
+            if ($isAscending) {
+                return $valueA <=> $valueB;
+            } else {
+                return $valueB <=> $valueA;
+            }
+        })->values();
     }
 
     /**
