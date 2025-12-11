@@ -404,7 +404,7 @@ class BranchManagerShiftController extends BaseController
      */
     public function processRejectionDecision(Request $request, string $shift): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
+        $validator = Validator::make($request->input(), [
             'decision' => 'required|in:approve_rejection,request_corrections',
             'manager_comment' => 'required|string|max:1000',
         ]);
@@ -443,8 +443,8 @@ class BranchManagerShiftController extends BaseController
                 return $this->errorResponse('This rejection is already final and cannot be modified', 400);
             }
 
-            $decision = $request->decision;
-            $comment = $request->manager_comment;
+            $decision = $request->input('decision');
+            $comment = $request->input('manager_comment');
 
             if ($decision === 'approve_rejection') {
                 // Approve rejection = make it final (2nd rejection)
