@@ -641,109 +641,36 @@ class CashierShiftController extends BaseController
                 return $this->errorResponse('Unauthorized', 403);
             }
 
-            $perPage = $request->input('per_page', 10);
-            $currentPage = $request->input('page', 1);
-
-            // Load all cashiers with relationships and count (optimized)
-            $allCashiers = Cashier::where('branch_id', $manager->branch_id)
+            // Load cashiers with relationships and count (optimized)
+            $cashiers = Cashier::where('branch_id', $manager->branch_id)
                 ->with([
                     'branch:id,name,location',
                     'creator:id,name'
                 ])
                 ->withCount('shifts')
-                ->get();
+                ->paginate($request->input('per_page', 10));
 
-            // Load all branch managers with relationships (excluding the current manager)
-            $allBranchManagers = BranchManager::where('branch_id', $manager->branch_id)
+            // Load branch managers with relationships (excluding the current manager) - optimized
+            $branchManagers = BranchManager::where('branch_id', $manager->branch_id)
                 ->where('id', '!=', $manager->id)
                 ->with('branch:id,name,location')
+                ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'status', 'is_first_login', 'image', 'email_verified_at', 'phone_verified_at', 'created_at', 'updated_at'])
                 ->get();
 
-            // Create items with type identifier for merging - mix them together
-            $combinedItems = collect();
+            // Create ResourceCollection for cashiers (this preserves pagination)
+            $cashiersResource = CashierResource::collection($cashiers);
 
-            // Add cashiers with type
-            foreach ($allCashiers as $cashier) {
-                $combinedItems->push([
-                    'type' => 'cashier',
-                    'data' => $cashier,
-                ]);
-            }
+            // Get paginated response
+            $response = $this->paginatedResponse($cashiersResource, 'Cashiers and branch managers retrieved successfully');
 
-            // Add branch managers with type - mix them with cashiers
-            foreach ($allBranchManagers as $branchManager) {
-                $combinedItems->push([
-                    'type' => 'branch_manager',
-                    'data' => $branchManager,
-                ]);
-            }
-
-            // Shuffle to mix cashiers and branch managers (optional - remove if you want cashiers first)
-            // $combinedItems = $combinedItems->shuffle();
-
-            $totalItems = $combinedItems->count();
-
-            // Calculate pagination
-            $offset = ($currentPage - 1) * $perPage;
-            $paginatedItems = $combinedItems->slice($offset, $perPage)->values();
-
-            // Separate paginated items back to cashiers and branch managers
-            $paginatedCashiers = collect();
-            $paginatedBranchManagers = collect();
-
-            foreach ($paginatedItems as $item) {
-                if ($item['type'] === 'cashier') {
-                    $paginatedCashiers->push(new CashierResource($item['data']));
-                } else {
-                    $paginatedBranchManagers->push(new BranchManagerResource($item['data']));
-                }
-            }
-
-            // Build pagination links
-            $lastPage = (int) ceil($totalItems / $perPage);
-            $path = $request->url();
-            $query = $request->query();
-
-            $buildUrl = function ($page) use ($path, $query) {
-                $query['page'] = $page;
-                return $path . '?' . http_build_query($query);
-            };
-
-            $links = [
-                'cashiers' => [
-                    'first' => $buildUrl(1),
-                    'last' => $buildUrl($lastPage),
-                    'prev' => $currentPage > 1 ? $buildUrl($currentPage - 1) : null,
-                    'next' => $currentPage < $lastPage ? $buildUrl($currentPage + 1) : null,
-                ],
-                'branch_managers' => [
-                    'first' => $buildUrl(1),
-                    'last' => $buildUrl($lastPage),
-                    'prev' => $currentPage > 1 ? $buildUrl($currentPage - 1) : null,
-                    'next' => $currentPage < $lastPage ? $buildUrl($currentPage + 1) : null,
-                ],
+            // Add branch_managers to the response data
+            $responseData = $response->getData(true);
+            $responseData['data'] = [
+                'branch_managers' => BranchManagerResource::collection($branchManagers),
+                'cashiers' => $responseData['data'], // Keep the paginated cashiers data
             ];
 
-            // Build response
-            $response = [
-                'success' => true,
-                'message' => 'Cashiers and branch managers retrieved successfully',
-                'data' => [
-                    'cashiers' => $paginatedCashiers->map->toArray($request)->values(),
-                    'branch_managers' => $paginatedBranchManagers->map->toArray($request)->values(),
-                ],
-                'links' => $links,
-                'meta' => [
-                    'current_page' => $currentPage,
-                    'from' => $totalItems > 0 ? $offset + 1 : null,
-                    'last_page' => $lastPage,
-                    'per_page' => $perPage,
-                    'to' => $totalItems > 0 ? min($offset + $perPage, $totalItems) : null,
-                    'total' => $totalItems,
-                ],
-            ];
-
-            return response()->json($response, 200);
+            return response()->json($responseData, 200);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
