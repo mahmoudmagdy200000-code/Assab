@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Transformers\ShiftDetailResource;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\HandoverStatus;
@@ -522,6 +523,222 @@ class ShiftHandoverController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve handover summaries',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get Rejection Details
+     * View rejection details: cashier name, reason, uploaded files
+     */
+    public function getRejectionDetails(Request $request, string $shift): JsonResponse
+    {
+        try {
+            $manager = auth()->user();
+
+            $shiftModel = CashierShift::with([
+                'cashier',
+                'handoverStatus',
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'branch_id']);
+                }
+            ])->findOrFail($shift);
+
+            // Verify shift belongs to manager's branch
+            if ($shiftModel->shift->branch_id !== $manager->branch_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized to view this rejection',
+                ], 403);
+            }
+
+            $handoverStatus = $shiftModel->handoverStatus;
+
+            if (!$handoverStatus) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No handover found for this shift',
+                ], 404);
+            }
+
+            if (!$handoverStatus->isManagerRejected()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This handover is not rejected',
+                ], 400);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Rejection details retrieved successfully',
+                'data' => [
+                    'rejection_details' => [
+                        'cashier_name' => $shiftModel->cashier->name,
+                        'cashier_id' => $shiftModel->cashier_id,
+                        'shift_id' => $shiftModel->id,
+                        'rejection_reason' => $handoverStatus->rejection_reason,
+                        'rejection_count' => $handoverStatus->rejection_count,
+                        'is_final_rejection' => $handoverStatus->isPermanentlyRejected(),
+                        'rejection_files' => $handoverStatus->rejection_file_urls,
+                        'first_rejected_at' => $handoverStatus->first_rejected_at?->format('Y-m-d H:i:s'),
+                        'second_rejected_at' => $handoverStatus->second_rejected_at?->format('Y-m-d H:i:s'),
+                        'manager_comment' => $handoverStatus->manager_comment,
+                        'reviewed_by' => $handoverStatus->reviewedBy?->name,
+                        'reviewed_at' => $handoverStatus->reviewed_at?->format('Y-m-d H:i:s'),
+                    ],
+                    'can_approve_rejection' => !$handoverStatus->isPermanentlyRejected(),
+                    'can_request_corrections' => $handoverStatus->rejection_count === 1,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve rejection details',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Process Rejection Decision
+     * Approve rejection (make it final) or request corrections (add comment, allow cashier to edit)
+     */
+    public function processRejectionDecision(Request $request, string $shift): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'decision' => 'required|in:approve_rejection,request_corrections',
+            'manager_comment' => 'required|string|max:1000',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $manager = auth()->user();
+
+            $shiftModel = CashierShift::with([
+                'cashier',
+                'handoverStatus',
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'branch_id']);
+                }
+            ])->findOrFail($shift);
+
+            // Verify shift belongs to manager's branch
+            if ($shiftModel->shift->branch_id !== $manager->branch_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized to process this rejection',
+                ], 403);
+            }
+
+            $handoverStatus = $shiftModel->handoverStatus;
+
+            if (!$handoverStatus) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No handover found for this shift',
+                ], 404);
+            }
+
+            if (!$handoverStatus->isManagerRejected()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This handover is not rejected',
+                ], 400);
+            }
+
+            if ($handoverStatus->isPermanentlyRejected()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This rejection is already final and cannot be modified',
+                ], 400);
+            }
+
+            $decision = $request->decision;
+            $comment = $request->manager_comment;
+
+            if ($decision === 'approve_rejection') {
+                // Approve rejection = make it final (2nd rejection)
+                if ($handoverStatus->rejection_count >= 2) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Rejection is already final',
+                    ], 400);
+                }
+
+                // Make it final rejection
+                $handoverStatus->update([
+                    'manager_approval_status' => 'rejected_final',
+                    'rejection_count' => 2,
+                    'second_rejected_at' => now(),
+                    'manager_comment' => $comment,
+                    'reviewed_by_id' => $manager->id,
+                    'reviewed_by_type' => get_class($manager),
+                    'reviewed_at' => now(),
+                ]);
+
+                // Update CashierShiftHandover status
+                CashierShiftHandover::where('cashier_shift_id', $shiftModel->id)
+                    ->update([
+                        'status' => 'rejected_final',
+                        'rejection_count' => 2,
+                    ]);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Rejection approved and finalized. Cashier cannot edit anymore.',
+                    'data' => [
+                        'decision' => 'approve_rejection',
+                        'rejection_details' => [
+                            'cashier_name' => $shiftModel->cashier->name,
+                            'rejection_count' => 2,
+                            'is_final_rejection' => true,
+                            'manager_comment' => $comment,
+                            'processed_at' => now()->format('Y-m-d H:i:s'),
+                        ],
+                    ],
+                ]);
+            } else {
+                // Request corrections = add comment, keep as rejected (cashier can edit)
+                $handoverStatus->update([
+                    'manager_comment' => $comment,
+                    'reviewed_by_id' => $manager->id,
+                    'reviewed_by_type' => get_class($manager),
+                    'reviewed_at' => now(),
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Corrections requested. Cashier can edit and resubmit.',
+                    'data' => [
+                        'decision' => 'request_corrections',
+                        'rejection_details' => [
+                            'cashier_name' => $shiftModel->cashier->name,
+                            'rejection_count' => $handoverStatus->rejection_count,
+                            'is_final_rejection' => false,
+                            'manager_comment' => $comment,
+                            'can_cashier_edit' => true,
+                            'processed_at' => now()->format('Y-m-d H:i:s'),
+                        ],
+                    ],
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to process rejection decision', [
+                'shift_id' => $shift,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to process rejection decision',
                 'error' => $e->getMessage()
             ], 500);
         }

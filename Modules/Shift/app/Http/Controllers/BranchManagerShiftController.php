@@ -344,6 +344,171 @@ class BranchManagerShiftController extends BaseController
     }
 
     /**
+     * Get Rejection Details
+     * View rejection details: cashier name, reason, uploaded files
+     */
+    public function getRejectionDetails(string $shift): JsonResponse
+    {
+        try {
+            $manager = auth()->user();
+
+            $shiftModel = CashierShift::with([
+                'cashier',
+                'handoverStatus',
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'branch_id']);
+                }
+            ])->findOrFail($shift);
+
+            // Verify shift belongs to manager's branch
+            if ($shiftModel->shift->branch_id !== $manager->branch_id) {
+                return $this->errorResponse('Unauthorized to view this rejection', 403);
+            }
+
+            $handoverStatus = $shiftModel->handoverStatus;
+
+            if (!$handoverStatus) {
+                return $this->errorResponse('No handover found for this shift', 404);
+            }
+
+            if (!$handoverStatus->isManagerRejected()) {
+                return $this->errorResponse('This handover is not rejected', 400);
+            }
+
+            return $this->successResponse([
+                'rejection_details' => [
+                    'cashier_name' => $shiftModel->cashier->name,
+                    'cashier_id' => $shiftModel->cashier_id,
+                    'shift_id' => $shiftModel->id,
+                    'rejection_reason' => $handoverStatus->rejection_reason,
+                    'rejection_count' => $handoverStatus->rejection_count,
+                    'is_final_rejection' => $handoverStatus->isPermanentlyRejected(),
+                    'rejection_files' => $handoverStatus->rejection_file_urls,
+                    'first_rejected_at' => $handoverStatus->first_rejected_at?->format('Y-m-d H:i:s'),
+                    'second_rejected_at' => $handoverStatus->second_rejected_at?->format('Y-m-d H:i:s'),
+                    'manager_comment' => $handoverStatus->manager_comment,
+                    'reviewed_by' => $handoverStatus->reviewedBy?->name,
+                    'reviewed_at' => $handoverStatus->reviewed_at?->format('Y-m-d H:i:s'),
+                ],
+                'can_approve_rejection' => !$handoverStatus->isPermanentlyRejected(),
+                'can_request_corrections' => $handoverStatus->rejection_count === 1,
+            ], 'Rejection details retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Process Rejection Decision
+     * Approve rejection (make it final) or request corrections (add comment, allow cashier to edit)
+     */
+    public function processRejectionDecision(Request $request, string $shift): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'decision' => 'required|in:approve_rejection,request_corrections',
+            'manager_comment' => 'required|string|max:1000',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorResponse($validator->errors()->first(), 422);
+        }
+
+        try {
+            $manager = auth()->user();
+
+            $shiftModel = CashierShift::with([
+                'cashier',
+                'handoverStatus',
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'branch_id']);
+                }
+            ])->findOrFail($shift);
+
+            // Verify shift belongs to manager's branch
+            if ($shiftModel->shift->branch_id !== $manager->branch_id) {
+                return $this->errorResponse('Unauthorized to process this rejection', 403);
+            }
+
+            $handoverStatus = $shiftModel->handoverStatus;
+
+            if (!$handoverStatus) {
+                return $this->errorResponse('No handover found for this shift', 404);
+            }
+
+            if (!$handoverStatus->isManagerRejected()) {
+                return $this->errorResponse('This handover is not rejected', 400);
+            }
+
+            if ($handoverStatus->isPermanentlyRejected()) {
+                return $this->errorResponse('This rejection is already final and cannot be modified', 400);
+            }
+
+            $decision = $request->decision;
+            $comment = $request->manager_comment;
+
+            if ($decision === 'approve_rejection') {
+                // Approve rejection = make it final (2nd rejection)
+                if ($handoverStatus->rejection_count >= 2) {
+                    return $this->errorResponse('Rejection is already final', 400);
+                }
+
+                // Make it final rejection
+                $handoverStatus->update([
+                    'manager_approval_status' => 'rejected_final',
+                    'rejection_count' => 2,
+                    'second_rejected_at' => now(),
+                    'manager_comment' => $comment,
+                    'reviewed_by_id' => $manager->id,
+                    'reviewed_by_type' => get_class($manager),
+                    'reviewed_at' => now(),
+                ]);
+
+                // Update CashierShiftHandover status
+                CashierShiftHandover::where('cashier_shift_id', $shiftModel->id)
+                    ->update([
+                        'status' => 'rejected_final',
+                        'rejection_count' => 2,
+                    ]);
+
+                return $this->successResponse([
+                    'decision' => 'approve_rejection',
+                    'message' => 'Rejection approved and finalized. Cashier cannot edit anymore.',
+                    'rejection_details' => [
+                        'cashier_name' => $shiftModel->cashier->name,
+                        'rejection_count' => 2,
+                        'is_final_rejection' => true,
+                        'manager_comment' => $comment,
+                        'processed_at' => now()->format('Y-m-d H:i:s'),
+                    ],
+                ], 'Rejection approved successfully');
+            } else {
+                // Request corrections = add comment, keep as rejected (cashier can edit)
+                $handoverStatus->update([
+                    'manager_comment' => $comment,
+                    'reviewed_by_id' => $manager->id,
+                    'reviewed_by_type' => get_class($manager),
+                    'reviewed_at' => now(),
+                ]);
+
+                return $this->successResponse([
+                    'decision' => 'request_corrections',
+                    'message' => 'Corrections requested. Cashier can edit and resubmit.',
+                    'rejection_details' => [
+                        'cashier_name' => $shiftModel->cashier->name,
+                        'rejection_count' => $handoverStatus->rejection_count,
+                        'is_final_rejection' => false,
+                        'manager_comment' => $comment,
+                        'can_cashier_edit' => true,
+                        'processed_at' => now()->format('Y-m-d H:i:s'),
+                    ],
+                ], 'Corrections requested successfully');
+            }
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
      * Helper method to calculate shift progress
      */
     private function calculateShiftProgress(BranchManagerShift $shift): array

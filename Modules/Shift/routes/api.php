@@ -174,6 +174,11 @@ Route::prefix('branch-manager')
                         ->name('shifts.handover.status');
                     Route::get('available-cashiers', [ShiftHandoverController::class, 'getAvailableCashiers'])
                         ->name('shifts.handover.available-cashiers');
+                    // Rejection Details and Decision
+                    Route::get('rejection-details', [ShiftHandoverController::class, 'getRejectionDetails'])
+                        ->name('shifts.handover.rejection.details');
+                    Route::post('rejection-decision', [ShiftHandoverController::class, 'processRejectionDecision'])
+                        ->name('shifts.handover.rejection.decision');
                 });
 
                 // Variance management
@@ -215,6 +220,12 @@ Route::prefix('branch-manager/workday')
             ->name('workday.handoffs.approve');
         Route::post('/handoffs/reject', [BranchManagerShiftController::class, 'rejectHandoff'])
             ->name('workday.handoffs.reject');
+
+        // Section C: Rejection Details and Decision
+        Route::get('/handoffs/rejection/{shift}', [BranchManagerShiftController::class, 'getRejectionDetails'])
+            ->name('workday.handoffs.rejection.details');
+        Route::post('/handoffs/rejection/{shift}/decision', [BranchManagerShiftController::class, 'processRejectionDecision'])
+            ->name('workday.handoffs.rejection.decision');
 
         // Section D: Final Handover and End Shift
         Route::post('/end', [BranchManagerShiftController::class, 'endShift'])
