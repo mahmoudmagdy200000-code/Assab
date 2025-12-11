@@ -641,36 +641,55 @@ class CashierShiftController extends BaseController
                 return $this->errorResponse('Unauthorized', 403);
             }
 
-            // Load cashiers with relationships and count (optimized)
+            $perPage = $request->input('per_page', 10);
+
+            // Load cashiers with relationships and count (optimized) - with pagination
             $cashiers = Cashier::where('branch_id', $manager->branch_id)
                 ->with([
                     'branch:id,name,location',
                     'creator:id,name'
                 ])
                 ->withCount('shifts')
-                ->paginate($request->input('per_page', 10));
+                ->paginate($perPage);
 
-            // Load branch managers with relationships (excluding the current manager) - optimized
+            // Load branch managers with relationships (excluding the current manager) - with pagination
             $branchManagers = BranchManager::where('branch_id', $manager->branch_id)
                 ->where('id', '!=', $manager->id)
                 ->with('branch:id,name,location')
                 ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'status', 'is_first_login', 'image', 'email_verified_at', 'phone_verified_at', 'created_at', 'updated_at'])
-                ->get();
+                ->paginate($perPage);
 
-            // Create ResourceCollection for cashiers (this preserves pagination)
+            // Create ResourceCollection for both (this preserves pagination)
             $cashiersResource = CashierResource::collection($cashiers);
+            $branchManagersResource = BranchManagerResource::collection($branchManagers);
 
-            // Get paginated response
-            $response = $this->paginatedResponse($cashiersResource, 'Cashiers and branch managers retrieved successfully');
+            // Get paginated responses
+            $cashiersResponse = $this->paginatedResponse($cashiersResource, 'Cashiers and branch managers retrieved successfully');
+            $branchManagersResponse = $this->paginatedResponse($branchManagersResource, 'Cashiers and branch managers retrieved successfully');
 
-            // Add branch_managers to the response data
-            $responseData = $response->getData(true);
-            $responseData['data'] = [
-                'branch_managers' => BranchManagerResource::collection($branchManagers),
-                'cashiers' => $responseData['data'], // Keep the paginated cashiers data
+            // Extract data from both responses
+            $cashiersData = $cashiersResponse->getData(true);
+            $branchManagersData = $branchManagersResponse->getData(true);
+
+            // Combine both paginated responses
+            $combinedResponse = [
+                'success' => true,
+                'message' => 'Cashiers and branch managers retrieved successfully',
+                'data' => [
+                    'cashiers' => $cashiersData['data'],
+                    'branch_managers' => $branchManagersData['data'],
+                ],
+                'meta' => [
+                    'cashiers' => $cashiersData['meta'],
+                    'branch_managers' => $branchManagersData['meta'],
+                ],
+                'links' => [
+                    'cashiers' => $cashiersData['links'],
+                    'branch_managers' => $branchManagersData['links'],
+                ],
             ];
 
-            return response()->json($responseData, 200);
+            return response()->json($combinedResponse, 200);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
