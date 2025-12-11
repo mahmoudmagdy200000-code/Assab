@@ -606,7 +606,11 @@ class ShiftHandoverController extends Controller
      */
     public function processRejectionDecision(Request $request, string $shift): JsonResponse
     {
-        $validator = Validator::make($request->input(), [
+        // Get request data - prioritize JSON if available
+        $jsonData = $request->json()->all();
+        $requestData = !empty($jsonData) ? $jsonData : $request->all();
+
+        $validator = Validator::make($requestData, [
             'decision' => 'required|in:approve_rejection,request_corrections',
             'manager_comment' => 'required|string|max:1000',
         ]);
@@ -615,7 +619,13 @@ class ShiftHandoverController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
+                'debug' => [
+                    'request_data' => $requestData,
+                    'json_data' => $request->json()->all(),
+                    'all_data' => $request->all(),
+                    'content_type' => $request->header('Content-Type'),
+                ]
             ], 422);
         }
 
@@ -661,8 +671,8 @@ class ShiftHandoverController extends Controller
                 ], 400);
             }
 
-            $decision = $request->input('decision');
-            $comment = $request->input('manager_comment');
+            $decision = $requestData['decision'] ?? $request->decision;
+            $comment = $requestData['manager_comment'] ?? $request->manager_comment;
 
             if ($decision === 'approve_rejection') {
                 // Approve rejection = make it final (2nd rejection)
