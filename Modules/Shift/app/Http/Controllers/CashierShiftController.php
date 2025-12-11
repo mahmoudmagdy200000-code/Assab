@@ -662,7 +662,7 @@ class CashierShiftController extends BaseController
 
             // Create items with type identifier for merging
             $combinedItems = collect();
-            
+
             // Add cashiers with type
             foreach ($allCashiers as $cashier) {
                 $combinedItems->push([
@@ -670,7 +670,7 @@ class CashierShiftController extends BaseController
                     'resource' => new CashierResource($cashier),
                 ]);
             }
-            
+
             // Add branch managers with type
             foreach ($allBranchManagers as $branchManager) {
                 $combinedItems->push([
@@ -701,8 +701,8 @@ class CashierShiftController extends BaseController
             $lastPage = (int) ceil($totalItems / $perPage);
             $path = $request->url();
             $query = $request->query();
-            
-            $buildUrl = function($page) use ($path, $query) {
+
+            $buildUrl = function ($page) use ($path, $query) {
                 $query['page'] = $page;
                 return $path . '?' . http_build_query($query);
             };
