@@ -37,6 +37,10 @@ class PendingOrderListResource extends JsonResource
             'time' => $this->submitted_at?->format('H:i:s')
                 ?? $this->created_at?->format('H:i:s'),
 
+            // branch name
+            'branch_name' => $this->branch?->name,
+            'branch_id' => $this->branch?->id,
+
             // Status
             'status' => $this->status?->value,
             'status_label' => $this->status_label,
