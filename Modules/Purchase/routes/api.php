@@ -81,6 +81,40 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         // Modification handling
         Route::post('/{id}/approve-modifications', [PendingOrderController::class, 'approveModifications'])->name('purchase.pending.approve-modifications');
         Route::post('/{id}/reject-modifications', [PendingOrderController::class, 'rejectModifications'])->name('purchase.pending.reject-modifications');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Direct Supplier Orders (3.1.2.4.3.2.1)
+        |--------------------------------------------------------------------------
+        */
+        Route::prefix('direct-supplier')->group(function () {
+            Route::get('/', [PendingOrderController::class, 'directSupplierOrders'])->name('purchase.pending.direct-supplier.index');
+            Route::get('/{id}', [PendingOrderController::class, 'directSupplierOrderDetails'])->name('purchase.pending.direct-supplier.show');
+            Route::post('/{id}/approve-delay', [PendingOrderController::class, 'approveDelay'])->name('purchase.pending.direct-supplier.approve-delay');
+            Route::post('/{id}/reject-delay', [PendingOrderController::class, 'rejectDelay'])->name('purchase.pending.direct-supplier.reject-delay');
+        });
+
+        /*
+        |--------------------------------------------------------------------------
+        | Via Purchasing Officer Orders (3.1.2.4.3.3.1)
+        |--------------------------------------------------------------------------
+        */
+        Route::prefix('via-purchasing-officer')->group(function () {
+            Route::get('/', [PendingOrderController::class, 'viaPurchasingOfficerOrders'])->name('purchase.pending.via-purchasing-officer.index');
+            Route::get('/{id}', [PendingOrderController::class, 'viaPurchasingOfficerOrderDetails'])->name('purchase.pending.via-purchasing-officer.show');
+            Route::post('/{id}/approve-delay', [PendingOrderController::class, 'approveDelay'])->name('purchase.pending.via-purchasing-officer.approve-delay');
+            Route::post('/{id}/reject-delay', [PendingOrderController::class, 'rejectDelay'])->name('purchase.pending.via-purchasing-officer.reject-delay');
+        });
+
+        /*
+        |--------------------------------------------------------------------------
+        | Internal Transfer Orders (3.1.2.4.3.4.1)
+        |--------------------------------------------------------------------------
+        */
+        Route::prefix('internal-transfer')->group(function () {
+            Route::get('/', [PendingOrderController::class, 'internalTransferOrders'])->name('purchase.pending.internal-transfer.index');
+            Route::get('/{id}', [PendingOrderController::class, 'internalTransferOrderDetails'])->name('purchase.pending.internal-transfer.show');
+        });
     });
 
     /*
