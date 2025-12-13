@@ -105,12 +105,12 @@ class BranchItem extends Model
     {
         // Filter items that are available from the specified supplier
         // Through Expense module - items that have been purchased from this supplier
-        return $query->whereIn('id', function ($subQuery) use ($supplierId) {
-            $subQuery->select('branch_item.id')
-                ->from('branch_item')
-                ->join('expenses', 'expenses.supplier_id', '=', DB::raw("'{$supplierId}'"))
+        return $query->whereExists(function ($subQuery) use ($supplierId) {
+            $subQuery->select(DB::raw(1))
+                ->from('expenses')
                 ->join('expense_items', 'expense_items.expense_id', '=', 'expenses.id')
-                ->whereColumn('expense_items.name', 'branch_item.item_name');
+                ->whereColumn('expense_items.name', 'branch_item.item_name')
+                ->where('expenses.supplier_id', $supplierId);
         });
     }
 }
