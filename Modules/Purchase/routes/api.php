@@ -46,6 +46,9 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         Route::get('/suppliers', [NewOrderController::class, 'getSuppliers'])->name('purchase.orders.suppliers');
         Route::get('/branches', [NewOrderController::class, 'getBranches'])->name('purchase.orders.branches');
 
+        // Transfer items (for internal transfer)
+        Route::get('/transfer-items', [NewOrderController::class, 'getTransferItems'])->name('purchase.orders.transfer-items');
+
         // Orders list and creation
         Route::get('/', [NewOrderController::class, 'index'])->name('purchase.orders.index');
         Route::post('/', [NewOrderController::class, 'store'])->name('purchase.orders.store');

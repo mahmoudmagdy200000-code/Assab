@@ -20,7 +20,11 @@ use Modules\Purchase\Transformers\OrderSummaryResource;
 use Modules\Purchase\Transformers\PriceComparisonResource;
 use Modules\Purchase\Transformers\PurchaseOrderResource;
 use Modules\Purchase\Transformers\SupplierResource;
+use Modules\Purchase\Transformers\TransferItemResource;
 use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Models\BranchInventory;
+use Modules\Purchase\Models\BranchItem;
+use Modules\Purchase\Http\Requests\GetTransferItemsRequest;
 // Add these imports
 use Modules\Branch\Models\Branch;
 use App\Models\User;
@@ -404,6 +408,267 @@ class NewOrderController extends BaseController
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'updating order items');
+        }
+    }
+
+    /**
+     * Get transfer items with inventory and transport details
+     *
+     * Returns a list of items from the transferring branch with:
+     * - Item details (name, logo, quantity, quality)
+     * - Available quantity in transferring branch (with quality)
+     * - Remaining balance in transferring branch (with quality)
+     * - Expiry date
+     * - Cooling status (transfer ready)
+     * - Transport details (method, estimated time, driver, temperature)
+     *
+     * @param GetTransferItemsRequest $request
+     * @return JsonResponse
+     *
+     * @group New Order
+     */
+    public function getTransferItems(GetTransferItemsRequest $request): JsonResponse
+    {
+        try {
+            $validated = $request->validated();
+
+            $fromBranchId = $validated['branch_id'];
+            $toBranchId = auth()->user()->branch_id;
+            $perPage = $validated['per_page'] ?? 15;
+
+            // Check if from and to branches are different
+            if ($fromBranchId === $toBranchId) {
+                return $this->errorResponse('From and to branches cannot be the same', 400);
+            }
+
+            // Get transport details once (same for all items)
+            $transportDetails = $this->calculateTransportDetails($fromBranchId, $toBranchId);
+
+            // Get items from the transferring branch
+            $query = BranchItem::where('branch_id', $fromBranchId)
+                ->with([
+                    'branch:id,branch_name,address',
+                ]);
+
+            // Apply filters
+            if (!empty($validated['search'])) {
+                $query->where(function ($q) use ($validated) {
+                    $q->where('item_name', 'like', '%' . $validated['search'] . '%')
+                        ->orWhere('item_code', 'like', '%' . $validated['search'] . '%');
+                });
+            }
+
+            if (!empty($validated['category'])) {
+                $query->where('category', $validated['category']);
+            }
+
+            $items = $query->paginate($perPage);
+
+            // Transform the collection for the resource
+            $transformedItems = $items->getCollection()->map(function ($item) use ($fromBranchId, $toBranchId, $transportDetails) {
+                // Get inventory from transferring branch
+                $fromInventory = BranchInventory::where('branch_id', $fromBranchId)
+                    ->where('item_id', $item->id)
+                    ->first();
+
+                // Get inventory from receiving branch (optional, for reference)
+                $toInventory = BranchInventory::where('branch_id', $toBranchId)
+                    ->where('item_id', $item->id)
+                    ->first();
+
+                // Return structured data for the resource
+                return [
+                    'item' => $item,
+                    'from_inventory' => $fromInventory,
+                    'to_inventory' => $toInventory,
+                    'transport_details' => $transportDetails,
+                ];
+            });
+
+            // Create paginated response
+            $responseData = [
+                'data' => TransferItemResource::collection($transformedItems),
+                'meta' => [
+                    'current_page' => $items->currentPage(),
+                    'from' => $items->firstItem(),
+                    'last_page' => $items->lastPage(),
+                    'per_page' => $items->perPage(),
+                    'to' => $items->lastItem(),
+                    'total' => $items->total(),
+                ],
+                'links' => [
+                    'first' => $items->url(1),
+                    'last' => $items->url($items->lastPage()),
+                    'prev' => $items->previousPageUrl(),
+                    'next' => $items->nextPageUrl(),
+                ],
+                'transport_summary' => $transportDetails,
+            ];
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Transfer items retrieved successfully',
+                'data' => $responseData
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('Error fetching transfer items: ' . $e->getMessage(), [
+                'exception' => $e,
+                'request' => $request->all(),
+                'user_id' => auth()->id()
+            ]);
+
+            return $this->errorResponse(
+                'Error in fetching transfer items: ' . $e->getMessage(),
+                500
+            );
+        }
+    }
+
+    /**
+     * Calculate transport details between branches
+     *
+     * @param string $fromBranchId
+     * @param string $toBranchId
+     * @return array
+     */
+    private function calculateTransportDetails(string $fromBranchId, string $toBranchId): array
+    {
+        try {
+            // Get branches
+            $fromBranch = Branch::find($fromBranchId);
+            $toBranch = Branch::find($toBranchId);
+
+            if (!$fromBranch || !$toBranch) {
+                return [
+                    'method' => 'Vehicle (Free)',
+                    'cost' => 'Free',
+                    'estimated_time_hours' => 0,
+                    'driver' => null,
+                    'recommended_temperature' => null,
+                    'distance_km' => 0,
+                    'notes' => 'Branch information not available'
+                ];
+            }
+
+            // Calculate estimated time based on distance (simplified)
+            $estimatedHours = $this->calculateEstimatedTime($fromBranch, $toBranch);
+            $distance = $this->calculateDistance($fromBranch, $toBranch);
+
+            // Auto-assign driver
+            $driver = $this->autoAssignDriver($fromBranchId);
+
+            // Transportation method is always Vehicle (Free) for internal transfers
+            $method = 'Vehicle (Free)';
+
+            return [
+                'method' => $method,
+                'cost' => 'Free',
+                'estimated_time_hours' => $estimatedHours,
+                'driver' => $driver,
+                'recommended_temperature' => null, // Will be set per item based on cooling_status
+                'distance_km' => $distance,
+                'from_branch' => [
+                    'id' => $fromBranch->id,
+                    'name' => $fromBranch->branch_name,
+                    'address' => $fromBranch->address,
+                ],
+                'to_branch' => [
+                    'id' => $toBranch->id,
+                    'name' => $toBranch->branch_name,
+                    'address' => $toBranch->address,
+                ],
+                'notes' => 'Transport details are estimated and may vary'
+            ];
+        } catch (\Exception $e) {
+            Log::error('Error calculating transport details: ' . $e->getMessage());
+
+            return [
+                'method' => 'Vehicle (Free)',
+                'cost' => 'Free',
+                'estimated_time_hours' => 0,
+                'driver' => null,
+                'recommended_temperature' => null,
+                'distance_km' => 0,
+                'notes' => 'Error calculating transport details'
+            ];
+        }
+    }
+
+    /**
+     * Calculate distance between branches (simplified)
+     * In a real application, you would use coordinates and calculate actual distance
+     */
+    private function calculateDistance($fromBranch, $toBranch): float
+    {
+        // TODO: Implement actual distance calculation using coordinates
+        // For now, return a random distance between 5-100 km
+        // In production, use coordinates from branches to calculate real distance
+        return round(rand(5, 100) + (rand(0, 99) / 100), 2);
+    }
+
+    /**
+     * Calculate estimated time between branches
+     */
+    private function calculateEstimatedTime($fromBranch, $toBranch): float
+    {
+        // Calculate based on distance (simplified)
+        // Assuming average speed of 40 km/h in urban areas
+        $distance = $this->calculateDistance($fromBranch, $toBranch);
+        $estimatedHours = $distance / 40; // 40 km/h average
+
+        // Add fixed time for loading/unloading
+        $estimatedHours += 0.5;
+
+        return round($estimatedHours, 2);
+    }
+
+    /**
+     * Auto-assign available driver
+     */
+    private function autoAssignDriver(string $branchId): ?array
+    {
+        try {
+            // Check for available drivers in the branch
+            $driver = User::where('branch_id', $branchId)
+                ->where('role', 'driver')
+                ->where('status', 'active') // Assuming you have a status field
+                ->whereDoesntHave('currentTransports', function ($query) {
+                    $query->whereIn('status', ['in_transit', 'loading', 'unloading']);
+                })
+                ->first();
+
+            if (!$driver) {
+                // Try to find any available driver in the system
+                $driver = User::where('role', 'driver')
+                    ->where('status', 'active')
+                    ->whereDoesntHave('currentTransports', function ($query) {
+                        $query->whereIn('status', ['in_transit', 'loading', 'unloading']);
+                    })
+                    ->first();
+            }
+
+            if (!$driver) {
+                return null;
+            }
+
+            return [
+                'id' => $driver->id,
+                'name' => $driver->name,
+                'phone' => $driver->phone ?? null,
+                'email' => $driver->email,
+                'vehicle_number' => $driver->vehicle_number ?? 'N/A',
+                'vehicle_type' => $driver->vehicle_type ?? 'Truck',
+                'capacity_kg' => $driver->vehicle_capacity ?? 1000,
+            ];
+        } catch (\Exception $e) {
+            Log::error('Error auto-assigning driver: ' . $e->getMessage());
+            return null;
         }
     }
 }
