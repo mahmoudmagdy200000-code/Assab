@@ -485,31 +485,21 @@ class NewOrderController extends BaseController
                 ];
             });
 
-            // Create paginated response
-            $responseData = [
-                'data' => TransferItemResource::collection($transformedItems),
-                'meta' => [
-                    'current_page' => $items->currentPage(),
-                    'from' => $items->firstItem(),
-                    'last_page' => $items->lastPage(),
-                    'per_page' => $items->perPage(),
-                    'to' => $items->lastItem(),
-                    'total' => $items->total(),
-                ],
-                'links' => [
-                    'first' => $items->url(1),
-                    'last' => $items->url($items->lastPage()),
-                    'prev' => $items->previousPageUrl(),
-                    'next' => $items->nextPageUrl(),
-                ],
-                'transport_summary' => $transportDetails,
-            ];
+            // Create ResourceCollection and set the paginator
+            $resourceCollection = TransferItemResource::collection($transformedItems);
+            $resourceCollection->resource = $items;
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Transfer items retrieved successfully',
-                'data' => $responseData
-            ]);
+            // Get paginated response
+            $response = $this->paginatedResponse(
+                $resourceCollection,
+                'Transfer items retrieved successfully'
+            );
+
+            // Add transport_summary to the response data
+            $responseData = $response->getData(true);
+            $responseData['transport_summary'] = $transportDetails;
+
+            return response()->json($responseData, 200);
         } catch (ValidationException $e) {
             return response()->json([
                 'success' => false,
