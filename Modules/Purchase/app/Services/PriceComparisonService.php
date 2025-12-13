@@ -737,7 +737,9 @@ class PriceComparisonService
                         'image' => $manager->image_url ?? null,
                     ] : null,
                     // Item Details
+                    'item_id' => $branchItem->id,
                     'item_title' => $branchItem->item_name,
+                    'item_code' => $branchItem->item_code,
                     'item_logo' => $branchItem->item_logo_url,
                     'quantity' => $quantity,
                     'total_amount' => round($totalAmount, 2),
