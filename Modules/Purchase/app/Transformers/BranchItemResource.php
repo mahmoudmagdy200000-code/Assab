@@ -4,6 +4,7 @@ namespace Modules\Purchase\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class BranchItemResource extends JsonResource
 {
@@ -12,9 +13,18 @@ class BranchItemResource extends JsonResource
         // Get suppliers count for this item (with error handling)
         $suppliersCount = 0;
         try {
-            $suppliersCount = \Modules\Expense\Models\Supplier::whereHas('expenses.items', function ($query) {
-                $query->where('name', $this->item_name);
-            })->count();
+            // Use a direct query to avoid soft delete issues
+            // The suppliers table doesn't have deleted_at column
+            $suppliersCount = DB::table('suppliers')
+                ->whereExists(function ($query) {
+                    $query->select(DB::raw(1))
+                        ->from('expenses')
+                        ->join('expense_items', 'expense_items.expense_id', '=', 'expenses.id')
+                        ->whereColumn('expenses.supplier_id', 'suppliers.id')
+                        ->where('expense_items.name', $this->item_name)
+                        ->whereNull('expenses.deleted_at'); // Only check soft deletes on expenses table
+                })
+                ->count();
         } catch (\Exception $e) {
             // Log the error but don't fail the entire request
             Log::warning('Error counting suppliers for branch item', [
