@@ -447,7 +447,7 @@ class NewOrderController extends BaseController
             // Get items from the transferring branch
             $query = BranchItem::where('branch_id', $fromBranchId)
                 ->with([
-                    'branch:id,branch_name,address',
+                    'branch:id,name,location',
                 ]);
 
             // Apply filters
@@ -575,13 +575,13 @@ class NewOrderController extends BaseController
                 'distance_km' => $distance,
                 'from_branch' => [
                     'id' => $fromBranch->id,
-                    'name' => $fromBranch->branch_name,
-                    'address' => $fromBranch->address,
+                    'name' => $fromBranch->name,
+                    'address' => $fromBranch->location,
                 ],
                 'to_branch' => [
                     'id' => $toBranch->id,
-                    'name' => $toBranch->branch_name,
-                    'address' => $toBranch->address,
+                    'name' => $toBranch->name,
+                    'address' => $toBranch->location,
                 ],
                 'notes' => 'Transport details are estimated and may vary'
             ];
