@@ -11,20 +11,23 @@ class BranchItemResource extends JsonResource
     public function toArray($request): array
     {
         // Get suppliers count for this item (with error handling)
+        // IMPORTANT: Using raw SQL to avoid Eloquent soft delete checks on suppliers table
+        // The suppliers table does NOT have deleted_at column
         $suppliersCount = 0;
         try {
-            // Use a direct query to avoid soft delete issues
-            // The suppliers table doesn't have deleted_at column
-            $suppliersCount = DB::table('suppliers')
-                ->whereExists(function ($query) {
-                    $query->select(DB::raw(1))
-                        ->from('expenses')
-                        ->join('expense_items', 'expense_items.expense_id', '=', 'expenses.id')
-                        ->whereColumn('expenses.supplier_id', 'suppliers.id')
-                        ->where('expense_items.name', $this->item_name)
-                        ->whereNull('expenses.deleted_at'); // Only check soft deletes on expenses table
-                })
-                ->count();
+            $suppliersCount = DB::selectOne(
+                "SELECT COUNT(DISTINCT suppliers.id) as count
+                FROM suppliers
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM expenses
+                    INNER JOIN expense_items ON expense_items.expense_id = expenses.id
+                    WHERE expenses.supplier_id = suppliers.id
+                    AND expense_items.name = ?
+                    AND expenses.deleted_at IS NULL
+                )",
+                [$this->item_name]
+            )->count ?? 0;
         } catch (\Exception $e) {
             // Log the error but don't fail the entire request
             Log::warning('Error counting suppliers for branch item', [
