@@ -390,6 +390,21 @@ class VarianceCalculationService
             $result['reason'] = $mainDetail->reason ?? 'No reason provided';
         }
 
+        // Calculate total variance amount
+        $totalVarianceAmount = $result['current_cashier_amount'];
+
+        // Add other cashiers amounts
+        foreach ($result['other_cashiers'] as $otherCashier) {
+            $totalVarianceAmount += $otherCashier['amount'];
+        }
+
+        // Add external factors amount (if exists)
+        if ($externalDetail) {
+            $totalVarianceAmount += (float) $externalDetail->assigned_amount;
+        }
+
+        $result['total_variance_amount'] = $totalVarianceAmount;
+
         return $result;
     }
 
