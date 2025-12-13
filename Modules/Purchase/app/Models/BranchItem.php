@@ -87,8 +87,10 @@ class BranchItem extends Model
 
     public function scopeSearch($query, string $term)
     {
-        return $query->where('item_name', 'like', "%{$term}%")
-            ->orWhere('item_code', 'like', "%{$term}%");
+        return $query->where(function ($q) use ($term) {
+            $q->where('item_name', 'like', "%{$term}%")
+                ->orWhere('item_code', 'like', "%{$term}%");
+        });
     }
 
     public function scopeByCategory($query, string $category)

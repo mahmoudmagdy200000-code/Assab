@@ -21,6 +21,11 @@ use Modules\Purchase\Transformers\PriceComparisonResource;
 use Modules\Purchase\Transformers\PurchaseOrderResource;
 use Modules\Purchase\Transformers\SupplierResource;
 use Modules\Purchase\Models\PurchaseOrder;
+// Add these imports
+use Modules\Branch\Models\Branch;
+use App\Models\User;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 class NewOrderController extends BaseController
 {
@@ -91,6 +96,12 @@ class NewOrderController extends BaseController
                 'Branch items retrieved successfully'
             );
         } catch (\Exception $e) {
+            Log::error('Error in getBranchItems', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'branch_id' => $request->get('branch_id', auth()->user()->branch_id ?? null),
+                'filters' => $request->validated(),
+            ]);
             return $this->handleException($e, 'fetching branch items');
         }
     }

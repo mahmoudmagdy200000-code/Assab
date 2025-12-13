@@ -3,15 +3,26 @@
 namespace Modules\Purchase\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Log;
 
 class BranchItemResource extends JsonResource
 {
     public function toArray($request): array
     {
-        // Get suppliers count for this item
-        $suppliersCount = \Modules\Expense\Models\Supplier::whereHas('expenses.items', function ($query) {
-            $query->where('name', $this->item_name);
-        })->count();
+        // Get suppliers count for this item (with error handling)
+        $suppliersCount = 0;
+        try {
+            $suppliersCount = \Modules\Expense\Models\Supplier::whereHas('expenses.items', function ($query) {
+                $query->where('name', $this->item_name);
+            })->count();
+        } catch (\Exception $e) {
+            // Log the error but don't fail the entire request
+            Log::warning('Error counting suppliers for branch item', [
+                'item_id' => $this->id,
+                'item_name' => $this->item_name,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         return [
             'id' => $this->id,
@@ -25,13 +36,12 @@ class BranchItemResource extends JsonResource
             'item_quantity' => (float) $this->item_quantity,
             'category' => $this->category,
             'subcategory' => $this->subcategory,
-            
+
             // Suppliers info
             'suppliers_count' => $suppliersCount,
-            
+
             // For display
             'unit' => $this->item_unit ?? 'kg',
         ];
     }
 }
-
