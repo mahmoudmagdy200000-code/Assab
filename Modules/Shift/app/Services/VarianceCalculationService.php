@@ -329,6 +329,7 @@ class VarianceCalculationService
         foreach ($otherCashiers as $detail) {
             $result['other_cashiers'][] = [
                 'cashier_id' => $detail->responsible_cashier_id,
+                'cashier_name' => $detail->responsibleCashier->name,
                 'amount' => (float) $detail->assigned_amount,
                 'notes' => $detail->reason ?? '',
             ];
