@@ -14,28 +14,28 @@ class BranchItemResource extends JsonResource
         // IMPORTANT: Using raw SQL to avoid Eloquent soft delete checks on suppliers table
         // The suppliers table does NOT have deleted_at column
         $suppliersCount = 0;
-        try {
-            $suppliersCount = DB::selectOne(
-                "SELECT COUNT(DISTINCT suppliers.id) as count
-                FROM suppliers
-                WHERE EXISTS (
-                    SELECT 1
-                    FROM expenses
-                    INNER JOIN expense_items ON expense_items.expense_id = expenses.id
-                    WHERE expenses.supplier_id = suppliers.id
-                    AND expense_items.name = ?
-                    AND expenses.deleted_at IS NULL
-                )",
-                [$this->item_name]
-            )->count ?? 0;
-        } catch (\Exception $e) {
-            // Log the error but don't fail the entire request
-            Log::warning('Error counting suppliers for branch item', [
-                'item_id' => $this->id,
-                'item_name' => $this->item_name,
-                'error' => $e->getMessage(),
-            ]);
-        }
+        // try {
+        //     $suppliersCount = DB::selectOne(
+        //         "SELECT COUNT(DISTINCT suppliers.id) as count
+        //         FROM suppliers
+        //         WHERE EXISTS (
+        //             SELECT 1
+        //             FROM expenses
+        //             INNER JOIN expense_items ON expense_items.expense_id = expenses.id
+        //             WHERE expenses.supplier_id = suppliers.id
+        //             AND expense_items.name = ?
+        //             AND expenses.deleted_at IS NULL
+        //         )",
+        //         [$this->item_name]
+        //     )->count ?? 0;
+        // } catch (\Exception $e) {
+        //     // Log the error but don't fail the entire request
+        //     Log::warning('Error counting suppliers for branch item', [
+        //         'item_id' => $this->id,
+        //         'item_name' => $this->item_name,
+        //         'error' => $e->getMessage(),
+        //     ]);
+        // }
 
         return [
             'id' => $this->id,
