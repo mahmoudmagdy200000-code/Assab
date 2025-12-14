@@ -460,6 +460,31 @@ class NewOrderController extends BaseController
                     'branch:id,name,location',
                 ]);
 
+            // Filter by specific item_id if provided
+            if (!empty($validated['item_id'])) {
+                // Check if this item_id exists in BranchInventory for this branch
+                // BranchInventory.item_id refers to BranchItem.id
+                $hasInventory = BranchInventory::where('branch_id', $fromBranchId)
+                    ->where('item_id', $validated['item_id'])
+                    ->exists();
+
+                if ($hasInventory) {
+                    // If found in inventory, the BranchItem must exist (item_id references BranchItem.id)
+                    $query->where('id', $validated['item_id']);
+                } else {
+                    // If not in inventory, try to find by item_name (fallback)
+                    // This handles cases where the item exists in BranchItem but not in BranchInventory
+                    $originalItem = BranchItem::find($validated['item_id']);
+                    if ($originalItem) {
+                        // Search by item_name in the target branch
+                        $query->where('item_name', $originalItem->item_name);
+                    } else {
+                        // If original item doesn't exist at all, still try by id
+                        $query->where('id', $validated['item_id']);
+                    }
+                }
+            }
+
             // Apply filters
             if (!empty($validated['search'])) {
                 $query->where(function ($q) use ($validated) {
