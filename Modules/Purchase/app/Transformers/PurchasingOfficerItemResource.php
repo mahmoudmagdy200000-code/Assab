@@ -40,6 +40,7 @@ class PurchasingOfficerItemResource extends JsonResource
             'item_code' => $item->item_code,
             'item_unit' => $item->item_unit ?? 'kg',
             'item_logo' => $itemLogo,
+            'item_price' => $item->item_price ? (float) $item->item_price : null,
 
             // Editable Fields
             'quantity' => $this->resource['quantity'] ?? 1.0, // Editable
