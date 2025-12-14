@@ -1018,14 +1018,9 @@ class NewOrderController extends BaseController
 
                 return [
                     'supplier_id' => $supplier->id,
-                    'supplier' => [
-                        'id' => $supplier->id,
-                        'name' => $supplier->name,
-                        'image' => $supplier->image_url,
-                        'address' => $supplier->address,
-                        'phone' => $supplier->phone,
-                        'email' => $supplier->email,
-                    ],
+                    SupplierResource::collection($supplier)
+
+                    ,
                     // Item Details
                     'item_id' => $itemId,
                     'item_title' => $branchItem->item_name,
