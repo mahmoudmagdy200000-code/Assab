@@ -22,6 +22,7 @@ use Modules\Purchase\Transformers\PriceComparisonResource;
 use Modules\Purchase\Transformers\PurchaseOrderResource;
 use Modules\Purchase\Transformers\SupplierResource;
 use Modules\Purchase\Transformers\TransferItemResource;
+use Modules\Purchase\Transformers\PurchasingOfficerItemResource;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Models\BranchItem;
@@ -1162,36 +1163,45 @@ class NewOrderController extends BaseController
     /**
      * Get Purchasing Officer Items with price comparison
      *
-     * Returns a list of items from purchasing officer with:
-     * - Item Name
-     * - Item Logo
-     * - Quantity
-     * - Quality
-     * - Preferred Delivery Date
-     * - Latest Delivery Date
-     * - Special Instructions (Text)
-     * - Price Comparison:
-     *   - Total Amount from Direct Supplier
-     *   - Total Amount via Purchasing Officer
-     *   - Savings = (Total from Direct Supplier – Total from Purchasing Officer)
-     *   - Total Expected Savings = Sum of all item savings
+     * Returns a list of items from purchasing officer with price comparison.
+     * Similar structure to getTransferItems.
+     *
+     * Filters:
+     * - search: Search by item name or code
+     * - category: Filter by category
+     * - per_page: Items per page (default: 15)
      *
      * @group New Order
      */
     public function getPurchasingOfficerItems(GetPurchasingOfficerItemsRequest $request): JsonResponse
     {
         try {
+            $validated = $request->validated();
             $branchId = auth()->user()->branch_id;
+            $perPage = $validated['per_page'] ?? 15;
 
-            // Get branch items (similar to getBranchItems but for purchasing officer)
-            $branchItems = BranchItem::where('branch_id', $branchId)
-                ->orderBy('item_name', 'asc')
-                ->get();
+            // Get branch items with filters (similar to getTransferItems)
+            $query = BranchItem::where('branch_id', $branchId);
+
+            // Apply filters
+            if (!empty($validated['search'])) {
+                $query->where(function ($q) use ($validated) {
+                    $q->where('item_name', 'like', '%' . $validated['search'] . '%')
+                        ->orWhere('item_code', 'like', '%' . $validated['search'] . '%');
+                });
+            }
+
+            if (!empty($validated['category'])) {
+                $query->where('category', $validated['category']);
+            }
+
+            $branchItems = $query->orderBy('item_name', 'asc')->paginate($perPage);
+            $itemsCollection = $branchItems->getCollection();
 
             // Get all item IDs
-            $itemIds = $branchItems->pluck('id')->toArray();
+            $itemIds = $itemsCollection->pluck('id')->toArray();
 
-            // Get purchasing officer prices for all items in batch
+            // Performance optimization: Get purchasing officer prices for all items in batch
             $poPrices = [];
             foreach ($itemIds as $itemId) {
                 $poPrice = $this->priceService->getPurchasingOfficerPrices($itemId);
@@ -1200,45 +1210,37 @@ class NewOrderController extends BaseController
                 }
             }
 
-            // Get direct supplier prices for all items in batch
+            // Performance optimization: Get direct supplier prices for all items in batch
             $supplierPricesMap = [];
-            $supplierItems = SupplierItem::whereIn('item_id', $itemIds)
-                ->with('supplier')
-                ->available()
-                ->whereHas('supplier', fn($q) => $q->active())
-                ->get()
-                ->groupBy('item_id');
+            if (!empty($itemIds)) {
+                $supplierItems = SupplierItem::whereIn('item_id', $itemIds)
+                    ->with('supplier')
+                    ->available()
+                    ->whereHas('supplier', fn($q) => $q->active())
+                    ->get()
+                    ->groupBy('item_id');
 
-            foreach ($supplierItems as $itemId => $items) {
-                // Get the best (lowest) price from all suppliers for this item
-                $bestPrice = $items->min('unit_price');
-                $supplierPricesMap[$itemId] = $bestPrice;
+                foreach ($supplierItems as $itemId => $items) {
+                    // Get the best (lowest) price from all suppliers for this item
+                    $bestPrice = $items->min('unit_price');
+                    $supplierPricesMap[$itemId] = $bestPrice;
+                }
             }
 
-            // Build response items
-            $responseItems = [];
+            // Calculate totals for summary
             $totalDirectSupplierAmount = 0;
             $totalPurchasingOfficerAmount = 0;
             $totalExpectedSavings = 0;
 
-            foreach ($branchItems as $branchItem) {
+            // Transform the collection for the resource (similar to getTransferItems)
+            $transformedItems = $itemsCollection->map(function ($branchItem) use (
+                $poPrices,
+                $supplierPricesMap,
+                &$totalDirectSupplierAmount,
+                &$totalPurchasingOfficerAmount,
+                &$totalExpectedSavings
+            ) {
                 $itemId = $branchItem->id;
-
-                // Get item logo URL
-                $itemLogo = null;
-                if ($branchItem->item_logo) {
-                    if (is_array($branchItem->item_logo)) {
-                        $logo = $branchItem->item_logo[0] ?? null;
-                    } else {
-                        $logo = $branchItem->item_logo;
-                    }
-
-                    if ($logo) {
-                        $itemLogo = str_starts_with($logo, 'http')
-                            ? $logo
-                            : asset('storage/' . $logo);
-                    }
-                }
 
                 // Get prices
                 $poPrice = $poPrices[$itemId] ?? null;
@@ -1254,21 +1256,16 @@ class NewOrderController extends BaseController
                 $poTotal = $poUnitPrice * $defaultQuantity;
                 $savings = $directSupplierTotal - $poTotal;
 
+                // Add to totals
                 $totalDirectSupplierAmount += $directSupplierTotal;
                 $totalPurchasingOfficerAmount += $poTotal;
                 $totalExpectedSavings += $savings;
 
-                $responseItems[] = [
-                    'item_id' => $itemId,
-                    'item_name' => $branchItem->item_name,
-                    'item_code' => $branchItem->item_code,
-                    'item_unit' => $branchItem->item_unit,
-                    'item_logo' => $itemLogo,
+                // Return structured data for the resource (similar to getTransferItems)
+                return [
+                    'item' => $branchItem,
                     'quantity' => $defaultQuantity, // Editable
                     'quality' => 'standard', // Editable, default
-                    // 'preferred_delivery_date' => null, // Editable
-                    // 'latest_delivery_date' => null, // Editable
-                    // 'special_instructions' => null, // Editable
                     'price_comparison' => [
                         'direct_supplier' => [
                             'unit_price' => round($directSupplierUnitPrice, 2),
@@ -1281,19 +1278,27 @@ class NewOrderController extends BaseController
                         'savings' => round($savings, 2),
                     ],
                 ];
-            }
+            });
 
-            return $this->successResponse(
-                [
-                    'items' => $responseItems,
-                    'price_comparison_summary' => [
-                        'total_amount_from_direct_supplier' => round($totalDirectSupplierAmount, 2),
-                        'total_amount_via_purchasing_officer' => round($totalPurchasingOfficerAmount, 2),
-                        'total_expected_savings' => round($totalExpectedSavings, 2),
-                    ],
-                ],
+            // Create ResourceCollection and set the paginator (similar to getTransferItems)
+            $resourceCollection = PurchasingOfficerItemResource::collection($transformedItems);
+            $resourceCollection->resource = $branchItems;
+
+            // Get paginated response
+            $response = $this->paginatedResponse(
+                $resourceCollection,
                 'Purchasing officer items retrieved successfully'
             );
+
+            // Add price_comparison_summary to the response data (similar to transport_summary in getTransferItems)
+            $responseData = $response->getData(true);
+            $responseData['price_comparison_summary'] = [
+                'total_amount_from_direct_supplier' => round($totalDirectSupplierAmount, 2),
+                'total_amount_via_purchasing_officer' => round($totalPurchasingOfficerAmount, 2),
+                'total_expected_savings' => round($totalExpectedSavings, 2),
+            ];
+
+            return response()->json($responseData, 200);
         } catch (\Exception $e) {
             Log::error('Error fetching purchasing officer items: ' . $e->getMessage(), [
                 'exception' => $e,

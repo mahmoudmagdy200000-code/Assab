@@ -14,8 +14,9 @@ class GetPurchasingOfficerItemsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // No validation needed - this endpoint doesn't receive any data
-            // It returns items from purchasing officer's list
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'category' => ['nullable', 'string', 'max:100'],
         ];
     }
 }
