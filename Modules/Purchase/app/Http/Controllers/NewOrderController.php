@@ -15,6 +15,7 @@ use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Http\Requests\FilterBranchItemsRequest;
 use Modules\Purchase\Http\Requests\FilterOrdersRequest;
 use Modules\Purchase\Http\Requests\StorePurchaseOrderRequest;
+use Modules\Purchase\Http\Requests\StoreMultipleOrdersRequest;
 use Modules\Purchase\Transformers\BranchItemResource;
 use Modules\Purchase\Transformers\OrderSummaryResource;
 use Modules\Purchase\Transformers\PriceComparisonResource;
@@ -261,47 +262,56 @@ class NewOrderController extends BaseController
     }
 
     /**
-     * Create purchase order
+     * Create purchase order(s)
      *
-     * Unified endpoint for creating orders. The order_type determines the order source:
-     * - direct_supplier: Order from a supplier
-     * - via_purchasing_officer: Order via purchasing officer
-     * - internal_transfer: Transfer from another branch
+     * Unified endpoint for creating single or multiple orders from different sources.
+     *
+     * Supports creating multiple orders in one request:
+     * - branches[]: Internal transfers from multiple branches (each branch has its own items)
+     * - direct_supplier[]: Multiple direct supplier orders
+     * - purchase_officer[]: Multiple purchasing officer orders
+     *
+     * All fields are optional, but at least one order type must be provided.
      *
      * @group New Order
      */
-    public function store(StorePurchaseOrderRequest $request): JsonResponse
+    public function store(StoreMultipleOrdersRequest $request): JsonResponse
     {
         try {
             $data = $request->validated();
 
-            // Convert order_type string to enum
-            $data['order_type'] = OrderType::from($data['order_type']);
+            // Check if this is a single order (old format) or multiple orders (new format)
+            $isMultipleOrders = isset($data['branches']) || isset($data['direct_supplier']) || isset($data['purchase_officer']);
 
-            // Set common fields
-            $data['branch_id'] = auth()->user()->branch_id;
-            $data['requested_by'] = auth()->id();
+            if ($isMultipleOrders) {
+                // Create multiple orders
+                $branchId = auth()->user()->branch_id;
+                $requestedBy = auth()->id();
 
-            // For internal transfer, set to_branch_id
-            if ($data['order_type'] === OrderType::INTERNAL_TRANSFER) {
-                $data['to_branch_id'] = auth()->user()->branch_id;
+                $orders = $this->orderService->createMultipleOrders($data, $branchId, $requestedBy);
+
+                $orderCount = $orders->count();
+                $orderTypes = $orders->map(function ($order) {
+                    $orderType = is_string($order->order_type)
+                        ? OrderType::from($order->order_type)
+                        : $order->order_type;
+                    return $orderType->label();
+                })->unique()->values()->toArray();
+
+                return $this->createdResponse(
+                    PurchaseOrderResource::collection($orders),
+                    "Successfully created {$orderCount} order(s): " . implode(', ', $orderTypes)
+                );
+            } else {
+                // Fallback to single order creation (backward compatibility)
+                // This handles the old request format if needed
+                return $this->errorResponse(
+                    'Invalid request format. Please use branches[], direct_supplier[], or purchase_officer[] arrays.',
+                    400
+                );
             }
-
-            $order = $this->orderService->createOrder($data);
-
-            $orderTypeLabel = match ($data['order_type']) {
-                OrderType::DIRECT_SUPPLIER => 'Direct supplier',
-                OrderType::VIA_PURCHASING_OFFICER => 'Purchasing officer',
-                OrderType::INTERNAL_TRANSFER => 'Internal transfer',
-                default => 'Purchase',
-            };
-
-            return $this->createdResponse(
-                new PurchaseOrderResource($order),
-                "{$orderTypeLabel} order created successfully"
-            );
         } catch (\Exception $e) {
-            return $this->handleException($e, 'creating purchase order');
+            return $this->handleException($e, 'creating purchase order(s)');
         }
     }
 

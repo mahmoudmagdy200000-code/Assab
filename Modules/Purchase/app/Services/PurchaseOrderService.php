@@ -12,7 +12,7 @@ use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\OrderTimeline;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Collection;
 
 class PurchaseOrderService
 {
@@ -302,6 +302,86 @@ class PurchaseOrderService
             $this->timelineService->logOrderCreated($order);
 
             return $order->fresh(['items', 'supplier', 'branch']);
+        });
+    }
+
+    /**
+     * Create multiple orders from different sources
+     *
+     * Supports:
+     * - branches[]: Internal transfers from multiple branches
+     * - direct_supplier[]: Direct supplier orders
+     * - purchase_officer[]: Purchasing officer orders
+     *
+     * @param array $data Request data containing branches, direct_supplier, and/or purchase_officer arrays
+     * @param string $branchId The branch ID for the orders
+     * @param string $requestedBy The user ID who requested the orders
+     * @return Collection Collection of created PurchaseOrder models
+     */
+    public function createMultipleOrders(array $data, string $branchId, string $requestedBy): Collection
+    {
+        return DB::transaction(function () use ($data, $branchId, $requestedBy) {
+            $orders = collect();
+
+            // Process internal transfers (branches)
+            if (!empty($data['branches']) && is_array($data['branches'])) {
+                foreach ($data['branches'] as $branchData) {
+                    $orderData = [
+                        'order_type' => OrderType::INTERNAL_TRANSFER,
+                        'branch_id' => $branchId,
+                        'requested_by' => $requestedBy,
+                        'from_branch_id' => $branchData['branch_id'],
+                        'to_branch_id' => $branchId,
+                        'priority' => $branchData['priority'] ?? 'normal',
+                        'items' => $branchData['items'] ?? [],
+                    ];
+
+                    $order = $this->createOrder($orderData);
+                    $orders->push($order);
+                }
+            }
+
+            // Process direct supplier orders
+            if (!empty($data['direct_supplier']) && is_array($data['direct_supplier'])) {
+                foreach ($data['direct_supplier'] as $supplierData) {
+                    $orderData = [
+                        'order_type' => OrderType::DIRECT_SUPPLIER,
+                        'branch_id' => $branchId,
+                        'requested_by' => $requestedBy,
+                        'supplier_id' => $supplierData['supplier_id'],
+                        'quality_level' => $supplierData['quality_level'],
+                        'notification_channels' => $supplierData['notification_channels'] ?? [],
+                        'message' => $supplierData['message'] ?? null,
+                        'items' => $supplierData['items'] ?? [],
+                    ];
+
+                    $order = $this->createOrder($orderData);
+                    $orders->push($order);
+                }
+            }
+
+            // Process purchasing officer orders
+            if (!empty($data['purchase_officer']) && is_array($data['purchase_officer'])) {
+                foreach ($data['purchase_officer'] as $officerData) {
+                    $orderData = [
+                        'order_type' => OrderType::VIA_PURCHASING_OFFICER,
+                        'branch_id' => $branchId,
+                        'requested_by' => $requestedBy,
+                        'quality_level' => $officerData['quality_level'],
+                        'processing_time' => $officerData['processing_time'],
+                        'preferred_delivery_date' => $officerData['preferred_delivery_date'],
+                        'latest_delivery_date' => $officerData['latest_delivery_date'],
+                        'special_instructions' => $officerData['special_instructions'] ?? null,
+                        'message' => $officerData['message'] ?? null,
+                        'items' => $officerData['items'] ?? [],
+                    ];
+
+                    $order = $this->createOrder($orderData);
+                    $orders->push($order);
+                }
+            }
+
+            return $orders;
         });
     }
 
