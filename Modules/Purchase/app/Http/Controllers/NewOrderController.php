@@ -1266,9 +1266,9 @@ class NewOrderController extends BaseController
                     'item_logo' => $itemLogo,
                     'quantity' => $defaultQuantity, // Editable
                     'quality' => 'standard', // Editable, default
-                    'preferred_delivery_date' => null, // Editable
-                    'latest_delivery_date' => null, // Editable
-                    'special_instructions' => null, // Editable
+                    // 'preferred_delivery_date' => null, // Editable
+                    // 'latest_delivery_date' => null, // Editable
+                    // 'special_instructions' => null, // Editable
                     'price_comparison' => [
                         'direct_supplier' => [
                             'unit_price' => round($directSupplierUnitPrice, 2),
