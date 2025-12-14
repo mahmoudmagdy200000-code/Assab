@@ -879,64 +879,58 @@ class NewOrderController extends BaseController
     /**
      * Get Direct Supplier Items with prices
      *
+     * Returns all items from user's branch with prices from all available suppliers.
+     * For each item, shows the best supplier price.
+     *
      * Returns a list of items with:
      * - Item Name
      * - Item Logo
-     * - Quantity
-     * - Quality
-     * - Price Rate
+     * - Quantity (editable, default: 1)
+     * - Quality (editable, default: standard)
+     * - Price Rate (best price from available suppliers)
      * - Total Price per Item = Price Rate × Quantity
+     * - Suppliers (list of all available suppliers with prices for this item)
      *
      * @group New Order
      */
     public function getDirectSupplierItems(GetDirectSupplierItemsRequest $request): JsonResponse
     {
         try {
-            $validated = $request->validated();
-            $supplierId = $validated['supplier_id'];
-            $items = $validated['items'];
+            $branchId = auth()->user()->branch_id;
 
-            // Get supplier
-            $supplier = PurchaseSupplier::find($supplierId);
-            if (!$supplier) {
-                return $this->errorResponse('Supplier not found', 404);
+            // Get all branch items
+            $branchItems = BranchItem::where('branch_id', $branchId)
+                ->orderBy('item_name', 'asc')
+                ->get();
+
+            if ($branchItems->isEmpty()) {
+                return $this->successResponse(
+                    [
+                        'items' => [],
+                    ],
+                    'No items found in your branch'
+                );
             }
 
-            // Get item IDs
-            $itemIds = collect($items)->pluck('item_id')->toArray();
+            // Get all item IDs
+            $itemIds = $branchItems->pluck('id')->toArray();
 
-            // Load all branch items in one query
-            $branchItems = BranchItem::whereIn('id', $itemIds)
+            // Load all supplier items in batch (for all items and all suppliers)
+            $supplierItems = SupplierItem::whereIn('item_id', $itemIds)
+                ->with('supplier')
+                ->available()
+                ->whereHas('supplier', fn($q) => $q->active())
+                ->get()
+                ->groupBy('item_id');
+
+            // Get all active suppliers
+            $allSuppliers = PurchaseSupplier::active()
                 ->get()
                 ->keyBy('id');
 
-            // Load all supplier items in one query
-            $supplierItems = SupplierItem::where('supplier_id', $supplierId)
-                ->whereIn('item_id', $itemIds)
-                ->get()
-                ->keyBy('item_id');
-
             // Build response items
-            $responseItems = collect($items)->map(function ($itemData) use ($branchItems, $supplierItems) {
-                $itemId = $itemData['item_id'];
-                $quantity = (float) $itemData['quantity'];
-                $quality = $itemData['quality'] ?? 'standard';
-
-                $branchItem = $branchItems[$itemId] ?? null;
-                if (!$branchItem) {
-                    return null;
-                }
-
-                // Get price from supplier item
-                $supplierItem = $supplierItems[$itemId] ?? null;
-                $priceRate = 0;
-
-                if ($supplierItem) {
-                    $priceRate = (float) $supplierItem->getPriceByQuality($quality);
-                } else {
-                    // Fallback to branch item price if supplier item not found
-                    $priceRate = (float) $branchItem->item_price;
-                }
+            $responseItems = $branchItems->map(function ($branchItem) use ($supplierItems, $allSuppliers) {
+                $itemId = $branchItem->id;
 
                 // Get item logo URL
                 $itemLogo = null;
@@ -954,24 +948,63 @@ class NewOrderController extends BaseController
                     }
                 }
 
+                // Get suppliers for this item
+                $itemSupplierItems = $supplierItems->get($itemId, collect());
+
+                // Get best price (lowest price from all suppliers)
+                $bestPriceRate = 0;
+                $bestSupplier = null;
+                $suppliersList = [];
+
+                if ($itemSupplierItems->isNotEmpty()) {
+                    // Find best price
+                    $bestSupplierItem = $itemSupplierItems->sortBy('unit_price')->first();
+                    $bestPriceRate = (float) $bestSupplierItem->unit_price;
+                    $bestSupplier = $allSuppliers[$bestSupplierItem->supplier_id] ?? null;
+
+                    // Build suppliers list with prices
+                    foreach ($itemSupplierItems as $supplierItem) {
+                        $supplier = $allSuppliers[$supplierItem->supplier_id] ?? null;
+                        if ($supplier) {
+                            $suppliersList[] = [
+                                'supplier_id' => $supplier->id,
+                                'supplier_name' => $supplier->name,
+                                'supplier_image' => $supplier->image_url,
+                                'price_rate' => round((float) $supplierItem->unit_price, 2),
+                                'economy_price' => $supplierItem->economy_price ? round((float) $supplierItem->economy_price, 2) : null,
+                                'standard_price' => $supplierItem->standard_price ? round((float) $supplierItem->standard_price, 2) : null,
+                                'premium_price' => $supplierItem->premium_price ? round((float) $supplierItem->premium_price, 2) : null,
+                                'delivery_hours' => $supplierItem->delivery_hours,
+                            ];
+                        }
+                    }
+                } else {
+                    // Fallback to branch item price if no supplier items found
+                    $bestPriceRate = (float) $branchItem->item_price;
+                }
+
+                // Default quantity for calculation
+                $defaultQuantity = 1.0;
+
                 return [
                     'item_id' => $itemId,
                     'item_name' => $branchItem->item_name,
                     'item_logo' => $itemLogo,
-                    'quantity' => $quantity,
-                    'quality' => $quality,
-                    'price_rate' => round($priceRate, 2),
-                    'total_price' => round($priceRate * $quantity, 2),
+                    'quantity' => $defaultQuantity, // Editable
+                    'quality' => 'standard', // Editable, default
+                    'price_rate' => round($bestPriceRate, 2),
+                    'total_price' => round($bestPriceRate * $defaultQuantity, 2),
+                    'best_supplier' => $bestSupplier ? [
+                        'id' => $bestSupplier->id,
+                        'name' => $bestSupplier->name,
+                        'image' => $bestSupplier->image_url,
+                    ] : null,
+                    'suppliers' => $suppliersList, // All available suppliers with prices
                 ];
-            })->filter()->values();
+            })->values();
 
             return $this->successResponse(
                 [
-                    'supplier' => [
-                        'id' => $supplier->id,
-                        'name' => $supplier->name,
-                        'image' => $supplier->image_url,
-                    ],
                     'items' => $responseItems,
                 ],
                 'Direct supplier items retrieved successfully'
