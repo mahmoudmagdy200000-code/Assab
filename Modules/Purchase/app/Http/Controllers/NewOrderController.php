@@ -883,6 +883,7 @@ class NewOrderController extends BaseController
      *
      * Input:
      * - item_id (required)
+     * - quantity (optional, default: 1)
      *
      * Returns:
      * - Item Name
@@ -966,18 +967,18 @@ class NewOrderController extends BaseController
                 $bestPriceRate = (float) $branchItem->item_price;
             }
 
-            // Default quantity for calculation
-            $defaultQuantity = 1.0;
+            // Get quantity from request or use default
+            $quantity = isset($validated['quantity']) ? (float) $validated['quantity'] : 1.0;
 
             return $this->successResponse(
                 [
                     'item_id' => $itemId,
                     'item_name' => $branchItem->item_name,
                     'item_logo' => $itemLogo,
-                    'quantity' => $defaultQuantity, // Editable
+                    'quantity' => $quantity, // From request or default
                     'quality' => 'standard', // Editable, default
                     'price_rate' => round($bestPriceRate, 2),
-                    'total_price' => round($bestPriceRate * $defaultQuantity, 2),
+                    'total_price' => round($bestPriceRate * $quantity, 2),
                     'best_supplier' => $bestSupplier ? [
                         'id' => $bestSupplier->id,
                         'name' => $bestSupplier->name,

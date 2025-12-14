@@ -15,6 +15,7 @@ class GetDirectSupplierItemsRequest extends FormRequest
     {
         return [
             'item_id' => ['required', 'uuid', 'exists:branch_item,id'],
+            'quantity' => ['nullable', 'numeric', 'min:0.001'],
         ];
     }
 }
