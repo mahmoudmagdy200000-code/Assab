@@ -1261,6 +1261,8 @@ class NewOrderController extends BaseController
                 $responseItems[] = [
                     'item_id' => $itemId,
                     'item_name' => $branchItem->item_name,
+                    'item_code' => $branchItem->item_code,
+                    'item_unit' => $branchItem->item_unit,
                     'item_logo' => $itemLogo,
                     'quantity' => $defaultQuantity, // Editable
                     'quality' => 'standard', // Editable, default
