@@ -991,7 +991,7 @@ class NewOrderController extends BaseController
                     // Try to parse coordinates from supplier address or use a default calculation
                     $supplierCoordinates = $this->parseCoordinates($supplier->address);
                     if ($supplierCoordinates) {
-                        $distance = $this->calculateDistance($currentCoordinates, $supplierCoordinates);
+                        $distance = $this->calculateDistanceFromCoordinates($currentCoordinates, $supplierCoordinates);
                         $distanceKm = $distance ? round($distance['distance_km'], 2) : null;
                     }
                 }
@@ -1131,9 +1131,9 @@ class NewOrderController extends BaseController
     }
 
     /**
-     * Calculate distance between two coordinates
+     * Calculate distance between two coordinates using Haversine formula
      */
-    private function calculateDistance(?array $from, ?array $to): ?array
+    private function calculateDistanceFromCoordinates(?array $from, ?array $to): ?array
     {
         if (!$from || !$to) {
             return null;
