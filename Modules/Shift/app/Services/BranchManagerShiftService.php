@@ -218,12 +218,22 @@ class BranchManagerShiftService
                     ->where(function ($q) use ($managerShift) {
                         // Include handovers where either shift_date or handover_date matches manager's shift_date
                         // This handles cases where shift ends on a different date than it started
+                        // Also include handovers from same branch in the last 7 days (for flexibility)
+                        $sevenDaysAgo = $managerShift->shift_date->copy()->subDays(7);
                         $q->where(function ($subQ) use ($managerShift) {
                             $subQ->whereHas('cashierShift', function ($cashierQuery) use ($managerShift) {
                                 $cashierQuery->whereDate('shift_date', $managerShift->shift_date);
                             });
                         })
-                            ->orWhereDate('handover_date', $managerShift->shift_date);
+                            ->orWhereDate('handover_date', $managerShift->shift_date)
+                            ->orWhere(function ($subQ) use ($managerShift, $sevenDaysAgo) {
+                                // Include handovers from same branch in the last 7 days
+                                $subQ->whereHas('cashierShift.shift', function ($shiftQuery) use ($managerShift) {
+                                    $shiftQuery->where('branch_id', $managerShift->branch_id);
+                                })
+                                    ->whereDate('handover_date', '>=', $sevenDaysAgo)
+                                    ->whereDate('handover_date', '<=', $managerShift->shift_date);
+                            });
                     });
                 break;
 

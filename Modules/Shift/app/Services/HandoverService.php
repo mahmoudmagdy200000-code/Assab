@@ -80,7 +80,7 @@ class HandoverService
                 'variance_reason' => $data['variance_reason'] ?? null,
                 'variance_files' => $varianceFiles,
                 'handover_notes' => $data['handover_notes'] ?? null,
-                'handover_date' => $shift->shift_date,
+                'handover_date' => now()->toDateString(), // Use actual handover date, not shift date
                 'handover_time' => now(),
                 'status' => 'pending',
             ];
@@ -116,10 +116,41 @@ class HandoverService
 
             DB::commit();
 
+            // Clear cache for branch manager shift if handover is to branch manager
+            if ($handoverToType === 'branch_manager' && $handoverToId) {
+                try {
+                    $branchManagerShift = \Modules\Shift\Models\BranchManagerShift::where('branch_manager_id', $handoverToId)
+                        ->whereDate('shift_date', $handover->handover_date)
+                        ->first();
+
+                    if ($branchManagerShift) {
+                        // Clear cache using cache tags if available
+                        if (config('cache.default') === 'redis') {
+                            $shiftTag = "shift:{$branchManagerShift->id}:{$branchManagerShift->shift_date->format('Y-m-d')}";
+                            try {
+                                \Illuminate\Support\Facades\Cache::tags([$shiftTag])->flush();
+                            } catch (\Exception $e) {
+                                // Fallback: clear specific cache keys
+                                \Illuminate\Support\Facades\Cache::forget("shift:{$branchManagerShift->id}:handovers:to_manager");
+                            }
+                        } else {
+                            // Clear specific cache keys
+                            \Illuminate\Support\Facades\Cache::forget("shift:{$branchManagerShift->id}:handovers:to_manager");
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('Failed to clear cache after handover', [
+                        'error' => $e->getMessage(),
+                        'handover_id' => $handover->id,
+                    ]);
+                }
+            }
+
             Log::info('Handover recorded successfully', [
                 'shift_id' => $shift->id,
                 'handover_id' => $handover->id,
                 'handover_to_type' => $handoverToType,
+                'handover_to_id' => $handoverToId,
             ]);
 
             return $shift->fresh(['nextCashier', 'handoverStatus']);
