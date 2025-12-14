@@ -500,7 +500,7 @@ class NewOrderController extends BaseController
             $resourceCollection->resource = $items;
 
             // Get paginated response
-            $response = $this->paginatedResponse(
+            $response = $this->successResponse(
                 $resourceCollection,
                 'Transfer items retrieved successfully'
             );
