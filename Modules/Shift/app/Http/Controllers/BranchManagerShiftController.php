@@ -276,8 +276,11 @@ class BranchManagerShiftController extends BaseController
                 'approved_at' => now(),
             ]);
 
+            // Normalize status for response
+            $normalizedStatus = $this->normalizeHandoverStatus($handover->status);
+
             return $this->successResponse([
-                'handover' => $handover,
+                'handover' => array_merge($handover->toArray(), ['status' => $normalizedStatus]),
                 'message' => 'Handoff approved successfully'
             ], 'Handoff approved successfully');
         } catch (\Exception $e) {
@@ -330,8 +333,11 @@ class BranchManagerShiftController extends BaseController
 
             $handover->update($updateData);
 
+            // Normalize status for response
+            $normalizedStatus = $this->normalizeHandoverStatus($handover->status);
+
             return $this->successResponse([
-                'handover' => $handover,
+                'handover' => array_merge($handover->toArray(), ['status' => $normalizedStatus]),
                 'rejection_count' => $rejectionCount,
                 'is_final_rejection' => $isFinalRejection,
                 'message' => $isFinalRejection
@@ -731,14 +737,8 @@ class BranchManagerShiftController extends BaseController
             // Update shift with handover details AND financial totals
             $managerShift->update($updateData);
 
-            // Determine handover status based on requirements
-            // Status: Completed (only when handover is received), Not Submitted, Pending
-            $handoverStatus = 'Not Submitted';
-            if ($managerShift->handover_status === 'completed' || $managerShift->handover_status === 'approved') {
-                $handoverStatus = 'Completed';
-            } elseif ($managerShift->handover_status === 'pending') {
-                $handoverStatus = 'Pending';
-            }
+            // Determine handover status: pending, accepted, rejected
+            $handoverStatus = $this->normalizeHandoverStatus($managerShift->handover_status);
 
             // Get current time based on handover_timing
             $currentTime = $request->handover_timing === 'yesterday'
@@ -776,8 +776,8 @@ class BranchManagerShiftController extends BaseController
                 // Section D: Final Handover and End Shift - Exact format as per requirements
                 'final_handover' => [
                     'handover_amount' => (float) ($managerShift->handover_amount ?? $closingBalance),
-                    'status' => $handoverStatus, // Completed, Not Submitted, or Pending
-                    'status_options' => ['Completed', 'Not Submitted', 'Pending'],
+                    'status' => $handoverStatus, // pending, accepted, rejected
+                    'status_options' => ['pending', 'accepted', 'rejected'],
                     'handover_from' => $manager->name,
                     'handover_to' => $managerShift->nextManager?->name ?? 'Not specified',
                     'handover_date' => $managerShift->handover_date?->format('Y-m-d') ?? now()->format('Y-m-d'),
@@ -1264,13 +1264,8 @@ class BranchManagerShiftController extends BaseController
             $closingBalance = (float) ($managerShift->handover_amount ?? $managerShift->closing_balance ?? 0);
             $variance = $expectedBalance - $closingBalance;
 
-            // Determine handover status
-            $handoverStatus = 'Not Submitted';
-            if ($managerShift->handover_status === 'completed' || $managerShift->handover_status === 'approved') {
-                $handoverStatus = 'Completed';
-            } elseif ($managerShift->handover_status === 'pending') {
-                $handoverStatus = 'Pending';
-            }
+            // Determine handover status: pending, accepted, rejected
+            $handoverStatus = $this->normalizeHandoverStatus($managerShift->handover_status);
 
             // Get current time based on handover_timing
             $currentTime = $managerShift->handover_timing === 'yesterday'
@@ -1290,7 +1285,7 @@ class BranchManagerShiftController extends BaseController
                 'handover' => [
                     'handover_amount' => (float) ($managerShift->handover_amount ?? 0),
                     'status' => $handoverStatus,
-                    'status_options' => ['Completed', 'Not Submitted', 'Pending'],
+                    'status_options' => ['pending', 'accepted', 'rejected'],
                     'handover_from' => $managerShift->branchManager->name,
                     'handover_to' => $managerShift->nextManager?->name ?? 'Not specified',
                     'handover_to_id' => $managerShift->next_manager_id,
@@ -1334,6 +1329,21 @@ class BranchManagerShiftController extends BaseController
 
     // Helper Methods
 
+    /**
+     * Normalize handover status to standard values: pending, accepted, rejected
+     */
+    private function normalizeHandoverStatus(?string $status): string
+    {
+        if (in_array($status, ['approved', 'accepted', 'completed'])) {
+            return 'accepted';
+        }
+
+        if (in_array($status, ['rejected', 'rejected_final'])) {
+            return 'rejected';
+        }
+
+        return 'pending';
+    }
 
     /**
      * Calculate financial summary from all cashier shifts in the same day and branch

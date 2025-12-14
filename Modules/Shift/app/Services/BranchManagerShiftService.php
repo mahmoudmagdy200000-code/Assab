@@ -252,6 +252,22 @@ class BranchManagerShiftService
     }
 
     /**
+     * Normalize handover status to standard values: pending, accepted, rejected
+     */
+    private function normalizeHandoverStatus(?string $status): string
+    {
+        if (in_array($status, ['approved', 'accepted', 'completed'])) {
+            return 'accepted';
+        }
+
+        if (in_array($status, ['rejected', 'rejected_final'])) {
+            return 'rejected';
+        }
+
+        return 'pending';
+    }
+
+    /**
      * Transform handover to response format (reusable - maintains exact response format)
      * تحويل الـ handover لصيغة الـ response مع الحفاظ على نفس التنسيق
      */
@@ -307,7 +323,7 @@ class BranchManagerShiftService
             'variance_type' => $handover->variance_amount > 0 ? 'Over' : ($handover->variance_amount < 0 ? 'Short' : 'None'),
             'variance_reason' => $handover->variance_reason,
             'attached_files' => $handover->variance_files ?? [],
-            'status' => $handover->status,
+            'status' => $this->normalizeHandoverStatus($handover->status),
             'rejection_reason' => $handover->rejection_reason,
             'rejection_count' => $handover->rejection_count,
             'handed_over_at' => $handover->handed_over_at?->format('Y-m-d H:i:s'),

@@ -382,6 +382,12 @@ class ShiftEndController extends Controller
             $varianceType = $varianceAmount > 0 ? 'Over' : ($varianceAmount < 0 ? 'Short' : 'None');
             $salesCalculation = $this->shiftEndService->calculateNetSales($request->total_sales);
 
+            // Get handover status from the created handover
+            $handoverStatus = 'pending';
+            if ($updatedShift->handoverStatus) {
+                $handoverStatus = $this->normalizeHandoverStatus($updatedShift->handoverStatus->manager_approval_status ?? 'pending');
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Shift ended successfully with handover',
@@ -405,7 +411,7 @@ class ShiftEndController extends Controller
                             'handover_to' => $handoverToName,
                             'next_cashier' => $handoverToType === 'cashier' ? $handoverToName : null,
                             'handover_notes' => $request->handover_notes,
-                            'status' => 'pending',
+                            'status' => $handoverStatus,
                         ]
                     ]
                 ]
@@ -568,11 +574,18 @@ class ShiftEndController extends Controller
 
             $variance = $shiftModel->total_sales - $request->handover_amount;
 
+            // Get handover status from the created handover
+            $handoverStatus = 'pending';
+            $freshShift = $updatedShift->fresh()->loadFullRelationships();
+            if ($freshShift->handoverStatus) {
+                $handoverStatus = $this->normalizeHandoverStatus($freshShift->handoverStatus->manager_approval_status ?? 'pending');
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Handover recorded successfully',
                 'data' => [
-                    'shift' => new ShiftDetailResource($updatedShift->fresh()->loadFullRelationships()),
+                    'shift' => new ShiftDetailResource($freshShift),
                     'handover_details' => [
                         'total_sales' => (float) $shiftModel->total_sales,
                         'handover_amount' => (float) $request->handover_amount,
@@ -580,7 +593,7 @@ class ShiftEndController extends Controller
                         'variance_type' => $variance > 0 ? 'Over' : ($variance < 0 ? 'Short' : 'None'),
                         'handover_to_type' => $handoverToType,
                         'handover_to' => $handoverToName,
-                        'status' => 'pending',
+                        'status' => $handoverStatus,
                     ]
                 ]
             ]);
@@ -700,6 +713,22 @@ class ShiftEndController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Normalize handover status to standard values: pending, accepted, rejected
+     */
+    private function normalizeHandoverStatus(?string $status): string
+    {
+        if (in_array($status, ['approved', 'accepted', 'completed'])) {
+            return 'accepted';
+        }
+
+        if (in_array($status, ['rejected', 'rejected_final'])) {
+            return 'rejected';
+        }
+
+        return 'pending';
     }
 
     /**
