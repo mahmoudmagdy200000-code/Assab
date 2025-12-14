@@ -454,6 +454,18 @@ class NewOrderController extends BaseController
             // Get transport details once (same for all items)
             $transportDetails = $this->calculateTransportDetails($fromBranchId, $toBranchId);
 
+            // Store requested item_id for later use in mapping
+            $requestedItemId = $validated['item_id'] ?? null;
+
+            // If item_id is provided, check BranchInventory first (source of truth)
+            // Store it in a variable accessible throughout the function
+            $inventoryItem = null;
+            if (!empty($validated['item_id'])) {
+                $inventoryItem = BranchInventory::where('branch_id', $fromBranchId)
+                    ->where('item_id', $validated['item_id'])
+                    ->first();
+            }
+
             // Get items from the transferring branch
             $query = BranchItem::where('branch_id', $fromBranchId)
                 ->with([
@@ -461,38 +473,44 @@ class NewOrderController extends BaseController
                 ]);
 
             // Filter by specific item_id if provided
-            // Store requested item_id for later use in mapping
-            $requestedItemId = $validated['item_id'] ?? null;
-
             if (!empty($validated['item_id'])) {
-                // First, check if BranchItem with this ID exists in this branch
-                $branchItemInBranch = BranchItem::where('branch_id', $fromBranchId)
-                    ->where('id', $validated['item_id'])
-                    ->exists();
+                if ($inventoryItem) {
+                    // Found in inventory - get the original BranchItem
+                    $originalItem = BranchItem::find($validated['item_id']);
+                    if ($originalItem) {
+                        // Check if BranchItem with this ID exists in THIS branch
+                        $branchItemInBranch = BranchItem::where('branch_id', $fromBranchId)
+                            ->where('id', $validated['item_id'])
+                            ->exists();
 
-                if ($branchItemInBranch) {
-                    // Item exists in this branch with the same ID - use it directly
-                    $query->where('id', $validated['item_id']);
-                } else {
-                    // Item doesn't exist in this branch - check if it exists in BranchInventory
-                    $inventory = BranchInventory::where('branch_id', $fromBranchId)
-                        ->where('item_id', $validated['item_id'])
-                        ->first();
-
-                    if ($inventory) {
-                        // Found in inventory - the item_id refers to a BranchItem
-                        // Get the original BranchItem to find by name in this branch
-                        $originalItem = BranchItem::find($validated['item_id']);
-                        if ($originalItem) {
-                            // Find BranchItem in this branch with the same item_name
-                            $query->where('item_name', $originalItem->item_name);
-                        } else {
-                            // If original item not found, try direct match
+                        if ($branchItemInBranch) {
+                            // Item exists in this branch with the same ID - use it directly
                             $query->where('id', $validated['item_id']);
+                        } else {
+                            // Item exists in inventory but not in BranchItem in this branch
+                            // Find by item_name in this branch (will use original item in mapping)
+                            $query->where('item_name', $originalItem->item_name);
                         }
                     } else {
-                        // Not in inventory and not in branch - try direct match anyway
+                        // If original BranchItem not found, try direct match
                         $query->where('id', $validated['item_id']);
+                    }
+                } else {
+                    // Not in inventory - check if BranchItem exists in this branch directly
+                    $branchItemInBranch = BranchItem::where('branch_id', $fromBranchId)
+                        ->where('id', $validated['item_id'])
+                        ->exists();
+
+                    if ($branchItemInBranch) {
+                        $query->where('id', $validated['item_id']);
+                    } else {
+                        // Try to find by item_name
+                        $originalItem = BranchItem::find($validated['item_id']);
+                        if ($originalItem) {
+                            $query->where('item_name', $originalItem->item_name);
+                        } else {
+                            $query->where('id', $validated['item_id']);
+                        }
                     }
                 }
             }
@@ -513,10 +531,10 @@ class NewOrderController extends BaseController
 
             // Transform the collection for the resource
             $transformedItems = $items->getCollection()->map(function ($item) use ($fromBranchId, $toBranchId, $transportDetails, $requestedItemId) {
-                // If item_id was requested and different from found item, use requested id
-                $itemIdForInventory = ($requestedItemId && $requestedItemId !== $item->id) ? $requestedItemId : $item->id;
+                // Use requested item_id for inventory lookup (this is what BranchInventory uses)
+                $itemIdForInventory = $requestedItemId ?? $item->id;
 
-                // Get inventory from transferring branch
+                // Get inventory from transferring branch using requested item_id
                 $fromInventory = BranchInventory::where('branch_id', $fromBranchId)
                     ->where('item_id', $itemIdForInventory)
                     ->first();
@@ -526,12 +544,20 @@ class NewOrderController extends BaseController
                     ->where('item_id', $itemIdForInventory)
                     ->first();
 
-                // If requested item_id is different, clone the item with requested id
-                $itemForResponse = $item;
+                // If requested item_id is different from found item, use the original item
                 if ($requestedItemId && $item->id !== $requestedItemId) {
-                    // Clone the item but change its id to the requested one
-                    $itemForResponse = clone $item;
-                    $itemForResponse->id = $requestedItemId;
+                    // Get the original BranchItem with requested id to use its data
+                    $originalItem = BranchItem::find($requestedItemId);
+                    if ($originalItem) {
+                        // Use original item's data
+                        $itemForResponse = $originalItem;
+                    } else {
+                        // If original not found, clone the found item with requested id
+                        $itemForResponse = clone $item;
+                        $itemForResponse->id = $requestedItemId;
+                    }
+                } else {
+                    $itemForResponse = $item;
                 }
 
                 // Return structured data for the resource
@@ -544,9 +570,40 @@ class NewOrderController extends BaseController
                 ];
             });
 
+            // If no items found but item_id was requested and exists in inventory, create item from original
+            if ($transformedItems->isEmpty() && $requestedItemId && $inventoryItem) {
+                // Get the original BranchItem (could be from any branch)
+                $originalItem = BranchItem::find($requestedItemId);
+                if ($originalItem) {
+                    $toInventory = BranchInventory::where('branch_id', $toBranchId)
+                        ->where('item_id', $requestedItemId)
+                        ->first();
+
+                    // Create a collection with one item
+                    $transformedItems = collect([[
+                        'item' => $originalItem,
+                        'from_inventory' => $inventoryItem,
+                        'to_inventory' => $toInventory,
+                        'transport_details' => $transportDetails,
+                        'requested_item_id' => $requestedItemId,
+                    ]]);
+
+                    // Update pagination to show this single item
+                    $items = new \Illuminate\Pagination\LengthAwarePaginator(
+                        collect([$originalItem]),
+                        1,
+                        15,
+                        1
+                    );
+                }
+            }
+
             // Create ResourceCollection and set the paginator
             $resourceCollection = TransferItemResource::collection($transformedItems);
-            $resourceCollection->resource = $items;
+            // Only set paginator if items exist (to avoid errors when manually creating collection)
+            if (isset($items)) {
+                $resourceCollection->resource = $items;
+            }
 
             // Get paginated response
             $response = $this->successResponse(
