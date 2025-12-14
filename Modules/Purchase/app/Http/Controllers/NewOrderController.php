@@ -462,18 +462,25 @@ class NewOrderController extends BaseController
 
             // Filter by specific item_id if provided
             if (!empty($validated['item_id'])) {
-                // Check if this item_id exists in BranchInventory for this branch
-                // BranchInventory.item_id refers to BranchItem.id
-                $hasInventory = BranchInventory::where('branch_id', $fromBranchId)
+                // First, check if this item_id exists in BranchInventory for this branch
+                $inventory = BranchInventory::where('branch_id', $fromBranchId)
                     ->where('item_id', $validated['item_id'])
-                    ->exists();
+                    ->first();
 
-                if ($hasInventory) {
-                    // If found in inventory, the BranchItem must exist (item_id references BranchItem.id)
-                    $query->where('id', $validated['item_id']);
+                if ($inventory) {
+                    // Found in inventory - get the original BranchItem to find by name
+                    // BranchInventory.item_id refers to BranchItem.id (could be from any branch)
+                    // We need to find the BranchItem in THIS branch with the same item_name
+                    $originalItem = BranchItem::find($inventory->item_id);
+                    if ($originalItem) {
+                        // Find BranchItem in this branch with the same item_name
+                        $query->where('item_name', $originalItem->item_name);
+                    } else {
+                        // If original item not found, try direct match
+                        $query->where('id', $validated['item_id']);
+                    }
                 } else {
-                    // If not in inventory, try to find by item_name (fallback)
-                    // This handles cases where the item exists in BranchItem but not in BranchInventory
+                    // Not in inventory - get the original item to find by name
                     $originalItem = BranchItem::find($validated['item_id']);
                     if ($originalItem) {
                         // Search by item_name in the target branch
