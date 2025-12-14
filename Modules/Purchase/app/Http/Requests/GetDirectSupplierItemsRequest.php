@@ -13,8 +13,8 @@ class GetDirectSupplierItemsRequest extends FormRequest
 
     public function rules(): array
     {
-        // No validation needed - this endpoint doesn't receive any data
-        // It returns all items from user's branch with supplier prices
-        return [];
+        return [
+            'item_id' => ['required', 'uuid', 'exists:branch_item,id'],
+        ];
     }
 }

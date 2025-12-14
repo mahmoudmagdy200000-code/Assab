@@ -879,10 +879,12 @@ class NewOrderController extends BaseController
     /**
      * Get Direct Supplier Items with prices
      *
-     * Returns all items from user's branch with prices from all available suppliers.
-     * For each item, shows the best supplier price.
+     * Returns suppliers for a specific item with prices.
      *
-     * Returns a list of items with:
+     * Input:
+     * - item_id (required)
+     *
+     * Returns:
      * - Item Name
      * - Item Logo
      * - Quantity (editable, default: 1)
@@ -896,97 +898,79 @@ class NewOrderController extends BaseController
     public function getDirectSupplierItems(GetDirectSupplierItemsRequest $request): JsonResponse
     {
         try {
+            $validated = $request->validated();
+            $itemId = $validated['item_id'];
             $branchId = auth()->user()->branch_id;
 
-            // Get all branch items
-            $branchItems = BranchItem::where('branch_id', $branchId)
-                ->orderBy('item_name', 'asc')
-                ->get();
+            // Get branch item
+            $branchItem = BranchItem::where('branch_id', $branchId)
+                ->where('id', $itemId)
+                ->first();
 
-            if ($branchItems->isEmpty()) {
-                return $this->successResponse(
-                    [
-                        'items' => [],
-                    ],
-                    'No items found in your branch'
-                );
+            if (!$branchItem) {
+                return $this->errorResponse('Item not found in your branch', 404);
             }
 
-            // Get all item IDs
-            $itemIds = $branchItems->pluck('id')->toArray();
-
-            // Load all supplier items in batch (for all items and all suppliers)
-            $supplierItems = SupplierItem::whereIn('item_id', $itemIds)
+            // Get all supplier items for this item
+            $supplierItems = SupplierItem::where('item_id', $itemId)
                 ->with('supplier')
                 ->available()
                 ->whereHas('supplier', fn($q) => $q->active())
-                ->get()
-                ->groupBy('item_id');
+                ->get();
 
-            // Get all active suppliers
-            $allSuppliers = PurchaseSupplier::active()
-                ->get()
-                ->keyBy('id');
-
-            // Build response items
-            $responseItems = $branchItems->map(function ($branchItem) use ($supplierItems, $allSuppliers) {
-                $itemId = $branchItem->id;
-
-                // Get item logo URL
-                $itemLogo = null;
-                if ($branchItem->item_logo) {
-                    if (is_array($branchItem->item_logo)) {
-                        $logo = $branchItem->item_logo[0] ?? null;
-                    } else {
-                        $logo = $branchItem->item_logo;
-                    }
-
-                    if ($logo) {
-                        $itemLogo = str_starts_with($logo, 'http')
-                            ? $logo
-                            : asset('storage/' . $logo);
-                    }
-                }
-
-                // Get suppliers for this item
-                $itemSupplierItems = $supplierItems->get($itemId, collect());
-
-                // Get best price (lowest price from all suppliers)
-                $bestPriceRate = 0;
-                $bestSupplier = null;
-                $suppliersList = [];
-
-                if ($itemSupplierItems->isNotEmpty()) {
-                    // Find best price
-                    $bestSupplierItem = $itemSupplierItems->sortBy('unit_price')->first();
-                    $bestPriceRate = (float) $bestSupplierItem->unit_price;
-                    $bestSupplier = $allSuppliers[$bestSupplierItem->supplier_id] ?? null;
-
-                    // Build suppliers list with prices
-                    foreach ($itemSupplierItems as $supplierItem) {
-                        $supplier = $allSuppliers[$supplierItem->supplier_id] ?? null;
-                        if ($supplier) {
-                            $suppliersList[] = [
-                                'supplier_id' => $supplier->id,
-                                'supplier_name' => $supplier->name,
-                                'supplier_image' => $supplier->image_url,
-                                'price_rate' => round((float) $supplierItem->unit_price, 2),
-                                'economy_price' => $supplierItem->economy_price ? round((float) $supplierItem->economy_price, 2) : null,
-                                'standard_price' => $supplierItem->standard_price ? round((float) $supplierItem->standard_price, 2) : null,
-                                'premium_price' => $supplierItem->premium_price ? round((float) $supplierItem->premium_price, 2) : null,
-                                'delivery_hours' => $supplierItem->delivery_hours,
-                            ];
-                        }
-                    }
+            // Get item logo URL
+            $itemLogo = null;
+            if ($branchItem->item_logo) {
+                if (is_array($branchItem->item_logo)) {
+                    $logo = $branchItem->item_logo[0] ?? null;
                 } else {
-                    // Fallback to branch item price if no supplier items found
-                    $bestPriceRate = (float) $branchItem->item_price;
+                    $logo = $branchItem->item_logo;
                 }
 
-                // Default quantity for calculation
-                $defaultQuantity = 1.0;
+                if ($logo) {
+                    $itemLogo = str_starts_with($logo, 'http')
+                        ? $logo
+                        : asset('storage/' . $logo);
+                }
+            }
 
-                return [
+            // Get best price (lowest price from all suppliers)
+            $bestPriceRate = 0;
+            $bestSupplier = null;
+            $suppliersList = [];
+
+            if ($supplierItems->isNotEmpty()) {
+                // Find best price
+                $bestSupplierItem = $supplierItems->sortBy('unit_price')->first();
+                $bestPriceRate = (float) $bestSupplierItem->unit_price;
+                $bestSupplier = $bestSupplierItem->supplier;
+
+                // Build suppliers list with prices
+                foreach ($supplierItems as $supplierItem) {
+                    $supplier = $supplierItem->supplier;
+                    if ($supplier) {
+                        $suppliersList[] = [
+                            'supplier_id' => $supplier->id,
+                            'supplier_name' => $supplier->name,
+                            'supplier_image' => $supplier->image_url,
+                            'price_rate' => round((float) $supplierItem->unit_price, 2),
+                            'economy_price' => $supplierItem->economy_price ? round((float) $supplierItem->economy_price, 2) : null,
+                            'standard_price' => $supplierItem->standard_price ? round((float) $supplierItem->standard_price, 2) : null,
+                            'premium_price' => $supplierItem->premium_price ? round((float) $supplierItem->premium_price, 2) : null,
+                            'delivery_hours' => $supplierItem->delivery_hours,
+                        ];
+                    }
+                }
+            } else {
+                // Fallback to branch item price if no supplier items found
+                $bestPriceRate = (float) $branchItem->item_price;
+            }
+
+            // Default quantity for calculation
+            $defaultQuantity = 1.0;
+
+            return $this->successResponse(
+                [
                     'item_id' => $itemId,
                     'item_name' => $branchItem->item_name,
                     'item_logo' => $itemLogo,
@@ -1000,12 +984,6 @@ class NewOrderController extends BaseController
                         'image' => $bestSupplier->image_url,
                     ] : null,
                     'suppliers' => $suppliersList, // All available suppliers with prices
-                ];
-            })->values();
-
-            return $this->successResponse(
-                [
-                    'items' => $responseItems,
                 ],
                 'Direct supplier items retrieved successfully'
             );
