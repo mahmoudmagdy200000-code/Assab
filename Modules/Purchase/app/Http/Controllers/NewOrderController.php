@@ -879,20 +879,19 @@ class NewOrderController extends BaseController
     /**
      * Get Direct Supplier Items with prices
      *
-     * Returns suppliers for a specific item with prices.
+     * Returns suppliers for a specific item with prices (similar structure to getBranches).
+     *
+     * Filters:
+     * - min_availability: Minimum availability percentage (0-100)
+     * - max_delivery_hours: Maximum delivery time in hours
+     * - max_distance_km: Maximum distance in kilometers
+     * - search: Search by supplier name
+     * - sort_by: Sort results (price, delivery_time, rating)
+     * - sort_order: Sort order (asc, desc)
      *
      * Input:
      * - item_id (required)
      * - quantity (optional, default: 1)
-     *
-     * Returns:
-     * - Item Name
-     * - Item Logo
-     * - Quantity (editable, default: 1)
-     * - Quality (editable, default: standard)
-     * - Price Rate (best price from available suppliers)
-     * - Total Price per Item = Price Rate × Quantity
-     * - Suppliers (list of all available suppliers with prices for this item)
      *
      * @group New Order
      */
@@ -901,6 +900,7 @@ class NewOrderController extends BaseController
         try {
             $validated = $request->validated();
             $itemId = $validated['item_id'];
+            $quantity = isset($validated['quantity']) ? (float) $validated['quantity'] : 1.0;
             $branchId = auth()->user()->branch_id;
 
             // Get branch item
@@ -912,12 +912,43 @@ class NewOrderController extends BaseController
                 return $this->errorResponse('Item not found in your branch', 404);
             }
 
+            // Prepare filters
+            $filters = [
+                'min_availability' => isset($validated['min_availability']) ? (float) $validated['min_availability'] : null,
+                'max_delivery_hours' => isset($validated['max_delivery_hours']) ? (int) $validated['max_delivery_hours'] : null,
+                'max_distance_km' => isset($validated['max_distance_km']) ? (float) $validated['max_distance_km'] : null,
+                'search' => $validated['search'] ?? null,
+            ];
+
+            // Validate filters
+            if (!empty($filters['min_availability']) && ($filters['min_availability'] < 0 || $filters['min_availability'] > 100)) {
+                return $this->errorResponse('min_availability must be between 0 and 100', 400);
+            }
+
+            if (!empty($filters['max_delivery_hours']) && $filters['max_delivery_hours'] < 1) {
+                return $this->errorResponse('max_delivery_hours must be a positive number', 400);
+            }
+
+            if (!empty($filters['max_distance_km']) && $filters['max_distance_km'] < 0) {
+                return $this->errorResponse('max_distance_km must be a positive number', 400);
+            }
+
             // Get all supplier items for this item
-            $supplierItems = SupplierItem::where('item_id', $itemId)
+            $query = SupplierItem::where('item_id', $itemId)
                 ->with('supplier')
                 ->available()
-                ->whereHas('supplier', fn($q) => $q->active())
-                ->get();
+                ->whereHas('supplier', fn($q) => $q->active());
+
+            // Apply filters
+            if (!empty($filters['max_delivery_hours'])) {
+                $query->byDeliveryTime($filters['max_delivery_hours']);
+            }
+
+            if (!empty($filters['search'])) {
+                $query->whereHas('supplier', fn($q) => $q->search($filters['search']));
+            }
+
+            $supplierItems = $query->get();
 
             // Get item logo URL
             $itemLogo = null;
@@ -935,57 +966,102 @@ class NewOrderController extends BaseController
                 }
             }
 
-            // Get best price (lowest price from all suppliers)
-            $bestPriceRate = 0;
-            $bestSupplier = null;
-            $suppliersList = [];
+            // Get current branch for distance calculation
+            $currentBranch = Branch::find($branchId);
+            $currentCoordinates = $this->parseCoordinates($currentBranch->map_coordinates ?? null);
 
-            if ($supplierItems->isNotEmpty()) {
-                // Find best price
-                $bestSupplierItem = $supplierItems->sortBy('unit_price')->first();
-                $bestPriceRate = (float) $bestSupplierItem->unit_price;
-                $bestSupplier = $bestSupplierItem->supplier;
+            // Build suppliers list with structure similar to getBranches
+            $suppliersList = collect($supplierItems)->map(function ($supplierItem) use (
+                $branchItem,
+                $itemId,
+                $quantity,
+                $itemLogo,
+                $filters,
+                $currentCoordinates
+            ) {
+                $supplier = $supplierItem->supplier;
+                if (!$supplier) {
+                    return null;
+                }
 
-                // Build suppliers list with prices
-                foreach ($supplierItems as $supplierItem) {
-                    $supplier = $supplierItem->supplier;
-                    if ($supplier) {
-                        $suppliersList[] = [
-                            'supplier_id' => $supplier->id,
-                            'supplier_name' => $supplier->name,
-                            'supplier_image' => $supplier->image_url,
-                            'price_rate' => round((float) $supplierItem->unit_price, 2),
-                            'economy_price' => $supplierItem->economy_price ? round((float) $supplierItem->economy_price, 2) : null,
-                            'standard_price' => $supplierItem->standard_price ? round((float) $supplierItem->standard_price, 2) : null,
-                            'premium_price' => $supplierItem->premium_price ? round((float) $supplierItem->premium_price, 2) : null,
-                            'delivery_hours' => $supplierItem->delivery_hours,
-                        ];
+                // Calculate distance (if supplier has coordinates)
+                $distance = null;
+                $distanceKm = null;
+                if ($currentCoordinates && $supplier->address) {
+                    // Try to parse coordinates from supplier address or use a default calculation
+                    $supplierCoordinates = $this->parseCoordinates($supplier->address);
+                    if ($supplierCoordinates) {
+                        $distance = $this->calculateDistance($currentCoordinates, $supplierCoordinates);
+                        $distanceKm = $distance ? round($distance['distance_km'], 2) : null;
                     }
                 }
-            } else {
-                // Fallback to branch item price if no supplier items found
-                $bestPriceRate = (float) $branchItem->item_price;
-            }
 
-            // Get quantity from request or use default
-            $quantity = isset($validated['quantity']) ? (float) $validated['quantity'] : 1.0;
+                // Apply distance filter
+                if (!empty($filters['max_distance_km']) && $distanceKm && $distanceKm > $filters['max_distance_km']) {
+                    return null;
+                }
+
+                // Calculate availability (assuming suppliers can always provide, but we can check min_order_quantity)
+                $availabilityPercentage = 100; // Default: always available
+                if ($supplierItem->max_order_quantity) {
+                    $maxAvailable = (float) $supplierItem->max_order_quantity;
+                    $availabilityPercentage = min(100, round(($maxAvailable / $quantity) * 100, 1));
+                }
+
+                // Apply availability filter
+                if (!empty($filters['min_availability']) && $availabilityPercentage < $filters['min_availability']) {
+                    return null;
+                }
+
+                $unitPrice = (float) $supplierItem->unit_price;
+                $totalAmount = $unitPrice * $quantity;
+
+                return [
+                    'supplier_id' => $supplier->id,
+                    'supplier' => [
+                        'id' => $supplier->id,
+                        'name' => $supplier->name,
+                        'image' => $supplier->image_url,
+                        'address' => $supplier->address,
+                        'phone' => $supplier->phone,
+                        'email' => $supplier->email,
+                    ],
+                    // Item Details
+                    'item_id' => $itemId,
+                    'item_title' => $branchItem->item_name,
+                    'item_code' => $branchItem->item_code,
+                    'item_logo' => $itemLogo,
+                    'quantity' => $quantity,
+                    'total_amount' => round($totalAmount, 2),
+                    // Pricing
+                    'price_rate' => round($unitPrice, 2),
+                    'economy_price' => $supplierItem->economy_price ? round((float) $supplierItem->economy_price, 2) : null,
+                    'standard_price' => $supplierItem->standard_price ? round((float) $supplierItem->standard_price, 2) : null,
+                    'premium_price' => $supplierItem->premium_price ? round((float) $supplierItem->premium_price, 2) : null,
+                    // Delivery
+                    'delivery_hours' => $supplierItem->delivery_hours,
+                    'delivery_days' => $supplierItem->delivery_hours ? round($supplierItem->delivery_hours / 24, 1) : null,
+                    // Availability
+                    'availability_percentage' => $availabilityPercentage,
+                    'min_order_quantity' => $supplierItem->min_order_quantity ? (float) $supplierItem->min_order_quantity : null,
+                    'max_order_quantity' => $supplierItem->max_order_quantity ? (float) $supplierItem->max_order_quantity : null,
+                    // Distance
+                    'distance_km' => $distanceKm,
+                    'estimated_hours' => $distance ? round($distance['estimated_hours'], 1) : null,
+                    // Rating
+                    'rating' => round((float) ($supplierItem->rating ?? $supplier->rating ?? 0), 1),
+                    'response_rate' => $supplier->response_rate_percentage ? round((float) $supplier->response_rate_percentage, 1) : null,
+                ];
+            })->filter()->values(); // Remove null values from filters
+
+            // Apply sorting
+            $sortBy = $validated['sort_by'] ?? 'price';
+            $sortOrder = $validated['sort_order'] ?? 'asc';
+
+            $suppliersList = $this->sortSuppliers($suppliersList, $sortBy, $sortOrder);
 
             return $this->successResponse(
-                [
-                    'item_id' => $itemId,
-                    'item_name' => $branchItem->item_name,
-                    'item_logo' => $itemLogo,
-                    'quantity' => $quantity, // From request or default
-                    'quality' => 'standard', // Editable, default
-                    'price_rate' => round($bestPriceRate, 2),
-                    'total_price' => round($bestPriceRate * $quantity, 2),
-                    'best_supplier' => $bestSupplier ? [
-                        'id' => $bestSupplier->id,
-                        'name' => $bestSupplier->name,
-                        'image' => $bestSupplier->image_url,
-                    ] : null,
-                    'suppliers' => $suppliersList, // All available suppliers with prices
-                ],
+                $suppliersList,
                 'Direct supplier items retrieved successfully'
             );
         } catch (\Exception $e) {
@@ -999,6 +1075,95 @@ class NewOrderController extends BaseController
                 500
             );
         }
+    }
+
+    /**
+     * Sort suppliers by specified criteria
+     */
+    private function sortSuppliers($suppliers, string $sortBy, string $sortOrder)
+    {
+        $isAscending = strtolower($sortOrder) === 'asc';
+
+        $sortKey = match ($sortBy) {
+            'price' => 'price_rate',
+            'delivery_time' => 'delivery_hours',
+            'rating' => 'rating',
+            default => 'price_rate',
+        };
+
+        $sorted = $isAscending
+            ? $suppliers->sortBy(function ($item) use ($sortKey) {
+                $value = $item[$sortKey] ?? null;
+                if ($value === null) {
+                    return $sortKey === 'price_rate' ? PHP_FLOAT_MAX : PHP_FLOAT_MIN;
+                }
+                return $value;
+            })
+            : $suppliers->sortByDesc(function ($item) use ($sortKey) {
+                $value = $item[$sortKey] ?? null;
+                if ($value === null) {
+                    return $sortKey === 'price_rate' ? PHP_FLOAT_MIN : PHP_FLOAT_MAX;
+                }
+                return $value;
+            });
+
+        return $sorted->values();
+    }
+
+    /**
+     * Parse coordinates from string format
+     */
+    private function parseCoordinates(?string $coordinates): ?array
+    {
+        if (empty($coordinates)) {
+            return null;
+        }
+
+        // Try different formats
+        if (preg_match('/(\d+\.?\d*)[,\s]+(\d+\.?\d*)/', $coordinates, $matches)) {
+            return [
+                'lat' => (float) $matches[1],
+                'lng' => (float) $matches[2],
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Calculate distance between two coordinates
+     */
+    private function calculateDistance(?array $from, ?array $to): ?array
+    {
+        if (!$from || !$to) {
+            return null;
+        }
+
+        // Haversine formula for distance calculation
+        $earthRadius = 6371; // Earth radius in kilometers
+
+        $latFrom = deg2rad($from['lat']);
+        $lonFrom = deg2rad($from['lng']);
+        $latTo = deg2rad($to['lat']);
+        $lonTo = deg2rad($to['lng']);
+
+        $latDelta = $latTo - $latFrom;
+        $lonDelta = $lonTo - $lonFrom;
+
+        $a = sin($latDelta / 2) * sin($latDelta / 2) +
+            cos($latFrom) * cos($latTo) *
+            sin($lonDelta / 2) * sin($lonDelta / 2);
+
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+        $distanceKm = $earthRadius * $c;
+
+        // Estimate hours (assuming average speed of 40 km/h in urban areas)
+        $estimatedHours = ($distanceKm / 40) + 0.5; // Add 0.5 hours for loading/unloading
+
+        return [
+            'distance_km' => $distanceKm,
+            'estimated_hours' => $estimatedHours,
+        ];
     }
 
     /**
