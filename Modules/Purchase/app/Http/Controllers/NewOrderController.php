@@ -26,11 +26,15 @@ use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Http\Requests\GetTransferItemsRequest;
+use Modules\Purchase\Http\Requests\GetDirectSupplierItemsRequest;
+use Modules\Purchase\Http\Requests\GetPurchasingOfficerItemsRequest;
 // Add these imports
 use Modules\Branch\Models\Branch;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Modules\Purchase\Models\SupplierItem;
+use Modules\Purchase\Models\PurchaseSupplier;
 
 class NewOrderController extends BaseController
 {
@@ -220,45 +224,41 @@ class NewOrderController extends BaseController
 
     /**
      * Sort branches by specified criteria
+     * Optimized to use sortBy/sortByDesc instead of sort with callback
      */
     private function sortBranches($branches, string $sortBy, string $sortOrder)
     {
         $isAscending = strtolower($sortOrder) === 'asc';
 
-        return $branches->sort(function ($a, $b) use ($sortBy, $isAscending) {
-            $valueA = match ($sortBy) {
-                'distance' => $a['distance_km'] ?? PHP_FLOAT_MAX,
-                'response_rate' => $a['response_rate'] ?? 0,
-                'rating' => $a['rating'] ?? 0,
-                'availability' => $a['availability_percentage'] ?? 0,
-                default => $a['distance_km'] ?? PHP_FLOAT_MAX,
-            };
+        // Map sort field to data key
+        $sortKey = match ($sortBy) {
+            'distance' => 'distance_km',
+            'response_rate' => 'response_rate',
+            'rating' => 'rating',
+            'availability' => 'availability_percentage',
+            default => 'distance_km',
+        };
 
-            $valueB = match ($sortBy) {
-                'distance' => $b['distance_km'] ?? PHP_FLOAT_MAX,
-                'response_rate' => $b['response_rate'] ?? 0,
-                'rating' => $b['rating'] ?? 0,
-                'availability' => $b['availability_percentage'] ?? 0,
-                default => $b['distance_km'] ?? PHP_FLOAT_MAX,
-            };
+        // Use sortBy/sortByDesc which is more efficient than sort with callback
+        $sorted = $isAscending
+            ? $branches->sortBy(function ($item) use ($sortKey) {
+                $value = $item[$sortKey] ?? null;
+                // Handle null values - put them at the end by using a high value
+                if ($value === null) {
+                    return $sortKey === 'distance_km' ? PHP_FLOAT_MAX : PHP_FLOAT_MIN;
+                }
+                return $value;
+            })
+            : $branches->sortByDesc(function ($item) use ($sortKey) {
+                $value = $item[$sortKey] ?? null;
+                // Handle null values - put them at the end by using a low value
+                if ($value === null) {
+                    return $sortKey === 'distance_km' ? PHP_FLOAT_MIN : PHP_FLOAT_MAX;
+                }
+                return $value;
+            });
 
-            // Handle null values - put them at the end
-            if ($valueA === null && $valueB === null) {
-                return 0;
-            }
-            if ($valueA === null) {
-                return 1;
-            }
-            if ($valueB === null) {
-                return -1;
-            }
-
-            if ($isAscending) {
-                return $valueA <=> $valueB;
-            } else {
-                return $valueB <=> $valueA;
-            }
-        })->values();
+        return $sorted->values();
     }
 
     /**
@@ -375,12 +375,25 @@ class NewOrderController extends BaseController
     public function getSummary(string $id): JsonResponse
     {
         try {
+            // Performance optimization: Use select to limit columns and eager load relationships
             $order = PurchaseOrder::with([
-                'items',
-                'supplier',
-                'branch',
-                'fromBranch',
-                'requestedBy',
+                'items:id,purchase_order_id,item_id,quantity,unit_price,total_price',
+                'supplier:id,name,phone,email',
+                'branch:id,name,location',
+                'fromBranch:id,name,location',
+                'requestedBy:id,name,email',
+            ])->select([
+                'id',
+                'order_number',
+                'order_type',
+                'status',
+                'branch_id',
+                'supplier_id',
+                'from_branch_id',
+                'requested_by',
+                'total_amount',
+                'created_at',
+                'updated_at'
             ])->find($id);
 
             if (!$order) {
@@ -536,49 +549,93 @@ class NewOrderController extends BaseController
             }
 
             $items = $query->paginate($perPage);
+            $itemsCollection = $items->getCollection();
+
+            // Performance optimization: Load all inventories in batch queries instead of N+1
+            $itemIds = $itemsCollection->pluck('id')->toArray();
+
+            // Load all from inventories in one query
+            $fromInventories = BranchInventory::where('branch_id', $fromBranchId)
+                ->whereIn('item_id', $itemIds)
+                ->get()
+                ->keyBy('item_id');
+
+            // Load all to inventories in one query
+            $toInventories = BranchInventory::where('branch_id', $toBranchId)
+                ->whereIn('item_id', $itemIds)
+                ->get()
+                ->keyBy('item_id');
+
+            // Performance optimization: Load all original items in batch if needed
+            $itemNamesAndCodes = $itemsCollection->map(function ($item) {
+                return ['name' => $item->item_name, 'code' => $item->item_code];
+            })->unique(function ($item) {
+                return $item['name'] . '|' . $item['code'];
+            });
+
+            // Build a map of (item_name, item_code) -> original item_id
+            $originalItemsMap = [];
+            if (!$requestedItemId && $itemNamesAndCodes->isNotEmpty()) {
+                $names = $itemNamesAndCodes->pluck('name')->unique()->toArray();
+                $codes = $itemNamesAndCodes->pluck('code')->unique()->toArray();
+
+                $originalItems = BranchItem::whereIn('item_name', $names)
+                    ->whereIn('item_code', $codes)
+                    ->select('id', 'item_name', 'item_code')
+                    ->orderBy('created_at', 'asc')
+                    ->get()
+                    ->groupBy(function ($item) {
+                        return $item->item_name . '|' . $item->item_code;
+                    })
+                    ->map(function ($group) {
+                        return $group->first(); // Get oldest one (original)
+                    });
+
+                foreach ($originalItems as $item) {
+                    $key = $item->item_name . '|' . $item->item_code;
+                    $originalItemsMap[$key] = $item->id;
+                }
+            }
+
+            // Load requested original item if needed
+            $requestedOriginalItem = null;
+            if ($requestedItemId) {
+                $requestedOriginalItem = BranchItem::find($requestedItemId);
+            }
 
             // Transform the collection for the resource
-            $transformedItems = $items->getCollection()->map(function ($item) use ($fromBranchId, $toBranchId, $transportDetails, $requestedItemId, $inventoryItem) {
+            $transformedItems = $itemsCollection->map(function ($item) use (
+                $fromInventories,
+                $toInventories,
+                $transportDetails,
+                $requestedItemId,
+                $originalItemsMap,
+                $requestedOriginalItem
+            ) {
                 // Use the found item's id for inventory lookup (this is the local BranchItem id)
                 $itemIdForInventory = $item->id;
 
-                // Get inventory from transferring branch using local item id
-                $fromInventory = BranchInventory::where('branch_id', $fromBranchId)
-                    ->where('item_id', $itemIdForInventory)
-                    ->first();
-
-                // Get inventory from receiving branch (optional, for reference)
-                $toInventory = BranchInventory::where('branch_id', $toBranchId)
-                    ->where('item_id', $itemIdForInventory)
-                    ->first();
+                // Get inventory from maps (O(1) lookup instead of query)
+                $fromInventory = $fromInventories[$itemIdForInventory] ?? null;
+                $toInventory = $toInventories[$itemIdForInventory] ?? null;
 
                 // Determine which item_id to use in response
                 // If item_id was requested, use it; otherwise try to find original item_id
                 $responseItemId = $requestedItemId;
 
                 if (!$responseItemId) {
-                    // Try to find the original BranchItem (from any branch) with same item_name
-                    // This helps maintain consistency with getBranchesWithStock which uses original item_id
-                    $originalItem = BranchItem::where('item_name', $item->item_name)
-                        ->where('item_code', $item->item_code)
-                        ->orderBy('created_at', 'asc') // Get the oldest one (original)
-                        ->first();
-
-                    if ($originalItem) {
-                        $responseItemId = $originalItem->id;
-                    } else {
-                        $responseItemId = $item->id;
-                    }
+                    // Use pre-loaded map instead of query
+                    $key = $item->item_name . '|' . $item->item_code;
+                    $responseItemId = $originalItemsMap[$key] ?? $item->id;
                 }
 
                 // Prepare item for response
                 if ($responseItemId && $responseItemId !== $item->id) {
-                    // Get the original BranchItem with response item_id
-                    $originalItem = BranchItem::find($responseItemId);
-                    if ($originalItem) {
-                        $itemForResponse = $originalItem;
+                    // Use pre-loaded original item if available
+                    if ($requestedOriginalItem && $requestedOriginalItem->id === $responseItemId) {
+                        $itemForResponse = $requestedOriginalItem;
                     } else {
-                        // If original not found, clone the found item with response item_id
+                        // Fallback: clone the found item with response item_id
                         $itemForResponse = clone $item;
                         $itemForResponse->id = $responseItemId;
                     }
@@ -679,9 +736,14 @@ class NewOrderController extends BaseController
     private function calculateTransportDetails(string $fromBranchId, string $toBranchId): array
     {
         try {
-            // Get branches
-            $fromBranch = Branch::find($fromBranchId);
-            $toBranch = Branch::find($toBranchId);
+            // Performance optimization: Load only needed columns
+            $branches = Branch::whereIn('id', [$fromBranchId, $toBranchId])
+                ->select('id', 'name', 'location')
+                ->get()
+                ->keyBy('id');
+
+            $fromBranch = $branches[$fromBranchId] ?? null;
+            $toBranch = $branches[$toBranchId] ?? null;
 
             if (!$fromBranch || !$toBranch) {
                 return [
@@ -769,17 +831,19 @@ class NewOrderController extends BaseController
 
     /**
      * Auto-assign available driver
+     * Optimized to select only needed columns
      */
     private function autoAssignDriver(string $branchId): ?array
     {
         try {
-            // Check for available drivers in the branch
+            // Performance optimization: Select only needed columns
             $driver = User::where('branch_id', $branchId)
                 ->where('role', 'driver')
-                ->where('status', 'active') // Assuming you have a status field
+                ->where('status', 'active')
                 ->whereDoesntHave('currentTransports', function ($query) {
                     $query->whereIn('status', ['in_transit', 'loading', 'unloading']);
                 })
+                ->select('id', 'name', 'phone', 'email', 'vehicle_number', 'vehicle_type', 'vehicle_capacity')
                 ->first();
 
             if (!$driver) {
@@ -789,6 +853,7 @@ class NewOrderController extends BaseController
                     ->whereDoesntHave('currentTransports', function ($query) {
                         $query->whereIn('status', ['in_transit', 'loading', 'unloading']);
                     })
+                    ->select('id', 'name', 'phone', 'email', 'vehicle_number', 'vehicle_type', 'vehicle_capacity')
                     ->first();
             }
 
@@ -808,6 +873,265 @@ class NewOrderController extends BaseController
         } catch (\Exception $e) {
             Log::error('Error auto-assigning driver: ' . $e->getMessage());
             return null;
+        }
+    }
+
+    /**
+     * Get Direct Supplier Items with prices
+     *
+     * Returns a list of items with:
+     * - Item Name
+     * - Item Logo
+     * - Quantity
+     * - Quality
+     * - Price Rate
+     * - Total Price per Item = Price Rate × Quantity
+     *
+     * @group New Order
+     */
+    public function getDirectSupplierItems(GetDirectSupplierItemsRequest $request): JsonResponse
+    {
+        try {
+            $validated = $request->validated();
+            $supplierId = $validated['supplier_id'];
+            $items = $validated['items'];
+
+            // Get supplier
+            $supplier = PurchaseSupplier::find($supplierId);
+            if (!$supplier) {
+                return $this->errorResponse('Supplier not found', 404);
+            }
+
+            // Get item IDs
+            $itemIds = collect($items)->pluck('item_id')->toArray();
+
+            // Load all branch items in one query
+            $branchItems = BranchItem::whereIn('id', $itemIds)
+                ->get()
+                ->keyBy('id');
+
+            // Load all supplier items in one query
+            $supplierItems = SupplierItem::where('supplier_id', $supplierId)
+                ->whereIn('item_id', $itemIds)
+                ->get()
+                ->keyBy('item_id');
+
+            // Build response items
+            $responseItems = collect($items)->map(function ($itemData) use ($branchItems, $supplierItems) {
+                $itemId = $itemData['item_id'];
+                $quantity = (float) $itemData['quantity'];
+                $quality = $itemData['quality'] ?? 'standard';
+
+                $branchItem = $branchItems[$itemId] ?? null;
+                if (!$branchItem) {
+                    return null;
+                }
+
+                // Get price from supplier item
+                $supplierItem = $supplierItems[$itemId] ?? null;
+                $priceRate = 0;
+
+                if ($supplierItem) {
+                    $priceRate = (float) $supplierItem->getPriceByQuality($quality);
+                } else {
+                    // Fallback to branch item price if supplier item not found
+                    $priceRate = (float) $branchItem->item_price;
+                }
+
+                // Get item logo URL
+                $itemLogo = null;
+                if ($branchItem->item_logo) {
+                    if (is_array($branchItem->item_logo)) {
+                        $logo = $branchItem->item_logo[0] ?? null;
+                    } else {
+                        $logo = $branchItem->item_logo;
+                    }
+
+                    if ($logo) {
+                        $itemLogo = str_starts_with($logo, 'http')
+                            ? $logo
+                            : asset('storage/' . $logo);
+                    }
+                }
+
+                return [
+                    'item_id' => $itemId,
+                    'item_name' => $branchItem->item_name,
+                    'item_logo' => $itemLogo,
+                    'quantity' => $quantity,
+                    'quality' => $quality,
+                    'price_rate' => round($priceRate, 2),
+                    'total_price' => round($priceRate * $quantity, 2),
+                ];
+            })->filter()->values();
+
+            return $this->successResponse(
+                [
+                    'supplier' => [
+                        'id' => $supplier->id,
+                        'name' => $supplier->name,
+                        'image' => $supplier->image_url,
+                    ],
+                    'items' => $responseItems,
+                ],
+                'Direct supplier items retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            Log::error('Error fetching direct supplier items: ' . $e->getMessage(), [
+                'exception' => $e,
+                'request' => $request->all(),
+            ]);
+
+            return $this->errorResponse(
+                'Error in fetching direct supplier items: ' . $e->getMessage(),
+                500
+            );
+        }
+    }
+
+    /**
+     * Get Purchasing Officer Items with price comparison
+     *
+     * Returns a list of items from purchasing officer with:
+     * - Item Name
+     * - Item Logo
+     * - Quantity
+     * - Quality
+     * - Preferred Delivery Date
+     * - Latest Delivery Date
+     * - Special Instructions (Text)
+     * - Price Comparison:
+     *   - Total Amount from Direct Supplier
+     *   - Total Amount via Purchasing Officer
+     *   - Savings = (Total from Direct Supplier – Total from Purchasing Officer)
+     *   - Total Expected Savings = Sum of all item savings
+     *
+     * @group New Order
+     */
+    public function getPurchasingOfficerItems(GetPurchasingOfficerItemsRequest $request): JsonResponse
+    {
+        try {
+            $branchId = auth()->user()->branch_id;
+
+            // Get branch items (similar to getBranchItems but for purchasing officer)
+            $branchItems = BranchItem::where('branch_id', $branchId)
+                ->orderBy('item_name', 'asc')
+                ->get();
+
+            // Get all item IDs
+            $itemIds = $branchItems->pluck('id')->toArray();
+
+            // Get purchasing officer prices for all items in batch
+            $poPrices = [];
+            foreach ($itemIds as $itemId) {
+                $poPrice = $this->priceService->getPurchasingOfficerPrices($itemId);
+                if ($poPrice) {
+                    $poPrices[$itemId] = $poPrice;
+                }
+            }
+
+            // Get direct supplier prices for all items in batch
+            $supplierPricesMap = [];
+            $supplierItems = SupplierItem::whereIn('item_id', $itemIds)
+                ->with('supplier')
+                ->available()
+                ->whereHas('supplier', fn($q) => $q->active())
+                ->get()
+                ->groupBy('item_id');
+
+            foreach ($supplierItems as $itemId => $items) {
+                // Get the best (lowest) price from all suppliers for this item
+                $bestPrice = $items->min('unit_price');
+                $supplierPricesMap[$itemId] = $bestPrice;
+            }
+
+            // Build response items
+            $responseItems = [];
+            $totalDirectSupplierAmount = 0;
+            $totalPurchasingOfficerAmount = 0;
+            $totalExpectedSavings = 0;
+
+            foreach ($branchItems as $branchItem) {
+                $itemId = $branchItem->id;
+
+                // Get item logo URL
+                $itemLogo = null;
+                if ($branchItem->item_logo) {
+                    if (is_array($branchItem->item_logo)) {
+                        $logo = $branchItem->item_logo[0] ?? null;
+                    } else {
+                        $logo = $branchItem->item_logo;
+                    }
+
+                    if ($logo) {
+                        $itemLogo = str_starts_with($logo, 'http')
+                            ? $logo
+                            : asset('storage/' . $logo);
+                    }
+                }
+
+                // Get prices
+                $poPrice = $poPrices[$itemId] ?? null;
+                $directSupplierPrice = $supplierPricesMap[$itemId] ?? null;
+
+                $poUnitPrice = $poPrice ? (float) $poPrice['unit_price'] : 0;
+                $directSupplierUnitPrice = $directSupplierPrice ? (float) $directSupplierPrice : 0;
+
+                // Use default quantity of 1 for comparison (can be edited by user)
+                $defaultQuantity = 1.0;
+
+                $directSupplierTotal = $directSupplierUnitPrice * $defaultQuantity;
+                $poTotal = $poUnitPrice * $defaultQuantity;
+                $savings = $directSupplierTotal - $poTotal;
+
+                $totalDirectSupplierAmount += $directSupplierTotal;
+                $totalPurchasingOfficerAmount += $poTotal;
+                $totalExpectedSavings += $savings;
+
+                $responseItems[] = [
+                    'item_id' => $itemId,
+                    'item_name' => $branchItem->item_name,
+                    'item_logo' => $itemLogo,
+                    'quantity' => $defaultQuantity, // Editable
+                    'quality' => 'standard', // Editable, default
+                    'preferred_delivery_date' => null, // Editable
+                    'latest_delivery_date' => null, // Editable
+                    'special_instructions' => null, // Editable
+                    'price_comparison' => [
+                        'direct_supplier' => [
+                            'unit_price' => round($directSupplierUnitPrice, 2),
+                            'total_amount' => round($directSupplierTotal, 2),
+                        ],
+                        'purchasing_officer' => [
+                            'unit_price' => round($poUnitPrice, 2),
+                            'total_amount' => round($poTotal, 2),
+                        ],
+                        'savings' => round($savings, 2),
+                    ],
+                ];
+            }
+
+            return $this->successResponse(
+                [
+                    'items' => $responseItems,
+                    'price_comparison_summary' => [
+                        'total_amount_from_direct_supplier' => round($totalDirectSupplierAmount, 2),
+                        'total_amount_via_purchasing_officer' => round($totalPurchasingOfficerAmount, 2),
+                        'total_expected_savings' => round($totalExpectedSavings, 2),
+                    ],
+                ],
+                'Purchasing officer items retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            Log::error('Error fetching purchasing officer items: ' . $e->getMessage(), [
+                'exception' => $e,
+                'request' => $request->all(),
+            ]);
+
+            return $this->errorResponse(
+                'Error in fetching purchasing officer items: ' . $e->getMessage(),
+                500
+            );
         }
     }
 }

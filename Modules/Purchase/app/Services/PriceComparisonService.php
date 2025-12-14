@@ -155,7 +155,7 @@ class PriceComparisonService
     /**
      * Get purchasing officer prices from actual purchase orders
      */
-    private function getPurchasingOfficerPrices(string $itemId): ?array
+    public function getPurchasingOfficerPrices(string $itemId): ?array
     {
         $threeMonthsAgo = now()->subMonths(3);
 

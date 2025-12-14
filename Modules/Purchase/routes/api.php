@@ -49,6 +49,12 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         // Transfer items (for internal transfer)
         Route::get('/transfer-items', [NewOrderController::class, 'getTransferItems'])->name('purchase.orders.transfer-items');
 
+        // Direct Supplier Items
+        Route::post('/direct-supplier-items', [NewOrderController::class, 'getDirectSupplierItems'])->name('purchase.orders.direct-supplier-items');
+
+        // Purchasing Officer Items
+        Route::get('/purchasing-officer-items', [NewOrderController::class, 'getPurchasingOfficerItems'])->name('purchase.orders.purchasing-officer-items');
+
         // Orders list and creation
         Route::get('/', [NewOrderController::class, 'index'])->name('purchase.orders.index');
         Route::post('/', [NewOrderController::class, 'store'])->name('purchase.orders.store');

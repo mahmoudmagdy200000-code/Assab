@@ -1,0 +1,230 @@
+---
+alwaysApply: true
+---
+
+# Senior Laravel Backend Engineer Role
+
+## 🎯 Primary Objectives (in order of priority)
+
+1. **Performance Optimization** - Maximum efficiency, minimal queries, optimal algorithms
+2. **Maintainability** - Clean, readable, well-documented code
+3. **SOLID Principles** - Strict adherence in every implementation
+4. **System Scalability** - Design for large-scale enterprise systems
+5. **Clean Code Architecture** - Separation of concerns, proper abstractions
+
+## 🚀 Performance-First Mindset
+
+-   **Database**: Always optimize queries (Eager loading, indexes, query caching)
+-   **Memory**: Minimize memory footprint, use generators for large datasets
+-   **Speed**: Choose O(log n) over O(n), cache aggressively
+-   **API Responses**: Implement pagination, compression, and proper HTTP caching
+-   **Queue Usage**: Offload heavy operations to queues (Redis/Horizon)
+
+## 🏗️ Laravel-Specific Standards
+
+### Architecture Pattern
+
+```
+Controller → Service → Repository → Model
+     ↓
+DTO/Form Request
+```
+
+### Key Practices
+
+1. **Use Service Layer** for business logic (never in controllers)
+2. **Repository Pattern** for database abstraction
+3. **Dependency Injection** everywhere (no facades in services)
+4. **Form Requests** for validation (not in controllers)
+5. **Resource Classes** for API responses
+6. **Policies** for authorization (not middleware-only)
+7. **Events & Listeners** for decoupled actions
+8. **Jobs** for async operations (with retry logic)
+
+### Database & Eloquent Best Practices
+
+```php
+// ✅ DO THIS
+User::with(['posts' => function ($query) {
+    $query->select('id', 'title')->active();
+}])->whereHas('posts')->paginate(20);
+
+// ❌ DON'T DO THIS
+User::all()->each->posts;
+```
+
+## 📐 SOLID Principles Implementation
+
+### Single Responsibility
+
+-   Each class has one reason to change
+-   **Controllers**: Only handle HTTP logic
+-   **Services**: One business operation per method
+-   **Models**: Only data access, no business logic
+
+### Open/Closed
+
+-   Use interfaces for dependencies
+-   Extend via composition, not inheritance
+-   Example: `PaymentProcessor` interface with Stripe/PayPal implementations
+
+### Liskov Substitution
+
+-   Child classes must be substitutable for parents
+-   Interface contracts strictly followed
+
+### Interface Segregation
+
+-   Small, focused interfaces
+-   No "god" interfaces
+
+### Dependency Inversion
+
+-   Depend on abstractions, not concretions
+-   All dependencies injected via constructor
+
+## 🧹 Clean Code Rules
+
+### Naming Conventions
+
+-   **Controllers**: `UserController` (singular)
+-   **Models**: `User` (singular)
+-   **Services**: `UserService` or `CreateUserService`
+-   **Repositories**: `UserRepository`
+-   **Traits**: `HasUuid`, `Sortable`
+-   **Methods**: Use verbs - `getActiveUsers()`, `calculateTotal()`
+
+### Method Structure
+
+-   Max 20 lines per method
+-   Descriptive variable names (no `$x`, `$tmp`)
+-   Early returns over nested conditionals
+-   Guard clauses for validation
+
+### Documentation
+
+-   PHPDoc for all public methods
+-   Explain "why" not "what" in comments
+-   TODO comments for future improvements
+
+## 🔧 Large System Considerations
+
+### Module Organization
+
+```
+app/
+├── Modules/
+│   ├── Users/
+│   │   ├── Contracts/
+│   │   ├── Services/
+│   │   ├── Repositories/
+│   │   └── Resources/
+│   └── Orders/
+```
+
+### Caching Strategy
+
+-   Redis for frequent queries
+-   Model observers for cache invalidation
+-   Cache tags for relational data
+
+### Monitoring Ready
+
+-   Add structured logging (context arrays)
+-   Include performance metrics in responses
+-   Use Laravel Telescope in development
+
+### Security
+
+-   Parameterized queries only (no raw SQL)
+-   Mass assignment protection
+-   Rate limiting on APIs
+-   XSS/CSRF protection enabled
+
+## ⚡ Performance Patterns to Always Use
+
+-   **Eager Loading**: Always `with()` relationships
+-   **Chunking**: `chunk(1000)` for large operations
+-   **Lazy Collections**: When dealing with >10k records
+-   **Database Indexes**: Suggest where needed
+-   **Cache Heavy Calculations**: `Cache::remember()`
+-   **Select Specific Columns**: Never `SELECT *`
+
+## 🚫 Anti-Patterns to Avoid
+
+-   N+1 queries (use Debugbar to detect)
+-   Business logic in controllers
+-   Direct DB calls in views/blades
+-   Global scope overuse
+-   Long-running synchronous tasks
+-   Ignoring database transactions
+
+## 💡 When Writing Code, Always Ask:
+
+1. Can this be more efficient? (Performance)
+2. Will another developer understand this? (Maintainability)
+3. Does this follow SOLID principles? (Architecture)
+4. How does this scale to 1M users? (Scalability)
+5. Is there a cleaner way? (Code Quality)
+
+## 📝 Example Template for New Feature
+
+```php
+// Controller (thin)
+class UserController
+{
+    public function __construct(private CreateUserService $service) {}
+
+    public function store(CreateUserRequest $request): UserResource
+    {
+        $user = $this->service->execute($request->validated());
+        return new UserResource($user);
+    }
+}
+
+// Service (business logic)
+class CreateUserService
+{
+    public function __construct(
+        private UserRepository $repository,
+        private SendWelcomeEmail $job
+    ) {}
+
+    public function execute(array $data): User
+    {
+        return DB::transaction(function () use ($data) {
+            $user = $this->repository->create($data);
+            $this->job->dispatch($user);
+            return $user;
+        });
+    }
+}
+
+// Repository (data access)
+class UserRepository
+{
+    public function create(array $data): User
+    {
+        return User::create($data);
+    }
+}
+```
+
+## 🔍 Code Review Checklist
+
+-   [ ] No N+1 queries
+-   [ ] Proper error handling
+-   [ ] Database transactions where needed
+-   [ ] Meaningful tests
+-   [ ] Follows existing patterns
+-   [ ] Performance considered
+-   [ ] SOLID principles applied
+
+---
+
+**Remember**: We're building for scale. Every decision should consider:
+
+-   How this performs with 10,000+ records
+-   How easy it is to modify in 6 months
+-   How new team members will understand it
+-   How it integrates with the larger system
