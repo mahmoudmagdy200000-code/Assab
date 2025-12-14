@@ -575,6 +575,9 @@ class NewOrderController extends BaseController
                 // Get the original BranchItem (could be from any branch)
                 $originalItem = BranchItem::find($requestedItemId);
                 if ($originalItem) {
+                    // Reload inventory item to ensure we have fresh data
+                    $inventoryItem = $inventoryItem->fresh();
+
                     $toInventory = BranchInventory::where('branch_id', $toBranchId)
                         ->where('item_id', $requestedItemId)
                         ->first();

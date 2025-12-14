@@ -36,8 +36,9 @@ class TransferItemResource extends JsonResource
         }
 
         // Calculate available quantity in transferring branch
+        // Use actual_available accessor (same as getBranchesWithStock uses)
         $availableQuantity = $fromInventory
-            ? (float) ($fromInventory->available_quantity - $fromInventory->reserved_quantity)
+            ? (float) $fromInventory->actual_available
             : 0.0;
 
         // Calculate remaining balance in transferring branch (same as available for now)
@@ -78,8 +79,8 @@ class TransferItemResource extends JsonResource
 
             // Available in Transferring Branch
             'available_in_transferring_branch' => [
-                'quantity' => (float) ($fromInventory->available_quantity ?? 0),
-                'reserved_quantity' => (float) ($fromInventory->reserved_quantity ?? 0),
+                'quantity' => $fromInventory ? (float) $fromInventory->available_quantity : 0.0,
+                'reserved_quantity' => $fromInventory ? (float) $fromInventory->reserved_quantity : 0.0,
                 'actual_available' => $availableQuantity,
                 'quality' => $quality,
                 'quality_label' => $qualityLabel,
