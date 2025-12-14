@@ -404,6 +404,7 @@ class VarianceCalculationService
         }
 
         $result['total_variance_amount'] = $totalVarianceAmount;
+        $result['variance_type'] = $shift->variance > 0 ? 'Over' : 'Short';
 
         return $result;
     }
