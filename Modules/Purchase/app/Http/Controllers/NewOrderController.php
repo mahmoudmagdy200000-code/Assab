@@ -543,10 +543,7 @@ class NewOrderController extends BaseController
                 $itemIdForInventory = $item->id;
 
                 // Get inventory from transferring branch using local item id
-                // If inventoryItem was already found, use it; otherwise search again
-                $fromInventory = $inventoryItem && $inventoryItem->item_id === $item->id
-                    ? $inventoryItem
-                    : BranchInventory::where('branch_id', $fromBranchId)
+                $fromInventory = BranchInventory::where('branch_id', $fromBranchId)
                     ->where('item_id', $itemIdForInventory)
                     ->first();
 
@@ -555,17 +552,35 @@ class NewOrderController extends BaseController
                     ->where('item_id', $itemIdForInventory)
                     ->first();
 
-                // If requested item_id is different from found item, use the original item
-                if ($requestedItemId && $item->id !== $requestedItemId) {
-                    // Get the original BranchItem with requested id to use its data
-                    $originalItem = BranchItem::find($requestedItemId);
+                // Determine which item_id to use in response
+                // If item_id was requested, use it; otherwise try to find original item_id
+                $responseItemId = $requestedItemId;
+
+                if (!$responseItemId) {
+                    // Try to find the original BranchItem (from any branch) with same item_name
+                    // This helps maintain consistency with getBranchesWithStock which uses original item_id
+                    $originalItem = BranchItem::where('item_name', $item->item_name)
+                        ->where('item_code', $item->item_code)
+                        ->orderBy('created_at', 'asc') // Get the oldest one (original)
+                        ->first();
+
                     if ($originalItem) {
-                        // Use original item's data
+                        $responseItemId = $originalItem->id;
+                    } else {
+                        $responseItemId = $item->id;
+                    }
+                }
+
+                // Prepare item for response
+                if ($responseItemId && $responseItemId !== $item->id) {
+                    // Get the original BranchItem with response item_id
+                    $originalItem = BranchItem::find($responseItemId);
+                    if ($originalItem) {
                         $itemForResponse = $originalItem;
                     } else {
-                        // If original not found, clone the found item with requested id
+                        // If original not found, clone the found item with response item_id
                         $itemForResponse = clone $item;
-                        $itemForResponse->id = $requestedItemId;
+                        $itemForResponse->id = $responseItemId;
                     }
                 } else {
                     $itemForResponse = $item;
@@ -577,7 +592,7 @@ class NewOrderController extends BaseController
                     'from_inventory' => $fromInventory,
                     'to_inventory' => $toInventory,
                     'transport_details' => $transportDetails,
-                    'requested_item_id' => $requestedItemId, // Pass requested id to resource
+                    'requested_item_id' => $responseItemId, // Use determined item_id for response
                 ];
             });
 
