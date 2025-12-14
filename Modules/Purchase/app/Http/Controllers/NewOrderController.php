@@ -1018,9 +1018,7 @@ class NewOrderController extends BaseController
 
                 return [
                     'supplier_id' => $supplier->id,
-                    SupplierResource::collection($supplier)
-
-                    ,
+                    'supplier' => (new SupplierResource($supplier))->toArray(request()),
                     // Item Details
                     'item_id' => $itemId,
                     'item_title' => $branchItem->item_name,
