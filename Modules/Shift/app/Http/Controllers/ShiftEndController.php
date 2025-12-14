@@ -398,7 +398,8 @@ class ShiftEndController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'handover_to_type' => 'sometimes|in:cashier,branch_manager',
-            'next_cashier_id' => 'required_without:handover_to_type|nullable|exists:cashiers,id',
+            'next_cashier_id' => 'required_without_all:handover_to_type,branch_manager_id|nullable|exists:cashiers,id',
+            'branch_manager_id' => 'required_without_all:handover_to_type,next_cashier_id|nullable|exists:branch_managers,id',
             'handover_amount' => 'required|numeric|min:0',
             'handover_notes' => 'nullable|string|max:500',
             'variance' => 'sometimes|array',
@@ -436,11 +437,35 @@ class ShiftEndController extends Controller
             }
 
             // Determine handover type
-            $handoverToType = $request->input('handover_to_type', 'cashier');
+            $handoverToType = $request->input('handover_to_type');
             $handoverToId = null;
             $handoverToName = null;
 
-            if ($handoverToType === 'branch_manager') {
+            // Check if branch_manager_id is provided
+            if ($request->has('branch_manager_id')) {
+                $branchManager = \Modules\BranchManagers\Models\BranchManager::find($request->branch_manager_id);
+
+                if (!$branchManager) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Branch manager not found',
+                    ], 404);
+                }
+
+                // Verify branch manager belongs to the same branch
+                if ($branchManager->branch_id !== $shiftModel->shift->branch_id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Branch manager does not belong to this branch',
+                    ], 400);
+                }
+
+                $handoverToType = 'branch_manager';
+                $handoverToId = $branchManager->id;
+                $handoverToName = $branchManager->name;
+            }
+            // Check if handover_to_type is explicitly set to branch_manager
+            elseif ($handoverToType === 'branch_manager') {
                 $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
                     ->where('is_active', true)
                     ->first();
@@ -454,7 +479,18 @@ class ShiftEndController extends Controller
 
                 $handoverToId = $branchManager->id;
                 $handoverToName = $branchManager->name;
-            } else {
+            }
+            // Default to cashier
+            else {
+                $handoverToType = 'cashier';
+
+                if (!$request->has('next_cashier_id')) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'next_cashier_id is required when handing over to cashier',
+                    ], 400);
+                }
+
                 $nextCashier = Cashier::find($request->next_cashier_id);
                 if (!$nextCashier) {
                     return response()->json([
