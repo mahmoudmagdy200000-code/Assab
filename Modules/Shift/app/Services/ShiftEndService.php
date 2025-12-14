@@ -59,7 +59,6 @@ class ShiftEndService
 
             DB::commit();
             return $shift->fresh();
-
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;
@@ -80,11 +79,16 @@ class ShiftEndService
             // إذا لم يتم تمرير handover_to_id، ابحث عنه بناءً على النوع
             if (!$handoverToId) {
                 if ($handoverToType === 'branch_manager') {
-                    // إذا كان handover للبرانش مانجر، احصل على branch_manager_id من البرانش
-                    $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shift->shift->branch_id)
-                        ->where('is_active', true)
-                        ->first();
-                    $handoverToId = $branchManager?->id;
+                    // Check if branch_manager_id is provided directly
+                    if (!empty($data['branch_manager_id'])) {
+                        $handoverToId = $data['branch_manager_id'];
+                    } else {
+                        // إذا كان handover للبرانش مانجر، احصل على branch_manager_id من البرانش
+                        $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shift->shift->branch_id)
+                            ->where('is_active', true)
+                            ->first();
+                        $handoverToId = $branchManager?->id;
+                    }
                 } else {
                     // handover للكاشير التالي
                     $handoverToId = $data['next_cashier_id'] ?? null;
@@ -95,7 +99,7 @@ class ShiftEndService
             $handoverData = [
                 'handover_to_type' => $handoverToType,
                 'handover_to_id' => $handoverToId,
-                'next_cashier_id' => $data['next_cashier_id'] ?? null,
+                'next_cashier_id' => $handoverToType === 'cashier' ? $handoverToId : null,
                 'handover_amount' => $data['handover_amount'],
                 'handover_notes' => $data['handover_notes'] ?? null,
                 'variance_reason' => $data['variance']['reason'] ?? null,
@@ -116,7 +120,6 @@ class ShiftEndService
 
             DB::commit();
             return $shift->fresh();
-
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;
