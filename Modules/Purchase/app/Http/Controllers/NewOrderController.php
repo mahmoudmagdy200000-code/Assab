@@ -1286,7 +1286,7 @@ class NewOrderController extends BaseController
             $resourceCollection->resource = $branchItems;
 
             // Get paginated response
-            $response = $this->paginatedResponse(
+            $response = $this->successResponse(
                 $resourceCollection,
                 'Purchasing officer items retrieved successfully'
             );
