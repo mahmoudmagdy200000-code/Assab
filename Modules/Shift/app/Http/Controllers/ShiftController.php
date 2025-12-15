@@ -5,6 +5,8 @@ namespace Modules\Shift\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Transformers\BranchManagerResource;
@@ -19,215 +21,304 @@ class ShiftController extends BaseController
     // Controller methods will go here
 
 
-    // get all shifts
+    /**
+     * Get all shifts
+     * OPTIMIZED: Select only required fields and add authorization check
+     */
     public function index()
     {
-        // Logic to get all shifts
+        try {
+            $manager = auth()->user();
 
-        $manager = auth()->user();
+            // Ensure the user is a branch manager
+            if (!$manager || !$manager->branch_id) {
+                return $this->errorResponse('Unauthorized', 403);
+            }
 
-        // Ensure the user is a branch manager
-        if (!$manager || !$manager->branch_id) {
-            return $this->errorResponse('Unauthorized', 403);
+            // OPTIMIZED: Select only required fields
+            $shifts = Shift::where('branch_id', $manager->branch_id)
+                ->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active', 'created_at', 'updated_at'])
+                ->orderBy('start_time')
+                ->paginate(10);
+
+            return $this->paginatedResponse($shifts, 'Shifts retrieved successfully');
+        } catch (\Exception $e) {
+            Log::error('Error retrieving shifts', [
+                'user_id' => auth()->id(),
+                'error' => $e->getMessage()
+            ]);
+            return $this->errorResponse('An error occurred while retrieving shifts', 500);
         }
-
-        // Get all shifts for that branch
-        $shifts = Shift::where('branch_id', $manager->branch_id)
-            ->orderBy('start_time')
-            ->paginate(10);
-
-        return $this->paginatedResponse($shifts, 'Shifts retrieved successfully');
     }
 
+    /**
+     * Get all cashiers shifts
+     * OPTIMIZED: Use subquery instead of whereHas, select specific fields, improve ordering
+     */
     public function getAllCashiersShifts(Request $request)
     {
-        $manager = auth()->user();
+        try {
+            $manager = auth()->user();
 
-        if (!$manager || !$manager->branch_id) {
-            return $this->errorResponse('Unauthorized', 403);
+            if (!$manager || !$manager->branch_id) {
+                return $this->errorResponse('Unauthorized', 403);
+            }
+
+            // OPTIMIZED: Use subquery instead of whereHas for better performance
+            $cashierIds = Cashier::where('branch_id', $manager->branch_id)->pluck('id');
+
+            $query = CashierShift::whereIn('cashier_id', $cashierIds)
+                ->select(['id', 'cashier_id', 'shift_id', 'shift_date', 'status', 'assigned_by_id', 'created_at', 'updated_at'])
+                ->with([
+                    'cashier:id,name,branch_id',
+                    'shift' => function ($q) {
+                        $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
+                    },
+                    'shift.branch:id,name,location',
+                    'assignedBy:id,name'
+                ]);
+
+            // 👤 Filter by specific cashier
+            if ($cashierId = $request->input('cashier_id')) {
+                $query->where('cashier_id', (int) $cashierId);
+            }
+
+            // OPTIMIZED: Ordering logic
+            if (Schema::hasColumn('cashier_shifts', 'start_time')) {
+                $query->orderBy('start_time');
+            } elseif (Schema::hasColumn('cashier_shifts', 'shift_id')) {
+                // Use subquery for ordering instead of join
+                $query->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) ASC');
+            } else {
+                $query->orderBy('created_at', 'desc');
+            }
+
+            $shifts = $query->paginate($request->input('per_page', 10));
+
+            return $this->paginatedResponse(
+                CashierShiftResource::collection($shifts),
+                'Cashiers shifts retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            Log::error('Error retrieving cashiers shifts', [
+                'user_id' => auth()->id(),
+                'error' => $e->getMessage()
+            ]);
+            return $this->errorResponse('An error occurred while retrieving cashiers shifts', 500);
         }
-
-        $query = CashierShift::with([
-            'cashier:id,name,branch_id',
-            'shift' => function ($q) {
-                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
-            },
-            'shift.branch:id,name,location',
-            'assignedBy:id,name'
-        ])
-            ->whereHas('cashier', function ($q) use ($manager) {
-                $q->where('branch_id', $manager->branch_id);
-            });
-
-        // 👤 Filter by specific cashier
-        if ($cashierId = $request->input('cashier_id')) {
-            $query->where('cashier_id', $cashierId);
-        }
-
-        // Prefer ordering by cashier_shifts.start_time if that column exists,
-        // otherwise try to order by related shifts.start_time (join), otherwise fallback.
-        if (Schema::hasColumn('cashier_shifts', 'start_time')) {
-            $query->orderBy('start_time');
-        } elseif (Schema::hasColumn('cashier_shifts', 'shift_id') && Schema::hasColumn('shifts', 'start_time')) {
-            $query = $query
-                ->join('shifts', 'shifts.id', '=', 'cashier_shifts.shift_id')
-                ->orderBy('shifts.start_time')
-                ->select('cashier_shifts.*');
-        } else {
-            $query->orderBy('created_at');
-        }
-
-        $shifts = $query->paginate($request->input('per_page', 10));
-
-        return $this->paginatedResponse(
-            CashierShiftResource::collection($shifts),
-            'Cashiers shifts retrieved successfully'
-        );
     }
 
+    /**
+     * Filter cashier shifts
+     * OPTIMIZED: Use subquery instead of whereHas, sanitize search input, extract filter logic
+     */
     public function filterCashierShifts(Request $request)
     {
-        $manager = auth()->user();
+        try {
+            $manager = auth()->user();
 
-        if (!$manager || !$manager->branch_id) {
-            return $this->errorResponse('Unauthorized', 403);
-        }
-
-        $query = CashierShift::with([
-            'cashier:id,name,branch_id',
-            'shift' => function ($q) {
-                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
-            },
-            'shift.branch:id,name,location'
-        ])
-            ->whereHas('cashier', function ($q) use ($manager) {
-                $q->where('branch_id', $manager->branch_id);
-            });
-
-        // 👤 Filter by specific cashier
-        if ($cashierId = $request->input('cashier_id')) {
-            $query->where('cashier_id', $cashierId);
-        }
-
-        // 🔍 البحث العام (بالكاشير أو رقم الشيفت)
-        if ($search = $request->input('search')) {
-            $query->where(function ($q) use ($search) {
-                $q->where('cashier_shifts.id', 'like', "%{$search}%")
-                    ->orWhereHas('cashier', fn($c) => $c->where('name', 'like', "%{$search}%"));
-            });
-        }
-
-        // 🕒 الفلترة حسب الفترة الزمنية
-        if ($period = $request->input('period')) {
-            switch ($period) {
-                case 'today':
-                    $query->whereDate('cashier_shifts.created_at', now()->toDateString());
-                    break;
-                case 'last_7_days':
-                    $query->where('cashier_shifts.created_at', '>=', now()->subDays(7));
-                    break;
-                case 'last_30_days':
-                    $query->where('cashier_shifts.created_at', '>=', now()->subDays(30));
-                    break;
-                case 'last_24_hours':
-                    $query->where('cashier_shifts.created_at', '>=', now()->subDay());
-                    break;
+            if (!$manager || !$manager->branch_id) {
+                return $this->errorResponse('Unauthorized', 403);
             }
+
+            // OPTIMIZED: Use subquery instead of whereHas for better performance
+            $cashierIds = Cashier::where('branch_id', $manager->branch_id)->pluck('id');
+
+            $query = CashierShift::whereIn('cashier_id', $cashierIds)
+                ->select(['id', 'cashier_id', 'shift_id', 'shift_date', 'status', 'total_sales', 'created_at', 'updated_at'])
+                ->with([
+                    'cashier:id,name,branch_id',
+                    'shift' => function ($q) {
+                        $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
+                    },
+                    'shift.branch:id,name,location'
+                ]);
+
+            // Apply filters using helper method
+            $this->applyCashierShiftFilters($query, $request);
+
+            // 🔄 ترتيب حسب وقت الشيفت الحقيقي من جدول shifts (optimized - use subquery instead of join)
+            $query->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) DESC');
+
+            // 📄 Pagination
+            $shifts = $query->paginate($request->input('per_page', 20));
+
+            return $this->paginatedResponse(
+                CashierShiftResource::collection($shifts),
+                'Filtered cashier shifts retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            Log::error('Error filtering cashier shifts', [
+                'user_id' => auth()->id(),
+                'error' => $e->getMessage()
+            ]);
+            return $this->errorResponse('An error occurred while filtering cashier shifts', 500);
         }
-
-        // 📆 فلترة مخصصة حسب التاريخ
-        if ($from = $request->input('date_from')) {
-            $query->whereDate('cashier_shifts.created_at', '>=', $from);
-        }
-
-        if ($to = $request->input('date_to')) {
-            $query->whereDate('cashier_shifts.created_at', '<=', $to);
-        }
-
-        // 📌 فلترة حسب الحالة (مفتوح / مغلق)
-        if ($status = $request->input('status')) {
-            $query->where('cashier_shifts.status', $status);
-        }
-
-        // 💰 فلترة حسب المبالغ (اختياري)
-        if ($min = $request->input('min_total')) {
-            $query->where('cashier_shifts.total_sales', '>=', $min);
-        }
-
-        if ($max = $request->input('max_total')) {
-            $query->where('cashier_shifts.total_sales', '<=', $max);
-        }
-
-        // 🔄 ترتيب حسب وقت الشيفت الحقيقي من جدول shifts (optimized - use subquery instead of join)
-        $query->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) DESC');
-
-        // 📄 Pagination
-        $shifts = $query->paginate($request->input('per_page', 20));
-
-        return $this->paginatedResponse(
-            CashierShiftResource::collection($shifts),
-            'Filtered cashier shifts retrieved successfully'
-        );
     }
 
+    /**
+     * Show specific shift by ID
+     * OPTIMIZED: Select only required fields, add authorization check
+     */
     public function show($id)
     {
-        // Logic to get a specific shift by ID
-        $shift = Shift::find($id);
-        if (!$shift) {
-            return $this->errorResponse('Shift not found', 404);
+        try {
+            $manager = auth()->user();
+
+            if (!$manager || !$manager->branch_id) {
+                return $this->errorResponse('Unauthorized', 403);
+            }
+
+            // OPTIMIZED: Select only required fields
+            $shift = Shift::select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active', 'created_at', 'updated_at'])
+                ->where('id', (int) $id)
+                ->where('branch_id', $manager->branch_id)
+                ->first();
+
+            if (!$shift) {
+                return $this->errorResponse('Shift not found', 404);
+            }
+
+            return $this->successResponse($shift, 'Shift retrieved successfully');
+        } catch (\Exception $e) {
+            Log::error('Error retrieving shift', [
+                'user_id' => auth()->id(),
+                'shift_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+            return $this->errorResponse('An error occurred while retrieving shift', 500);
         }
-        return $this->successResponse($shift, 'Shift retrieved successfully');
     }
 
+    /**
+     * Get cashier shift by ID
+     * OPTIMIZED: Select only required fields, add authorization check
+     */
     public function getCashierShiftById($id)
     {
-        $cashierShift = CashierShift::with([
-            'cashier:id,name,branch_id',
-            'shift' => function ($q) {
-                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
-            },
-            'shift.branch:id,name,location',
-            'assignedBy:id,name',
-            'nextCashier:id,name,email,phone',
-            'handoverStatus.reviewedBy:id,name',
-            'salesBreakdown.aggregator:id,name',
-            'varianceDetails.responsibleCashier:id,name'
-        ])->find($id);
+        try {
+            $manager = auth()->user();
 
-        if (!$cashierShift) {
-            return $this->errorResponse('Cashier Shift not found', 404);
+            if (!$manager || !$manager->branch_id) {
+                return $this->errorResponse('Unauthorized', 403);
+            }
+
+            // OPTIMIZED: Select only required fields
+            $cashierShift = CashierShift::select([
+                'id',
+                'cashier_id',
+                'shift_id',
+                'shift_date',
+                'status',
+                'assigned_by_id',
+                'next_cashier_id',
+                'created_at',
+                'updated_at'
+            ])
+                ->with([
+                    'cashier:id,name,branch_id',
+                    'shift' => function ($q) {
+                        $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
+                    },
+                    'shift.branch:id,name,location',
+                    'assignedBy:id,name',
+                    'nextCashier:id,name,email,phone',
+                    'handoverStatus.reviewedBy:id,name',
+                    'salesBreakdown.aggregator:id,name',
+                    'varianceDetails.responsibleCashier:id,name'
+                ])
+                ->find((int) $id);
+
+            if (!$cashierShift) {
+                return $this->errorResponse('Cashier Shift not found', 404);
+            }
+
+            // Verify cashier belongs to manager's branch
+            if ($cashierShift->cashier->branch_id !== $manager->branch_id) {
+                return $this->errorResponse('Unauthorized: This cashier does not belong to your branch', 403);
+            }
+
+            return $this->successResponse(
+                new CashierShiftResource($cashierShift),
+                'Cashier shift retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            Log::error('Error retrieving cashier shift', [
+                'user_id' => auth()->id(),
+                'shift_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+            return $this->errorResponse('An error occurred while retrieving cashier shift', 500);
         }
-
-        return $this->successResponse(
-            new CashierShiftResource($cashierShift),
-            'Cashier shift retrieved successfully'
-        );
     }
 
+    /**
+     * Get shifts by cashier ID
+     * OPTIMIZED: Select only required fields, add authorization check
+     */
     public function getShiftByCashierId($id)
     {
-        $cashierShifts = CashierShift::with([
-            'cashier:id,name,branch_id',
-            'shift' => function ($q) {
-                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
-            },
-            'shift.branch:id,name,location',
-            'assignedBy:id,name'
-        ])
-            ->where('cashier_id', $id)
-            ->get();
+        try {
+            $manager = auth()->user();
 
-        if ($cashierShifts->isEmpty()) {
-            return $this->errorResponse('No shifts found for this cashier', 404);
+            if (!$manager || !$manager->branch_id) {
+                return $this->errorResponse('Unauthorized', 403);
+            }
+
+            // Verify cashier belongs to manager's branch
+            $cashier = Cashier::where('id', (int) $id)
+                ->where('branch_id', $manager->branch_id)
+                ->first(['id', 'branch_id']);
+
+            if (!$cashier) {
+                return $this->errorResponse('Cashier not found or does not belong to your branch', 404);
+            }
+
+            // OPTIMIZED: Select only required fields
+            $cashierShifts = CashierShift::select([
+                'id',
+                'cashier_id',
+                'shift_id',
+                'shift_date',
+                'status',
+                'assigned_by_id',
+                'created_at',
+                'updated_at'
+            ])
+                ->where('cashier_id', $cashier->id)
+                ->with([
+                    'cashier:id,name,branch_id',
+                    'shift' => function ($q) {
+                        $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
+                    },
+                    'shift.branch:id,name,location',
+                    'assignedBy:id,name'
+                ])
+                ->orderBy('shift_date', 'desc')
+                ->get();
+
+            if ($cashierShifts->isEmpty()) {
+                return $this->errorResponse('No shifts found for this cashier', 404);
+            }
+
+            return $this->successResponse(
+                CashierShiftResource::collection($cashierShifts),
+                'Cashier shifts retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            Log::error('Error retrieving shifts by cashier', [
+                'user_id' => auth()->id(),
+                'cashier_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+            return $this->errorResponse('An error occurred while retrieving cashier shifts', 500);
         }
-
-        return $this->successResponse(
-            CashierShiftResource::collection($cashierShifts),
-            'Cashier shifts retrieved successfully'
-        );
     }
 
+    /**
+     * Get all cashiers and branch manager accounts
+     * OPTIMIZED: Select only required fields, improve error handling
+     */
     public function getAllCashiersAndBranchManagerAccount(Request $request)
     {
         try {
@@ -237,8 +328,9 @@ class ShiftController extends BaseController
                 return $this->errorResponse('Unauthorized', 403);
             }
 
-            // Load cashiers with relationships and count (optimized)
+            // OPTIMIZED: Load cashiers with relationships and count (select specific fields)
             $cashiers = Cashier::where('branch_id', $manager->branch_id)
+                ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'created_by_id', 'created_at', 'updated_at'])
                 ->with([
                     'branch:id,name,location',
                     'creator:id,name'
@@ -246,10 +338,10 @@ class ShiftController extends BaseController
                 ->withCount('shifts')
                 ->paginate($request->input('per_page', 10));
 
-            // Load branch managers with relationships (optimized)
+            // OPTIMIZED: Load branch managers with relationships (already optimized)
             $branchManagers = BranchManager::where('branch_id', $manager->branch_id)
-                ->with('branch:id,name,location')
                 ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'status', 'is_first_login', 'image', 'email_verified_at', 'phone_verified_at', 'created_at', 'updated_at'])
+                ->with('branch:id,name,location')
                 ->get();
 
             $combined = [
@@ -267,46 +359,181 @@ class ShiftController extends BaseController
 
             return $this->successResponse($combined, 'Cashiers and branch managers retrieved successfully');
         } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
+            Log::error('Error retrieving cashiers and branch managers', [
+                'user_id' => auth()->id(),
+                'error' => $e->getMessage()
+            ]);
+            return $this->errorResponse('An error occurred while retrieving cashiers and branch managers', 500);
         }
     }
 
 
-    // في ShiftController.php أضف:
+    /**
+     * Start shift by manager
+     * OPTIMIZED: Add transaction, select specific fields, improve error handling
+     */
     public function startShiftByManager($shiftId)
     {
-        $shiftModel = \Modules\Shift\Models\CashierShift::with([
-            'shift' => function ($q) {
-                $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
-            },
-            'shift.branch:id,name',
-            'cashier:id,name,branch_id',
-            'nextCashier:id,name'
-        ])->findOrFail($shiftId);
-        $branchManager = auth()->user();
+        try {
+            $branchManager = auth()->user();
 
-        // Verify the cashier belongs to the branch manager's branch
-        if ($shiftModel->cashier->branch_id !== $branchManager->branch_id) {
+            if (!$branchManager || !$branchManager->branch_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized'
+                ], 403);
+            }
+
+            // OPTIMIZED: Select only required fields
+            $shiftModel = CashierShift::select([
+                'id',
+                'cashier_id',
+                'shift_id',
+                'status',
+                'created_at',
+                'updated_at'
+            ])
+                ->with([
+                    'shift' => function ($q) {
+                        $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
+                    },
+                    'shift.branch:id,name',
+                    'cashier:id,name,branch_id',
+                    'nextCashier:id,name'
+                ])
+                ->findOrFail((int) $shiftId);
+
+            // Verify the cashier belongs to the branch manager's branch
+            if ($shiftModel->cashier->branch_id !== $branchManager->branch_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized: This cashier does not belong to your branch'
+                ], 403);
+            }
+
+            if ($shiftModel->status->value !== 'not_started') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Shift has already been started'
+                ], 400);
+            }
+
+            // Use database transaction for critical operations
+            DB::beginTransaction();
+
+            try {
+                $shiftModel->startShift();
+                $shiftModel->loadFullRelationships();
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Shift started successfully by branch manager',
+                    'data' => new \Modules\Shift\Transformers\ShiftDetailResource($shiftModel)
+                ]);
+            } catch (\Exception $e) {
+                DB::rollBack();
+                throw $e;
+            }
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Unauthorized: This cashier does not belong to your branch'
-            ], 403);
-        }
-
-        if ($shiftModel->status->value !== 'not_started') {
+                'message' => 'Shift not found'
+            ], 404);
+        } catch (\Exception $e) {
+            Log::error('Error starting shift by manager', [
+                'user_id' => auth()->id(),
+                'shift_id' => $shiftId,
+                'error' => $e->getMessage()
+            ]);
             return response()->json([
                 'success' => false,
-                'message' => 'Shift has already been started'
-            ], 400);
+                'message' => 'An error occurred while starting the shift'
+            ], 500);
+        }
+    }
+
+    /**
+     * Apply filters to cashier shift query
+     * OPTIMIZED: Extract filter logic to reduce code duplication and improve maintainability
+     */
+    private function applyCashierShiftFilters($query, Request $request): void
+    {
+        // 👤 Filter by specific cashier
+        if ($cashierId = $request->input('cashier_id')) {
+            $query->where('cashier_id', (int) $cashierId);
         }
 
-        $shiftModel->startShift();
-        $shiftModel->loadFullRelationships();
+        // 🔍 البحث العام (بالكاشير أو رقم الشيفت) - SECURITY: Sanitize search input
+        if ($search = $request->input('search')) {
+            // Sanitize search input to prevent SQL injection
+            $search = trim(strip_tags($search));
+            if (!empty($search)) {
+                $searchPattern = "%{$search}%";
+                $query->where(function ($q) use ($searchPattern) {
+                    // Use parameter binding for security
+                    $q->where('cashier_shifts.id', 'like', $searchPattern)
+                        ->orWhereIn('cashier_id', function ($subQuery) use ($searchPattern) {
+                            $subQuery->select('id')
+                                ->from('cashiers')
+                                ->where('name', 'like', $searchPattern);
+                        });
+                });
+            }
+        }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Shift started successfully by branch manager',
-            'data' => new \Modules\Shift\Transformers\ShiftDetailResource($shiftModel)
-        ]);
+        // 🕒 الفلترة حسب الفترة الزمنية
+        if ($period = $request->input('period')) {
+            $allowedPeriods = ['today', 'last_7_days', 'last_30_days', 'last_24_hours'];
+            if (in_array($period, $allowedPeriods)) {
+                switch ($period) {
+                    case 'today':
+                        $query->whereDate('cashier_shifts.created_at', now()->toDateString());
+                        break;
+                    case 'last_7_days':
+                        $query->where('cashier_shifts.created_at', '>=', now()->subDays(7));
+                        break;
+                    case 'last_30_days':
+                        $query->where('cashier_shifts.created_at', '>=', now()->subDays(30));
+                        break;
+                    case 'last_24_hours':
+                        $query->where('cashier_shifts.created_at', '>=', now()->subDay());
+                        break;
+                    default:
+                        // Invalid period, ignore
+                        break;
+                }
+            }
+        }
+
+        // 📆 فلترة مخصصة حسب التاريخ
+        if ($from = $request->input('date_from')) {
+            $query->whereDate('cashier_shifts.created_at', '>=', $from);
+        }
+
+        if ($to = $request->input('date_to')) {
+            $query->whereDate('cashier_shifts.created_at', '<=', $to);
+        }
+
+        // 📌 فلترة حسب الحالة (مفتوح / مغلق)
+        if ($status = $request->input('status')) {
+            $query->where('cashier_shifts.status', $status);
+        }
+
+        // 💰 فلترة حسب المبالغ (اختياري) - SECURITY: Validate numeric inputs
+        if ($min = $request->input('min_total')) {
+            $min = filter_var($min, FILTER_VALIDATE_FLOAT);
+            if ($min !== false) {
+                $query->where('cashier_shifts.total_sales', '>=', $min);
+            }
+        }
+
+        if ($max = $request->input('max_total')) {
+            $max = filter_var($max, FILTER_VALIDATE_FLOAT);
+            if ($max !== false) {
+                $query->where('cashier_shifts.total_sales', '<=', $max);
+            }
+        }
     }
 }
