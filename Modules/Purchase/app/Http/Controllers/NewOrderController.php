@@ -1023,6 +1023,8 @@ class NewOrderController extends BaseController
                     // Item Details
                     'item_id' => $itemId,
                     'item_price' => $branchItem->item_price,
+                    'item_unit' => $branchItem->item_unit,
+                    
                     'item_title' => $branchItem->item_name,
                     'item_code' => $branchItem->item_code,
                     'item_logo' => $itemLogo,
