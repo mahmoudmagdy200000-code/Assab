@@ -18,12 +18,13 @@ class StoreMultipleOrdersRequest extends FormRequest
             // Branches array (for internal transfers)
             'branches' => ['nullable', 'array'],
             'branches.*.branch_id' => ['required_with:branches', 'uuid', 'exists:branches,id'],
-            'branches.*.priority' => ['nullable', 'string', 'in:high,normal'],
+            'branches.*.priority' => ['nullable', 'string'], // Accept any string value
             'branches.*.items' => ['required_with:branches.*.branch_id', 'array', 'min:1'],
             'branches.*.items.*.item_id' => ['required', 'uuid', 'exists:branch_item,id'],
             'branches.*.items.*.quantity' => ['required', 'numeric', 'min:0.001'],
+            // Optional fields for branches items (not in the required format but allowed)
             'branches.*.items.*.unit' => ['nullable', 'string', 'in:kg,pk,unit,box,liter,piece'],
-            'branches.*.items.*.quality' => ['nullable', 'string', 'in:economy,standard,premium'],
+            'branches.*.items.*.quality' => ['nullable', 'string'],
             'branches.*.items.*.available_in_source' => ['nullable', 'numeric', 'min:0'],
             'branches.*.items.*.expiry_date' => ['nullable', 'date'],
             'branches.*.items.*.cooling_status' => ['nullable', 'boolean'],
@@ -31,31 +32,37 @@ class StoreMultipleOrdersRequest extends FormRequest
             // Direct Supplier Orders array
             'direct_supplier' => ['nullable', 'array'],
             'direct_supplier.*.supplier_id' => ['required_with:direct_supplier', 'uuid', 'exists:purchase_suppliers,id'],
-            'direct_supplier.*.quality_level' => ['required_with:direct_supplier', 'string', 'in:economy,standard,premium'],
+            'direct_supplier.*.quality_level' => ['required_with:direct_supplier', 'string'], // Accept any string value
             'direct_supplier.*.notification_channels' => ['required_with:direct_supplier', 'array', 'min:1'],
-            'direct_supplier.*.notification_channels.*' => ['string', 'in:email,whatsapp,app,sms'],
+            'direct_supplier.*.notification_channels.*' => ['string'], // Accept any string value
             'direct_supplier.*.message' => ['nullable', 'string', 'max:1000'],
             'direct_supplier.*.items' => ['required_with:direct_supplier.*.supplier_id', 'array', 'min:1'],
             'direct_supplier.*.items.*.item_id' => ['required', 'uuid', 'exists:branch_item,id'],
             'direct_supplier.*.items.*.quantity' => ['required', 'numeric', 'min:0.001'],
+            'direct_supplier.*.items.*.quality' => ['nullable', 'string'], // Accept any string value
+            // Optional fields for direct_supplier items (not in the required format but allowed)
             'direct_supplier.*.items.*.unit' => ['nullable', 'string', 'in:kg,pk,unit,box,liter,piece'],
-            'direct_supplier.*.items.*.unit_price' => ['required', 'numeric', 'min:0'],
-            'direct_supplier.*.items.*.quality' => ['nullable', 'string', 'in:economy,standard,premium'],
+            'direct_supplier.*.items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
 
             // Purchasing Officer Orders array
             'purchase_officer' => ['nullable', 'array'],
-            'purchase_officer.*.quality_level' => ['required_with:purchase_officer', 'string', 'in:economy,standard,premium'],
-            'purchase_officer.*.processing_time' => ['required_with:purchase_officer', 'string', 'in:standard,urgent'],
-            'purchase_officer.*.preferred_delivery_date' => ['required_with:purchase_officer', 'date', 'after:today'],
-            'purchase_officer.*.latest_delivery_date' => ['required_with:purchase_officer', 'date', 'after_or_equal:purchase_officer.*.preferred_delivery_date'],
-            'purchase_officer.*.special_instructions' => ['nullable', 'string', 'max:2000'],
-            'purchase_officer.*.message' => ['nullable', 'string', 'max:1000'],
-            'purchase_officer.*.items' => ['required_with:purchase_officer.*.quality_level', 'array', 'min:1'],
+            'purchase_officer.*.items' => ['required_with:purchase_officer', 'array', 'min:1'],
             'purchase_officer.*.items.*.item_id' => ['required', 'uuid', 'exists:branch_item,id'],
             'purchase_officer.*.items.*.quantity' => ['required', 'numeric', 'min:0.001'],
+            'purchase_officer.*.items.*.quality' => ['nullable', 'string'], // Accept any string value
+            'purchase_officer.*.items.*.preferred_delivery_date' => ['nullable', 'date'],
+            'purchase_officer.*.items.*.latest_delivery_date' => ['nullable', 'date'],
+            'purchase_officer.*.items.*.special_instructions' => ['nullable', 'string', 'max:2000'],
+            // Optional fields for purchase_officer items (not in the required format but allowed)
             'purchase_officer.*.items.*.unit' => ['nullable', 'string', 'in:kg,pk,unit,box,liter,piece'],
-            'purchase_officer.*.items.*.unit_price' => ['required', 'numeric', 'min:0'],
-            'purchase_officer.*.items.*.quality' => ['nullable', 'string', 'in:economy,standard,premium'],
+            'purchase_officer.*.items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
+            // Optional fields at purchase_officer level (not in the required format but allowed for backward compatibility)
+            'purchase_officer.*.quality_level' => ['nullable', 'string'],
+            'purchase_officer.*.processing_time' => ['nullable', 'string', 'in:standard,urgent'],
+            'purchase_officer.*.preferred_delivery_date' => ['nullable', 'date'],
+            'purchase_officer.*.latest_delivery_date' => ['nullable', 'date'],
+            'purchase_officer.*.special_instructions' => ['nullable', 'string', 'max:2000'],
+            'purchase_officer.*.message' => ['nullable', 'string', 'max:1000'],
         ];
     }
 
@@ -81,23 +88,16 @@ class StoreMultipleOrdersRequest extends FormRequest
             'direct_supplier.*.items.*.item_id.exists' => 'One or more selected items do not exist.',
             'direct_supplier.*.items.*.quantity.required' => 'Quantity is required for each item.',
             'direct_supplier.*.items.*.quantity.min' => 'Quantity must be greater than 0.',
-            'direct_supplier.*.items.*.unit_price.required' => 'Unit price is required for each item.',
-            'direct_supplier.*.items.*.unit_price.min' => 'Unit price must be greater than or equal to 0.',
 
             // Purchasing Officer messages
-            'purchase_officer.*.quality_level.required_with' => 'Quality level is required for each purchasing officer order.',
-            'purchase_officer.*.processing_time.required_with' => 'Processing time is required for each purchasing officer order.',
-            'purchase_officer.*.preferred_delivery_date.required_with' => 'Preferred delivery date is required for each purchasing officer order.',
-            'purchase_officer.*.preferred_delivery_date.after' => 'Preferred delivery date must be in the future.',
-            'purchase_officer.*.latest_delivery_date.required_with' => 'Latest delivery date is required for each purchasing officer order.',
-            'purchase_officer.*.latest_delivery_date.after_or_equal' => 'Latest delivery date must be on or after the preferred date.',
             'purchase_officer.*.items.required_with' => 'At least one item is required for each purchasing officer order.',
             'purchase_officer.*.items.*.item_id.required' => 'Item ID is required for each item.',
             'purchase_officer.*.items.*.item_id.exists' => 'One or more selected items do not exist.',
             'purchase_officer.*.items.*.quantity.required' => 'Quantity is required for each item.',
             'purchase_officer.*.items.*.quantity.min' => 'Quantity must be greater than 0.',
-            'purchase_officer.*.items.*.unit_price.required' => 'Unit price is required for each item.',
-            'purchase_officer.*.items.*.unit_price.min' => 'Unit price must be greater than or equal to 0.',
+            'purchase_officer.*.items.*.preferred_delivery_date.date' => 'Preferred delivery date must be a valid date.',
+            'purchase_officer.*.items.*.latest_delivery_date.date' => 'Latest delivery date must be a valid date.',
+            'purchase_officer.*.items.*.special_instructions.max' => 'Special instructions must not exceed 2000 characters.',
         ];
     }
 

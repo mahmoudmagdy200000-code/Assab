@@ -363,17 +363,35 @@ class PurchaseOrderService
             // Process purchasing officer orders
             if (!empty($data['purchase_officer']) && is_array($data['purchase_officer'])) {
                 foreach ($data['purchase_officer'] as $officerData) {
+                    // Support new format: fields can be at item level or order level
+                    // If fields are at item level, take from first item; otherwise use order level
+                    $items = $officerData['items'] ?? [];
+                    $firstItem = !empty($items) ? $items[0] : [];
+
+                    // Quality level: check item level first, then order level, then default
+                    $qualityLevel = $firstItem['quality'] ?? $officerData['quality_level'] ?? 'standard';
+
+                    // Delivery dates: check item level first, then order level
+                    $preferredDeliveryDate = $firstItem['preferred_delivery_date'] ?? $officerData['preferred_delivery_date'] ?? null;
+                    $latestDeliveryDate = $firstItem['latest_delivery_date'] ?? $officerData['latest_delivery_date'] ?? null;
+
+                    // Special instructions: check item level first, then order level
+                    $specialInstructions = $firstItem['special_instructions'] ?? $officerData['special_instructions'] ?? null;
+
+                    // Processing time: only at order level (not in new format, use default)
+                    $processingTime = $officerData['processing_time'] ?? 'standard';
+
                     $orderData = [
                         'order_type' => OrderType::VIA_PURCHASING_OFFICER,
                         'branch_id' => $branchId,
                         'requested_by' => $requestedBy,
-                        'quality_level' => $officerData['quality_level'],
-                        'processing_time' => $officerData['processing_time'],
-                        'preferred_delivery_date' => $officerData['preferred_delivery_date'],
-                        'latest_delivery_date' => $officerData['latest_delivery_date'],
-                        'special_instructions' => $officerData['special_instructions'] ?? null,
+                        'quality_level' => $qualityLevel,
+                        'processing_time' => $processingTime,
+                        'preferred_delivery_date' => $preferredDeliveryDate,
+                        'latest_delivery_date' => $latestDeliveryDate,
+                        'special_instructions' => $specialInstructions,
                         'message' => $officerData['message'] ?? null,
-                        'items' => $officerData['items'] ?? [],
+                        'items' => $items,
                     ];
 
                     $order = $this->createOrder($orderData);
