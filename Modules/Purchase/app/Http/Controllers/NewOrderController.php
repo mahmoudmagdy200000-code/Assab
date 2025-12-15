@@ -23,12 +23,14 @@ use Modules\Purchase\Transformers\PurchaseOrderResource;
 use Modules\Purchase\Transformers\SupplierResource;
 use Modules\Purchase\Transformers\TransferItemResource;
 use Modules\Purchase\Transformers\PurchasingOfficerItemResource;
+use Modules\Purchase\Transformers\SupplierItemResource;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Http\Requests\GetTransferItemsRequest;
 use Modules\Purchase\Http\Requests\GetDirectSupplierItemsRequest;
 use Modules\Purchase\Http\Requests\GetPurchasingOfficerItemsRequest;
+use Modules\Purchase\Http\Requests\GetSupplierItemsRequest;
 // Add these imports
 use Modules\Branch\Models\Branch;
 use App\Models\User;
@@ -883,7 +885,7 @@ class NewOrderController extends BaseController
      * Returns suppliers for a specific item with prices (similar structure to getBranches).
      *
      * Filters:
-     * - min_availability: Minimum availability percentage (0-100)
+     * - status: Filter by supplier status (online, offline, away)
      * - max_delivery_hours: Maximum delivery time in hours
      * - max_distance_km: Maximum distance in kilometers
      * - search: Search by supplier name
@@ -915,17 +917,13 @@ class NewOrderController extends BaseController
 
             // Prepare filters
             $filters = [
-                'min_availability' => isset($validated['min_availability']) ? (float) $validated['min_availability'] : null,
+                'status' => $validated['status'] ?? null,
                 'max_delivery_hours' => isset($validated['max_delivery_hours']) ? (int) $validated['max_delivery_hours'] : null,
                 'max_distance_km' => isset($validated['max_distance_km']) ? (float) $validated['max_distance_km'] : null,
                 'search' => $validated['search'] ?? null,
             ];
 
             // Validate filters
-            if (!empty($filters['min_availability']) && ($filters['min_availability'] < 0 || $filters['min_availability'] > 100)) {
-                return $this->errorResponse('min_availability must be between 0 and 100', 400);
-            }
-
             if (!empty($filters['max_delivery_hours']) && $filters['max_delivery_hours'] < 1) {
                 return $this->errorResponse('max_delivery_hours must be a positive number', 400);
             }
@@ -939,6 +937,12 @@ class NewOrderController extends BaseController
                 ->with('supplier')
                 ->available()
                 ->whereHas('supplier', fn($q) => $q->active());
+
+            // Apply status filter
+            if (!empty($filters['status'])) {
+                $statusEnum = \Modules\Purchase\Enums\SupplierStatus::from($filters['status']);
+                $query->whereHas('supplier', fn($q) => $q->byStatus($statusEnum));
+            }
 
             // Apply filters
             if (!empty($filters['max_delivery_hours'])) {
@@ -1009,11 +1013,6 @@ class NewOrderController extends BaseController
                     $availabilityPercentage = min(100, round(($maxAvailable / $quantity) * 100, 1));
                 }
 
-                // Apply availability filter
-                if (!empty($filters['min_availability']) && $availabilityPercentage < $filters['min_availability']) {
-                    return null;
-                }
-
                 $unitPrice = (float) $supplierItem->unit_price;
                 $totalAmount = $unitPrice * $quantity;
 
@@ -1024,7 +1023,7 @@ class NewOrderController extends BaseController
                     'item_id' => $itemId,
                     'item_price' => $branchItem->item_price,
                     'item_unit' => $branchItem->item_unit,
-                    
+
                     'item_title' => $branchItem->item_name,
                     'item_code' => $branchItem->item_code,
                     'item_logo' => $itemLogo,
@@ -1310,6 +1309,160 @@ class NewOrderController extends BaseController
 
             return $this->errorResponse(
                 'Error in fetching purchasing officer items: ' . $e->getMessage(),
+                500
+            );
+        }
+    }
+
+    /**
+     * Get Supplier Items
+     *
+     * Returns a list of items from a specific supplier with supplier details.
+     * Similar structure to getTransferItems.
+     *
+     * Filters:
+     * - item_id: Filter by specific item
+     * - search: Search by item name or code
+     * - category: Filter by category
+     * - per_page: Items per page (default: 15)
+     *
+     * Input:
+     * - supplier_id (required)
+     *
+     * @group New Order
+     */
+    public function getSupplierItems(GetSupplierItemsRequest $request): JsonResponse
+    {
+        try {
+            $validated = $request->validated();
+            $supplierId = $validated['supplier_id'];
+            $branchId = auth()->user()->branch_id;
+            $perPage = $validated['per_page'] ?? 15;
+
+            // Get supplier with details
+            $supplier = PurchaseSupplier::find($supplierId);
+            if (!$supplier) {
+                return $this->errorResponse('Supplier not found', 404);
+            }
+
+            // Get supplier items
+            $query = SupplierItem::where('supplier_id', $supplierId)
+                ->available();
+
+            // Filter by specific item_id if provided
+            if (!empty($validated['item_id'])) {
+                $query->where('item_id', $validated['item_id']);
+            }
+
+            $supplierItems = $query->get();
+
+            if ($supplierItems->isEmpty()) {
+                return $this->successResponse(
+                    [
+                        'supplier' => (new SupplierResource($supplier))->toArray(request()),
+                        'items' => [],
+                    ],
+                    'Supplier items retrieved successfully'
+                );
+            }
+
+            // Get BranchItems referenced by SupplierItems
+            $supplierItemIds = $supplierItems->pluck('item_id')->toArray();
+            $referencedBranchItems = BranchItem::whereIn('id', $supplierItemIds)
+                ->select('id', 'item_name', 'item_code', 'item_unit', 'category', 'subcategory')
+                ->get()
+                ->keyBy('id');
+
+            // Get branch items in current branch that match the referenced items by name/code
+            $itemNames = $referencedBranchItems->pluck('item_name')->unique()->toArray();
+            $itemCodes = $referencedBranchItems->pluck('item_code')->unique()->toArray();
+
+            $branchItemsQuery = BranchItem::where('branch_id', $branchId)
+                ->where(function ($q) use ($itemNames, $itemCodes, $validated) {
+                    $q->whereIn('item_name', $itemNames)
+                        ->orWhereIn('item_code', $itemCodes);
+
+                    // If specific item_id is requested, also check by id
+                    if (!empty($validated['item_id'])) {
+                        $q->orWhere('id', $validated['item_id']);
+                    }
+                });
+
+            // Apply filters
+            if (!empty($validated['search'])) {
+                $branchItemsQuery->where(function ($q) use ($validated) {
+                    $q->where('item_name', 'like', '%' . $validated['search'] . '%')
+                        ->orWhere('item_code', 'like', '%' . $validated['search'] . '%');
+                });
+            }
+
+            if (!empty($validated['category'])) {
+                $branchItemsQuery->where('category', $validated['category']);
+            }
+
+            $branchItems = $branchItemsQuery->paginate($perPage);
+            $itemsCollection = $branchItems->getCollection();
+
+            // Create maps for matching
+            // Map by item_id (direct match)
+            $supplierItemsByIdMap = $supplierItems->keyBy('item_id');
+            // Map by item_name and item_code (for cross-branch matching)
+            $supplierItemsByNameMap = $supplierItems->mapWithKeys(function ($supplierItem) use ($referencedBranchItems) {
+                $refItem = $referencedBranchItems[$supplierItem->item_id] ?? null;
+                if (!$refItem) {
+                    return [];
+                }
+                $key = $refItem->item_name . '|' . $refItem->item_code;
+                return [$key => $supplierItem];
+            });
+
+            // Transform the collection for the resource
+            $transformedItems = $itemsCollection->map(function ($branchItem) use (
+                $supplierItemsByIdMap,
+                $supplierItemsByNameMap
+            ) {
+                // Try direct match by id first
+                $supplierItem = $supplierItemsByIdMap[$branchItem->id] ?? null;
+
+                // If not found, try matching by name and code
+                if (!$supplierItem) {
+                    $key = $branchItem->item_name . '|' . $branchItem->item_code;
+                    $supplierItem = $supplierItemsByNameMap[$key] ?? null;
+                }
+
+                if (!$supplierItem) {
+                    return null;
+                }
+
+                return [
+                    'supplier_item' => $supplierItem,
+                    'branch_item' => $branchItem,
+                ];
+            })->filter()->values(); // Remove null values
+
+            // Create ResourceCollection
+            $resourceCollection = SupplierItemResource::collection($transformedItems);
+            $resourceCollection->resource = $branchItems;
+
+            // Get paginated response
+            $response = $this->successResponse(
+                $resourceCollection,
+                'Supplier items retrieved successfully'
+            );
+
+            // Add supplier details to the response data
+            $responseData = $response->getData(true);
+            $responseData['supplier'] = (new SupplierResource($supplier))->toArray(request());
+
+            return response()->json($responseData, 200);
+        } catch (\Exception $e) {
+            Log::error('Error fetching supplier items: ' . $e->getMessage(), [
+                'exception' => $e,
+                'request' => $request->all(),
+            ]);
+
+            return $this->errorResponse(
+                'Error in fetching supplier items: ' . $e->getMessage(),
                 500
             );
         }

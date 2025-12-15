@@ -52,6 +52,9 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         // Direct Supplier Items
         Route::get('/direct-supplier-items', [NewOrderController::class, 'getDirectSupplierItems'])->name('purchase.orders.direct-supplier-items');
 
+        // Supplier Items (by supplier_id)
+        Route::get('/supplier-items', [NewOrderController::class, 'getSupplierItems'])->name('purchase.orders.supplier-items');
+
         // Purchasing Officer Items
         Route::get('/purchasing-officer-items', [NewOrderController::class, 'getPurchasingOfficerItems'])->name('purchase.orders.purchasing-officer-items');
 

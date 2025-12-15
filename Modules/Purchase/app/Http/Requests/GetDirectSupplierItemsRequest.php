@@ -16,7 +16,7 @@ class GetDirectSupplierItemsRequest extends FormRequest
         return [
             'item_id' => ['required', 'uuid', 'exists:branch_item,id'],
             'quantity' => ['nullable', 'numeric', 'min:0.001'],
-            'min_availability' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'status' => ['nullable', 'string', 'in:online,offline,away'],
             'max_delivery_hours' => ['nullable', 'integer', 'min:1'],
             'max_distance_km' => ['nullable', 'numeric', 'min:0'],
             'search' => ['nullable', 'string', 'max:255'],
