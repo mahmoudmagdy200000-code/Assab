@@ -229,7 +229,16 @@ class QuickCashExpenseService
 
     public function getCustodyBalance(string $branchManagerId): float
     {
-        return 10000.00; // Placeholder - integrate with custody module
+        try {
+            $custodyBalanceService = app(\Modules\Custody\Services\CustodyBalanceService::class);
+            return $custodyBalanceService->getCustodyBalance($branchManagerId);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to get custody balance', [
+                'branch_manager_id' => $branchManagerId,
+                'error' => $e->getMessage()
+            ]);
+            return 0.00;
+        }
     }
 
     /**

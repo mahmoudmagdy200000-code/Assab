@@ -303,6 +303,11 @@ class BranchManagerShiftController extends BaseController
                     'approved_at' => now(),
                 ]);
 
+                // Fire event for personal ledger transaction creation
+                if ($handover->handover_to_type === 'branch_manager') {
+                    event(new \Modules\Custody\Events\HandoverApproved($handover->fresh()));
+                }
+
                 // Normalize status for response
                 $normalizedStatus = $this->normalizeHandoverStatus($handover->status);
 

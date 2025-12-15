@@ -1,0 +1,11 @@
+{
+    "name": "Custody",
+    "alias": "custody",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\Custody\\Providers\\CustodyServiceProvider"
+    ],
+    "files": []
+}

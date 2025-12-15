@@ -89,7 +89,14 @@ class SingleInvoiceExpenseController extends BaseController
 
         // Check custody balance if payment method is custody
         if ($request->payment_method === 'custody') {
-            // TODO: Implement custody balance check
+            $custodyBalance = $this->singleInvoiceService->getCustodyBalance(auth()->id());
+            if ($custodyBalance < $totalAmount) {
+                return $this->errorResponse(
+                    'Insufficient custody balance',
+                    400,
+                    ['custody_balance' => $custodyBalance]
+                );
+            }
         }
 
         DB::beginTransaction();

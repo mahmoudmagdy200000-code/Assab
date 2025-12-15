@@ -211,13 +211,20 @@ class HandoverService
             ]);
 
             // Update CashierShiftHandover status
-            CashierShiftHandover::where('cashier_shift_id', $shift->id)
-                ->update([
+            $handover = CashierShiftHandover::where('cashier_shift_id', $shift->id)->first();
+            if ($handover) {
+                $handover->update([
                     'status' => 'approved',
                     'approved_by_id' => $reviewerId,
                     'approved_by_type' => $reviewerType,
                     'approved_at' => now(),
                 ]);
+
+                // Fire event for personal ledger transaction creation
+                if ($handover->handover_to_type === 'branch_manager') {
+                    event(new \Modules\Custody\Events\HandoverApproved($handover));
+                }
+            }
 
             // Try auto handover to next shift
             try {

@@ -324,4 +324,21 @@ class SingleInvoiceExpenseService
             'notes' => null,
         ]);
     }
+
+    /**
+     * Get custody balance for branch manager
+     */
+    public function getCustodyBalance(string $branchManagerId): float
+    {
+        try {
+            $custodyBalanceService = app(\Modules\Custody\Services\CustodyBalanceService::class);
+            return $custodyBalanceService->getCustodyBalance($branchManagerId);
+        } catch (\Exception $e) {
+            Log::error('Failed to get custody balance', [
+                'branch_manager_id' => $branchManagerId,
+                'error' => $e->getMessage()
+            ]);
+            return 0.00;
+        }
+    }
 }

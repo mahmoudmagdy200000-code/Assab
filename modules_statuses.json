@@ -8,5 +8,6 @@
     "Expense": true,
     "BrandOwner": true,
     "Shift": true,
-    "Purchase": true
+    "Purchase": true,
+    "Custody": true
 }

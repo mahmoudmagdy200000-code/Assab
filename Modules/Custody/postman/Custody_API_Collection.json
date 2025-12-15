@@ -1,0 +1,968 @@
+{
+    "info": {
+        "_postman_id": "custody-api-collection",
+        "name": "Custody & Ledger Management API",
+        "description": "Complete API collection for Branch Manager Financial Management System - Personal Ledger and Custody Management modules",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+        "_exporter_id": "custody-module"
+    },
+    "item": [
+        {
+            "name": "Personal Ledger Management",
+            "item": [
+                {
+                    "name": "Get Personal Custody Balance Dashboard",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/branch-manager/ledger/personal-custody-balance",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "api",
+                                "branch-manager",
+                                "ledger",
+                                "personal-custody-balance"
+                            ]
+                        },
+                        "description": "Get personal custody balance summary with total cash in, total cash out, current balance, and recent activity (last 5 transactions)"
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "GET",
+                                "header": [],
+                                "url": {
+                                    "raw": "{{base_url}}/api/branch-manager/ledger/personal-custody-balance",
+                                    "host": ["{{base_url}}"],
+                                    "path": [
+                                        "api",
+                                        "branch-manager",
+                                        "ledger",
+                                        "personal-custody-balance"
+                                    ]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Personal custody balance retrieved successfully\",\n    \"data\": {\n        \"totalCashIn\": 15000.50,\n        \"totalCashOut\": 7500.25,\n        \"currentBalance\": 7500.25,\n        \"recentActivity\": [\n            {\n                \"transactionType\": \"Total Sales\",\n                \"cashierName\": \"John Smith\",\n                \"amount\": \"+1200.00\",\n                \"dateTime\": \"2024-12-15T14:30:00Z\",\n                \"isCashIn\": true\n            },\n            {\n                \"transactionType\": \"Handover to Brand Owner\",\n                \"brandOwnerName\": \"Sarah Johnson\",\n                \"amount\": \"-500.00\",\n                \"dateTime\": \"2024-12-15T12:00:00Z\",\n                \"isCashIn\": false\n            }\n        ]\n    }\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Get Personal Balance Only",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/branch-manager/ledger/personal-balance-only",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "api",
+                                "branch-manager",
+                                "ledger",
+                                "personal-balance-only"
+                            ]
+                        },
+                        "description": "Get current personal custody balance only (for use in forms)"
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "GET",
+                                "header": [],
+                                "url": {
+                                    "raw": "{{base_url}}/api/branch-manager/ledger/personal-balance-only",
+                                    "host": ["{{base_url}}"],
+                                    "path": [
+                                        "api",
+                                        "branch-manager",
+                                        "ledger",
+                                        "personal-balance-only"
+                                    ]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Personal balance retrieved successfully\",\n    \"data\": {\n        \"personalCustodyBalance\": 7500.25\n    }\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Get Transaction History - Daily View",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/branch-manager/ledger/transactions?view=daily",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "api",
+                                "branch-manager",
+                                "ledger",
+                                "transactions"
+                            ],
+                            "query": [
+                                {
+                                    "key": "view",
+                                    "value": "daily",
+                                    "description": "View type: 'daily' or 'detailed'"
+                                }
+                            ]
+                        },
+                        "description": "Get transaction history for current day only"
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "GET",
+                                "header": [],
+                                "url": {
+                                    "raw": "{{base_url}}/api/branch-manager/ledger/transactions?view=daily",
+                                    "host": ["{{base_url}}"],
+                                    "path": [
+                                        "api",
+                                        "branch-manager",
+                                        "ledger",
+                                        "transactions"
+                                    ],
+                                    "query": [
+                                        {
+                                            "key": "view",
+                                            "value": "daily"
+                                        }
+                                    ]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Transactions retrieved successfully\",\n    \"data\": {\n        \"view\": \"daily\",\n        \"totalTransactions\": 25,\n        \"transactions\": [\n            {\n                \"id\": \"txn_12345\",\n                \"transactionType\": \"Total Sales\",\n                \"cashierName\": \"John Smith\",\n                \"amount\": \"+1200.00\",\n                \"dateTime\": \"2024-12-15T14:30:00Z\"\n            }\n        ]\n    }\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Get Transaction History - Detailed View with Filters",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/branch-manager/ledger/transactions?view=detailed&startDate=2024-12-01&endDate=2024-12-15&transactionType=Total Sales",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "api",
+                                "branch-manager",
+                                "ledger",
+                                "transactions"
+                            ],
+                            "query": [
+                                {
+                                    "key": "view",
+                                    "value": "detailed",
+                                    "description": "View type: 'daily' or 'detailed'"
+                                },
+                                {
+                                    "key": "startDate",
+                                    "value": "2024-12-01",
+                                    "description": "Start date (YYYY-MM-DD)"
+                                },
+                                {
+                                    "key": "endDate",
+                                    "value": "2024-12-15",
+                                    "description": "End date (YYYY-MM-DD)"
+                                },
+                                {
+                                    "key": "transactionType",
+                                    "value": "Total Sales",
+                                    "description": "Filter by transaction type: 'Total Sales', 'Handover to Brand Owner', 'Transfer to Custody'"
+                                }
+                            ]
+                        },
+                        "description": "Get detailed transaction history with optional filters"
+                    }
+                },
+                {
+                    "name": "Export Transactions as PDF",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"view\": \"detailed\",\n    \"startDate\": \"2024-12-01\",\n    \"endDate\": \"2024-12-15\",\n    \"transactionType\": null\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/branch-manager/ledger/export-pdf",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "api",
+                                "branch-manager",
+                                "ledger",
+                                "export-pdf"
+                            ]
+                        },
+                        "description": "Export transaction history as PDF file"
+                    }
+                }
+            ],
+            "description": "Personal Ledger Management endpoints for tracking personal custody balance"
+        },
+        {
+            "name": "Custody Requests",
+            "item": [
+                {
+                    "name": "List All Custody Requests",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/custody/requests",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "custody", "requests"]
+                        },
+                        "description": "Get list of all custody requests for the authenticated branch manager"
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "GET",
+                                "header": [],
+                                "url": {
+                                    "raw": "{{base_url}}/api/custody/requests",
+                                    "host": ["{{base_url}}"],
+                                    "path": ["api", "custody", "requests"]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Custody requests retrieved successfully\",\n    \"data\": {\n        \"requests\": [\n            {\n                \"id\": \"req_12345\",\n                \"type\": \"Custody Request\",\n                \"submittedBy\": \"Me (Branch Manager)\",\n                \"dateTime\": \"2024-12-15T10:00:00Z\",\n                \"status\": \"Pending\",\n                \"amount\": 5000.00\n            },\n            {\n                \"id\": \"req_12346\",\n                \"type\": \"Custody Request\",\n                \"submittedBy\": \"Me (Branch Manager)\",\n                \"dateTime\": \"2024-12-14T15:30:00Z\",\n                \"status\": \"Approved\",\n                \"amount\": 3000.00\n            }\n        ]\n    }\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Get Request Details",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/custody/requests/req_12345",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "custody", "requests", "req_12345"]
+                        },
+                        "description": "Get detailed information about a specific custody request including timeline and approval details"
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "GET",
+                                "header": [],
+                                "url": {
+                                    "raw": "{{base_url}}/api/custody/requests/req_12345",
+                                    "host": ["{{base_url}}"],
+                                    "path": [
+                                        "api",
+                                        "custody",
+                                        "requests",
+                                        "req_12345"
+                                    ]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Request details retrieved successfully\",\n    \"data\": {\n        \"requestId\": \"req_12345\",\n        \"details\": {\n            \"requestedAmount\": 5000.00,\n            \"purpose\": \"Restock inventory for holiday season\",\n            \"preferredReceiptMethod\": \"Bank Transfer\",\n            \"attachments\": [\n                {\n                    \"filename\": \"invoice.pdf\",\n                    \"url\": \"https://storage.example.com/req_12345/invoice.pdf\",\n                    \"uploadedAt\": \"2024-12-15T10:00:00Z\"\n                }\n            ],\n            \"additionalNotes\": \"Urgent - need by end of week\"\n        },\n        \"timeline\": [\n            {\n                \"stage\": \"Submit Case\",\n                \"branchManagerName\": \"Ahmed Mohamed\",\n                \"profileImage\": \"https://storage.example.com/profiles/ahmed.jpg\",\n                \"dateTime\": \"2024-12-15T10:00:00Z\",\n                \"status\": \"Submitted\"\n            },\n            {\n                \"stage\": \"View Case\",\n                \"branchManagerName\": \"Ahmed Mohamed\",\n                \"profileImage\": \"https://storage.example.com/profiles/ahmed.jpg\",\n                \"dateTime\": \"2024-12-15T10:05:00Z\",\n                \"status\": \"Viewed\"\n            }\n        ],\n        \"approval\": {\n            \"branchManagerName\": \"Ahmed Mohamed\",\n            \"profileImage\": \"https://storage.example.com/profiles/ahmed.jpg\",\n            \"dateTime\": \"2024-12-15T11:00:00Z\",\n            \"status\": \"Approved\"\n        }\n    }\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Create Cash-in Request",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "multipart/form-data",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "requestedAmount",
+                                    "value": "5000.00",
+                                    "type": "text",
+                                    "description": "Required. Min: 1, Max: 1000000"
+                                },
+                                {
+                                    "key": "purpose",
+                                    "value": "Restock inventory for holiday season",
+                                    "type": "text",
+                                    "description": "Required. Min: 10 chars, Max: 500 chars"
+                                },
+                                {
+                                    "key": "preferredReceiptMethod",
+                                    "value": "Bank Transfer",
+                                    "type": "text",
+                                    "description": "Required. Options: 'Cash Handover' or 'Bank Transfer'"
+                                },
+                                {
+                                    "key": "additionalNotes",
+                                    "value": "Urgent - need by end of week",
+                                    "type": "text",
+                                    "description": "Optional. Max: 1000 chars"
+                                },
+                                {
+                                    "key": "attachments",
+                                    "type": "file",
+                                    "description": "Optional. Max 5 files, 5MB each. Types: pdf, jpg, jpeg, png, docx"
+                                },
+                                {
+                                    "key": "reuseRequestId",
+                                    "value": "",
+                                    "type": "text",
+                                    "description": "Optional. ID of previous request to reuse"
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/custody/request-cashin",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "custody", "request-cashin"]
+                        },
+                        "description": "Create a new cash-in request. Supports file uploads and reusing previous requests."
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "POST",
+                                "header": [],
+                                "body": {
+                                    "mode": "formdata",
+                                    "formdata": []
+                                },
+                                "url": {
+                                    "raw": "{{base_url}}/api/custody/request-cashin",
+                                    "host": ["{{base_url}}"],
+                                    "path": ["api", "custody", "request-cashin"]
+                                }
+                            },
+                            "status": "Created",
+                            "code": 201,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Cash-in request submitted successfully\",\n    \"data\": {\n        \"requestId\": \"req_12345\",\n        \"status\": \"Pending\"\n    }\n}"
+                        },
+                        {
+                            "name": "Validation Error",
+                            "originalRequest": {
+                                "method": "POST",
+                                "header": [],
+                                "body": {
+                                    "mode": "formdata",
+                                    "formdata": []
+                                },
+                                "url": {
+                                    "raw": "{{base_url}}/api/custody/request-cashin",
+                                    "host": ["{{base_url}}"],
+                                    "path": ["api", "custody", "request-cashin"]
+                                }
+                            },
+                            "status": "Unprocessable Entity",
+                            "code": 422,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": false,\n    \"message\": \"Validation failed\",\n    \"errors\": {\n        \"purpose\": [\n            \"Purpose must be at least 10 characters\"\n        ],\n        \"requestedAmount\": [\n            \"Requested amount is required\"\n        ]\n    }\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Get Previous Requests History",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/custody/request-cashin/history",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "api",
+                                "custody",
+                                "request-cashin",
+                                "history"
+                            ]
+                        },
+                        "description": "Get history of previous requests for reuse feature"
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "GET",
+                                "header": [],
+                                "url": {
+                                    "raw": "{{base_url}}/api/custody/request-cashin/history",
+                                    "host": ["{{base_url}}"],
+                                    "path": [
+                                        "api",
+                                        "custody",
+                                        "request-cashin",
+                                        "history"
+                                    ]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Request history retrieved successfully\",\n    \"data\": {\n        \"previousRequests\": [\n            {\n                \"id\": \"req_12340\",\n                \"requestedAmount\": 3000.00,\n                \"purpose\": \"Monthly inventory restock\",\n                \"preferredReceiptMethod\": \"Bank Transfer\",\n                \"createdAt\": \"2024-11-15T10:00:00Z\"\n            }\n        ]\n    }\n}"
+                        }
+                    ]
+                }
+            ],
+            "description": "Custody request management endpoints"
+        },
+        {
+            "name": "Custody Transactions",
+            "item": [
+                {
+                    "name": "List Custody Transactions",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/custody/transactions?type=Cash Transfer&startDate=2024-12-01&endDate=2024-12-15",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "custody", "transactions"],
+                            "query": [
+                                {
+                                    "key": "type",
+                                    "value": "Cash Transfer",
+                                    "description": "Optional. Filter by type: 'Cash Transfer', 'Cash Handover', 'Bank Transfer', 'Expenses Deduction'"
+                                },
+                                {
+                                    "key": "startDate",
+                                    "value": "2024-12-01",
+                                    "description": "Optional. Start date (YYYY-MM-DD)"
+                                },
+                                {
+                                    "key": "endDate",
+                                    "value": "2024-12-15",
+                                    "description": "Optional. End date (YYYY-MM-DD)"
+                                }
+                            ]
+                        },
+                        "description": "Get list of custody transactions with optional filters"
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "GET",
+                                "header": [],
+                                "url": {
+                                    "raw": "{{base_url}}/api/custody/transactions",
+                                    "host": ["{{base_url}}"],
+                                    "path": ["api", "custody", "transactions"]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Transactions retrieved successfully\",\n    \"data\": {\n        \"transactions\": [\n            {\n                \"id\": \"txn_67890\",\n                \"type\": \"Cash Transfer\",\n                \"submittedBy\": \"Me\",\n                \"dateTime\": \"2024-12-15T14:00:00Z\",\n                \"amount\": \"+2000.00\",\n                \"isCashIn\": true\n            },\n            {\n                \"id\": \"txn_67893\",\n                \"type\": \"Expenses Deduction\",\n                \"submittedBy\": \"Me\",\n                \"dateTime\": \"2024-12-13T09:30:00Z\",\n                \"amount\": \"-500.00\",\n                \"isCashIn\": false,\n                \"linkedExpenseId\": \"exp_11111\"\n            }\n        ]\n    }\n}"
+                        }
+                    ]
+                }
+            ],
+            "description": "Custody transaction management endpoints"
+        },
+        {
+            "name": "Handover & Transfer",
+            "item": [
+                {
+                    "name": "Handover to Branch/Owner Manager",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"recipientId\": \"bm_001\",\n    \"recipientType\": \"Branch Manager\",\n    \"handoverAmount\": 2000.00,\n    \"additionalNotes\": \"Weekly handover\",\n    \"handoverMethod\": \"Bank Transfer\",\n    \"handoverDate\": \"2024-12-16T10:00:00Z\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/custody/handover",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "custody", "handover"]
+                        },
+                        "description": "Handover funds to Branch Manager or Brand Owner. For 'Custody' recipient type, handoverMethod and handoverDate are not required."
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "POST",
+                                "header": [],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n    \"recipientId\": \"bm_001\",\n    \"recipientType\": \"Branch Manager\",\n    \"handoverAmount\": 2000.00,\n    \"handoverMethod\": \"Bank Transfer\",\n    \"handoverDate\": \"2024-12-16T10:00:00Z\"\n}",
+                                    "options": {
+                                        "raw": {
+                                            "language": "json"
+                                        }
+                                    }
+                                },
+                                "url": {
+                                    "raw": "{{base_url}}/api/custody/handover",
+                                    "host": ["{{base_url}}"],
+                                    "path": ["api", "custody", "handover"]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Handover request submitted successfully\",\n    \"data\": {\n        \"handoverId\": \"hand_98765\",\n        \"newBalance\": 5500.25\n    }\n}"
+                        },
+                        {
+                            "name": "Insufficient Balance Error",
+                            "originalRequest": {
+                                "method": "POST",
+                                "header": [],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n    \"recipientId\": \"bm_001\",\n    \"recipientType\": \"Branch Manager\",\n    \"handoverAmount\": 10000.00\n}",
+                                    "options": {
+                                        "raw": {
+                                            "language": "json"
+                                        }
+                                    }
+                                },
+                                "url": {
+                                    "raw": "{{base_url}}/api/custody/handover",
+                                    "host": ["{{base_url}}"],
+                                    "path": ["api", "custody", "handover"]
+                                }
+                            },
+                            "status": "Bad Request",
+                            "code": 400,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": false,\n    \"message\": \"Insufficient balance\",\n    \"errors\": {\n        \"code\": \"INSUFFICIENT_BALANCE\",\n        \"required\": 10000.00,\n        \"available\": 7500.25\n    }\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Transfer to Custody",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"transferAmount\": 3000.00,\n    \"isFullTransfer\": false\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/custody/transfer",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "custody", "transfer"]
+                        },
+                        "description": "Transfer funds from personal custody balance to branch custody balance. Set isFullTransfer to true to transfer entire balance."
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "POST",
+                                "header": [],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n    \"transferAmount\": 3000.00,\n    \"isFullTransfer\": false\n}",
+                                    "options": {
+                                        "raw": {
+                                            "language": "json"
+                                        }
+                                    }
+                                },
+                                "url": {
+                                    "raw": "{{base_url}}/api/custody/transfer",
+                                    "host": ["{{base_url}}"],
+                                    "path": ["api", "custody", "transfer"]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Transfer completed successfully\",\n    \"data\": {\n        \"transferId\": \"trans_55555\",\n        \"newPersonalBalance\": 4500.25,\n        \"newCustodyBalance\": 15000.00\n    }\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Get Recipients List",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/custody/recipients",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "custody", "recipients"]
+                        },
+                        "description": "Get list of available recipients (Branch Managers, Brand Owners, and Custody option)"
+                    }
+                }
+            ],
+            "description": "Handover and transfer operations"
+        },
+        {
+            "name": "Balance Trends",
+            "item": [
+                {
+                    "name": "Get Balance Trends",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{access_token}}",
+                                "type": "text"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/custody/balance-trends?period=today&granularity=hourly",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "custody", "balance-trends"],
+                            "query": [
+                                {
+                                    "key": "period",
+                                    "value": "today",
+                                    "description": "Period: 'today', 'week', or 'month'. Default: 'today'"
+                                },
+                                {
+                                    "key": "granularity",
+                                    "value": "hourly",
+                                    "description": "Granularity: 'hourly' (for today) or 'daily' (for week/month). Default: 'hourly' for today"
+                                }
+                            ]
+                        },
+                        "description": "Get balance trends data for visualization (custody requests vs expenses)"
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "GET",
+                                "header": [],
+                                "url": {
+                                    "raw": "{{base_url}}/api/custody/balance-trends?period=today&granularity=hourly",
+                                    "host": ["{{base_url}}"],
+                                    "path": [
+                                        "api",
+                                        "custody",
+                                        "balance-trends"
+                                    ],
+                                    "query": [
+                                        {
+                                            "key": "period",
+                                            "value": "today"
+                                        },
+                                        {
+                                            "key": "granularity",
+                                            "value": "hourly"
+                                        }
+                                    ]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Balance trends retrieved successfully\",\n    \"data\": {\n        \"period\": \"today\",\n        \"granularity\": \"hourly\",\n        \"currentHour\": {\n            \"hour\": \"07:00\",\n            \"custodyRequests\": {\n                \"count\": 0,\n                \"total\": 0.00\n            },\n            \"expenses\": {\n                \"count\": 1,\n                \"total\": 24.00\n            }\n        },\n        \"previousHour\": {\n            \"hour\": \"06:00\",\n            \"custodyRequests\": {\n                \"count\": 0,\n                \"total\": 0.00\n            },\n            \"expenses\": {\n                \"count\": 1,\n                \"total\": 21.00\n            }\n        },\n        \"comparison\": {\n            \"custodyRequestsChange\": 0.00,\n            \"custodyRequestsPercentage\": \"0%\",\n            \"expensesChange\": 3.00,\n            \"expensesPercentage\": \"+14%\"\n        },\n        \"dataPoints\": [\n            {\n                \"timestamp\": \"2024-12-15T00:00:00Z\",\n                \"hour\": \"00:00\",\n                \"custodyRequests\": 0.00,\n                \"expenses\": 0.00\n            },\n            {\n                \"timestamp\": \"2024-12-15T07:00:00Z\",\n                \"hour\": \"07:00\",\n                \"custodyRequests\": 0.00,\n                \"expenses\": 24.00\n            }\n        ]\n    }\n}"
+                        }
+                    ]
+                }
+            ],
+            "description": "Balance trends and analytics endpoints"
+        }
+    ],
+    "event": [
+        {
+            "listen": "prerequest",
+            "script": {
+                "type": "text/javascript",
+                "exec": [""]
+            }
+        },
+        {
+            "listen": "test",
+            "script": {
+                "type": "text/javascript",
+                "exec": [""]
+            }
+        }
+    ],
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://localhost:8000",
+            "type": "string"
+        },
+        {
+            "key": "access_token",
+            "value": "",
+            "type": "string"
+        }
+    ]
+}
