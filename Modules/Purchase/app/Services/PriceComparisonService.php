@@ -311,10 +311,9 @@ class PriceComparisonService
      */
     public function getPriceTrends(string $itemId): array
     {
-        $threeMonthsAgo = now()->subMonths(3)->startOfMonth();
+        $threeMonthsAgo = now()->subMonths(2)->startOfMonth(); // current month + last 2 months
 
-        // Get all order items for this item in the last 3 months (from all branches)
-        // Only include completed/confirmed orders (not drafts or canceled)
+        // Get all completed/confirmed orders for this item within the last 2 months and current month
         $orderItems = PurchaseOrderItem::with(['purchaseOrder'])
             ->where('item_id', $itemId)
             ->whereHas('purchaseOrder', function ($query) use ($threeMonthsAgo) {
@@ -328,27 +327,36 @@ class PriceComparisonService
             })
             ->get();
 
-        // Build price trends array with date and value, sorted by purchase date
-        $trends = $orderItems->map(function ($item) {
-            $order = $item->purchaseOrder;
-            $purchaseDate = $order->created_at;
+        // For each of the last two months + current month, pick the latest purchase in that month
+        $trends = collect();
 
-            return [
-                'date' => $purchaseDate->format('Y-m-d'),
-                'value' => (float) $item->unit_price,
-                'timestamp' => $purchaseDate->timestamp, // For sorting
-            ];
-        })
-            ->sortBy('timestamp') // Sort by purchase date
-            ->map(function ($item) {
-                // Remove timestamp after sorting
-                unset($item['timestamp']);
-                return $item;
-            })
-            ->values()
-            ->toArray();
+        for ($i = 0; $i <= 2; $i++) {
+            $month = now()->subMonths($i);
+            $monthStart = $month->copy()->startOfMonth();
+            $monthEnd = $month->copy()->endOfMonth();
 
-        return $trends;
+            // Filter items for this month and get the latest purchase
+            $latestItem = $orderItems
+                ->filter(function ($item) use ($monthStart, $monthEnd) {
+                    $orderDate = $item->purchaseOrder->created_at;
+                    return $orderDate >= $monthStart && $orderDate <= $monthEnd;
+                })
+                ->sortByDesc(function ($item) {
+                    return $item->purchaseOrder->created_at;
+                })
+                ->first();
+
+            if ($latestItem) {
+                $purchaseDate = $latestItem->purchaseOrder->created_at;
+                $trends->push([
+                    'date' => $purchaseDate->format('Y-m-d'),
+                    'value' => (float) $latestItem->unit_price,
+                ]);
+            }
+        }
+
+        // Return trends sorted from oldest to newest
+        return $trends->sortBy('date')->values()->toArray();
     }
 
     /**
