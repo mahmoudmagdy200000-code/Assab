@@ -279,10 +279,19 @@ class PriceComparisonService
     /**
      * Get price trends for last 3 months from actual purchase orders
      * Returns actual prices that were paid for this item in the last 3 months (from all branches)
+     *
+     * Returns array of objects with format:
+     * [
+     *   { "date": "2025-04-01", "value": 10 },
+     *   { "date": "2025-04-03", "value": 14 }
+     * ]
+     *
+     * Where:
+     * - date: The date when the purchase was made (from purchase_order.created_at)
+     * - value: The unit_price that was paid for the item (from purchase_order_item.unit_price)
      */
     public function getPriceTrends(string $itemId): array
     {
-        $trends = [];
         $threeMonthsAgo = now()->subMonths(3)->startOfMonth();
 
         // Get all order items for this item in the last 3 months (from all branches)
@@ -300,62 +309,27 @@ class PriceComparisonService
             })
             ->get();
 
-        // Group by month and order type
-        for ($i = 0; $i < 3; $i++) {
-            $month = now()->subMonths($i);
-            $periodMonth = $month->format('Y-m');
-            $monthLabel = $month->format('M Y');
-            $monthStart = $month->copy()->startOfMonth();
-            $monthEnd = $month->copy()->endOfMonth();
+        // Build price trends array with date and value, sorted by purchase date
+        $trends = $orderItems->map(function ($item) {
+            $order = $item->purchaseOrder;
+            $purchaseDate = $order->created_at;
 
-            // Filter items for this month
-            $monthItems = $orderItems->filter(function ($item) use ($monthStart, $monthEnd) {
-                $orderDate = $item->purchaseOrder->created_at;
-                return $orderDate >= $monthStart && $orderDate <= $monthEnd;
-            });
-
-            // Group by order type
-            $directSupplierItems = $monthItems->filter(function ($item) {
-                return $item->purchaseOrder->order_type === OrderType::DIRECT_SUPPLIER;
-            });
-
-            $viaPOItems = $monthItems->filter(function ($item) {
-                return $item->purchaseOrder->order_type === OrderType::VIA_PURCHASING_OFFICER;
-            });
-
-            $internalTransferItems = $monthItems->filter(function ($item) {
-                return $item->purchaseOrder->order_type === OrderType::INTERNAL_TRANSFER;
-            });
-
-            // Calculate average prices
-            $directSupplierAvg = $directSupplierItems->isNotEmpty()
-                ? $directSupplierItems->avg('unit_price')
-                : null;
-
-            $viaPOAvg = $viaPOItems->isNotEmpty()
-                ? $viaPOItems->avg('unit_price')
-                : null;
-
-            // For internal transfers, calculate average price if there are items
-            // If no items, return null (not 0) to indicate no data
-            $internalTransferAvg = $internalTransferItems->isNotEmpty()
-                ? $internalTransferItems->avg('unit_price')
-                : null;
-
-            $trends[$periodMonth] = [
-                'month' => $monthLabel,
-                'direct_supplier' => $directSupplierAvg,
-                'via_purchasing_officer' => $viaPOAvg,
-                'internal_transfer' => $internalTransferAvg,
-                'data_points' => [
-                    'direct_supplier' => $directSupplierItems->count(),
-                    'via_purchasing_officer' => $viaPOItems->count(),
-                    'internal_transfer' => $internalTransferItems->count(),
-                ],
+            return [
+                'date' => $purchaseDate->format('Y-m-d'),
+                'value' => (float) $item->unit_price,
+                'timestamp' => $purchaseDate->timestamp, // For sorting
             ];
-        }
+        })
+            ->sortBy('timestamp') // Sort by purchase date
+            ->map(function ($item) {
+                // Remove timestamp after sorting
+                unset($item['timestamp']);
+                return $item;
+            })
+            ->values()
+            ->toArray();
 
-        return array_reverse($trends);
+        return $trends;
     }
 
     /**
@@ -415,6 +389,8 @@ class PriceComparisonService
 
     /**
      * Calculate price change percentage from trends
+     *
+     * Now handles the new format: array of {date, value} objects
      */
     private function calculatePriceChange(array $trends): ?array
     {
@@ -422,23 +398,27 @@ class PriceComparisonService
             return null;
         }
 
-        $trendsArray = array_values($trends);
-        if (count($trendsArray) < 2) {
+        // Check if it's the new format (array of {date, value} objects)
+        $isNewFormat = isset($trends[0]) && is_array($trends[0]) && isset($trends[0]['date']) && isset($trends[0]['value']);
+
+        if (!$isNewFormat) {
+            // Old format - return null for now (can be removed later)
             return null;
         }
 
-        // Get first and last month prices (average across all types)
-        $firstMonth = $trendsArray[0];
-        $lastMonth = $trendsArray[count($trendsArray) - 1];
-
-        $firstMonthPrice = $this->getAveragePriceForMonth($firstMonth);
-        $lastMonthPrice = $this->getAveragePriceForMonth($lastMonth);
-
-        if ($firstMonthPrice === null || $lastMonthPrice === null || $firstMonthPrice == 0) {
+        if (count($trends) < 2) {
             return null;
         }
 
-        $change = (($lastMonthPrice - $firstMonthPrice) / $firstMonthPrice) * 100;
+        // Get first and last prices from the trends
+        $firstPrice = $trends[0]['value'] ?? null;
+        $lastPrice = $trends[count($trends) - 1]['value'] ?? null;
+
+        if ($firstPrice === null || $lastPrice === null || $firstPrice == 0) {
+            return null;
+        }
+
+        $change = (($lastPrice - $firstPrice) / $firstPrice) * 100;
         $isIncrease = $change > 0;
 
         return [
@@ -447,26 +427,8 @@ class PriceComparisonService
             'label' => $isIncrease
                 ? "+" . round($change, 1) . "% Price Increase"
                 : round($change, 1) . "% Price Decrease",
-            'status' => $isIncrease ? "HIGHER THAN LAST MONTH" : "LOWER THAN LAST MONTH",
+            'status' => $isIncrease ? "HIGHER THAN FIRST PURCHASE" : "LOWER THAN FIRST PURCHASE",
         ];
-    }
-
-    /**
-     * Get average price for a month across all order types
-     */
-    private function getAveragePriceForMonth(array $monthData): ?float
-    {
-        $prices = array_filter([
-            $monthData['direct_supplier'] ?? null,
-            $monthData['via_purchasing_officer'] ?? null,
-            $monthData['internal_transfer'] ?? null,
-        ], fn($price) => $price !== null && $price > 0);
-
-        if (empty($prices)) {
-            return null;
-        }
-
-        return array_sum($prices) / count($prices);
     }
 
     /**

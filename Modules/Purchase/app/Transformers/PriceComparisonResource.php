@@ -11,6 +11,10 @@ class PriceComparisonResource extends JsonResource
         return [
             'item_id' => $this->resource['item_id'] ?? null,
             'item_name' => $this->resource['item_name'] ?? null,
+            'item_code' => $this->resource['item_code'] ?? null,
+            'item_unit' => $this->resource['item_unit'] ?? null,
+            'item_logo' => $this->resource['item_logo'] ?? null,
+            'item_price' => $this->resource['item_price'] ?? null,
             'quantity' => $this->resource['quantity'] ?? null,
 
             // Sources

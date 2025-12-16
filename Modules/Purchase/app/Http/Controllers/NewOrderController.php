@@ -121,14 +121,20 @@ class NewOrderController extends BaseController
     /**
      * Compare prices for an item across all sources
      *
+     * Query Parameters:
+     * - item_id (required): UUID of the item
+     * - quantity (optional): Quantity to compare prices for (default: 1)
+     *
      * @group New Order
      */
     public function comparePrices(ComparePricesRequest $request): JsonResponse
     {
         try {
+            $validated = $request->validated();
+
             $comparison = $this->priceService->comparePrices(
-                $request->item_id,
-                $request->quantity ?? null
+                $validated['item_id'],
+                $validated['quantity'] ?? null
             );
 
             return $this->successResponse(
