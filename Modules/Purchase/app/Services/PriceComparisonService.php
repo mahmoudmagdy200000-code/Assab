@@ -32,13 +32,32 @@ class PriceComparisonService
         // Use default quantity of 1 if not provided
         $quantity = $quantity ?? 1.0;
 
-        // Get item name from BranchItem
+        // Get item details from BranchItem
         $item = BranchItem::find($itemId);
-        $itemName = $item ? $item->item_name : null;
+
+        // Handle item_logo - can be array or string
+        $itemLogo = null;
+        if ($item && $item->item_logo) {
+            if (is_array($item->item_logo)) {
+                $logo = $item->item_logo[0] ?? null;
+            } else {
+                $logo = $item->item_logo;
+            }
+
+            if ($logo) {
+                $itemLogo = str_starts_with($logo, 'http')
+                    ? $logo
+                    : asset('storage/' . $logo);
+            }
+        }
 
         $comparison = [
             'item_id' => $itemId,
-            'item_name' => $itemName,
+            'item_name' => $item ? $item->item_name : null,
+            'item_code' => $item ? $item->item_code : null,
+            'item_unit' => $item ? $item->item_unit : null,
+            'item_logo' => $itemLogo,
+            'item_price' => $item ? (float) $item->item_price : null,
             'quantity' => $quantity,
             'period' => 'Last 3 Months',
             'sources' => [],
