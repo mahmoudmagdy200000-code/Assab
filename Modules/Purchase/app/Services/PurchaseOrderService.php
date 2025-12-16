@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
+use Modules\Purchase\Enums\QualityLevel;
 use Modules\Purchase\Enums\TimelineEventType;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\OrderTimeline;
@@ -384,12 +385,15 @@ class PurchaseOrderService
                             throw new \InvalidArgumentException("At least one notification channel is required for direct supplier order at index {$index}");
                         }
 
+                        // Validate and normalize quality_level
+                        $qualityLevel = $this->normalizeQualityLevel($supplierData['quality_level'] ?? null);
+
                         $orderData = [
                             'order_type' => OrderType::DIRECT_SUPPLIER,
                             'branch_id' => $branchId,
                             'requested_by' => $requestedBy,
                             'supplier_id' => $supplierData['supplier_id'],
-                            'quality_level' => $supplierData['quality_level'] ?? null,
+                            'quality_level' => $qualityLevel,
                             'notification_channels' => $supplierData['notification_channels'] ?? [],
                             'message' => $supplierData['message'] ?? null,
                             'items' => $supplierData['items'] ?? [],
@@ -421,7 +425,8 @@ class PurchaseOrderService
                         $firstItem = !empty($items) ? $items[0] : [];
 
                         // Quality level: check item level first, then order level, then default
-                        $qualityLevel = $firstItem['quality'] ?? $officerData['quality_level'] ?? 'standard';
+                        $qualityLevelRaw = $firstItem['quality'] ?? $officerData['quality_level'] ?? 'standard';
+                        $qualityLevel = $this->normalizeQualityLevel($qualityLevelRaw);
 
                         // Delivery dates: check item level first, then order level
                         $preferredDeliveryDate = $firstItem['preferred_delivery_date'] ?? $officerData['preferred_delivery_date'] ?? null;
@@ -513,6 +518,9 @@ class PurchaseOrderService
             $itemLogo = $itemLogo[0] ?? null;
         }
 
+        // Validate and normalize quality value
+        $quality = $this->normalizeQualityLevel($data['quality'] ?? null);
+
         try {
             return PurchaseOrderItem::create([
                 'purchase_order_id' => $order->id,
@@ -527,7 +535,7 @@ class PurchaseOrderService
                 'unit_price' => $unitPrice,
                 'total_price' => max(0, $totalPrice), // Ensure total_price is not negative
                 'discount' => $discount,
-                'quality_ordered' => $data['quality'] ?? null,
+                'quality_ordered' => $quality,
                 'available_in_source' => $data['available_in_source'] ?? null,
                 'daily_consumption' => $data['daily_consumption'] ?? null,
                 'weekend_forecast' => $data['weekend_forecast'] ?? null,
@@ -819,6 +827,44 @@ class PurchaseOrderService
 
         if (!empty($filters['date_from']) || !empty($filters['date_to'])) {
             $query->byDateRange($filters['date_from'] ?? null, $filters['date_to'] ?? null);
+        }
+    }
+
+    /**
+     * Normalize quality level value to enum or null
+     *
+     * Validates and converts quality level string to QualityLevel enum.
+     * Returns null if value is invalid or empty.
+     *
+     * @param string|null $qualityValue
+     * @return QualityLevel|null
+     */
+    private function normalizeQualityLevel(?string $qualityValue): ?QualityLevel
+    {
+        if (empty($qualityValue)) {
+            return null;
+        }
+
+        $normalizedValue = strtolower(trim($qualityValue));
+        $allowedValues = ['economy', 'standard', 'premium'];
+
+        if (!in_array($normalizedValue, $allowedValues)) {
+            Log::warning('Invalid quality level value provided, setting to null', [
+                'provided_quality' => $qualityValue,
+                'normalized_value' => $normalizedValue,
+            ]);
+            return null;
+        }
+
+        try {
+            return QualityLevel::from($normalizedValue);
+        } catch (\ValueError $e) {
+            Log::warning('Failed to convert quality level to enum, setting to null', [
+                'provided_quality' => $qualityValue,
+                'normalized_value' => $normalizedValue,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
         }
     }
 }
