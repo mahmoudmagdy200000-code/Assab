@@ -287,11 +287,45 @@ class NewOrderController extends BaseController
             $isMultipleOrders = isset($data['branches']) || isset($data['direct_supplier']) || isset($data['purchase_officer']);
 
             if ($isMultipleOrders) {
-                // Create multiple orders
-                $branchId = auth()->user()->branch_id;
+                // Validate user and branch
+                $user = auth()->user();
+                if (!$user) {
+                    return $this->unauthorizedResponse('User not authenticated');
+                }
+
+                $branchId = $user->branch_id;
+                if (!$branchId) {
+                    return $this->errorResponse(
+                        'User must be associated with a branch to create orders',
+                        400
+                    );
+                }
+
                 $requestedBy = auth()->id();
+                if (!$requestedBy) {
+                    return $this->unauthorizedResponse('User ID not found');
+                }
+
+                // Log request details for debugging
+                Log::info('Creating multiple orders', [
+                    'user_id' => $requestedBy,
+                    'branch_id' => $branchId,
+                    'has_branches' => !empty($data['branches']),
+                    'has_direct_supplier' => !empty($data['direct_supplier']),
+                    'has_purchase_officer' => !empty($data['purchase_officer']),
+                    'branches_count' => !empty($data['branches']) ? count($data['branches']) : 0,
+                    'direct_supplier_count' => !empty($data['direct_supplier']) ? count($data['direct_supplier']) : 0,
+                    'purchase_officer_count' => !empty($data['purchase_officer']) ? count($data['purchase_officer']) : 0,
+                ]);
 
                 $orders = $this->orderService->createMultipleOrders($data, $branchId, $requestedBy);
+
+                if ($orders->isEmpty()) {
+                    return $this->errorResponse(
+                        'No orders were created. Please check your request data.',
+                        400
+                    );
+                }
 
                 $orderCount = $orders->count();
                 $orderTypes = $orders->map(function ($order) {
@@ -313,7 +347,25 @@ class NewOrderController extends BaseController
                     400
                 );
             }
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return $this->validationErrorResponse($e->errors());
+        } catch (\InvalidArgumentException $e) {
+            Log::error('Invalid argument in store method', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->all(),
+            ]);
+            return $this->errorResponse($e->getMessage(), 400);
         } catch (\Exception $e) {
+            Log::error('Error creating purchase order(s)', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'request_data' => $request->all(),
+                'user_id' => auth()->id(),
+                'branch_id' => auth()->user()->branch_id ?? null,
+            ]);
             return $this->handleException($e, 'creating purchase order(s)');
         }
     }
