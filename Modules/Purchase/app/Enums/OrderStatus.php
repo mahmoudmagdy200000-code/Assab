@@ -17,10 +17,12 @@ enum OrderStatus: string
     case CANCELED = 'canceled';
     case REJECTED = 'rejected';
     case DELAYED = 'delayed';
+    case FULLY_APPROVED = 'fully_approved';
+    case PARTIAL_APPROVED = 'partial_approved';
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::DRAFT => 'Draft',
             self::PENDING => 'Pending',
             self::PENDING_CONFIRMATION => 'Pending Your Confirmation',
@@ -34,12 +36,14 @@ enum OrderStatus: string
             self::CANCELED => 'Canceled',
             self::REJECTED => 'Rejected',
             self::DELAYED => 'Delay Reported',
+            self::FULLY_APPROVED => 'Fully Approved',
+            self::PARTIAL_APPROVED => 'Partial Approved',
         };
     }
 
     public function color(): string
     {
-        return match($this) {
+        return match ($this) {
             self::DRAFT => '#6B7280',
             self::PENDING => '#F59E0B',
             self::PENDING_CONFIRMATION => '#F97316',
@@ -53,6 +57,8 @@ enum OrderStatus: string
             self::CANCELED => '#EF4444',
             self::REJECTED => '#DC2626',
             self::DELAYED => '#F59E0B',
+            self::FULLY_APPROVED => '#10B981',
+            self::PARTIAL_APPROVED => '#8B5CF6',
         };
     }
 
@@ -61,12 +67,12 @@ enum OrderStatus: string
      */
     public function canTransitionTo(OrderStatus $newStatus): bool
     {
-        $allowedTransitions = match($this) {
+        $allowedTransitions = match ($this) {
             self::DRAFT => [self::PENDING, self::CANCELED],
-            self::PENDING => [self::PENDING_CONFIRMATION, self::PENDING_APPROVAL, self::CONFIRMED, self::REJECTED, self::CANCELED],
-            self::PENDING_CONFIRMATION => [self::CONFIRMED, self::REJECTED, self::CANCELED],
-            self::PENDING_APPROVAL => [self::CONFIRMED, self::PARTIAL_CONFIRMATION, self::REJECTED, self::CANCELED],
-            self::PARTIAL_CONFIRMATION => [self::CONFIRMED, self::PREPARING, self::CANCELED],
+            self::PENDING => [self::PENDING_CONFIRMATION, self::PENDING_APPROVAL, self::CONFIRMED, self::FULLY_APPROVED, self::PARTIAL_APPROVED, self::REJECTED, self::CANCELED],
+            self::PENDING_CONFIRMATION => [self::CONFIRMED, self::FULLY_APPROVED, self::REJECTED, self::CANCELED],
+            self::PENDING_APPROVAL => [self::CONFIRMED, self::FULLY_APPROVED, self::PARTIAL_CONFIRMATION, self::PARTIAL_APPROVED, self::REJECTED, self::CANCELED],
+            self::PARTIAL_CONFIRMATION => [self::CONFIRMED, self::FULLY_APPROVED, self::PARTIAL_APPROVED, self::PREPARING, self::CANCELED],
             self::CONFIRMED => [self::PREPARING, self::CANCELED],
             self::PREPARING => [self::ON_THE_WAY, self::DELAYED, self::CANCELED],
             self::ON_THE_WAY => [self::DELIVERED, self::DELAYED],
@@ -75,6 +81,8 @@ enum OrderStatus: string
             self::CLOSED => [],
             self::CANCELED => [],
             self::REJECTED => [],
+            self::FULLY_APPROVED => [self::PREPARING, self::CANCELED],
+            self::PARTIAL_APPROVED => [self::FULLY_APPROVED, self::PREPARING, self::CANCELED],
         };
 
         return in_array($newStatus, $allowedTransitions);
@@ -88,6 +96,8 @@ enum OrderStatus: string
         return in_array($this, [
             self::CONFIRMED,
             self::PARTIAL_CONFIRMATION,
+            self::FULLY_APPROVED,
+            self::PARTIAL_APPROVED,
             self::DELIVERED,
         ]);
     }
@@ -114,6 +124,8 @@ enum OrderStatus: string
             self::ON_THE_WAY,
             self::CONFIRMED,
             self::PARTIAL_CONFIRMATION,
+            self::FULLY_APPROVED,
+            self::PARTIAL_APPROVED,
             self::DELIVERED,
         ]);
     }
@@ -128,6 +140,8 @@ enum OrderStatus: string
             self::CANCELED,
             self::CONFIRMED,
             self::PARTIAL_CONFIRMATION,
+            self::FULLY_APPROVED,
+            self::PARTIAL_APPROVED,
         ];
     }
 
@@ -143,6 +157,8 @@ enum OrderStatus: string
             self::PENDING_APPROVAL,
             self::PARTIAL_CONFIRMATION,
             self::CONFIRMED,
+            self::FULLY_APPROVED,
+            self::PARTIAL_APPROVED,
             self::PREPARING,
             self::ON_THE_WAY,
             self::DELAYED,
@@ -159,8 +175,9 @@ enum OrderStatus: string
             self::ON_THE_WAY,
             self::PARTIAL_CONFIRMATION,
             self::CONFIRMED,
+            self::FULLY_APPROVED,
+            self::PARTIAL_APPROVED,
             self::DELIVERED,
         ];
     }
 }
-
