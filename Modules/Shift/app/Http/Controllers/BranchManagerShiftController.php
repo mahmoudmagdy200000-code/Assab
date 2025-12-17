@@ -910,9 +910,9 @@ class BranchManagerShiftController extends BaseController
                 })
                 ->firstOrFail();
 
-            if ($managerShift->status !== 'completed') {
-                return $this->errorResponse('Shift must be completed first', 400);
-            }
+            // if ($managerShift->status !== 'completed') {
+            //     return $this->errorResponse('Shift must be completed first', 400);
+            // }
 
             $dailyClose = $this->prepareDailyCloseSummary($managerShift);
 
