@@ -20,6 +20,7 @@ use Modules\Purchase\Transformers\BranchItemResource;
 use Modules\Purchase\Transformers\OrderSummaryResource;
 use Modules\Purchase\Transformers\PriceComparisonResource;
 use Modules\Purchase\Transformers\PurchaseOrderResource;
+use Modules\Purchase\Transformers\PurchaseOrderListResource;
 use Modules\Purchase\Transformers\SupplierResource;
 use Modules\Purchase\Transformers\TransferItemResource;
 use Modules\Purchase\Transformers\PurchasingOfficerItemResource;
@@ -70,7 +71,7 @@ class NewOrderController extends BaseController
             $orders = $this->orderService->getOrders($filters, $perPage);
 
             return $this->paginatedResponse(
-                PurchaseOrderResource::collection($orders),
+                PurchaseOrderListResource::collection($orders),
                 'Orders retrieved successfully'
             );
         } catch (\Exception $e) {
