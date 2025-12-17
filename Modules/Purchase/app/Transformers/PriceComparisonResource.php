@@ -63,7 +63,9 @@ class PriceComparisonResource extends JsonResource
             'price' => isset($best['unit_price'])
                 ? number_format((float) $best['unit_price'], 2, '.', '')
                 : null,
-            'delivery_days' => $best['delivery_days'] ?? null,
+            'delivery_days' => isset($best['delivery_days'])
+                ? number_format((float) $best['delivery_days'], 1, '.', '')
+                : null,
             'rating' => isset($best['rating'])
                 ? number_format((float) $best['rating'], 2, '.', '')
                 : null,
