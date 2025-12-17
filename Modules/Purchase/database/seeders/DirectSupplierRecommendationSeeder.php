@@ -16,17 +16,13 @@ class DirectSupplierRecommendationSeeder extends Seeder
     public function run(): void
     {
         $branch = Branch::first();
-
         if (!$branch) {
             $this->command?->warn('⚠️ No branches found; skipping direct supplier recommendation seed.');
             return;
         }
 
         $branchItem = BranchItem::updateOrCreate(
-            [
-                'branch_id' => $branch->id,
-                'item_name' => 'Rice 5kg',
-            ],
+            ['branch_id' => $branch->id, 'item_name' => 'Rice 5kg'],
             [
                 'item_code' => 'ITEM-RICE5K-7',
                 'item_unit' => 'kg',
@@ -70,10 +66,7 @@ class DirectSupplierRecommendationSeeder extends Seeder
         ];
 
         SupplierItem::updateOrCreate(
-            [
-                'supplier_id' => $supplier->id,
-                'item_id' => $branchItem->id,
-            ],
+            ['supplier_id' => $supplier->id, 'item_id' => $branchItem->id],
             $pricing
         );
 
@@ -99,3 +92,4 @@ class DirectSupplierRecommendationSeeder extends Seeder
         $this->command?->info('✅ Direct supplier recommendation scenario seeded.');
     }
 }
+
