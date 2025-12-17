@@ -58,6 +58,10 @@ class PurchaseTestDataSeeder extends Seeder
         $this->command->info('📈 Creating Price History...');
         $this->createPriceHistory($branchItems, $suppliers);
 
+        // 9. Force a direct supplier recommendation scenario (Rice 5kg)
+        $this->command->info('🌟 Creating direct supplier recommendation scenario...');
+        $this->call(DirectSupplierRecommendationSeeder::class);
+
         $this->command->info('✅ Purchase Test Data Seeded Successfully!');
         $this->command->info('📝 Summary:');
         $this->command->info('   - Branches: ' . count($branches));
