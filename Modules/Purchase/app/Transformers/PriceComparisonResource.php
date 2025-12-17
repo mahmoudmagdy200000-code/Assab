@@ -24,8 +24,8 @@ class PriceComparisonResource extends JsonResource
             // Sources
             'sources' => [
                 'direct_supplier' => $this->summarizeDirectSupplier($directSupplier),
-                'via_purchasing_officer' => $this->formatPurchasingOfficer($purchasingOfficer),
-                'internal_transfer' => $this->formatInternalTransfers($internalTransfer),
+                'via_purchasing_officer' => $this->summarizeSimpleSource($purchasingOfficer),
+                'internal_transfer' => $this->summarizeSimpleSource($internalTransfer),
             ],
 
             // Best option
@@ -67,63 +67,33 @@ class PriceComparisonResource extends JsonResource
     /**
      * Ensure purchasing officer block has consistent formatting.
      */
-    private function formatPurchasingOfficer(?array $purchasingOfficer): ?array
+    private function summarizeSimpleSource($source): array
     {
-        if (!$purchasingOfficer) {
-            return null;
+        // Accepts either a single associative array or an array of options; picks the lowest price if multiple
+        if (empty($source)) {
+            return [
+                'price' => null,
+                'delivery_days' => null,
+                'rating' => null,
+            ];
         }
+
+        $normalized = is_array($source) && array_is_list($source)
+            ? collect($source)->sortBy(fn($item) => $item['unit_price'] ?? $item['price'] ?? PHP_FLOAT_MAX)->first()
+            : $source;
+
+        $price = $normalized['unit_price'] ?? $normalized['price'] ?? null;
 
         return [
-            'unit_price' => isset($purchasingOfficer['unit_price'])
-                ? number_format((float) $purchasingOfficer['unit_price'], 2, '.', '')
+            'price' => $price !== null
+                ? number_format((float) $price, 2, '.', '')
                 : null,
-            'delivery_days' => isset($purchasingOfficer['delivery_days'])
-                ? number_format((float) $purchasingOfficer['delivery_days'], 1, '.', '')
+            'delivery_days' => isset($normalized['delivery_days'])
+                ? number_format((float) $normalized['delivery_days'], 1, '.', '')
                 : null,
-            'rating' => isset($purchasingOfficer['rating'])
-                ? number_format((float) $purchasingOfficer['rating'], 2, '.', '')
+            'rating' => isset($normalized['rating'])
+                ? number_format((float) $normalized['rating'], 2, '.', '')
                 : null,
-            'processing_times' => $purchasingOfficer['processing_times'] ?? null,
-            'order_count' => $purchasingOfficer['order_count'] ?? null,
         ];
-    }
-
-    /**
-     * Format internal transfer options with consistent numeric formatting.
-     */
-    private function formatInternalTransfers(array $options): array
-    {
-        if (empty($options)) {
-            return [];
-        }
-
-        return collect($options)->map(function (array $option) {
-            return [
-                'branch_id' => $option['branch_id'] ?? null,
-                'branch_name' => $option['branch_name'] ?? null,
-                'branch_image' => $option['branch_image'] ?? null,
-                'available_quantity' => $option['available_quantity'] ?? null,
-                'availability_percentage' => $option['availability_percentage'] ?? null,
-                'quality' => $option['quality'] ?? null,
-                'expiry_date' => $option['expiry_date'] ?? null,
-                'cooling_status' => $option['cooling_status'] ?? null,
-                'last_update' => $option['last_update'] ?? null,
-                'unit_price' => isset($option['unit_price'])
-                    ? number_format((float) $option['unit_price'], 2, '.', '')
-                    : null,
-                'total_price' => isset($option['total_price'])
-                    ? number_format((float) $option['total_price'], 2, '.', '')
-                    : null,
-                'rating' => isset($option['rating'])
-                    ? number_format((float) $option['rating'], 2, '.', '')
-                    : null,
-                'response_rate' => isset($option['response_rate'])
-                    ? number_format((float) $option['response_rate'], 2, '.', '')
-                    : null,
-                'distance' => isset($option['distance'])
-                    ? number_format((float) $option['distance'], 2, '.', '')
-                    : null,
-            ];
-        })->all();
     }
 }
