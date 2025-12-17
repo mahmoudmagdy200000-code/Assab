@@ -47,13 +47,11 @@ class PriceComparisonResource extends JsonResource
     /**
      * Normalize direct supplier to a single summary object.
      */
-    private function summarizeDirectSupplier(array $suppliers): ?array
+    private function summarizeDirectSupplier(array $suppliers): array
     {
-        if (empty($suppliers)) {
-            return null;
-        }
-
-        $best = collect($suppliers)->sortBy('unit_price')->first();
+        $best = empty($suppliers)
+            ? null
+            : collect($suppliers)->sortBy('unit_price')->first();
 
         return [
             'price' => isset($best['unit_price'])
