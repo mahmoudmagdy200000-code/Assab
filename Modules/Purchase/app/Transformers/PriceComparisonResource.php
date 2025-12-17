@@ -31,6 +31,12 @@ class PriceComparisonResource extends JsonResource
             // Best option
             'best_option' => $this->resource['best_option'] ?? null,
 
+            // Explicit use recommendation object (type + id + name)
+            'use_recommendation' => $this->formatUseRecommendation($this->resource['best_option'] ?? null),
+
+            // Factors with source_type/source_id
+            'factors' => $this->formatFactors($this->resource['insights'] ?? []),
+
             // Insights
             'insights' => [
                 'lowest_price' => $this->resource['insights']['lowest_price'] ?? null,
@@ -94,6 +100,52 @@ class PriceComparisonResource extends JsonResource
             'rating' => isset($normalized['rating'])
                 ? number_format((float) $normalized['rating'], 2, '.', '')
                 : null,
+        ];
+    }
+
+    private function formatUseRecommendation(?array $bestOption): ?array
+    {
+        if (!$bestOption) {
+            return null;
+        }
+
+        return [
+            'source_type' => $bestOption['source_type'] ?? $bestOption['type'] ?? null,
+            'source_id' => $bestOption['source_id'] ?? null,
+            'source_name' => $bestOption['source_name'] ?? null,
+            'reason' => $bestOption['reason'] ?? null,
+        ];
+    }
+
+    private function formatFactors(array $insights): array
+    {
+        return [
+            'best_compliance' => $this->mapFactor($insights['best_compliance'] ?? null, 'rate'),
+            'fastest_delivery' => $this->mapFactor($insights['fastest_delivery'] ?? null, 'days'),
+            'lowest_price' => $this->mapFactor($insights['lowest_price'] ?? null, 'price'),
+        ];
+    }
+
+    private function mapFactor(?array $factor, string $valueKey): ?array
+    {
+        if (!$factor) {
+            return null;
+        }
+
+        $value = $factor['value'] ?? null;
+
+        $formattedValue = match ($valueKey) {
+            'price' => $value !== null ? number_format((float) $value, 2, '.', '') : null,
+            'days' => $value !== null ? number_format((float) $value, 1, '.', '') : null,
+            'rate' => $value !== null ? number_format((float) $value, 2, '.', '') : null,
+            default => $value,
+        };
+
+        return [
+            'source_type' => $factor['source_type'] ?? $factor['type'] ?? null,
+            'source_id' => $factor['source_id'] ?? null,
+            'source_name' => $factor['source_name'] ?? null,
+            $valueKey => $formattedValue,
         ];
     }
 }

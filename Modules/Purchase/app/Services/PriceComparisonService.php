@@ -495,11 +495,13 @@ class PriceComparisonService
 
         // Find lowest price
         $lowestPrice = collect($allOptions)->sortBy('unit_price')->first();
-        $insights['lowest_price'] = [
-            'type' => $lowestPrice['type'],
-            'value' => $lowestPrice['unit_price'],
-            'label' => OrderType::from($lowestPrice['type'])->label(),
-        ];
+        $insights['lowest_price'] = array_merge(
+            $this->mapSourceMeta($lowestPrice),
+            [
+                'value' => $lowestPrice['unit_price'],
+                'label' => OrderType::from($lowestPrice['type'])->label(),
+            ]
+        );
 
         // Find fastest delivery
         $fastest = collect($allOptions)
@@ -508,26 +510,31 @@ class PriceComparisonService
             ->first();
 
         if ($fastest) {
-            $insights['fastest_delivery'] = [
-                'type' => $fastest['type'],
-                'value' => $fastest['delivery_days'],
-                'label' => OrderType::from($fastest['type'])->label(),
-            ];
+            $insights['fastest_delivery'] = array_merge(
+                $this->mapSourceMeta($fastest),
+                [
+                    'value' => $fastest['delivery_days'],
+                    'label' => OrderType::from($fastest['type'])->label(),
+                ]
+            );
         }
 
-        // Find best rating
+        // Find best rating (also used for compliance)
         $bestRated = collect($allOptions)
             ->filter(fn($o) => isset($o['rating']))
             ->sortByDesc('rating')
             ->first();
 
         if ($bestRated) {
-            $insights['best_rating'] = [
-                'type' => $bestRated['type'],
-                'value' => $bestRated['rating'],
-                'label' => OrderType::from($bestRated['type'])->label(),
-            ];
-            $insights['best_compliance'] = $insights['best_rating'];
+            $bestRating = array_merge(
+                $this->mapSourceMeta($bestRated),
+                [
+                    'value' => $bestRated['rating'],
+                    'label' => OrderType::from($bestRated['type'])->label(),
+                ]
+            );
+            $insights['best_rating'] = $bestRating;
+            $insights['best_compliance'] = $bestRating;
         }
 
         return $insights;
@@ -573,10 +580,37 @@ class PriceComparisonService
 
         $best = $scored->sortBy('composite_score')->first();
 
+        return array_merge(
+            $this->mapSourceMeta($best),
+            [
+                'type_label' => OrderType::from($best['type'])->label(),
+                'reason' => 'Best combination of price, delivery time, and rating',
+            ]
+        );
+    }
+
+    /**
+     * Map source meta (type, id, name) for insights and recommendations.
+     */
+    private function mapSourceMeta(array $option): array
+    {
+        $type = $option['type'] ?? null;
+
         return [
-            'type' => $best['type'],
-            'type_label' => OrderType::from($best['type'])->label(),
-            'reason' => 'Best combination of price, delivery time, and rating',
+            'type' => $type,
+            'source_type' => $type,
+            'source_id' => match ($type) {
+                'direct_supplier' => $option['supplier_id'] ?? null,
+                'internal_transfer' => $option['branch_id'] ?? null,
+                'via_purchasing_officer' => null,
+                default => null,
+            },
+            'source_name' => match ($type) {
+                'direct_supplier' => $option['supplier_name'] ?? null,
+                'internal_transfer' => $option['branch_name'] ?? null,
+                'via_purchasing_officer' => 'Purchasing Officer',
+                default => null,
+            },
         ];
     }
 
