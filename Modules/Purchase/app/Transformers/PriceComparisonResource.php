@@ -8,6 +8,10 @@ class PriceComparisonResource extends JsonResource
 {
     public function toArray($request): array
     {
+        $directSupplier = $this->resource['sources']['direct_supplier'] ?? [];
+        $purchasingOfficer = $this->resource['sources']['via_purchasing_officer'] ?? null;
+        $internalTransfer = $this->resource['sources']['internal_transfer'] ?? [];
+
         return [
             'item_id' => $this->resource['item_id'] ?? null,
             'item_name' => $this->resource['item_name'] ?? null,
@@ -19,9 +23,9 @@ class PriceComparisonResource extends JsonResource
 
             // Sources
             'sources' => [
-                'direct_supplier' => $this->resource['sources']['direct_supplier'] ?? [],
-                'via_purchasing_officer' => $this->resource['sources']['via_purchasing_officer'] ?? null,
-                'internal_transfer' => $this->resource['sources']['internal_transfer'] ?? [],
+                'direct_supplier' => $this->summarizeDirectSupplier($directSupplier),
+                'via_purchasing_officer' => $this->formatPurchasingOfficer($purchasingOfficer),
+                'internal_transfer' => $internalTransfer,
             ],
 
             // Best option
@@ -39,5 +43,48 @@ class PriceComparisonResource extends JsonResource
             'price_trends' => $this->resource['price_trends'] ?? [],
         ];
     }
-}
 
+    /**
+     * Normalize direct supplier to a single summary object.
+     */
+    private function summarizeDirectSupplier(array $suppliers): ?array
+    {
+        if (empty($suppliers)) {
+            return null;
+        }
+
+        $best = collect($suppliers)->sortBy('unit_price')->first();
+
+        return [
+            'price' => isset($best['unit_price'])
+                ? number_format((float) $best['unit_price'], 2, '.', '')
+                : null,
+            'delivery_days' => $best['delivery_days'] ?? null,
+            'rating' => isset($best['rating'])
+                ? number_format((float) $best['rating'], 2, '.', '')
+                : null,
+        ];
+    }
+
+    /**
+     * Ensure purchasing officer block has consistent formatting.
+     */
+    private function formatPurchasingOfficer(?array $purchasingOfficer): ?array
+    {
+        if (!$purchasingOfficer) {
+            return null;
+        }
+
+        return [
+            'unit_price' => isset($purchasingOfficer['unit_price'])
+                ? number_format((float) $purchasingOfficer['unit_price'], 2, '.', '')
+                : null,
+            'delivery_days' => $purchasingOfficer['delivery_days'] ?? null,
+            'rating' => isset($purchasingOfficer['rating'])
+                ? number_format((float) $purchasingOfficer['rating'], 2, '.', '')
+                : null,
+            'processing_times' => $purchasingOfficer['processing_times'] ?? null,
+            'order_count' => $purchasingOfficer['order_count'] ?? null,
+        ];
+    }
+}
