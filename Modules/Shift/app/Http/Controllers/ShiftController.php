@@ -68,7 +68,7 @@ class ShiftController extends BaseController
             $cashierIds = Cashier::where('branch_id', $manager->branch_id)->pluck('id');
 
             $query = CashierShift::whereIn('cashier_id', $cashierIds)
-                ->select(['id', 'cashier_id', 'shift_id', 'shift_date', 'status', 'assigned_by_id', 'created_at', 'updated_at'])
+                ->select(['id', 'cashier_id', 'shift_id', 'shift_date', 'status', 'assigned_by', 'created_at', 'updated_at'])
                 ->with([
                     'cashier:id,name,branch_id',
                     'shift' => function ($q) {
