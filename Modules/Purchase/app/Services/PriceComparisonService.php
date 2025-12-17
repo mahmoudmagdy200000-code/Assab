@@ -27,7 +27,7 @@ class PriceComparisonService
      * - Comparison Table: Price, Delivery Days, Rating for each Order Type
      * - Benefits Analysis: Best option, compliance, fastest delivery, lowest price
      */
-    public function comparePrices(string $itemId, ?float $quantity = null): array
+    public function comparePrices(string $itemId, ?float $quantity = null, ?string $excludeBranchId = null): array
     {
         // Use default quantity of 1 if not provided
         $quantity = $quantity ?? 1.0;
@@ -80,8 +80,8 @@ class PriceComparisonService
             $comparison['sources']['via_purchasing_officer'] = $poPrices;
         }
 
-        // Internal Transfer options (from all branches)
-        $transferOptions = $this->getInternalTransferOptions($itemId, $quantity);
+        // Internal Transfer options (from all branches except current)
+        $transferOptions = $this->getInternalTransferOptions($itemId, $quantity, $excludeBranchId);
         if ($transferOptions->isNotEmpty()) {
             $comparison['sources']['internal_transfer'] = $transferOptions->toArray();
         }
@@ -247,7 +247,7 @@ class PriceComparisonService
      * Get internal transfer options from all branches
      * Uses actual prices from previous orders if available
      */
-    private function getInternalTransferOptions(string $itemId, float $quantity): Collection
+    private function getInternalTransferOptions(string $itemId, float $quantity, ?string $excludeBranchId = null): Collection
     {
         // Get actual average price from previous internal transfer orders (last 3 months)
         $threeMonthsAgo = now()->subMonths(3);
@@ -273,6 +273,7 @@ class PriceComparisonService
         return BranchInventory::with('branch')
             ->byItem($itemId)
             ->available()
+            ->when($excludeBranchId, fn($q) => $q->where('branch_id', '!=', $excludeBranchId))
             ->get()
             ->filter(fn($inv) => $inv->actual_available >= $quantity * 0.6) // At least 60% availability
             ->map(function ($inventory) use ($quantity, $avgUnitPrice) {

@@ -134,7 +134,8 @@ class NewOrderController extends BaseController
 
             $comparison = $this->priceService->comparePrices(
                 $validated['item_id'],
-                $validated['quantity'] ?? null
+                $validated['quantity'] ?? null,
+                $request->user()?->branch_id
             );
 
             return $this->successResponse(
