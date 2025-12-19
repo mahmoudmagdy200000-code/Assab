@@ -123,7 +123,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                         'requested_qty' => (float) $item->quantity_ordered,
                         'available_in_branch_name' => $fromBranchNameOnly,
                         'available_in_quantity' => $availableQuantity,
-                        'balance_after' => $this->formatQuantity($balanceAfter, $item->unit_of_measurement),
+                        'balance_after' => $balanceAfter,
                         'quality_grade' => $qualityGrade,
                         'expiry_date' => $expiryDateFormatted,
                         'cooling_status' => $coolingStatus,
@@ -132,31 +132,5 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 });
             }),
         ];
-    }
-
-    /**
-     * Format quantity with unit of measurement
-     * Removes unnecessary decimal places (e.g., 200.00 becomes 200)
-     * Returns "0 UNIT" if quantity is null or 0
-     *
-     * @param float|int|null $quantity
-     * @param string|null $unit
-     * @return string
-     */
-    private function formatQuantity($quantity, ?string $unit): string
-    {
-        $quantity = $quantity ?? 0;
-        $formattedQuantity = (float) $quantity;
-
-        // Format with 2 decimals, then remove trailing zeros
-        $formattedQuantity = rtrim(rtrim(number_format($formattedQuantity, 2, '.', ''), '0'), '.');
-
-        // Handle case where all decimals were removed (e.g., "200." becomes empty)
-        if ($formattedQuantity === '') {
-            $formattedQuantity = '0';
-        }
-
-        $unit = strtoupper($unit ?? '');
-        return $formattedQuantity . ' ' . $unit;
     }
 }
