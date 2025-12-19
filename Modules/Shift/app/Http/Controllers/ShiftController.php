@@ -204,6 +204,7 @@ class ShiftController extends BaseController
             }
 
             // OPTIMIZED: Select only required fields
+            // Note: CashierShift uses UUID, not integer
             $cashierShift = CashierShift::select([
                 'id',
                 'cashier_id',
@@ -227,14 +228,14 @@ class ShiftController extends BaseController
                     'salesBreakdown.aggregator:id,name',
                     'varianceDetails.responsibleCashier:id,name'
                 ])
-                ->find((int) $id);
+                ->find($id);
 
             if (!$cashierShift) {
                 return $this->errorResponse('Cashier Shift not found', 404);
             }
 
             // Verify cashier belongs to manager's branch
-            if ($cashierShift->cashier->branch_id !== $manager->branch_id) {
+            if (!$cashierShift->cashier || $cashierShift->cashier->branch_id !== $manager->branch_id) {
                 return $this->errorResponse('Unauthorized: This cashier does not belong to your branch', 403);
             }
 
@@ -246,7 +247,8 @@ class ShiftController extends BaseController
             Log::error('Error retrieving cashier shift', [
                 'user_id' => auth()->id(),
                 'shift_id' => $id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
             return $this->errorResponse('An error occurred while retrieving cashier shift', 500);
         }
@@ -385,6 +387,7 @@ class ShiftController extends BaseController
             }
 
             // OPTIMIZED: Select only required fields
+            // Note: CashierShift uses UUID, not integer
             $shiftModel = CashierShift::select([
                 'id',
                 'cashier_id',
@@ -401,7 +404,7 @@ class ShiftController extends BaseController
                     'cashier:id,name,branch_id',
                     'nextCashier:id,name'
                 ])
-                ->findOrFail((int) $shiftId);
+                ->findOrFail($shiftId);
 
             // Verify the cashier belongs to the branch manager's branch
             if ($shiftModel->cashier->branch_id !== $branchManager->branch_id) {
