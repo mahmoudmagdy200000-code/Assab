@@ -11,6 +11,7 @@ use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\QualityLevel;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\BranchInventory;
+use Modules\Purchase\Models\Item;
 use Modules\Purchase\Models\PriceHistory;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
@@ -34,29 +35,33 @@ class PurchaseTestDataSeeder extends Seeder
         $this->command->info('👤 Creating Branch Managers...');
         $managers = $this->createBranchManagers($branches);
 
-        // 3. Create Branch Items
-        $this->command->info('📦 Creating Branch Items...');
-        $branchItems = $this->createBranchItems($branches);
+        // 3. Create Items (central items table)
+        $this->command->info('📦 Creating Items...');
+        $items = $this->createItems();
 
-        // 4. Create Branch Inventory
+        // 4. Create Branch Items (pivot table)
+        $this->command->info('🔗 Creating Branch Items (pivot)...');
+        $branchItems = $this->createBranchItems($branches, $items);
+
+        // 5. Create Branch Inventory
         $this->command->info('📊 Creating Branch Inventory...');
-        $this->createBranchInventory($branchItems);
+        $this->createBranchInventory($branches, $items);
 
-        // 5. Create Suppliers (if not exists)
+        // 6. Create Suppliers (if not exists)
         $this->command->info('🏪 Creating Suppliers...');
         $suppliers = $this->createSuppliers();
 
-        // 6. Create Supplier Items
+        // 7. Create Supplier Items
         $this->command->info('🛒 Creating Supplier Items...');
-        $this->createSupplierItems($suppliers, $branchItems);
+        $this->createSupplierItems($suppliers, $items);
 
-        // 7. Create Purchase Orders (last 3 months)
+        // 8. Create Purchase Orders (last 3 months)
         $this->command->info('📋 Creating Purchase Orders...');
-        $orders = $this->createPurchaseOrders($branches, $managers, $suppliers, $branchItems);
+        $orders = $this->createPurchaseOrders($branches, $managers, $suppliers, $items);
 
-        // 8. Create Price History
+        // 9. Create Price History
         $this->command->info('📈 Creating Price History...');
-        $this->createPriceHistory($branchItems, $suppliers);
+        $this->createPriceHistory($items, $suppliers);
 
         // 9. Force a direct supplier recommendation scenario (Rice 5kg)
         $this->command->info('🌟 Creating direct supplier recommendation scenario...');
@@ -66,6 +71,7 @@ class PurchaseTestDataSeeder extends Seeder
         $this->command->info('📝 Summary:');
         $this->command->info('   - Branches: ' . count($branches));
         $this->command->info('   - Branch Managers: ' . count($managers));
+        $this->command->info('   - Items: ' . count($items));
         $this->command->info('   - Branch Items: ' . count($branchItems));
         $this->command->info('   - Suppliers: ' . count($suppliers));
         $this->command->info('   - Purchase Orders: ' . count($orders));
@@ -78,14 +84,25 @@ class PurchaseTestDataSeeder extends Seeder
     {
         $branches = [];
 
-        // Riyadh coordinates (main)
+        // Main Branch
         $branches[] = Branch::updateOrCreate(
             ['name' => 'Main Branch'],
             [
-                'location' => 'King Fahd Road, Riyadh, Saudi Arabia',
+                'location' => '123 Main St, City, Country',
                 'image' => 'branches/main_branch.jpg',
                 'opening_hours' => '08:00 - 22:00',
                 'map_coordinates' => '24.7136,46.6753', // Riyadh
+            ]
+        );
+
+        // Main Branch 2 (for testing getTransferItems)
+        $branches[] = Branch::updateOrCreate(
+            ['name' => 'Main Branch 2'],
+            [
+                'location' => '123 Main St, City, Country',
+                'image' => 'branches/main_branch2.jpg',
+                'opening_hours' => '08:00 - 22:00',
+                'map_coordinates' => '24.8000,46.9000', // Different coordinates for distance calculation
             ]
         );
 
@@ -187,69 +204,190 @@ class PurchaseTestDataSeeder extends Seeder
     }
 
     /**
-     * Create branch items
+     * Create items (central items table)
      */
-    private function createBranchItems(array $branches): array
+    private function createItems(): array
     {
-        $items = [];
-        $itemNames = [
-            'Coca Cola 330ml',
-            'Fresh Beef (Premium Grade)',
-            'Chicken Breast (Frozen)',
-            'Tomatoes (Fresh)',
-            'Milk 1L',
-            'Bread (White)',
-            'Rice 5kg',
-            'Olive Oil 1L',
+        $itemsData = [
+            ['name' => 'Cheese Burger', 'code' => 'PRD-004', 'unit' => 'piece', 'category' => 'Food', 'subcategory' => 'Fast Food'],
+            ['name' => 'Chocolate Cake', 'code' => 'PRD-003', 'unit' => 'piece', 'category' => 'Desserts', 'subcategory' => 'Cake'],
+            ['name' => 'Coffee Beans', 'code' => 'PRD-001', 'unit' => 'kg', 'category' => 'Beverages', 'subcategory' => 'Coffee'],
+            ['name' => 'Green Tea', 'code' => 'PRD-002', 'unit' => 'box', 'category' => 'Beverages', 'subcategory' => 'Tea'],
+            ['name' => 'Coca Cola 330ml', 'code' => 'ITEM-COCA-1', 'unit' => 'piece', 'category' => 'Beverages', 'subcategory' => 'Soft Drinks'],
+            ['name' => 'Fresh Beef (Premium Grade)', 'code' => 'ITEM-FRESH-2', 'unit' => 'kg', 'category' => 'Meat', 'subcategory' => 'Beef'],
+            ['name' => 'Chicken Breast (Frozen)', 'code' => 'ITEM-CHICK-3', 'unit' => 'kg', 'category' => 'Poultry', 'subcategory' => 'Chicken'],
+            ['name' => 'Tomatoes (Fresh)', 'code' => 'ITEM-TOMAT-4', 'unit' => 'kg', 'category' => 'Vegetables', 'subcategory' => 'Fresh'],
+            ['name' => 'Milk 1L', 'code' => 'ITEM-MILK-5', 'unit' => 'liter', 'category' => 'Dairy', 'subcategory' => 'Milk'],
+            ['name' => 'Bread (White)', 'code' => 'ITEM-BREAD-6', 'unit' => 'piece', 'category' => 'Bakery', 'subcategory' => 'Bread'],
+            ['name' => 'Rice 5kg', 'code' => 'ITEM-RICE-7', 'unit' => 'kg', 'category' => 'Grains', 'subcategory' => 'Rice'],
+            ['name' => 'Olive Oil 1L', 'code' => 'ITEM-OIL-8', 'unit' => 'liter', 'category' => 'Oils', 'subcategory' => 'Olive Oil'],
         ];
 
-        foreach ($branches as $branch) {
-            foreach ($itemNames as $index => $itemName) {
-                $item = BranchItem::updateOrCreate(
-                    [
-                        'branch_id' => $branch->id,
-                        'item_name' => $itemName,
-                    ],
-                    [
-                        'item_code' => 'ITEM-' . strtoupper(substr(str_replace(' ', '', $itemName), 0, 6)) . '-' . ($index + 1),
-                        'item_unit' => ['piece', 'kg', 'kg', 'kg', 'liter', 'piece', 'kg', 'liter'][$index] ?? 'kg',
-                        'item_price' => [2.5, 45.0, 25.0, 8.0, 6.5, 2.0, 35.0, 45.0][$index] ?? 10.0,
-                        'item_quantity' => rand(50, 200),
-                        // Note: category and subcategory columns may not exist in database
-                        // If migration 2025_12_09_000001_add_category_to_branch_item_table has been run, uncomment:
-                        // 'category' => ['Beverages', 'Meat', 'Poultry', 'Vegetables', 'Dairy', 'Bakery', 'Grains', 'Oils'][$index] ?? 'General',
-                        // 'subcategory' => null,
-                    ]
-                );
-                $items[] = $item;
-            }
+        $items = [];
+        foreach ($itemsData as $itemData) {
+            $item = Item::updateOrCreate(
+                ['code' => $itemData['code']],
+                [
+                    'name' => $itemData['name'],
+                    'unit' => $itemData['unit'],
+                    'category' => $itemData['category'],
+                    'subcategory' => $itemData['subcategory'],
+                    'is_active' => true,
+                ]
+            );
+            $items[] = $item;
         }
 
         return $items;
     }
 
     /**
-     * Create branch inventory
+     * Create branch items (pivot table - many-to-many relationship)
      */
-    private function createBranchInventory(array $branchItems): void
+    private function createBranchItems(array $branches, array $items): array
     {
-        foreach ($branchItems as $item) {
-            BranchInventory::updateOrCreate(
-                [
-                    'branch_id' => $item->branch_id,
-                    'item_id' => $item->id,
-                ],
-                [
-                    'available_quantity' => rand(100, 300),
-                    'reserved_quantity' => rand(0, 50),
-                    'daily_consumption' => rand(5, 20),
-                    'weekend_forecast' => rand(10, 30),
-                    'quality' => QualityLevel::cases()[array_rand(QualityLevel::cases())],
-                    'earliest_expiry_date' => now()->addDays(rand(7, 90)),
-                    'cooling_status' => in_array($item->item_name, ['Fresh Beef (Premium Grade)', 'Chicken Breast (Frozen)', 'Milk 1L']),
-                    'last_inventory_update' => now()->subHours(rand(1, 24)),
-                ]
-            );
+        $branchItems = [];
+        $prices = [38, 45, 27, 22, 2.5, 45.0, 25.0, 8.0, 6.5, 2.0, 35.0, 45.0];
+        $quantities = [55, 70, 90, 110, 100, 150, 120, 80, 130, 95, 200, 75];
+
+        foreach ($branches as $branch) {
+            foreach ($items as $index => $item) {
+                $branchItem = BranchItem::updateOrCreate(
+                    [
+                        'branch_id' => $branch->id,
+                        'item_id' => $item->id,
+                    ],
+                    [
+                        'price' => $prices[$index] ?? 10.0,
+                        'quantity' => $quantities[$index] ?? rand(50, 200),
+                    ]
+                );
+                $branchItems[] = $branchItem;
+            }
+        }
+
+        return $branchItems;
+    }
+
+    /**
+     * Create branch inventory (item_id now references Item.id, not BranchItem.id)
+     */
+    private function createBranchInventory(array $branches, array $items): void
+    {
+        // Create inventory for Main Branch 2 (fromBranchId) with Cheese Burger
+        $mainBranch2 = collect($branches)->firstWhere('name', 'Main Branch 2');
+        $mainBranch = collect($branches)->firstWhere('name', 'Main Branch');
+
+        if ($mainBranch2 && $mainBranch) {
+            // Find Cheese Burger item
+            $cheeseBurger = collect($items)->firstWhere('code', 'PRD-004');
+            $chocolateCake = collect($items)->firstWhere('code', 'PRD-003');
+            $coffeeBeans = collect($items)->firstWhere('code', 'PRD-001');
+            $greenTea = collect($items)->firstWhere('code', 'PRD-002');
+
+            // Create inventory for Main Branch 2 (fromBranch) - items with stock
+            if ($cheeseBurger) {
+                BranchInventory::updateOrCreate(
+                    [
+                        'branch_id' => $mainBranch2->id,
+                        'item_id' => $cheeseBurger->id, // Item.id (new structure)
+                    ],
+                    [
+                        'available_quantity' => 50,
+                        'reserved_quantity' => 0,
+                        'daily_consumption' => 10,
+                        'weekend_forecast' => 15,
+                        'quality' => QualityLevel::ECONOMY,
+                        'earliest_expiry_date' => now()->addDays(7),
+                        'cooling_status' => false,
+                        'last_inventory_update' => now()->subHours(6),
+                    ]
+                );
+            }
+
+            if ($chocolateCake) {
+                BranchInventory::updateOrCreate(
+                    [
+                        'branch_id' => $mainBranch2->id,
+                        'item_id' => $chocolateCake->id,
+                    ],
+                    [
+                        'available_quantity' => 70,
+                        'reserved_quantity' => 0,
+                        'daily_consumption' => 5,
+                        'weekend_forecast' => 10,
+                        'quality' => QualityLevel::STANDARD,
+                        'earliest_expiry_date' => now()->addDays(14),
+                        'cooling_status' => true,
+                        'last_inventory_update' => now()->subHours(3),
+                    ]
+                );
+            }
+
+            if ($coffeeBeans) {
+                BranchInventory::updateOrCreate(
+                    [
+                        'branch_id' => $mainBranch2->id,
+                        'item_id' => $coffeeBeans->id,
+                    ],
+                    [
+                        'available_quantity' => 90,
+                        'reserved_quantity' => 0,
+                        'daily_consumption' => 8,
+                        'weekend_forecast' => 12,
+                        'quality' => QualityLevel::PREMIUM,
+                        'earliest_expiry_date' => now()->addDays(180),
+                        'cooling_status' => false,
+                        'last_inventory_update' => now()->subHours(12),
+                    ]
+                );
+            }
+
+            if ($greenTea) {
+                BranchInventory::updateOrCreate(
+                    [
+                        'branch_id' => $mainBranch2->id,
+                        'item_id' => $greenTea->id,
+                    ],
+                    [
+                        'available_quantity' => 110,
+                        'reserved_quantity' => 0,
+                        'daily_consumption' => 6,
+                        'weekend_forecast' => 9,
+                        'quality' => QualityLevel::ECONOMY,
+                        'earliest_expiry_date' => now()->addDays(365),
+                        'cooling_status' => false,
+                        'last_inventory_update' => now()->subHours(1),
+                    ]
+                );
+            }
+        }
+
+        // Create inventory for all branches and items
+        foreach ($branches as $branch) {
+            foreach ($items as $index => $item) {
+                // Skip if already created for Main Branch 2
+                if ($branch->name === 'Main Branch 2' && in_array($item->code, ['PRD-004', 'PRD-003', 'PRD-001', 'PRD-002'])) {
+                    continue;
+                }
+
+                BranchInventory::updateOrCreate(
+                    [
+                        'branch_id' => $branch->id,
+                        'item_id' => $item->id, // Item.id (new structure)
+                    ],
+                    [
+                        'available_quantity' => rand(100, 300),
+                        'reserved_quantity' => rand(0, 50),
+                        'daily_consumption' => rand(5, 20),
+                        'weekend_forecast' => rand(10, 30),
+                        'quality' => QualityLevel::cases()[array_rand(QualityLevel::cases())],
+                        'earliest_expiry_date' => now()->addDays(rand(7, 90)),
+                        'cooling_status' => in_array($item->name, ['Fresh Beef (Premium Grade)', 'Chicken Breast (Frozen)', 'Milk 1L']),
+                        'last_inventory_update' => now()->subHours(rand(1, 24)),
+                    ]
+                );
+            }
         }
     }
 
@@ -271,29 +409,31 @@ class PurchaseTestDataSeeder extends Seeder
     }
 
     /**
-     * Create supplier items
+     * Create supplier items (item_id now references Item.id)
      */
-    private function createSupplierItems(array $suppliers, array $branchItems): void
+    private function createSupplierItems(array $suppliers, array $items): void
     {
-        $uniqueItems = collect($branchItems)->unique('item_name');
-
         foreach ($suppliers as $supplier) {
             $supplierModel = PurchaseSupplier::find($supplier['id']);
             if (!$supplierModel) {
                 continue;
             }
 
-            foreach ($uniqueItems as $item) {
+            foreach ($items as $item) {
+                // Get price from BranchItem if exists, otherwise use default
+                $branchItem = BranchItem::where('item_id', $item->id)->first();
+                $basePrice = $branchItem ? $branchItem->price : 10.0;
+
                 SupplierItem::updateOrCreate(
                     [
                         'supplier_id' => $supplierModel->id,
-                        'item_id' => $item->id,
+                        'item_id' => $item->id, // Item.id (new structure)
                     ],
                     [
-                        'unit_price' => $item->item_price * (1 + (rand(-10, 20) / 100)), // ±10-20% variation
-                        'economy_price' => $item->item_price * 0.85,
-                        'standard_price' => $item->item_price,
-                        'premium_price' => $item->item_price * 1.25,
+                        'unit_price' => $basePrice * (1 + (rand(-10, 20) / 100)), // ±10-20% variation
+                        'economy_price' => $basePrice * 0.85,
+                        'standard_price' => $basePrice,
+                        'premium_price' => $basePrice * 1.25,
                         'min_order_quantity' => rand(10, 50),
                         'max_order_quantity' => rand(500, 1000),
                         'delivery_hours' => rand(12, 72),
@@ -307,8 +447,9 @@ class PurchaseTestDataSeeder extends Seeder
 
     /**
      * Create purchase orders (last 3 months)
+     * Updated to work with Item model (new structure)
      */
-    private function createPurchaseOrders(array $branches, array $managers, array $suppliers, array $branchItems): array
+    private function createPurchaseOrders(array $branches, array $managers, array $suppliers, array $items): array
     {
         $orders = [];
         $orderTypes = [OrderType::DIRECT_SUPPLIER, OrderType::VIA_PURCHASING_OFFICER, OrderType::INTERNAL_TRANSFER];
@@ -368,26 +509,31 @@ class PurchaseTestDataSeeder extends Seeder
 
                 // Create order items (1-3 items per order)
                 $itemsCount = rand(1, 3);
-                $branchItemsForBranch = collect($branchItems)->where('branch_id', $branch->id);
-                $maxItems = min($itemsCount, $branchItemsForBranch->count());
+                $maxItems = min($itemsCount, count($items));
 
                 if ($maxItems > 0) {
-                    $selectedItems = $branchItemsForBranch->random($maxItems);
+                    $selectedItems = collect($items)->random($maxItems);
 
                     foreach ($selectedItems as $item) {
+                        // Get BranchItem for this branch to get price
+                        $branchItem = BranchItem::where('branch_id', $branch->id)
+                            ->where('item_id', $item->id)
+                            ->first();
+
                         $quantity = rand(10, 50);
-                        $unitPrice = $item->item_price * (1 + (rand(-5, 15) / 100));
+                        $basePrice = $branchItem ? $branchItem->price : 10.0;
+                        $unitPrice = $basePrice * (1 + (rand(-5, 15) / 100));
                         $totalPrice = ($quantity * $unitPrice) - (rand(0, 50)); // With discount
 
                         PurchaseOrderItem::create([
                             'purchase_order_id' => $order->id,
-                            'item_id' => $item->id,
-                            'item_name' => $item->item_name,
-                            'item_sku' => $item->item_code,
+                            'item_id' => $item->id, // Item.id (new structure)
+                            'item_name' => $item->name,
+                            'item_sku' => $item->code,
                             'category' => $item->category,
                             'quantity_ordered' => $quantity,
                             'quantity_confirmed' => $status !== OrderStatus::PENDING ? $quantity : null,
-                            'unit_of_measurement' => $item->item_unit ?? 'kg',
+                            'unit_of_measurement' => $item->unit ?? 'kg',
                             'unit_price' => $unitPrice,
                             'total_price' => $totalPrice,
                             'discount' => rand(0, 50),
@@ -408,12 +554,11 @@ class PurchaseTestDataSeeder extends Seeder
     /**
      * Create price history
      */
-    private function createPriceHistory(array $branchItems, array $suppliers): void
+    private function createPriceHistory(array $items, array $suppliers): void
     {
-        $uniqueItems = collect($branchItems)->unique('item_name');
         $orderTypes = [OrderType::DIRECT_SUPPLIER, OrderType::VIA_PURCHASING_OFFICER];
 
-        foreach ($uniqueItems as $item) {
+        foreach ($items as $item) {
             foreach ($orderTypes as $orderType) {
                 // Create price history for last 3 months
                 for ($month = 0; $month < 3; $month++) {
@@ -435,15 +580,19 @@ class PurchaseTestDataSeeder extends Seeder
                             $sourceName = 'Purchasing Officer';
                         }
 
+                        // Get price from BranchItem if exists, otherwise use default
+                        $branchItem = BranchItem::where('item_id', $item->id)->first();
+                        $basePrice = $branchItem ? $branchItem->price : 10.0;
+
                         PriceHistory::create([
-                            'item_id' => $item->id,
-                            'item_name' => $item->item_name,
+                            'item_id' => $item->id, // Item.id (new structure)
+                            'item_name' => $item->name,
                             'source_type' => $orderType,
                             'source_id' => $sourceId,
                             'source_name' => $sourceName,
-                            'unit_price' => $item->item_price * (1 + (rand(-10, 20) / 100)),
+                            'unit_price' => $basePrice * (1 + (rand(-10, 20) / 100)),
                             'quality_level' => QualityLevel::cases()[array_rand(QualityLevel::cases())],
-                            'unit_of_measurement' => $item->item_unit ?? 'kg',
+                            'unit_of_measurement' => $item->unit ?? 'kg',
                             'delivery_days' => rand(1, 5),
                             'rating' => round(rand(35, 50) / 10, 1),
                             'recorded_date' => $monthDate->copy()->subDays(rand(0, 28)),
