@@ -19,6 +19,7 @@ class StoreMultipleOrdersRequest extends FormRequest
             'branches' => ['nullable', 'array'],
             'branches.*.branch_id' => ['required_with:branches', 'uuid', 'exists:branches,id'],
             'branches.*.priority' => ['nullable', 'string'], // Accept any string value
+            'branches.*.justification' => ['nullable', 'string', 'max:1000'],
             'branches.*.items' => ['required_with:branches.*.branch_id', 'array', 'min:1'],
             'branches.*.items.*.item_id' => ['required', 'uuid', 'exists:items,id'],
             'branches.*.items.*.quantity' => ['required', 'numeric', 'min:0.001'],

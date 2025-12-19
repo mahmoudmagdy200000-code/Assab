@@ -411,6 +411,7 @@ class PurchaseOrderService
                             'from_branch_id' => $branchData['branch_id'],
                             'to_branch_id' => $branchId,
                             'priority' => $branchData['priority'] ?? 'normal',
+                            'message' => $branchData['justification'] ?? null,
                             'items' => $branchData['items'] ?? [],
                         ];
 
