@@ -3,7 +3,6 @@
 namespace Modules\Purchase\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Auth;
 use Modules\Purchase\Models\BranchInventory;
 use Carbon\Carbon;
 
@@ -18,44 +17,33 @@ class PurchaseHistoryDetailsResource extends JsonResource
      */
     public function toArray($request): array
     {
-        // Format branch location and name for "From" field
-        $fromBranchFullName = $this->whenLoaded('fromBranch', function () {
-            if ($this->fromBranch->location && $this->fromBranch->name) {
-                return "{$this->fromBranch->location} - {$this->fromBranch->name}";
-            }
-            return $this->fromBranch->name ?? null;
-        });
-
         // Get branch name only (for product details)
         $fromBranchNameOnly = $this->whenLoaded('fromBranch', function () {
             return $this->fromBranch->name ?? null;
         });
 
-        // Format request date
-        $requestDate = $this->created_at
-            ? Carbon::parse($this->created_at)->format('F j, Y')
-            : null;
-
-        // Format requested by name (with "Me" if current user)
-        $requestedByName = $this->whenLoaded('requestedBy', function () {
-            $name = $this->requestedBy->name ?? '';
-            if (Auth::check() && Auth::id() === $this->requestedBy->id) {
-                $name .= ' (Me)';
-            }
-            return $name;
-        });
-
         return [
-            // Request Summary
+            // Request Summary - Raw data from database
             'request_summary' => [
                 'request_no' => $this->order_number,
-                'type' => $this->order_type_label,
-                'from' => $fromBranchFullName,
-                'requested_by' => $requestedByName,
+                'type' => $this->order_type?->value,
+                'from' => $this->whenLoaded('fromBranch', function () {
+                    return [
+                        'id' => $this->fromBranch->id,
+                        'name' => $this->fromBranch->name,
+                        'location' => $this->fromBranch->location,
+                    ];
+                }),
+                'requested_by' => $this->whenLoaded('requestedBy', function () {
+                    return [
+                        'id' => $this->requestedBy->id,
+                        'name' => $this->requestedBy->name,
+                    ];
+                }),
                 'priority' => $this->priority?->value,
-                'request_date' => $requestDate,
+                'request_date' => $this->created_at?->toDateTimeString(),
                 'justification' => $this->message,
-                'status' => $this->status_label,
+                'status' => $this->status?->value,
             ],
 
             // Product Details
