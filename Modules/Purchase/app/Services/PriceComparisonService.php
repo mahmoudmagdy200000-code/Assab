@@ -3,6 +3,7 @@
 namespace Modules\Purchase\Services;
 
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\QualityLevel;
@@ -726,10 +727,29 @@ class PriceComparisonService
                 ->where('item_quantity', '>', 0)
                 ->get();
 
-            return $otherBranchesItems->map(function ($item) use ($quantity, $currentCoordinates, $branchStats, $branchItem, $avgUnitPrice, $filters) {
+            // Get all BranchInventory records for these branches and items (by item_name matching)
+            $branchIds = $otherBranchesItems->pluck('branch_id')->unique()->toArray();
+            $itemIds = $otherBranchesItems->pluck('id')->toArray();
+
+            $inventoriesByBranch = BranchInventory::whereIn('branch_id', $branchIds)
+                ->whereIn('item_id', $itemIds)
+                ->get()
+                ->keyBy(function ($inv) {
+                    return $inv->branch_id . '_' . $inv->item_id;
+                });
+
+            return $otherBranchesItems->map(function ($item) use ($quantity, $currentCoordinates, $branchStats, $branchItem, $avgUnitPrice, $filters, $inventoriesByBranch) {
                 $branch = $item->branch;
-                $availableQty = (float) $item->item_quantity;
                 $branchId = $item->branch_id;
+
+                // Try to get inventory data for this branch and item
+                $inventoryKey = $branchId . '_' . $item->id;
+                $inventory = $inventoriesByBranch[$inventoryKey] ?? null;
+
+                // Use inventory data if available, otherwise use BranchItem data
+                $availableQty = $inventory
+                    ? (float) $inventory->actual_available
+                    : (float) $item->item_quantity;
 
                 // Calculate distance
                 $targetCoordinates = $this->parseCoordinates($branch->map_coordinates ?? null);
@@ -788,10 +808,12 @@ class PriceComparisonService
                     'available_quantity' => $availableQty,
                     'available_quantity_label' => number_format($availableQty, 2) . ' ' . ($item->item_unit ?? 'kg'),
                     'availability_percentage' => min(100, round(($availableQty / $quantity) * 100, 1)),
-                    'quality' => null,
-                    'expiry_date' => null,
-                    'cooling_status' => null,
-                    'last_update' => $item->updated_at?->format('Y-m-d H:i:s'),
+                    'quality' => $inventory ? ($inventory->quality?->value ?? null) : null,
+                    'expiry_date' => $inventory ? ($inventory->earliest_expiry_date?->format('Y-m-d') ?? null) : null,
+                    'cooling_status' => $inventory ? ($inventory->cooling_status ?? null) : null,
+                    'last_update' => $inventory
+                        ? ($inventory->last_inventory_update?->format('Y-m-d H:i:s') ?? $item->updated_at?->format('Y-m-d H:i:s'))
+                        : $item->updated_at?->format('Y-m-d H:i:s'),
                     // Store Details
                     'distance' => $distance,
                     // 'distance_km' => $distance ? round($distance['distance_km'], 2) : null,
