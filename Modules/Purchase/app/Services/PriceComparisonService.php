@@ -794,7 +794,7 @@ class PriceComparisonService
                     'last_update' => $item->updated_at?->format('Y-m-d H:i:s'),
                     // Store Details
                     'distance' => $distance,
-                    'distance_km' => $distance ? round($distance['distance_km'], 2) : null,
+                    // 'distance_km' => $distance ? round($distance['distance_km'], 2) : null,
                     'estimated_hours' => $distance ? round($distance['estimated_hours'], 1) : null,
                     'response_rate' => $responseRate,
                     'rating' => $rating,
