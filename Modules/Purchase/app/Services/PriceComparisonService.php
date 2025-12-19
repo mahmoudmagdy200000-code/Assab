@@ -735,8 +735,11 @@ class PriceComparisonService
                 // Calculate total amount
                 $totalAmount = $avgUnitPrice * $quantity;
 
-                // Get response rate
-                $responseRate = $branchStats[$branchId]['response_rate'] ?? null;
+                // Get response rate with default value
+                $responseRate = $branchStats[$branchId]['response_rate'] ?? 75.0; // Default 75% if no history
+
+                // Get rating with default value
+                $rating = $branchStats[$branchId]['rating'] ?? 4.5; // Default 4.5 if no history
 
                 // Apply filters
                 if ($this->shouldFilterByResponseTime($responseRate, $filters)) {
@@ -780,7 +783,7 @@ class PriceComparisonService
                     'distance_km' => $distance ? round($distance['distance_km'], 2) : null,
                     'estimated_hours' => $distance ? round($distance['estimated_hours'], 1) : null,
                     'response_rate' => $responseRate,
-                    'rating' => $branchStats[$branchId]['rating'] ?? null,
+                    'rating' => $rating,
                 ];
             })->filter(); // Remove null values from filters
         }
@@ -801,8 +804,11 @@ class PriceComparisonService
             // Calculate total amount
             $totalAmount = $avgUnitPrice * $quantity;
 
-            // Get response rate
-            $responseRate = $branchStats[$branchId]['response_rate'] ?? null;
+            // Get response rate with default value
+            $responseRate = $branchStats[$branchId]['response_rate'] ?? 75.0; // Default 75% if no history
+
+            // Get rating with default value
+            $rating = $branchStats[$branchId]['rating'] ?? 4.5; // Default 4.5 if no history
 
             // Apply filters
             if ($this->shouldFilterByResponseTime($responseRate, $filters)) {
@@ -846,7 +852,7 @@ class PriceComparisonService
                 'distance_km' => $distance ? round($distance['distance_km'], 2) : null,
                 'estimated_hours' => $distance ? round($distance['estimated_hours'], 1) : null,
                 'response_rate' => $responseRate,
-                'rating' => $branchStats[$branchId]['rating'] ?? null,
+                'rating' => $rating,
             ];
         })->filter(); // Remove null values from filters
     }
