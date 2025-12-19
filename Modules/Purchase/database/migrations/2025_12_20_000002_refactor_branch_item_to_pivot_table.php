@@ -15,10 +15,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Backup old table structure first (if exists and not already backed up)
-        if (Schema::hasTable('branch_item') && !Schema::hasTable('branch_item_old_backup')) {
+        // If branch_item exists (from previous migration), we need to refactor it
+        if (Schema::hasTable('branch_item')) {
             // Step 1: Drop any foreign keys that reference branch_item from other tables
-            // Check all tables that might have foreign keys referencing branch_item
             try {
                 $dbName = DB::connection()->getDatabaseName();
                 $foreignKeys = DB::select("
@@ -60,8 +59,42 @@ return new class extends Migration
                 }
             }
 
-            // Step 2: Now we can safely rename the table
-            Schema::rename('branch_item', 'branch_item_old_backup');
+            // Step 2: Drop all foreign keys from branch_item itself first
+            try {
+                $dbName = DB::connection()->getDatabaseName();
+                $branchItemForeignKeys = DB::select("
+                    SELECT CONSTRAINT_NAME
+                    FROM information_schema.KEY_COLUMN_USAGE
+                    WHERE TABLE_SCHEMA = ?
+                    AND TABLE_NAME = 'branch_item'
+                    AND REFERENCED_TABLE_NAME IS NOT NULL
+                ", [$dbName]);
+
+                foreach ($branchItemForeignKeys as $fk) {
+                    try {
+                        DB::statement("ALTER TABLE `branch_item` DROP FOREIGN KEY `{$fk->CONSTRAINT_NAME}`");
+                    } catch (\Exception $e) {
+                        // Ignore if doesn't exist
+                    }
+                }
+            } catch (\Exception $e) {
+                // Try to drop common foreign key names from branch_item
+                $commonBranchItemFkNames = [
+                    'branch_item_branch_id_foreign',
+                    'branch_item_branch_id_branches_id_foreign',
+                ];
+
+                foreach ($commonBranchItemFkNames as $fkName) {
+                    try {
+                        DB::statement("ALTER TABLE `branch_item` DROP FOREIGN KEY `{$fkName}`");
+                    } catch (\Exception $ex) {
+                        // Ignore if doesn't exist
+                    }
+                }
+            }
+
+            // Step 3: Now we can safely drop the old branch_item table
+            Schema::dropIfExists('branch_item');
         }
 
         // Create new pivot table structure
