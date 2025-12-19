@@ -68,14 +68,45 @@ class ShiftController extends BaseController
             $cashierIds = Cashier::where('branch_id', $manager->branch_id)->pluck('id');
 
             $query = CashierShift::whereIn('cashier_id', $cashierIds)
-                ->select(['id', 'cashier_id', 'shift_id', 'shift_date', 'status', 'assigned_by', 'created_at', 'updated_at'])
+                ->select([
+                    'id',
+                    'cashier_id',
+                    'shift_id',
+                    'shift_date',
+                    'status',
+                    'assigned_by',
+                    'original_cashier_id',
+                    'reassigned_by',
+                    'reassigned_at',
+                    'reassignment_reason',
+                    'opening_balance',
+                    'closing_balance',
+                    'expected_balance',
+                    'variance',
+                    'total_sales',
+                    'net_sales',
+                    'vat_amount',
+                    'cash_collected',
+                    'card_payments',
+                    'pos_receipt',
+                    'actual_start_time',
+                    'actual_end_time',
+                    'handed_over_at',
+                    'handover_notes',
+                    'next_cashier_id',
+                    'created_at',
+                    'updated_at'
+                ])
                 ->with([
                     'cashier:id,name,branch_id',
                     'shift' => function ($q) {
                         $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
                     },
                     'shift.branch:id,name,location',
-                    'assignedBy:id,name'
+                    'assignedBy:id,name',
+                    'originalCashier:id,name,branch_id',
+                    'reassignedBy:id,name,email,phone',
+                    'nextCashier:id,name,email,phone'
                 ]);
 
             // 👤 Filter by specific cashier
@@ -125,13 +156,45 @@ class ShiftController extends BaseController
             $cashierIds = Cashier::where('branch_id', $manager->branch_id)->pluck('id');
 
             $query = CashierShift::whereIn('cashier_id', $cashierIds)
-                ->select(['id', 'cashier_id', 'shift_id', 'shift_date', 'status', 'total_sales', 'created_at', 'updated_at'])
+                ->select([
+                    'id',
+                    'cashier_id',
+                    'shift_id',
+                    'shift_date',
+                    'status',
+                    'assigned_by',
+                    'original_cashier_id',
+                    'reassigned_by',
+                    'reassigned_at',
+                    'reassignment_reason',
+                    'opening_balance',
+                    'closing_balance',
+                    'expected_balance',
+                    'variance',
+                    'total_sales',
+                    'net_sales',
+                    'vat_amount',
+                    'cash_collected',
+                    'card_payments',
+                    'pos_receipt',
+                    'actual_start_time',
+                    'actual_end_time',
+                    'handed_over_at',
+                    'handover_notes',
+                    'next_cashier_id',
+                    'created_at',
+                    'updated_at'
+                ])
                 ->with([
                     'cashier:id,name,branch_id',
                     'shift' => function ($q) {
                         $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
                     },
-                    'shift.branch:id,name,location'
+                    'shift.branch:id,name,location',
+                    'assignedBy:id,name',
+                    'originalCashier:id,name,branch_id',
+                    'reassignedBy:id,name,email,phone',
+                    'nextCashier:id,name,email,phone'
                 ]);
 
             // Apply filters using helper method

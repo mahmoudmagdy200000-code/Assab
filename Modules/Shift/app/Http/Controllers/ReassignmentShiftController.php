@@ -199,14 +199,19 @@ class ReassignmentShiftController extends Controller
             }
 
             // Update shift
-            $shiftModel->update([
+            $updateData = [
                 'original_cashier_id' => $originalCashierId,
                 'cashier_id' => $request->new_cashier_id,
                 'status' => ShiftStatus::REASSIGNED,
                 'reassigned_by' => $reassignedBy,
                 'reassignment_reason' => $request->reason ?? null,
                 'reassigned_at' => now(),
-            ]);
+            ];
+
+            $shiftModel->update($updateData);
+
+            // Refresh the model to ensure all attributes are loaded
+            $shiftModel->refresh();
 
             // Record history
             $shiftModel->history()->create([
