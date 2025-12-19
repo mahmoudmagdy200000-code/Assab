@@ -213,6 +213,24 @@ class ShiftController extends BaseController
                 'status',
                 'assigned_by_id',
                 'next_cashier_id',
+                'opening_balance',
+                'closing_balance',
+                'expected_balance',
+                'variance',
+                'total_sales',
+                'net_sales',
+                'vat_amount',
+                'cash_collected',
+                'card_payments',
+                'pos_receipt',
+                'actual_start_time',
+                'actual_end_time',
+                'handed_over_at',
+                'handover_notes',
+                'original_cashier_id',
+                'reassigned_by',
+                'reassignment_reason',
+                'reassigned_at',
                 'created_at',
                 'updated_at'
             ])
@@ -235,22 +253,44 @@ class ShiftController extends BaseController
             }
 
             // Verify cashier belongs to manager's branch
-            if (!$cashierShift->cashier || $cashierShift->cashier->branch_id !== $manager->branch_id) {
+            if (!$cashierShift->cashier) {
+                Log::warning('Cashier shift found but cashier relationship is missing', [
+                    'shift_id' => $id,
+                    'cashier_id' => $cashierShift->cashier_id
+                ]);
+                return $this->errorResponse('Cashier information not found for this shift', 404);
+            }
+
+            if ($cashierShift->cashier->branch_id !== $manager->branch_id) {
                 return $this->errorResponse('Unauthorized: This cashier does not belong to your branch', 403);
             }
 
-            return $this->successResponse(
-                new CashierShiftResource($cashierShift),
-                'Cashier shift retrieved successfully'
-            );
+            try {
+                return $this->successResponse(
+                    new CashierShiftResource($cashierShift),
+                    'Cashier shift retrieved successfully'
+                );
+            } catch (\Exception $resourceException) {
+                Log::error('Error in CashierShiftResource transformation', [
+                    'shift_id' => $id,
+                    'error' => $resourceException->getMessage(),
+                    'trace' => $resourceException->getTraceAsString()
+                ]);
+                throw $resourceException;
+            }
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Cashier Shift not found', 404);
         } catch (\Exception $e) {
             Log::error('Error retrieving cashier shift', [
                 'user_id' => auth()->id(),
+                'branch_id' => $manager->branch_id ?? null,
                 'shift_id' => $id,
                 'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
                 'trace' => $e->getTraceAsString()
             ]);
-            return $this->errorResponse('An error occurred while retrieving cashier shift', 500);
+            return $this->errorResponse('An error occurred while retrieving cashier shift: ' . $e->getMessage(), 500);
         }
     }
 

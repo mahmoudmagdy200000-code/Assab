@@ -4,6 +4,7 @@ namespace Modules\Shift\Transformers;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Log;
 
 class CashierShiftResource extends JsonResource
 {
@@ -139,8 +140,16 @@ class CashierShiftResource extends JsonResource
             'variance' => $this->when(
                 $this->hasVariance() && $this->relationLoaded('varianceDetails'),
                 function () {
-                    $varianceService = app(\Modules\Shift\Services\VarianceCalculationService::class);
-                    return $varianceService->getVarianceFormatted($this->resource);
+                    try {
+                        $varianceService = app(\Modules\Shift\Services\VarianceCalculationService::class);
+                        return $varianceService->getVarianceFormatted($this->resource);
+                    } catch (\Exception $e) {
+                        Log::error('Error calculating variance in CashierShiftResource', [
+                            'shift_id' => $this->id,
+                            'error' => $e->getMessage()
+                        ]);
+                        return null;
+                    }
                 }
             ),
         ];
