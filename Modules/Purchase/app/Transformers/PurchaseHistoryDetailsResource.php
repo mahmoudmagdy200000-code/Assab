@@ -120,7 +120,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
 
                     return [
                         'item_name' => $item->item_name,
-                        'requested_qty' => $this->formatQuantity($item->quantity_ordered, $item->unit_of_measurement),
+                        'requested_qty' => (float) $item->quantity_ordered,
                         'available_in_branch_name' => $fromBranchNameOnly,
                         'available_in_quantity' => $availableQuantity,
                         'balance_after' => $this->formatQuantity($balanceAfter, $item->unit_of_measurement),
