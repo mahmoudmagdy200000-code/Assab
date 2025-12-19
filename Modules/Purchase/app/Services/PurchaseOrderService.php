@@ -188,12 +188,34 @@ class PurchaseOrderService
 
     /**
      * Get pending orders with filters
+     *
+     * Returns orders requested FROM this branch by other branches
+     * For internal_transfer: orders where to_branch_id = this branch AND from_branch_id != this branch
+     * For other types: no orders are requested from other branches (only from suppliers/officers)
      */
     public function getPendingOrders(array $filters, int $perPage = 15): LengthAwarePaginator
     {
         $query = PurchaseOrder::with(['items', 'supplier', 'branch', 'requestedBy', 'fromBranch'])
             ->pending()
             ->orderBy('created_at', 'desc');
+
+        // Filter by branch - get orders requested FROM this branch
+        if (!empty($filters['branch_id'])) {
+            $branchId = $filters['branch_id'];
+
+            // For internal_transfer: get orders where this branch is the destination (to_branch_id)
+            // and the source is a different branch (from_branch_id != this branch)
+            $query->where(function ($q) use ($branchId) {
+                $q->where(function ($subQuery) use ($branchId) {
+                    // Internal transfers requested from this branch by other branches
+                    $subQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
+                        ->where('to_branch_id', $branchId)
+                        ->where('from_branch_id', '!=', $branchId);
+                });
+                // Note: direct_supplier and via_purchasing_officer orders are not "requested from" a branch
+                // They are requested by a branch from suppliers/officers, so they don't appear here
+            });
+        }
 
         // Apply filters
         if (!empty($filters['type'])) {
@@ -202,10 +224,6 @@ class PurchaseOrderService
 
         if (!empty($filters['status'])) {
             $query->byStatus(OrderStatus::from($filters['status']));
-        }
-
-        if (!empty($filters['branch_id'])) {
-            $query->byBranch($filters['branch_id']);
         }
 
         // Date filters
