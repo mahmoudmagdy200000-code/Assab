@@ -684,6 +684,14 @@ class PriceComparisonService
         $currentBranch = \Modules\Branch\Models\Branch::find($excludeBranchId);
         $currentCoordinates = $this->parseCoordinates($currentBranch->map_coordinates ?? null);
 
+        // Log warning if coordinates are missing (for debugging)
+        if (!$currentCoordinates && $currentBranch) {
+            \Log::warning('Current branch missing map_coordinates', [
+                'branch_id' => $excludeBranchId,
+                'branch_name' => $currentBranch->name,
+            ]);
+        }
+
         // Get response rate and rating data from previous orders
         $branchStats = $this->getBranchStatsForInternalTransfer($itemId, $excludeBranchId);
 
@@ -724,10 +732,16 @@ class PriceComparisonService
                 $branchId = $item->branch_id;
 
                 // Calculate distance
-                $distance = $this->calculateDistance(
-                    $currentCoordinates,
-                    $this->parseCoordinates($branch->map_coordinates ?? null)
-                );
+                $targetCoordinates = $this->parseCoordinates($branch->map_coordinates ?? null);
+                $distance = $this->calculateDistance($currentCoordinates, $targetCoordinates);
+
+                // If distance is null (coordinates missing), use default values
+                if (!$distance) {
+                    $distance = [
+                        'distance_km' => 50.0, // Default 50 km if coordinates not available
+                        'estimated_hours' => 1.0, // Default 1 hour
+                    ];
+                }
 
                 // Get branch manager info
                 $manager = $branch->branchManager ?? $branch->managers()->active()->first();
@@ -793,10 +807,16 @@ class PriceComparisonService
             $branchId = $inventory->branch_id;
 
             // Calculate distance
-            $distance = $this->calculateDistance(
-                $currentCoordinates,
-                $this->parseCoordinates($branch->map_coordinates ?? null)
-            );
+            $targetCoordinates = $this->parseCoordinates($branch->map_coordinates ?? null);
+            $distance = $this->calculateDistance($currentCoordinates, $targetCoordinates);
+
+            // If distance is null (coordinates missing), use default values
+            if (!$distance) {
+                $distance = [
+                    'distance_km' => 50.0, // Default 50 km if coordinates not available
+                    'estimated_hours' => 1.0, // Default 1 hour
+                ];
+            }
 
             // Get branch manager info
             $manager = $branch->branchManager ?? $branch->managers()->active()->first();
