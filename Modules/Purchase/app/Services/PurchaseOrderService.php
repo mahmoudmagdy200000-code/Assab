@@ -240,12 +240,15 @@ class PurchaseOrderService
 
             // For internal_transfer: get orders where this branch is the destination (to_branch_id)
             // and the source is a different branch (from_branch_id != this branch)
+            // AND the order was NOT created by this branch (branch_id != this branch)
+            // This ensures we only get orders requested FROM this branch by others, not orders created BY this branch
             $query->where(function ($q) use ($branchId) {
                 $q->where(function ($subQuery) use ($branchId) {
                     // Internal transfers requested from this branch by other branches
                     $subQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
                         ->where('to_branch_id', $branchId)
-                        ->where('from_branch_id', '!=', $branchId);
+                        ->where('from_branch_id', '!=', $branchId)
+                        ->where('branch_id', '!=', $branchId); // Exclude orders created by this branch
                 });
                 // Note: direct_supplier and via_purchasing_officer orders are not "requested from" a branch
                 // They are requested by a branch from suppliers/officers, so they don't appear here
