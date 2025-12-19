@@ -167,22 +167,22 @@ class PurchaseOrderService
             $branchId = $filters['branch_id'];
 
             // Get orders created BY this branch (orders where this branch is the requester)
-            // For internal_transfer: we need to distinguish between:
-            // 1. This branch requested from another: to_branch_id = this branch AND from_branch_id != this branch
-            //    AND requested_by user belongs to this branch
-            // 2. Another branch requested from this branch: to_branch_id = this branch AND from_branch_id != this branch
-            //    AND requested_by user belongs to another branch
-            // We use whereHas to check if requested_by user belongs to this branch
+            // For internal_transfer: this branch requested from another branch
+            // Condition: to_branch_id = this branch (this branch is the destination - will receive items)
+            // AND from_branch_id != this branch (source is a different branch)
+            // AND requested_by user belongs to this branch (this branch created the order)
             $query->where('branch_id', $branchId)
                 ->where(function ($q) use ($branchId) {
                     // Include all non-internal_transfer orders
                     $q->where('order_type', '!=', OrderType::INTERNAL_TRANSFER)
-                        // OR internal_transfer orders where requested_by user belongs to this branch
-                        // (meaning this branch requested the order)
+                        // OR internal_transfer orders where this branch is the destination (will receive items)
+                        // AND this branch created the order (requested_by user belongs to this branch)
                         ->orWhere(function ($internalTransferQuery) use ($branchId) {
                             $internalTransferQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
+                                ->where('to_branch_id', $branchId) // This branch will receive the items
+                                ->where('from_branch_id', '!=', $branchId) // Source is a different branch
                                 ->whereHas('requestedBy', function ($userQuery) use ($branchId) {
-                                    $userQuery->where('branch_id', $branchId);
+                                    $userQuery->where('branch_id', $branchId); // This branch created the order
                                 });
                         });
                 });
@@ -236,18 +236,17 @@ class PurchaseOrderService
         if (!empty($filters['branch_id'])) {
             $branchId = $filters['branch_id'];
 
-            // For internal_transfer: get orders where this branch is the destination (to_branch_id)
-            // and the source is a different branch (from_branch_id != this branch)
-            // AND the requested_by user does NOT belong to this branch
-            // (meaning another branch requested from this branch)
+            // For internal_transfer: get orders requested FROM this branch by other branches
+            // Condition: branch_id != this branch (another branch created the order)
+            // AND requested_by user does NOT belong to this branch (another branch's manager created the order)
+            // This means: another branch requested items from this branch
             $query->where(function ($q) use ($branchId) {
                 $q->where(function ($subQuery) use ($branchId) {
                     // Internal transfers requested from this branch by other branches
                     $subQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
-                        ->where('to_branch_id', $branchId) // This branch is the destination
-                        ->where('from_branch_id', '!=', $branchId) // Source is a different branch
+                        ->where('branch_id', '!=', $branchId) // Another branch created the order
                         ->whereHas('requestedBy', function ($userQuery) use ($branchId) {
-                            // requested_by user does NOT belong to this branch
+                            // requested_by user does NOT belong to this branch (another branch's manager)
                             $userQuery->where('branch_id', '!=', $branchId);
                         });
                 });
