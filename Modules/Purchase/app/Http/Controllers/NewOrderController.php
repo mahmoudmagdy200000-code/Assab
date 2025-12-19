@@ -587,16 +587,70 @@ class NewOrderController extends BaseController
             // Store requested item_id for later use in mapping
             $requestedItemId = $validated['item_id'] ?? null;
 
-            // Get items from the CURRENT branch (toBranchId) - same as getBranchItems
-            // Then match them with items in the transferring branch (fromBranchId)
-            $query = BranchItem::where('branch_id', $toBranchId)
+            // If item_id is provided, check BranchInventory first (source of truth)
+            // Store it in a variable accessible throughout the function
+            $inventoryItem = null;
+            $localBranchItemId = null; // Store the local BranchItem id if found
+
+            if (!empty($validated['item_id'])) {
+                // Get the original BranchItem to get item_name
+                $originalItem = BranchItem::find($validated['item_id']);
+
+                if ($originalItem) {
+                    // Find BranchItem in THIS branch with same item_name
+                    // getBranchesWithStock uses item_id from another branch, but inventory in this branch
+                    // might reference the local BranchItem id
+                    $localBranchItem = BranchItem::where('branch_id', $fromBranchId)
+                        ->where('item_name', $originalItem->item_name)
+                        ->first();
+
+                    if ($localBranchItem) {
+                        $localBranchItemId = $localBranchItem->id;
+
+                        // Try to find inventory using the local BranchItem id
+                        $inventoryItem = BranchInventory::where('branch_id', $fromBranchId)
+                            ->where('item_id', $localBranchItem->id)
+                            ->first();
+                    }
+
+                    // Also try with original item_id (in case it matches)
+                    if (!$inventoryItem) {
+                        $inventoryItem = BranchInventory::where('branch_id', $fromBranchId)
+                            ->where('item_id', $validated['item_id'])
+                            ->first();
+                    }
+                }
+            }
+
+            // Get items from the transferring branch
+            $query = BranchItem::where('branch_id', $fromBranchId)
                 ->with([
                     'branch:id,name,location',
                 ]);
 
-            // Filter by specific item_id if provided (from current branch)
+            // Filter by specific item_id if provided
             if (!empty($validated['item_id'])) {
-                $query->where('id', $validated['item_id']);
+                // Use localBranchItemId if found, otherwise use original item_id
+                if ($localBranchItemId) {
+                    $query->where('id', $localBranchItemId);
+                } else {
+                    // Try to find by original item_id first
+                    $branchItemInBranch = BranchItem::where('branch_id', $fromBranchId)
+                        ->where('id', $validated['item_id'])
+                        ->exists();
+
+                    if ($branchItemInBranch) {
+                        $query->where('id', $validated['item_id']);
+                    } else {
+                        // Try to find by item_name
+                        $originalItem = BranchItem::find($validated['item_id']);
+                        if ($originalItem) {
+                            $query->where('item_name', $originalItem->item_name);
+                        } else {
+                            $query->where('id', $validated['item_id']);
+                        }
+                    }
+                }
             }
 
             // Apply filters
@@ -617,31 +671,13 @@ class NewOrderController extends BaseController
             // Performance optimization: Load all inventories in batch queries instead of N+1
             $itemIds = $itemsCollection->pluck('id')->toArray();
 
-            // Get item names and codes from current branch items
-            $itemNames = $itemsCollection->pluck('item_name')->unique()->toArray();
-            $itemCodes = $itemsCollection->pluck('item_code')->unique()->toArray();
-
-            // Find matching items in the transferring branch (fromBranchId) by item_name or item_code
-            $matchingItemsInFromBranch = BranchItem::where('branch_id', $fromBranchId)
-                ->where(function ($q) use ($itemNames, $itemCodes) {
-                    $q->whereIn('item_name', $itemNames)
-                        ->orWhereIn('item_code', $itemCodes);
-                })
-                ->get()
-                ->keyBy(function ($item) {
-                    return $item->item_name . '|' . $item->item_code;
-                });
-
-            // Get IDs of matching items in fromBranch
-            $matchingItemIds = $matchingItemsInFromBranch->pluck('id')->toArray();
-
-            // Load all from inventories in one query (using matching item IDs from fromBranch)
+            // Load all from inventories in one query
             $fromInventories = BranchInventory::where('branch_id', $fromBranchId)
-                ->whereIn('item_id', $matchingItemIds)
+                ->whereIn('item_id', $itemIds)
                 ->get()
                 ->keyBy('item_id');
 
-            // Load all to inventories in one query (using current branch item IDs)
+            // Load all to inventories in one query
             $toInventories = BranchInventory::where('branch_id', $toBranchId)
                 ->whereIn('item_id', $itemIds)
                 ->get()
@@ -691,22 +727,14 @@ class NewOrderController extends BaseController
                 $transportDetails,
                 $requestedItemId,
                 $originalItemsMap,
-                $requestedOriginalItem,
-                $matchingItemsInFromBranch
+                $requestedOriginalItem
             ) {
-                // Find matching item in fromBranch by item_name and item_code
-                $matchingKey = $item->item_name . '|' . $item->item_code;
-                $matchingItemInFromBranch = $matchingItemsInFromBranch[$matchingKey] ?? null;
-
-                // Use matching item's id from fromBranch for inventory lookup
-                $itemIdForFromInventory = $matchingItemInFromBranch ? $matchingItemInFromBranch->id : null;
-
-                // Use current item's id for toInventory lookup
-                $itemIdForToInventory = $item->id;
+                // Use the found item's id for inventory lookup (this is the local BranchItem id)
+                $itemIdForInventory = $item->id;
 
                 // Get inventory from maps (O(1) lookup instead of query)
-                $fromInventory = $itemIdForFromInventory ? ($fromInventories[$itemIdForFromInventory] ?? null) : null;
-                $toInventory = $toInventories[$itemIdForToInventory] ?? null;
+                $fromInventory = $fromInventories[$itemIdForInventory] ?? null;
+                $toInventory = $toInventories[$itemIdForInventory] ?? null;
 
                 // Determine which item_id to use in response
                 // If item_id was requested, use it; otherwise try to find original item_id
@@ -742,6 +770,40 @@ class NewOrderController extends BaseController
                 ];
             });
 
+            // If no items found but item_id was requested and exists in inventory, create item from local BranchItem
+            if ($transformedItems->isEmpty() && $requestedItemId && $inventoryItem) {
+                // Get the local BranchItem (the one that matches the inventory)
+                $localBranchItem = BranchItem::find($inventoryItem->item_id);
+
+                // Get the original BranchItem for display (to maintain requested item_id)
+                $originalItem = BranchItem::find($requestedItemId);
+
+                if ($localBranchItem) {
+                    // Reload inventory item to ensure we have fresh data
+                    $inventoryItem = $inventoryItem->fresh();
+
+                    $toInventory = BranchInventory::where('branch_id', $toBranchId)
+                        ->where('item_id', $localBranchItem->id)
+                        ->first();
+
+                    // Create a collection with one item (use local item for inventory data, original for display)
+                    $transformedItems = collect([[
+                        'item' => $localBranchItem, // Use local item (matches inventory)
+                        'from_inventory' => $inventoryItem,
+                        'to_inventory' => $toInventory,
+                        'transport_details' => $transportDetails,
+                        'requested_item_id' => $requestedItemId, // Keep requested id for response
+                    ]]);
+
+                    // Update pagination to show this single item
+                    $items = new \Illuminate\Pagination\LengthAwarePaginator(
+                        collect([$originalItem]),
+                        1,
+                        15,
+                        1
+                    );
+                }
+            }
 
             // Create ResourceCollection and set the paginator
             $resourceCollection = TransferItemResource::collection($transformedItems);
