@@ -80,53 +80,54 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     $inventory = $item->item_id ? ($inventories->get($item->item_id) ?? null) : null;
 
                     // Available quantity from inventory (fallback to order item if not in inventory)
+                    // Return as float number (not formatted string)
                     $availableQuantity = $inventory?->available_quantity
                         ?? $item->available_in_source
-                        ?? 0;
+                        ?? 0.0;
+                    $availableQuantity = (float) $availableQuantity;
 
                     // Balance after = actual available (available - reserved) from inventory
                     // Fallback to remaining_balance from order item if inventory not found
                     $balanceAfter = $inventory
                         ? ($inventory->available_quantity - $inventory->reserved_quantity)
-                        : ($item->remaining_balance ?? 0);
+                        : ($item->remaining_balance ?? 0.0);
+                    $balanceAfter = (float) $balanceAfter;
 
                     // Quality Grade - prefer inventory quality, then quality_received, then quality_ordered
-                    // Default to "Standard" if not available
-                    $qualityGrade = $inventory?->quality?->label()
-                        ?? $item->quality_received?->label()
-                        ?? $item->quality_ordered?->label()
+                    // Return enum value (not label)
+                    $qualityGrade = $inventory?->quality?->value
+                        ?? $item->quality_received?->value
+                        ?? $item->quality_ordered?->value
                         ?? 'standard';
 
                     // Expiry date - prefer inventory earliest_expiry_date, then item expiry_date
-                    // Default to "N/A" if not available
+                    // Return as Y-m-d format (not formatted as "F Y")
                     $expiryDate = $inventory?->earliest_expiry_date
                         ?? $item->expiry_date;
                     $expiryDateFormatted = $expiryDate
-                        ? Carbon::parse($expiryDate)->format('F Y')
-                        : 'N/A';
+                        ? Carbon::parse($expiryDate)->format('Y-m-d')
+                        : null;
 
                     // Cooling status - prefer inventory cooling_status, then item cooling_status
-                    // Default to "Not Ready" if not available
+                    // Return as boolean (not string)
                     if ($inventory?->cooling_status !== null) {
-                        $coolingStatusValue = $inventory->cooling_status;
+                        $coolingStatus = (bool) $inventory->cooling_status;
                     } elseif ($item->cooling_status !== null) {
-                        $coolingStatusValue = $item->cooling_status;
+                        $coolingStatus = (bool) $item->cooling_status;
                     } else {
-                        $coolingStatusValue = false;
+                        $coolingStatus = false;
                     }
-                    $coolingStatus = $coolingStatusValue === true
-                        ? 'Transfer Ready'
-                        : 'Not Ready';
 
                     return [
                         'item_name' => $item->item_name,
                         'requested_qty' => $this->formatQuantity($item->quantity_ordered, $item->unit_of_measurement),
                         'available_in_branch_name' => $fromBranchNameOnly,
-                        'available_in_quantity' => $this->formatQuantity($availableQuantity, $item->unit_of_measurement),
+                        'available_in_quantity' => $availableQuantity,
                         'balance_after' => $this->formatQuantity($balanceAfter, $item->unit_of_measurement),
                         'quality_grade' => $qualityGrade,
                         'expiry_date' => $expiryDateFormatted,
                         'cooling_status' => $coolingStatus,
+                        'item_unit' => $item->unit_of_measurement,
                     ];
                 });
             }),
