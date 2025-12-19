@@ -618,8 +618,9 @@ class NewOrderController extends BaseController
             $itemIdsFromInventory = $inventories->pluck('item_id')->unique()->toArray();
 
             if (empty($itemIdsFromInventory)) {
-                // If no inventory found, fallback to BranchItem query (for items without inventory records)
+                // If no inventory found, fallback to BranchItem query (only items with stock - item_quantity > 0)
                 $query = BranchItem::where('branch_id', $fromBranchId)
+                    ->where('item_quantity', '>', 0) // Only items with stock
                     ->with(['branch:id,name,location']);
 
                 // Filter by specific item_id if provided
