@@ -107,24 +107,35 @@ class CashierShiftResource extends JsonResource
             }),
 
             // Reassignment Info (Only show if shift was reassigned)
-            'reassignment' => $this->when($this->status?->value === 'reassigned', function () {
-                return [
-                    'reassigned_from' => [
-                        'id' => $this->originalCashier?->id,
-                        'name' => $this->originalCashier?->name,
-                    ],
-                    'reassigned_to' => [
-                        'id' => $this->cashier?->id,
-                        'name' => $this->cashier?->name,
-                    ],
-                    'reassigned_by' => [
-                        'id' => $this->reassignedBy?->id,
-                        'name' => $this->reassignedBy?->name,
-                    ],
-                    'reassigned_at' => $this->reassigned_at?->format('Y-m-d H:i'),
-                    'reason' => $this->reassignment_reason,
-                ];
-            }),
+            'reassignment' => $this->when(
+                $this->status?->value === 'reassigned' || $this->original_cashier_id || $this->reassigned_by,
+                function () {
+                    // Load relationships if not already loaded
+                    if (!$this->relationLoaded('originalCashier') && $this->original_cashier_id) {
+                        $this->loadMissing('originalCashier');
+                    }
+                    if (!$this->relationLoaded('reassignedBy') && $this->reassigned_by) {
+                        $this->loadMissing('reassignedBy');
+                    }
+
+                    return [
+                        'reassigned_from' => [
+                            'id' => $this->originalCashier?->id ?? $this->original_cashier_id,
+                            'name' => $this->originalCashier?->name ?? null,
+                        ],
+                        'reassigned_to' => [
+                            'id' => $this->cashier?->id ?? $this->cashier_id,
+                            'name' => $this->cashier?->name ?? null,
+                        ],
+                        'reassigned_by' => [
+                            'id' => $this->reassignedBy?->id ?? $this->reassigned_by,
+                            'name' => $this->reassignedBy?->name ?? null,
+                        ],
+                        'reassigned_at' => $this->reassigned_at?->format('Y-m-d H:i:s'),
+                        'reason' => $this->reassignment_reason,
+                    ];
+                }
+            ),
 
             // Relations
             'sales_breakdown' => $this->whenLoaded('salesBreakdown', function () {

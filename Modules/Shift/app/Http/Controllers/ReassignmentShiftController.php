@@ -37,7 +37,7 @@ class ReassignmentShiftController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Reassigned shifts retrieved successfully',
-                'data' => ShiftResource::collection($shifts),
+                'data' => CashierShiftResource::collection($shifts),
                 'meta' => [
                     'total' => $shifts->count(),
                 ]
@@ -188,13 +188,23 @@ class ReassignmentShiftController extends Controller
                 ], 404);
             }
 
+            // Get the user who is reassigning (must be branch manager)
+            $reassignedBy = auth()->id();
+            if (!$reassignedBy) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not authenticated',
+                ], 401);
+            }
+
             // Update shift
             $shiftModel->update([
                 'original_cashier_id' => $originalCashierId,
                 'cashier_id' => $request->new_cashier_id,
                 'status' => ShiftStatus::REASSIGNED,
-                'reassigned_by' => auth()->id(),
-                'reassignment_reason' => $request->reason, // ممكن يكون null
+                'reassigned_by' => $reassignedBy,
+                'reassignment_reason' => $request->reason ?? null,
                 'reassigned_at' => now(),
             ]);
 

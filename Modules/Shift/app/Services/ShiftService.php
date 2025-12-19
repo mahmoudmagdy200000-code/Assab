@@ -93,11 +93,11 @@ class ShiftService
     {
         $query = CashierShift::completed()
             ->with([
-                'cashier', 
-                'shift', 
-                'nextCashier', 
-                'handoverStatus', 
-                'handover.handoverTo', 
+                'cashier',
+                'shift',
+                'nextCashier',
+                'handoverStatus',
+                'handover.handoverTo',
                 'handover.approvedBy',
                 'varianceDetails'
             ]);
@@ -107,9 +107,9 @@ class ShiftService
             $query->whereHas('shift', function ($q) use ($filters) {
                 $q->where('branch_id', $filters['branch_id']);
             })
-            ->whereHas('cashier', function ($q) use ($filters) {
-                $q->where('branch_id', $filters['branch_id']);
-            });
+                ->whereHas('cashier', function ($q) use ($filters) {
+                    $q->where('branch_id', $filters['branch_id']);
+                });
         }
 
         if ($cashierId) {
@@ -131,11 +131,12 @@ class ShiftService
     {
         $query = CashierShift::reassigned()
             ->with([
-                'cashier',
-                'shift',
-                'originalCashier',
-                'reassignedBy',
-                'nextCashier',
+                'cashier:id,name,branch_id',
+                'shift:id,name,start_time,end_time,branch_id,is_active',
+                'shift.branch:id,name,location',
+                'originalCashier:id,name,branch_id',
+                'reassignedBy:id,name,email,phone',
+                'nextCashier:id,name,email,phone',
                 'handoverStatus',
                 'varianceDetails'
             ]);
