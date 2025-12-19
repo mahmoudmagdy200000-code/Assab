@@ -69,9 +69,15 @@ class NewOrderController extends BaseController
             $perPage = $request->get('per_page', 15);
 
             $orders = $this->orderService->getOrders($filters, $perPage);
+            $requestedOrders = $this->orderService->getPendingOrders($filters, $request->get('per_page', 15));
 
+
+            $data = [
+                'orders' => PurchaseOrderListResource::collection($orders),
+                'requested_orders' => PurchaseOrderListResource::collection($requestedOrders),
+            ];
             return $this->paginatedResponse(
-                PurchaseOrderListResource::collection($orders),
+                $data,
                 'Orders retrieved successfully'
             );
         } catch (\Exception $e) {

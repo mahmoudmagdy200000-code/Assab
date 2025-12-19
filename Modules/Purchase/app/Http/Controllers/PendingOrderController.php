@@ -15,6 +15,7 @@ use Modules\Purchase\Services\TimelineService;
 use Modules\Purchase\Transformers\DirectSupplierOrderResource;
 use Modules\Purchase\Transformers\InternalTransferOrderResource;
 use Modules\Purchase\Transformers\PendingOrderListResource;
+use Modules\Purchase\Transformers\PurchaseOrderListResource;
 use Modules\Purchase\Transformers\PurchaseOrderResource;
 use Modules\Purchase\Transformers\TimelineResource;
 use Modules\Purchase\Transformers\ViaPurchasingOfficerOrderResource;
@@ -29,6 +30,8 @@ class PendingOrderController extends BaseController
     /**
      * Get pending orders list
      *
+     * Returns both orders and requested orders (same as NewOrderController)
+     *
      * @group Pending Orders
      */
     public function index(FilterPendingOrdersRequest $request): JsonResponse
@@ -36,11 +39,18 @@ class PendingOrderController extends BaseController
         try {
             $filters = $request->validated();
             $filters['branch_id'] = auth()->user()->branch_id;
+            $perPage = $request->get('per_page', 15);
 
-            $orders = $this->orderService->getPendingOrders($filters, $request->get('per_page', 15));
+            $orders = $this->orderService->getOrders($filters, $perPage);
+            $requestedOrders = $this->orderService->getPendingOrders($filters, $perPage);
+
+            $data = [
+                'orders' => PurchaseOrderListResource::collection($orders),
+                'requested_orders' => PurchaseOrderListResource::collection($requestedOrders),
+            ];
 
             return $this->paginatedResponse(
-                PendingOrderListResource::collection($orders),
+                $data,
                 'Pending orders retrieved successfully'
             );
         } catch (\Exception $e) {
