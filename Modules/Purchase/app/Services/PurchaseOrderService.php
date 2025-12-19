@@ -166,26 +166,24 @@ class PurchaseOrderService
         if (!empty($filters['branch_id'])) {
             $branchId = $filters['branch_id'];
 
-            // Get orders created BY this branch
-            // For internal_transfer: exclude orders where another branch requested FROM this branch
-            // Condition to exclude: to_branch_id = this branch AND from_branch_id != this branch
-            // This means: order was created in this branch (branch_id = this branch) but requested FROM this branch by another
-            // When this branch requests from another: to_branch_id = this branch AND from_branch_id != this branch
-            // But we want to include those, so we need to check if branch_id = this branch (created by this branch)
+            // Get orders created BY this branch (orders where this branch is the requester)
+            // For internal_transfer: we need to distinguish between:
+            // 1. This branch requested from another: to_branch_id = this branch AND from_branch_id != this branch
+            //    AND requested_by user belongs to this branch
+            // 2. Another branch requested from this branch: to_branch_id = this branch AND from_branch_id != this branch
+            //    AND requested_by user belongs to another branch
+            // We use whereHas to check if requested_by user belongs to this branch
             $query->where('branch_id', $branchId)
                 ->where(function ($q) use ($branchId) {
                     // Include all non-internal_transfer orders
                     $q->where('order_type', '!=', OrderType::INTERNAL_TRANSFER)
-                        // OR internal_transfer orders where this branch is the requester (to_branch_id = this branch)
-                        // AND this branch created the order (branch_id = this branch)
-                        // Exclude only if: to_branch_id = this branch AND from_branch_id != this branch AND branch_id != this branch
-                        // But since we already filtered by branch_id = this branch, we just need to exclude:
-                        // to_branch_id = this branch AND from_branch_id != this branch (requested FROM this branch)
+                        // OR internal_transfer orders where requested_by user belongs to this branch
+                        // (meaning this branch requested the order)
                         ->orWhere(function ($internalTransferQuery) use ($branchId) {
                             $internalTransferQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
-                                // Include if this branch is NOT the source (from_branch_id != this branch)
-                                // This means this branch requested from another branch
-                                ->where('from_branch_id', '!=', $branchId);
+                                ->whereHas('requestedBy', function ($userQuery) use ($branchId) {
+                                    $userQuery->where('branch_id', $branchId);
+                                });
                         });
                 });
         }
@@ -240,15 +238,18 @@ class PurchaseOrderService
 
             // For internal_transfer: get orders where this branch is the destination (to_branch_id)
             // and the source is a different branch (from_branch_id != this branch)
-            // AND the order was NOT created by this branch (branch_id != this branch)
-            // This ensures we only get orders requested FROM this branch by others, not orders created BY this branch
+            // AND the requested_by user does NOT belong to this branch
+            // (meaning another branch requested from this branch)
             $query->where(function ($q) use ($branchId) {
                 $q->where(function ($subQuery) use ($branchId) {
                     // Internal transfers requested from this branch by other branches
                     $subQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
-                        ->where('to_branch_id', $branchId)
-                        ->where('from_branch_id', '!=', $branchId)
-                        ->where('branch_id', '!=', $branchId); // Exclude orders created by this branch
+                        ->where('to_branch_id', $branchId) // This branch is the destination
+                        ->where('from_branch_id', '!=', $branchId) // Source is a different branch
+                        ->whereHas('requestedBy', function ($userQuery) use ($branchId) {
+                            // requested_by user does NOT belong to this branch
+                            $userQuery->where('branch_id', '!=', $branchId);
+                        });
                 });
                 // Note: direct_supplier and via_purchasing_officer orders are not "requested from" a branch
                 // They are requested by a branch from suppliers/officers, so they don't appear here
