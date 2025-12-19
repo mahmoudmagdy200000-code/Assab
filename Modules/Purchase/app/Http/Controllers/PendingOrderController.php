@@ -44,15 +44,51 @@ class PendingOrderController extends BaseController
             $orders = $this->orderService->getOrders($filters, $perPage);
             $requestedOrders = $this->orderService->getPendingOrders($filters, $perPage);
 
+            // Get pagination info from orders paginator
+            $paginator = $orders;
+            $currentPage = $paginator->currentPage();
+            $lastPage = $paginator->lastPage();
+
+            // Build Laravel-style page links array
+            $pageLinks = [];
+            for ($i = 1; $i <= $lastPage; $i++) {
+                $pageLinks[] = [
+                    'url' => $paginator->url($i),
+                    'label' => (string) $i,
+                    'active' => $i === $currentPage,
+                ];
+            }
+
+            $links = [
+                'first' => $paginator->url(1),
+                'last' => $paginator->url($lastPage),
+                'prev' => $paginator->previousPageUrl(),
+                'next' => $paginator->nextPageUrl(),
+            ];
+
+            $meta = [
+                'current_page' => $currentPage,
+                'from' => $paginator->firstItem(),
+                'last_page' => $lastPage,
+                'links' => $pageLinks,
+                'path' => $paginator->path(),
+                'per_page' => $paginator->perPage(),
+                'to' => $paginator->lastItem(),
+                'total' => $paginator->total(),
+            ];
+
             $data = [
                 'orders' => PurchaseOrderListResource::collection($orders),
                 'requested_orders' => PurchaseOrderListResource::collection($requestedOrders),
             ];
 
-            return $this->paginatedResponse(
-                $data,
-                'Pending orders retrieved successfully'
-            );
+            return response()->json([
+                'success' => true,
+                'message' => 'Pending orders retrieved successfully',
+                'data' => $data,
+                'links' => $links,
+                'meta' => $meta,
+            ], 200);
         } catch (\Exception $e) {
             return $this->handleException($e, 'fetching pending orders');
         }
