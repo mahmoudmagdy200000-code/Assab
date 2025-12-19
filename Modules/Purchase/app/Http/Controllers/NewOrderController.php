@@ -593,40 +593,84 @@ class NewOrderController extends BaseController
                 $originalItem = BranchItem::find($validated['item_id']);
             }
 
-            // Get items from the transferring branch (same logic as getBranchItems)
-            $query = BranchItem::where('branch_id', $fromBranchId)
-                ->with([
-                    'branch:id,name,location',
-                ]);
+            // Get items from the transferring branch that have stock (same logic as getBranchesWithStock)
+            // First, get BranchInventory records to find items with available stock
+            $inventoryQuery = BranchInventory::where('branch_id', $fromBranchId)
+                ->whereRaw('(available_quantity - reserved_quantity) > 0')
+                ->with(['branch:id,name,location']);
 
-            // Filter by specific item_id if provided (match by item_name and item_code, not item_id)
+            // Filter by specific item_id if provided (match by item_name and item_code)
             if (!empty($validated['item_id']) && $originalItem) {
-                // Match by item_name and item_code (not item_id) to get the same item in the other branch
-                $query->where('item_name', $originalItem->item_name)
-                    ->where('item_code', $originalItem->item_code);
-            } elseif (!empty($validated['item_id'])) {
-                // If original item not found, try to find by item_id (fallback)
-                $query->where('id', $validated['item_id']);
+                // Find BranchItem in fromBranch that matches by name and code
+                $fromBranchItem = BranchItem::where('branch_id', $fromBranchId)
+                    ->where('item_name', $originalItem->item_name)
+                    ->where('item_code', $originalItem->item_code)
+                    ->first();
+
+                if ($fromBranchItem) {
+                    $inventoryQuery->where('item_id', $fromBranchItem->id);
+                }
             }
 
-            // Apply filters (same as getBranchItems)
-            if (!empty($validated['search'])) {
-                $query->where(function ($q) use ($validated) {
-                    $q->where('item_name', 'like', '%' . $validated['search'] . '%')
-                        ->orWhere('item_code', 'like', '%' . $validated['search'] . '%');
-                });
-            }
+            $inventories = $inventoryQuery->get();
 
-            if (!empty($validated['category'])) {
-                $query->where('category', $validated['category']);
-            }
+            // Get BranchItems from inventories (items that have stock)
+            $itemIdsFromInventory = $inventories->pluck('item_id')->unique()->toArray();
 
-            if (!empty($validated['subcategory'])) {
-                $query->where('subcategory', $validated['subcategory']);
-            }
+            if (empty($itemIdsFromInventory)) {
+                // If no inventory found, fallback to BranchItem query (for items without inventory records)
+                $query = BranchItem::where('branch_id', $fromBranchId)
+                    ->with(['branch:id,name,location']);
 
-            $items = $query->paginate($perPage);
-            $itemsCollection = $items->getCollection();
+                // Filter by specific item_id if provided
+                if (!empty($validated['item_id']) && $originalItem) {
+                    $query->where('item_name', $originalItem->item_name)
+                        ->where('item_code', $originalItem->item_code);
+                }
+
+                // Apply filters
+                if (!empty($validated['search'])) {
+                    $query->where(function ($q) use ($validated) {
+                        $q->where('item_name', 'like', '%' . $validated['search'] . '%')
+                            ->orWhere('item_code', 'like', '%' . $validated['search'] . '%');
+                    });
+                }
+
+                if (!empty($validated['category'])) {
+                    $query->where('category', $validated['category']);
+                }
+
+                if (!empty($validated['subcategory'])) {
+                    $query->where('subcategory', $validated['subcategory']);
+                }
+
+                $items = $query->paginate($perPage);
+                $itemsCollection = $items->getCollection();
+            } else {
+                // Get BranchItems that have inventory (stock)
+                $query = BranchItem::where('branch_id', $fromBranchId)
+                    ->whereIn('id', $itemIdsFromInventory)
+                    ->with(['branch:id,name,location']);
+
+                // Apply filters
+                if (!empty($validated['search'])) {
+                    $query->where(function ($q) use ($validated) {
+                        $q->where('item_name', 'like', '%' . $validated['search'] . '%')
+                            ->orWhere('item_code', 'like', '%' . $validated['search'] . '%');
+                    });
+                }
+
+                if (!empty($validated['category'])) {
+                    $query->where('category', $validated['category']);
+                }
+
+                if (!empty($validated['subcategory'])) {
+                    $query->where('subcategory', $validated['subcategory']);
+                }
+
+                $items = $query->paginate($perPage);
+                $itemsCollection = $items->getCollection();
+            }
 
             // Performance optimization: Load all inventories in batch queries instead of N+1
             $itemIds = $itemsCollection->pluck('id')->toArray();
