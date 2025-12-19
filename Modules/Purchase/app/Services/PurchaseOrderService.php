@@ -10,6 +10,7 @@ use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\QualityLevel;
 use Modules\Purchase\Enums\TimelineEventType;
 use Modules\Purchase\Models\BranchItem;
+use Modules\Purchase\Models\Item;
 use Modules\Purchase\Models\OrderTimeline;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
@@ -499,7 +500,7 @@ class PurchaseOrderService
     /**
      * Add item to order
      *
-     * Gets item details from BranchItem using item_id
+     * Gets item details from Item model (new structure) using item_id
      *
      * @param PurchaseOrder $order
      * @param array $data
@@ -517,15 +518,20 @@ class PurchaseOrderService
             throw new \InvalidArgumentException('Quantity is required and must be greater than 0');
         }
 
-        // Get item details from BranchItem
-        $branchItem = BranchItem::find($data['item_id']);
-        if (!$branchItem) {
+        // Get item details from Item model (new structure)
+        $item = Item::find($data['item_id']);
+        if (!$item) {
             throw new \InvalidArgumentException("Item with ID {$data['item_id']} not found");
         }
 
+        // Get BranchItem for current branch to get price (if exists)
+        $branchItem = BranchItem::where('branch_id', $order->branch_id)
+            ->where('item_id', $item->id)
+            ->first();
+
         // For internal transfers, unit_price is optional (defaults to 0 - free transfer)
-        // For other order types, unit_price should be provided or use item_price from BranchItem
-        $unitPrice = $data['unit_price'] ?? ($branchItem->item_price ?? 0);
+        // For other order types, unit_price should be provided or use price from BranchItem
+        $unitPrice = $data['unit_price'] ?? ($branchItem?->price ?? 0);
 
         // Ensure unit_price is numeric
         $unitPrice = is_numeric($unitPrice) ? (float) $unitPrice : 0;
@@ -538,7 +544,7 @@ class PurchaseOrderService
         $totalPrice = ($quantity * $unitPrice) - $discount;
 
         // Handle item_logo - can be array or string
-        $itemLogo = $branchItem->item_logo;
+        $itemLogo = $item->logo;
         if (is_array($itemLogo)) {
             $itemLogo = $itemLogo[0] ?? null;
         }
@@ -549,14 +555,14 @@ class PurchaseOrderService
         try {
             return PurchaseOrderItem::create([
                 'purchase_order_id' => $order->id,
-                'item_id' => $data['item_id'],
-                'item_name' => $branchItem->item_name ?? 'Unknown Item',
+                'item_id' => $item->id, // Item.id (new structure)
+                'item_name' => $item->name ?? 'Unknown Item',
                 'item_logo' => $itemLogo,
-                'item_sku' => $branchItem->item_code ?? null,
-                'category' => $branchItem->category ?? null,
-                'subcategory' => $branchItem->subcategory ?? null,
+                'item_sku' => $item->code ?? null,
+                'category' => $item->category ?? null,
+                'subcategory' => $item->subcategory ?? null,
                 'quantity_ordered' => $quantity,
-                'unit_of_measurement' => $data['unit'] ?? $branchItem->item_unit ?? 'kg',
+                'unit_of_measurement' => $data['unit'] ?? $item->unit ?? 'kg',
                 'unit_price' => $unitPrice,
                 'total_price' => max(0, $totalPrice), // Ensure total_price is not negative
                 'discount' => $discount,

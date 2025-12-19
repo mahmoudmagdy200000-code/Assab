@@ -21,7 +21,7 @@ class StorePurchasingOfficerOrderRequest extends FormRequest
             'special_instructions' => ['nullable', 'string', 'max:2000'],
             'message' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.item_id' => ['required', 'uuid', 'exists:branch_item,id'],
+            'items.*.item_id' => ['required', 'uuid', 'exists:items,id'],
             'items.*.quantity' => ['required', 'numeric', 'min:0.001'],
             'items.*.unit' => ['nullable', 'string', 'in:kg,pk,unit,box,liter,piece'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
@@ -47,4 +47,3 @@ class StorePurchasingOfficerOrderRequest extends FormRequest
         ];
     }
 }
-

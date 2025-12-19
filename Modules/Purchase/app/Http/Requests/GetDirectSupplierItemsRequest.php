@@ -14,7 +14,7 @@ class GetDirectSupplierItemsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'item_id' => ['required', 'uuid', 'exists:branch_item,id'],
+            'item_id' => ['required', 'uuid', 'exists:items,id'],
             'quantity' => ['nullable', 'numeric', 'min:0.001'],
             'status' => ['nullable', 'string', 'in:online,offline,away'],
             'max_delivery_hours' => ['nullable', 'integer', 'min:1'],

@@ -20,7 +20,7 @@ class StoreMultipleOrdersRequest extends FormRequest
             'branches.*.branch_id' => ['required_with:branches', 'uuid', 'exists:branches,id'],
             'branches.*.priority' => ['nullable', 'string'], // Accept any string value
             'branches.*.items' => ['required_with:branches.*.branch_id', 'array', 'min:1'],
-            'branches.*.items.*.item_id' => ['required', 'uuid', 'exists:branch_item,id'],
+            'branches.*.items.*.item_id' => ['required', 'uuid', 'exists:items,id'],
             'branches.*.items.*.quantity' => ['required', 'numeric', 'min:0.001'],
             // Optional fields for branches items (not in the required format but allowed)
             'branches.*.items.*.unit' => ['nullable', 'string', 'in:kg,pk,unit,box,liter,piece'],
@@ -37,7 +37,7 @@ class StoreMultipleOrdersRequest extends FormRequest
             'direct_supplier.*.notification_channels.*' => ['string'], // Accept any string value
             'direct_supplier.*.message' => ['nullable', 'string', 'max:1000'],
             'direct_supplier.*.items' => ['required_with:direct_supplier.*.supplier_id', 'array', 'min:1'],
-            'direct_supplier.*.items.*.item_id' => ['required', 'uuid', 'exists:branch_item,id'],
+            'direct_supplier.*.items.*.item_id' => ['required', 'uuid', 'exists:items,id'],
             'direct_supplier.*.items.*.quantity' => ['required', 'numeric', 'min:0.001'],
             'direct_supplier.*.items.*.quality' => ['nullable', 'string', 'in:economy,standard,premium'],
             // Optional fields for direct_supplier items (not in the required format but allowed)
@@ -47,7 +47,7 @@ class StoreMultipleOrdersRequest extends FormRequest
             // Purchasing Officer Orders array
             'purchase_officer' => ['nullable', 'array'],
             'purchase_officer.*.items' => ['required_with:purchase_officer', 'array', 'min:1'],
-            'purchase_officer.*.items.*.item_id' => ['required', 'uuid', 'exists:branch_item,id'],
+            'purchase_officer.*.items.*.item_id' => ['required', 'uuid', 'exists:items,id'],
             'purchase_officer.*.items.*.quantity' => ['required', 'numeric', 'min:0.001'],
             'purchase_officer.*.items.*.quality' => ['nullable', 'string', 'in:economy,standard,premium'],
             'purchase_officer.*.items.*.preferred_delivery_date' => ['nullable', 'date'],

@@ -16,7 +16,7 @@ class StorePurchaseOrderRequest extends FormRequest
         $rules = [
             'order_type' => ['required', 'string', 'in:direct_supplier,via_purchasing_officer,internal_transfer'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.item_id' => ['required', 'uuid', 'exists:branch_item,id'],
+            'items.*.item_id' => ['required', 'uuid', 'exists:items,id'],
             'items.*.quantity' => ['required', 'numeric', 'min:0.001'],
             'items.*.unit' => ['nullable', 'string', 'in:kg,pk,unit,box,liter,piece'],
             'items.*.quality' => ['nullable', 'string', 'in:economy,standard,premium'],
@@ -59,24 +59,24 @@ class StorePurchaseOrderRequest extends FormRequest
         return [
             'order_type.required' => 'Order type is required.',
             'order_type.in' => 'Invalid order type. Must be one of: direct_supplier, via_purchasing_officer, internal_transfer.',
-            
+
             // Direct Supplier messages
             'supplier_id.required' => 'Please select a supplier.',
             'supplier_id.exists' => 'The selected supplier does not exist.',
             'quality_level.required' => 'Please select a quality level.',
             'notification_channels.required' => 'Please select at least one notification method.',
-            
+
             // Via Purchasing Officer messages
             'processing_time.required' => 'Please select a processing time.',
             'preferred_delivery_date.required' => 'Preferred delivery date is required.',
             'preferred_delivery_date.after' => 'Preferred delivery date must be in the future.',
             'latest_delivery_date.required' => 'Latest delivery date is required.',
             'latest_delivery_date.after_or_equal' => 'Latest delivery date must be on or after the preferred date.',
-            
+
             // Internal Transfer messages
             'from_branch_id.required' => 'Please select a source branch.',
             'from_branch_id.exists' => 'The selected branch does not exist.',
-            
+
             // Items messages
             'items.required' => 'Please add at least one item to the order.',
             'items.*.item_id.required' => 'Item ID is required for each item.',
@@ -87,4 +87,3 @@ class StorePurchaseOrderRequest extends FormRequest
         ];
     }
 }
-
