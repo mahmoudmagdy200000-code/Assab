@@ -61,16 +61,16 @@ class TransferItemResource extends JsonResource
             $temperature = 'Room Temperature';
         }
 
-        // Use requested item_id if provided (BranchItem.id from current branch), otherwise use Item.id
+        // Use Item.id (consistent with getBranches response)
         $itemId = $this->resource['requested_item_id'] ?? $item->id;
 
         return [
             // Item Information
-            'item_id' => $itemId, // BranchItem.id from current branch (for backward compatibility)
-            'item_name' => $item->name ?? $item->item_name ?? null, // Item.name (new structure)
+            'item_id' => $itemId, // Item.id (consistent with getBranches)
+            'item_name' => $item->name ?? null,
             'item_logo' => $itemLogo,
-            'item_code' => $item->code ?? $item->item_code ?? null, // Item.code (new structure)
-            'item_unit' => $item->unit ?? $item->item_unit ?? 'kg', // Item.unit (new structure)
+            'item_code' => $item->code ?? null,
+            'item_unit' => $item->unit ?? 'kg',
 
             // Editable Fields (defaults to inventory values, but can be edited by client)
             'quantity' => $availableQuantity, // Default to available, but editable

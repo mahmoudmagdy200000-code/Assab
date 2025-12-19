@@ -585,43 +585,40 @@ class NewOrderController extends BaseController
             // Get transport details once (same for all items)
             $transportDetails = $this->calculateTransportDetails($fromBranchId, $toBranchId);
 
-            // Store requested item_id for later use in mapping
+            // Step 1: Get Item.id from request (item_id can be BranchItem.id or Item.id)
             $requestedItemId = $validated['item_id'] ?? null;
-            $originalItem = null; // Item model (central)
-            $originalBranchItem = null; // BranchItem from current branch
+            $targetItemId = null; // Item.id (central)
 
-            // If item_id is provided, get the Item model (can be BranchItem.id or Item.id)
-            if (!empty($validated['item_id'])) {
-                $originalBranchItem = BranchItem::with('item')->find($validated['item_id']);
-
-                if ($originalBranchItem && $originalBranchItem->item) {
-                    // New structure: BranchItem -> Item
-                    $originalItem = $originalBranchItem->item;
+            if ($requestedItemId) {
+                // Try to find Item through BranchItem first
+                $branchItem = BranchItem::with('item')->find($requestedItemId);
+                if ($branchItem && $branchItem->item) {
+                    $targetItemId = $branchItem->item->id;
                 } else {
-                    // Try direct Item lookup (new structure)
-                    $originalItem = Item::find($validated['item_id']);
+                    // Try direct Item lookup (item_id is already Item.id)
+                    $item = Item::find($requestedItemId);
+                    if ($item) {
+                        $targetItemId = $item->id;
+                    }
                 }
             }
 
-            // Get items from the transferring branch that have stock (same logic as getBranchesWithStock)
-            // Always get BranchInventory records to find items with available stock (required - no fallback)
+            // Step 2: Get BranchInventory records from fromBranch that have stock
             $inventoryQuery = BranchInventory::where('branch_id', $fromBranchId)
                 ->whereRaw('(available_quantity - reserved_quantity) > 0')
-                ->with(['branch:id,name,location', 'item']);
+                ->with(['item']);
 
-            // Filter by specific item_id if provided (match by Item.id)
-            if (!empty($validated['item_id']) && $originalItem) {
-                // Find inventory by Item.id (new structure)
-                $inventoryQuery->where('item_id', $originalItem->id);
+            // Filter by specific Item.id if provided
+            if ($targetItemId) {
+                $inventoryQuery->where('item_id', $targetItemId);
             }
 
             $inventories = $inventoryQuery->get();
 
-            // Get BranchItems from inventories (items that have stock) - REQUIRED, no fallback
-            $itemIdsFromInventory = $inventories->pluck('item_id')->unique()->toArray();
+            // Step 3: Get Item IDs from inventories
+            $itemIds = $inventories->pluck('item_id')->unique()->toArray();
 
-            // Only get items that have inventory (stock) - no fallback to BranchItem
-            if (empty($itemIdsFromInventory)) {
+            if (empty($itemIds)) {
                 // Return empty collection if no items with stock found
                 $items = new \Illuminate\Pagination\LengthAwarePaginator(
                     collect([]),
@@ -631,12 +628,8 @@ class NewOrderController extends BaseController
                 );
                 $itemsCollection = collect([]);
             } else {
-                // Get Items that have inventory (stock) - use Item model directly
-                $query = Item::whereIn('id', $itemIdsFromInventory)
-                    ->with(['branches' => function ($q) use ($fromBranchId) {
-                        $q->where('branches.id', $fromBranchId)
-                            ->select('branches.id', 'branches.name', 'branches.location');
-                    }])
+                // Step 4: Get Items that have inventory (stock)
+                $query = Item::whereIn('id', $itemIds)
                     ->where('is_active', true);
 
                 // Apply filters
@@ -659,119 +652,52 @@ class NewOrderController extends BaseController
                 $itemsCollection = $items->getCollection();
             }
 
-            // Performance optimization: Load all inventories in batch queries instead of N+1
-            $itemIds = $itemsCollection->pluck('id')->toArray();
+            // Step 5: Load all inventories in batch (performance optimization)
+            $itemIdsForInventory = $itemsCollection->pluck('id')->toArray();
 
-            // Load all from inventories in one query (item_id now references Item.id)
+            // Load from inventories
             $fromInventories = BranchInventory::where('branch_id', $fromBranchId)
-                ->whereIn('item_id', $itemIds)
+                ->whereIn('item_id', $itemIdsForInventory)
                 ->get()
                 ->keyBy('item_id');
 
-            // Load all to inventories in one query (match by Item.id - same items across branches)
+            // Load to inventories
             $toInventories = BranchInventory::where('branch_id', $toBranchId)
-                ->whereIn('item_id', $itemIds)
+                ->whereIn('item_id', $itemIdsForInventory)
                 ->get()
                 ->keyBy('item_id');
 
-            // Build a map of Item.id -> BranchItem.id from current branch (for response item_id)
-            $originalItemsMap = [];
-
-            // Get BranchItems from current branch (toBranchId) for the items we found
-            $toBranchItems = BranchItem::where('branch_id', $toBranchId)
-                ->whereIn('item_id', $itemIds)
-                ->get()
-                ->keyBy('item_id');
-
-            foreach ($toBranchItems as $branchItem) {
-                $originalItemsMap[$branchItem->item_id] = $branchItem->id;
-            }
-
-            // Transform the collection for the resource
+            // Step 6: Transform items for response
             $transformedItems = $itemsCollection->map(function ($item) use (
                 $fromInventories,
                 $toInventories,
-                $transportDetails,
-                $requestedItemId,
-                $originalItemsMap,
-                $originalItem,
-                $originalBranchItem
+                $transportDetails
             ) {
-                // Use Item.id for inventory lookup (new structure)
-                $itemIdForInventory = $item->id;
+                $fromInventory = $fromInventories[$item->id] ?? null;
+                $toInventory = $toInventories[$item->id] ?? null;
 
-                // Get inventory from maps (O(1) lookup instead of query)
-                $fromInventory = $fromInventories[$itemIdForInventory] ?? null;
-                $toInventory = $toInventories[$itemIdForInventory] ?? null;
-
-                // Determine which item_id to use in response (BranchItem.id from current branch)
-                // If item_id was requested, use it; otherwise try to find matching BranchItem.id from current branch
-                $responseItemId = $requestedItemId;
-
-                if (!$responseItemId) {
-                    // Use pre-loaded map to find matching BranchItem.id from current branch
-                    $responseItemId = $originalItemsMap[$item->id] ?? null;
-                }
-
-                // Prepare item for response - use Item model (central)
-                // The response should show Item data, but use BranchItem.id for item_id field
-                $itemForResponse = $item; // Item model (central)
-
-                // Return structured data for the resource
                 return [
-                    'item' => $itemForResponse, // Item model
+                    'item' => $item, // Item model (central)
                     'from_inventory' => $fromInventory,
                     'to_inventory' => $toInventory,
                     'transport_details' => $transportDetails,
-                    'requested_item_id' => $responseItemId ?? $item->id, // BranchItem.id from current branch
+                    'requested_item_id' => $item->id, // Item.id (consistent with getBranches)
                 ];
             });
 
-            // If no items found but item_id was requested, try to find by Item.id
-            if ($transformedItems->isEmpty() && $requestedItemId && $originalItem) {
-                // Try to find inventory in fromBranch by Item.id
-                $fromInventory = BranchInventory::where('branch_id', $fromBranchId)
-                    ->where('item_id', $originalItem->id)
-                    ->first();
-
-                if ($fromInventory) {
-                    $toInventory = BranchInventory::where('branch_id', $toBranchId)
-                        ->where('item_id', $originalItem->id)
-                        ->first();
-
-                    // Create a collection with one item
-                    $transformedItems = collect([[
-                        'item' => $originalItem, // Use Item model (central)
-                        'from_inventory' => $fromInventory,
-                        'to_inventory' => $toInventory,
-                        'transport_details' => $transportDetails,
-                        'requested_item_id' => $requestedItemId, // Keep requested BranchItem.id from current branch
-                    ]]);
-
-                    // Update pagination to show this single item
-                    $items = new \Illuminate\Pagination\LengthAwarePaginator(
-                        collect([$originalItem]),
-                        1,
-                        15,
-                        1
-                    );
-                }
-            }
-
-            // Create ResourceCollection and set the paginator
+            // Step 7: Create ResourceCollection
             $resourceCollection = TransferItemResource::collection($transformedItems);
-            // Only set paginator if items exist (to avoid errors when manually creating collection)
             if (isset($items)) {
                 $resourceCollection->resource = $items;
             }
 
-            // Get paginated response
+            // Step 8: Build response
             $response = $this->successResponse(
                 $resourceCollection,
                 'Transfer items retrieved successfully'
             );
 
-            // Add transport_summary to the response data
+            // Add transport_summary
             $responseData = $response->getData(true);
             $responseData['transport_summary'] = $transportDetails;
 
