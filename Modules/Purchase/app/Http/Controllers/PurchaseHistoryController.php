@@ -7,6 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Modules\Purchase\Http\Requests\FilterPurchaseHistoryRequest;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Transformers\PurchaseOrderResource;
+use Modules\Purchase\Transformers\PurchaseHistoryDetailsResource;
 
 class PurchaseHistoryController extends BaseController
 {
@@ -16,7 +17,7 @@ class PurchaseHistoryController extends BaseController
 
     /**
      * Get purchase history list
-     * 
+     *
      * @group Purchase History
      */
     public function index(FilterPurchaseHistoryRequest $request): JsonResponse
@@ -24,9 +25,9 @@ class PurchaseHistoryController extends BaseController
         try {
             $filters = $request->validated();
             $filters['branch_id'] = auth()->user()->branch_id;
-            
+
             $orders = $this->orderService->getHistory($filters, $request->get('per_page', 15));
-            
+
             return $this->paginatedResponse(
                 PurchaseOrderResource::collection($orders),
                 'Purchase history retrieved successfully'
@@ -38,20 +39,20 @@ class PurchaseHistoryController extends BaseController
 
     /**
      * Get single order details
-     * 
+     *
      * @group Purchase History
      */
     public function show(string $id): JsonResponse
     {
         try {
             $order = $this->orderService->getOrderDetails($id);
-            
+
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
             }
-            
+
             return $this->successResponse(
-                new PurchaseOrderResource($order),
+                new PurchaseHistoryDetailsResource($order),
                 'Order details retrieved successfully'
             );
         } catch (\Exception $e) {
@@ -61,14 +62,14 @@ class PurchaseHistoryController extends BaseController
 
     /**
      * Get order timeline
-     * 
+     *
      * @group Purchase History
      */
     public function timeline(string $id): JsonResponse
     {
         try {
             $timeline = $this->orderService->getOrderTimeline($id);
-            
+
             return $this->successResponse(
                 $timeline,
                 'Order timeline retrieved successfully'
@@ -78,4 +79,3 @@ class PurchaseHistoryController extends BaseController
         }
     }
 }
-
