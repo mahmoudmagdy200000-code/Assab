@@ -26,7 +26,7 @@ class BranchItemResource extends JsonResource
                     AND expense_items.name = ?
                     AND expenses.deleted_at IS NULL
                 )",
-                [$this->item_name]
+                [$this->item?->name ?? $this->item_name ?? '']
             );
             $suppliersCount = $result->count ?? 0;
         } catch (\Exception $e) {

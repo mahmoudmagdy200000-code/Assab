@@ -32,19 +32,21 @@ class PurchaseOrderService
      */
     public function getBranchItems(string $branchId, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
-        $query = BranchItem::where('branch_id', $branchId);
+        // Get items through BranchItem pivot (many-to-many relationship)
+        $query = BranchItem::where('branch_id', $branchId)
+            ->with('item'); // Eager load Item model
 
-        // Search by item name
+        // Search by item name (through Item model)
         if (!empty($filters['search'])) {
             $query->search($filters['search']);
         }
 
-        // Filter by category
+        // Filter by category (through Item model)
         if (!empty($filters['category'])) {
             $query->byCategory($filters['category']);
         }
 
-        // Filter by subcategory
+        // Filter by subcategory (through Item model)
         if (!empty($filters['subcategory'])) {
             $query->bySubcategory($filters['subcategory']);
         }
@@ -54,7 +56,11 @@ class PurchaseOrderService
             $query->bySupplier($filters['supplier_id']);
         }
 
-        return $query->orderBy('item_name', 'asc')->paginate($perPage);
+        // Order by item name through relationship
+        return $query->join('items', 'branch_item.item_id', '=', 'items.id')
+            ->orderBy('items.name', 'asc')
+            ->select('branch_item.*', 'items.name as item_name', 'items.code as item_code', 'items.unit as item_unit', 'items.logo as item_logo', 'items.category', 'items.subcategory')
+            ->paginate($perPage);
     }
 
     /**

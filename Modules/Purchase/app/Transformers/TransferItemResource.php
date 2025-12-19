@@ -19,13 +19,13 @@ class TransferItemResource extends JsonResource
         $toInventory = $this->resource['to_inventory'];
         $transportDetails = $this->resource['transport_details'];
 
-        // Get item logo URL
+        // Get item logo URL (Item model has logo attribute)
         $itemLogo = null;
-        if ($item->item_logo) {
-            if (is_array($item->item_logo)) {
-                $logo = $item->item_logo[0] ?? null;
-            } else {
-                $logo = $item->item_logo;
+        $logo = $item->logo ?? null;
+
+        if ($logo) {
+            if (is_array($logo)) {
+                $logo = $logo[0] ?? null;
             }
 
             if ($logo) {
@@ -61,16 +61,16 @@ class TransferItemResource extends JsonResource
             $temperature = 'Room Temperature';
         }
 
-        // Use requested item_id if provided, otherwise use item's id
+        // Use requested item_id if provided (BranchItem.id from current branch), otherwise use Item.id
         $itemId = $this->resource['requested_item_id'] ?? $item->id;
 
         return [
             // Item Information
-            'item_id' => $itemId,
-            'item_name' => $item->item_name,
+            'item_id' => $itemId, // BranchItem.id from current branch (for backward compatibility)
+            'item_name' => $item->name ?? $item->item_name ?? null, // Item.name (new structure)
             'item_logo' => $itemLogo,
-            'item_code' => $item->item_code,
-            'item_unit' => $item->item_unit ?? 'kg',
+            'item_code' => $item->code ?? $item->item_code ?? null, // Item.code (new structure)
+            'item_unit' => $item->unit ?? $item->item_unit ?? 'kg', // Item.unit (new structure)
 
             // Editable Fields (defaults to inventory values, but can be edited by client)
             'quantity' => $availableQuantity, // Default to available, but editable

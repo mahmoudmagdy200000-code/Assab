@@ -9,74 +9,85 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
 use Modules\Branch\Models\Branch;
 
+/**
+ * BranchItem - Pivot model for many-to-many relationship between Branch and Item
+ *
+ * This represents a branch-specific configuration for an item (price, quantity)
+ * The actual item data (name, code, logo, etc.) is stored in the Item model
+ */
 class BranchItem extends Model
 {
     use HasFactory, HasUuids;
 
-    /**
-     * The attributes that are mass assignable.
-     */
     protected $table = 'branch_item';
+
     protected $fillable = [
         'branch_id',
-        'item_name',
-        'item_logo',
-        'item_code',
-        'item_unit',
-        'item_price',
-        'item_quantity',
-        'category',
-        'subcategory',
+        'item_id',
+        'price',
+        'quantity',
     ];
+
     protected $casts = [
-        'item_logo' => 'array',
-        'item_price' => 'decimal:2',
-        'item_quantity' => 'decimal:3',
+        'price' => 'decimal:2',
+        'quantity' => 'decimal:3',
     ];
 
-    protected $appends = [
-        'item_logo_url',
-    ];
-
+    // Relationships
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class, 'branch_id');
     }
 
-    /**
-     * Get suppliers that offer this item
-     * Through Expense module - suppliers that have expenses with items matching this item name
-     */
-    public function getSuppliersAttribute()
+    public function item(): BelongsTo
     {
-        return \Modules\Expense\Models\Supplier::whereHas('expenses.items', function ($query) {
-            $query->where('name', $this->item_name);
-        })->get();
+        return $this->belongsTo(Item::class, 'item_id');
     }
 
-    /**
-     * Get item logo URL
-     */
+    // Accessors for backward compatibility (maps to item model)
+    public function getItemNameAttribute(): ?string
+    {
+        return $this->item?->name;
+    }
+
+    public function getItemCodeAttribute(): ?string
+    {
+        return $this->item?->code;
+    }
+
+    public function getItemLogoAttribute()
+    {
+        return $this->item?->logo;
+    }
+
+    public function getItemUnitAttribute(): ?string
+    {
+        return $this->item?->unit;
+    }
+
+    public function getItemPriceAttribute(): ?float
+    {
+        return $this->price;
+    }
+
+    public function getItemQuantityAttribute(): ?float
+    {
+        return $this->quantity;
+    }
+
+    public function getCategoryAttribute(): ?string
+    {
+        return $this->item?->category;
+    }
+
+    public function getSubcategoryAttribute(): ?string
+    {
+        return $this->item?->subcategory;
+    }
+
     public function getItemLogoUrlAttribute(): ?string
     {
-        if (!$this->item_logo) {
-            return null;
-        }
-
-        // If item_logo is array, get first image
-        if (is_array($this->item_logo)) {
-            $logo = $this->item_logo[0] ?? null;
-        } else {
-            $logo = $this->item_logo;
-        }
-
-        if (!$logo) {
-            return null;
-        }
-
-        return str_starts_with($logo, 'http')
-            ? $logo
-            : asset('storage/' . $logo);
+        return $this->item?->logo_url;
     }
 
     // Scopes
@@ -85,34 +96,45 @@ class BranchItem extends Model
         return $query->where('branch_id', $branchId);
     }
 
+    public function scopeByItem($query, string $itemId)
+    {
+        return $query->where('item_id', $itemId);
+    }
+
     public function scopeSearch($query, string $term)
     {
-        return $query->where(function ($q) use ($term) {
-            $q->where('item_name', 'like', "%{$term}%")
-                ->orWhere('item_code', 'like', "%{$term}%");
+        return $query->whereHas('item', function ($q) use ($term) {
+            $q->where('name', 'like', "%{$term}%")
+                ->orWhere('code', 'like', "%{$term}%");
         });
     }
 
     public function scopeByCategory($query, string $category)
     {
-        return $query->where('category', $category);
+        return $query->whereHas('item', function ($q) use ($category) {
+            $q->where('category', $category);
+        });
     }
 
     public function scopeBySubcategory($query, string $subcategory)
     {
-        return $query->where('subcategory', $subcategory);
+        return $query->whereHas('item', function ($q) use ($subcategory) {
+            $q->where('subcategory', $subcategory);
+        });
     }
 
     public function scopeBySupplier($query, string $supplierId)
     {
         // Filter items that are available from the specified supplier
         // Through Expense module - items that have been purchased from this supplier
-        return $query->whereExists(function ($subQuery) use ($supplierId) {
-            $subQuery->select(DB::raw(1))
-                ->from('expenses')
-                ->join('expense_items', 'expense_items.expense_id', '=', 'expenses.id')
-                ->whereColumn('expense_items.name', 'branch_item.item_name')
-                ->where('expenses.supplier_id', $supplierId);
+        return $query->whereHas('item', function ($q) use ($supplierId) {
+            $q->whereExists(function ($subQuery) use ($supplierId) {
+                $subQuery->select(DB::raw(1))
+                    ->from('expenses')
+                    ->join('expense_items', 'expense_items.expense_id', '=', 'expenses.id')
+                    ->whereColumn('expense_items.name', 'items.name')
+                    ->where('expenses.supplier_id', $supplierId);
+            });
         });
     }
 }

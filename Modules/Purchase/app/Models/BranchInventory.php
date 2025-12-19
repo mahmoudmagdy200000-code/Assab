@@ -51,6 +51,11 @@ class BranchInventory extends Model
         return $this->belongsTo(Branch::class);
     }
 
+    public function item(): BelongsTo
+    {
+        return $this->belongsTo(Item::class, 'item_id');
+    }
+
     // Accessors
     public function getActualAvailableAttribute(): float
     {
@@ -129,7 +134,7 @@ class BranchInventory extends Model
         if ($this->actual_available < $quantity) {
             return false;
         }
-        
+
         $this->increment('reserved_quantity', $quantity);
         return true;
     }
@@ -155,4 +160,3 @@ class BranchInventory extends Model
         $this->save();
     }
 }
-

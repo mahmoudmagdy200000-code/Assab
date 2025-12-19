@@ -9,6 +9,7 @@ use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\QualityLevel;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\BranchInventory;
+use Modules\Purchase\Models\Item;
 use Modules\Purchase\Models\PriceHistory;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
@@ -33,16 +34,25 @@ class PriceComparisonService
         // Use default quantity of 1 if not provided
         $quantity = $quantity ?? 1.0;
 
-        // Get item details from BranchItem
-        $item = BranchItem::find($itemId);
+        // Get item details - itemId can be BranchItem.id or Item.id
+        $item = null;
+        $branchItem = BranchItem::with('item')->find($itemId);
+
+        if ($branchItem && $branchItem->item) {
+            // New structure: BranchItem -> Item
+            $item = $branchItem->item;
+        } else {
+            // Try direct Item lookup (new structure)
+            $item = Item::find($itemId);
+        }
 
         // Handle item_logo - can be array or string
         $itemLogo = null;
-        if ($item && $item->item_logo) {
-            if (is_array($item->item_logo)) {
-                $logo = $item->item_logo[0] ?? null;
+        if ($item && $item->logo) {
+            if (is_array($item->logo)) {
+                $logo = $item->logo[0] ?? null;
             } else {
-                $logo = $item->item_logo;
+                $logo = $item->logo;
             }
 
             if ($logo) {
@@ -53,10 +63,10 @@ class PriceComparisonService
         }
 
         $comparison = [
-            'item_id' => $itemId,
-            'item_name' => $item ? $item->item_name : null,
-            'item_code' => $item ? $item->item_code : null,
-            'item_unit' => $item ? $item->item_unit : null,
+            'item_id' => $item ? $item->id : $itemId,
+            'item_name' => $item ? $item->name : null,
+            'item_code' => $item ? $item->code : null,
+            'item_unit' => $item ? $item->unit : null,
             'item_logo' => $itemLogo,
             'item_price' => $item ? (float) $item->item_price : null,
             'quantity' => $quantity,
@@ -674,10 +684,20 @@ class PriceComparisonService
      */
     public function getBranchesWithStock(string $itemId, float $quantity, string $excludeBranchId, array $filters = []): Collection
     {
-        // Get BranchItem to get item_name for matching
-        $branchItem = BranchItem::find($itemId);
+        // itemId can be either BranchItem.id (legacy) or Item.id (new structure)
+        // Try to find the Item model
+        $item = null;
+        $branchItem = BranchItem::with('item')->find($itemId);
 
-        if (!$branchItem) {
+        if ($branchItem && $branchItem->item) {
+            // New structure: BranchItem -> Item
+            $item = $branchItem->item;
+        } else {
+            // Try direct Item lookup (new structure)
+            $item = Item::find($itemId);
+        }
+
+        if (!$item) {
             return collect([]);
         }
 
@@ -694,14 +714,14 @@ class PriceComparisonService
         }
 
         // Get response rate and rating data from previous orders
-        $branchStats = $this->getBranchStatsForInternalTransfer($itemId, $excludeBranchId);
+        $branchStats = $this->getBranchStatsForInternalTransfer($item->id, $excludeBranchId);
 
         // Get average unit price for total amount calculation
-        $avgUnitPrice = $this->getAverageUnitPriceForInternalTransfer($itemId);
+        $avgUnitPrice = $this->getAverageUnitPriceForInternalTransfer($item->id);
 
-        // First, try to find BranchInventory records where item_id matches BranchItem.id
-        $query = BranchInventory::with(['branch.branchManager'])
-            ->where('item_id', $itemId)
+        // Find BranchInventory records where item_id matches Item.id (new structure)
+        $query = BranchInventory::with(['branch.branchManager', 'item'])
+            ->where('item_id', $item->id)
             ->where('branch_id', '!=', $excludeBranchId)
             ->whereRaw('(available_quantity - reserved_quantity) > 0');
 
@@ -720,16 +740,16 @@ class PriceComparisonService
 
         // If no results found by item_id, return branches that have this item in their BranchItem list
         if ($inventories->isEmpty()) {
-            // Get all branches that have this item (by item_name)
-            $otherBranchesItems = BranchItem::with(['branch.branchManager'])
-                ->where('item_name', $branchItem->item_name)
+            // Get all branches that have this item (by Item.id)
+            $otherBranchesItems = BranchItem::with(['branch.branchManager', 'item'])
+                ->where('item_id', $item->id)
                 ->where('branch_id', '!=', $excludeBranchId)
-                ->where('item_quantity', '>', 0)
+                ->where('quantity', '>', 0)
                 ->get();
 
-            // Get all BranchInventory records for these branches and items (by item_name matching)
+            // Get all BranchInventory records for these branches and items (by Item.id)
             $branchIds = $otherBranchesItems->pluck('branch_id')->unique()->toArray();
-            $itemIds = $otherBranchesItems->pluck('id')->toArray();
+            $itemIds = $otherBranchesItems->pluck('item_id')->unique()->toArray(); // Item.id (not BranchItem.id)
 
             $inventoriesByBranch = BranchInventory::whereIn('branch_id', $branchIds)
                 ->whereIn('item_id', $itemIds)
@@ -738,18 +758,18 @@ class PriceComparisonService
                     return $inv->branch_id . '_' . $inv->item_id;
                 });
 
-            return $otherBranchesItems->map(function ($item) use ($quantity, $currentCoordinates, $branchStats, $branchItem, $avgUnitPrice, $filters, $inventoriesByBranch) {
-                $branch = $item->branch;
-                $branchId = $item->branch_id;
+            return $otherBranchesItems->map(function ($branchItem) use ($quantity, $currentCoordinates, $branchStats, $item, $avgUnitPrice, $filters, $inventoriesByBranch) {
+                $branch = $branchItem->branch;
+                $branchId = $branchItem->branch_id;
 
                 // Try to get inventory data for this branch and item
-                $inventoryKey = $branchId . '_' . $item->id;
+                $inventoryKey = $branchId . '_' . $branchItem->item_id;
                 $inventory = $inventoriesByBranch[$inventoryKey] ?? null;
 
-                // Use inventory data if available, otherwise use BranchItem data
+                // Use inventory data if available, otherwise use BranchItem quantity
                 $availableQty = $inventory
                     ? (float) $inventory->actual_available
-                    : (float) $item->item_quantity;
+                    : (float) $branchItem->quantity;
 
                 // Calculate distance
                 $targetCoordinates = $this->parseCoordinates($branch->map_coordinates ?? null);
@@ -798,15 +818,15 @@ class PriceComparisonService
                         'image' => $manager->image_url ?? null,
                     ] : null,
                     // Item Details
-                    'item_id' => $branchItem->id,
-                    'item_title' => $branchItem->item_name,
-                    'item_code' => $branchItem->item_code,
-                    'item_logo' => $branchItem->item_logo_url,
+                    'item_id' => $item->id,
+                    'item_title' => $item->name,
+                    'item_code' => $item->code,
+                    'item_logo' => $item->logo_url,
                     'quantity' => $quantity,
                     'total_amount' => round($totalAmount, 2),
                     // Available Quantity
                     'available_quantity' => $availableQty,
-                    'available_quantity_label' => number_format($availableQty, 2) . ' ' . ($item->item_unit ?? 'kg'),
+                    'available_quantity_label' => number_format($availableQty, 2) . ' ' . ($item->unit ?? 'kg'),
                     'availability_percentage' => min(100, round(($availableQty / $quantity) * 100, 1)),
                     'quality' => $inventory ? ($inventory->quality?->value ?? null) : null,
                     'expiry_date' => $inventory ? ($inventory->earliest_expiry_date?->format('Y-m-d') ?? null) : null,
@@ -824,9 +844,10 @@ class PriceComparisonService
             })->filter(); // Remove null values from filters
         }
 
-        return $inventories->map(function ($inventory) use ($quantity, $currentCoordinates, $branchStats, $branchItem, $avgUnitPrice, $filters) {
+        return $inventories->map(function ($inventory) use ($quantity, $currentCoordinates, $branchStats, $item, $avgUnitPrice, $filters) {
             $branch = $inventory->branch;
             $branchId = $inventory->branch_id;
+            $inventoryItem = $inventory->item ?? $item; // Use Item from inventory or fallback to $item
 
             // Calculate distance
             $targetCoordinates = $this->parseCoordinates($branch->map_coordinates ?? null);
@@ -877,13 +898,15 @@ class PriceComparisonService
                     'image' => $manager->image_url ?? null,
                 ] : null,
                 // Item Details
-                'item_title' => $branchItem->item_name,
-                'item_logo' => $branchItem->item_logo_url,
+                'item_id' => $item->id, // Item.id (central)
+                'item_title' => $inventoryItem->name ?? $item->name,
+                'item_code' => $inventoryItem->code ?? $item->code,
+                'item_logo' => $inventoryItem->logo_url ?? $item->logo_url,
                 'quantity' => $quantity,
                 'total_amount' => round($totalAmount, 2),
                 // Available Quantity
                 'available_quantity' => $availableQty,
-                'available_quantity_label' => number_format($availableQty, 2) . ' ' . ($branchItem->item_unit ?? 'kg'),
+                'available_quantity_label' => number_format($availableQty, 2) . ' ' . ($inventoryItem->unit ?? $item->unit ?? 'kg'),
                 'availability_percentage' => min(100, round(($availableQty / $quantity) * 100, 1)),
                 'quality' => $inventory->quality?->value,
                 'expiry_date' => $inventory->earliest_expiry_date?->format('Y-m-d'),
@@ -962,9 +985,12 @@ class PriceComparisonService
     {
         $sixMonthsAgo = now()->subMonths(6);
 
-        // Get all internal transfer orders from/to these branches in last 6 months
+        // itemId is now Item.id (central), but PurchaseOrderItem.item_id might still reference BranchItem.id
+        // We need to match by Item.id through the item relationship
+        // For now, match by item_id directly (assuming PurchaseOrderItem.item_id references Item.id)
         $orders = PurchaseOrder::where('order_type', OrderType::INTERNAL_TRANSFER)
             ->whereHas('items', function ($query) use ($itemId) {
+                // Match by item_id (assuming it references Item.id in new structure)
                 $query->where('item_id', $itemId);
             })
             ->where(function ($query) use ($excludeBranchId) {
@@ -1057,8 +1083,9 @@ class PriceComparisonService
     {
         $threeMonthsAgo = now()->subMonths(3);
 
+        // itemId is now Item.id (central)
         $orderItems = PurchaseOrderItem::with(['purchaseOrder'])
-            ->where('item_id', $itemId)
+            ->where('item_id', $itemId) // Assuming PurchaseOrderItem.item_id references Item.id
             ->whereHas('purchaseOrder', function ($query) use ($threeMonthsAgo) {
                 $query->where('created_at', '>=', $threeMonthsAgo)
                     ->where('order_type', OrderType::INTERNAL_TRANSFER)
