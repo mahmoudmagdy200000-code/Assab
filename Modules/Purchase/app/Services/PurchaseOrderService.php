@@ -146,8 +146,8 @@ class PurchaseOrderService
      */
     public function getOrders(array $filters, int $perPage = 15): LengthAwarePaginator
     {
-        // Only load items for better performance (status, type, created_at are on the order itself)
-        $query = PurchaseOrder::with(['items'])
+        // Load items and source relationships for source_name
+        $query = PurchaseOrder::with(['items', 'supplier', 'fromBranch'])
             ->orderBy('created_at', 'desc');
 
         // Filter by branch

@@ -77,9 +77,21 @@ class PendingOrderController extends BaseController
                 'total' => $paginator->total(),
             ];
 
+            // Transform orders with request_type
+            $ordersCollection = PurchaseOrderListResource::collection($orders);
+            foreach ($ordersCollection->collection as $resource) {
+                $resource->additional(['request_type' => 'order']);
+            }
+
+            // Transform requested orders with request_type
+            $requestedOrdersCollection = PurchaseOrderListResource::collection($requestedOrders);
+            foreach ($requestedOrdersCollection->collection as $resource) {
+                $resource->additional(['request_type' => 'request']);
+            }
+
             $data = [
-                'orders' => PurchaseOrderListResource::collection($orders),
-                'requested_orders' => PurchaseOrderListResource::collection($requestedOrders),
+                'orders' => $ordersCollection,
+                'requested_orders' => $requestedOrdersCollection,
             ];
 
             return response()->json([
