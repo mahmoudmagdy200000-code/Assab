@@ -211,7 +211,7 @@ class ShiftController extends BaseController
                 'shift_id',
                 'shift_date',
                 'status',
-                'assigned_by_id',
+                'assigned_by', // Note: column name is 'assigned_by', not 'assigned_by_id'
                 'next_cashier_id',
                 'opening_balance',
                 'closing_balance',
@@ -323,7 +323,7 @@ class ShiftController extends BaseController
                 'shift_id',
                 'shift_date',
                 'status',
-                'assigned_by_id',
+                'assigned_by', // Note: column name is 'assigned_by', not 'assigned_by_id'
                 'created_at',
                 'updated_at'
             ])
