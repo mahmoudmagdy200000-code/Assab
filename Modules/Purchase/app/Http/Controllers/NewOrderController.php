@@ -104,22 +104,9 @@ class NewOrderController extends BaseController
                 'total' => $paginator->total(),
             ];
 
-            // Create resource collections with order_type context
-            $ordersCollection = $orders->getCollection()->map(function ($order) {
-                return new PurchaseOrderListResource($order, 'order');
-            });
-            $ordersCollection = new \Illuminate\Http\Resources\Json\ResourceCollection($ordersCollection);
-            $ordersCollection->resource = $orders;
-
-            $requestedOrdersCollection = $requestedOrders->getCollection()->map(function ($order) {
-                return new PurchaseOrderListResource($order, 'request');
-            });
-            $requestedOrdersCollection = new \Illuminate\Http\Resources\Json\ResourceCollection($requestedOrdersCollection);
-            $requestedOrdersCollection->resource = $requestedOrders;
-
             $data = [
-                'orders' => $ordersCollection,
-                'requested_orders' => $requestedOrdersCollection,
+                'orders' => PurchaseOrderListResource::collection($orders),
+                'requested_orders' => PurchaseOrderListResource::collection($requestedOrders),
             ];
 
             return response()->json([
