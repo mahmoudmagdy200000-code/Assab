@@ -95,7 +95,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     $qualityGrade = $inventory?->quality?->label()
                         ?? $item->quality_received?->label()
                         ?? $item->quality_ordered?->label()
-                        ?? 'Standard';
+                        ?? 'standard';
 
                     // Expiry date - prefer inventory earliest_expiry_date, then item expiry_date
                     // Default to "N/A" if not available
