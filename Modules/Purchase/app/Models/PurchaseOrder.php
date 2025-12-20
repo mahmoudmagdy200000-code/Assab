@@ -352,25 +352,28 @@ class PurchaseOrder extends Model
         }
 
         $oldStatus = $this->status;
-        $this->status = $newStatus;
+
+        // Prepare update data with status as string value
+        $updateData = ['status' => $newStatus->value];
 
         // Set appropriate timestamp
         match ($newStatus) {
-            OrderStatus::PENDING => $this->submitted_at = now(),
-            OrderStatus::CONFIRMED => $this->confirmed_at = now(),
-            OrderStatus::FULLY_APPROVED => $this->confirmed_at = now(),
-            OrderStatus::PARTIAL_APPROVED => $this->confirmed_at = now(),
-            OrderStatus::PARTIAL_CONFIRMED => $this->confirmed_at = now(),
-            OrderStatus::PREPARING => $this->preparation_started_at = now(),
-            OrderStatus::ON_THE_WAY => $this->dispatched_at = now(),
-            OrderStatus::DELIVERED => $this->actual_delivery_at = now(),
-            OrderStatus::CLOSED => $this->closed_at = now(),
-            OrderStatus::CANCELED => $this->canceled_at = now(),
-            OrderStatus::REJECTED => $this->rejected_at = now(),
+            OrderStatus::PENDING => $updateData['submitted_at'] = now(),
+            OrderStatus::CONFIRMED => $updateData['confirmed_at'] = now(),
+            OrderStatus::FULLY_APPROVED => $updateData['confirmed_at'] = now(),
+            OrderStatus::PARTIAL_APPROVED => $updateData['confirmed_at'] = now(),
+            OrderStatus::PARTIAL_CONFIRMED => $updateData['confirmed_at'] = now(),
+            OrderStatus::PREPARING => $updateData['preparation_started_at'] = now(),
+            OrderStatus::ON_THE_WAY => $updateData['dispatched_at'] = now(),
+            OrderStatus::DELIVERED => $updateData['actual_delivery_at'] = now(),
+            OrderStatus::CLOSED => $updateData['closed_at'] = now(),
+            OrderStatus::CANCELED => $updateData['canceled_at'] = now(),
+            OrderStatus::REJECTED => $updateData['rejected_at'] = now(),
             default => null,
         };
 
-        $this->save();
+        // Update in single query
+        $this->update($updateData);
 
         return true;
     }
