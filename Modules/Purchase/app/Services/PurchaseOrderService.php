@@ -901,7 +901,8 @@ class PurchaseOrderService
      */
     public function getOrderDetails(string $orderId, ?string $branchId = null): ?PurchaseOrder
     {
-        $query = PurchaseOrder::with([
+        // First, try to find the order by ID
+        $order = PurchaseOrder::with([
             'items',
             'supplier',
             'branch',
@@ -912,22 +913,28 @@ class PurchaseOrderService
             'documents',
             'variances',
             'returnOrders.items',
-        ])->where('id', $orderId);
+        ])->find($orderId);
 
-        // Security: Add branch_id filter if provided for authorization
-        if ($branchId !== null) {
-            $query->where(function ($q) use ($branchId) {
-                // Regular orders: user must belong to the order's branch
-                $q->where('branch_id', $branchId)
-                    // Internal transfers: user can also access if they belong to from_branch_id (sending branch)
-                    ->orWhere(function ($subQuery) use ($branchId) {
-                        $subQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
-                            ->where('from_branch_id', $branchId);
-                    });
-            });
+        if (!$order) {
+            return null;
         }
 
-        return $query->first();
+        // Security: Check authorization if branch_id is provided
+        if ($branchId !== null) {
+            // Regular orders: user must belong to the order's branch
+            $hasAccess = $order->branch_id === $branchId;
+            
+            // Internal transfers: user can also access if they belong to from_branch_id (sending branch)
+            if (!$hasAccess && $order->order_type === OrderType::INTERNAL_TRANSFER) {
+                $hasAccess = $order->from_branch_id === $branchId;
+            }
+
+            if (!$hasAccess) {
+                return null;
+            }
+        }
+
+        return $order;
     }
 
     /**
