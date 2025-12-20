@@ -898,6 +898,7 @@ class PurchaseOrderService
      * Get order details
      *
      * Security: Optionally filter by branch_id to ensure user has access
+     * For internal transfers, also checks from_branch_id for authorization
      *
      * @param string $orderId
      * @param string|null $branchId Optional branch ID for authorization check
@@ -920,7 +921,15 @@ class PurchaseOrderService
 
         // Security: Add branch_id filter if provided for authorization
         if ($branchId !== null) {
-            $query->where('branch_id', $branchId);
+            $query->where(function ($q) use ($branchId) {
+                // Regular orders: user must belong to the order's branch
+                $q->where('branch_id', $branchId)
+                    // Internal transfers: user can also access if they belong to from_branch_id
+                    ->orWhere(function ($subQuery) use ($branchId) {
+                        $subQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
+                            ->where('from_branch_id', $branchId);
+                    });
+            });
         }
 
         return $query->find($orderId);
