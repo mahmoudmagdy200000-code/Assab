@@ -18,12 +18,24 @@ class PurchaseOrderListResource extends JsonResource
         // Get request type from additional data or default to 'order'
         $requestType = $this->additional['request_type'] ?? 'order';
 
+        // Get branch_id and inventory_map from additional data
+        $branchId = $this->additional['branch_id'] ?? $this->branch_id;
+        $inventoryMap = $this->additional['inventory_map'] ?? [];
+
+        // Transform items with branch_id and inventory_map for inventory lookup
+        $items = $this->whenLoaded('items', function () use ($branchId, $inventoryMap) {
+            return PurchaseOrderItemResource::collection($this->items)->additional([
+                'branch_id' => $branchId,
+                'inventory_map' => $inventoryMap,
+            ]);
+        });
+
         return [
             'id' => $this->id,
             'status' => $this->status?->value,
             'order_type' => $this->order_type?->value,
             'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
-            'items' => PurchaseOrderItemResource::collection($this->whenLoaded('items')),
+            'items' => $items,
             'source_name' => $sourceName,
             'request_type' => $requestType,
         ];

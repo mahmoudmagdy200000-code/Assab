@@ -105,16 +105,57 @@ class NewOrderController extends BaseController
                 'total' => $paginator->total(),
             ];
 
-            // Transform orders with request_type
-            $ordersCollection = PurchaseOrderListResource::collection($orders);
-            foreach ($ordersCollection->collection as $resource) {
-                $resource->additional(['request_type' => 'order']);
+            // Get branch_id for inventory lookup
+            $branchId = auth()->user()->branch_id;
+
+            // Merge branch_id into request for inventory lookup in resources
+            $request->merge(['branch_id' => $branchId]);
+
+            // Batch load inventory data for all items in all orders (performance optimization)
+            $allItemIds = collect();
+            foreach ($orders as $order) {
+                if ($order->relationLoaded('items')) {
+                    $allItemIds = $allItemIds->merge($order->items->pluck('item_id')->filter());
+                }
+            }
+            foreach ($requestedOrders as $order) {
+                if ($order->relationLoaded('items')) {
+                    $allItemIds = $allItemIds->merge($order->items->pluck('item_id')->filter());
+                }
+            }
+            $allItemIds = $allItemIds->unique();
+
+            // Load all inventory records in one query
+            $inventoryMap = [];
+            if ($branchId && $allItemIds->isNotEmpty()) {
+                $inventories = \Modules\Purchase\Models\BranchInventory::where('branch_id', $branchId)
+                    ->whereIn('item_id', $allItemIds->toArray())
+                    ->get()
+                    ->keyBy('item_id');
+
+                foreach ($inventories as $inventory) {
+                    $inventoryMap[$inventory->item_id] = $inventory;
+                }
             }
 
-            // Transform requested orders with request_type
+            // Transform orders with request_type, branch_id, and inventory_map
+            $ordersCollection = PurchaseOrderListResource::collection($orders);
+            foreach ($ordersCollection->collection as $resource) {
+                $resource->additional([
+                    'request_type' => 'order',
+                    'branch_id' => $branchId,
+                    'inventory_map' => $inventoryMap,
+                ]);
+            }
+
+            // Transform requested orders with request_type, branch_id, and inventory_map
             $requestedOrdersCollection = PurchaseOrderListResource::collection($requestedOrders);
             foreach ($requestedOrdersCollection->collection as $resource) {
-                $resource->additional(['request_type' => 'request']);
+                $resource->additional([
+                    'request_type' => 'request',
+                    'branch_id' => $branchId,
+                    'inventory_map' => $inventoryMap,
+                ]);
             }
 
             $data = [
