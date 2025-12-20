@@ -146,7 +146,8 @@ class PendingOrderController extends BaseController
                 return $this->notFoundResponse('Order not found');
             }
 
-            $success = $this->orderService->confirmOrder($order, $request->get('items'));
+            $readyTime = $request->validated()['ready_time'] ?? null;
+            $success = $this->orderService->confirmOrder($order, $request->get('items'), $readyTime);
 
             if (!$success) {
                 return $this->errorResponse('Cannot approve order in current status', 400);
@@ -175,7 +176,8 @@ class PendingOrderController extends BaseController
                 return $this->notFoundResponse('Order not found');
             }
 
-            $success = $this->orderService->partialConfirmOrder($order, $request->get('items'));
+            $readyTime = $request->validated()['ready_time'] ?? null;
+            $success = $this->orderService->partialConfirmOrder($order, $request->get('items'), $readyTime);
 
             if (!$success) {
                 return $this->errorResponse('Cannot partially approve order', 400);

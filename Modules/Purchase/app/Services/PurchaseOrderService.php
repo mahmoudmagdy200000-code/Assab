@@ -662,9 +662,9 @@ class PurchaseOrderService
     /**
      * Confirm order
      */
-    public function confirmOrder(PurchaseOrder $order, ?array $itemConfirmations = null): bool
+    public function confirmOrder(PurchaseOrder $order, ?array $itemConfirmations = null, ?string $readyTime = null): bool
     {
-        return DB::transaction(function () use ($order, $itemConfirmations) {
+        return DB::transaction(function () use ($order, $itemConfirmations, $readyTime) {
             if ($itemConfirmations) {
                 foreach ($itemConfirmations as $confirmation) {
                     $item = PurchaseOrderItem::find($confirmation['item_id']);
@@ -672,6 +672,11 @@ class PurchaseOrderService
                         $item->confirm($confirmation['quantity'] ?? null);
                     }
                 }
+            }
+
+            // Update ready_time if provided
+            if ($readyTime !== null) {
+                $order->update(['ready_time' => $readyTime]);
             }
 
             $order->transitionTo(OrderStatus::CONFIRMED);
@@ -684,14 +689,19 @@ class PurchaseOrderService
     /**
      * Partially confirm order
      */
-    public function partialConfirmOrder(PurchaseOrder $order, array $itemConfirmations): bool
+    public function partialConfirmOrder(PurchaseOrder $order, array $itemConfirmations, ?string $readyTime = null): bool
     {
-        return DB::transaction(function () use ($order, $itemConfirmations) {
+        return DB::transaction(function () use ($order, $itemConfirmations, $readyTime) {
             foreach ($itemConfirmations as $confirmation) {
                 $item = PurchaseOrderItem::find($confirmation['item_id']);
                 if ($item) {
                     $item->confirm($confirmation['quantity']);
                 }
+            }
+
+            // Update ready_time if provided
+            if ($readyTime !== null) {
+                $order->update(['ready_time' => $readyTime]);
             }
 
             $order->transitionTo(OrderStatus::PARTIAL_CONFIRMATION);
