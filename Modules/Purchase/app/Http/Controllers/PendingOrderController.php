@@ -267,8 +267,8 @@ class PendingOrderController extends BaseController
             $action = $request->action;
 
             $success = match ($action) {
-                'approve_all' => $this->orderService->confirmOrder($order),
-                'partial_approve' => $this->orderService->partialConfirmOrder($order, $request->get('items')),
+                'approve_all' => $this->orderService->confirmOrder($order, null, $request->ready_time),
+                'partial_approve' => $this->orderService->partialConfirmOrder($order, $request->get('items'), $request->ready_time),
                 'reject_all' => $this->orderService->rejectOrder($order, $request->reason),
                 default => false,
             };
@@ -277,9 +277,22 @@ class PendingOrderController extends BaseController
                 return $this->errorResponse('Cannot process transfer request', 400);
             }
 
-            // Update ready time
+            // Refresh order to get latest status
+            $order->refresh();
+
+            // If order was approved/partially approved, check if we need to transition to confirmed/partial_confirmed
+            // This happens when the receiving branch accepts the order
             if ($action !== 'reject_all') {
-                $order->update(['ready_time' => $request->ready_time]);
+                $currentStatus = $order->status;
+
+                // If fully approved, transition to confirmed when received
+                if ($currentStatus === OrderStatus::FULLY_APPROVED) {
+                    $order->transitionTo(OrderStatus::CONFIRMED);
+                }
+                // If partially approved, transition to partial_confirmed when received
+                elseif ($currentStatus === OrderStatus::PARTIAL_APPROVED) {
+                    $order->transitionTo(OrderStatus::PARTIAL_CONFIRMED);
+                }
             }
 
             return $this->successResponse(

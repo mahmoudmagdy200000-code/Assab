@@ -104,8 +104,18 @@ class GoodsReceiptService
                 ]);
             }
 
-            // Update order status
-            $order->transitionTo(OrderStatus::DELIVERED);
+            // Update order status based on current status
+            // If fully approved, transition to confirmed when received
+            // If partially approved, transition to partial_confirmed when received
+            $currentStatus = $order->status;
+            if ($currentStatus === OrderStatus::FULLY_APPROVED) {
+                $order->transitionTo(OrderStatus::CONFIRMED);
+            } elseif ($currentStatus === OrderStatus::PARTIAL_APPROVED) {
+                $order->transitionTo(OrderStatus::PARTIAL_CONFIRMED);
+            } else {
+                // For other statuses, transition to delivered as before
+                $order->transitionTo(OrderStatus::DELIVERED);
+            }
 
             $this->timelineService->logInspectionStarted($receipt);
 

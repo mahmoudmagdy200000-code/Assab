@@ -19,6 +19,7 @@ enum OrderStatus: string
     case DELAYED = 'delayed';
     case FULLY_APPROVED = 'fully_approved';
     case PARTIAL_APPROVED = 'partial_approved';
+    case PARTIAL_CONFIRMED = 'partial_confirmed';
 
     public function label(): string
     {
@@ -38,6 +39,7 @@ enum OrderStatus: string
             self::DELAYED => 'Delay Reported',
             self::FULLY_APPROVED => 'Fully Approved',
             self::PARTIAL_APPROVED => 'Partial Approved',
+            self::PARTIAL_CONFIRMED => 'Partial Confirmed',
         };
     }
 
@@ -59,6 +61,7 @@ enum OrderStatus: string
             self::DELAYED => '#F59E0B',
             self::FULLY_APPROVED => '#10B981',
             self::PARTIAL_APPROVED => '#8B5CF6',
+            self::PARTIAL_CONFIRMED => '#8B5CF6',
         };
     }
 
@@ -81,8 +84,9 @@ enum OrderStatus: string
             self::CLOSED => [],
             self::CANCELED => [],
             self::REJECTED => [],
-            self::FULLY_APPROVED => [self::PREPARING, self::CANCELED],
-            self::PARTIAL_APPROVED => [self::FULLY_APPROVED, self::PREPARING, self::CANCELED],
+            self::FULLY_APPROVED => [self::CONFIRMED, self::PREPARING, self::CANCELED],
+            self::PARTIAL_APPROVED => [self::PARTIAL_CONFIRMED, self::FULLY_APPROVED, self::PREPARING, self::CANCELED],
+            self::PARTIAL_CONFIRMED => [self::PREPARING, self::CANCELED],
         };
 
         return in_array($newStatus, $allowedTransitions);
@@ -98,6 +102,7 @@ enum OrderStatus: string
             self::PARTIAL_CONFIRMATION,
             self::FULLY_APPROVED,
             self::PARTIAL_APPROVED,
+            self::PARTIAL_CONFIRMED,
             self::DELIVERED,
         ]);
     }
@@ -126,6 +131,7 @@ enum OrderStatus: string
             self::PARTIAL_CONFIRMATION,
             self::FULLY_APPROVED,
             self::PARTIAL_APPROVED,
+            self::PARTIAL_CONFIRMED,
             self::DELIVERED,
         ]);
     }
@@ -142,6 +148,7 @@ enum OrderStatus: string
             self::PARTIAL_CONFIRMATION,
             self::FULLY_APPROVED,
             self::PARTIAL_APPROVED,
+            self::PARTIAL_CONFIRMED,
         ];
     }
 
@@ -159,6 +166,7 @@ enum OrderStatus: string
             self::CONFIRMED,
             self::FULLY_APPROVED,
             self::PARTIAL_APPROVED,
+            self::PARTIAL_CONFIRMED,
             self::PREPARING,
             self::ON_THE_WAY,
             self::DELAYED,
@@ -177,6 +185,7 @@ enum OrderStatus: string
             self::CONFIRMED,
             self::FULLY_APPROVED,
             self::PARTIAL_APPROVED,
+            self::PARTIAL_CONFIRMED,
             self::DELIVERED,
         ];
     }

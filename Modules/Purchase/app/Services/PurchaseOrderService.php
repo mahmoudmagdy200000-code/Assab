@@ -679,7 +679,7 @@ class PurchaseOrderService
                 $order->update(['ready_time' => $readyTime]);
             }
 
-            $order->transitionTo(OrderStatus::CONFIRMED);
+            $order->transitionTo(OrderStatus::FULLY_APPROVED);
             $this->timelineService->logOrderConfirmed($order);
 
             return true;
@@ -704,7 +704,7 @@ class PurchaseOrderService
                 $order->update(['ready_time' => $readyTime]);
             }
 
-            $order->transitionTo(OrderStatus::PARTIAL_CONFIRMATION);
+            $order->transitionTo(OrderStatus::PARTIAL_APPROVED);
             $this->timelineService->logPartialConfirmation($order);
 
             return true;
