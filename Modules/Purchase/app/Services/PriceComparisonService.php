@@ -82,25 +82,36 @@ class PriceComparisonService
         ];
 
         // Direct Supplier prices (with actual order history from all branches)
-        $supplierPrices = $this->getSupplierPrices($itemId, $quantity);
+        // Use actual Item.id for comparison (resolve from BranchItem if needed)
+        $actualItemId = $item ? $item->id : $itemId;
+        $supplierPrices = $this->getSupplierPrices($actualItemId, $quantity);
         if ($supplierPrices->isNotEmpty()) {
             $comparison['sources']['direct_supplier'] = $supplierPrices->toArray();
+        } else {
+            // Fallback: Get prices from actual orders if no SupplierItem records exist
+            $supplierPricesFromOrders = $this->getSupplierPricesFromOrders($actualItemId, $quantity);
+            if ($supplierPricesFromOrders->isNotEmpty()) {
+                $comparison['sources']['direct_supplier'] = $supplierPricesFromOrders->toArray();
+            }
         }
 
         // Via Purchasing Officer (average/estimated prices from actual orders from all branches)
-        $poPrices = $this->getPurchasingOfficerPrices($itemId);
+        // Use actual Item.id for comparison
+        $poPrices = $this->getPurchasingOfficerPrices($actualItemId);
         if ($poPrices) {
             $comparison['sources']['via_purchasing_officer'] = $poPrices;
         }
 
         // Internal Transfer options (from all branches except current)
-        $transferOptions = $this->getInternalTransferOptions($itemId, $quantity, $excludeBranchId);
+        // Use actual Item.id for comparison
+        $transferOptions = $this->getInternalTransferOptions($actualItemId, $quantity, $excludeBranchId);
         if ($transferOptions->isNotEmpty()) {
             $comparison['sources']['internal_transfer'] = $transferOptions->toArray();
         }
 
         // Get price trends from actual purchase orders (from all branches)
-        $comparison['price_trends'] = $this->getPriceTrends($itemId);
+        // Use actual Item.id for comparison
+        $comparison['price_trends'] = $this->getPriceTrends($actualItemId);
 
         // Calculate price change percentage
         $comparison['price_change'] = $this->calculatePriceChange($comparison['price_trends']);
@@ -182,6 +193,78 @@ class PriceComparisonService
                 'order_count' => $history->count(),
             ];
         });
+    }
+
+    /**
+     * Get supplier prices from actual orders when SupplierItem records don't exist
+     * This is a fallback method to show prices from real order history
+     */
+    private function getSupplierPricesFromOrders(string $itemId, float $quantity): Collection
+    {
+        // Get actual order history for this item from last 3 months (from all branches)
+        $threeMonthsAgo = now()->subMonths(3);
+        $orderItems = PurchaseOrderItem::with(['purchaseOrder.supplier'])
+            ->where('item_id', $itemId)
+            ->whereHas('purchaseOrder', function ($query) use ($threeMonthsAgo) {
+                $query->where('order_type', OrderType::DIRECT_SUPPLIER)
+                    ->where('created_at', '>=', $threeMonthsAgo)
+                    ->whereIn('status', [
+                        OrderStatus::CONFIRMED,
+                        OrderStatus::PARTIAL_CONFIRMATION,
+                        OrderStatus::CLOSED,
+                        OrderStatus::DELIVERED,
+                    ]);
+            })
+            ->get();
+
+        if ($orderItems->isEmpty()) {
+            return collect();
+        }
+
+        // Group order items by supplier_id and calculate average prices
+        $supplierData = $orderItems->groupBy(function ($item) {
+            return $item->purchaseOrder->supplier_id;
+        })->map(function ($items, $supplierId) use ($quantity) {
+            $firstItem = $items->first();
+            $order = $firstItem->purchaseOrder;
+            $supplier = $order->supplier;
+
+            if (!$supplier) {
+                return null;
+            }
+
+            // Calculate average unit price from all orders for this supplier
+            $avgUnitPrice = $items->avg('unit_price');
+
+            // Calculate average delivery days
+            $deliveryDays = $items->map(function ($item) {
+                $order = $item->purchaseOrder;
+                $createdAt = $order->created_at;
+                $completedAt = $order->confirmed_at ?? $order->received_at ?? $order->closed_at ?? now();
+                return $createdAt->diffInDays($completedAt);
+            })->avg();
+
+            // Get rating from supplier
+            $rating = $supplier->rating ?? 4.0;
+
+            // Estimate delivery hours (default 24 hours if not available)
+            $deliveryHours = $supplier->default_delivery_hours ?? 24;
+
+            return [
+                'supplier_id' => $supplierId,
+                'supplier_name' => $supplier->name,
+                'supplier_status' => $supplier->status->value ?? 'online',
+                'unit_price' => round($avgUnitPrice, 2),
+                'total_price' => round($avgUnitPrice * $quantity, 2),
+                'delivery_hours' => $deliveryHours,
+                'delivery_days' => round($deliveryDays ?? ($deliveryHours / 24), 1),
+                'rating' => round($rating, 1),
+                'is_available' => $supplier->status?->isAvailable() ?? true,
+                'order_count' => $items->count(),
+            ];
+        })->filter();
+
+        return $supplierData->values();
     }
 
     /**

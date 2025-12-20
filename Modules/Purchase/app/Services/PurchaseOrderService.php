@@ -12,6 +12,7 @@ use Modules\Purchase\Enums\TimelineEventType;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
 use Modules\Purchase\Models\OrderTimeline;
+use Modules\Purchase\Models\PriceHistory;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
 use Illuminate\Support\Collection;
@@ -704,6 +705,9 @@ class PurchaseOrderService
 
             $this->timelineService->logOrderConfirmed($order);
 
+            // Record prices in price_histories when order is confirmed
+            $this->recordOrderPrices($order);
+
             return true;
         });
     }
@@ -744,6 +748,9 @@ class PurchaseOrderService
             }
 
             $this->timelineService->logPartialConfirmation($order);
+
+            // Record prices in price_histories when order is partially confirmed
+            $this->recordOrderPrices($order, $itemConfirmations);
 
             return true;
         });
@@ -946,6 +953,99 @@ class PurchaseOrderService
 
         if (!empty($filters['date_from']) || !empty($filters['date_to'])) {
             $query->byDateRange($filters['date_from'] ?? null, $filters['date_to'] ?? null);
+        }
+    }
+
+    /**
+     * Record order prices in price_histories table
+     * Called when order is confirmed or partially confirmed
+     *
+     * @param PurchaseOrder $order
+     * @param array|null $itemConfirmations Optional: only record confirmed items if provided
+     * @return void
+     */
+    private function recordOrderPrices(PurchaseOrder $order, ?array $itemConfirmations = null): void
+    {
+        try {
+            // Load order items with relationships
+            $order->load(['items', 'supplier', 'fromBranch']);
+
+            // Determine source information based on order type
+            $sourceId = match ($order->order_type) {
+                OrderType::DIRECT_SUPPLIER => $order->supplier_id,
+                OrderType::VIA_PURCHASING_OFFICER => null, // Purchasing officer doesn't have a specific ID
+                OrderType::INTERNAL_TRANSFER => $order->from_branch_id,
+                default => null,
+            };
+
+            $sourceName = match ($order->order_type) {
+                OrderType::DIRECT_SUPPLIER => $order->supplier?->name,
+                OrderType::VIA_PURCHASING_OFFICER => 'Purchasing Officer',
+                OrderType::INTERNAL_TRANSFER => $order->fromBranch?->name,
+                default => null,
+            };
+
+            // Calculate delivery days (from created_at to confirmed_at)
+            $deliveryDays = null;
+            if ($order->created_at && $order->confirmed_at) {
+                $deliveryDays = (int) $order->created_at->diffInDays($order->confirmed_at);
+            }
+
+            // Get rating from supplier if available
+            $rating = $order->supplier?->rating ?? null;
+
+            // Record price for each item
+            foreach ($order->items as $item) {
+                // If itemConfirmations provided, only record confirmed items
+                if ($itemConfirmations !== null) {
+                    $isConfirmed = collect($itemConfirmations)->contains(function ($confirmation) use ($item) {
+                        return ($confirmation['item_id'] ?? null) === $item->id;
+                    });
+                    if (!$isConfirmed) {
+                        continue; // Skip unconfirmed items
+                    }
+                }
+
+                // Skip if item doesn't have item_id (unlisted items)
+                if (!$item->item_id) {
+                    continue;
+                }
+
+                // Convert quality_ordered string to QualityLevel enum if needed
+                $qualityLevel = null;
+                if ($item->quality_ordered) {
+                    try {
+                        $qualityLevel = is_string($item->quality_ordered)
+                            ? QualityLevel::from($item->quality_ordered)
+                            : $item->quality_ordered;
+                    } catch (\ValueError $e) {
+                        // Invalid quality level, skip
+                        $qualityLevel = null;
+                    }
+                }
+
+                // Record price in price_histories
+                PriceHistory::recordPrice(
+                    $item->item_id,
+                    $item->item_name,
+                    $order->order_type,
+                    $sourceId,
+                    $sourceName,
+                    (float) $item->unit_price,
+                    $qualityLevel,
+                    $item->unit_of_measurement ?? 'kg',
+                    $deliveryDays,
+                    $rating
+                );
+            }
+        } catch (\Exception $e) {
+            // Log error but don't fail the order confirmation
+            Log::error('Error recording order prices in price_histories', [
+                'order_id' => $order->id,
+                'order_number' => $order->order_number,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
         }
     }
 
