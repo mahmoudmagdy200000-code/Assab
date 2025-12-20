@@ -374,11 +374,12 @@ class PurchaseOrderService
      * @param array $data Request data containing branches, direct_supplier, and/or purchase_officer arrays
      * @param string $branchId The branch ID for the orders
      * @param string $requestedBy The user ID who requested the orders
+     * @param bool $isDraft Whether to create orders as draft (true) or pending (false)
      * @return Collection Collection of created PurchaseOrder models
      * @throws \InvalidArgumentException
      * @throws \Exception
      */
-    public function createMultipleOrders(array $data, string $branchId, string $requestedBy): Collection
+    public function createMultipleOrders(array $data, string $branchId, string $requestedBy, bool $isDraft = false): Collection
     {
         // Validate inputs
         if (empty($branchId)) {
@@ -389,7 +390,7 @@ class PurchaseOrderService
             throw new \InvalidArgumentException('Requested by (user ID) is required');
         }
 
-        return DB::transaction(function () use ($data, $branchId, $requestedBy) {
+        return DB::transaction(function () use ($data, $branchId, $requestedBy, $isDraft) {
             $orders = collect();
 
             // Process internal transfers (branches)
@@ -406,6 +407,7 @@ class PurchaseOrderService
 
                         $orderData = [
                             'order_type' => OrderType::INTERNAL_TRANSFER,
+                            'status' => $isDraft ? OrderStatus::DRAFT : OrderStatus::PENDING,
                             'branch_id' => $branchId,
                             'requested_by' => $requestedBy,
                             'from_branch_id' => $branchData['branch_id'],
@@ -448,6 +450,7 @@ class PurchaseOrderService
 
                         $orderData = [
                             'order_type' => OrderType::DIRECT_SUPPLIER,
+                            'status' => $isDraft ? OrderStatus::DRAFT : OrderStatus::PENDING,
                             'branch_id' => $branchId,
                             'requested_by' => $requestedBy,
                             'supplier_id' => $supplierData['supplier_id'],
@@ -498,6 +501,7 @@ class PurchaseOrderService
 
                         $orderData = [
                             'order_type' => OrderType::VIA_PURCHASING_OFFICER,
+                            'status' => $isDraft ? OrderStatus::DRAFT : OrderStatus::PENDING,
                             'branch_id' => $branchId,
                             'requested_by' => $requestedBy,
                             'quality_level' => $qualityLevel,
@@ -833,184 +837,6 @@ class PurchaseOrderService
         $this->timelineService->logOrderClosed($order);
 
         return true;
-    }
-
-    /**
-     * Save order as draft
-     */
-    public function saveDraft(array $data): PurchaseOrder
-    {
-        $data['status'] = OrderStatus::DRAFT;
-        return $this->createOrder($data);
-    }
-
-    /**
-     * Save multiple orders as draft from different sources
-     *
-     * Supports:
-     * - branches[]: Internal transfers from multiple branches
-     * - direct_supplier[]: Direct supplier orders
-     * - purchase_officer[]: Purchasing officer orders
-     *
-     * @param array $data Request data containing branches, direct_supplier, and/or purchase_officer arrays
-     * @param string $branchId The branch ID for the orders
-     * @param string $requestedBy The user ID who requested the orders
-     * @return Collection Collection of created PurchaseOrder models with DRAFT status
-     * @throws \InvalidArgumentException
-     * @throws \Exception
-     */
-    public function saveMultipleDrafts(array $data, string $branchId, string $requestedBy): Collection
-    {
-        // Validate inputs
-        if (empty($branchId)) {
-            throw new \InvalidArgumentException('Branch ID is required');
-        }
-
-        if (empty($requestedBy)) {
-            throw new \InvalidArgumentException('Requested by (user ID) is required');
-        }
-
-        return DB::transaction(function () use ($data, $branchId, $requestedBy) {
-            $orders = collect();
-
-            // Process internal transfers (branches)
-            if (!empty($data['branches']) && is_array($data['branches'])) {
-                foreach ($data['branches'] as $index => $branchData) {
-                    try {
-                        if (empty($branchData['branch_id'])) {
-                            throw new \InvalidArgumentException("Branch ID is required for branch entry at index {$index}");
-                        }
-
-                        if (empty($branchData['items']) || !is_array($branchData['items']) || count($branchData['items']) === 0) {
-                            throw new \InvalidArgumentException("At least one item is required for branch entry at index {$index}");
-                        }
-
-                        $orderData = [
-                            'order_type' => OrderType::INTERNAL_TRANSFER,
-                            'status' => OrderStatus::DRAFT,
-                            'branch_id' => $branchId,
-                            'requested_by' => $requestedBy,
-                            'from_branch_id' => $branchData['branch_id'],
-                            'to_branch_id' => $branchId,
-                            'priority' => $branchData['priority'] ?? 'normal',
-                            'message' => $branchData['justification'] ?? null,
-                            'items' => $branchData['items'] ?? [],
-                        ];
-
-                        $order = $this->createOrder($orderData);
-                        $orders->push($order);
-                    } catch (\Exception $e) {
-                        Log::error("Error saving internal transfer order as draft at index {$index}", [
-                            'error' => $e->getMessage(),
-                            'branch_data' => $branchData,
-                        ]);
-                        throw new \Exception("Failed to save internal transfer order as draft at index {$index}: " . $e->getMessage(), 0, $e);
-                    }
-                }
-            }
-
-            // Process direct supplier orders
-            if (!empty($data['direct_supplier']) && is_array($data['direct_supplier'])) {
-                foreach ($data['direct_supplier'] as $index => $supplierData) {
-                    try {
-                        if (empty($supplierData['supplier_id'])) {
-                            throw new \InvalidArgumentException("Supplier ID is required for direct supplier order at index {$index}");
-                        }
-
-                        if (empty($supplierData['items']) || !is_array($supplierData['items']) || count($supplierData['items']) === 0) {
-                            throw new \InvalidArgumentException("At least one item is required for direct supplier order at index {$index}");
-                        }
-
-                        if (empty($supplierData['notification_channels']) || !is_array($supplierData['notification_channels']) || count($supplierData['notification_channels']) === 0) {
-                            throw new \InvalidArgumentException("At least one notification channel is required for direct supplier order at index {$index}");
-                        }
-
-                        // Validate and normalize quality_level
-                        $qualityLevel = $this->normalizeQualityLevel($supplierData['quality_level'] ?? null);
-
-                        $orderData = [
-                            'order_type' => OrderType::DIRECT_SUPPLIER,
-                            'status' => OrderStatus::DRAFT,
-                            'branch_id' => $branchId,
-                            'requested_by' => $requestedBy,
-                            'supplier_id' => $supplierData['supplier_id'],
-                            'quality_level' => $qualityLevel,
-                            'notification_channels' => $supplierData['notification_channels'] ?? [],
-                            'message' => $supplierData['message'] ?? null,
-                            'items' => $supplierData['items'] ?? [],
-                        ];
-
-                        $order = $this->createOrder($orderData);
-                        $orders->push($order);
-                    } catch (\Exception $e) {
-                        Log::error("Error saving direct supplier order as draft at index {$index}", [
-                            'error' => $e->getMessage(),
-                            'supplier_data' => $supplierData,
-                        ]);
-                        throw new \Exception("Failed to save direct supplier order as draft at index {$index}: " . $e->getMessage(), 0, $e);
-                    }
-                }
-            }
-
-            // Process purchasing officer orders
-            if (!empty($data['purchase_officer']) && is_array($data['purchase_officer'])) {
-                foreach ($data['purchase_officer'] as $index => $officerData) {
-                    try {
-                        $items = $officerData['items'] ?? [];
-                        if (empty($items) || !is_array($items) || count($items) === 0) {
-                            throw new \InvalidArgumentException("At least one item is required for purchasing officer order at index {$index}");
-                        }
-
-                        // Support new format: fields can be at item level or order level
-                        // If fields are at item level, take from first item; otherwise use order level
-                        $firstItem = !empty($items) ? $items[0] : [];
-
-                        // Quality level: check item level first, then order level, then default
-                        $qualityLevelRaw = $firstItem['quality'] ?? $officerData['quality_level'] ?? 'standard';
-                        $qualityLevel = $this->normalizeQualityLevel($qualityLevelRaw);
-
-                        // Delivery dates: check item level first, then order level
-                        $preferredDeliveryDate = $firstItem['preferred_delivery_date'] ?? $officerData['preferred_delivery_date'] ?? null;
-                        $latestDeliveryDate = $firstItem['latest_delivery_date'] ?? $officerData['latest_delivery_date'] ?? null;
-
-                        // Special instructions: check item level first, then order level
-                        $specialInstructions = $firstItem['special_instructions'] ?? $officerData['special_instructions'] ?? null;
-
-                        // Processing time: only at order level (not in new format, use default)
-                        $processingTime = $officerData['processing_time'] ?? 'standard';
-
-                        $orderData = [
-                            'order_type' => OrderType::VIA_PURCHASING_OFFICER,
-                            'status' => OrderStatus::DRAFT,
-                            'branch_id' => $branchId,
-                            'requested_by' => $requestedBy,
-                            'quality_level' => $qualityLevel,
-                            'processing_time' => $processingTime,
-                            'preferred_delivery_date' => $preferredDeliveryDate,
-                            'latest_delivery_date' => $latestDeliveryDate,
-                            'special_instructions' => $specialInstructions,
-                            'message' => $officerData['message'] ?? null,
-                            'items' => $items,
-                        ];
-
-                        $order = $this->createOrder($orderData);
-                        $orders->push($order);
-                    } catch (\Exception $e) {
-                        Log::error("Error saving purchasing officer order as draft at index {$index}", [
-                            'error' => $e->getMessage(),
-                            'officer_data' => $officerData,
-                        ]);
-                        throw new \Exception("Failed to save purchasing officer order as draft at index {$index}: " . $e->getMessage(), 0, $e);
-                    }
-                }
-            }
-
-            if ($orders->isEmpty()) {
-                throw new \InvalidArgumentException('No orders were saved as draft. Please provide at least one valid order (branches, direct_supplier, or purchase_officer).');
-            }
-
-            return $orders;
-        });
     }
 
     /**

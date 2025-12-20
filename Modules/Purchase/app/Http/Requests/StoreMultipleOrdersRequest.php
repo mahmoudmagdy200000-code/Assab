@@ -64,6 +64,9 @@ class StoreMultipleOrdersRequest extends FormRequest
             'purchase_officer.*.latest_delivery_date' => ['nullable', 'date'],
             'purchase_officer.*.special_instructions' => ['nullable', 'string', 'max:2000'],
             'purchase_officer.*.message' => ['nullable', 'string', 'max:1000'],
+
+            // Draft flag
+            'is_draft' => ['sometimes', 'boolean'],
         ];
     }
 

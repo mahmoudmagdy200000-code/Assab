@@ -62,9 +62,6 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         Route::get('/', [NewOrderController::class, 'index'])->name('purchase.orders.index');
         Route::post('/', [NewOrderController::class, 'store'])->name('purchase.orders.store');
 
-        // Draft management
-        Route::post('/draft', [NewOrderController::class, 'saveDraft'])->name('purchase.orders.save-draft');
-
         // Order actions
         Route::get('/{id}/summary', [NewOrderController::class, 'getSummary'])->name('purchase.orders.summary');
         Route::put('/{id}/items', [NewOrderController::class, 'updateItems'])->name('purchase.orders.update-items');
