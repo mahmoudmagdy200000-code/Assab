@@ -434,25 +434,107 @@ class NewOrderController extends BaseController
     }
 
     /**
-     * Save order as draft
+     * Save order(s) as draft
+     *
+     * Unified endpoint for saving single or multiple orders as draft from different sources.
+     *
+     * Supports saving multiple orders as draft in one request:
+     * - branches[]: Internal transfers from multiple branches (each branch has its own items)
+     * - direct_supplier[]: Multiple direct supplier orders
+     * - purchase_officer[]: Multiple purchasing officer orders
+     *
+     * All fields are optional, but at least one order type must be provided.
      *
      * @group New Order
      */
-    public function saveDraft(Request $request): JsonResponse
+    public function saveDraft(StoreMultipleOrdersRequest $request): JsonResponse
     {
         try {
-            $data = $request->all();
-            $data['branch_id'] = auth()->user()->branch_id;
-            $data['requested_by'] = auth()->id();
+            $data = $request->validated();
 
-            $order = $this->orderService->saveDraft($data);
+            // Check if this is multiple orders (new format)
+            $isMultipleOrders = isset($data['branches']) || isset($data['direct_supplier']) || isset($data['purchase_officer']);
 
-            return $this->createdResponse(
-                new PurchaseOrderResource($order),
-                'Order saved as draft successfully'
-            );
+            if ($isMultipleOrders) {
+                // Validate user and branch
+                $user = auth()->user();
+                if (!$user) {
+                    return $this->unauthorizedResponse('User not authenticated');
+                }
+
+                $branchId = $user->branch_id;
+                if (!$branchId) {
+                    return $this->errorResponse(
+                        'User must be associated with a branch to save orders as draft',
+                        400
+                    );
+                }
+
+                $requestedBy = auth()->id();
+                if (!$requestedBy) {
+                    return $this->unauthorizedResponse('User ID not found');
+                }
+
+                // Log request details for debugging
+                Log::info('Saving multiple orders as draft', [
+                    'user_id' => $requestedBy,
+                    'branch_id' => $branchId,
+                    'has_branches' => !empty($data['branches']),
+                    'has_direct_supplier' => !empty($data['direct_supplier']),
+                    'has_purchase_officer' => !empty($data['purchase_officer']),
+                    'branches_count' => !empty($data['branches']) ? count($data['branches']) : 0,
+                    'direct_supplier_count' => !empty($data['direct_supplier']) ? count($data['direct_supplier']) : 0,
+                    'purchase_officer_count' => !empty($data['purchase_officer']) ? count($data['purchase_officer']) : 0,
+                ]);
+
+                $orders = $this->orderService->saveMultipleDrafts($data, $branchId, $requestedBy);
+
+                if ($orders->isEmpty()) {
+                    return $this->errorResponse(
+                        'No orders were saved as draft. Please check your request data.',
+                        400
+                    );
+                }
+
+                $orderCount = $orders->count();
+                $orderTypes = $orders->map(function ($order) {
+                    $orderType = is_string($order->order_type)
+                        ? OrderType::from($order->order_type)
+                        : $order->order_type;
+                    return $orderType->label();
+                })->unique()->values()->toArray();
+
+                return $this->createdResponse(
+                    PurchaseOrderResource::collection($orders),
+                    "Successfully saved {$orderCount} order(s) as draft: " . implode(', ', $orderTypes)
+                );
+            } else {
+                // Fallback to single order creation (backward compatibility)
+                return $this->errorResponse(
+                    'Invalid request format. Please use branches[], direct_supplier[], or purchase_officer[] arrays.',
+                    400
+                );
+            }
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return $this->validationErrorResponse($e->errors());
+        } catch (\InvalidArgumentException $e) {
+            Log::error('Invalid argument in saveDraft method', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->all(),
+            ]);
+            return $this->errorResponse($e->getMessage(), 400);
         } catch (\Exception $e) {
-            return $this->handleException($e, 'saving draft');
+            Log::error('Error saving purchase order(s) as draft', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'request_data' => $request->all(),
+                'user_id' => auth()->id(),
+                'branch_id' => auth()->user()->branch_id ?? null,
+            ]);
+            return $this->handleException($e, 'saving purchase order(s) as draft');
         }
     }
 
