@@ -244,18 +244,13 @@ class PurchaseOrderService
             $branchId = $filters['branch_id'];
 
             // For internal_transfer: get orders requested FROM this branch by other branches
-            // Condition: branch_id != this branch (another branch created the order)
-            // AND requested_by user does NOT belong to this branch (another branch's manager created the order)
+            // Condition: from_branch_id = this branch (this branch is the source/sender)
             // This means: another branch requested items from this branch
             $query->where(function ($q) use ($branchId) {
                 $q->where(function ($subQuery) use ($branchId) {
                     // Internal transfers requested from this branch by other branches
                     $subQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
-                        ->where('branch_id', '!=', $branchId) // Another branch created the order
-                        ->whereHas('requestedBy', function ($userQuery) use ($branchId) {
-                            // requested_by user does NOT belong to this branch (another branch's manager)
-                            $userQuery->where('branch_id', '!=', $branchId);
-                        });
+                        ->where('from_branch_id', $branchId); // This branch is the source/sender
                 });
                 // Note: direct_supplier and via_purchasing_officer orders are not "requested from" a branch
                 // They are requested by a branch from suppliers/officers, so they don't appear here
@@ -917,14 +912,14 @@ class PurchaseOrderService
             'documents',
             'variances',
             'returnOrders.items',
-        ]);
+        ])->where('id', $orderId);
 
         // Security: Add branch_id filter if provided for authorization
         if ($branchId !== null) {
             $query->where(function ($q) use ($branchId) {
                 // Regular orders: user must belong to the order's branch
                 $q->where('branch_id', $branchId)
-                    // Internal transfers: user can also access if they belong to from_branch_id
+                    // Internal transfers: user can also access if they belong to from_branch_id (sending branch)
                     ->orWhere(function ($subQuery) use ($branchId) {
                         $subQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
                             ->where('from_branch_id', $branchId);
@@ -932,7 +927,7 @@ class PurchaseOrderService
             });
         }
 
-        return $query->find($orderId);
+        return $query->first();
     }
 
     /**
