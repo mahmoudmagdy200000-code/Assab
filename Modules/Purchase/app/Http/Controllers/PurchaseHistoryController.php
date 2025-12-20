@@ -45,7 +45,9 @@ class PurchaseHistoryController extends BaseController
     public function show(string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');

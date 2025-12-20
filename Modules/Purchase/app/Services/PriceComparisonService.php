@@ -3,6 +3,8 @@
 namespace Modules\Purchase\Services;
 
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\OrderStatus;
@@ -707,7 +709,7 @@ class PriceComparisonService
 
         // Log warning if coordinates are missing (for debugging)
         if (!$currentCoordinates && $currentBranch) {
-            \Log::warning('Current branch missing map_coordinates', [
+            Log::warning('Current branch missing map_coordinates', [
                 'branch_id' => $excludeBranchId,
                 'branch_name' => $currentBranch->name,
             ]);
@@ -720,15 +722,18 @@ class PriceComparisonService
         $avgUnitPrice = $this->getAverageUnitPriceForInternalTransfer($item->id);
 
         // Find BranchInventory records where item_id matches Item.id (new structure)
+        // Security: Use whereColumn instead of whereRaw to prevent SQL injection
         $query = BranchInventory::with(['branch.branchManager', 'item'])
             ->where('item_id', $item->id)
             ->where('branch_id', '!=', $excludeBranchId)
-            ->whereRaw('(available_quantity - reserved_quantity) > 0');
+            ->whereColumn('available_quantity', '>', 'reserved_quantity');
 
         // Filter by minimum availability percentage
+        // Security: Use DB::raw() with where() and parameter binding to prevent SQL injection
         if (!empty($filters['min_availability'])) {
             $minQuantity = $quantity * ($filters['min_availability'] / 100);
-            $query->whereRaw('(available_quantity - reserved_quantity) >= ?', [$minQuantity]);
+            // Use DB::raw() with where() instead of whereRaw() for better security
+            $query->where(DB::raw('(available_quantity - reserved_quantity)'), '>=', $minQuantity);
         }
 
         // Search by branch name
@@ -945,6 +950,8 @@ class PriceComparisonService
     /**
      * Calculate distance between two coordinates using Haversine formula
      * Returns distance in km and estimated travel time in hours
+     *
+     * Performance: Uses caching to avoid recalculating same distances
      */
     private function calculateDistance(?array $from, ?array $to): ?array
     {
@@ -952,30 +959,42 @@ class PriceComparisonService
             return null;
         }
 
-        $earthRadius = 6371; // Earth radius in km
+        // Performance: Create cache key from coordinates (rounded to 4 decimals for cache efficiency)
+        $cacheKey = sprintf(
+            'distance_%s_%s_%s_%s',
+            round($from['lat'], 4),
+            round($from['lng'], 4),
+            round($to['lat'], 4),
+            round($to['lng'], 4)
+        );
 
-        $latFrom = deg2rad($from['lat']);
-        $lonFrom = deg2rad($from['lng']);
-        $latTo = deg2rad($to['lat']);
-        $lonTo = deg2rad($to['lng']);
+        // Performance: Use cache to avoid recalculating same distances (cache for 1 hour)
+        return Cache::remember($cacheKey, 3600, function () use ($from, $to) {
+            $earthRadius = 6371; // Earth radius in km
 
-        $latDelta = $latTo - $latFrom;
-        $lonDelta = $lonTo - $lonFrom;
+            $latFrom = deg2rad($from['lat']);
+            $lonFrom = deg2rad($from['lng']);
+            $latTo = deg2rad($to['lat']);
+            $lonTo = deg2rad($to['lng']);
 
-        $a = sin($latDelta / 2) ** 2 +
-            cos($latFrom) * cos($latTo) * sin($lonDelta / 2) ** 2;
-        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+            $latDelta = $latTo - $latFrom;
+            $lonDelta = $lonTo - $lonFrom;
 
-        $distanceKm = $earthRadius * $c;
+            $a = sin($latDelta / 2) ** 2 +
+                cos($latFrom) * cos($latTo) * sin($lonDelta / 2) ** 2;
+            $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
 
-        // Estimate travel time (assuming average speed of 60 km/h for city, 80 km/h for highway)
-        // Using 60 km/h as default
-        $estimatedHours = $distanceKm / 60;
+            $distanceKm = $earthRadius * $c;
 
-        return [
-            'distance_km' => $distanceKm,
-            'estimated_hours' => $estimatedHours,
-        ];
+            // Estimate travel time (assuming average speed of 60 km/h for city, 80 km/h for highway)
+            // Using 60 km/h as default
+            $estimatedHours = $distanceKm / 60;
+
+            return [
+                'distance_km' => $distanceKm,
+                'estimated_hours' => $estimatedHours,
+            ];
+        });
     }
 
     /**

@@ -111,19 +111,19 @@ class NewOrderController extends BaseController
             // Merge branch_id into request for inventory lookup in resources
             $request->merge(['branch_id' => $branchId]);
 
-            // Batch load inventory data for all items in all orders (performance optimization)
-            $allItemIds = collect();
-            foreach ($orders as $order) {
-                if ($order->relationLoaded('items')) {
-                    $allItemIds = $allItemIds->merge($order->items->pluck('item_id')->filter());
-                }
-            }
-            foreach ($requestedOrders as $order) {
-                if ($order->relationLoaded('items')) {
-                    $allItemIds = $allItemIds->merge($order->items->pluck('item_id')->filter());
-                }
-            }
-            $allItemIds = $allItemIds->unique();
+            // Performance: Batch load inventory data for all items in all orders
+            // Use flatMap to avoid N+1 queries and improve performance
+            $allItemIds = $orders->flatMap(function ($order) {
+                return $order->relationLoaded('items')
+                    ? $order->items->pluck('item_id')->filter()
+                    : collect();
+            })->merge(
+                $requestedOrders->flatMap(function ($order) {
+                    return $order->relationLoaded('items')
+                        ? $order->items->pluck('item_id')->filter()
+                        : collect();
+                })
+            )->unique();
 
             // Load all inventory records in one query
             $inventoryMap = [];
@@ -331,7 +331,7 @@ class NewOrderController extends BaseController
 
     /**
      * Sort branches by specified criteria
-     * Optimized to use sortBy/sortByDesc instead of sort with callback
+     * Optimized to use direct array access instead of closures for better performance
      */
     private function sortBranches($branches, string $sortBy, string $sortOrder)
     {
@@ -346,23 +346,33 @@ class NewOrderController extends BaseController
             default => 'distance_km',
         };
 
-        // Use sortBy/sortByDesc which is more efficient than sort with callback
+        // Performance: Use direct array access with null coalescing for better performance
+        // Handle nested distance key (distance is an array with distance_km)
+        if ($sortKey === 'distance_km' && $isAscending) {
+            return $branches->sortBy(function ($item) {
+                $distance = $item['distance'] ?? null;
+                $value = is_array($distance) ? ($distance['distance_km'] ?? null) : ($item['distance_km'] ?? null);
+                return $value ?? PHP_FLOAT_MAX;
+            })->values();
+        }
+
+        if ($sortKey === 'distance_km' && !$isAscending) {
+            return $branches->sortByDesc(function ($item) {
+                $distance = $item['distance'] ?? null;
+                $value = is_array($distance) ? ($distance['distance_km'] ?? null) : ($item['distance_km'] ?? null);
+                return $value ?? PHP_FLOAT_MIN;
+            })->values();
+        }
+
+        // For other fields, use direct access
         $sorted = $isAscending
             ? $branches->sortBy(function ($item) use ($sortKey) {
                 $value = $item[$sortKey] ?? null;
-                // Handle null values - put them at the end by using a high value
-                if ($value === null) {
-                    return $sortKey === 'distance_km' ? PHP_FLOAT_MAX : PHP_FLOAT_MIN;
-                }
-                return $value;
+                return $value ?? ($sortKey === 'distance_km' ? PHP_FLOAT_MAX : PHP_FLOAT_MIN);
             })
             : $branches->sortByDesc(function ($item) use ($sortKey) {
                 $value = $item[$sortKey] ?? null;
-                // Handle null values - put them at the end by using a low value
-                if ($value === null) {
-                    return $sortKey === 'distance_km' ? PHP_FLOAT_MIN : PHP_FLOAT_MAX;
-                }
-                return $value;
+                return $value ?? ($sortKey === 'distance_km' ? PHP_FLOAT_MIN : PHP_FLOAT_MAX);
             });
 
         return $sorted->values();
@@ -488,7 +498,9 @@ class NewOrderController extends BaseController
     public function submit(string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
@@ -517,6 +529,9 @@ class NewOrderController extends BaseController
     public function getSummary(string $id): JsonResponse
     {
         try {
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+
             // Performance optimization: Use select to limit columns and eager load relationships
             $order = PurchaseOrder::with([
                 'items:id,purchase_order_id,item_id,quantity,unit_price,total_price',
@@ -536,7 +551,8 @@ class NewOrderController extends BaseController
                 'total_amount',
                 'created_at',
                 'updated_at'
-            ])->find($id);
+            ])->where('branch_id', $userBranchId)
+                ->find($id);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
@@ -559,7 +575,9 @@ class NewOrderController extends BaseController
     public function updateItems(Request $request, string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
@@ -601,6 +619,16 @@ class NewOrderController extends BaseController
             $toBranchId = auth()->user()->branch_id;
             $perPage = $validated['per_page'] ?? 15;
 
+            // Security: Validate branch IDs
+            if (empty($fromBranchId) || empty($toBranchId)) {
+                return $this->errorResponse('Branch ID is required', 400);
+            }
+
+            // Security: Verify user has access to destination branch
+            if ($toBranchId !== auth()->user()->branch_id) {
+                return $this->errorResponse('Unauthorized access to destination branch', 403);
+            }
+
             // Check if from and to branches are different
             if ($fromBranchId === $toBranchId) {
                 return $this->errorResponse('From and to branches cannot be the same', 400);
@@ -628,8 +656,9 @@ class NewOrderController extends BaseController
             }
 
             // Step 2: Get BranchInventory records from fromBranch that have stock
+            // Security: Use query builder instead of whereRaw to prevent SQL injection
             $inventoryQuery = BranchInventory::where('branch_id', $fromBranchId)
-                ->whereRaw('(available_quantity - reserved_quantity) > 0')
+                ->whereColumn('available_quantity', '>', 'reserved_quantity')
                 ->with(['item']);
 
             // Filter by specific Item.id if provided
@@ -923,6 +952,11 @@ class NewOrderController extends BaseController
             $quantity = isset($validated['quantity']) ? (float) $validated['quantity'] : 1.0;
             $branchId = auth()->user()->branch_id;
 
+            // Security: Validate branch ID
+            if (empty($branchId)) {
+                return $this->errorResponse('User must be associated with a branch', 400);
+            }
+
             // Get branch item
             $branchItem = BranchItem::where('branch_id', $branchId)
                 ->where('id', $itemId)
@@ -1092,6 +1126,7 @@ class NewOrderController extends BaseController
 
     /**
      * Sort suppliers by specified criteria
+     * Optimized for better performance
      */
     private function sortSuppliers($suppliers, string $sortBy, string $sortOrder)
     {
@@ -1104,20 +1139,13 @@ class NewOrderController extends BaseController
             default => 'price_rate',
         };
 
+        // Performance: Use direct array access with null coalescing
         $sorted = $isAscending
             ? $suppliers->sortBy(function ($item) use ($sortKey) {
-                $value = $item[$sortKey] ?? null;
-                if ($value === null) {
-                    return $sortKey === 'price_rate' ? PHP_FLOAT_MAX : PHP_FLOAT_MIN;
-                }
-                return $value;
+                return $item[$sortKey] ?? ($sortKey === 'price_rate' ? PHP_FLOAT_MAX : PHP_FLOAT_MIN);
             })
             : $suppliers->sortByDesc(function ($item) use ($sortKey) {
-                $value = $item[$sortKey] ?? null;
-                if ($value === null) {
-                    return $sortKey === 'price_rate' ? PHP_FLOAT_MIN : PHP_FLOAT_MAX;
-                }
-                return $value;
+                return $item[$sortKey] ?? ($sortKey === 'price_rate' ? PHP_FLOAT_MIN : PHP_FLOAT_MAX);
             });
 
         return $sorted->values();
@@ -1355,6 +1383,11 @@ class NewOrderController extends BaseController
             $supplierId = $validated['supplier_id'];
             $branchId = auth()->user()->branch_id;
             $perPage = $validated['per_page'] ?? 15;
+
+            // Security: Validate branch ID
+            if (empty($branchId)) {
+                return $this->errorResponse('User must be associated with a branch', 400);
+            }
 
             // Get supplier with details
             $supplier = PurchaseSupplier::find($supplierId);

@@ -233,7 +233,8 @@ class PurchaseOrderService
      */
     public function getPendingOrders(array $filters, int $perPage = 15): LengthAwarePaginator
     {
-        $query = PurchaseOrder::with(['items', 'supplier', 'branch', 'requestedBy', 'fromBranch'])
+        // Performance: Eager load items.item to prevent N+1 queries
+        $query = PurchaseOrder::with(['items.item', 'supplier', 'branch', 'requestedBy', 'fromBranch'])
             ->pending()
             ->orderBy('created_at', 'desc');
 
@@ -888,10 +889,16 @@ class PurchaseOrderService
 
     /**
      * Get order details
+     *
+     * Security: Optionally filter by branch_id to ensure user has access
+     *
+     * @param string $orderId
+     * @param string|null $branchId Optional branch ID for authorization check
+     * @return PurchaseOrder|null
      */
-    public function getOrderDetails(string $orderId): ?PurchaseOrder
+    public function getOrderDetails(string $orderId, ?string $branchId = null): ?PurchaseOrder
     {
-        return PurchaseOrder::with([
+        $query = PurchaseOrder::with([
             'items',
             'supplier',
             'branch',
@@ -902,7 +909,14 @@ class PurchaseOrderService
             'documents',
             'variances',
             'returnOrders.items',
-        ])->find($orderId);
+        ]);
+
+        // Security: Add branch_id filter if provided for authorization
+        if ($branchId !== null) {
+            $query->where('branch_id', $branchId);
+        }
+
+        return $query->find($orderId);
     }
 
     /**

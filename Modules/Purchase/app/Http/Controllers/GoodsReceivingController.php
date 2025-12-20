@@ -78,7 +78,9 @@ class GoodsReceivingController extends BaseController
     public function startReceiving(string $orderId): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($orderId);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($orderId, $userBranchId);
             
             if (!$order) {
                 return $this->notFoundResponse('Order not found');

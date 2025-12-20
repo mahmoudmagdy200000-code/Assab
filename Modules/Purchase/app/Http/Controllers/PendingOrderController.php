@@ -114,7 +114,9 @@ class PendingOrderController extends BaseController
     public function show(string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
@@ -140,7 +142,9 @@ class PendingOrderController extends BaseController
     public function approve(ApproveOrderRequest $request, string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
@@ -175,7 +179,9 @@ class PendingOrderController extends BaseController
     public function partialApprove(ApproveOrderRequest $request, string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
@@ -210,7 +216,9 @@ class PendingOrderController extends BaseController
     public function reject(RejectOrderRequest $request, string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
@@ -239,7 +247,9 @@ class PendingOrderController extends BaseController
     public function cancel(RejectOrderRequest $request, string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
@@ -268,7 +278,9 @@ class PendingOrderController extends BaseController
     public function approveTransfer(ApproveTransferRequest $request, string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
@@ -341,7 +353,9 @@ class PendingOrderController extends BaseController
     public function approveModifications(string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
@@ -370,7 +384,9 @@ class PendingOrderController extends BaseController
     public function rejectModifications(RejectOrderRequest $request, string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
@@ -422,7 +438,9 @@ class PendingOrderController extends BaseController
     public function directSupplierOrderDetails(string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
@@ -453,7 +471,9 @@ class PendingOrderController extends BaseController
     public function approveDelay(string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
@@ -487,7 +507,9 @@ class PendingOrderController extends BaseController
     public function rejectDelay(RejectOrderRequest $request, string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
@@ -544,7 +566,9 @@ class PendingOrderController extends BaseController
     public function internalTransferOrderDetails(string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
@@ -598,7 +622,9 @@ class PendingOrderController extends BaseController
     public function viaPurchasingOfficerOrderDetails(string $id): JsonResponse
     {
         try {
-            $order = $this->orderService->getOrderDetails($id);
+            // Security: Pass branch_id to service for authorization check
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');

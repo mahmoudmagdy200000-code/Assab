@@ -87,7 +87,10 @@ class ReturnManagementController extends BaseController
     public function store(CreateReturnRequest $request): JsonResponse
     {
         try {
-            $order = PurchaseOrder::find($request->purchase_order_id);
+            // Security: Verify user has access to this order's branch
+            $userBranchId = auth()->user()->branch_id;
+            $order = PurchaseOrder::where('branch_id', $userBranchId)
+                ->find($request->purchase_order_id);
             
             if (!$order) {
                 return $this->notFoundResponse('Purchase order not found');
@@ -226,7 +229,10 @@ class ReturnManagementController extends BaseController
     public function saveDraft(CreateReturnRequest $request): JsonResponse
     {
         try {
-            $order = PurchaseOrder::find($request->purchase_order_id);
+            // Security: Verify user has access to this order's branch
+            $userBranchId = auth()->user()->branch_id;
+            $order = PurchaseOrder::where('branch_id', $userBranchId)
+                ->find($request->purchase_order_id);
             
             if (!$order) {
                 return $this->notFoundResponse('Purchase order not found');
