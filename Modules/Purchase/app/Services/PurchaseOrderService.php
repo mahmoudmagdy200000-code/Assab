@@ -665,6 +665,18 @@ class PurchaseOrderService
     public function confirmOrder(PurchaseOrder $order, ?array $itemConfirmations = null, ?string $readyTime = null): bool
     {
         return DB::transaction(function () use ($order, $itemConfirmations, $readyTime) {
+            // Check if transition is allowed
+            if (!$order->canTransitionTo(OrderStatus::FULLY_APPROVED)) {
+                Log::warning('Cannot transition order to FULLY_APPROVED', [
+                    'order_id' => $order->id,
+                    'current_status' => $order->status?->value,
+                    'order_number' => $order->order_number,
+                ]);
+                throw new \InvalidArgumentException(
+                    "Cannot approve order. Current status: {$order->status?->value}. Order must be in pending, pending_confirmation, or pending_approval status."
+                );
+            }
+
             if ($itemConfirmations) {
                 foreach ($itemConfirmations as $confirmation) {
                     $item = PurchaseOrderItem::find($confirmation['item_id']);
@@ -679,7 +691,11 @@ class PurchaseOrderService
                 $order->update(['ready_time' => $readyTime]);
             }
 
-            $order->transitionTo(OrderStatus::FULLY_APPROVED);
+            $success = $order->transitionTo(OrderStatus::FULLY_APPROVED);
+            if (!$success) {
+                throw new \InvalidArgumentException('Failed to transition order status to FULLY_APPROVED');
+            }
+
             $this->timelineService->logOrderConfirmed($order);
 
             return true;
@@ -692,6 +708,18 @@ class PurchaseOrderService
     public function partialConfirmOrder(PurchaseOrder $order, array $itemConfirmations, ?string $readyTime = null): bool
     {
         return DB::transaction(function () use ($order, $itemConfirmations, $readyTime) {
+            // Check if transition is allowed
+            if (!$order->canTransitionTo(OrderStatus::PARTIAL_APPROVED)) {
+                Log::warning('Cannot transition order to PARTIAL_APPROVED', [
+                    'order_id' => $order->id,
+                    'current_status' => $order->status?->value,
+                    'order_number' => $order->order_number,
+                ]);
+                throw new \InvalidArgumentException(
+                    "Cannot partially approve order. Current status: {$order->status?->value}. Order must be in pending, pending_approval, or partial_confirmation status."
+                );
+            }
+
             foreach ($itemConfirmations as $confirmation) {
                 $item = PurchaseOrderItem::find($confirmation['item_id']);
                 if ($item) {
@@ -704,7 +732,11 @@ class PurchaseOrderService
                 $order->update(['ready_time' => $readyTime]);
             }
 
-            $order->transitionTo(OrderStatus::PARTIAL_APPROVED);
+            $success = $order->transitionTo(OrderStatus::PARTIAL_APPROVED);
+            if (!$success) {
+                throw new \InvalidArgumentException('Failed to transition order status to PARTIAL_APPROVED');
+            }
+
             $this->timelineService->logPartialConfirmation($order);
 
             return true;

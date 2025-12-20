@@ -147,10 +147,15 @@ class PendingOrderController extends BaseController
             }
 
             $readyTime = $request->validated()['ready_time'] ?? null;
-            $success = $this->orderService->confirmOrder($order, $request->get('items'), $readyTime);
 
-            if (!$success) {
-                return $this->errorResponse('Cannot approve order in current status', 400);
+            try {
+                $success = $this->orderService->confirmOrder($order, $request->get('items'), $readyTime);
+
+                if (!$success) {
+                    return $this->errorResponse('Cannot approve order in current status', 400);
+                }
+            } catch (\InvalidArgumentException $e) {
+                return $this->errorResponse($e->getMessage(), 400);
             }
 
             return $this->successResponse(
@@ -177,10 +182,15 @@ class PendingOrderController extends BaseController
             }
 
             $readyTime = $request->validated()['ready_time'] ?? null;
-            $success = $this->orderService->partialConfirmOrder($order, $request->get('items'), $readyTime);
 
-            if (!$success) {
-                return $this->errorResponse('Cannot partially approve order', 400);
+            try {
+                $success = $this->orderService->partialConfirmOrder($order, $request->get('items'), $readyTime);
+
+                if (!$success) {
+                    return $this->errorResponse('Cannot partially approve order', 400);
+                }
+            } catch (\InvalidArgumentException $e) {
+                return $this->errorResponse($e->getMessage(), 400);
             }
 
             return $this->successResponse(

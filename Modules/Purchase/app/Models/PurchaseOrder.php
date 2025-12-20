@@ -290,9 +290,9 @@ class PurchaseOrder extends Model
     {
         return $query->where(function ($q) use ($term) {
             $q->where('order_number', 'like', "%{$term}%")
-              ->orWhereHas('items', function ($q) use ($term) {
-                  $q->where('item_name', 'like', "%{$term}%");
-              });
+                ->orWhereHas('items', function ($q) use ($term) {
+                    $q->where('item_name', 'like', "%{$term}%");
+                });
         });
     }
 
@@ -325,7 +325,7 @@ class PurchaseOrder extends Model
     // Methods
     public static function generateOrderNumber(?OrderType $type = null): string
     {
-        $prefix = match($type) {
+        $prefix = match ($type) {
             OrderType::DIRECT_SUPPLIER => 'DS',
             OrderType::VIA_PURCHASING_OFFICER => 'PO',
             OrderType::INTERNAL_TRANSFER => 'IT',
@@ -336,7 +336,7 @@ class PurchaseOrder extends Model
 
         $date = now()->format('Ymd');
         $random = strtoupper(Str::random(4));
-        
+
         return "{$prefix}-{$date}-{$random}";
     }
 
@@ -355,9 +355,12 @@ class PurchaseOrder extends Model
         $this->status = $newStatus;
 
         // Set appropriate timestamp
-        match($newStatus) {
+        match ($newStatus) {
             OrderStatus::PENDING => $this->submitted_at = now(),
             OrderStatus::CONFIRMED => $this->confirmed_at = now(),
+            OrderStatus::FULLY_APPROVED => $this->confirmed_at = now(),
+            OrderStatus::PARTIAL_APPROVED => $this->confirmed_at = now(),
+            OrderStatus::PARTIAL_CONFIRMED => $this->confirmed_at = now(),
             OrderStatus::PREPARING => $this->preparation_started_at = now(),
             OrderStatus::ON_THE_WAY => $this->dispatched_at = now(),
             OrderStatus::DELIVERED => $this->actual_delivery_at = now(),
@@ -438,4 +441,3 @@ class PurchaseOrder extends Model
         return $this->transitionTo(OrderStatus::DELAYED);
     }
 }
-
