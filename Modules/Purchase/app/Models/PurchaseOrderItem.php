@@ -87,6 +87,11 @@ class PurchaseOrderItem extends Model
         return $this->belongsTo(PurchaseOrder::class);
     }
 
+    public function item(): BelongsTo
+    {
+        return $this->belongsTo(Item::class, 'item_id');
+    }
+
     public function originalItem(): BelongsTo
     {
         return $this->belongsTo(PurchaseOrderItem::class, 'original_item_id');
