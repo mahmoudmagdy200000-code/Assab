@@ -37,19 +37,24 @@ class GoodsReceiptService
         // Transform results to return only requested fields
         $paginator->getCollection()->transform(function ($receipt) {
             $orderType = null;
-            if ($receipt->relationLoaded('purchaseOrder') && $receipt->purchaseOrder) {
-                $orderTypeValue = $receipt->purchaseOrder->order_type;
-                if ($orderTypeValue instanceof \BackedEnum) {
-                    $orderType = $orderTypeValue->value;
-                } elseif ($orderTypeValue !== null) {
-                    $orderType = $orderTypeValue;
+            try {
+                if ($receipt->purchaseOrder && $receipt->purchaseOrder->order_type) {
+                    $orderTypeValue = $receipt->purchaseOrder->order_type;
+                    if ($orderTypeValue instanceof \BackedEnum) {
+                        $orderType = $orderTypeValue->value;
+                    } elseif (is_string($orderTypeValue)) {
+                        $orderType = $orderTypeValue;
+                    }
                 }
+            } catch (\Exception $e) {
+                // If enum access fails, set to null
+                $orderType = null;
             }
 
             return [
                 'items_count' => (int) ($receipt->items_count ?? 0),
                 'order_type' => $orderType,
-                'status' => $receipt->status,
+                'status' => $receipt->status ?? 'draft',
                 'date' => $receipt->created_at?->format('Y-m-d H:i:s') ?? null,
             ];
         });

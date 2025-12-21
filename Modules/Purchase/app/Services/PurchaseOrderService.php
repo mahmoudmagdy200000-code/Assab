@@ -277,7 +277,7 @@ class PurchaseOrderService
      */
     public function getOrdersForReceiving(array $filters, int $perPage = 15): LengthAwarePaginator
     {
-        $query = PurchaseOrder::with(['items', 'supplier', 'branch', 'latestGoodsReceipt'])
+        $query = PurchaseOrder::withCount('items as items_count')
             ->forReceiving()
             ->orderBy('created_at', 'desc');
 
@@ -289,7 +289,49 @@ class PurchaseOrderService
             $query->byBranch($filters['branch_id']);
         }
 
-        return $query->paginate($perPage);
+        $paginator = $query->paginate($perPage);
+
+        // Transform results to return only requested fields
+        $paginator->getCollection()->transform(function ($order) {
+            $orderType = null;
+            try {
+                if ($order->order_type) {
+                    $orderTypeValue = $order->order_type;
+                    if ($orderTypeValue instanceof \BackedEnum) {
+                        $orderType = $orderTypeValue->value;
+                    } elseif (is_string($orderTypeValue)) {
+                        $orderType = $orderTypeValue;
+                    }
+                }
+            } catch (\Exception $e) {
+                // If enum access fails, set to null
+                $orderType = null;
+            }
+
+            $status = null;
+            try {
+                if ($order->status) {
+                    $statusValue = $order->status;
+                    if ($statusValue instanceof \BackedEnum) {
+                        $status = $statusValue->value;
+                    } elseif (is_string($statusValue)) {
+                        $status = $statusValue;
+                    }
+                }
+            } catch (\Exception $e) {
+                // If enum access fails, set to null
+                $status = null;
+            }
+
+            return [
+                'items_count' => (int) ($order->items_count ?? 0),
+                'order_type' => $orderType,
+                'status' => $status ?? 'draft',
+                'date' => $order->created_at?->format('Y-m-d H:i:s') ?? null,
+            ];
+        });
+
+        return $paginator;
     }
 
     /**
