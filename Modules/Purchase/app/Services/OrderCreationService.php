@@ -12,27 +12,23 @@ use Modules\Purchase\Models\PurchaseOrder;
 /**
  * Service for creating purchase orders
  * 
- * Handles creation of different order types
+ * Handles validation and data preparation for different order types
  */
 class OrderCreationService
 {
-    public function __construct(
-        private readonly PurchaseOrderService $orderService
-    ) {}
-
     /**
-     * Create internal transfer order
+     * Prepare internal transfer order data
      */
-    public function createInternalTransferOrder(
+    public function prepareInternalTransferOrderData(
         array $branchData,
         string $branchId,
         string $requestedBy,
         bool $isDraft,
         int $index
-    ): PurchaseOrder {
+    ): array {
         $this->validateBranchData($branchData, $index);
 
-        $orderData = [
+        return [
             'order_type' => OrderType::INTERNAL_TRANSFER,
             'status' => $isDraft ? OrderStatus::DRAFT : OrderStatus::PENDING,
             'branch_id' => $branchId,
@@ -43,25 +39,23 @@ class OrderCreationService
             'message' => $branchData['justification'] ?? null,
             'items' => $branchData['items'] ?? [],
         ];
-
-        return $this->orderService->createOrder($orderData);
     }
 
     /**
-     * Create direct supplier order
+     * Prepare direct supplier order data
      */
-    public function createDirectSupplierOrder(
+    public function prepareDirectSupplierOrderData(
         array $supplierData,
         string $branchId,
         string $requestedBy,
         bool $isDraft,
         int $index
-    ): PurchaseOrder {
+    ): array {
         $this->validateSupplierData($supplierData, $index);
 
         $qualityLevel = $this->normalizeQualityLevel($supplierData['quality_level'] ?? null);
 
-        $orderData = [
+        return [
             'order_type' => OrderType::DIRECT_SUPPLIER,
             'status' => $isDraft ? OrderStatus::DRAFT : OrderStatus::PENDING,
             'branch_id' => $branchId,
@@ -72,20 +66,18 @@ class OrderCreationService
             'message' => $supplierData['message'] ?? null,
             'items' => $supplierData['items'] ?? [],
         ];
-
-        return $this->orderService->createOrder($orderData);
     }
 
     /**
-     * Create purchasing officer order
+     * Prepare purchasing officer order data
      */
-    public function createPurchasingOfficerOrder(
+    public function preparePurchasingOfficerOrderData(
         array $officerData,
         string $branchId,
         string $requestedBy,
         bool $isDraft,
         int $index
-    ): PurchaseOrder {
+    ): array {
         $this->validateOfficerData($officerData, $index);
 
         $items = $officerData['items'] ?? [];
@@ -94,7 +86,7 @@ class OrderCreationService
         $qualityLevelRaw = $firstItem['quality'] ?? $officerData['quality_level'] ?? 'standard';
         $qualityLevel = $this->normalizeQualityLevel($qualityLevelRaw);
 
-        $orderData = [
+        return [
             'order_type' => OrderType::VIA_PURCHASING_OFFICER,
             'status' => $isDraft ? OrderStatus::DRAFT : OrderStatus::PENDING,
             'branch_id' => $branchId,
@@ -107,8 +99,6 @@ class OrderCreationService
             'message' => $officerData['message'] ?? null,
             'items' => $items,
         ];
-
-        return $this->orderService->createOrder($orderData);
     }
 
     /**

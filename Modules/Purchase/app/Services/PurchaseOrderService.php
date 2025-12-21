@@ -501,13 +501,14 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
         foreach ($data['branches'] as $index => $branchData) {
             try {
-                $order = $this->orderCreationService->createInternalTransferOrder(
+                $orderData = $this->orderCreationService->prepareInternalTransferOrderData(
                     $branchData,
                     $branchId,
                     $requestedBy,
                     $isDraft,
                     $index
                 );
+                $order = $this->createOrder($orderData);
                 $orders->push($order);
             } catch (\Exception $e) {
                 Log::error("Error creating internal transfer order at index {$index}", [
@@ -534,13 +535,14 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
         foreach ($data['direct_supplier'] as $index => $supplierData) {
             try {
-                $order = $this->orderCreationService->createDirectSupplierOrder(
+                $orderData = $this->orderCreationService->prepareDirectSupplierOrderData(
                     $supplierData,
                     $branchId,
                     $requestedBy,
                     $isDraft,
                     $index
                 );
+                $order = $this->createOrder($orderData);
                 $orders->push($order);
             } catch (\Exception $e) {
                 Log::error("Error creating direct supplier order at index {$index}", [
@@ -567,13 +569,14 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
         foreach ($data['purchase_officer'] as $index => $officerData) {
             try {
-                $order = $this->orderCreationService->createPurchasingOfficerOrder(
+                $orderData = $this->orderCreationService->preparePurchasingOfficerOrderData(
                     $officerData,
                     $branchId,
                     $requestedBy,
                     $isDraft,
                     $index
                 );
+                $order = $this->createOrder($orderData);
                 $orders->push($order);
             } catch (\Exception $e) {
                 Log::error("Error creating purchasing officer order at index {$index}", [

@@ -13,6 +13,7 @@ use Modules\Purchase\Policies\PurchaseOrderPolicy;
 use Modules\Purchase\Policies\ReturnOrderPolicy;
 use Modules\Purchase\Services\CalculationService;
 use Modules\Purchase\Services\GoodsReceiptService;
+use Modules\Purchase\Services\OrderCreationService;
 use Modules\Purchase\Services\PriceComparisonService;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Services\ReturnManagementService;
@@ -74,11 +75,13 @@ class PurchaseServiceProvider extends ServiceProvider
     {
         $this->app->singleton(CalculationService::class);
         $this->app->singleton(TimelineService::class);
+        $this->app->singleton(OrderCreationService::class);
         
         $this->app->singleton(PurchaseOrderService::class, function ($app) {
             return new PurchaseOrderService(
                 $app->make(TimelineService::class),
-                $app->make(CalculationService::class)
+                $app->make(CalculationService::class),
+                $app->make(OrderCreationService::class)
             );
         });
         
