@@ -228,3 +228,9 @@ class UserRepository
 -   How easy it is to modify in 6 months
 -   How new team members will understand it
 -   How it integrates with the larger system
+
+-   Backend Services:
+-   API response time: ≤ 500ms for 95% of requests
+-   Report generation: ≤ 30 seconds for complex financial reports
+-   Data export: ≤ 60 seconds for 10,000 records
+-   Real-time notifications: ≤ 2 seconds delivery time
