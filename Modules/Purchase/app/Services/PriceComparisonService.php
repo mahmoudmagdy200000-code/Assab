@@ -83,6 +83,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             if ($supplierPricesFromOrders->isNotEmpty()) {
                 $comparison['sources']['direct_supplier'] = $supplierPricesFromOrders->toArray();
             }
+            // If still empty, don't add direct_supplier to sources
         }
 
         // Via Purchasing Officer (average/estimated prices from actual orders from all branches)
@@ -403,6 +404,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                     'last_update' => $inventory->last_inventory_update?->diffForHumans(),
                     'unit_price' => $avgUnitPrice,
                     'total_price' => $avgUnitPrice * $quantity,
+                    'delivery_days' => PurchaseConstants::DEFAULT_INTERNAL_TRANSFER_DAYS, // Internal transfers usually take 1-2 days
                     'rating' => null, // Would come from branch manager stats
                     'response_rate' => null,
                     'distance' => null, // Would be calculated from coordinates
@@ -474,20 +476,23 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         $table = [];
 
         // Direct Supplier - get best option (lowest price or highest rating)
-        if (!empty($sources['direct_supplier'])) {
-            $bestSupplier = collect($sources['direct_supplier'])
-                ->sortBy('unit_price')
-                ->first();
+        if (!empty($sources['direct_supplier']) && is_array($sources['direct_supplier'])) {
+            $suppliers = collect($sources['direct_supplier'])
+                ->filter(fn($s) => isset($s['unit_price']) && $s['unit_price'] !== null);
 
-            $table[] = [
-                'order_type' => 'direct_supplier',
-                'order_type_label' => OrderType::DIRECT_SUPPLIER->label(),
-                'price' => $bestSupplier['unit_price'],
-                'total_price' => $bestSupplier['unit_price'] * $quantity,
-                'delivery_days' => $bestSupplier['delivery_days'],
-                'rating' => $bestSupplier['rating'],
-                'supplier_name' => $bestSupplier['supplier_name'] ?? null,
-            ];
+            if ($suppliers->isNotEmpty()) {
+                $bestSupplier = $suppliers->sortBy('unit_price')->first();
+
+                $table[] = [
+                    'order_type' => 'direct_supplier',
+                    'order_type_label' => OrderType::DIRECT_SUPPLIER->label(),
+                    'price' => $bestSupplier['unit_price'],
+                    'total_price' => $bestSupplier['unit_price'] * $quantity,
+                    'delivery_days' => $bestSupplier['delivery_days'] ?? null,
+                    'rating' => $bestSupplier['rating'] ?? null,
+                    'supplier_name' => $bestSupplier['supplier_name'] ?? null,
+                ];
+            }
         }
 
         // Via Purchasing Officer
@@ -675,15 +680,29 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         }
 
         // Score each option (lower is better for price/delivery, higher is better for rating)
-        $scored = collect($allOptions)->map(function ($option) {
-            $priceScore = $option['unit_price'] ?? 0;
-            $deliveryScore = ($option['delivery_days'] ?? 3) * 10;
-            $ratingScore = 100 - (($option['rating'] ?? 3) * 20);
+        // Filter out options without essential data (delivery_days or rating)
+        $scored = collect($allOptions)
+            ->filter(function ($option) {
+                // For internal_transfer, delivery_days is required
+                if ($option['type'] === 'internal_transfer') {
+                    return isset($option['delivery_days']);
+                }
+                // For other types, at least one of delivery_days or rating should exist
+                return isset($option['delivery_days']) || isset($option['rating']);
+            })
+            ->map(function ($option) {
+                $priceScore = $option['unit_price'] ?? 0;
+                $deliveryScore = ($option['delivery_days'] ?? PurchaseConstants::DEFAULT_DELIVERY_DAYS) * 10;
+                $ratingScore = 100 - (($option['rating'] ?? PurchaseConstants::DEFAULT_RATING) * 20);
 
-            return array_merge($option, [
-                'composite_score' => ($priceScore * 0.4) + ($deliveryScore * 0.3) + ($ratingScore * 0.3),
-            ]);
-        });
+                return array_merge($option, [
+                    'composite_score' => ($priceScore * 0.4) + ($deliveryScore * 0.3) + ($ratingScore * 0.3),
+                ]);
+            });
+
+        if ($scored->isEmpty()) {
+            return null;
+        }
 
         $best = $scored->sortBy('composite_score')->first();
 

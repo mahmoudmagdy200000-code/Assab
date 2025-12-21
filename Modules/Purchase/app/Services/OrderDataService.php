@@ -216,11 +216,11 @@ class OrderDataService
             }
 
             if (!empty($validated['category'])) {
-                $query->where('category', $validated['category']);
+                $query->byCategory($validated['category']);
             }
 
             if (!empty($validated['subcategory'])) {
-                $query->where('subcategory', $validated['subcategory']);
+                $query->bySubcategory($validated['subcategory']);
             }
 
             $items = $query->paginate($perPage);
@@ -391,8 +391,8 @@ class OrderDataService
                 'premium_price' => $supplierItem->premium_price ? round((float) $supplierItem->premium_price, 2) : null,
                 // Delivery
                 'delivery_hours' => $supplierItem->delivery_hours,
-                'delivery_days' => $supplierItem->delivery_hours 
-                    ? round($supplierItem->delivery_hours / PurchaseConstants::HOURS_PER_DAY, 1) 
+                'delivery_days' => $supplierItem->delivery_hours
+                    ? round($supplierItem->delivery_hours / PurchaseConstants::HOURS_PER_DAY, 1)
                     : null,
                 // Availability
                 'availability_percentage' => $availabilityPercentage,
@@ -426,21 +426,24 @@ class OrderDataService
         $perPage = $validated['per_page'] ?? PurchaseConstants::DEFAULT_PER_PAGE;
 
         // Get branch items with filters (similar to getTransferItems)
-        $query = BranchItem::where('branch_id', $branchId);
+        // Performance: Eager load only needed item columns
+        $query = BranchItem::where('branch_id', $branchId)
+            ->with('item:id,name,code,unit,logo,category,subcategory');
 
-        // Apply filters
+        // Apply filters using scopes (which use whereHas on item relationship)
         if (!empty($validated['search'])) {
-            $query->where(function ($q) use ($validated) {
-                $q->where('item_name', 'like', '%' . $validated['search'] . '%')
-                    ->orWhere('item_code', 'like', '%' . $validated['search'] . '%');
-            });
+            $query->search($validated['search']);
         }
 
         if (!empty($validated['category'])) {
-            $query->where('category', $validated['category']);
+            $query->byCategory($validated['category']);
         }
 
-        $branchItems = $query->orderBy('item_name', 'asc')->paginate($perPage);
+        // Order by item name through join with items table
+        $branchItems = $query->join('items', 'branch_item.item_id', '=', 'items.id')
+            ->orderBy('items.name', 'asc')
+            ->select('branch_item.*') // Select only branch_item columns to avoid conflicts
+            ->paginate($perPage);
         $itemsCollection = $branchItems->getCollection();
 
         // Get all item IDs
@@ -595,16 +598,13 @@ class OrderDataService
                 }
             });
 
-        // Apply filters
+        // Apply filters using scopes (which use whereHas on item relationship)
         if (!empty($validated['search'])) {
-            $branchItemsQuery->where(function ($q) use ($validated) {
-                $q->where('item_name', 'like', '%' . $validated['search'] . '%')
-                    ->orWhere('item_code', 'like', '%' . $validated['search'] . '%');
-            });
+            $branchItemsQuery->search($validated['search']);
         }
 
         if (!empty($validated['category'])) {
-            $branchItemsQuery->where('category', $validated['category']);
+            $branchItemsQuery->byCategory($validated['category']);
         }
 
         $branchItems = $branchItemsQuery->paginate($perPage);
@@ -811,8 +811,8 @@ class OrderDataService
         // For now, return a random distance between min and max constants
         // In production, use coordinates from branches to calculate real distance
         return round(
-            rand(PurchaseConstants::DEFAULT_MIN_DISTANCE_KM, PurchaseConstants::DEFAULT_MAX_DISTANCE_KM) 
-            + (rand(0, 99) / 100), 
+            rand(PurchaseConstants::DEFAULT_MIN_DISTANCE_KM, PurchaseConstants::DEFAULT_MAX_DISTANCE_KM)
+                + (rand(0, 99) / 100),
             2
         );
     }
@@ -926,7 +926,7 @@ class OrderDataService
         $distanceKm = $earthRadius * $c;
 
         // Estimate hours using constants
-        $estimatedHours = ($distanceKm / PurchaseConstants::AVERAGE_SPEED_KMH) 
+        $estimatedHours = ($distanceKm / PurchaseConstants::AVERAGE_SPEED_KMH)
             + PurchaseConstants::LOADING_UNLOADING_HOURS;
 
         return [
@@ -935,4 +935,3 @@ class OrderDataService
         ];
     }
 }
-

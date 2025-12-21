@@ -60,6 +60,7 @@ class PurchaseConstants
     // Delivery time defaults
     public const DEFAULT_DELIVERY_HOURS = 24;
     public const DEFAULT_DELIVERY_DAYS = 4;
+    public const DEFAULT_INTERNAL_TRANSFER_DAYS = 1; // Internal transfers usually take 1 day
     
     // Processing time ranges (days)
     public const PROCESSING_STANDARD_MIN_DAYS = 3;
