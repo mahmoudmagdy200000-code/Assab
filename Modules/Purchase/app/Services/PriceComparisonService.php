@@ -41,14 +41,14 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
 
         // Get item details - itemId can be BranchItem.id or Item.id
         $item = null;
-        $branchItem = BranchItem::with('item:id,name,code,unit,logo,item_price')->find($itemId);
+        $branchItem = BranchItem::with('item:id,name,code,unit,logo')->find($itemId);
 
         if ($branchItem && $branchItem->item) {
             // New structure: BranchItem -> Item
             $item = $branchItem->item;
         } else {
             // Try direct Item lookup (new structure)
-            $item = Item::select('id', 'name', 'code', 'unit', 'logo', 'item_price')->find($itemId);
+            $item = Item::select('id', 'name', 'code', 'unit', 'logo')->find($itemId);
         }
 
         // Handle item_logo using helper method
@@ -60,7 +60,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             'item_code' => $item ? $item->code : null,
             'item_unit' => $item ? $item->unit : null,
             'item_logo' => $itemLogo,
-            'item_price' => $item ? (float) $item->item_price : null,
+            'item_price' => null, // item_price column doesn't exist in items table
             'quantity' => $quantity,
             'period' => 'Last 3 Months',
             'sources' => [],
