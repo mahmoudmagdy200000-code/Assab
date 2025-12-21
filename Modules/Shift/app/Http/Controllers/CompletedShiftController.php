@@ -23,19 +23,30 @@ class CompletedShiftController extends BaseController
      */
     public function index(Request $request): JsonResponse
     {
-        $managerBranchId = $request->manager_branch_id;
-        $filters = $request->only(['date_from', 'date_to', 'cashier_id']);
-        $filters['branch_id'] = $managerBranchId;
+        try {
+            $manager = auth()->user();
+            
+            // Ensure the user is a branch manager
+            if (!$manager || !$manager->branch_id) {
+                return $this->errorResponse('Unauthorized', 403);
+            }
+            
+            $managerBranchId = $manager->branch_id;
+            $filters = $request->only(['date_from', 'date_to', 'cashier_id']);
+            $filters['branch_id'] = $managerBranchId;
 
-        $shifts = $this->shiftService->getCompletedShifts(
-            cashierId: $request->input('cashier_id'),
-            filters: $filters
-        );
+            $shifts = $this->shiftService->getCompletedShifts(
+                cashierId: $request->input('cashier_id'),
+                filters: $filters
+            );
 
-        return $this->paginatedResponse(
-            CashierShiftResource::collection($shifts),
-            'Completed shifts retrieved successfully'
-        );
+            return $this->paginatedResponse(
+                CashierShiftResource::collection($shifts),
+                'Completed shifts retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
     }
 
     /**
@@ -44,7 +55,14 @@ class CompletedShiftController extends BaseController
     public function show(string $shiftId): JsonResponse
     {
         try {
-            $managerBranchId = request()->manager_branch_id;
+            $manager = auth()->user();
+            
+            // Ensure the user is a branch manager
+            if (!$manager || !$manager->branch_id) {
+                return $this->errorResponse('Unauthorized', 403);
+            }
+            
+            $managerBranchId = $manager->branch_id;
 
             $shift = CashierShift::with([
                 'cashier',

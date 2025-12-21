@@ -121,6 +121,16 @@ class ReassignmentShiftController extends Controller
 
         DB::beginTransaction();
         try {
+            $manager = auth()->user();
+            
+            // Ensure the user is a branch manager
+            if (!$manager || !$manager->branch_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized',
+                ], 403);
+            }
+            
             // البحث مرة واحدة فقط داخل ال transaction
             $shiftModel = CashierShift::with(['cashier', 'shift'])->find($shift);
 
@@ -131,6 +141,24 @@ class ReassignmentShiftController extends Controller
                     'message' => 'Shift not found',
                     'error' => 'The specified shift does not exist'
                 ], 404);
+            }
+            
+            // Verify shift belongs to manager's branch
+            if ($shiftModel->shift->branch_id !== $manager->branch_id) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized: This shift does not belong to your branch',
+                ], 403);
+            }
+            
+            // Verify cashier belongs to manager's branch
+            if ($shiftModel->cashier->branch_id !== $manager->branch_id) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized: This cashier does not belong to your branch',
+                ], 403);
             }
 
             // Verify shift is pending or not started
@@ -330,6 +358,16 @@ class ReassignmentShiftController extends Controller
 
         DB::beginTransaction();
         try {
+            $manager = auth()->user();
+            
+            // Ensure the user is a branch manager
+            if (!$manager || !$manager->branch_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized',
+                ], 403);
+            }
+            
             // البحث مرة واحدة فقط
             $shiftModel = CashierShift::with(['cashier', 'shift'])->find($shift);
 
@@ -340,6 +378,24 @@ class ReassignmentShiftController extends Controller
                     'message' => 'Shift not found',
                     'error' => 'The specified shift does not exist'
                 ], 404);
+            }
+            
+            // Verify shift belongs to manager's branch
+            if ($shiftModel->shift->branch_id !== $manager->branch_id) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized: This shift does not belong to your branch',
+                ], 403);
+            }
+            
+            // Verify cashier belongs to manager's branch
+            if ($shiftModel->cashier->branch_id !== $manager->branch_id) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized: This cashier does not belong to your branch',
+                ], 403);
             }
 
             if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
@@ -365,6 +421,15 @@ class ReassignmentShiftController extends Controller
                     'success' => false,
                     'message' => 'New cashier not found',
                 ], 404);
+            }
+            
+            // Verify new cashier belongs to manager's branch
+            if ($newCashier->branch_id !== $manager->branch_id) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized: The selected cashier does not belong to your branch',
+                ], 403);
             }
 
             // Conflict check
@@ -557,6 +622,16 @@ class ReassignmentShiftController extends Controller
     public function getAvailableCashiers(string $shift): JsonResponse
     {
         try {
+            $manager = auth()->user();
+            
+            // Ensure the user is a branch manager
+            if (!$manager || !$manager->branch_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized',
+                ], 403);
+            }
+            
             // Optimized eager loading
             $shiftModel = CashierShift::with([
                 'shift' => function ($q) {
@@ -565,6 +640,14 @@ class ReassignmentShiftController extends Controller
                 'shift.branch:id,name',
                 'cashier:id,name,branch_id'
             ])->findOrFail($shift);
+            
+            // Verify shift belongs to manager's branch
+            if ($shiftModel->shift->branch_id !== $manager->branch_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized: This shift does not belong to your branch',
+                ], 403);
+            }
 
             // Get all active cashiers for this branch (optimized)
             $allCashiers = Cashier::where('branch_id', $shiftModel->shift->branch_id)

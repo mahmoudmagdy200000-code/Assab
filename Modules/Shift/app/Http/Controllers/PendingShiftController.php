@@ -21,8 +21,14 @@ class PendingShiftController extends BaseController
     public function index(Request $request): JsonResponse
     {
         try {
-            $managerBranchId = auth()->user()->branch_id;
-            // من الـ middleware
+            $manager = auth()->user();
+            
+            // Ensure the user is a branch manager
+            if (!$manager || !$manager->branch_id) {
+                return $this->errorResponse('Unauthorized', 403);
+            }
+            
+            $managerBranchId = $manager->branch_id;
             $cashierId = $request->input('cashier_id');
 
             $shifts = CashierShift::upcoming()
@@ -51,7 +57,14 @@ class PendingShiftController extends BaseController
     public function show(string $shift): JsonResponse
     {
         try {
-            $managerBranchId = request()->manager_branch_id;
+            $manager = auth()->user();
+            
+            // Ensure the user is a branch manager
+            if (!$manager || !$manager->branch_id) {
+                return $this->errorResponse('Unauthorized', 403);
+            }
+            
+            $managerBranchId = $manager->branch_id;
 
             // تحقق من أن الشيفت تابع لبرانش المدير
             $shiftDetails = CashierShift::with([

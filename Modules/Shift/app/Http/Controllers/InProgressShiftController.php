@@ -21,7 +21,14 @@ class InProgressShiftController extends BaseController
     public function index(Request $request): JsonResponse
     {
         try {
-            $managerBranchId = $request->manager_branch_id;
+            $manager = auth()->user();
+            
+            // Ensure the user is a branch manager
+            if (!$manager || !$manager->branch_id) {
+                return $this->errorResponse('Unauthorized', 403);
+            }
+            
+            $managerBranchId = $manager->branch_id;
             $cashierId = $request->input('cashier_id');
 
             $inProgressShifts = CashierShift::inProgress()
@@ -57,7 +64,14 @@ class InProgressShiftController extends BaseController
     public function show(string $shift): JsonResponse
     {
         try {
-            $managerBranchId = request()->manager_branch_id;
+            $manager = auth()->user();
+            
+            // Ensure the user is a branch manager
+            if (!$manager || !$manager->branch_id) {
+                return $this->errorResponse('Unauthorized', 403);
+            }
+            
+            $managerBranchId = $manager->branch_id;
 
             $shiftDetails = CashierShift::with([
                 'cashier',
