@@ -325,6 +325,7 @@ class PurchaseOrderService
 
             return [
                 'items_count' => (int) ($order->items_count ?? 0),
+                'order_id' => $order->id,
                 'order_type' => $orderType,
                 'status' => $status ?? 'draft',
                 'date' => $order->created_at?->format('Y-m-d H:i:s') ?? null,
@@ -965,7 +966,7 @@ class PurchaseOrderService
         if ($branchId !== null) {
             // Regular orders: user must belong to the order's branch
             $hasAccess = $order->branch_id === $branchId;
-            
+
             // Internal transfers: user can also access if they belong to from_branch_id (sending branch)
             if (!$hasAccess && $order->order_type === OrderType::INTERNAL_TRANSFER) {
                 $hasAccess = $order->from_branch_id === $branchId;
