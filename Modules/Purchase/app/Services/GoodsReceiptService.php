@@ -27,8 +27,7 @@ class GoodsReceiptService
      */
     public function getInProgressReceipts(string $branchId, int $perPage = 15): LengthAwarePaginator
     {
-        $paginator = GoodsReceipt::select(['id', 'status', 'created_at', 'purchase_order_id'])
-            ->with(['purchaseOrder:id,order_type'])
+        $paginator = GoodsReceipt::with(['purchaseOrder:id,order_type'])
             ->withCount('items as items_count')
             ->byBranch($branchId)
             ->whereIn('status', ['draft', 'in_progress'])
@@ -37,11 +36,21 @@ class GoodsReceiptService
 
         // Transform results to return only requested fields
         $paginator->getCollection()->transform(function ($receipt) {
+            $orderType = null;
+            if ($receipt->relationLoaded('purchaseOrder') && $receipt->purchaseOrder) {
+                $orderTypeValue = $receipt->purchaseOrder->order_type;
+                if ($orderTypeValue instanceof \BackedEnum) {
+                    $orderType = $orderTypeValue->value;
+                } elseif ($orderTypeValue !== null) {
+                    $orderType = $orderTypeValue;
+                }
+            }
+
             return [
-                'items_count' => $receipt->items_count ?? 0,
-                'order_type' => $receipt->purchaseOrder?->order_type?->value ?? null,
+                'items_count' => (int) ($receipt->items_count ?? 0),
+                'order_type' => $orderType,
                 'status' => $receipt->status,
-                'date' => $receipt->created_at?->format('Y-m-d H:i:s'),
+                'date' => $receipt->created_at?->format('Y-m-d H:i:s') ?? null,
             ];
         });
 

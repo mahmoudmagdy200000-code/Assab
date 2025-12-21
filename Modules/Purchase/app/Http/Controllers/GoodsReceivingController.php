@@ -37,8 +37,9 @@ class GoodsReceivingController extends BaseController
             $branchId = auth()->user()->branch_id;
             $receipts = $this->receiptService->getInProgressReceipts($branchId, $request->get('per_page', 15));
             
+            // Data is already transformed in service, pass paginator directly
             return $this->paginatedResponse(
-                GoodsReceiptResource::collection($receipts),
+                $receipts,
                 'In-progress receipts retrieved successfully'
             );
         } catch (\Exception $e) {
