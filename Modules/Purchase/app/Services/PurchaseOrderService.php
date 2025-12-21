@@ -5,6 +5,7 @@ namespace Modules\Purchase\Services;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Modules\Purchase\Constants\PurchaseConstants;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\QualityLevel;
@@ -17,11 +18,12 @@ use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
 use Illuminate\Support\Collection;
 
-class PurchaseOrderService
+class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\PurchaseOrderServiceInterface
 {
     public function __construct(
         private readonly TimelineService $timelineService,
-        private readonly CalculationService $calculationService
+        private readonly CalculationService $calculationService,
+        private readonly OrderCreationService $orderCreationService
     ) {}
 
     /**
@@ -32,11 +34,13 @@ class PurchaseOrderService
      * - Filter by category/subcategory
      * - Filter by supplier (from Expense module)
      */
-    public function getBranchItems(string $branchId, array $filters = [], int $perPage = 15): LengthAwarePaginator
+    public function getBranchItems(string $branchId, array $filters = [], int $perPage = null): LengthAwarePaginator
     {
-        // Get items through BranchItem pivot (many-to-many relationship)
+        $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
+
+        // Performance: Eager load only needed item columns
         $query = BranchItem::where('branch_id', $branchId)
-            ->with('item'); // Eager load Item model
+            ->with('item:id,name,code,unit,logo,category,subcategory');
 
         // Search by item name (through Item model)
         if (!empty($filters['search'])) {
@@ -74,9 +78,18 @@ class PurchaseOrderService
      * - Type: All, Direct Supplier Order, Via Purchasing Officer, Internal Transfer
      * - Date: Last 24h, Last 7d, Last 30d, or Custom date range
      */
-    public function getHistory(array $filters, int $perPage = 15): LengthAwarePaginator
+    public function getHistory(array $filters, int $perPage = null): LengthAwarePaginator
     {
-        $query = PurchaseOrder::with(['items', 'supplier', 'branch', 'requestedBy', 'fromBranch'])
+        $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
+
+        // Performance: Eager load only needed columns
+        $query = PurchaseOrder::with([
+            'items:id,purchase_order_id,item_id,item_name,quantity_ordered,unit_price,total_price',
+            'supplier:id,name,phone,email',
+            'branch:id,name,location',
+            'requestedBy:id,name,email',
+            'fromBranch:id,name,location'
+        ])
             ->history()
             ->orderBy('created_at', 'desc');
 
@@ -157,14 +170,16 @@ class PurchaseOrderService
      * and this branch created the order (branch_id = this branch).
      * Excludes orders requested FROM this branch by others (those appear in requested_orders).
      */
-    public function getOrders(array $filters, int $perPage = 15): LengthAwarePaginator
+    public function getOrders(array $filters, int $perPage = null): LengthAwarePaginator
     {
-        // Load items and source relationships for source_name
-        // Also eager load item relationship to get item details
+        $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
+
+        // Performance: Eager load only needed columns
         $query = PurchaseOrder::with([
-            'items.item', // Load item relationship for inventory lookup
-            'supplier',
-            'fromBranch'
+            'items:id,purchase_order_id,item_id,item_name,quantity_ordered,unit_price,total_price',
+            'items.item:id,name,code,logo,unit',
+            'supplier:id,name,phone,email',
+            'fromBranch:id,name,location'
         ])
             ->orderBy('created_at', 'desc');
 
@@ -232,10 +247,19 @@ class PurchaseOrderService
      * For internal_transfer: orders where to_branch_id = this branch AND from_branch_id != this branch
      * For other types: no orders are requested from other branches (only from suppliers/officers)
      */
-    public function getPendingOrders(array $filters, int $perPage = 15): LengthAwarePaginator
+    public function getPendingOrders(array $filters, int $perPage = null): LengthAwarePaginator
     {
-        // Performance: Eager load items.item to prevent N+1 queries
-        $query = PurchaseOrder::with(['items.item', 'supplier', 'branch', 'requestedBy', 'fromBranch'])
+        $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
+
+        // Performance: Eager load only needed columns to prevent N+1 queries
+        $query = PurchaseOrder::with([
+            'items:id,purchase_order_id,item_id,item_name,quantity_ordered,unit_price,total_price',
+            'items.item:id,name,code,logo,unit',
+            'supplier:id,name,phone,email',
+            'branch:id,name,location',
+            'requestedBy:id,name,email',
+            'fromBranch:id,name,location'
+        ])
             ->pending()
             ->orderBy('created_at', 'desc');
 
@@ -275,8 +299,10 @@ class PurchaseOrderService
     /**
      * Get orders for receiving
      */
-    public function getOrdersForReceiving(array $filters, int $perPage = 15): LengthAwarePaginator
+    public function getOrdersForReceiving(array $filters, int $perPage = null): LengthAwarePaginator
     {
+        $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
+
         $query = PurchaseOrder::withCount('items as items_count')
             ->forReceiving()
             ->orderBy('created_at', 'desc');
@@ -388,7 +414,7 @@ class PurchaseOrderService
                 'notification_channels' => $data['notification_channels'] ?? null,
                 'message' => $data['message'] ?? null,
                 'special_instructions' => $data['special_instructions'] ?? null,
-                'tax_rate' => $data['tax_rate'] ?? 15.00,
+                'tax_rate' => $data['tax_rate'] ?? PurchaseConstants::DEFAULT_TAX_RATE,
             ]);
 
             // Create order items
@@ -426,149 +452,19 @@ class PurchaseOrderService
      */
     public function createMultipleOrders(array $data, string $branchId, string $requestedBy, bool $isDraft = false): Collection
     {
-        // Validate inputs
-        if (empty($branchId)) {
-            throw new \InvalidArgumentException('Branch ID is required');
-        }
-
-        if (empty($requestedBy)) {
-            throw new \InvalidArgumentException('Requested by (user ID) is required');
-        }
+        $this->validateCreateMultipleOrdersInputs($branchId, $requestedBy);
 
         return DB::transaction(function () use ($data, $branchId, $requestedBy, $isDraft) {
             $orders = collect();
 
-            // Process internal transfers (branches)
-            if (!empty($data['branches']) && is_array($data['branches'])) {
-                foreach ($data['branches'] as $index => $branchData) {
-                    try {
-                        if (empty($branchData['branch_id'])) {
-                            throw new \InvalidArgumentException("Branch ID is required for branch entry at index {$index}");
-                        }
-
-                        if (empty($branchData['items']) || !is_array($branchData['items']) || count($branchData['items']) === 0) {
-                            throw new \InvalidArgumentException("At least one item is required for branch entry at index {$index}");
-                        }
-
-                        $orderData = [
-                            'order_type' => OrderType::INTERNAL_TRANSFER,
-                            'status' => $isDraft ? OrderStatus::DRAFT : OrderStatus::PENDING,
-                            'branch_id' => $branchId,
-                            'requested_by' => $requestedBy,
-                            'from_branch_id' => $branchData['branch_id'],
-                            'to_branch_id' => $branchId,
-                            'priority' => $branchData['priority'] ?? 'normal',
-                            'message' => $branchData['justification'] ?? null,
-                            'items' => $branchData['items'] ?? [],
-                        ];
-
-                        $order = $this->createOrder($orderData);
-                        $orders->push($order);
-                    } catch (\Exception $e) {
-                        Log::error("Error creating internal transfer order at index {$index}", [
-                            'error' => $e->getMessage(),
-                            'branch_data' => $branchData,
-                        ]);
-                        throw new \Exception("Failed to create internal transfer order at index {$index}: " . $e->getMessage(), 0, $e);
-                    }
-                }
-            }
+            // Process internal transfers
+            $orders = $orders->merge($this->createInternalTransferOrders($data, $branchId, $requestedBy, $isDraft));
 
             // Process direct supplier orders
-            if (!empty($data['direct_supplier']) && is_array($data['direct_supplier'])) {
-                foreach ($data['direct_supplier'] as $index => $supplierData) {
-                    try {
-                        if (empty($supplierData['supplier_id'])) {
-                            throw new \InvalidArgumentException("Supplier ID is required for direct supplier order at index {$index}");
-                        }
-
-                        if (empty($supplierData['items']) || !is_array($supplierData['items']) || count($supplierData['items']) === 0) {
-                            throw new \InvalidArgumentException("At least one item is required for direct supplier order at index {$index}");
-                        }
-
-                        if (empty($supplierData['notification_channels']) || !is_array($supplierData['notification_channels']) || count($supplierData['notification_channels']) === 0) {
-                            throw new \InvalidArgumentException("At least one notification channel is required for direct supplier order at index {$index}");
-                        }
-
-                        // Validate and normalize quality_level
-                        $qualityLevel = $this->normalizeQualityLevel($supplierData['quality_level'] ?? null);
-
-                        $orderData = [
-                            'order_type' => OrderType::DIRECT_SUPPLIER,
-                            'status' => $isDraft ? OrderStatus::DRAFT : OrderStatus::PENDING,
-                            'branch_id' => $branchId,
-                            'requested_by' => $requestedBy,
-                            'supplier_id' => $supplierData['supplier_id'],
-                            'quality_level' => $qualityLevel,
-                            'notification_channels' => $supplierData['notification_channels'] ?? [],
-                            'message' => $supplierData['message'] ?? null,
-                            'items' => $supplierData['items'] ?? [],
-                        ];
-
-                        $order = $this->createOrder($orderData);
-                        $orders->push($order);
-                    } catch (\Exception $e) {
-                        Log::error("Error creating direct supplier order at index {$index}", [
-                            'error' => $e->getMessage(),
-                            'supplier_data' => $supplierData,
-                        ]);
-                        throw new \Exception("Failed to create direct supplier order at index {$index}: " . $e->getMessage(), 0, $e);
-                    }
-                }
-            }
+            $orders = $orders->merge($this->createDirectSupplierOrders($data, $branchId, $requestedBy, $isDraft));
 
             // Process purchasing officer orders
-            if (!empty($data['purchase_officer']) && is_array($data['purchase_officer'])) {
-                foreach ($data['purchase_officer'] as $index => $officerData) {
-                    try {
-                        $items = $officerData['items'] ?? [];
-                        if (empty($items) || !is_array($items) || count($items) === 0) {
-                            throw new \InvalidArgumentException("At least one item is required for purchasing officer order at index {$index}");
-                        }
-
-                        // Support new format: fields can be at item level or order level
-                        // If fields are at item level, take from first item; otherwise use order level
-                        $firstItem = !empty($items) ? $items[0] : [];
-
-                        // Quality level: check item level first, then order level, then default
-                        $qualityLevelRaw = $firstItem['quality'] ?? $officerData['quality_level'] ?? 'standard';
-                        $qualityLevel = $this->normalizeQualityLevel($qualityLevelRaw);
-
-                        // Delivery dates: check item level first, then order level
-                        $preferredDeliveryDate = $firstItem['preferred_delivery_date'] ?? $officerData['preferred_delivery_date'] ?? null;
-                        $latestDeliveryDate = $firstItem['latest_delivery_date'] ?? $officerData['latest_delivery_date'] ?? null;
-
-                        // Special instructions: check item level first, then order level
-                        $specialInstructions = $firstItem['special_instructions'] ?? $officerData['special_instructions'] ?? null;
-
-                        // Processing time: only at order level (not in new format, use default)
-                        $processingTime = $officerData['processing_time'] ?? 'standard';
-
-                        $orderData = [
-                            'order_type' => OrderType::VIA_PURCHASING_OFFICER,
-                            'status' => $isDraft ? OrderStatus::DRAFT : OrderStatus::PENDING,
-                            'branch_id' => $branchId,
-                            'requested_by' => $requestedBy,
-                            'quality_level' => $qualityLevel,
-                            'processing_time' => $processingTime,
-                            'preferred_delivery_date' => $preferredDeliveryDate,
-                            'latest_delivery_date' => $latestDeliveryDate,
-                            'special_instructions' => $specialInstructions,
-                            'message' => $officerData['message'] ?? null,
-                            'items' => $items,
-                        ];
-
-                        $order = $this->createOrder($orderData);
-                        $orders->push($order);
-                    } catch (\Exception $e) {
-                        Log::error("Error creating purchasing officer order at index {$index}", [
-                            'error' => $e->getMessage(),
-                            'officer_data' => $officerData,
-                        ]);
-                        throw new \Exception("Failed to create purchasing officer order at index {$index}: " . $e->getMessage(), 0, $e);
-                    }
-                }
-            }
+            $orders = $orders->merge($this->createPurchasingOfficerOrders($data, $branchId, $requestedBy, $isDraft));
 
             if ($orders->isEmpty()) {
                 throw new \InvalidArgumentException('No orders were created. Please provide at least one valid order (branches, direct_supplier, or purchase_officer).');
@@ -576,6 +472,119 @@ class PurchaseOrderService
 
             return $orders;
         });
+    }
+
+    /**
+     * Validate inputs for createMultipleOrders
+     */
+    private function validateCreateMultipleOrdersInputs(string $branchId, string $requestedBy): void
+    {
+        if (empty($branchId)) {
+            throw new \InvalidArgumentException('Branch ID is required');
+        }
+
+        if (empty($requestedBy)) {
+            throw new \InvalidArgumentException('Requested by (user ID) is required');
+        }
+    }
+
+    /**
+     * Create internal transfer orders
+     */
+    private function createInternalTransferOrders(array $data, string $branchId, string $requestedBy, bool $isDraft): Collection
+    {
+        $orders = collect();
+
+        if (empty($data['branches']) || !is_array($data['branches'])) {
+            return $orders;
+        }
+
+        foreach ($data['branches'] as $index => $branchData) {
+            try {
+                $order = $this->orderCreationService->createInternalTransferOrder(
+                    $branchData,
+                    $branchId,
+                    $requestedBy,
+                    $isDraft,
+                    $index
+                );
+                $orders->push($order);
+            } catch (\Exception $e) {
+                Log::error("Error creating internal transfer order at index {$index}", [
+                    'error' => $e->getMessage(),
+                    'branch_data' => $branchData,
+                ]);
+                throw new \Exception("Failed to create internal transfer order at index {$index}: " . $e->getMessage(), 0, $e);
+            }
+        }
+
+        return $orders;
+    }
+
+    /**
+     * Create direct supplier orders
+     */
+    private function createDirectSupplierOrders(array $data, string $branchId, string $requestedBy, bool $isDraft): Collection
+    {
+        $orders = collect();
+
+        if (empty($data['direct_supplier']) || !is_array($data['direct_supplier'])) {
+            return $orders;
+        }
+
+        foreach ($data['direct_supplier'] as $index => $supplierData) {
+            try {
+                $order = $this->orderCreationService->createDirectSupplierOrder(
+                    $supplierData,
+                    $branchId,
+                    $requestedBy,
+                    $isDraft,
+                    $index
+                );
+                $orders->push($order);
+            } catch (\Exception $e) {
+                Log::error("Error creating direct supplier order at index {$index}", [
+                    'error' => $e->getMessage(),
+                    'supplier_data' => $supplierData,
+                ]);
+                throw new \Exception("Failed to create direct supplier order at index {$index}: " . $e->getMessage(), 0, $e);
+            }
+        }
+
+        return $orders;
+    }
+
+    /**
+     * Create purchasing officer orders
+     */
+    private function createPurchasingOfficerOrders(array $data, string $branchId, string $requestedBy, bool $isDraft): Collection
+    {
+        $orders = collect();
+
+        if (empty($data['purchase_officer']) || !is_array($data['purchase_officer'])) {
+            return $orders;
+        }
+
+        foreach ($data['purchase_officer'] as $index => $officerData) {
+            try {
+                $order = $this->orderCreationService->createPurchasingOfficerOrder(
+                    $officerData,
+                    $branchId,
+                    $requestedBy,
+                    $isDraft,
+                    $index
+                );
+                $orders->push($order);
+            } catch (\Exception $e) {
+                Log::error("Error creating purchasing officer order at index {$index}", [
+                    'error' => $e->getMessage(),
+                    'officer_data' => $officerData,
+                ]);
+                throw new \Exception("Failed to create purchasing officer order at index {$index}: " . $e->getMessage(), 0, $e);
+            }
+        }
+
+        return $orders;
     }
 
     /**

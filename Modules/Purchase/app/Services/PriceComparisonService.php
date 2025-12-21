@@ -6,6 +6,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Modules\Purchase\Constants\PurchaseConstants;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\QualityLevel;
@@ -17,9 +18,11 @@ use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Purchase\Models\PurchaseSupplier;
 use Modules\Purchase\Models\SupplierItem;
+use Modules\Purchase\Traits\ItemHelperTrait;
 
-class PriceComparisonService
+class PriceComparisonService implements \Modules\Purchase\Services\Contracts\PriceComparisonServiceInterface
 {
+    use ItemHelperTrait;
     /**
      * Compare prices for an item across all sources
      *
@@ -33,36 +36,23 @@ class PriceComparisonService
      */
     public function comparePrices(string $itemId, ?float $quantity = null, ?string $excludeBranchId = null): array
     {
-        // Use default quantity of 1 if not provided
-        $quantity = $quantity ?? 1.0;
+        // Use default quantity from constants
+        $quantity = $quantity ?? PurchaseConstants::DEFAULT_QUANTITY;
 
         // Get item details - itemId can be BranchItem.id or Item.id
         $item = null;
-        $branchItem = BranchItem::with('item')->find($itemId);
+        $branchItem = BranchItem::with('item:id,name,code,unit,logo,item_price')->find($itemId);
 
         if ($branchItem && $branchItem->item) {
             // New structure: BranchItem -> Item
             $item = $branchItem->item;
         } else {
             // Try direct Item lookup (new structure)
-            $item = Item::find($itemId);
+            $item = Item::select('id', 'name', 'code', 'unit', 'logo', 'item_price')->find($itemId);
         }
 
-        // Handle item_logo - can be array or string
-        $itemLogo = null;
-        if ($item && $item->logo) {
-            if (is_array($item->logo)) {
-                $logo = $item->logo[0] ?? null;
-            } else {
-                $logo = $item->logo;
-            }
-
-            if ($logo) {
-                $itemLogo = str_starts_with($logo, 'http')
-                    ? $logo
-                    : asset('storage/' . $logo);
-            }
-        }
+        // Handle item_logo using helper method
+        $itemLogo = $this->getItemLogoUrl($item?->logo);
 
         $comparison = [
             'item_id' => $item ? $item->id : $itemId,
@@ -132,53 +122,67 @@ class PriceComparisonService
      */
     private function getSupplierPrices(string $itemId, float $quantity): Collection
     {
-        $supplierItems = SupplierItem::with('supplier')
+        // Performance: Eager load only needed supplier columns
+        $supplierItems = SupplierItem::with(['supplier:id,name,status,rating'])
             ->byItem($itemId)
             ->available()
             ->whereHas('supplier', fn($q) => $q->active())
             ->get()
             ->filter(fn($item) => $item->isWithinQuantityLimits($quantity));
 
-        // Get actual order history for this item from last 3 months (from all branches)
-        $threeMonthsAgo = now()->subMonths(3);
-        $orderItems = PurchaseOrderItem::with(['purchaseOrder.supplier'])
-            ->where('item_id', $itemId)
-            ->whereHas('purchaseOrder', function ($query) use ($threeMonthsAgo) {
-                $query->where('order_type', OrderType::DIRECT_SUPPLIER)
-                    ->where('created_at', '>=', $threeMonthsAgo)
-                    ->whereIn('status', [
-                        OrderStatus::CONFIRMED,
-                        OrderStatus::PARTIAL_CONFIRMATION,
-                        OrderStatus::CLOSED,
-                        OrderStatus::DELIVERED,
-                    ]);
-            })
-            ->get();
+        // Performance: Use optimized query with indexes for order history
+        $threeMonthsAgo = now()->subMonths(PurchaseConstants::PRICE_HISTORY_MONTHS);
 
-        // Group order items by supplier_id
-        $supplierHistory = $orderItems->groupBy(function ($item) {
-            return $item->purchaseOrder->supplier_id;
-        });
+        // Use DB query for better performance instead of Eloquent for aggregation
+        $orderHistoryData = DB::table('purchase_order_items')
+            ->join('purchase_orders', 'purchase_order_items.purchase_order_id', '=', 'purchase_orders.id')
+            ->where('purchase_order_items.item_id', $itemId)
+            ->where('purchase_orders.order_type', OrderType::DIRECT_SUPPLIER->value)
+            ->where('purchase_orders.created_at', '>=', $threeMonthsAgo)
+            ->whereIn('purchase_orders.status', [
+                OrderStatus::CONFIRMED->value,
+                OrderStatus::PARTIAL_CONFIRMATION->value,
+                OrderStatus::CLOSED->value,
+                OrderStatus::DELIVERED->value,
+            ])
+            ->select([
+                'purchase_orders.supplier_id',
+                'purchase_orders.created_at',
+                'purchase_orders.confirmed_at',
+                'purchase_orders.received_at',
+                'purchase_orders.closed_at',
+            ])
+            ->get()
+            ->groupBy('supplier_id');
 
         // Enhance supplier items with actual order data
-        return $supplierItems->map(function ($supplierItem) use ($supplierHistory, $quantity) {
+        return $supplierItems->map(function ($supplierItem) use ($orderHistoryData, $quantity) {
             $supplierId = $supplierItem->supplier_id;
-            $history = $supplierHistory->get($supplierId, collect());
+            $history = $orderHistoryData->get($supplierId, collect());
 
             // Calculate average delivery days from actual orders
             $avgDeliveryDays = null;
             if ($history->isNotEmpty()) {
-                $deliveryDays = $history->map(function ($item) {
-                    $order = $item->purchaseOrder;
-                    $createdAt = $order->created_at;
-                    $completedAt = $order->confirmed_at ?? $order->received_at ?? $order->closed_at ?? now();
+                $deliveryDays = $history->map(function ($order) {
+                    $createdAt = \Carbon\Carbon::parse($order->created_at);
+                    $completedAt = $order->confirmed_at
+                        ? \Carbon\Carbon::parse($order->confirmed_at)
+                        : ($order->received_at
+                            ? \Carbon\Carbon::parse($order->received_at)
+                            : ($order->closed_at
+                                ? \Carbon\Carbon::parse($order->closed_at)
+                                : now()));
                     return $createdAt->diffInDays($completedAt);
                 })->avg();
                 $avgDeliveryDays = round($deliveryDays, 1);
             }
 
-            // Get rating from supplier or calculate from orders
-            $rating = $supplierItem->rating ?? $supplierItem->supplier->rating ?? 4.0;
+            // Get rating from supplier or use default
+            $rating = $supplierItem->rating
+                ?? $supplierItem->supplier->rating
+                ?? PurchaseConstants::DEFAULT_SUPPLIER_RATING;
+
+            $deliveryHours = $supplierItem->delivery_hours ?? PurchaseConstants::DEFAULT_DELIVERY_HOURS;
 
             return [
                 'supplier_id' => $supplierId,
@@ -186,8 +190,8 @@ class PriceComparisonService
                 'supplier_status' => $supplierItem->supplier->status->value,
                 'unit_price' => $supplierItem->unit_price,
                 'total_price' => $supplierItem->unit_price * $quantity,
-                'delivery_hours' => $supplierItem->delivery_hours,
-                'delivery_days' => $avgDeliveryDays ?? ceil($supplierItem->delivery_hours / 24),
+                'delivery_hours' => $deliveryHours,
+                'delivery_days' => $avgDeliveryDays ?? ceil($deliveryHours / PurchaseConstants::HOURS_PER_DAY),
                 'rating' => round($rating, 1),
                 'is_available' => $supplierItem->is_available,
                 'order_count' => $history->count(),
@@ -201,70 +205,79 @@ class PriceComparisonService
      */
     private function getSupplierPricesFromOrders(string $itemId, float $quantity): Collection
     {
-        // Get actual order history for this item from last 3 months (from all branches)
-        $threeMonthsAgo = now()->subMonths(3);
-        $orderItems = PurchaseOrderItem::with(['purchaseOrder.supplier'])
-            ->where('item_id', $itemId)
-            ->whereHas('purchaseOrder', function ($query) use ($threeMonthsAgo) {
-                $query->where('order_type', OrderType::DIRECT_SUPPLIER)
-                    ->where('created_at', '>=', $threeMonthsAgo)
-                    ->whereIn('status', [
-                        OrderStatus::CONFIRMED,
-                        OrderStatus::PARTIAL_CONFIRMATION,
-                        OrderStatus::CLOSED,
-                        OrderStatus::DELIVERED,
-                    ]);
+        // Performance: Use optimized DB query instead of Eloquent for better performance
+        $threeMonthsAgo = now()->subMonths(PurchaseConstants::PRICE_HISTORY_MONTHS);
+
+        $supplierData = DB::table('purchase_order_items')
+            ->join('purchase_orders', 'purchase_order_items.purchase_order_id', '=', 'purchase_orders.id')
+            ->join('purchase_suppliers', 'purchase_orders.supplier_id', '=', 'purchase_suppliers.id')
+            ->where('purchase_order_items.item_id', $itemId)
+            ->where('purchase_orders.order_type', OrderType::DIRECT_SUPPLIER->value)
+            ->where('purchase_orders.created_at', '>=', $threeMonthsAgo)
+            ->whereIn('purchase_orders.status', [
+                OrderStatus::CONFIRMED->value,
+                OrderStatus::PARTIAL_CONFIRMATION->value,
+                OrderStatus::CLOSED->value,
+                OrderStatus::DELIVERED->value,
+            ])
+            ->select([
+                'purchase_orders.supplier_id',
+                'purchase_suppliers.name as supplier_name',
+                'purchase_suppliers.status as supplier_status',
+                'purchase_suppliers.rating',
+                'purchase_suppliers.default_delivery_hours',
+                'purchase_order_items.unit_price',
+                'purchase_orders.created_at',
+                'purchase_orders.confirmed_at',
+                'purchase_orders.received_at',
+                'purchase_orders.closed_at',
+            ])
+            ->get()
+            ->groupBy('supplier_id')
+            ->map(function ($items, $supplierId) use ($quantity) {
+                $firstItem = $items->first();
+
+                if (!$firstItem) {
+                    return null;
+                }
+
+                // Calculate average unit price
+                $avgUnitPrice = $items->avg('unit_price');
+
+                // Calculate average delivery days
+                $deliveryDays = $items->map(function ($item) {
+                    $createdAt = \Carbon\Carbon::parse($item->created_at);
+                    $completedAt = $item->confirmed_at
+                        ? \Carbon\Carbon::parse($item->confirmed_at)
+                        : ($item->received_at
+                            ? \Carbon\Carbon::parse($item->received_at)
+                            : ($item->closed_at
+                                ? \Carbon\Carbon::parse($item->closed_at)
+                                : now()));
+                    return $createdAt->diffInDays($completedAt);
+                })->avg();
+
+                // Get rating from supplier or use default
+                $rating = $firstItem->rating ?? PurchaseConstants::DEFAULT_SUPPLIER_RATING;
+                $deliveryHours = $firstItem->default_delivery_hours ?? PurchaseConstants::DEFAULT_DELIVERY_HOURS;
+
+                return [
+                    'supplier_id' => $supplierId,
+                    'supplier_name' => $firstItem->supplier_name,
+                    'supplier_status' => $firstItem->supplier_status ?? 'online',
+                    'unit_price' => round($avgUnitPrice, 2),
+                    'total_price' => round($avgUnitPrice * $quantity, 2),
+                    'delivery_hours' => $deliveryHours,
+                    'delivery_days' => round($deliveryDays ?? ($deliveryHours / PurchaseConstants::HOURS_PER_DAY), 1),
+                    'rating' => round($rating, 1),
+                    'is_available' => true, // Assume available if we have orders
+                    'order_count' => $items->count(),
+                ];
             })
-            ->get();
+            ->filter()
+            ->values();
 
-        if ($orderItems->isEmpty()) {
-            return collect();
-        }
-
-        // Group order items by supplier_id and calculate average prices
-        $supplierData = $orderItems->groupBy(function ($item) {
-            return $item->purchaseOrder->supplier_id;
-        })->map(function ($items, $supplierId) use ($quantity) {
-            $firstItem = $items->first();
-            $order = $firstItem->purchaseOrder;
-            $supplier = $order->supplier;
-
-            if (!$supplier) {
-                return null;
-            }
-
-            // Calculate average unit price from all orders for this supplier
-            $avgUnitPrice = $items->avg('unit_price');
-
-            // Calculate average delivery days
-            $deliveryDays = $items->map(function ($item) {
-                $order = $item->purchaseOrder;
-                $createdAt = $order->created_at;
-                $completedAt = $order->confirmed_at ?? $order->received_at ?? $order->closed_at ?? now();
-                return $createdAt->diffInDays($completedAt);
-            })->avg();
-
-            // Get rating from supplier
-            $rating = $supplier->rating ?? 4.0;
-
-            // Estimate delivery hours (default 24 hours if not available)
-            $deliveryHours = $supplier->default_delivery_hours ?? 24;
-
-            return [
-                'supplier_id' => $supplierId,
-                'supplier_name' => $supplier->name,
-                'supplier_status' => $supplier->status->value ?? 'online',
-                'unit_price' => round($avgUnitPrice, 2),
-                'total_price' => round($avgUnitPrice * $quantity, 2),
-                'delivery_hours' => $deliveryHours,
-                'delivery_days' => round($deliveryDays ?? ($deliveryHours / 24), 1),
-                'rating' => round($rating, 1),
-                'is_available' => $supplier->status?->isAvailable() ?? true,
-                'order_count' => $items->count(),
-            ];
-        })->filter();
-
-        return $supplierData->values();
+        return $supplierData;
     }
 
     /**
@@ -343,47 +356,52 @@ class PriceComparisonService
      * Get internal transfer options from all branches
      * Uses actual prices from previous orders if available
      */
-    private function getInternalTransferOptions(string $itemId, float $quantity, ?string $excludeBranchId = null): Collection
+    public function getInternalTransferOptions(string $itemId, float $quantity, ?string $excludeBranchId = null): Collection
     {
-        // Get actual average price from previous internal transfer orders (last 3 months)
-        $threeMonthsAgo = now()->subMonths(3);
-        $orderItems = PurchaseOrderItem::with(['purchaseOrder'])
-            ->where('item_id', $itemId)
-            ->whereHas('purchaseOrder', function ($query) use ($threeMonthsAgo) {
-                $query->where('order_type', OrderType::INTERNAL_TRANSFER)
-                    ->where('created_at', '>=', $threeMonthsAgo)
-                    ->whereIn('status', [
-                        OrderStatus::CONFIRMED,
-                        OrderStatus::PARTIAL_CONFIRMATION,
-                        OrderStatus::CLOSED,
-                        OrderStatus::DELIVERED,
-                    ]);
-            })
-            ->get();
+        // Performance: Use optimized DB query for average price calculation
+        $threeMonthsAgo = now()->subMonths(PurchaseConstants::PRICE_HISTORY_MONTHS);
 
-        // Calculate average unit price from actual orders
-        $avgUnitPrice = $orderItems->isNotEmpty()
-            ? round($orderItems->avg('unit_price'), 2)
-            : 0; // Default to 0 if no previous orders
+        $avgUnitPrice = DB::table('purchase_order_items')
+            ->join('purchase_orders', 'purchase_order_items.purchase_order_id', '=', 'purchase_orders.id')
+            ->where('purchase_order_items.item_id', $itemId)
+            ->where('purchase_orders.order_type', OrderType::INTERNAL_TRANSFER->value)
+            ->where('purchase_orders.created_at', '>=', $threeMonthsAgo)
+            ->whereIn('purchase_orders.status', [
+                OrderStatus::CONFIRMED->value,
+                OrderStatus::PARTIAL_CONFIRMATION->value,
+                OrderStatus::CLOSED->value,
+                OrderStatus::DELIVERED->value,
+            ])
+            ->avg('purchase_order_items.unit_price');
 
-        return BranchInventory::with('branch')
+        $avgUnitPrice = $avgUnitPrice ? round((float) $avgUnitPrice, 2) : 0;
+
+        // Performance: Eager load only needed branch columns
+        $minAvailability = $quantity * (PurchaseConstants::MIN_AVAILABILITY_PERCENTAGE / 100);
+
+        return BranchInventory::with(['branch:id,name,image'])
             ->byItem($itemId)
             ->available()
             ->when($excludeBranchId, fn($q) => $q->where('branch_id', '!=', $excludeBranchId))
+            ->whereRaw('(available_quantity - reserved_quantity) >= ?', [$minAvailability])
             ->get()
-            ->filter(fn($inv) => $inv->actual_available >= $quantity * 0.6) // At least 60% availability
             ->map(function ($inventory) use ($quantity, $avgUnitPrice) {
+                $availableQty = (float) $inventory->actual_available;
+
                 return [
                     'branch_id' => $inventory->branch_id,
-                    'branch_name' => $inventory->branch->name,
-                    'branch_image' => $inventory->branch->image,
-                    'available_quantity' => $inventory->actual_available,
-                    'availability_percentage' => min(100, ($inventory->actual_available / $quantity) * 100),
+                    'branch_name' => $inventory->branch->name ?? null,
+                    'branch_image' => $inventory->branch->image ?? null,
+                    'available_quantity' => $availableQty,
+                    'availability_percentage' => min(
+                        PurchaseConstants::FULL_AVAILABILITY_PERCENTAGE,
+                        ($availableQty / $quantity) * 100
+                    ),
                     'quality' => $inventory->quality?->value,
                     'expiry_date' => $inventory->earliest_expiry_date?->format('Y-m-d'),
                     'cooling_status' => $inventory->cooling_status,
                     'last_update' => $inventory->last_inventory_update?->diffForHumans(),
-                    'unit_price' => $avgUnitPrice, // Use actual average price from previous orders
+                    'unit_price' => $avgUnitPrice,
                     'total_price' => $avgUnitPrice * $quantity,
                     'rating' => null, // Would come from branch manager stats
                     'response_rate' => null,
@@ -408,23 +426,7 @@ class PriceComparisonService
      */
     public function getPriceTrends(string $itemId): array
     {
-        $threeMonthsAgo = now()->subMonths(2)->startOfMonth(); // current month + last 2 months
-
-        // Get all completed/confirmed orders for this item within the last 2 months and current month
-        $orderItems = PurchaseOrderItem::with(['purchaseOrder'])
-            ->where('item_id', $itemId)
-            ->whereHas('purchaseOrder', function ($query) use ($threeMonthsAgo) {
-                $query->where('created_at', '>=', $threeMonthsAgo)
-                    ->whereIn('status', [
-                        OrderStatus::CONFIRMED,
-                        OrderStatus::PARTIAL_CONFIRMATION,
-                        OrderStatus::CLOSED,
-                        OrderStatus::DELIVERED,
-                    ]);
-            })
-            ->get();
-
-        // For each of the last two months + current month, pick the latest purchase in that month
+        // Performance: Use optimized DB query instead of loading all data
         $trends = collect();
 
         for ($i = 0; $i <= 2; $i++) {
@@ -432,19 +434,27 @@ class PriceComparisonService
             $monthStart = $month->copy()->startOfMonth();
             $monthEnd = $month->copy()->endOfMonth();
 
-            // Filter items for this month and get the latest purchase
-            $latestItem = $orderItems
-                ->filter(function ($item) use ($monthStart, $monthEnd) {
-                    $orderDate = $item->purchaseOrder->created_at;
-                    return $orderDate >= $monthStart && $orderDate <= $monthEnd;
-                })
-                ->sortByDesc(function ($item) {
-                    return $item->purchaseOrder->created_at;
-                })
+            // Get latest purchase in this month using optimized query
+            $latestItem = DB::table('purchase_order_items')
+                ->join('purchase_orders', 'purchase_order_items.purchase_order_id', '=', 'purchase_orders.id')
+                ->where('purchase_order_items.item_id', $itemId)
+                ->where('purchase_orders.created_at', '>=', $monthStart)
+                ->where('purchase_orders.created_at', '<=', $monthEnd)
+                ->whereIn('purchase_orders.status', [
+                    OrderStatus::CONFIRMED->value,
+                    OrderStatus::PARTIAL_CONFIRMATION->value,
+                    OrderStatus::CLOSED->value,
+                    OrderStatus::DELIVERED->value,
+                ])
+                ->select([
+                    'purchase_order_items.unit_price',
+                    'purchase_orders.created_at',
+                ])
+                ->orderBy('purchase_orders.created_at', 'desc')
                 ->first();
 
             if ($latestItem) {
-                $purchaseDate = $latestItem->purchaseOrder->created_at;
+                $purchaseDate = \Carbon\Carbon::parse($latestItem->created_at);
                 $trends->push([
                     'date' => $purchaseDate->format('Y-m-d'),
                     'value' => (float) $latestItem->unit_price,
@@ -866,8 +876,9 @@ class PriceComparisonService
                 // If distance is null (coordinates missing), use default values
                 if (!$distance) {
                     $distance = [
-                        'distance_km' => 50.0, // Default 50 km if coordinates not available
-                        'estimated_hours' => 1.0, // Default 1 hour
+                        'distance_km' => PurchaseConstants::DEFAULT_DISTANCE_KM,
+                        'estimated_hours' => (PurchaseConstants::DEFAULT_DISTANCE_KM / PurchaseConstants::AVERAGE_SPEED_KMH)
+                            + PurchaseConstants::LOADING_UNLOADING_HOURS,
                     ];
                 }
 
@@ -944,8 +955,9 @@ class PriceComparisonService
             // If distance is null (coordinates missing), use default values
             if (!$distance) {
                 $distance = [
-                    'distance_km' => 50.0, // Default 50 km if coordinates not available
-                    'estimated_hours' => 1.0, // Default 1 hour
+                    'distance_km' => PurchaseConstants::DEFAULT_DISTANCE_KM,
+                    'estimated_hours' => (PurchaseConstants::DEFAULT_DISTANCE_KM / PurchaseConstants::AVERAGE_SPEED_KMH)
+                        + PurchaseConstants::LOADING_UNLOADING_HOURS,
                 ];
             }
 
@@ -956,10 +968,12 @@ class PriceComparisonService
             $totalAmount = $avgUnitPrice * $quantity;
 
             // Get response rate with default value
-            $responseRate = $branchStats[$branchId]['response_rate'] ?? 75.0; // Default 75% if no history
+            $responseRate = $branchStats[$branchId]['response_rate']
+                ?? PurchaseConstants::DEFAULT_RESPONSE_RATE;
 
             // Get rating with default value
-            $rating = $branchStats[$branchId]['rating'] ?? 4.5; // Default 4.5 if no history
+            $rating = $branchStats[$branchId]['rating']
+                ?? PurchaseConstants::DEFAULT_RATING;
 
             // Apply filters
             if ($this->shouldFilterByResponseTime($responseRate, $filters)) {
@@ -1051,8 +1065,8 @@ class PriceComparisonService
             round($to['lng'], 4)
         );
 
-        // Performance: Use cache to avoid recalculating same distances (cache for 1 hour)
-        return Cache::remember($cacheKey, 3600, function () use ($from, $to) {
+        // Performance: Use cache to avoid recalculating same distances
+        return Cache::remember($cacheKey, PurchaseConstants::CACHE_TTL_DISTANCE, function () use ($from, $to) {
             $earthRadius = 6371; // Earth radius in km
 
             $latFrom = deg2rad($from['lat']);
@@ -1069,9 +1083,9 @@ class PriceComparisonService
 
             $distanceKm = $earthRadius * $c;
 
-            // Estimate travel time (assuming average speed of 60 km/h for city, 80 km/h for highway)
-            // Using 60 km/h as default
-            $estimatedHours = $distanceKm / 60;
+            // Estimate travel time using constants
+            $estimatedHours = ($distanceKm / PurchaseConstants::AVERAGE_SPEED_KMH_HIGHWAY)
+                + PurchaseConstants::LOADING_UNLOADING_HOURS;
 
             return [
                 'distance_km' => $distanceKm,
@@ -1085,7 +1099,7 @@ class PriceComparisonService
      */
     private function getBranchStatsForInternalTransfer(string $itemId, string $excludeBranchId): array
     {
-        $sixMonthsAgo = now()->subMonths(6);
+        $sixMonthsAgo = now()->subMonths(PurchaseConstants::BRANCH_STATS_MONTHS);
 
         // itemId is now Item.id (central), but PurchaseOrderItem.item_id might still reference BranchItem.id
         // We need to match by Item.id through the item relationship
@@ -1131,15 +1145,17 @@ class PriceComparisonService
         $result = [];
         foreach ($stats as $branchId => $data) {
             // Response rate: percentage of orders responded to within 24 hours
-            $respondedWithin24h = count(array_filter($data['response_times'], fn($t) => $t <= 24));
+            $respondedWithin24h = count(array_filter(
+                $data['response_times'],
+                fn($t) => $t <= PurchaseConstants::HOURS_PER_DAY
+            ));
             $totalOrders = count($data['response_times']);
             $responseRate = $totalOrders > 0
                 ? round(($respondedWithin24h / $totalOrders) * 100, 1)
                 : null;
 
-            // Rating: default to 4.5 if no rating system exists
-            // This can be enhanced with actual rating system
-            $rating = 4.5; // Default rating
+            // Rating: default to constant if no rating system exists
+            $rating = PurchaseConstants::DEFAULT_RATING;
 
             $result[$branchId] = [
                 'response_rate' => $responseRate,
@@ -1183,26 +1199,23 @@ class PriceComparisonService
      */
     private function getAverageUnitPriceForInternalTransfer(string $itemId): float
     {
-        $threeMonthsAgo = now()->subMonths(3);
+        $threeMonthsAgo = now()->subMonths(PurchaseConstants::PRICE_HISTORY_MONTHS);
 
-        // itemId is now Item.id (central)
-        $orderItems = PurchaseOrderItem::with(['purchaseOrder'])
-            ->where('item_id', $itemId) // Assuming PurchaseOrderItem.item_id references Item.id
-            ->whereHas('purchaseOrder', function ($query) use ($threeMonthsAgo) {
-                $query->where('created_at', '>=', $threeMonthsAgo)
-                    ->where('order_type', OrderType::INTERNAL_TRANSFER)
-                    ->whereIn('status', [
-                        OrderStatus::CONFIRMED,
-                        OrderStatus::PARTIAL_CONFIRMATION,
-                        OrderStatus::CLOSED,
-                        OrderStatus::DELIVERED,
-                    ]);
-            })
-            ->get();
+        // Performance: Use optimized DB query instead of Eloquent
+        $avgPrice = DB::table('purchase_order_items')
+            ->join('purchase_orders', 'purchase_order_items.purchase_order_id', '=', 'purchase_orders.id')
+            ->where('purchase_order_items.item_id', $itemId)
+            ->where('purchase_orders.created_at', '>=', $threeMonthsAgo)
+            ->where('purchase_orders.order_type', OrderType::INTERNAL_TRANSFER->value)
+            ->whereIn('purchase_orders.status', [
+                OrderStatus::CONFIRMED->value,
+                OrderStatus::PARTIAL_CONFIRMATION->value,
+                OrderStatus::CLOSED->value,
+                OrderStatus::DELIVERED->value,
+            ])
+            ->avg('purchase_order_items.unit_price');
 
-        return $orderItems->isNotEmpty()
-            ? round($orderItems->avg('unit_price'), 2)
-            : 0;
+        return $avgPrice ? round((float) $avgPrice, 2) : 0;
     }
 
     /**
@@ -1220,9 +1233,10 @@ class PriceComparisonService
         }
 
         return match ($filters['response_time']) {
-            'fast' => $responseRate < 80,
-            'normal' => $responseRate < 50 || $responseRate >= 80,
-            'slow' => $responseRate >= 50,
+            'fast' => $responseRate < PurchaseConstants::FAST_RESPONSE_RATE_THRESHOLD,
+            'normal' => $responseRate < PurchaseConstants::NORMAL_RESPONSE_RATE_MIN
+                || $responseRate >= PurchaseConstants::FAST_RESPONSE_RATE_THRESHOLD,
+            'slow' => $responseRate >= PurchaseConstants::NORMAL_RESPONSE_RATE_MIN,
             default => false,
         };
     }
