@@ -27,11 +27,25 @@ class GoodsReceiptService
      */
     public function getInProgressReceipts(string $branchId, int $perPage = 15): LengthAwarePaginator
     {
-        return GoodsReceipt::with(['purchaseOrder.items', 'purchaseOrder.supplier', 'items'])
+        $paginator = GoodsReceipt::select(['id', 'status', 'created_at', 'purchase_order_id'])
+            ->with(['purchaseOrder:id,order_type'])
+            ->withCount('items as items_count')
             ->byBranch($branchId)
             ->whereIn('status', ['draft', 'in_progress'])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
+
+        // Transform results to return only requested fields
+        $paginator->getCollection()->transform(function ($receipt) {
+            return [
+                'items_count' => $receipt->items_count ?? 0,
+                'order_type' => $receipt->purchaseOrder?->order_type?->value ?? null,
+                'status' => $receipt->status,
+                'date' => $receipt->created_at?->format('Y-m-d H:i:s'),
+            ];
+        });
+
+        return $paginator;
     }
 
     /**
@@ -129,10 +143,10 @@ class GoodsReceiptService
     public function inspectItem(GoodsReceiptItem $item, array $data): GoodsReceiptItem
     {
         $item->inspect($data);
-        
+
         // Update parent receipt
         $item->goodsReceipt->calculateSummary();
-        
+
         return $item->fresh();
     }
 
@@ -325,7 +339,7 @@ class GoodsReceiptService
             // Add items
             foreach ($data['items'] as $itemData) {
                 $total = ($itemData['quantity'] ?? 0) * ($itemData['price_per_unit'] ?? 0);
-                
+
                 GoodsReceiptItem::create([
                     'goods_receipt_id' => $receipt->id,
                     'item_id' => $itemData['item_id'] ?? null,
@@ -365,4 +379,3 @@ class GoodsReceiptService
         ])->find($receiptId);
     }
 }
-
