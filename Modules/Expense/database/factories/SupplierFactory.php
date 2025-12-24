@@ -12,19 +12,19 @@ class SupplierFactory extends Factory
     public function definition(): array
     {
         return [
-            'name' => $this->faker->company(),
-            'phone' => $this->faker->phoneNumber(),
-            'email' => $this->faker->companyEmail(),
-            'tax_id' => $this->faker->numerify('###-###-####'),
-            'address' => $this->faker->address(),
+            'name' => fake()->company(),
+            'phone' => fake()->phoneNumber(),
+            'email' => fake()->unique()->companyEmail(),
+            'tax_id' => fake()->numerify('###-###-####'),
+            'address' => fake()->address(),
             'password' => bcrypt('password123'), // Default password for seeded suppliers
-            'is_active' => $this->faker->boolean(90),
+            'is_active' => fake()->boolean(90),
             'is_first_login' => true,
-            'status' => 'offline',
-            'language' => 'ar',
-            'theme' => 'light',
-            'total_orders' => 0,
-            'completed_orders' => 0,
+            'status' => fake()->randomElement(['online', 'offline', 'away']),
+            'language' => fake()->randomElement(['ar', 'en']),
+            'theme' => fake()->randomElement(['light', 'dark']),
+            'total_orders' => fake()->numberBetween(0, 100),
+            'completed_orders' => fake()->numberBetween(0, 100),
         ];
     }
 
