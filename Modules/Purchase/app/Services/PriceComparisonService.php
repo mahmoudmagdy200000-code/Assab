@@ -39,16 +39,24 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         // Use default quantity from constants
         $quantity = $quantity ?? PurchaseConstants::DEFAULT_QUANTITY;
 
-        // Get item details - itemId can be BranchItem.id or Item.id
+        // Get item details - itemId is Item.id (not BranchItem.id)
+        // Try to find BranchItem first if we have branch context, otherwise use Item directly
         $item = null;
-        $branchItem = BranchItem::with('item:id,name,code,unit,logo')->find($itemId);
+        $branchItem = null;
+        $itemPrice = null;
 
-        if ($branchItem && $branchItem->item) {
-            // New structure: BranchItem -> Item
-            $item = $branchItem->item;
-        } else {
-            // Try direct Item lookup (new structure)
-            $item = Item::select('id', 'name', 'code', 'unit', 'logo')->find($itemId);
+        // Try to find Item directly (itemId is Item.id)
+        $item = Item::select('id', 'name', 'code', 'unit', 'logo')->find($itemId);
+
+        // If we have excludeBranchId (which is the current branch_id), try to get BranchItem for price
+        if ($item && $excludeBranchId) {
+            $branchItem = BranchItem::where('branch_id', $excludeBranchId)
+                ->where('item_id', $item->id)
+                ->first();
+            
+            if ($branchItem) {
+                $itemPrice = $branchItem->price ? (float) $branchItem->price : null;
+            }
         }
 
         // Handle item_logo using helper method
@@ -60,7 +68,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             'item_code' => $item ? $item->code : null,
             'item_unit' => $item ? $item->unit : null,
             'item_logo' => $itemLogo,
-            'item_price' => null, // item_price column doesn't exist in items table
+            'item_price' => $itemPrice, // Get price from BranchItem if available
             'quantity' => $quantity,
             'period' => 'Last 3 Months',
             'sources' => [],
