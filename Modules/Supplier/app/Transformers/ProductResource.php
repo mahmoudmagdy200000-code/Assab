@@ -30,12 +30,17 @@ class ProductResource extends JsonResource
             'images' => $this->images ?? [],
             'categories' => $this->categories ?? [],
             'inventory' => $this->whenLoaded('inventory', function () {
+                // inventory is HasMany, so get the first record or sum quantities
+                $inventory = $this->inventory->first();
+                if (!$inventory) {
+                    return null;
+                }
                 return [
-                    'quantity' => (float) $this->inventory->quantity,
-                    'reserved_quantity' => (float) $this->inventory->reserved_quantity,
-                    'available_quantity' => (float) $this->inventory->available_quantity,
-                    'reorder_level' => $this->inventory->reorder_level ? (float) $this->inventory->reorder_level : null,
-                    'is_low_stock' => $this->inventory->isLowStock(),
+                    'quantity' => (float) $inventory->quantity,
+                    'reserved_quantity' => (float) $inventory->reserved_quantity,
+                    'available_quantity' => (float) $inventory->available_quantity,
+                    'reorder_level' => $inventory->reorder_level ? (float) $inventory->reorder_level : null,
+                    'is_low_stock' => $inventory->isLowStock(),
                 ];
             }),
             'created_at' => $this->created_at?->toDateTimeString(),
