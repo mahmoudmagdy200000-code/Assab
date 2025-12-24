@@ -13,6 +13,11 @@ class ExpenseTimeline extends Model
 {
     use HasFactory , HasUuids;
 
+    protected static function newFactory()
+    {
+        return \Modules\Expense\Database\Factories\ExpenseTimelineFactory::new();
+    }
+
     protected $fillable = [
         'expense_id',
         'action',

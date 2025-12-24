@@ -204,6 +204,14 @@ abstract class BaseController extends Controller
      */
     protected function handleException(\Throwable $exception, string $context = ''): JsonResponse
     {
+        // Log the exception for debugging
+        Log::error("Exception in {$context}", [
+            'message' => $exception->getMessage(),
+            'file' => $exception->getFile(),
+            'line' => $exception->getLine(),
+            'trace' => $exception->getTraceAsString(),
+        ]);
+
         $message = $context ? "Error in {$context}" : 'An error occurred';
 
         return match (true) {
@@ -211,7 +219,15 @@ abstract class BaseController extends Controller
             $exception instanceof \Illuminate\Database\Eloquent\ModelNotFoundException => $this->notFoundResponse('Resource not found'),
             $exception instanceof \Illuminate\Auth\Access\AuthorizationException => $this->forbiddenResponse('Access denied'),
             $exception instanceof \Illuminate\Auth\AuthenticationException => $this->unauthorizedResponse('Authentication required'),
-            default => $this->serverErrorResponse($message, $exception),
+            default => $this->errorResponse(
+                $exception->getMessage() ?: $message,
+                500,
+                config('app.debug') ? [
+                    'file' => $exception->getFile(),
+                    'line' => $exception->getLine(),
+                    'trace' => explode("\n", $exception->getTraceAsString()),
+                ] : null
+            ),
         };
     }
 }

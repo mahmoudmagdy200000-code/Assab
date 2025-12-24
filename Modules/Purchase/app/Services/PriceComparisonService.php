@@ -17,6 +17,7 @@ use Modules\Purchase\Models\PriceHistory;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Purchase\Models\PurchaseSupplier;
+use Modules\Supplier\Models\Supplier;
 use Modules\Purchase\Models\SupplierItem;
 use Modules\Purchase\Traits\ItemHelperTrait;
 

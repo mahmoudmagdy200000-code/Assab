@@ -13,6 +13,11 @@ class PreApprovalRequest extends Model
 {
     use HasFactory , HasUuids;
 
+    protected static function newFactory()
+    {
+        return \Modules\Expense\Database\Factories\PreApprovalRequestFactory::new();
+    }
+
     protected $fillable = [
         'expense_id',
         'purpose',

@@ -28,7 +28,8 @@ class ExpenseApprovalService
         // Create timeline entry
         $this->createTimelineEntry($expense, 'submit', 'submitted');
 
-        // TODO: Send notification to Brand Owner
+        // Fire event for notifications
+        event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense));
     }
 
     /**
@@ -49,7 +50,8 @@ class ExpenseApprovalService
         // Create timeline entry
         $this->createTimelineEntry($expense, 'approve', 'approved', $brandOwnerId, 'brand_owner');
 
-        // TODO: Send notification to Branch Manager
+        // Fire event for notifications
+        event(new \Modules\Expense\Events\ExpenseApprovedEvent($expense, $brandOwnerId));
     }
 
     /**
@@ -71,7 +73,8 @@ class ExpenseApprovalService
         // Create timeline entry
         $this->createTimelineEntry($expense, 'reject', 'rejected', $brandOwnerId, 'brand_owner', $reason);
 
-        // TODO: Send notification to Branch Manager
+        // Fire event for notifications
+        event(new \Modules\Expense\Events\ExpenseRejectedEvent($expense, $brandOwnerId, $reason));
     }
 
     /**
@@ -92,7 +95,8 @@ class ExpenseApprovalService
         // Create timeline entry
         $this->createTimelineEntry($expense, 'resubmit', 'resubmitted');
 
-        // TODO: Send notification to Brand Owner
+        // Fire event for notifications (same as submitted)
+        event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense));
     }
 
     /**

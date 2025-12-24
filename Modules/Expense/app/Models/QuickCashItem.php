@@ -13,6 +13,11 @@ class QuickCashItem extends Model
 {
     use HasFactory , HasUuids;
 
+    protected static function newFactory()
+    {
+        return \Modules\Expense\Database\Factories\QuickCashItemFactory::new();
+    }
+
     protected $fillable = [
         'quick_cash_expense_id',
         'title',

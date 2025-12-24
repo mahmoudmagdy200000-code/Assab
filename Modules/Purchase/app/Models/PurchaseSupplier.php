@@ -9,9 +9,16 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Purchase\Enums\SupplierStatus;
 
+/**
+ * @deprecated This model is deprecated. Use Modules\Supplier\Models\Supplier instead.
+ * This class is kept for backward compatibility during migration.
+ * The table name is set to 'suppliers' to reference the new unified suppliers table.
+ */
 class PurchaseSupplier extends Model
 {
     use HasFactory, HasUuids, SoftDeletes;
+
+    protected $table = 'suppliers'; // Reference new suppliers table
 
     protected $fillable = [
         'name',

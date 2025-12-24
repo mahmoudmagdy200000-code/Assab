@@ -9,38 +9,63 @@ use Modules\Expense\Database\Factories\SupplierFactory;
 
 /**
  * Supplier Model
+ *
+ * @deprecated This model is deprecated. Use Modules\Supplier\Models\Supplier instead.
+ * This class now references the unified suppliers table from Supplier module.
  */
 class Supplier extends Model
 {
-    use HasFactory , HasUuids;
+    use HasFactory, HasUuids;
+
+    protected $table = 'suppliers'; // Reference new suppliers table from Supplier module
 
     protected $fillable = [
         'name',
-        'phone',
         'email',
-        'tax_id',
+        'phone',
+        'image',
         'address',
+        'tax_id',
+        'password',
         'is_active',
-    ];
-
-    protected $casts = [
-        'is_active' => 'boolean',
+        'is_first_login',
+        'email_verified_at',
+        'phone_verified_at',
+        'company_name',
+        'service_areas',
+        'working_hours',
+        'holiday_schedules',
+        'language',
+        'theme',
+        'notification_preferences',
+        'status',
+        'contact_methods',
+        'default_delivery_hours',
+        'min_order_amount',
+        'average_response_time_hours',
+        'response_rate_percentage',
+        'rating',
+        'total_orders',
+        'completed_orders',
+        'categories',
+        'created_by_admin_at',
+        'last_seen_at',
     ];
 
     protected static function newFactory()
     {
-        return \Modules\Expense\database\factories\SupplierFactory::new();
+        return \Modules\Expense\Database\Factories\SupplierFactory::new();
     }
 
-
+    // Relationships from Expense module
     public function expenses()
     {
-        return $this->hasMany(Expense::class);
+        return $this->hasMany(Expense::class, 'supplier_id');
     }
 
     public function invoiceDetails()
     {
-        return $this->hasMany(InvoiceDetail::class);
+        return $this->hasMany(InvoiceDetail::class, 'supplier_id');
     }
 
     // Scopes
@@ -48,6 +73,4 @@ class Supplier extends Model
     {
         return $query->where('is_active', true);
     }
-
-    
 }

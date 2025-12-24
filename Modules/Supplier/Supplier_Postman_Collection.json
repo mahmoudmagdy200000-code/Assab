@@ -1,0 +1,1883 @@
+{
+    "info": {
+        "_postman_id": "supplier-module-collection",
+        "name": "Supplier Module API",
+        "description": "Complete API collection for Supplier Module endpoints",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "auth": {
+        "type": "bearer",
+        "bearer": [
+            {
+                "key": "token",
+                "value": "{{token}}",
+                "type": "string"
+            }
+        ]
+    },
+    "item": [
+        {
+            "name": "Authentication",
+            "item": [
+                {
+                    "name": "First Login",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"identifier\": \"supplier@example.com\",\n    \"password\": \"password123\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/auth/first-login",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "auth", "first-login"]
+                        },
+                        "description": "First login for supplier users"
+                    }
+                },
+                {
+                    "name": "Login",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"identifier\": \"supplier@example.com\",\n    \"password\": \"password123\",\n    \"remember_me\": true\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/auth/login",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "auth", "login"]
+                        },
+                        "description": "Regular login for supplier users"
+                    }
+                },
+                {
+                    "name": "Logout",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/auth/logout",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "auth", "logout"]
+                        },
+                        "description": "Logout authenticated supplier user"
+                    }
+                },
+                {
+                    "name": "Get Current User",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/auth/me",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "auth", "me"]
+                        },
+                        "description": "Get current authenticated supplier user details"
+                    }
+                },
+                {
+                    "name": "Reset Password First Login",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"password\": \"NewPassword123\",\n    \"password_confirmation\": \"NewPassword123\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/auth/password/reset/first-login",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "auth",
+                                "password",
+                                "reset",
+                                "first-login"
+                            ]
+                        },
+                        "description": "Reset password on first login"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Password Reset",
+            "item": [
+                {
+                    "name": "Send OTP",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"identifier\": \"supplier@example.com\",\n    \"type\": \"email\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/auth/password/reset/send-otp",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "auth",
+                                "password",
+                                "reset",
+                                "send-otp"
+                            ]
+                        },
+                        "description": "Send OTP for password reset"
+                    }
+                },
+                {
+                    "name": "Verify OTP",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"identifier\": \"supplier@example.com\",\n    \"otp\": \"123456\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/auth/password/reset/verify-otp",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "auth",
+                                "password",
+                                "reset",
+                                "verify-otp"
+                            ]
+                        },
+                        "description": "Verify OTP for password reset"
+                    }
+                },
+                {
+                    "name": "Reset Password",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"identifier\": \"supplier@example.com\",\n    \"reset_token\": \"reset_token_from_verify_otp\",\n    \"password\": \"NewPassword123\",\n    \"password_confirmation\": \"NewPassword123\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/auth/password/reset",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "auth", "password", "reset"]
+                        },
+                        "description": "Reset password using reset token"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Orders",
+            "item": [
+                {
+                    "name": "Get All Orders",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/orders?page=1&per_page=15&status=pending&sort_by=created_at&sort_order=desc",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "orders"],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "15"
+                                },
+                                {
+                                    "key": "status",
+                                    "value": "pending"
+                                },
+                                {
+                                    "key": "sort_by",
+                                    "value": "created_at"
+                                },
+                                {
+                                    "key": "sort_order",
+                                    "value": "desc"
+                                }
+                            ]
+                        },
+                        "description": "Get paginated list of orders"
+                    }
+                },
+                {
+                    "name": "Get Orders Dashboard",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/orders/dashboard",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "orders", "dashboard"]
+                        },
+                        "description": "Get orders dashboard statistics"
+                    }
+                },
+                {
+                    "name": "Get Order Details",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/orders/:id",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "orders", ":id"],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "order-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Get specific order details"
+                    }
+                },
+                {
+                    "name": "Accept Order",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"expected_delivery_at\": \"2025-12-31 14:00:00\",\n    \"message\": \"Order accepted and will be delivered on time\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/orders/:id/accept",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "orders", ":id", "accept"],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "order-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Accept an order"
+                    }
+                },
+                {
+                    "name": "Reject Order",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"reason\": \"insufficient_stock\",\n    \"explanation\": \"We do not have enough stock to fulfill this order\",\n    \"rejection_type\": \"entire_order\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/orders/:id/reject",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "orders", ":id", "reject"],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "order-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Reject an order"
+                    }
+                },
+                {
+                    "name": "Request Order Modification",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"modification_type\": \"delivery_time\",\n    \"modification_request\": \"We need 2 more days to prepare this order\",\n    \"suggested_changes\": {\n        \"new_delivery_date\": \"2025-12-31\"\n    }\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/orders/:id/request-modification",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "orders",
+                                ":id",
+                                "request-modification"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "order-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Request modification for an order"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Order Fulfillment",
+            "item": [
+                {
+                    "name": "Start Preparation",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"message\": \"Starting order preparation\",\n    \"quality_documents\": [\n        {\n            \"type\": \"certificate\",\n            \"title\": \"Quality Certificate\",\n            \"file_path\": \"/path/to/file.pdf\",\n            \"file_name\": \"certificate.pdf\"\n        }\n    ]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/fulfillment/orders/:id/start-preparation",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "fulfillment",
+                                "orders",
+                                ":id",
+                                "start-preparation"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "order-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Start order preparation"
+                    }
+                },
+                {
+                    "name": "Update Preparation",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"progress_percentage\": 75,\n    \"message\": \"Order is 75% prepared\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/fulfillment/orders/:id/update-preparation",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "fulfillment",
+                                "orders",
+                                ":id",
+                                "update-preparation"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "order-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Update order preparation progress"
+                    }
+                },
+                {
+                    "name": "Start Delivery",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"message\": \"Order is out for delivery\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/fulfillment/orders/:id/start-delivery",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "fulfillment",
+                                "orders",
+                                ":id",
+                                "start-delivery"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "order-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Start order delivery"
+                    }
+                },
+                {
+                    "name": "Report Delay",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"delay_reason\": \"Traffic congestion\",\n    \"estimated_new_delivery_time\": \"2025-12-31 16:00:00\",\n    \"message\": \"Delivery delayed due to traffic\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/fulfillment/orders/:id/report-delay",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "fulfillment",
+                                "orders",
+                                ":id",
+                                "report-delay"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "order-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Report delivery delay"
+                    }
+                },
+                {
+                    "name": "Complete Delivery",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"delivery_confirmation\": \"Order delivered successfully\",\n    \"delivered_at\": \"2025-12-31 15:00:00\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/fulfillment/orders/:id/complete",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "fulfillment",
+                                "orders",
+                                ":id",
+                                "complete"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "order-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Complete order delivery"
+                    }
+                },
+                {
+                    "name": "Submit Invoice",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"invoice_number\": \"INV-2025-001\",\n    \"invoice_date\": \"2025-12-31\",\n    \"due_date\": \"2026-01-15\",\n    \"subtotal\": 1000.00,\n    \"tax_rate\": 15,\n    \"tax_amount\": 150.00,\n    \"discount_amount\": 0,\n    \"total_amount\": 1150.00,\n    \"items\": [\n        {\n            \"product_id\": \"product-uuid\",\n            \"quantity\": 10,\n            \"unit_price\": 100.00,\n            \"total\": 1000.00\n        }\n    ],\n    \"file_path\": \"/path/to/invoice.pdf\",\n    \"notes\": \"Invoice notes\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/fulfillment/orders/:id/submit-invoice",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "fulfillment",
+                                "orders",
+                                ":id",
+                                "submit-invoice"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "order-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Submit invoice for order"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Inventory",
+            "item": [
+                {
+                    "name": "Get Products",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/inventory/products?page=1&per_page=15&search=&is_available=true",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "inventory", "products"],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "15"
+                                },
+                                {
+                                    "key": "search",
+                                    "value": ""
+                                },
+                                {
+                                    "key": "is_available",
+                                    "value": "true"
+                                }
+                            ]
+                        },
+                        "description": "Get paginated list of products"
+                    }
+                },
+                {
+                    "name": "Create Product",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"item_id\": \"item-uuid-here\",\n    \"name\": \"Product Name\",\n    \"description\": \"Product description\",\n    \"sku\": \"SKU-001\",\n    \"unit_price\": 100.00,\n    \"economy_price\": 90.00,\n    \"standard_price\": 100.00,\n    \"premium_price\": 120.00,\n    \"is_available\": true,\n    \"min_order_quantity\": 1,\n    \"max_order_quantity\": 100,\n    \"stock_quantity\": 500,\n    \"delivery_hours\": 24,\n    \"quality_level\": \"standard\",\n    \"specifications\": {\n        \"weight\": \"1kg\",\n        \"dimensions\": \"10x10x10cm\"\n    },\n    \"images\": [\n        \"/path/to/image1.jpg\",\n        \"/path/to/image2.jpg\"\n    ],\n    \"categories\": [\n        \"category-uuid-1\",\n        \"category-uuid-2\"\n    ]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/inventory/products",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "inventory", "products"]
+                        },
+                        "description": "Create a new product"
+                    }
+                },
+                {
+                    "name": "Update Product",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"name\": \"Updated Product Name\",\n    \"description\": \"Updated description\",\n    \"unit_price\": 110.00,\n    \"economy_price\": 95.00,\n    \"standard_price\": 110.00,\n    \"premium_price\": 130.00,\n    \"is_available\": true,\n    \"min_order_quantity\": 2,\n    \"max_order_quantity\": 150,\n    \"delivery_hours\": 48,\n    \"quality_level\": \"premium\",\n    \"specifications\": {\n        \"weight\": \"1.2kg\"\n    }\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/inventory/products/:id",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "inventory",
+                                "products",
+                                ":id"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "product-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Update product details"
+                    }
+                },
+                {
+                    "name": "Update Stock",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"quantity\": 600,\n    \"reserved_quantity\": 50,\n    \"reorder_level\": 100,\n    \"max_stock_level\": 1000,\n    \"restocked\": true\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/inventory/stock/:id",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "inventory", "stock", ":id"],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "product-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Update product stock"
+                    }
+                },
+                {
+                    "name": "Get Low Stock Alerts",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/inventory/low-stock-alerts",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "inventory",
+                                "low-stock-alerts"
+                            ]
+                        },
+                        "description": "Get low stock alerts"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Communication",
+            "item": [
+                {
+                    "name": "Get Messages",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/communications/messages?page=1&per_page=15&branch_id=&order_id=",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "communications", "messages"],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "15"
+                                },
+                                {
+                                    "key": "branch_id",
+                                    "value": ""
+                                },
+                                {
+                                    "key": "order_id",
+                                    "value": ""
+                                }
+                            ]
+                        },
+                        "description": "Get paginated list of messages"
+                    }
+                },
+                {
+                    "name": "Send Message",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"branch_id\": \"branch-uuid-here\",\n    \"order_id\": \"order-uuid-here\",\n    \"message\": \"Your message here\",\n    \"attachments\": []\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/communications/messages",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "communications", "messages"]
+                        },
+                        "description": "Send a message"
+                    }
+                },
+                {
+                    "name": "Mark Message as Read",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/communications/messages/:id/read",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "communications",
+                                "messages",
+                                ":id",
+                                "read"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "message-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Mark message as read"
+                    }
+                },
+                {
+                    "name": "Get Notifications",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/communications/notifications?page=1&per_page=15&unread_only=false",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "communications",
+                                "notifications"
+                            ],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "15"
+                                },
+                                {
+                                    "key": "unread_only",
+                                    "value": "false"
+                                }
+                            ]
+                        },
+                        "description": "Get paginated list of notifications"
+                    }
+                },
+                {
+                    "name": "Mark Notification as Read",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/communications/notifications/:id/read",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "communications",
+                                "notifications",
+                                ":id",
+                                "read"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "notification-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Mark notification as read"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Analytics",
+            "item": [
+                {
+                    "name": "Get Order Statistics",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/analytics/orders?start_date=2025-01-01&end_date=2025-12-31",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "analytics", "orders"],
+                            "query": [
+                                {
+                                    "key": "start_date",
+                                    "value": "2025-01-01"
+                                },
+                                {
+                                    "key": "end_date",
+                                    "value": "2025-12-31"
+                                }
+                            ]
+                        },
+                        "description": "Get order statistics"
+                    }
+                },
+                {
+                    "name": "Get Financial Report",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/analytics/financial?start_date=2025-01-01&end_date=2025-12-31",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "analytics", "financial"],
+                            "query": [
+                                {
+                                    "key": "start_date",
+                                    "value": "2025-01-01"
+                                },
+                                {
+                                    "key": "end_date",
+                                    "value": "2025-12-31"
+                                }
+                            ]
+                        },
+                        "description": "Get financial report"
+                    }
+                },
+                {
+                    "name": "Get Performance Metrics",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/analytics/performance?start_date=2025-01-01&end_date=2025-12-31",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "analytics", "performance"],
+                            "query": [
+                                {
+                                    "key": "start_date",
+                                    "value": "2025-01-01"
+                                },
+                                {
+                                    "key": "end_date",
+                                    "value": "2025-12-31"
+                                }
+                            ]
+                        },
+                        "description": "Get performance metrics"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Reporting",
+            "item": [
+                {
+                    "name": "Generate Performance Report",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/reports/performance?start_date=2025-01-01&end_date=2025-12-31&format=pdf",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "reports", "performance"],
+                            "query": [
+                                {
+                                    "key": "start_date",
+                                    "value": "2025-01-01"
+                                },
+                                {
+                                    "key": "end_date",
+                                    "value": "2025-12-31"
+                                },
+                                {
+                                    "key": "format",
+                                    "value": "pdf"
+                                }
+                            ]
+                        },
+                        "description": "Generate performance report"
+                    }
+                },
+                {
+                    "name": "Generate Financial Report",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/reports/financial?start_date=2025-01-01&end_date=2025-12-31&format=pdf",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "reports", "financial"],
+                            "query": [
+                                {
+                                    "key": "start_date",
+                                    "value": "2025-01-01"
+                                },
+                                {
+                                    "key": "end_date",
+                                    "value": "2025-12-31"
+                                },
+                                {
+                                    "key": "format",
+                                    "value": "pdf"
+                                }
+                            ]
+                        },
+                        "description": "Generate financial report"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Returns",
+            "item": [
+                {
+                    "name": "Get Return Requests",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/returns?page=1&per_page=15&status=pending",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "returns"],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "15"
+                                },
+                                {
+                                    "key": "status",
+                                    "value": "pending"
+                                }
+                            ]
+                        },
+                        "description": "Get paginated list of return requests"
+                    }
+                },
+                {
+                    "name": "View Return Details",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/returns/:id",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "returns", ":id"],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "return-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Get return request details"
+                    }
+                },
+                {
+                    "name": "Approve Return",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"notes\": \"Return approved\",\n    \"refund_method\": \"bank_transfer\",\n    \"resolution_type\": \"refund\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/returns/:id/approve",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "returns", ":id", "approve"],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "return-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Approve return request"
+                    }
+                },
+                {
+                    "name": "Reject Return",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"reason\": \"Product is not eligible for return\",\n    \"notes\": \"Return rejected due to policy violation\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/returns/:id/reject",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "returns", ":id", "reject"],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "return-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Reject return request"
+                    }
+                },
+                {
+                    "name": "Process Return",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"processing_notes\": \"Return processed successfully\",\n    \"refund_amount\": 100.00\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/returns/:id/process",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "returns", ":id", "process"],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "return-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Process return request"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Recurring Orders",
+            "item": [
+                {
+                    "name": "Get Recurring Orders",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/recurring-orders?page=1&per_page=15&status=active",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "recurring-orders"],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "15"
+                                },
+                                {
+                                    "key": "status",
+                                    "value": "active"
+                                }
+                            ]
+                        },
+                        "description": "Get paginated list of recurring orders"
+                    }
+                },
+                {
+                    "name": "Modify Schedule",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"frequency\": \"weekly\",\n    \"day_of_week\": \"monday\",\n    \"day_of_month\": null,\n    \"next_delivery_date\": \"2026-01-05\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/recurring-orders/:id/schedule",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "recurring-orders",
+                                ":id",
+                                "schedule"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "recurring-order-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Modify recurring order schedule"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Emergency Orders",
+            "item": [
+                {
+                    "name": "Get Emergency Orders",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/emergency-orders?page=1&per_page=15&status=pending",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "emergency-orders"],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "15"
+                                },
+                                {
+                                    "key": "status",
+                                    "value": "pending"
+                                }
+                            ]
+                        },
+                        "description": "Get paginated list of emergency orders"
+                    }
+                },
+                {
+                    "name": "Respond to Emergency",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"can_fulfill\": true,\n    \"response_message\": \"We can fulfill this emergency order\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/emergency-orders/:id/respond",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "emergency-orders",
+                                ":id",
+                                "respond"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "emergency-order-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Respond to emergency order"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Quality Assurance",
+            "item": [
+                {
+                    "name": "Get Documents",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/quality-assurance/documents?page=1&per_page=15&type=",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "quality-assurance",
+                                "documents"
+                            ],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "15"
+                                },
+                                {
+                                    "key": "type",
+                                    "value": ""
+                                }
+                            ]
+                        },
+                        "description": "Get paginated list of quality documents"
+                    }
+                },
+                {
+                    "name": "Upload Document",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"type\": \"certificate\",\n    \"title\": \"Quality Certificate\",\n    \"file_path\": \"/path/to/file.pdf\",\n    \"file_name\": \"certificate.pdf\",\n    \"expiry_date\": \"2026-12-31\",\n    \"description\": \"Quality assurance certificate\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/quality-assurance/documents",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "quality-assurance",
+                                "documents"
+                            ]
+                        },
+                        "description": "Upload quality document"
+                    }
+                },
+                {
+                    "name": "Log Incident",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"order_id\": \"order-uuid-here\",\n    \"incident_type\": \"quality_issue\",\n    \"severity\": \"medium\",\n    \"description\": \"Quality issue detected\",\n    \"affected_items\": [\"item-uuid-1\", \"item-uuid-2\"],\n    \"resolution_actions\": \"Actions taken to resolve\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/quality-assurance/incidents",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "supplier",
+                                "quality-assurance",
+                                "incidents"
+                            ]
+                        },
+                        "description": "Log quality incident"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Settings",
+            "item": [
+                {
+                    "name": "Get Profile",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/supplier/settings/profile",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "settings", "profile"]
+                        },
+                        "description": "Get supplier profile settings"
+                    }
+                },
+                {
+                    "name": "Update Profile",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"name\": \"Updated Name\",\n    \"address\": \"Updated Address\",\n    \"company_name\": \"Updated Company Name\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/settings/profile",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "settings", "profile"]
+                        },
+                        "description": "Update supplier profile"
+                    }
+                },
+                {
+                    "name": "Update Account Settings",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"email\": \"newemail@example.com\",\n    \"phone\": \"+1234567890\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/settings/account",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "settings", "account"]
+                        },
+                        "description": "Update account settings"
+                    }
+                },
+                {
+                    "name": "Update System Settings",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"language\": \"en\",\n    \"timezone\": \"UTC\",\n    \"currency\": \"USD\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/settings/system",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "settings", "system"]
+                        },
+                        "description": "Update system settings"
+                    }
+                },
+                {
+                    "name": "Update Notification Settings",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"email_notifications\": true,\n    \"sms_notifications\": false,\n    \"push_notifications\": true,\n    \"notification_types\": {\n        \"order_updates\": true,\n        \"payment_updates\": true,\n        \"system_alerts\": false\n    }\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/supplier/settings/notifications",
+                            "host": ["{{base_url}}"],
+                            "path": ["supplier", "settings", "notifications"]
+                        },
+                        "description": "Update notification settings"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Admin - Suppliers Management",
+            "item": [
+                {
+                    "name": "Get All Suppliers",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/suppliers?page=1&per_page=15",
+                            "host": ["{{base_url}}"],
+                            "path": ["suppliers"],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "15"
+                                }
+                            ]
+                        },
+                        "description": "Get paginated list of suppliers (Admin)"
+                    }
+                },
+                {
+                    "name": "Create Supplier",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"name\": \"Supplier Name\",\n    \"email\": \"supplier@example.com\",\n    \"phone\": \"+1234567890\",\n    \"address\": \"Supplier Address\",\n    \"company_name\": \"Company Name\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/suppliers",
+                            "host": ["{{base_url}}"],
+                            "path": ["suppliers"]
+                        },
+                        "description": "Create a new supplier (Admin)"
+                    }
+                },
+                {
+                    "name": "Get Supplier",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/suppliers/:id",
+                            "host": ["{{base_url}}"],
+                            "path": ["suppliers", ":id"],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "supplier-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Get supplier details (Admin)"
+                    }
+                },
+                {
+                    "name": "Update Supplier",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"name\": \"Updated Supplier Name\",\n    \"email\": \"updated@example.com\",\n    \"phone\": \"+1234567890\",\n    \"address\": \"Updated Address\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/suppliers/:id",
+                            "host": ["{{base_url}}"],
+                            "path": ["suppliers", ":id"],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "supplier-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Update supplier (Admin)"
+                    }
+                },
+                {
+                    "name": "Delete Supplier",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/suppliers/:id",
+                            "host": ["{{base_url}}"],
+                            "path": ["suppliers", ":id"],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "supplier-uuid-here"
+                                }
+                            ]
+                        },
+                        "description": "Delete supplier (Admin)"
+                    }
+                }
+            ]
+        }
+    ],
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "https://your-domain.com/api",
+            "type": "string"
+        },
+        {
+            "key": "token",
+            "value": "",
+            "type": "string"
+        }
+    ]
+}

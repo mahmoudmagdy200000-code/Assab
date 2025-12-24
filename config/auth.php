@@ -48,6 +48,10 @@ return [
             'driver' => 'session', // أو 'session' حسب نظامك
             'provider' => 'cashiers',
         ],
+        'supplier' => [
+            'driver' => 'sanctum',
+            'provider' => 'suppliers',
+        ],
     ],
 
     /*
@@ -86,6 +90,10 @@ return [
         'branch_managers' => [
             'driver' => 'eloquent',
             'model' => Modules\BranchManagers\Models\BranchManager::class,
+        ],
+        'suppliers' => [
+            'driver' => 'eloquent',
+            'model' => Modules\Supplier\Models\Supplier::class,
         ],
         
     ],

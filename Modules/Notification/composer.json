@@ -1,0 +1,28 @@
+{
+    "name": "nwidart/notification",
+    "description": "Notification module for Assab Application",
+    "authors": [
+        {
+            "name": "Nicolas Widart",
+            "email": "n.widart@gmail.com"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {}
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\Notification\\": "app/",
+            "Modules\\Notification\\Database\\Factories\\": "database/factories/",
+            "Modules\\Notification\\Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Modules\\Notification\\Tests\\": "tests/"
+        }
+    }
+}

@@ -13,6 +13,11 @@ class Category extends Model
 {
     use HasFactory, HasUuids;
 
+    protected static function newFactory()
+    {
+        return \Modules\Expense\Database\Factories\CategoryFactory::new();
+    }
+
     protected $fillable = [
         'name',
         'parent_id',

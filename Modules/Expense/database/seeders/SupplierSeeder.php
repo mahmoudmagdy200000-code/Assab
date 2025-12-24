@@ -53,8 +53,17 @@ class SupplierSeeder extends Seeder
             ],
         ];
 
-        foreach ($suppliers as $supplier) {
-            Supplier::create($supplier);
+        foreach ($suppliers as $supplierData) {
+            // Add required fields for new suppliers table structure
+            $supplierData['password'] = bcrypt('password123');
+            $supplierData['is_first_login'] = true;
+            $supplierData['status'] = 'offline';
+            $supplierData['language'] = 'ar';
+            $supplierData['theme'] = 'light';
+            $supplierData['total_orders'] = 0;
+            $supplierData['completed_orders'] = 0;
+            
+            Supplier::create($supplierData);
         }
 
         // Create additional random suppliers

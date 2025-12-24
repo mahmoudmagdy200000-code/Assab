@@ -549,6 +549,9 @@ class NewOrderController extends BaseController
         }
     }
 
+
+    
+
     /**
      * Get Purchasing Officer Items with price comparison
      *

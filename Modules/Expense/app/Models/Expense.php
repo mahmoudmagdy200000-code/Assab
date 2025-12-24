@@ -15,6 +15,11 @@ class Expense extends Model
 {
     use HasFactory, SoftDeletes , HasUuids;
 
+    protected static function newFactory()
+    {
+        return \Modules\Expense\Database\Factories\ExpenseFactory::new();
+    }
+
     protected $fillable = [
         'branch_manager_id',
         'expense_type',

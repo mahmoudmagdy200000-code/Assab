@@ -151,7 +151,8 @@ class PurchaseOrder extends Model
 
     public function supplier(): BelongsTo
     {
-        return $this->belongsTo(PurchaseSupplier::class, 'supplier_id');
+        // Reference Supplier module's Supplier model
+        return $this->belongsTo(\Modules\Supplier\Models\Supplier::class, 'supplier_id');
     }
 
     public function parentOrder(): BelongsTo

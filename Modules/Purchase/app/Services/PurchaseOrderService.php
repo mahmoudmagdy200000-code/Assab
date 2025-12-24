@@ -376,7 +376,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 : $data['order_type'];
 
             if ($orderType === OrderType::DIRECT_SUPPLIER) {
-                $sourceableType = \Modules\Purchase\Models\PurchaseSupplier::class;
+                $sourceableType = \Modules\Supplier\Models\Supplier::class;
                 $sourceableId = $data['supplier_id'] ?? null;
                 if (!$sourceableId) {
                     throw new \InvalidArgumentException('Supplier ID is required for direct supplier orders');

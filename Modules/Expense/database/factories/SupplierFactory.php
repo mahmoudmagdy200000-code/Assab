@@ -17,7 +17,14 @@ class SupplierFactory extends Factory
             'email' => $this->faker->companyEmail(),
             'tax_id' => $this->faker->numerify('###-###-####'),
             'address' => $this->faker->address(),
+            'password' => bcrypt('password123'), // Default password for seeded suppliers
             'is_active' => $this->faker->boolean(90),
+            'is_first_login' => true,
+            'status' => 'offline',
+            'language' => 'ar',
+            'theme' => 'light',
+            'total_orders' => 0,
+            'completed_orders' => 0,
         ];
     }
 

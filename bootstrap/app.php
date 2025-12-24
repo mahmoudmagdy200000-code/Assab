@@ -65,6 +65,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'branch.manager' => \Modules\BranchManagers\Http\Middleware\BranchManagerMiddleware::class,
             'cashier' => \Modules\Cashier\Http\Middleware\CashierMiddleware::class,
             'brand.owner' => \Modules\BrandOwner\Http\Middleware\BrandOwnerMiddleware::class,
+            'supplier' => \Modules\Supplier\Http\Middleware\SupplierMiddleware::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

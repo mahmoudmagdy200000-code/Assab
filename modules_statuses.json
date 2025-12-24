@@ -9,5 +9,8 @@
     "BrandOwner": true,
     "Shift": true,
     "Purchase": true,
-    "Custody": true
+    "Custody": true,
+    "Notification": true,
+    "RecurringOrder": true,
+    "Supplier": true
 }

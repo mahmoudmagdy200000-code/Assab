@@ -550,8 +550,8 @@ class OrderDataService
         $supplierId = $validated['supplier_id'];
         $perPage = $validated['per_page'] ?? PurchaseConstants::DEFAULT_PER_PAGE;
 
-        // Get supplier with details
-        $supplier = PurchaseSupplier::find($supplierId);
+        // Get supplier with details (using new Supplier model)
+        $supplier = \Modules\Supplier\Models\Supplier::find($supplierId);
         if (!$supplier) {
             throw new \InvalidArgumentException('Supplier not found');
         }

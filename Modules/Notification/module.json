@@ -1,0 +1,15 @@
+{
+    "name": "Notification",
+    "alias": "notification",
+    "description": "Comprehensive notification system for Assab Application",
+    "keywords": ["notification", "alert", "sms", "email", "push"],
+    "priority": 1,
+    "providers": [
+        "Modules\\Notification\\Providers\\NotificationServiceProvider",
+        "Modules\\Notification\\Providers\\RouteServiceProvider",
+        "Modules\\Notification\\Providers\\EventServiceProvider"
+    ],
+    "aliases": {},
+    "files": [],
+    "requires": []
+}

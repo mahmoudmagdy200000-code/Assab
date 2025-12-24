@@ -66,6 +66,19 @@ class ExpenseFactory extends Factory
         ]);
     }
 
+    public function draft(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => 'draft',
+            'submitted_at' => null,
+            'approved_by' => null,
+            'approved_at' => null,
+            'rejected_by' => null,
+            'rejected_at' => null,
+            'rejection_reason' => null,
+        ]);
+    }
+
     public function pending(): static
     {
         return $this->state(fn (array $attributes) => [
