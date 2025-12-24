@@ -577,9 +577,11 @@ class OrderDataService
         }
 
         // Get BranchItems referenced by SupplierItems
+        // Note: item_name, item_code, etc. are accessors, not actual columns
+        // We need to eager load the item relationship to access these
         $supplierItemIds = $supplierItems->pluck('item_id')->toArray();
         $referencedBranchItems = BranchItem::whereIn('id', $supplierItemIds)
-            ->select('id', 'item_name', 'item_code', 'item_unit', 'category', 'subcategory')
+            ->with('item:id,name,code,unit,category,subcategory')
             ->get()
             ->keyBy('id');
 
@@ -588,9 +590,13 @@ class OrderDataService
         $itemCodes = $referencedBranchItems->pluck('item_code')->unique()->toArray();
 
         $branchItemsQuery = BranchItem::where('branch_id', $branchId)
+            ->with('item:id,name,code,unit,category,subcategory')
             ->where(function ($q) use ($itemNames, $itemCodes, $validated) {
-                $q->whereIn('item_name', $itemNames)
-                    ->orWhereIn('item_code', $itemCodes);
+                // Use whereHas to query through item relationship
+                $q->whereHas('item', function ($itemQuery) use ($itemNames, $itemCodes) {
+                    $itemQuery->whereIn('name', $itemNames)
+                        ->orWhereIn('code', $itemCodes);
+                });
 
                 // If specific item_id is requested, also check by id
                 if (!empty($validated['item_id'])) {
