@@ -11,20 +11,22 @@ class SupplierFactory extends Factory
 
     public function definition(): array
     {
+        $faker = Factory::faker();
+        
         return [
-            'name' => \fake()->company(),
-            'phone' => \fake()->phoneNumber(),
-            'email' => \fake()->unique()->companyEmail(),
-            'tax_id' => \fake()->numerify('###-###-####'),
-            'address' => \fake()->address(),
+            'name' => $faker->company(),
+            'phone' => $faker->phoneNumber(),
+            'email' => $faker->unique()->companyEmail(),
+            'tax_id' => $faker->numerify('###-###-####'),
+            'address' => $faker->address(),
             'password' => bcrypt('password123'), // Default password for seeded suppliers
-            'is_active' => \fake()->boolean(90),
+            'is_active' => $faker->boolean(90),
             'is_first_login' => true,
-            'status' => \fake()->randomElement(['online', 'offline', 'away']),
-            'language' => \fake()->randomElement(['ar', 'en']),
-            'theme' => \fake()->randomElement(['light', 'dark']),
-            'total_orders' => \fake()->numberBetween(0, 100),
-            'completed_orders' => \fake()->numberBetween(0, 100),
+            'status' => $faker->randomElement(['online', 'offline', 'away']),
+            'language' => $faker->randomElement(['ar', 'en']),
+            'theme' => $faker->randomElement(['light', 'dark']),
+            'total_orders' => $faker->numberBetween(0, 100),
+            'completed_orders' => $faker->numberBetween(0, 100),
         ];
     }
 
