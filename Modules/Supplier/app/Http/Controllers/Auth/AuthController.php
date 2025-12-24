@@ -7,6 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Modules\Supplier\Http\Requests\Auth\FirstLoginRequest;
 use Modules\Supplier\Http\Requests\Auth\ResetPasswordFirstLoginRequest;
 use Modules\Supplier\Http\Requests\Auth\LoginRequest;
+use Modules\Supplier\Http\Requests\Auth\ChangePasswordRequest;
 use Modules\Supplier\Services\AuthService;
 use Modules\Supplier\Transformers\SupplierResource;
 
@@ -138,6 +139,30 @@ class AuthController extends BaseController
             ], 'User retrieved successfully');
         } catch (\Exception $e) {
             return $this->handleException($e, 'fetching supplier');
+        }
+    }
+
+    /**
+     * Change password
+     */
+    public function changePassword(ChangePasswordRequest $request): JsonResponse
+    {
+        try {
+            $supplier = auth('supplier')->user();
+
+            if (!$supplier) {
+                return $this->unauthorizedResponse('Not authenticated');
+            }
+
+            $this->authService->changePassword(
+                $supplier,
+                $request->current_password,
+                $request->new_password
+            );
+
+            return $this->successResponse(null, 'Password changed successfully');
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'changing password');
         }
     }
 }

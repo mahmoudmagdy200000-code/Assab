@@ -30,6 +30,7 @@ Route::middleware(['auth:sanctum', \Modules\Supplier\Http\Middleware\SupplierMid
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::post('/auth/password/reset/first-login', [AuthController::class, 'resetPasswordFirstLogin']);
+    Route::post('/auth/password/change', [AuthController::class, 'changePassword']);
     
     // Orders
     Route::get('/orders', [OrderController::class, 'index']);

@@ -110,5 +110,27 @@ class AuthService
     {
         $supplier->tokens()->delete();
     }
+
+    /**
+     * Change password
+     */
+    public function changePassword(Supplier $supplier, string $currentPassword, string $newPassword): void
+    {
+        // Verify current password
+        if (!Hash::check($currentPassword, $supplier->password)) {
+            throw new \Exception('Current password is incorrect');
+        }
+
+        // Update password
+        $supplier->update([
+            'password' => Hash::make($newPassword),
+        ]);
+
+        // Revoke all tokens except current to force re-login on other devices
+        $currentToken = $supplier->currentAccessToken();
+        if ($currentToken) {
+            $supplier->tokens()->where('id', '!=', $currentToken->id)->delete();
+        }
+    }
 }
 
