@@ -15,9 +15,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (!Schema::hasTable('suppliers')) {
-            return;
-        }
+            if (!Schema::hasTable('suppliers')) {
+                return;
+            }
 
         // Check if suppliers table has password column (new Supplier module table structure)
         $hasPasswordColumn = Schema::hasColumn('suppliers', 'password');
