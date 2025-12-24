@@ -35,7 +35,8 @@ class SupplierItemResource extends JsonResource
 
         return [
             // Item Information
-            'item_id' => $branchItem?->id,
+            // Use item_id from BranchItem (which references Item.id) to match SupplierProduct.item_id
+            'item_id' => $branchItem?->item_id ?? $supplierItem->item_id,
             'item_name' => $branchItem?->item_name,
             'item_logo' => $itemLogo,
             'item_code' => $branchItem?->item_code,
