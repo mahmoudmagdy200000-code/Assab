@@ -22,7 +22,7 @@ class OrderService
     {
         $query = PurchaseOrder::with([
             'items:id,purchase_order_id,item_id,item_name,quantity_ordered,unit_price,total_price,quality_ordered,quality_received',
-            'branch:id,name,location,address',
+            'branch:id,name,location',
             'requestedBy:id,name,email,phone',
         ])
             ->where('supplier_id', $supplier->id)
