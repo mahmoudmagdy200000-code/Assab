@@ -17,7 +17,7 @@ class SupplierResource extends JsonResource
             'address' => $this->address,
 
             // Status
-            'status' => $this->status?->value,
+            'status' => $this->status, // status is string in Supplier model, not enum
             'status_label' => $this->status_label,
             'status_color' => $this->status_color,
             'is_available' => $this->is_available,
