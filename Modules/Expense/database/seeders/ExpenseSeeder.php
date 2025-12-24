@@ -59,7 +59,7 @@ class ExpenseSeeder extends Seeder
     private function createQuickCashExpenses($branchManager, $count): void
     {
         for ($i = 0; $i < $count; $i++) {
-            $status = fake()->randomElement(['draft', 'pending', 'approved', 'rejected']);
+            $status = \fake()->randomElement(['draft', 'pending', 'approved', 'rejected']);
 
             $expense = Expense::factory()
                 ->quickCash()
@@ -72,7 +72,7 @@ class ExpenseSeeder extends Seeder
                 ->create();
 
             // Create quick cash items
-            $itemsCount = fake()->numberBetween(2, 5);
+            $itemsCount = \fake()->numberBetween(2, 5);
             $totalAmount = 0;
 
             for ($j = 0; $j < $itemsCount; $j++) {
@@ -100,7 +100,7 @@ class ExpenseSeeder extends Seeder
     private function createSingleInvoiceExpenses($branchManager, $suppliers, $purchaseCategories, $expenseCategories, $count): void
     {
         for ($i = 0; $i < $count; $i++) {
-            $status = fake()->randomElement(['draft', 'pending', 'approved', 'rejected']);
+            $status = \fake()->randomElement(['draft', 'pending', 'approved', 'rejected']);
             $supplier = $suppliers->random();
 
             $expense = Expense::factory()
@@ -118,7 +118,7 @@ class ExpenseSeeder extends Seeder
                 ]);
 
             // Create expense items (purchases)
-            $itemsCount = fake()->numberBetween(2, 6);
+            $itemsCount = \fake()->numberBetween(2, 6);
             $totalAmount = 0;
 
             for ($j = 0; $j < $itemsCount; $j++) {
@@ -133,7 +133,7 @@ class ExpenseSeeder extends Seeder
             }
 
             // Create expense lines (other expenses)
-            $linesCount = fake()->numberBetween(1, 3);
+            $linesCount = \fake()->numberBetween(1, 3);
 
             for ($j = 0; $j < $linesCount; $j++) {
                 $category = $expenseCategories->random();
@@ -163,7 +163,7 @@ class ExpenseSeeder extends Seeder
     private function createGroupedInvoiceExpenses($branchManager, $suppliers, $purchaseCategories, $expenseCategories, $count): void
     {
         for ($i = 0; $i < $count; $i++) {
-            $status = fake()->randomElement(['draft', 'pending', 'approved', 'rejected']);
+            $status = \fake()->randomElement(['draft', 'pending', 'approved', 'rejected']);
 
             $expense = Expense::factory()
                 ->groupedInvoice()
@@ -176,7 +176,7 @@ class ExpenseSeeder extends Seeder
                 ->create();
 
             // Create multiple invoice details
-            $invoicesCount = fake()->numberBetween(2, 4);
+            $invoicesCount = \fake()->numberBetween(2, 4);
             $totalAmount = 0;
 
             for ($j = 0; $j < $invoicesCount; $j++) {
@@ -192,7 +192,7 @@ class ExpenseSeeder extends Seeder
                 ]);
 
                 // Create items for each invoice
-                $itemsCount = fake()->numberBetween(2, 4);
+                $itemsCount = \fake()->numberBetween(2, 4);
 
                 for ($k = 0; $k < $itemsCount; $k++) {
                     $category = $purchaseCategories->random();
@@ -206,7 +206,7 @@ class ExpenseSeeder extends Seeder
                 }
 
                 // Create expense lines
-                $linesCount = fake()->numberBetween(1, 2);
+                $linesCount = \fake()->numberBetween(1, 2);
 
                 for ($k = 0; $k < $linesCount; $k++) {
                     $category = $expenseCategories->random();
@@ -237,7 +237,7 @@ class ExpenseSeeder extends Seeder
     private function createPreApprovalExpenses($branchManager, $count): void
     {
         for ($i = 0; $i < $count; $i++) {
-            $status = fake()->randomElement(['draft', 'pending', 'approved', 'rejected']);
+            $status = \fake()->randomElement(['draft', 'pending', 'approved', 'rejected']);
 
             $expense = Expense::factory()
                 ->preApproval()
