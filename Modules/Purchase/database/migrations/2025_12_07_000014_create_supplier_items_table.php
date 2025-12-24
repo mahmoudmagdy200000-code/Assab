@@ -47,7 +47,7 @@ return new class extends Migration
             // Foreign keys
             $table->foreign('supplier_id')
                 ->references('id')
-                ->on('purchase_suppliers')
+                ->on('suppliers')
                 ->cascadeOnDelete();
         });
     }
