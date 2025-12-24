@@ -617,9 +617,10 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             throw new \InvalidArgumentException("Item with ID {$data['item_id']} not found");
         }
 
-        // Get BranchItem for current branch to get price (if exists)
+        // Get BranchItem for current branch to get price and additional data (if exists)
         $branchItem = BranchItem::where('branch_id', $order->branch_id)
             ->where('item_id', $item->id)
+            ->with('item') // Eager load item relationship
             ->first();
 
         // For internal transfers, unit_price is optional (defaults to 0 - free transfer)
@@ -646,11 +647,22 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         $quality = $this->normalizeQualityLevel($data['quality'] ?? null);
 
         // Validate unit_of_measurement value
+        // Try to get unit from: data -> Item -> default 'kg'
         $allowedUnits = ['kg', 'pk', 'unit', 'box', 'liter', 'piece'];
-        $unit = $data['unit'] ?? $item->unit ?? 'kg';
-        if (!in_array($unit, $allowedUnits)) {
-            $unit = 'kg'; // Default to 'kg' if invalid
+        $unit = null;
+        if (!empty($data['unit']) && in_array($data['unit'], $allowedUnits)) {
+            $unit = $data['unit'];
+        } elseif (!empty($item->unit) && in_array($item->unit, $allowedUnits)) {
+            $unit = $item->unit;
+        } else {
+            $unit = 'kg'; // Default to 'kg'
         }
+
+        // Get category and subcategory from Item (with fallback)
+        $category = $item->category 
+            ?? ($branchItem && $branchItem->item ? $branchItem->item->category : null);
+        $subcategory = $item->subcategory 
+            ?? ($branchItem && $branchItem->item ? $branchItem->item->subcategory : null);
 
         try {
             return PurchaseOrderItem::create([
@@ -659,12 +671,12 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 'item_name' => $item->name ?? 'Unknown Item',
                 'item_logo' => $itemLogo,
                 'item_sku' => $item->code ?? null,
-                'category' => $item->category ?? null,
-                'subcategory' => $item->subcategory ?? null,
+                'category' => $category,
+                'subcategory' => $subcategory,
                 'quantity_ordered' => $quantity,
                 'original_quantity' => $quantity, // Set original_quantity to quantity_ordered
                 'new_quantity' => $quantity, // Set new_quantity to quantity_ordered initially
-                'unit_of_measurement' => $unit,
+                'unit_of_measurement' => $unit ?: 'kg', // Ensure unit is always set (never null)
                 'unit_price' => $unitPrice,
                 'total_price' => max(0, $totalPrice), // Ensure total_price is not negative
                 'discount' => $discount,
