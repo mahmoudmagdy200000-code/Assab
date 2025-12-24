@@ -12,7 +12,7 @@ use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
-use Modules\Purchase\Models\PurchaseSupplier;
+use Modules\Supplier\Models\Supplier;
 use Modules\Purchase\Models\SupplierItem;
 use Modules\Purchase\Transformers\BranchItemResource;
 use Modules\Purchase\Transformers\OrderSummaryResource;

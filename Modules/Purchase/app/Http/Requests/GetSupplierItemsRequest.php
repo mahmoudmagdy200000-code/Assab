@@ -14,7 +14,7 @@ class GetSupplierItemsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'supplier_id' => ['required', 'uuid', 'exists:purchase_suppliers,id'],
+            'supplier_id' => ['required', 'uuid', 'exists:suppliers,id'],
             'item_id' => ['nullable', 'uuid', 'exists:items,id'],
             'search' => ['nullable', 'string', 'max:255'],
             'category' => ['nullable', 'string', 'max:100'],

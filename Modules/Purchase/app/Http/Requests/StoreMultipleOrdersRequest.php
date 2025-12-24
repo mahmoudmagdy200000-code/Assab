@@ -32,7 +32,7 @@ class StoreMultipleOrdersRequest extends FormRequest
 
             // Direct Supplier Orders array
             'direct_supplier' => ['nullable', 'array'],
-            'direct_supplier.*.supplier_id' => ['required_with:direct_supplier', 'uuid', 'exists:purchase_suppliers,id'],
+            'direct_supplier.*.supplier_id' => ['required_with:direct_supplier', 'uuid', 'exists:suppliers,id'],
             'direct_supplier.*.quality_level' => ['nullable', 'string', 'in:economy,standard,premium'],
             'direct_supplier.*.notification_channels' => ['required_with:direct_supplier', 'array', 'min:1'],
             'direct_supplier.*.notification_channels.*' => ['string'], // Accept any string value

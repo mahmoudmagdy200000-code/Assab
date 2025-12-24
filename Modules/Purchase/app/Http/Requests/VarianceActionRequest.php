@@ -21,7 +21,7 @@ class VarianceActionRequest extends FormRequest
 
         if ($action === 'compensatory_order') {
             $rules = array_merge($rules, [
-                'supplier_id' => ['nullable', 'uuid', 'exists:purchase_suppliers,id'],
+                'supplier_id' => ['nullable', 'uuid', 'exists:suppliers,id'],
                 'source' => ['nullable', 'string', 'max:100'],
                 'deadline' => ['required', 'date', 'after:today'],
                 'photos' => ['nullable', 'array'],

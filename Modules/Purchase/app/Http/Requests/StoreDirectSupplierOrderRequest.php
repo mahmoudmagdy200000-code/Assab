@@ -16,7 +16,7 @@ class StoreDirectSupplierOrderRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'supplier_id' => ['required', 'uuid', 'exists:purchase_suppliers,id'],
+            'supplier_id' => ['required', 'uuid', 'exists:suppliers,id'],
             'quality_level' => ['required', 'string', 'in:economy,standard,premium'],
             'notification_channels' => ['required', 'array', 'min:1'],
             'notification_channels.*' => ['string', 'in:email,whatsapp,app,sms'],

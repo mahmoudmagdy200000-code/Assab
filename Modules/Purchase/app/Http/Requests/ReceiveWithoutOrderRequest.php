@@ -15,7 +15,7 @@ class ReceiveWithoutOrderRequest extends FormRequest
     {
         return [
             // Supplier and delivery
-            'supplier_id' => ['nullable', 'uuid', 'exists:purchase_suppliers,id'],
+            'supplier_id' => ['nullable', 'uuid', 'exists:suppliers,id'],
             'supplier_name' => ['required_without:supplier_id', 'string', 'max:255'],
             'delivery_reference' => ['nullable', 'string', 'max:100'],
 

@@ -25,7 +25,7 @@ class StorePurchaseOrderRequest extends FormRequest
 
         // Rules specific to Direct Supplier Order
         if ($this->input('order_type') === 'direct_supplier') {
-            $rules['supplier_id'] = ['required', 'uuid', 'exists:purchase_suppliers,id'];
+            $rules['supplier_id'] = ['required', 'uuid', 'exists:suppliers,id'];
             $rules['quality_level'] = ['required', 'string', 'in:economy,standard,premium'];
             $rules['notification_channels'] = ['required', 'array', 'min:1'];
             $rules['notification_channels.*'] = ['string', 'in:email,whatsapp,app,sms'];

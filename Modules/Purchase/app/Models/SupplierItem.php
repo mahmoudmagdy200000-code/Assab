@@ -40,7 +40,7 @@ class SupplierItem extends Model
     // Relationships
     public function supplier(): BelongsTo
     {
-        return $this->belongsTo(PurchaseSupplier::class, 'supplier_id');
+        return $this->belongsTo(\Modules\Supplier\Models\Supplier::class, 'supplier_id');
     }
 
     // Scopes

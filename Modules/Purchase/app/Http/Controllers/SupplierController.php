@@ -6,7 +6,7 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Purchase\Enums\SupplierStatus;
-use Modules\Purchase\Models\PurchaseSupplier;
+use Modules\Supplier\Models\Supplier;
 use Modules\Purchase\Transformers\SupplierResource;
 
 class SupplierController extends BaseController
@@ -19,7 +19,7 @@ class SupplierController extends BaseController
     public function index(Request $request): JsonResponse
     {
         try {
-            $query = PurchaseSupplier::query()->active();
+            $query = Supplier::query()->active();
 
             // Filter by status
             if ($request->has('status')) {
@@ -66,7 +66,7 @@ class SupplierController extends BaseController
     public function show(string $id): JsonResponse
     {
         try {
-            $supplier = PurchaseSupplier::with(['supplierItems', 'purchaseOrders'])
+            $supplier = Supplier::with(['supplierItems', 'purchaseOrders'])
                 ->find($id);
 
             if (!$supplier) {
@@ -90,7 +90,7 @@ class SupplierController extends BaseController
     public function items(Request $request, string $id): JsonResponse
     {
         try {
-            $supplier = PurchaseSupplier::find($id);
+            $supplier = Supplier::find($id);
 
             if (!$supplier) {
                 return $this->notFoundResponse('Supplier not found');
@@ -117,7 +117,7 @@ class SupplierController extends BaseController
     public function orderHistory(Request $request, string $id): JsonResponse
     {
         try {
-            $supplier = PurchaseSupplier::find($id);
+            $supplier = Supplier::find($id);
 
             if (!$supplier) {
                 return $this->notFoundResponse('Supplier not found');
@@ -145,7 +145,7 @@ class SupplierController extends BaseController
     public function statistics(string $id): JsonResponse
     {
         try {
-            $supplier = PurchaseSupplier::find($id);
+            $supplier = Supplier::find($id);
 
             if (!$supplier) {
                 return $this->notFoundResponse('Supplier not found');

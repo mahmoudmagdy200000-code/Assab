@@ -16,7 +16,6 @@ use Modules\Purchase\Models\Item;
 use Modules\Purchase\Models\PriceHistory;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
-use Modules\Purchase\Models\PurchaseSupplier;
 use Modules\Supplier\Models\Supplier;
 use Modules\Purchase\Models\SupplierItem;
 use Modules\Purchase\Traits\ItemHelperTrait;
@@ -212,7 +211,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
 
         $supplierData = DB::table('purchase_order_items')
             ->join('purchase_orders', 'purchase_order_items.purchase_order_id', '=', 'purchase_orders.id')
-            ->join('purchase_suppliers', 'purchase_orders.supplier_id', '=', 'purchase_suppliers.id')
+            ->join('suppliers', 'purchase_orders.supplier_id', '=', 'suppliers.id')
             ->where('purchase_order_items.item_id', $itemId)
             ->where('purchase_orders.order_type', OrderType::DIRECT_SUPPLIER->value)
             ->where('purchase_orders.created_at', '>=', $threeMonthsAgo)
@@ -224,10 +223,10 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             ])
             ->select([
                 'purchase_orders.supplier_id',
-                'purchase_suppliers.name as supplier_name',
-                'purchase_suppliers.status as supplier_status',
-                'purchase_suppliers.rating',
-                'purchase_suppliers.default_delivery_hours',
+                'suppliers.name as supplier_name',
+                'suppliers.status as supplier_status',
+                'suppliers.rating',
+                'suppliers.default_delivery_hours',
                 'purchase_order_items.unit_price',
                 'purchase_orders.created_at',
                 'purchase_orders.confirmed_at',

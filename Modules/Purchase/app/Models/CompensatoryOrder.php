@@ -75,7 +75,7 @@ class CompensatoryOrder extends Model
 
     public function reorderSupplier(): BelongsTo
     {
-        return $this->belongsTo(PurchaseSupplier::class, 'reorder_supplier_id');
+        return $this->belongsTo(\Modules\Supplier\Models\Supplier::class, 'reorder_supplier_id');
     }
 
     public function timelines(): MorphMany

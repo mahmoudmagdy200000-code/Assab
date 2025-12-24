@@ -99,7 +99,7 @@ class ReturnOrder extends Model
 
     public function supplier(): BelongsTo
     {
-        return $this->belongsTo(PurchaseSupplier::class, 'supplier_id');
+        return $this->belongsTo(\Modules\Supplier\Models\Supplier::class, 'supplier_id');
     }
 
     public function branch(): BelongsTo

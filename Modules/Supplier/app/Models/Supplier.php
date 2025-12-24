@@ -226,6 +226,14 @@ class Supplier extends Authenticatable
         return $this->hasMany(\Modules\Purchase\Models\PurchaseOrder::class, 'supplier_id');
     }
 
+    /**
+     * Get the supplier items for the supplier.
+     */
+    public function supplierItems(): HasMany
+    {
+        return $this->hasMany(\Modules\Purchase\Models\SupplierItem::class, 'supplier_id');
+    }
+
     // Scopes
 
     /**
