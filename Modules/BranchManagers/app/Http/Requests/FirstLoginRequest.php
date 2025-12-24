@@ -14,7 +14,7 @@ class FirstLoginRequest extends FormRequest
     public function rules()
     {
         return [
-            'email' => 'required|email|exists:branch_managers,email',
+            'identifier' => 'required|string', // email or phone
             'password' => 'required|string',
         ];
     }

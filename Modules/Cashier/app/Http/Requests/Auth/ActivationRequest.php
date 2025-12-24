@@ -14,7 +14,7 @@ class ActivationRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'email' => 'required|email|exists:cashiers,email',
+            'identifier' => 'required|string', // email or phone
             'activation_token' => 'required|string',
             'password' => 'required|string|min:8|confirmed',
             'password_confirmation' => 'required|string|min:8',
@@ -27,7 +27,7 @@ class ActivationRequest extends FormRequest
             'password.min' => 'Password must be at least 8 characters',
             'password.confirmed' => 'Password confirmation does not match',
             'activation_token.required' => 'Activation token is required',
-            'email.exists' => 'Email address not found',
+            'identifier.required' => 'Email or phone is required',
         ];
     }
 

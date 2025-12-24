@@ -20,12 +20,16 @@ class LoginController extends BaseController
      */
     public function login(LoginRequest $request)
     {
-        $credentials = $request->only('email', 'password');
+        $identifier = $request->identifier;
+        $password = $request->password;
 
+        // Check if identifier is email or phone
+        $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
+        
         // Find cashier
-        $cashier = Cashier::where('email', $credentials['email'])->first();
+        $cashier = Cashier::where($field, $identifier)->first();
 
-        if (!$cashier || !Hash::check($credentials['password'], $cashier->password)) {
+        if (!$cashier || !Hash::check($password, $cashier->password)) {
             return $this->errorResponse('Invalid credentials', 401);
         }
 
@@ -41,10 +45,16 @@ class LoginController extends BaseController
         $token = $cashier->createToken('cashier-token')->plainTextToken;
 
         return $this->successResponse([
-            'cashier' => new CashierResource($cashier),
+            'user' => [
+                'id' => $cashier->id,
+                'name' => $cashier->name,
+                'email' => $cashier->email,
+                'phone' => $cashier->phone,
+                'image' => $cashier->image_url ?? null,
+                'created_at' => $cashier->created_at?->format('Y-m-d H:i:s'),
+            ],
             'token' => $token,
-            'token_type' => 'Bearer',
-        ]);
+        ], 'Login successful');
     }
 
     /**

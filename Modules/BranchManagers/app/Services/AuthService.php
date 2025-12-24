@@ -15,9 +15,11 @@ class AuthService
     /**
      * Handle first login
      */
-    public function firstLogin(string $email, string $password)
+    public function firstLogin(string $identifier, string $password)
     {
-        $manager = BranchManager::where('email', $email)->first();
+        // Check if identifier is email or phone
+        $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
+        $manager = BranchManager::where($field, $identifier)->first();
 
         if (!$manager || !Hash::check($password, $manager->password)) {
             throw new \Exception('Invalid credentials ');

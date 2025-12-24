@@ -15,7 +15,11 @@ class ActivationController extends Controller
      */
     public function activate(ActivationRequest $request): JsonResponse
     {
-        $cashier = Cashier::where('email', $request->email)->first();
+        $identifier = $request->identifier;
+        
+        // Check if identifier is email or phone
+        $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
+        $cashier = Cashier::where($field, $identifier)->first();
 
         if (!$cashier) {
             return response()->error('Cashier not found', 404);
@@ -33,12 +37,16 @@ class ActivationController extends Controller
         ]);
 
         return response()->success([
-            'cashier' => [
+            'user' => [
                 'id' => $cashier->id,
                 'name' => $cashier->name,
                 'email' => $cashier->email,
-                'status' => $cashier->status,
-            ]
+                'phone' => $cashier->phone,
+                'image' => $cashier->image_url ?? null,
+                'created_at' => $cashier->created_at?->format('Y-m-d H:i:s'),
+            ],
+            'token' => null, // No token on activation, user needs to login
+            'requires_password_reset' => false,
         ], 'Account activated successfully. You can now login.');
     }
 }

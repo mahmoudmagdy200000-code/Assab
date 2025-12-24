@@ -31,18 +31,24 @@ class AuthController extends Controller
     {
         try {
             $result = $this->authService->firstLogin(
-                $request->email,
+                $request->identifier,
                 $request->password
             );
 
             $manager = $result['manager'];
             $token = $result['token'];
 
-
             return $this->successResponse(
                 __('auth.first_login_success'),
                 [
-                    'manager' => new BranchManagerResource($manager),
+                    'user' => [
+                        'id' => $manager->id,
+                        'name' => $manager->name,
+                        'email' => $manager->email,
+                        'phone' => $manager->phone,
+                        'image' => $manager->image_url,
+                        'created_at' => $manager->created_at?->format('Y-m-d H:i:s'),
+                    ],
                     'token' => $token,
                     'requires_password_reset' => true,
                 ]

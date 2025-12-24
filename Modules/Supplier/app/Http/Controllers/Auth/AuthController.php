@@ -27,8 +27,17 @@ class AuthController extends BaseController
                 $request->password
             );
 
+            $supplier = $result['supplier'];
+
             return $this->successResponse([
-                'supplier' => new SupplierResource($result['supplier']),
+                'user' => [
+                    'id' => $supplier->id,
+                    'name' => $supplier->name,
+                    'email' => $supplier->email,
+                    'phone' => $supplier->phone,
+                    'image' => $supplier->image_url,
+                    'created_at' => $supplier->created_at?->format('Y-m-d H:i:s'),
+                ],
                 'token' => $result['token'],
                 'requires_password_reset' => true,
             ], 'First login successful. Please reset your password.');
