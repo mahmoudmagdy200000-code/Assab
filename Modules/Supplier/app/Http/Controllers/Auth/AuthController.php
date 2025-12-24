@@ -126,10 +126,16 @@ class AuthController extends BaseController
                 return $this->unauthorizedResponse('Not authenticated');
             }
 
-            return $this->successResponse(
-                new SupplierResource($supplier),
-                'Supplier retrieved successfully'
-            );
+            return $this->successResponse([
+                'user' => [
+                    'id' => $supplier->id,
+                    'name' => $supplier->name,
+                    'email' => $supplier->email,
+                    'phone' => $supplier->phone,
+                    'image' => $supplier->image_url,
+                    'created_at' => $supplier->created_at?->format('Y-m-d H:i:s'),
+                ],
+            ], 'User retrieved successfully');
         } catch (\Exception $e) {
             return $this->handleException($e, 'fetching supplier');
         }

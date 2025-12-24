@@ -136,12 +136,41 @@ class AuthService
     }
 
     /**
-     * Reset password using OTP
+     * Generate reset token after OTP verification
      */
-    public function resetPassword(string $identifier, string $otp, string $newPassword)
+    public function generateResetToken(string $identifier): string
     {
-        // Verify OTP
-        $otpRecord = $this->verifyOtp($identifier, $otp);
+        // Generate a random token
+        $resetToken = bin2hex(random_bytes(32));
+        
+        // Store reset token in OTP table as a new record
+        BranchManagerOtp::create([
+            'identifier' => $identifier,
+            'otp' => $resetToken, // Store reset token as plain text (not hashed)
+            'type' => 'reset_token',
+            'expires_at' => Carbon::now()->addHours(1),
+            'is_used' => false,
+        ]);
+
+        return $resetToken;
+    }
+
+    /**
+     * Reset password using reset token
+     */
+    public function resetPassword(string $identifier, string $resetToken, string $newPassword)
+    {
+        // Verify reset token (stored in OTP table as plain text for reset tokens)
+        $otpRecord = BranchManagerOtp::where('identifier', $identifier)
+            ->where('type', 'reset_token')
+            ->where('otp', $resetToken) // Reset token is stored as plain text
+            ->where('expires_at', '>', Carbon::now())
+            ->where('is_used', false)
+            ->first();
+
+        if (!$otpRecord) {
+            throw new \Exception('Invalid or expired reset token');
+        }
 
         // Find manager
         $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
@@ -156,8 +185,11 @@ class AuthService
             'password' => Hash::make($newPassword),
         ]);
 
-        // Mark OTP as used
-        $otpRecord->markAsUsed();
+        // Mark reset token as used
+        $otpRecord->update(['is_used' => true]);
+
+        // Delete all OTP records for this identifier
+        BranchManagerOtp::where('identifier', $identifier)->delete();
 
         return $manager;
     }

@@ -113,7 +113,9 @@ class AuthController extends Controller
                 $request->type
             );
 
-            return $this->successResponse('OTP sent successfully');
+            return $this->successResponse([
+                'expires_at' => now()->addMinutes(10)->toDateTimeString(),
+            ], 'OTP sent successfully');
         } catch (\Exception $e) {
             return $this->handleException($e);
         }
@@ -127,7 +129,12 @@ class AuthController extends Controller
                 $request->otp
             );
 
-            return $this->successResponse('OTP verified successfully');
+            // Generate reset token
+            $resetToken = $this->authService->generateResetToken($request->identifier);
+
+            return $this->successResponse([
+                'reset_token' => $resetToken,
+            ], 'OTP verified successfully');
         } catch (\Exception $e) {
             return $this->handleException($e);
         }
@@ -138,11 +145,11 @@ class AuthController extends Controller
         try {
             $this->authService->resetPassword(
                 $request->identifier,
-                // $request->otp,
+                $request->reset_token,
                 $request->password
             );
 
-            return $this->successResponse('Password reset successfully');
+            return $this->successResponse('Password reset successfully. You can now login with your new password.');
         } catch (\Exception $e) {
             return $this->handleException($e);
         }
@@ -154,7 +161,7 @@ class AuthController extends Controller
             $manager = auth('sanctum')->user();
             $this->authService->logout($manager);
 
-            return $this->successResponse('Logout successful');
+            return $this->successResponse(null, 'Logout successful');
         } catch (\Exception $e) {
             return $this->handleException($e);
         }
@@ -162,6 +169,25 @@ class AuthController extends Controller
 
     public function me(): JsonResponse
     {
-        return $this->successResponse('Authenticated user', new BranchManagerResource(auth('sanctum')->user()));
+        try {
+            $manager = auth('sanctum')->user();
+
+            if (!$manager) {
+                return $this->unauthorizedResponse('Not authenticated');
+            }
+
+            return $this->successResponse([
+                'user' => [
+                    'id' => $manager->id,
+                    'name' => $manager->name,
+                    'email' => $manager->email,
+                    'phone' => $manager->phone,
+                    'image' => $manager->image_url,
+                    'created_at' => $manager->created_at?->format('Y-m-d H:i:s'),
+                ],
+            ], 'User retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->handleException($e);
+        }
     }
 }

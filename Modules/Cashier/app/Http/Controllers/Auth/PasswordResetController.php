@@ -45,7 +45,6 @@ class PasswordResetController extends Controller
         }
 
         return response()->success([
-            'message' => 'OTP sent successfully',
             'expires_at' => now()->addMinutes(10)->toDateTimeString(),
         ], 'OTP sent successfully');
     }
@@ -69,7 +68,6 @@ class PasswordResetController extends Controller
 
         return response()->success([
             'reset_token' => $resetToken,
-            'message' => 'OTP verified successfully',
         ], 'OTP verified successfully');
     }
 
