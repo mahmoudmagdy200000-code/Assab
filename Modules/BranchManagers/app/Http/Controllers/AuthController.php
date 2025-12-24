@@ -77,10 +77,19 @@ class AuthController extends Controller
                 $request->password
             );
 
+            $manager = $result['manager'];
+
             return $this->successResponse(
                 'Login successful',
                 [
-                    'manager' => new BranchManagerResource($result['manager']),
+                    'user' => [
+                        'id' => $manager->id,
+                        'name' => $manager->name,
+                        'email' => $manager->email,
+                        'phone' => $manager->phone,
+                        'image' => $manager->image_url,
+                        'created_at' => $manager->created_at?->format('Y-m-d H:i:s'),
+                    ],
                     'token' => $result['token'],
                 ]
             );
