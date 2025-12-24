@@ -2,6 +2,7 @@
 
 namespace Modules\Expense\Database\Factories;
 
+use Faker\Factory as FakerFactory;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Modules\Expense\Models\Supplier;
 
@@ -11,7 +12,7 @@ class SupplierFactory extends Factory
 
     public function definition(): array
     {
-        $faker = Factory::faker();
+        $faker = $this->faker ?? FakerFactory::create();
         
         return [
             'name' => $faker->company(),
