@@ -13,6 +13,7 @@ use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
 use Modules\Supplier\Models\Supplier;
+use Modules\Supplier\Models\SupplierProduct;
 use Modules\Purchase\Models\SupplierItem;
 use Modules\Purchase\Transformers\BranchItemResource;
 use Modules\Purchase\Transformers\OrderSummaryResource;
@@ -556,51 +557,71 @@ class OrderDataService
             throw new \InvalidArgumentException('Supplier not found');
         }
 
-        // Get supplier items
-        $query = SupplierItem::where('supplier_id', $supplierId)
+        // Get supplier items from SupplierProduct (new system) or SupplierItem (legacy)
+        // Try SupplierProduct first (new system in Supplier module)
+        $supplierProducts = SupplierProduct::where('supplier_id', $supplierId)
             ->available();
 
         // Filter by specific item_id if provided
         if (!empty($validated['item_id'])) {
-            $query->where('item_id', $validated['item_id']);
+            $supplierProducts->where('item_id', $validated['item_id']);
         }
 
-        $supplierItems = $query->get();
+        $supplierProducts = $supplierProducts->get();
 
-        if ($supplierItems->isEmpty()) {
-            return [
-                'data' => [
+        // If no products found, try legacy SupplierItem
+        if ($supplierProducts->isEmpty()) {
+            $query = SupplierItem::where('supplier_id', $supplierId)
+                ->available();
+
+            if (!empty($validated['item_id'])) {
+                $query->where('item_id', $validated['item_id']);
+            }
+
+            $supplierItems = $query->get();
+            
+            if ($supplierItems->isEmpty()) {
+                return [
+                    'data' => [],
                     'supplier' => (new SupplierResource($supplier))->toArray(request()),
-                    'items' => [],
-                ],
-            ];
+                ];
+            }
+
+            // Use legacy SupplierItem logic
+            $supplierItemIds = $supplierItems->pluck('item_id')->toArray();
+        } else {
+            // Use SupplierProduct (new system)
+            $supplierItemIds = $supplierProducts->pluck('item_id')->toArray();
+            
+            // Convert SupplierProduct to SupplierItem-like structure for compatibility
+            $supplierItems = $supplierProducts->map(function ($product) {
+                return (object) [
+                    'id' => $product->id,
+                    'supplier_id' => $product->supplier_id,
+                    'item_id' => $product->item_id,
+                    'unit_price' => $product->unit_price,
+                    'economy_price' => $product->economy_price,
+                    'standard_price' => $product->standard_price,
+                    'premium_price' => $product->premium_price,
+                    'is_available' => $product->is_available,
+                    'min_order_quantity' => $product->min_order_quantity,
+                    'max_order_quantity' => $product->max_order_quantity,
+                    'delivery_hours' => $product->delivery_hours,
+                    'rating' => $product->rating,
+                ];
+            });
         }
 
-        // Get BranchItems referenced by SupplierItems
-        // Note: item_name, item_code, etc. are accessors, not actual columns
-        // We need to eager load the item relationship to access these
-        $supplierItemIds = $supplierItems->pluck('item_id')->toArray();
-        $referencedBranchItems = BranchItem::whereIn('id', $supplierItemIds)
-            ->with('item:id,name,code,unit,category,subcategory')
-            ->get()
-            ->keyBy('id');
-
-        // Get branch items in current branch that match the referenced items by name/code
-        $itemNames = $referencedBranchItems->pluck('item_name')->unique()->toArray();
-        $itemCodes = $referencedBranchItems->pluck('item_code')->unique()->toArray();
-
+        // Get branch items in current branch that match the referenced items by item_id
         $branchItemsQuery = BranchItem::where('branch_id', $branchId)
             ->with('item:id,name,code,unit,category,subcategory')
-            ->where(function ($q) use ($itemNames, $itemCodes, $validated) {
-                // Use whereHas to query through item relationship
-                $q->whereHas('item', function ($itemQuery) use ($itemNames, $itemCodes) {
-                    $itemQuery->whereIn('name', $itemNames)
-                        ->orWhereIn('code', $itemCodes);
-                });
+            ->where(function ($q) use ($supplierItemIds, $validated) {
+                // Match by item_id (both SupplierItem and SupplierProduct use item_id from items table)
+                $q->whereIn('item_id', $supplierItemIds);
 
                 // If specific item_id is requested, also check by id
                 if (!empty($validated['item_id'])) {
-                    $q->orWhere('id', $validated['item_id']);
+                    $q->orWhere('item_id', $validated['item_id']);
                 }
             });
 
@@ -616,32 +637,13 @@ class OrderDataService
         $branchItems = $branchItemsQuery->paginate($perPage);
         $itemsCollection = $branchItems->getCollection();
 
-        // Create maps for matching
-        // Map by item_id (direct match)
-        $supplierItemsByIdMap = $supplierItems->keyBy('item_id');
-        // Map by item_name and item_code (for cross-branch matching)
-        $supplierItemsByNameMap = $supplierItems->mapWithKeys(function ($supplierItem) use ($referencedBranchItems) {
-            $refItem = $referencedBranchItems[$supplierItem->item_id] ?? null;
-            if (!$refItem) {
-                return [];
-            }
-            $key = $refItem->item_name . '|' . $refItem->item_code;
-            return [$key => $supplierItem];
-        });
+        // Create maps for matching by item_id (both use item_id from items table)
+        $supplierItemsByItemIdMap = $supplierItems->keyBy('item_id');
 
         // Transform the collection for the resource
-        $transformedItems = $itemsCollection->map(function ($branchItem) use (
-            $supplierItemsByIdMap,
-            $supplierItemsByNameMap
-        ) {
-            // Try direct match by id first
-            $supplierItem = $supplierItemsByIdMap[$branchItem->id] ?? null;
-
-            // If not found, try matching by name and code
-            if (!$supplierItem) {
-                $key = $branchItem->item_name . '|' . $branchItem->item_code;
-                $supplierItem = $supplierItemsByNameMap[$key] ?? null;
-            }
+        $transformedItems = $itemsCollection->map(function ($branchItem) use ($supplierItemsByItemIdMap) {
+            // Match by item_id (both SupplierItem and SupplierProduct use item_id from items table)
+            $supplierItem = $supplierItemsByItemIdMap[$branchItem->item_id] ?? null;
 
             if (!$supplierItem) {
                 return null;
