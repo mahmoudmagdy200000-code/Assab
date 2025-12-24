@@ -281,9 +281,9 @@ class OrderDataService
         $itemId = $validated['item_id'];
         $quantity = isset($validated['quantity']) ? (float) $validated['quantity'] : 1.0;
 
-        // Get branch item
+        // Get branch item (item_id is Item.id, not BranchItem.id)
         $branchItem = BranchItem::where('branch_id', $branchId)
-            ->where('id', $itemId)
+            ->where('item_id', $itemId)
             ->first();
 
         if (!$branchItem) {
@@ -298,8 +298,9 @@ class OrderDataService
             'search' => $validated['search'] ?? null,
         ];
 
-        // Get all supplier items for this item
-        $query = SupplierItem::where('item_id', $itemId)
+        // Get all supplier products for this item (new system) or supplier items (legacy)
+        // Try SupplierProduct first (new system in Supplier module)
+        $supplierProducts = SupplierProduct::where('item_id', $itemId)
             ->with('supplier')
             ->available()
             ->whereHas('supplier', fn($q) => $q->active());
@@ -307,19 +308,64 @@ class OrderDataService
         // Apply status filter
         if (!empty($filters['status'])) {
             $statusEnum = \Modules\Purchase\Enums\SupplierStatus::from($filters['status']);
-            $query->whereHas('supplier', fn($q) => $q->byStatus($statusEnum));
+            $supplierProducts->whereHas('supplier', fn($q) => $q->byStatus($statusEnum));
         }
 
         // Apply filters
         if (!empty($filters['max_delivery_hours'])) {
-            $query->byDeliveryTime($filters['max_delivery_hours']);
+            $supplierProducts->where('delivery_hours', '<=', $filters['max_delivery_hours']);
         }
 
         if (!empty($filters['search'])) {
-            $query->whereHas('supplier', fn($q) => $q->search($filters['search']));
+            $supplierProducts->whereHas('supplier', fn($q) => $q->search($filters['search']));
         }
 
-        $supplierItems = $query->get();
+        $supplierProducts = $supplierProducts->get();
+
+        // If no products found, try legacy SupplierItem
+        if ($supplierProducts->isEmpty()) {
+            $query = SupplierItem::where('item_id', $itemId)
+                ->with('supplier')
+                ->available()
+                ->whereHas('supplier', fn($q) => $q->active());
+
+            // Apply status filter
+            if (!empty($filters['status'])) {
+                $statusEnum = \Modules\Purchase\Enums\SupplierStatus::from($filters['status']);
+                $query->whereHas('supplier', fn($q) => $q->byStatus($statusEnum));
+            }
+
+            // Apply filters
+            if (!empty($filters['max_delivery_hours'])) {
+                $query->byDeliveryTime($filters['max_delivery_hours']);
+            }
+
+            if (!empty($filters['search'])) {
+                $query->whereHas('supplier', fn($q) => $q->search($filters['search']));
+            }
+
+            $supplierItems = $query->get();
+        } else {
+            // Convert SupplierProduct to SupplierItem-like structure for compatibility
+            $supplierItems = $supplierProducts->map(function ($product) {
+                return (object) [
+                    'id' => $product->id,
+                    'supplier_id' => $product->supplier_id,
+                    'item_id' => $product->item_id,
+                    'unit_price' => $product->unit_price,
+                    'economy_price' => $product->economy_price,
+                    'standard_price' => $product->standard_price,
+                    'premium_price' => $product->premium_price,
+                    'is_available' => $product->is_available,
+                    'min_order_quantity' => $product->min_order_quantity,
+                    'max_order_quantity' => $product->max_order_quantity,
+                    'delivery_hours' => $product->delivery_hours,
+                    'rating' => $product->rating,
+                    'supplier' => $product->supplier,
+                ];
+            });
+        }
+
 
         // Get item logo URL using helper method
         $itemLogo = $this->getItemLogoUrl($branchItem->item_logo);
