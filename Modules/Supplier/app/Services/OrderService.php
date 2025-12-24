@@ -21,7 +21,7 @@ class OrderService
     public function getOrders(Supplier $supplier, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
         $query = PurchaseOrder::with([
-            'items:id,purchase_order_id,item_id,item_name,quantity_ordered,unit_price,total_price,quality_level',
+            'items:id,purchase_order_id,item_id,item_name,quantity_ordered,unit_price,total_price,quality_ordered,quality_received',
             'branch:id,name,location,address',
             'requestedBy:id,name,email,phone',
         ])
