@@ -645,6 +645,13 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         // Validate and normalize quality value
         $quality = $this->normalizeQualityLevel($data['quality'] ?? null);
 
+        // Validate unit_of_measurement value
+        $allowedUnits = ['kg', 'pk', 'unit', 'box', 'liter', 'piece'];
+        $unit = $data['unit'] ?? $item->unit ?? 'kg';
+        if (!in_array($unit, $allowedUnits)) {
+            $unit = 'kg'; // Default to 'kg' if invalid
+        }
+
         try {
             return PurchaseOrderItem::create([
                 'purchase_order_id' => $order->id,
@@ -655,7 +662,9 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 'category' => $item->category ?? null,
                 'subcategory' => $item->subcategory ?? null,
                 'quantity_ordered' => $quantity,
-                'unit_of_measurement' => $data['unit'] ?? $item->unit ?? 'kg',
+                'original_quantity' => $quantity, // Set original_quantity to quantity_ordered
+                'new_quantity' => $quantity, // Set new_quantity to quantity_ordered initially
+                'unit_of_measurement' => $unit,
                 'unit_price' => $unitPrice,
                 'total_price' => max(0, $totalPrice), // Ensure total_price is not negative
                 'discount' => $discount,
@@ -666,6 +675,8 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 'next_supply_date' => $data['next_supply_date'] ?? null,
                 'expiry_date' => $data['expiry_date'] ?? null,
                 'cooling_status' => $data['cooling_status'] ?? null,
+                'is_alternative' => $data['is_alternative'] ?? false,
+                'is_gift' => $data['is_gift'] ?? false,
             ]);
         } catch (\Exception $e) {
             Log::error('Error creating purchase order item', [
