@@ -41,11 +41,11 @@ class OrderResource extends JsonResource
                     'item_id' => $item->item_id,
                     'item_name' => $item->item_name,
                     'item_logo' => $item->item_logo,
-                    'item_unit' => $item->unit,
+                    'item_unit' => $item->unit_of_measurement,
                     'quantity_ordered' => (float) $item->quantity_ordered,
                     'unit_price' => (float) $item->unit_price,
                     'total_price' => (float) $item->total_price,
-                    'quality_level' => $item->quality_level?->value,
+                    'quality_level' => $item->quality_ordered?->value,
                 ];
             }),
 
@@ -71,4 +71,3 @@ class OrderResource extends JsonResource
         ];
     }
 }
-
