@@ -20,6 +20,8 @@ class OrderService
      */
     public function getOrders(Supplier $supplier, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
+
+
         $query = PurchaseOrder::with([
             'items:id,purchase_order_id,item_id,item_name,quantity_ordered,unit_price,total_price,quality_ordered,quality_received',
             'branch:id,name,location',
@@ -28,6 +30,9 @@ class OrderService
             ->where('supplier_id', $supplier->id)
             ->where('order_type', 'direct_supplier')
             ->orderBy('created_at', 'desc');
+
+        // dont get the draft orders
+        $query->where('status', '!=', OrderStatus::DRAFT);
 
         // Filter by status
         if (!empty($filters['status'])) {

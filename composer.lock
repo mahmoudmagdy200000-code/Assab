@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "cc3d621ebc1f10f866d00f63f3915c09",
+    "content-hash": "160d69c94a7dfff0ba05c66ff0cd484e",
     "packages": [
         {
             "name": "barryvdh/laravel-dompdf",
@@ -2864,6 +2864,60 @@
                 "source": "https://github.com/nikic/PHP-Parser/tree/v5.6.1"
             },
             "time": "2025-08-13T20:13:15+00:00"
+        },
+        {
+            "name": "nikunjkothiya/laravel-queue-monitor",
+            "version": "dev-main",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/nikunjkothiya/queue-monitor-package.git",
+                "reference": "cfdfd454c9cdf214b736e7165ade209f5a138362"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/nikunjkothiya/queue-monitor-package/zipball/cfdfd454c9cdf214b736e7165ade209f5a138362",
+                "reference": "cfdfd454c9cdf214b736e7165ade209f5a138362",
+                "shasum": ""
+            },
+            "require": {
+                "illuminate/cache": "^11.0|^12.0",
+                "illuminate/database": "^11.0|^12.0",
+                "illuminate/notifications": "^11.0|^12.0",
+                "illuminate/queue": "^11.0|^12.0",
+                "illuminate/routing": "^11.0|^12.0",
+                "illuminate/support": "^11.0|^12.0",
+                "illuminate/view": "^11.0|^12.0",
+                "php": "^8.2"
+            },
+            "default-branch": true,
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "NikunjKothiya\\QueueMonitor\\Providers\\QueueMonitorServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "NikunjKothiya\\QueueMonitor\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nikunj Kothiya",
+                    "email": "nikunjkothiya401@gmail.com"
+                }
+            ],
+            "description": "Self-hosted queue failure monitoring and analytics dashboard for Laravel applications.",
+            "support": {
+                "source": "https://github.com/nikunjkothiya/queue-monitor-package/tree/main",
+                "issues": "https://github.com/nikunjkothiya/queue-monitor-package/issues"
+            },
+            "time": "2025-12-24T06:13:47+00:00"
         },
         {
             "name": "nunomaduro/termwind",
@@ -9951,7 +10005,9 @@
     ],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": [],
+    "stability-flags": {
+        "nikunjkothiya/laravel-queue-monitor": 20
+    },
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
