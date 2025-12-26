@@ -114,7 +114,9 @@ class PurchaseOrderItemResource extends JsonResource
             ),
             
             // Status
-            'status' => $this->status,
+            'status' => $this->status?->value ?? 'pending',
+            'status_label' => $this->status?->label() ?? 'Pending',
+            'status_color' => $this->status?->color() ?? '#F59E0B',
             'quantity_variance' => $this->quantity_variance,
             'has_variance' => $this->has_variance,
             

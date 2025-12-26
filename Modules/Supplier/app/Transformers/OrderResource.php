@@ -43,9 +43,13 @@ class OrderResource extends JsonResource
                     'item_logo' => $item->item_logo,
                     'item_unit' => $item->unit_of_measurement,
                     'quantity_ordered' => (float) $item->quantity_ordered,
+                    'quantity_confirmed' => $item->quantity_confirmed ? (float) $item->quantity_confirmed : null,
                     'unit_price' => (float) $item->unit_price,
                     'total_price' => (float) $item->total_price,
                     'quality_level' => $item->quality_ordered?->value,
+                    'status' => $item->status?->value ?? 'pending',
+                    'status_label' => $item->status?->label() ?? 'Pending',
+                    'status_color' => $item->status?->color() ?? '#F59E0B',
                 ];
             }),
 

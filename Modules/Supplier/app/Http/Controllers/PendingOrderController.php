@@ -150,15 +150,34 @@ class PendingOrderController extends BaseController
                         return $this->errorResponse('Items array is required for partial approval', 400);
                     }
 
-                    // Update items with confirmed quantities
+                    // Get all item IDs (from purchase_order_items table) that were confirmed
+                    $confirmedItemIds = [];
+
+                    // Update items with confirmed quantities and status
                     foreach ($items as $confirmation) {
-                        $item = $order->items()->find($confirmation['item_id']);
+                        // Find item by item_id (the actual item ID, not the purchase_order_item ID)
+                        $item = $order->items()->where('item_id', $confirmation['item_id'])->first();
                         if ($item) {
+                            $confirmedItemIds[] = $item->id; // Store purchase_order_item ID
+                            $confirmedQuantity = $confirmation['quantity'] ?? $item->quantity_ordered;
+                            $isPartial = $confirmedQuantity < $item->quantity_ordered;
+
                             $item->update([
-                                'quantity_confirmed' => $confirmation['quantity'] ?? $item->quantity_ordered,
+                                'quantity_confirmed' => $confirmedQuantity,
+                                'status' => $isPartial ? 'partial' : 'confirmed',
                             ]);
                             $item->calculateTotalPrice();
                         }
+                    }
+
+                    // Mark items that were not included in the confirmation as rejected
+                    if (!empty($confirmedItemIds)) {
+                        $order->items()
+                            ->whereNotIn('id', $confirmedItemIds)
+                            ->update([
+                                'status' => 'rejected',
+                                'quantity_confirmed' => 0,
+                            ]);
                     }
 
                     // Update order with expected delivery if provided

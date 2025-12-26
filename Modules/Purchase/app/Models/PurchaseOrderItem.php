@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Purchase\Enums\InspectionQuality;
+use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\QualityLevel;
 
 class PurchaseOrderItem extends Model
@@ -53,6 +54,7 @@ class PurchaseOrderItem extends Model
     ];
 
     protected $casts = [
+        'status' => OrderItemStatus::class,
         'quality_ordered' => QualityLevel::class,
         'quality_received' => InspectionQuality::class,
         'quantity_ordered' => 'decimal:3',

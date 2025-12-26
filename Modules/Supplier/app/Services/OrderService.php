@@ -135,6 +135,15 @@ class OrderService
                 'message' => $data['message'] ?? null,
             ]);
 
+            // Mark all items as confirmed when order is fully accepted
+            $order->items()->update([
+                'status' => 'confirmed',
+                'quantity_confirmed' => DB::raw('quantity_ordered'),
+            ]);
+
+            // Recalculate totals for all items
+            $order->items->each->calculateTotalPrice();
+
             // Send notification to branch manager
             $this->notificationService->notifyOrderAccepted($order);
 
@@ -161,6 +170,12 @@ class OrderService
                 'rejected_at' => now(),
                 'rejection_reason' => $data['reason'],
                 'message' => $data['explanation'] ?? null,
+            ]);
+
+            // Mark all items as rejected when order is rejected
+            $order->items()->update([
+                'status' => 'rejected',
+                'quantity_confirmed' => 0,
             ]);
 
             // Send notification to branch manager
