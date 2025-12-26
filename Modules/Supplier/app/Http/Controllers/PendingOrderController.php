@@ -4,6 +4,7 @@ namespace Modules\Supplier\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Services\PurchaseOrderService;
@@ -11,6 +12,7 @@ use Modules\Purchase\Services\TimelineService;
 use Modules\Supplier\Http\Requests\Orders\AcceptOrderRequest;
 use Modules\Supplier\Http\Requests\Orders\RejectOrderRequest;
 use Modules\Supplier\Http\Requests\Orders\RequestModificationRequest;
+use Modules\Supplier\Services\NotificationService;
 use Modules\Supplier\Services\OrderService;
 use Modules\Supplier\Transformers\OrderResource;
 
@@ -19,7 +21,8 @@ class PendingOrderController extends BaseController
     public function __construct(
         private readonly OrderService $orderService,
         private readonly PurchaseOrderService $purchaseOrderService,
-        private readonly TimelineService $timelineService
+        private readonly TimelineService $timelineService,
+        private readonly NotificationService $notificationService
     ) {}
 
     /**
@@ -113,8 +116,9 @@ class PendingOrderController extends BaseController
     }
 
     /**
-     * Partially approve order (for PARTIAL_CONFIRMATION status)
-     * Supplier confirms partial quantity
+     * Partially approve order (for PENDING status)
+     * Supplier confirms partial quantity - order moves to PARTIAL_CONFIRMATION status
+     * Then Branch Manager needs to approve it to move to PARTIAL_APPROVED
      *
      * @group Supplier Pending Orders
      */
@@ -128,10 +132,62 @@ class PendingOrderController extends BaseController
                 return $this->errorResponse('Unauthorized access to this order', 403);
             }
 
-            if ($order->status !== OrderStatus::PARTIAL_CONFIRMATION) {
-                return $this->errorResponse('Order is not in partial confirmation status', 400);
+            // Supplier can partially approve from PENDING status
+            if (!in_array($order->status, [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION])) {
+                return $this->errorResponse(
+                    "Order is not in pending or partial confirmation status. Current status: {$order->status->label()}",
+                    400
+                );
             }
 
+            // If order is PENDING, supplier is doing initial partial acceptance
+            // This should transition to PARTIAL_CONFIRMATION (waiting for branch manager approval)
+            if ($order->status === OrderStatus::PENDING) {
+                return DB::transaction(function () use ($order, $request) {
+                    $items = $request->get('items', []);
+
+                    if (empty($items)) {
+                        return $this->errorResponse('Items array is required for partial approval', 400);
+                    }
+
+                    // Update items with confirmed quantities
+                    foreach ($items as $confirmation) {
+                        $item = $order->items()->find($confirmation['item_id']);
+                        if ($item) {
+                            $item->update([
+                                'quantity_confirmed' => $confirmation['quantity'] ?? $item->quantity_ordered,
+                            ]);
+                            $item->calculateTotalPrice();
+                        }
+                    }
+
+                    // Update order with expected delivery if provided
+                    if ($request->has('expected_delivery_at')) {
+                        $order->expected_delivery_at = $request->validated()['expected_delivery_at'];
+                    }
+
+                    // Transition to PARTIAL_CONFIRMATION (waiting for branch manager approval)
+                    $success = $order->transitionTo(OrderStatus::PARTIAL_CONFIRMATION);
+
+                    if (!$success) {
+                        return $this->errorResponse('Cannot transition order to partial confirmation status', 400);
+                    }
+
+                    // Log timeline event
+                    $this->timelineService->logPartialConfirmation($order);
+
+                    // Send notification to branch manager
+                    $this->notificationService->notifyOrderAccepted($order);
+
+                    return $this->successResponse(
+                        new OrderResource($order->fresh(['items'])),
+                        'Order partially confirmed. Waiting for branch manager approval.'
+                    );
+                });
+            }
+
+            // If order is already in PARTIAL_CONFIRMATION, supplier is updating the partial confirmation
+            // This should transition to PARTIAL_APPROVED (using PurchaseOrderService method)
             $readyTime = $request->validated()['ready_time'] ?? null;
             $success = $this->purchaseOrderService->partialConfirmOrder($order, $request->get('items'), $readyTime);
 
@@ -357,4 +413,3 @@ class PendingOrderController extends BaseController
         }
     }
 }
-
