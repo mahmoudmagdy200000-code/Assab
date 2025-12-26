@@ -5,6 +5,7 @@ use Modules\Supplier\Http\Controllers\SupplierController;
 use Modules\Supplier\Http\Controllers\Auth\AuthController;
 use Modules\Supplier\Http\Controllers\Auth\PasswordResetController;
 use Modules\Supplier\Http\Controllers\OrderController;
+use Modules\Supplier\Http\Controllers\PendingOrderController;
 
 /*
 |--------------------------------------------------------------------------
@@ -39,6 +40,25 @@ Route::middleware(['auth:sanctum', \Modules\Supplier\Http\Middleware\SupplierMid
     Route::post('/orders/{id}/accept', [OrderController::class, 'accept']);
     Route::post('/orders/{id}/reject', [OrderController::class, 'reject']);
     Route::post('/orders/{id}/request-modification', [OrderController::class, 'requestModification']);
+    
+    // Pending Orders (Supplier Actions)
+    Route::prefix('pending-orders')->group(function () {
+        Route::get('/', [PendingOrderController::class, 'index']);
+        Route::get('/{id}', [PendingOrderController::class, 'show']);
+        Route::get('/{id}/timeline', [PendingOrderController::class, 'timeline']);
+        
+        // Approve actions
+        Route::post('/{id}/approve', [PendingOrderController::class, 'approve']);
+        Route::post('/{id}/partial-approve', [PendingOrderController::class, 'partialApprove']);
+        Route::post('/{id}/approve-modifications', [PendingOrderController::class, 'approveModifications']);
+        Route::post('/{id}/reject-modifications', [PendingOrderController::class, 'rejectModifications']);
+        
+        
+        // Status updates
+        Route::post('/{id}/mark-preparing', [PendingOrderController::class, 'markAsPreparing']);
+        Route::post('/mark-on-the-way', [PendingOrderController::class, 'markAsOnTheWay']);
+        Route::post('/report-delay', [PendingOrderController::class, 'reportDelay']);
+    });
     
     // Order Fulfillment
     Route::post('/fulfillment/orders/{id}/start-preparation', [\Modules\Supplier\Http\Controllers\OrderFulfillmentController::class, 'startPreparation']);

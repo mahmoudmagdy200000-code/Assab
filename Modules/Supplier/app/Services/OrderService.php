@@ -16,6 +16,49 @@ class OrderService
     ) {}
 
     /**
+     * Get pending orders for supplier with filters
+     * Returns orders with pending statuses (PENDING, PENDING_CONFIRMATION, PENDING_APPROVAL, PARTIAL_CONFIRMATION, DELAYED)
+     */
+    public function getPendingOrders(Supplier $supplier, array $filters = [], int $perPage = 15): LengthAwarePaginator
+    {
+        $query = PurchaseOrder::with([
+            'items:id,purchase_order_id,item_id,item_name,item_logo,quantity_ordered,unit_of_measurement,unit_price,total_price,quality_ordered,quality_received',
+            'branch:id,name,location',
+            'requestedBy:id,name,email,phone',
+        ])
+            ->where('supplier_id', $supplier->id)
+            ->where('order_type', 'direct_supplier')
+            ->whereIn('status', [
+                OrderStatus::PENDING,
+                OrderStatus::PENDING_CONFIRMATION,
+                OrderStatus::PENDING_APPROVAL,
+                OrderStatus::PARTIAL_CONFIRMATION,
+                OrderStatus::DELAYED,
+            ])
+            ->orderBy('created_at', 'desc');
+
+        // Filter by status
+        if (!empty($filters['status'])) {
+            $query->where('status', $filters['status']);
+        }
+
+        // Filter by date range
+        if (!empty($filters['date_from'])) {
+            $query->whereDate('created_at', '>=', $filters['date_from']);
+        }
+        if (!empty($filters['date_to'])) {
+            $query->whereDate('created_at', '<=', $filters['date_to']);
+        }
+
+        // Search by order number
+        if (!empty($filters['search'])) {
+            $query->where('order_number', 'like', '%' . $filters['search'] . '%');
+        }
+
+        return $query->paginate($perPage);
+    }
+
+    /**
      * Get orders for supplier with filters
      */
     public function getOrders(Supplier $supplier, array $filters = [], int $perPage = 15): LengthAwarePaginator
