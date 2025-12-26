@@ -72,7 +72,7 @@ enum OrderStatus: string
     {
         $allowedTransitions = match ($this) {
             self::DRAFT => [self::PENDING, self::CANCELED],
-            self::PENDING => [self::PENDING_CONFIRMATION, self::PENDING_APPROVAL, self::CONFIRMED, self::FULLY_APPROVED, self::PARTIAL_APPROVED, self::REJECTED, self::CANCELED],
+            self::PENDING => [self::PENDING_CONFIRMATION, self::PENDING_APPROVAL, self::CONFIRMED, self::FULLY_APPROVED, self::PARTIAL_CONFIRMATION, self::PARTIAL_APPROVED, self::REJECTED, self::CANCELED],
             self::PENDING_CONFIRMATION => [self::CONFIRMED, self::FULLY_APPROVED, self::REJECTED, self::CANCELED],
             self::PENDING_APPROVAL => [self::CONFIRMED, self::FULLY_APPROVED, self::PARTIAL_CONFIRMATION, self::PARTIAL_APPROVED, self::REJECTED, self::CANCELED],
             self::PARTIAL_CONFIRMATION => [self::CONFIRMED, self::FULLY_APPROVED, self::PARTIAL_APPROVED, self::PREPARING, self::CANCELED],
