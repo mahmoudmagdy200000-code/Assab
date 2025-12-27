@@ -4,6 +4,7 @@ namespace Modules\Purchase\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Purchase\Models\BranchInventory;
+use Modules\Purchase\Enums\OrderType;
 use Carbon\Carbon;
 
 class PurchaseHistoryDetailsResource extends JsonResource
@@ -27,13 +28,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
             'request_summary' => [
                 'request_no' => $this->order_number,
                 'type' => $this->order_type?->value,
-                'from' => $this->whenLoaded('fromBranch', function () {
-                    return [
-                        'id' => $this->fromBranch->id,
-                        'name' => $this->fromBranch->name,
-                        'location' => $this->fromBranch->location,
-                    ];
-                }),
+                'from' => $this->getFromData(),
                 'requested_by' => $this->whenLoaded('requestedBy', function () {
                     return [
                         'id' => $this->requestedBy->id,
@@ -120,5 +115,72 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 });
             }),
         ];
+    }
+
+    /**
+     * Get 'from' data based on order type
+     * 
+     * Returns:
+     * - For INTERNAL_TRANSFER: Branch information (id, name, location)
+     * - For DIRECT_SUPPLIER: Supplier information (id, name, image, status)
+     * - For VIA_PURCHASING_OFFICER: null (no source branch/supplier)
+     * 
+     * @return array|null
+     */
+    private function getFromData(): ?array
+    {
+        if (!$this->order_type) {
+            return null;
+        }
+
+        return match ($this->order_type) {
+            OrderType::INTERNAL_TRANSFER => $this->getFromBranchData(),
+            OrderType::DIRECT_SUPPLIER => $this->getSupplierData(),
+            OrderType::VIA_PURCHASING_OFFICER => null,
+            default => null,
+        };
+    }
+
+    /**
+     * Get from branch data for internal transfer orders
+     * 
+     * @return array|null
+     */
+    private function getFromBranchData(): ?array
+    {
+        // Check if fromBranch is loaded or if from_branch_id exists
+        if ($this->relationLoaded('fromBranch') && $this->fromBranch) {
+            return [
+                'id' => $this->fromBranch->id,
+                'name' => $this->fromBranch->name,
+                'location' => $this->fromBranch->location,
+            ];
+        }
+
+        // If from_branch_id exists but relation not loaded, return null
+        // (should not happen if eager loading is done correctly)
+        return null;
+    }
+
+    /**
+     * Get supplier data for direct supplier orders
+     * 
+     * @return array|null
+     */
+    private function getSupplierData(): ?array
+    {
+        // Check if supplier is loaded
+        if ($this->relationLoaded('supplier') && $this->supplier) {
+            return [
+                'id' => $this->supplier->id,
+                'name' => $this->supplier->name,
+                'image' => $this->supplier->image_url ?? null,
+                'status' => $this->supplier->status?->value ?? null,
+            ];
+        }
+
+        // If supplier_id exists but relation not loaded, return null
+        // (should not happen if eager loading is done correctly)
+        return null;
     }
 }
