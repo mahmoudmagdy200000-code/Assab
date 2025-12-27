@@ -54,7 +54,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'supplier_name' => $this->supplier?->name ?? 'n/a',
                 'total_amount' => $this->total_amount ? (float) $this->total_amount : 0.0,
                 'message' => $this->message ?? 'n/a',
-                'contact_methods' => $this->notification_channels ?? $this->supplier?->contact_methods ?? [],
+                'contact_methods' => $this->getContactMethodsWithDetails(),
             ],
             'product_details' => $this->whenLoaded('items', function () {
                 if (!$this->items) {
@@ -346,5 +346,37 @@ class PurchaseHistoryDetailsResource extends JsonResource
 
         // If supplier_id exists but relation not loaded, return n/a
         return 'n/a';
+    }
+
+    /**
+     * Get contact methods with their details (email, phone, etc.)
+     *
+     * @return array
+     */
+    private function getContactMethodsWithDetails(): array
+    {
+        // Get contact methods from order or supplier
+        $contactMethods = $this->notification_channels ?? $this->supplier?->contact_methods ?? [];
+
+        if (empty($contactMethods) || !is_array($contactMethods)) {
+            return [];
+        }
+
+        $supplierEmail = $this->supplier?->email ?? null;
+        $supplierPhone = $this->supplier?->phone ?? null;
+
+        return array_map(function ($method) use ($supplierEmail, $supplierPhone) {
+            $contactDetail = match ($method) {
+                'email' => $supplierEmail ?? 'n/a',
+                'whatsapp', 'sms' => $supplierPhone ?? 'n/a',
+                'app' => 'n/a', // In-App doesn't need contact detail
+                default => 'n/a',
+            };
+
+            return [
+                'method' => $method,
+                'contact_detail' => $contactDetail,
+            ];
+        }, $contactMethods);
     }
 }
