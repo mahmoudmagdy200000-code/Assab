@@ -143,7 +143,7 @@ class OrderDataService
         // Performance optimization: Use select to limit columns and eager load relationships
         return PurchaseOrder::with([
             'items:id,purchase_order_id,item_id,item_name,item_logo,quantity_ordered,quality_ordered,unit_price,total_price,available_in_source,remaining_balance,expiry_date,cooling_status',
-            'supplier:id,name,image,status,contact_methods',
+            'supplier', // Load all supplier columns to access image_url accessor
             'branch:id,name,location',
             'fromBranch:id,name,location',
             'requestedBy:id,name,email',
