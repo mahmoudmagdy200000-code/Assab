@@ -132,7 +132,10 @@ class OrderSummaryResource extends JsonResource
     private function getInternalTransferResponse(): array
     {
         return [
+            'id' => $this->id,
             'priority' => $this->priority?->value, // high, normal
+            'justification' => $this->message,
+            'status' => $this->status?->value,
             'request_summary' => [
                 'order_number' => $this->order_number,
                 'type' => 'Internal Transfer (No Cost)',
