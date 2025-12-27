@@ -4,7 +4,9 @@ namespace Modules\Purchase\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Purchase\Enums\OrderType;
+use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Services\PriceComparisonService;
+use Carbon\Carbon;
 
 class OrderSummaryResource extends JsonResource
 {
@@ -141,8 +143,8 @@ class OrderSummaryResource extends JsonResource
                 'type' => 'Internal Transfer (No Cost)',
                 'from' => [
                     'id' => $this->fromBranch?->id,
-                    'branch_name' => $this->fromBranch?->name,
-                    'branch_location' => $this->fromBranch?->location,
+                    'name' => $this->fromBranch?->name,
+                    'location' => $this->fromBranch?->location,
                 ],
                 'requested_by' => $this->requestedBy?->name ?? 'Me',
                 'requested_date' => $this->created_at?->format('Y-m-d H:i:s'),
@@ -159,26 +161,81 @@ class OrderSummaryResource extends JsonResource
 
     /**
      * Get Internal Transfer items list
+     *
+     * Fetches data from BranchInventory for accurate availability information
      */
     private function getInternalTransferItems(): array
     {
-        return $this->items->map(function ($item) {
+        // Get from_branch_id for inventory lookup
+        $fromBranchId = $this->from_branch_id;
+
+        // Eager load all inventory records for all items at once (performance optimization)
+        $inventories = collect();
+        if ($fromBranchId && $this->items->isNotEmpty()) {
+            $itemIds = $this->items->pluck('item_id')->filter()->unique()->toArray();
+            if (!empty($itemIds)) {
+                $inventories = BranchInventory::where('branch_id', $fromBranchId)
+                    ->whereIn('item_id', $itemIds)
+                    ->get()
+                    ->keyBy('item_id');
+            }
+        }
+
+        return $this->items->map(function ($item) use ($inventories) {
+            // Get inventory data from preloaded collection
+            $inventory = $item->item_id ? ($inventories->get($item->item_id) ?? null) : null;
+
+            // Available quantity from inventory (fallback to order item if not in inventory)
+            $availableQuantity = $inventory?->available_quantity
+                ?? $item->available_in_source
+                ?? 0.0;
+            $availableQuantity = (float) $availableQuantity;
+
+            // Balance after = actual available (available - reserved) from inventory
+            // Fallback to remaining_balance from order item if inventory not found
+            $balanceAfter = $inventory
+                ? ($inventory->available_quantity - $inventory->reserved_quantity)
+                : ($item->remaining_balance ?? 0.0);
+            $balanceAfter = (float) $balanceAfter;
+
+            // Quality Grade - prefer inventory quality, then quality_received, then quality_ordered
+            $qualityGrade = $inventory?->quality?->value
+                ?? $item->quality_received?->value
+                ?? $item->quality_ordered?->value
+                ?? 'standard';
+
+            // Expiry date - prefer inventory earliest_expiry_date, then item expiry_date
+            $expiryDate = $inventory?->earliest_expiry_date
+                ?? $item->expiry_date;
+            $expiryDateFormatted = $expiryDate
+                ? Carbon::parse($expiryDate)->format('Y-m-d')
+                : null;
+
+            // Cooling status - prefer inventory cooling_status, then item cooling_status
+            if ($inventory?->cooling_status !== null) {
+                $coolingStatus = (bool) $inventory->cooling_status;
+            } elseif ($item->cooling_status !== null) {
+                $coolingStatus = (bool) $item->cooling_status;
+            } else {
+                $coolingStatus = false;
+            }
+
             return [
                 'id' => $item->id,
                 'item_name' => $item->item_name,
                 'item_logo' => $item->item_logo_url,
                 'quantity' => (float) $item->quantity_ordered,
-                'quality' => $item->quality_ordered?->value,
-                'available_in_transferring_branch' => $item->available_in_source ? [
-                    'quantity' => (float) $item->available_in_source,
-                    'quality' => $item->quality_ordered?->value,
-                ] : null,
-                'remaining_balance_in_transferring_branch' => $item->remaining_balance ? [
-                    'quantity' => (float) $item->remaining_balance,
-                    'quality' => $item->quality_ordered?->value,
-                ] : null,
-                'expiry_date' => $item->expiry_date?->format('Y-m-d'),
-                'cooling_status' => $item->cooling_status ?? false, // Transfer Ready
+                'quality' => $qualityGrade,
+                'available_in_transferring_branch' => [
+                    'quantity' => $availableQuantity,
+                    'quality' => $qualityGrade,
+                ],
+                'remaining_balance_in_transferring_branch' => [
+                    'quantity' => $balanceAfter,
+                    'quality' => $qualityGrade,
+                ],
+                'expiry_date' => $expiryDateFormatted,
+                'cooling_status' => $coolingStatus, // Transfer Ready
             ];
         })->toArray();
     }
@@ -203,7 +260,7 @@ class OrderSummaryResource extends JsonResource
             $quantity = (float) $item->quantity_ordered;
 
             // Get direct supplier price for this item
-            $directSupplierPrice = $this->getDirectSupplierPriceForItem($itemId, $quantity);
+            $directSupplierPrice = $this->getDirectSupplierPriceForItem($itemId);
 
             if ($directSupplierPrice) {
                 $itemTotalFromDirectSupplier = $directSupplierPrice * $quantity;
@@ -233,7 +290,7 @@ class OrderSummaryResource extends JsonResource
     /**
      * Get direct supplier price for an item
      */
-    private function getDirectSupplierPriceForItem(string $itemId, float $quantity): ?float
+    private function getDirectSupplierPriceForItem(string $itemId): ?float
     {
         // Get the best direct supplier price for this item
         $supplierItem = \Modules\Purchase\Models\SupplierItem::with('supplier')
