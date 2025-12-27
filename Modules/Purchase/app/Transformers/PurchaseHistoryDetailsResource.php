@@ -103,6 +103,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     $priceComparison = $this->calculatePriceComparisonForItem($item);
 
                     return [
+                        'item_unit' => $item->unit_of_measurement ?? 'n/a',
                         'item_id' => $item->item_id ?? 'n/a',
                         'item_name' => $item->item_name ?? 'n/a',
                         'item_logo' => $item->item_logo_url,
