@@ -43,6 +43,8 @@ class PurchaseHistoryDetailsResource extends JsonResource
     {
         return [
             'request_summary' => [
+                'id' => $this->id,
+                'status' => $this->status?->value ?? 'n/a',
                 'order_number' => $this->order_number ?? 'n/a',
                 'from' => [
                     'branch_name' => $this->branch?->name ?? 'n/a',
@@ -79,6 +81,8 @@ class PurchaseHistoryDetailsResource extends JsonResource
     {
         return [
             'request_summary' => [
+                'id' => $this->id,
+                'status' => $this->status?->value ?? 'n/a',
                 'order_number' => $this->order_number ?? 'n/a',
                 'from' => [
                     'branch_name' => $this->branch?->name ?? 'n/a',
@@ -118,6 +122,8 @@ class PurchaseHistoryDetailsResource extends JsonResource
 
         return [
             'request_summary' => [
+                'id' => $this->id,
+                'status' => $this->status?->value ?? 'n/a',
                 'request_no' => $this->order_number ?? 'n/a',
                 'type' => $this->order_type?->value ?? 'n/a',
                 'from' => $this->getFromData(),
@@ -130,7 +136,6 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'priority' => $this->priority?->value ?? 'n/a',
                 'request_date' => $this->created_at?->toDateTimeString() ?? 'n/a',
                 'justification' => $this->message ?? 'n/a',
-                'status' => $this->status?->value ?? 'n/a',
             ],
             'product_details' => $this->whenLoaded('items', function () use ($fromBranchNameOnly) {
                 // Get from_branch_id for inventory lookup
