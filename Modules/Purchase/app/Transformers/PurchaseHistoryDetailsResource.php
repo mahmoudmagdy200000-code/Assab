@@ -54,6 +54,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'supplier_name' => $this->supplier?->name ?? 'n/a',
                 'total_amount' => $this->total_amount ? (float) $this->total_amount : 0.0,
                 'message' => $this->message ?? 'n/a',
+                'contact_methods' => $this->notification_channels ?? $this->supplier?->contact_methods ?? [],
             ],
             'product_details' => $this->whenLoaded('items', function () {
                 if (!$this->items) {
