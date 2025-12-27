@@ -98,16 +98,19 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     return [];
                 }
                 return $this->items->map(function ($item) {
+                    // Calculate price comparison for this specific item
+                    $priceComparison = $this->calculatePriceComparisonForItem($item);
+
                     return [
                         'requested_qty' => $item->quantity_ordered ? (float) $item->quantity_ordered : 0.0,
                         'quality' => $item->quality_ordered?->value ?? 'n/a',
                         'preferred_delivery_date' => $this->preferred_delivery_date?->format('Y-m-d') ?? 'n/a',
                         'latest_delivery_date' => $this->latest_delivery_date?->format('Y-m-d') ?? 'n/a',
                         'special_instructions' => $this->special_instructions ?? 'n/a',
+                        'price_comparison' => $priceComparison,
                     ];
                 });
             }) ?? [],
-            'price_comparison' => $this->calculatePriceComparison(),
         ];
     }
 
@@ -209,42 +212,39 @@ class PurchaseHistoryDetailsResource extends JsonResource
     }
 
     /**
-     * Calculate price comparison for Via Purchasing Officer orders
+     * Calculate price comparison for a single item in Via Purchasing Officer orders
+     *
+     * @param mixed $item
+     * @return array
      */
-    private function calculatePriceComparison(): array
+    private function calculatePriceComparisonForItem($item): array
     {
-        if (!$this->items || $this->items->isEmpty()) {
-            return [];
-        }
+        $itemId = $item->item_id;
+        $quantity = (float) $item->quantity_ordered;
 
-        $comparisons = [];
-
-        foreach ($this->items as $item) {
-            $itemId = $item->item_id;
-            $quantity = (float) $item->quantity_ordered;
-
-            if (!$itemId) {
-                continue;
-            }
-
-            // Get direct supplier price for this item
-            $directSupplierPrice = $this->getDirectSupplierPriceForItem($itemId);
-            $directSupplierTotal = $directSupplierPrice ? ($directSupplierPrice * $quantity) : 0.0;
-
-            // Get via purchasing officer price (from current order item)
-            $viaPOTotal = $item->total_price ? (float) $item->total_price : 0.0;
-
-            // Calculate saving
-            $savingAmount = $directSupplierTotal - $viaPOTotal;
-
-            $comparisons[] = [
-                'direct_supplier_price_same_item' => $directSupplierTotal > 0 ? round($directSupplierTotal, 2) : 'n/a',
-                'VIA_PURCHASING_OFFICER_same_item' => $viaPOTotal > 0 ? round($viaPOTotal, 2) : 'n/a',
-                'saving_amount' => $savingAmount != 0 ? round($savingAmount, 2) : 'n/a',
+        if (!$itemId) {
+            return [
+                'direct_supplier_price_same_item' => 'n/a',
+                'VIA_PURCHASING_OFFICER_same_item' => 'n/a',
+                'saving_amount' => 'n/a',
             ];
         }
 
-        return $comparisons;
+        // Get direct supplier price for this item
+        $directSupplierPrice = $this->getDirectSupplierPriceForItem($itemId);
+        $directSupplierTotal = $directSupplierPrice ? ($directSupplierPrice * $quantity) : 0.0;
+
+        // Get via purchasing officer price (from current order item)
+        $viaPOTotal = $item->total_price ? (float) $item->total_price : 0.0;
+
+        // Calculate saving
+        $savingAmount = $directSupplierTotal - $viaPOTotal;
+
+        return [
+            'direct_supplier_price_same_item' => $directSupplierTotal > 0 ? round($directSupplierTotal, 2) : 'n/a',
+            'VIA_PURCHASING_OFFICER_same_item' => $viaPOTotal > 0 ? round($viaPOTotal, 2) : 'n/a',
+            'saving_amount' => $savingAmount != 0 ? round($savingAmount, 2) : 'n/a',
+        ];
     }
 
     /**

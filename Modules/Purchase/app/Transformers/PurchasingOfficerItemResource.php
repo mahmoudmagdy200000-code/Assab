@@ -35,7 +35,7 @@ class PurchasingOfficerItemResource extends JsonResource
 
         return [
             // Item Information
-            'item_id' => $item->id,
+            'item_id' => $item->item_id, // Use item_id from BranchItem, not id
             'item_name' => $item->item_name,
             'item_code' => $item->item_code,
             'item_unit' => $item->item_unit ?? 'kg',

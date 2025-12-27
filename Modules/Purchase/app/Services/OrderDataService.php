@@ -503,8 +503,8 @@ class OrderDataService
             ->paginate($perPage);
         $itemsCollection = $branchItems->getCollection();
 
-        // Get all item IDs
-        $itemIds = $itemsCollection->pluck('id')->toArray();
+        // Get all item IDs (use item_id, not id from BranchItem)
+        $itemIds = $itemsCollection->pluck('item_id')->filter()->unique()->toArray();
 
         // Performance optimization: Get purchasing officer prices for all items in batch
         $poPrices = [];
@@ -545,7 +545,8 @@ class OrderDataService
             &$totalPurchasingOfficerAmount,
             &$totalExpectedSavings
         ) {
-            $itemId = $branchItem->id;
+            // Use item_id from BranchItem, not id
+            $itemId = $branchItem->item_id;
 
             // Get prices
             $poPrice = $poPrices[$itemId] ?? null;
@@ -635,7 +636,7 @@ class OrderDataService
             }
 
             $supplierItems = $query->get();
-            
+
             if ($supplierItems->isEmpty()) {
                 return [
                     'data' => [],
@@ -648,7 +649,7 @@ class OrderDataService
         } else {
             // Use SupplierProduct (new system)
             $supplierItemIds = $supplierProducts->pluck('item_id')->toArray();
-            
+
             // Convert SupplierProduct to SupplierItem-like structure for compatibility
             $supplierItems = $supplierProducts->map(function ($product) {
                 return (object) [
