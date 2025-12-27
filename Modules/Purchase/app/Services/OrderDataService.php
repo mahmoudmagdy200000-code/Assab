@@ -142,8 +142,8 @@ class OrderDataService
     {
         // Performance optimization: Use select to limit columns and eager load relationships
         return PurchaseOrder::with([
-            'items:id,purchase_order_id,item_id,quantity,unit_price,total_price',
-            'supplier:id,name,phone,email',
+            'items:id,purchase_order_id,item_id,item_name,item_logo,quantity_ordered,quality_ordered,unit_price,total_price,available_in_source,remaining_balance,expiry_date,cooling_status',
+            'supplier:id,name,image,status,contact_methods',
             'branch:id,name,location',
             'fromBranch:id,name,location',
             'requestedBy:id,name,email',
@@ -157,6 +157,16 @@ class OrderDataService
             'from_branch_id',
             'requested_by',
             'total_amount',
+            'message',
+            'notification_channels',
+            'priority',
+            'preferred_delivery_date',
+            'latest_delivery_date',
+            'special_instructions',
+            'transport_method',
+            'estimated_transport_hours',
+            'driver_name',
+            'temperature',
             'created_at',
             'updated_at'
         ])->where('branch_id', $branchId)
