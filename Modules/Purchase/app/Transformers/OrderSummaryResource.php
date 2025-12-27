@@ -16,81 +16,131 @@ class OrderSummaryResource extends JsonResource
      */
     public function toArray($request): array
     {
-        $data = [];
-
-        // Common fields for all order types
-        $data['order_number'] = $this->order_number;
-        $data['order_type'] = $this->order_type?->value;
-        $data['order_type_label'] = $this->order_type_label;
-        $data['from'] = [
-            'branch_name' => $this->branch?->name,
-            'branch_location' => $this->branch?->location,
-        ];
-        $data['total_amount'] = (float) $this->total_amount;
-        $data['message'] = $this->message;
-
-        // Type-specific summaries
+        // Return different structure based on order type
         if ($this->order_type === OrderType::DIRECT_SUPPLIER) {
-            $data = array_merge($data, $this->getDirectSupplierSummary());
+            return $this->getDirectSupplierResponse();
         } elseif ($this->order_type === OrderType::VIA_PURCHASING_OFFICER) {
-            $data = array_merge($data, $this->getViaPurchasingOfficerSummary());
+            return $this->getViaPurchasingOfficerResponse();
         } elseif ($this->order_type === OrderType::INTERNAL_TRANSFER) {
-            $data = array_merge($data, $this->getInternalTransferSummary());
+            return $this->getInternalTransferResponse();
         }
 
-        // Items list (editable)
-        $data['items'] = $this->getItemsList();
-
-        return $data;
-    }
-
-    /**
-     * Get Direct Supplier Order summary
-     */
-    private function getDirectSupplierSummary(): array
-    {
+        // Fallback for unknown types
         return [
-            'order_type_label' => 'Direct Supplier Order',
-            'supplier' => $this->supplier ? [
-                'name' => $this->supplier->name,
-                'image' => $this->supplier->image_url,
-                'status' => $this->supplier->status?->value, // online, away, offline
-                'status_label' => $this->supplier->status_label,
-            ] : null,
-            'contact_modes' => $this->notification_channels ?? $this->supplier->contact_methods ?? [],
+            'order_number' => $this->order_number,
+            'order_type' => $this->order_type?->value,
+            'order_type_label' => $this->order_type_label,
         ];
     }
 
     /**
-     * Get Via Purchasing Officer summary
+     * Get Direct Supplier Order response structure
      */
-    private function getViaPurchasingOfficerSummary(): array
+    private function getDirectSupplierResponse(): array
     {
-        $data = [
-            'order_type_label' => 'Via Purchasing Officer',
-            'requested_by' => $this->requestedBy?->name ?? 'Me',
-            'requested_date' => $this->created_at?->format('Y-m-d H:i:s'),
-            'preferred_delivery_date' => $this->preferred_delivery_date?->format('Y-m-d'),
-            'latest_delivery_date' => $this->latest_delivery_date?->format('Y-m-d'),
-            'special_instructions' => $this->special_instructions,
+        return [
+            'request_summary' => [
+                'supplier' => $this->whenLoaded('supplier', function () {
+                    if (!$this->supplier) {
+                        return null;
+                    }
+                    return [
+                        'name' => $this->supplier->name,
+                        'image' => $this->supplier->image_url,
+                        'status' => $this->supplier->status?->value ?? null, // online, away, offline
+                    ];
+                }),
+                'order_number' => $this->order_number,
+                'type' => 'Direct Supplier Order',
+                'from' => [
+                    'branch_name' => $this->branch?->name,
+                    'branch_location' => $this->branch?->location,
+                ],
+                'total_amount' => (float) $this->total_amount,
+                'message' => $this->message,
+            ],
+            'contact_modes' => $this->notification_channels ?? ($this->supplier?->contact_methods ?? []),
+            'items' => $this->getDirectSupplierItems(),
         ];
-
-        // Price Comparison
-        $data['price_comparison'] = $this->calculatePriceComparison();
-
-        return $data;
     }
 
     /**
-     * Get Internal Transfer summary
+     * Get Direct Supplier items list
      */
-    private function getInternalTransferSummary(): array
+    private function getDirectSupplierItems(): array
+    {
+        return $this->items->map(function ($item) {
+            return [
+                'id' => $item->id,
+                'item_name' => $item->item_name,
+                'item_logo' => $item->item_logo_url,
+                'quantity' => (float) $item->quantity_ordered,
+                'quality' => $item->quality_ordered?->value,
+                'price_rate' => (float) $item->unit_price,
+                'total_price_per_item' => (float) $item->total_price, // Price Rate × Quantity
+            ];
+        })->toArray();
+    }
+
+    /**
+     * Get Via Purchasing Officer response structure
+     */
+    private function getViaPurchasingOfficerResponse(): array
     {
         return [
-            'order_type_label' => 'Internal Transfer (No Cost)',
+            'request_summary' => [
+                'order_number' => $this->order_number,
+                'type' => 'Via Purchasing Officer',
+                'from' => [
+                    'branch_name' => $this->branch?->name,
+                    'branch_location' => $this->branch?->location,
+                ],
+                'requested_by' => $this->requestedBy?->name ?? 'Me',
+                'requested_date' => $this->created_at?->format('Y-m-d H:i:s'),
+                'message' => $this->message,
+            ],
+            'items' => $this->getViaPurchasingOfficerItems(),
+            'price_comparison' => $this->calculatePriceComparison(),
+        ];
+    }
+
+    /**
+     * Get Via Purchasing Officer items list
+     */
+    private function getViaPurchasingOfficerItems(): array
+    {
+        return $this->items->map(function ($item) {
+            return [
+                'id' => $item->id,
+                'item_name' => $item->item_name,
+                'item_logo' => $item->item_logo_url,
+                'quantity' => (float) $item->quantity_ordered,
+                'quality' => $item->quality_ordered?->value,
+                'preferred_delivery_date' => $this->preferred_delivery_date?->format('Y-m-d'),
+                'latest_delivery_date' => $this->latest_delivery_date?->format('Y-m-d'),
+                'special_instructions' => $this->special_instructions,
+            ];
+        })->toArray();
+    }
+
+    /**
+     * Get Internal Transfer response structure
+     */
+    private function getInternalTransferResponse(): array
+    {
+        return [
             'priority' => $this->priority?->value, // high, normal
-            'requested_by' => $this->requestedBy?->name ?? 'Me',
-            'requested_date' => $this->created_at?->format('Y-m-d H:i:s'),
+            'request_summary' => [
+                'order_number' => $this->order_number,
+                'type' => 'Internal Transfer (No Cost)',
+                'from' => [
+                    'branch_name' => $this->fromBranch?->name,
+                    'branch_location' => $this->fromBranch?->location,
+                ],
+                'requested_by' => $this->requestedBy?->name ?? 'Me',
+                'requested_date' => $this->created_at?->format('Y-m-d H:i:s'),
+            ],
+            'items' => $this->getInternalTransferItems(),
             'transport_details' => [
                 'method' => $this->transport_method ?? 'Vehicle (Free)',
                 'estimated_time' => $this->estimated_transport_hours ? round($this->estimated_transport_hours, 1) . ' Hours' : null,
@@ -101,50 +151,31 @@ class OrderSummaryResource extends JsonResource
     }
 
     /**
-     * Get items list (editable)
+     * Get Internal Transfer items list
      */
-    private function getItemsList(): array
+    private function getInternalTransferItems(): array
     {
         return $this->items->map(function ($item) {
-            $itemData = [
+            return [
                 'id' => $item->id,
                 'item_name' => $item->item_name,
                 'item_logo' => $item->item_logo_url,
                 'quantity' => (float) $item->quantity_ordered,
                 'quality' => $item->quality_ordered?->value,
-            ];
-
-            // Direct Supplier Order: Price Rate and Total Price per Item
-            if ($this->order_type === OrderType::DIRECT_SUPPLIER) {
-                $itemData['price_rate'] = (float) $item->unit_price;
-                $itemData['total_price_per_item'] = (float) $item->total_price; // Price Rate × Quantity
-            }
-
-            // Via Purchasing Officer: Preferred/Latest Delivery Date and Special Instructions
-            if ($this->order_type === OrderType::VIA_PURCHASING_OFFICER) {
-                $itemData['preferred_delivery_date'] = $this->preferred_delivery_date?->format('Y-m-d');
-                $itemData['latest_delivery_date'] = $this->latest_delivery_date?->format('Y-m-d');
-                $itemData['special_instructions'] = $this->special_instructions;
-            }
-
-            // Internal Transfer: Available, Remaining Balance, Expiry Date, Cooling Status
-            if ($this->order_type === OrderType::INTERNAL_TRANSFER) {
-                $itemData['available_in_transferring_branch'] = $item->available_in_source ? [
+                'available_in_transferring_branch' => $item->available_in_source ? [
                     'quantity' => (float) $item->available_in_source,
                     'quality' => $item->quality_ordered?->value,
-                ] : null;
-                $itemData['remaining_balance_in_transferring_branch'] = $item->remaining_balance ? [
+                ] : null,
+                'remaining_balance_in_transferring_branch' => $item->remaining_balance ? [
                     'quantity' => (float) $item->remaining_balance,
                     'quality' => $item->quality_ordered?->value,
-                ] : null;
-                $itemData['expiry_date'] = $item->expiry_date?->format('Y-m-d');
-                $itemData['cooling_status'] = $item->cooling_status ?? false;
-                $itemData['transfer_ready'] = $item->cooling_status ?? false; // Transfer Ready
-            }
-
-            return $itemData;
+                ] : null,
+                'expiry_date' => $item->expiry_date?->format('Y-m-d'),
+                'cooling_status' => $item->cooling_status ?? false, // Transfer Ready
+            ];
         })->toArray();
     }
+
 
     /**
      * Calculate price comparison for Via Purchasing Officer orders
@@ -189,7 +220,6 @@ class OrderSummaryResource extends JsonResource
             'total_amount_via_purchasing_officer' => round($totalViaPO, 2),
             'savings' => round($totalSavings, 2),
             'total_expected_savings' => round(array_sum(array_column($itemSavings, 'savings')), 2),
-            'item_savings' => $itemSavings,
         ];
     }
 
