@@ -92,6 +92,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'type' => $this->order_type?->value ?? 'n/a',
                 'requested_by' => $this->requestedBy?->name ?? 'n/a',
                 'requested_date' => $this->created_at?->toDateTimeString() ?? 'n/a',
+                'total_price' => $this->total_amount ? (float) $this->total_amount : 0.0,
             ],
             'product_details' => $this->whenLoaded('items', function () {
                 if (!$this->items) {
@@ -102,6 +103,10 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     $priceComparison = $this->calculatePriceComparisonForItem($item);
 
                     return [
+                        'item_id' => $item->item_id ?? 'n/a',
+                        'item_name' => $item->item_name ?? 'n/a',
+                        'item_logo' => $item->item_logo_url,
+                        'item_price' => $item->unit_price ? (float) $item->unit_price : 0.0,
                         'requested_qty' => $item->quantity_ordered ? (float) $item->quantity_ordered : 0.0,
                         'quality' => $item->quality_ordered?->value ?? 'n/a',
                         'preferred_delivery_date' => $this->preferred_delivery_date?->format('Y-m-d') ?? 'n/a',
