@@ -45,6 +45,7 @@ class OrderSummaryResource extends JsonResource
                         return null;
                     }
                     return [
+                        'id' => $this->supplier->id,
                         'name' => $this->supplier->name,
                         'image' => $this->supplier->image_url,
                         'status' => $this->supplier->status?->value ?? null, // online, away, offline
@@ -53,6 +54,7 @@ class OrderSummaryResource extends JsonResource
                 'order_number' => $this->order_number,
                 'type' => 'Direct Supplier Order',
                 'from' => [
+                    'id' => $this->branch?->id,
                     'branch_name' => $this->branch?->name,
                     'branch_location' => $this->branch?->location,
                 ],
@@ -92,6 +94,7 @@ class OrderSummaryResource extends JsonResource
                 'order_number' => $this->order_number,
                 'type' => 'Via Purchasing Officer',
                 'from' => [
+                    'id' => $this->branch?->id,
                     'branch_name' => $this->branch?->name,
                     'branch_location' => $this->branch?->location,
                 ],
@@ -134,6 +137,7 @@ class OrderSummaryResource extends JsonResource
                 'order_number' => $this->order_number,
                 'type' => 'Internal Transfer (No Cost)',
                 'from' => [
+                    'id' => $this->fromBranch?->id,
                     'branch_name' => $this->fromBranch?->name,
                     'branch_location' => $this->fromBranch?->location,
                 ],
@@ -197,7 +201,7 @@ class OrderSummaryResource extends JsonResource
 
             // Get direct supplier price for this item
             $directSupplierPrice = $this->getDirectSupplierPriceForItem($itemId, $quantity);
-            
+
             if ($directSupplierPrice) {
                 $itemTotalFromDirectSupplier = $directSupplierPrice * $quantity;
                 $itemTotalViaPO = (float) $item->total_price;
