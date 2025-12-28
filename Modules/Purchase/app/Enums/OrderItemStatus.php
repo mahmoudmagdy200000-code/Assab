@@ -11,6 +11,7 @@ enum OrderItemStatus: string
     case NEEDS_APPROVAL = 'needs_approval';
     
     case PARTIAL = 'partial';
+    case PARTIAL_CONFIRMATION = 'partial_confirmation';
     
     // Execution Phase Statuses
     case RECEIVED = 'received';
@@ -24,6 +25,7 @@ enum OrderItemStatus: string
             self::REJECTED => 'Rejected',
             self::NEEDS_APPROVAL => 'Needs Approval',
             self::PARTIAL => 'Partial Confirmed',
+            self::PARTIAL_CONFIRMATION => 'Partial Confirmation',
             self::RECEIVED => 'Received',
             self::VARIANCE => 'Variance',
         };
@@ -37,6 +39,7 @@ enum OrderItemStatus: string
             self::REJECTED => '#EF4444',
             self::NEEDS_APPROVAL => '#F97316',
             self::PARTIAL => '#8B5CF6',
+            self::PARTIAL_CONFIRMATION => '#8B5CF6',
             self::RECEIVED => '#22C55E',
             self::VARIANCE => '#F97316',
         };
@@ -62,6 +65,7 @@ enum OrderItemStatus: string
             self::CONFIRMED,
             self::REJECTED,
             self::PARTIAL,
+            self::PARTIAL_CONFIRMATION,
         ]);
     }
 

@@ -94,7 +94,7 @@ enum OrderStatus: string
         $allowedTransitions = match ($this) {
             // Decision Phase Transitions
             self::DRAFT => [self::PENDING, self::CANCELED],
-            self::PENDING => [self::CONFIRMED, self::REJECTED, self::CANCELED, self::PARTIAL_CONFIRMATION],
+            self::PENDING => [self::CONFIRMED, self::REJECTED, self::CANCELED],
             self::CONFIRMED => [self::PREPARING, self::CANCELED],
             self::REJECTED => [],
             self::CANCELED => [],
