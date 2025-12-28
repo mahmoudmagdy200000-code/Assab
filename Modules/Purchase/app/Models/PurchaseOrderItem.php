@@ -242,7 +242,7 @@ class PurchaseOrderItem extends Model
             throw new \InvalidArgumentException('Requested quantity must be less than ordered quantity for partial approval');
         }
 
-        $this->status = OrderItemStatus::NEEDS_APPROVAL;
+        $this->status = OrderItemStatus::PARTIAL;
         $this->approval_type = 'partial';
         $this->approval_data = [
             'original_quantity' => $this->quantity_ordered,
@@ -251,11 +251,6 @@ class PurchaseOrderItem extends Model
         ];
         $this->quantity_confirmed = $requestedQuantity;
         $this->save();
-
-        // Refresh purchase order and check if status should transition
-        $this->purchaseOrder->refresh();
-        $this->purchaseOrder->load('items');
-        $this->purchaseOrder->checkAndTransitionToConfirmed();
     }
 
     /**

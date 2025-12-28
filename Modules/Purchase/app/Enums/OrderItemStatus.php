@@ -10,7 +10,6 @@ enum OrderItemStatus: string
     case REJECTED = 'rejected';
     case NEEDS_APPROVAL = 'needs_approval';
     
-    // Legacy status (deprecated - will be migrated to NEEDS_APPROVAL)
     case PARTIAL = 'partial';
     
     // Execution Phase Statuses
@@ -24,7 +23,7 @@ enum OrderItemStatus: string
             self::CONFIRMED => 'Confirmed',
             self::REJECTED => 'Rejected',
             self::NEEDS_APPROVAL => 'Needs Approval',
-            self::PARTIAL => 'Partial (Deprecated)',
+            self::PARTIAL => 'Partial Confirmed',
             self::RECEIVED => 'Received',
             self::VARIANCE => 'Variance',
         };
@@ -55,13 +54,14 @@ enum OrderItemStatus: string
     }
 
     /**
-     * Check if item is decided (confirmed or rejected)
+     * Check if item is decided (confirmed, rejected, or partial)
      */
     public function isDecided(): bool
     {
         return in_array($this, [
             self::CONFIRMED,
             self::REJECTED,
+            self::PARTIAL,
         ]);
     }
 

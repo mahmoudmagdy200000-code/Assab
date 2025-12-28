@@ -388,13 +388,12 @@ class PurchaseOrder extends Model
 
     /**
      * Check if all items are decided (confirmed or rejected) and transition order to CONFIRMED
-     * Also checks if there are items needing approval and transitions to PARTIAL_CONFIRMED
      * This is called automatically when item status changes
      */
     public function checkAndTransitionToConfirmed(): bool
     {
-        // Only check if order is in PENDING or PARTIAL_CONFIRMED status
-        if (!in_array($this->status, [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMED, OrderStatus::PARTIAL_CONFIRMATION])) {
+        // Only check if order is in PENDING status
+        if ($this->status !== OrderStatus::PENDING) {
             return false;
         }
 
@@ -406,23 +405,6 @@ class PurchaseOrder extends Model
         
         if ($items->isEmpty()) {
             return false;
-        }
-
-        // Check if there are items needing approval
-        $hasItemsNeedingApproval = $items->contains(function ($item) {
-            return $item->status === \Modules\Purchase\Enums\OrderItemStatus::NEEDS_APPROVAL;
-        });
-
-        // If there are items needing approval, transition to PARTIAL_CONFIRMED
-        if ($hasItemsNeedingApproval) {
-            // Check if order can transition to PARTIAL_CONFIRMED
-            if ($this->canTransitionTo(OrderStatus::PARTIAL_CONFIRMED)) {
-                return $this->transitionTo(OrderStatus::PARTIAL_CONFIRMED);
-            }
-            // If PARTIAL_CONFIRMED is not allowed, try PARTIAL_CONFIRMATION (deprecated but might be in use)
-            if ($this->canTransitionTo(OrderStatus::PARTIAL_CONFIRMATION)) {
-                return $this->transitionTo(OrderStatus::PARTIAL_CONFIRMATION);
-            }
         }
 
         // Check if all items are decided (confirmed or rejected)
