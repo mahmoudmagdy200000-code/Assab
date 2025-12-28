@@ -177,7 +177,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
         // Performance: Eager load only needed columns
         $query = PurchaseOrder::with([
-            'items:id,purchase_order_id,item_id,item_name,quantity_ordered,unit_price,total_price',
+            'items:id,purchase_order_id,item_id,item_name,quantity_ordered,quantity_confirmed,unit_price,total_price,status,approval_type,approval_data',
             'items.item:id,name,code,logo,unit',
             'supplier:id,name,phone,email',
             'fromBranch:id,name,location'
@@ -254,7 +254,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
         // Performance: Eager load only needed columns to prevent N+1 queries
         $query = PurchaseOrder::with([
-            'items:id,purchase_order_id,item_id,item_name,quantity_ordered,unit_price,total_price',
+            'items:id,purchase_order_id,item_id,item_name,quantity_ordered,quantity_confirmed,unit_price,total_price,status,approval_type,approval_data',
             'items.item:id,name,code,logo,unit',
             'supplier:id,name,phone,email',
             'branch:id,name,location',
