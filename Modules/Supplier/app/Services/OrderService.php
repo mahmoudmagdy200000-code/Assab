@@ -24,7 +24,7 @@ class OrderService
     public function getPendingOrders(Supplier $supplier, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
         $query = PurchaseOrder::with([
-            'items:id,purchase_order_id,item_id,item_name,item_logo,quantity_ordered,unit_of_measurement,unit_price,total_price,quality_ordered,quality_received',
+            'items:id,purchase_order_id,item_id,item_name,item_logo,quantity_ordered,quantity_confirmed,unit_of_measurement,unit_price,total_price,quality_ordered,quality_received,status,approval_type,approval_data',
             'branch:id,name,location',
             'requestedBy:id,name,email,phone',
         ])
@@ -70,7 +70,7 @@ class OrderService
 
 
         $query = PurchaseOrder::with([
-            'items:id,purchase_order_id,item_id,item_name,item_logo,quantity_ordered,unit_of_measurement,unit_price,total_price,quality_ordered,quality_received',
+            'items:id,purchase_order_id,item_id,item_name,item_logo,quantity_ordered,quantity_confirmed,unit_of_measurement,unit_price,total_price,quality_ordered,quality_received,status,approval_type,approval_data',
             'branch:id,name,location',
             'requestedBy:id,name,email,phone',
         ])

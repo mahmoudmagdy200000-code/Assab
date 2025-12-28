@@ -52,12 +52,14 @@ class OrderResource extends JsonResource
                     'status_color' => $item->status?->color() ?? '#F59E0B',
                 ];
 
-                // Add approval information if item needs approval
-                if ($item->status?->needsApproval()) {
+                // Add approval information if item needs approval or has approval data
+                if ($item->status?->needsApproval() || $item->approval_type) {
                     $itemData['approval_type'] = $item->approval_type;
                     $itemData['approval_data'] = $item->approval_data;
-                    $itemData['can_approve'] = true; // Branch manager can approve
-                    $itemData['can_reject'] = true; // Branch manager can reject
+                    // For supplier view: can_approve/can_reject are false (only branch manager can approve/reject)
+                    // But supplier can see their submitted requests
+                    $itemData['can_approve'] = false;
+                    $itemData['can_reject'] = false;
                 } else {
                     $itemData['can_approve'] = false;
                     $itemData['can_reject'] = false;
