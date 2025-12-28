@@ -61,15 +61,31 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     return [];
                 }
                 return $this->items->map(function ($item) {
-                    return [
+                    $itemData = [
                         'item_name' => $item->item_name ?? 'n/a',
-                        'status' => $this->status?->value ?? 'n/a',
+                        'status' => $item->status?->value ?? 'pending',
+                        'status_label' => $item->status?->label() ?? 'Pending',
+                        'status_color' => $item->status?->color() ?? '#F59E0B',
                         'requested_qty' => $item->quantity_ordered ? (float) $item->quantity_ordered : 0.0,
+                        'quantity_confirmed' => $item->quantity_confirmed ? (float) $item->quantity_confirmed : null,
                         'quality' => $item->quality_ordered?->value ?? 'n/a',
                         'item_price' => $item->unit_price ? (float) $item->unit_price : 0.0,
                         'item_unit' => $item->unit_of_measurement ?? 'n/a',
                         'total_price' => $item->total_price ? (float) $item->total_price : 0.0,
                     ];
+
+                    // Add approval information if item needs approval or has approval data
+                    if ($item->status?->needsApproval() || $item->approval_type) {
+                        $itemData['approval_type'] = $item->approval_type;
+                        $itemData['approval_data'] = $item->approval_data;
+                        $itemData['can_approve'] = true; // Branch manager can approve
+                        $itemData['can_reject'] = true; // Branch manager can reject
+                    } else {
+                        $itemData['can_approve'] = false;
+                        $itemData['can_reject'] = false;
+                    }
+
+                    return $itemData;
                 });
             }) ?? [],
         ];
