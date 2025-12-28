@@ -14,7 +14,7 @@ class RejectItemRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'reason' => 'required|string|max:1000',
+            'reason' => 'required|string|max:1000'
             // 'explanation' => 'required|string|max:1000',
         ];
     }
