@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\Priority;
@@ -361,22 +362,63 @@ class PurchaseOrder extends Model
         match ($newStatus) {
             OrderStatus::PENDING => $updateData['submitted_at'] = now(),
             OrderStatus::CONFIRMED => $updateData['confirmed_at'] = now(),
-            OrderStatus::FULLY_APPROVED => $updateData['confirmed_at'] = now(),
-            OrderStatus::PARTIAL_APPROVED => $updateData['confirmed_at'] = now(),
-            OrderStatus::PARTIAL_CONFIRMED => $updateData['confirmed_at'] = now(),
             OrderStatus::PREPARING => $updateData['preparation_started_at'] = now(),
             OrderStatus::ON_THE_WAY => $updateData['dispatched_at'] = now(),
             OrderStatus::DELIVERED => $updateData['actual_delivery_at'] = now(),
             OrderStatus::CLOSED => $updateData['closed_at'] = now(),
             OrderStatus::CANCELED => $updateData['canceled_at'] = now(),
             OrderStatus::REJECTED => $updateData['rejected_at'] = now(),
+            // Deprecated statuses (for backward compatibility)
+            OrderStatus::FULLY_APPROVED => $updateData['confirmed_at'] = now(),
+            OrderStatus::PARTIAL_APPROVED => $updateData['confirmed_at'] = now(),
+            OrderStatus::PARTIAL_CONFIRMED => $updateData['confirmed_at'] = now(),
             default => null,
         };
 
         // Update in single query
         $this->update($updateData);
 
+        // Auto-check if order should transition to CONFIRMED after item status changes
+        if ($this->status === OrderStatus::PENDING) {
+            $this->checkAndTransitionToConfirmed();
+        }
+
         return true;
+    }
+
+    /**
+     * Check if all items are decided (confirmed or rejected) and transition order to CONFIRMED
+     * This is called automatically when item status changes
+     */
+    public function checkAndTransitionToConfirmed(): bool
+    {
+        // Only check if order is in PENDING status
+        if ($this->status !== OrderStatus::PENDING) {
+            return false;
+        }
+
+        // Reload items to get latest status
+        $this->load('items');
+
+        // Get all items
+        $items = $this->items;
+        
+        if ($items->isEmpty()) {
+            return false;
+        }
+
+        // Check if all items are decided (confirmed or rejected)
+        // Items in NEEDS_APPROVAL or PENDING are not decided yet
+        $allDecided = $items->every(function ($item) {
+            return $item->status->isDecided();
+        });
+
+        if ($allDecided) {
+            // All items are decided, transition order to CONFIRMED
+            return $this->transitionTo(OrderStatus::CONFIRMED);
+        }
+
+        return false;
     }
 
     public function calculateTotals(): void

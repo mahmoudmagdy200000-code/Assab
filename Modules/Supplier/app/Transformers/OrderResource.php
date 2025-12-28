@@ -36,7 +36,7 @@ class OrderResource extends JsonResource
 
             // Order Items
             'items' => $this->items->map(function ($item) {
-                return [
+                $itemData = [
                     'id' => $item->id,
                     'item_id' => $item->item_id,
                     'item_name' => $item->item_name,
@@ -51,6 +51,19 @@ class OrderResource extends JsonResource
                     'status_label' => $item->status?->label() ?? 'Pending',
                     'status_color' => $item->status?->color() ?? '#F59E0B',
                 ];
+
+                // Add approval information if item needs approval
+                if ($item->status?->needsApproval()) {
+                    $itemData['approval_type'] = $item->approval_type;
+                    $itemData['approval_data'] = $item->approval_data;
+                    $itemData['can_approve'] = true; // Branch manager can approve
+                    $itemData['can_reject'] = true; // Branch manager can reject
+                } else {
+                    $itemData['can_approve'] = false;
+                    $itemData['can_reject'] = false;
+                }
+
+                return $itemData;
             }),
 
             // Financial Information

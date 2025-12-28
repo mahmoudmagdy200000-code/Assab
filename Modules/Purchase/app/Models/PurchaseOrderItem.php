@@ -51,6 +51,8 @@ class PurchaseOrderItem extends Model
         'original_item_id',
         'is_gift',
         'gift_reason',
+        'approval_type',
+        'approval_data',
     ];
 
     protected $casts = [
@@ -75,6 +77,7 @@ class PurchaseOrderItem extends Model
         'new_quantity' => 'decimal:3',
         'is_alternative' => 'boolean',
         'is_gift' => 'boolean',
+        'approval_data' => 'array',
     ];
 
     protected $appends = [
@@ -178,6 +181,11 @@ class PurchaseOrderItem extends Model
         return $query->where('is_alternative', true);
     }
 
+    public function scopeNeedsApproval($query)
+    {
+        return $query->where('status', OrderItemStatus::NEEDS_APPROVAL);
+    }
+
     // Methods
     public function calculateTotalPrice(): float
     {
@@ -219,6 +227,172 @@ class PurchaseOrderItem extends Model
     public function calculateBalanceQuantity(): float
     {
         return $this->quantity_ordered - ($this->new_quantity ?? $this->quantity_ordered);
+    }
+
+    /**
+     * Request partial approval (supplier can only confirm partial quantity)
+     */
+    public function requestPartialApproval(float $requestedQuantity, ?string $note = null): void
+    {
+        if ($this->status !== OrderItemStatus::PENDING) {
+            throw new \InvalidArgumentException('Item must be in pending status to request partial approval');
+        }
+
+        if ($requestedQuantity >= $this->quantity_ordered) {
+            throw new \InvalidArgumentException('Requested quantity must be less than ordered quantity for partial approval');
+        }
+
+        $this->status = OrderItemStatus::NEEDS_APPROVAL;
+        $this->approval_type = 'partial';
+        $this->approval_data = [
+            'original_quantity' => $this->quantity_ordered,
+            'requested_quantity' => $requestedQuantity,
+            'note' => $note,
+        ];
+        $this->quantity_confirmed = $requestedQuantity;
+        $this->save();
+    }
+
+    /**
+     * Request delivery time change
+     */
+    public function requestTimeChange(string $newDeliveryTime, string $reason, ?string $note = null): void
+    {
+        if ($this->status !== OrderItemStatus::PENDING) {
+            throw new \InvalidArgumentException('Item must be in pending status to request time change');
+        }
+
+        $this->status = OrderItemStatus::NEEDS_APPROVAL;
+        $this->approval_type = 'time_change';
+        $this->approval_data = [
+            'original_delivery_time' => $this->purchaseOrder->expected_delivery_at?->toDateTimeString(),
+            'requested_delivery_time' => $newDeliveryTime,
+            'reason' => $reason,
+            'note' => $note,
+        ];
+        $this->save();
+    }
+
+    /**
+     * Request alternative product
+     */
+    public function requestAlternative(string $alternativeItemId, string $alternativeItemName, ?float $price = null, string $reason, ?string $note = null): void
+    {
+        if ($this->status !== OrderItemStatus::PENDING) {
+            throw new \InvalidArgumentException('Item must be in pending status to request alternative');
+        }
+
+        $this->status = OrderItemStatus::NEEDS_APPROVAL;
+        $this->approval_type = 'alternative';
+        $this->approval_data = [
+            'original_item_id' => $this->item_id,
+            'original_item_name' => $this->item_name,
+            'alternative_item_id' => $alternativeItemId,
+            'alternative_item_name' => $alternativeItemName,
+            'alternative_price' => $price ?? $this->unit_price,
+            'reason' => $reason,
+            'note' => $note,
+        ];
+        $this->save();
+    }
+
+    /**
+     * Approve approval request (branch manager approves)
+     */
+    public function approveRequest(?array $additionalData = null): void
+    {
+        if ($this->status !== OrderItemStatus::NEEDS_APPROVAL) {
+            throw new \InvalidArgumentException('Item must be in needs_approval status to approve request');
+        }
+
+        // Handle different approval types
+        match ($this->approval_type) {
+            'partial' => $this->handlePartialApproval(),
+            'time_change' => $this->handleTimeChangeApproval($additionalData),
+            'alternative' => $this->handleAlternativeApproval($additionalData),
+            default => throw new \InvalidArgumentException("Unknown approval type: {$this->approval_type}"),
+        };
+
+        // Clear approval data and set to confirmed
+        $this->status = OrderItemStatus::CONFIRMED;
+        $this->approval_type = null;
+        $this->approval_data = null;
+        $this->calculateTotalPrice();
+        $this->save();
+
+        // Trigger order status check
+        $this->purchaseOrder->checkAndTransitionToConfirmed();
+    }
+
+    /**
+     * Reject approval request (branch manager rejects)
+     */
+    public function rejectRequest(?string $reason = null): void
+    {
+        if ($this->status !== OrderItemStatus::NEEDS_APPROVAL) {
+            throw new \InvalidArgumentException('Item must be in needs_approval status to reject request');
+        }
+
+        // Set to rejected and clear approval data
+        $this->status = OrderItemStatus::REJECTED;
+        $this->quantity_confirmed = 0;
+        
+        // Store rejection reason in approval_data for history
+        if ($reason) {
+            $this->approval_data = array_merge($this->approval_data ?? [], ['rejection_reason' => $reason]);
+        }
+        
+        $this->approval_type = null;
+        $this->save();
+
+        // Trigger order status check
+        $this->purchaseOrder->checkAndTransitionToConfirmed();
+    }
+
+    /**
+     * Handle partial approval
+     */
+    private function handlePartialApproval(): void
+    {
+        // Quantity already set in requestPartialApproval
+        // Just ensure it's correct
+        if (isset($this->approval_data['requested_quantity'])) {
+            $this->quantity_confirmed = $this->approval_data['requested_quantity'];
+        }
+    }
+
+    /**
+     * Handle time change approval
+     */
+    private function handleTimeChangeApproval(?array $additionalData): void
+    {
+        // Update order's expected_delivery_at if provided
+        if ($additionalData && isset($additionalData['new_delivery_time'])) {
+            $this->purchaseOrder->expected_delivery_at = $additionalData['new_delivery_time'];
+            $this->purchaseOrder->save();
+        } elseif (isset($this->approval_data['requested_delivery_time'])) {
+            $this->purchaseOrder->expected_delivery_at = $this->approval_data['requested_delivery_time'];
+            $this->purchaseOrder->save();
+        }
+    }
+
+    /**
+     * Handle alternative approval
+     */
+    private function handleAlternativeApproval(?array $additionalData): void
+    {
+        // Replace item with alternative
+        if (isset($this->approval_data['alternative_item_id'])) {
+            $this->item_id = $this->approval_data['alternative_item_id'];
+            $this->item_name = $this->approval_data['alternative_item_name'] ?? $this->item_name;
+            
+            if (isset($this->approval_data['alternative_price'])) {
+                $this->unit_price = $this->approval_data['alternative_price'];
+            }
+            
+            $this->is_alternative = true;
+            $this->quantity_confirmed = $this->quantity_ordered;
+        }
     }
 }
 

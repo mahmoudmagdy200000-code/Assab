@@ -4,10 +4,16 @@ namespace Modules\Purchase\Enums;
 
 enum OrderItemStatus: string
 {
+    // Decision Phase Statuses
     case PENDING = 'pending';
     case CONFIRMED = 'confirmed';
-    case PARTIAL = 'partial';
     case REJECTED = 'rejected';
+    case NEEDS_APPROVAL = 'needs_approval';
+    
+    // Legacy status (deprecated - will be migrated to NEEDS_APPROVAL)
+    case PARTIAL = 'partial';
+    
+    // Execution Phase Statuses
     case RECEIVED = 'received';
     case VARIANCE = 'variance';
 
@@ -16,8 +22,9 @@ enum OrderItemStatus: string
         return match ($this) {
             self::PENDING => 'Pending',
             self::CONFIRMED => 'Confirmed',
-            self::PARTIAL => 'Partial',
             self::REJECTED => 'Rejected',
+            self::NEEDS_APPROVAL => 'Needs Approval',
+            self::PARTIAL => 'Partial (Deprecated)',
             self::RECEIVED => 'Received',
             self::VARIANCE => 'Variance',
         };
@@ -28,25 +35,72 @@ enum OrderItemStatus: string
         return match ($this) {
             self::PENDING => '#F59E0B',
             self::CONFIRMED => '#10B981',
-            self::PARTIAL => '#8B5CF6',
             self::REJECTED => '#EF4444',
+            self::NEEDS_APPROVAL => '#F97316',
+            self::PARTIAL => '#8B5CF6',
             self::RECEIVED => '#22C55E',
             self::VARIANCE => '#F97316',
         };
     }
 
+    /**
+     * Check if item is in decision phase (not yet decided)
+     */
+    public function isPendingDecision(): bool
+    {
+        return in_array($this, [
+            self::PENDING,
+            self::NEEDS_APPROVAL,
+        ]);
+    }
+
+    /**
+     * Check if item is decided (confirmed or rejected)
+     */
+    public function isDecided(): bool
+    {
+        return in_array($this, [
+            self::CONFIRMED,
+            self::REJECTED,
+        ]);
+    }
+
+    /**
+     * Check if item is accepted (for execution phase)
+     */
     public function isAccepted(): bool
     {
         return in_array($this, [
             self::CONFIRMED,
-            self::PARTIAL,
             self::RECEIVED,
         ]);
     }
 
+    /**
+     * Check if item is rejected
+     */
     public function isRejected(): bool
     {
         return $this === self::REJECTED;
+    }
+
+    /**
+     * Check if item needs approval (temporary state)
+     */
+    public function needsApproval(): bool
+    {
+        return $this === self::NEEDS_APPROVAL;
+    }
+
+    /**
+     * Check if item is in execution phase
+     */
+    public function isInExecution(): bool
+    {
+        return in_array($this, [
+            self::RECEIVED,
+            self::VARIANCE,
+        ]);
     }
 }
 

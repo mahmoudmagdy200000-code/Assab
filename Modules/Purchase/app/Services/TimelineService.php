@@ -9,6 +9,7 @@ use Modules\Purchase\Models\GoodsReceipt;
 use Modules\Purchase\Models\OrderTimeline;
 use Modules\Purchase\Models\PurchaseInvoice;
 use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Purchase\Models\PurchaseVariance;
 use Modules\Purchase\Models\ReturnOrder;
 
@@ -137,6 +138,62 @@ class TimelineService
             'pending_approval',
             'canceled',
             ['reason' => $reason]
+        );
+    }
+
+    public function logItemApproved(PurchaseOrder $order, PurchaseOrderItem $item): OrderTimeline
+    {
+        $approvalType = $item->approval_type;
+        $message = match ($approvalType) {
+            'partial' => "Item '{$item->item_name}' partial quantity approved",
+            'time_change' => "Item '{$item->item_name}' delivery time change approved",
+            'alternative' => "Item '{$item->item_name}' alternative product approved",
+            default => "Item '{$item->item_name}' request approved",
+        };
+
+        return $this->log(
+            $order,
+            TimelineEventType::APPROVAL_GRANTED,
+            'Item Request Approved',
+            $message,
+            'needs_approval',
+            'confirmed',
+            [
+                'item_id' => $item->id,
+                'item_name' => $item->item_name,
+                'approval_type' => $approvalType,
+                'approval_data' => $item->approval_data,
+            ]
+        );
+    }
+
+    public function logItemRejected(PurchaseOrder $order, PurchaseOrderItem $item, ?string $reason = null): OrderTimeline
+    {
+        $approvalType = $item->approval_type;
+        $message = match ($approvalType) {
+            'partial' => "Item '{$item->item_name}' partial quantity request rejected",
+            'time_change' => "Item '{$item->item_name}' delivery time change rejected",
+            'alternative' => "Item '{$item->item_name}' alternative product rejected",
+            default => "Item '{$item->item_name}' request rejected",
+        };
+
+        if ($reason) {
+            $message .= ": {$reason}";
+        }
+
+        return $this->log(
+            $order,
+            TimelineEventType::APPROVAL_DENIED,
+            'Item Request Rejected',
+            $message,
+            'needs_approval',
+            'rejected',
+            [
+                'item_id' => $item->id,
+                'item_name' => $item->item_name,
+                'approval_type' => $approvalType,
+                'reason' => $reason,
+            ]
         );
     }
 

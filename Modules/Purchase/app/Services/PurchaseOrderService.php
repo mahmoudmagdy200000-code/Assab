@@ -6,6 +6,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Constants\PurchaseConstants;
+use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\QualityLevel;
@@ -745,25 +746,28 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     public function confirmOrder(PurchaseOrder $order, ?array $itemConfirmations = null, ?string $readyTime = null): bool
     {
         return DB::transaction(function () use ($order, $itemConfirmations, $readyTime) {
-            // Check if transition is allowed
-            if (!$order->canTransitionTo(OrderStatus::FULLY_APPROVED)) {
-                Log::warning('Cannot transition order to FULLY_APPROVED', [
-                    'order_id' => $order->id,
-                    'current_status' => $order->status?->value,
-                    'order_number' => $order->order_number,
-                ]);
+            // Check if order is in decision phase
+            if (!$order->status->isDecisionPhase() || $order->status === OrderStatus::CONFIRMED) {
                 throw new \InvalidArgumentException(
-                    "Cannot approve order. Current status: {$order->status?->value}. Order must be in pending, pending_confirmation, or pending_approval status."
+                    "Cannot approve order. Current status: {$order->status?->value}. Order must be in pending status."
                 );
             }
 
+            // If itemConfirmations provided, confirm specific items
             if ($itemConfirmations) {
                 foreach ($itemConfirmations as $confirmation) {
-                    $item = PurchaseOrderItem::find($confirmation['item_id']);
+                    $item = $order->items()->find($confirmation['item_id']);
                     if ($item) {
-                        $item->confirm($confirmation['quantity'] ?? null);
+                        $quantity = $confirmation['quantity'] ?? $item->quantity_ordered;
+                        $item->confirm($quantity);
                     }
                 }
+            } else {
+                // Confirm all pending items
+                $order->items()
+                    ->where('status', OrderItemStatus::PENDING)
+                    ->get()
+                    ->each->confirm();
             }
 
             // Update ready_time if provided
@@ -771,59 +775,66 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 $order->update(['ready_time' => $readyTime]);
             }
 
-            $success = $order->transitionTo(OrderStatus::FULLY_APPROVED);
-            if (!$success) {
-                throw new \InvalidArgumentException('Failed to transition order status to FULLY_APPROVED');
+            // Check and transition to CONFIRMED if all items are decided
+            $order->checkAndTransitionToConfirmed();
+
+            // If order is now confirmed, log and record prices
+            if ($order->fresh()->status === OrderStatus::CONFIRMED) {
+                $this->timelineService->logOrderConfirmed($order);
+                $this->recordOrderPrices($order);
             }
-
-            $this->timelineService->logOrderConfirmed($order);
-
-            // Record prices in price_histories when order is confirmed
-            $this->recordOrderPrices($order);
 
             return true;
         });
     }
 
     /**
-     * Partially confirm order
+     * Partially confirm order (confirm specific items only)
      */
     public function partialConfirmOrder(PurchaseOrder $order, array $itemConfirmations, ?string $readyTime = null): bool
     {
         return DB::transaction(function () use ($order, $itemConfirmations, $readyTime) {
-            // Check if transition is allowed
-            if (!$order->canTransitionTo(OrderStatus::PARTIAL_APPROVED)) {
-                Log::warning('Cannot transition order to PARTIAL_APPROVED', [
-                    'order_id' => $order->id,
-                    'current_status' => $order->status?->value,
-                    'order_number' => $order->order_number,
-                ]);
+            // Check if order is in decision phase
+            if (!$order->status->isDecisionPhase() || $order->status === OrderStatus::CONFIRMED) {
                 throw new \InvalidArgumentException(
-                    "Cannot partially approve order. Current status: {$order->status?->value}. Order must be in pending, pending_approval, or partial_confirmation status."
+                    "Cannot partially approve order. Current status: {$order->status?->value}. Order must be in pending status."
                 );
             }
 
+            // Confirm specified items
             foreach ($itemConfirmations as $confirmation) {
-                $item = PurchaseOrderItem::find($confirmation['item_id']);
+                $item = $order->items()->find($confirmation['item_id']);
                 if ($item) {
-                    $item->confirm($confirmation['quantity']);
+                    $quantity = $confirmation['quantity'] ?? $item->quantity_ordered;
+                    $item->confirm($quantity);
                 }
             }
+
+            // Reject items not in the confirmation list
+            $confirmedItemIds = collect($itemConfirmations)->pluck('item_id')->toArray();
+            $order->items()
+                ->whereNotIn('id', $confirmedItemIds)
+                ->where('status', OrderItemStatus::PENDING)
+                ->get()
+                ->each(function ($item) {
+                    $item->status = OrderItemStatus::REJECTED;
+                    $item->quantity_confirmed = 0;
+                    $item->save();
+                });
 
             // Update ready_time if provided
             if ($readyTime !== null) {
                 $order->update(['ready_time' => $readyTime]);
             }
 
-            $success = $order->transitionTo(OrderStatus::PARTIAL_APPROVED);
-            if (!$success) {
-                throw new \InvalidArgumentException('Failed to transition order status to PARTIAL_APPROVED');
+            // Check and transition to CONFIRMED if all items are decided
+            $order->checkAndTransitionToConfirmed();
+
+            // If order is now confirmed, log and record prices
+            if ($order->fresh()->status === OrderStatus::CONFIRMED) {
+                $this->timelineService->logOrderConfirmed($order);
+                $this->recordOrderPrices($order, $itemConfirmations);
             }
-
-            $this->timelineService->logPartialConfirmation($order);
-
-            // Record prices in price_histories when order is partially confirmed
-            $this->recordOrderPrices($order, $itemConfirmations);
 
             return true;
         });

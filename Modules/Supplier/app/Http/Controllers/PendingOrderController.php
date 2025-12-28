@@ -117,8 +117,8 @@ class PendingOrderController extends BaseController
 
     /**
      * Partially approve order (for PENDING status)
-     * Supplier confirms partial quantity - order moves to PARTIAL_CONFIRMATION status
-     * Then Branch Manager needs to approve it to move to PARTIAL_APPROVED
+     * Supplier requests partial approval for specific items - items move to NEEDS_APPROVAL status
+     * Order stays PENDING until branch manager approves/rejects all items
      *
      * @group Supplier Pending Orders
      */
@@ -132,91 +132,31 @@ class PendingOrderController extends BaseController
                 return $this->errorResponse('Unauthorized access to this order', 403);
             }
 
-            // Supplier can partially approve from PENDING status
-            if (!in_array($order->status, [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION])) {
+            if ($order->status !== OrderStatus::PENDING) {
                 return $this->errorResponse(
-                    "Order is not in pending or partial confirmation status. Current status: {$order->status->label()}",
+                    "Order is not in pending status. Current status: {$order->status->label()}",
                     400
                 );
             }
 
-            // If order is PENDING, supplier is doing initial partial acceptance
-            // This should transition to PARTIAL_CONFIRMATION (waiting for branch manager approval)
-            if ($order->status === OrderStatus::PENDING) {
-                return DB::transaction(function () use ($order, $request) {
-                    $items = $request->get('items', []);
+            $items = $request->get('items', []);
 
-                    if (empty($items)) {
-                        return $this->errorResponse('Items array is required for partial approval', 400);
-                    }
-
-                    // Get all item IDs (from purchase_order_items table) that were confirmed
-                    $confirmedItemIds = [];
-
-                    // Update items with confirmed quantities and status
-                    foreach ($items as $confirmation) {
-                        // Find item by item_id (the actual item ID, not the purchase_order_item ID)
-                        $item = $order->items()->where('item_id', $confirmation['item_id'])->first();
-                        if ($item) {
-                            $confirmedItemIds[] = $item->id; // Store purchase_order_item ID
-                            $confirmedQuantity = $confirmation['quantity'] ?? $item->quantity_ordered;
-                            $isPartial = $confirmedQuantity < $item->quantity_ordered;
-
-                            $item->update([
-                                'quantity_confirmed' => $confirmedQuantity,
-                                'status' => $isPartial ? 'partial' : 'confirmed',
-                            ]);
-                            $item->calculateTotalPrice();
-                        }
-                    }
-
-                    // Mark items that were not included in the confirmation as rejected
-                    if (!empty($confirmedItemIds)) {
-                        $order->items()
-                            ->whereNotIn('id', $confirmedItemIds)
-                            ->update([
-                                'status' => 'rejected',
-                                'quantity_confirmed' => 0,
-                            ]);
-                    }
-
-                    // Update order with expected delivery if provided
-                    if ($request->has('expected_delivery_at')) {
-                        $order->expected_delivery_at = $request->validated()['expected_delivery_at'];
-                    }
-
-                    // Transition to PARTIAL_CONFIRMATION (waiting for branch manager approval)
-                    $success = $order->transitionTo(OrderStatus::PARTIAL_CONFIRMATION);
-
-                    if (!$success) {
-                        return $this->errorResponse('Cannot transition order to partial confirmation status', 400);
-                    }
-
-                    // Log timeline event
-                    $this->timelineService->logPartialConfirmation($order);
-
-                    // Send notification to branch manager
-                    $this->notificationService->notifyOrderAccepted($order);
-
-                    return $this->successResponse(
-                        new OrderResource($order->fresh(['items'])),
-                        'Order partially confirmed. Waiting for branch manager approval.'
-                    );
-                });
+            if (empty($items)) {
+                return $this->errorResponse('Items array is required for partial approval', 400);
             }
 
-            // If order is already in PARTIAL_CONFIRMATION, supplier is updating the partial confirmation
-            // This should transition to PARTIAL_APPROVED (using PurchaseOrderService method)
-            $readyTime = $request->validated()['ready_time'] ?? null;
-            $success = $this->purchaseOrderService->partialConfirmOrder($order, $request->get('items'), $readyTime);
+            // Use OrderService to handle partial approval requests
+            $order = $this->orderService->requestPartialApproval($order, $supplier, $items);
 
-            if (!$success) {
-                return $this->errorResponse('Cannot partially approve order', 400);
+            // Update order with expected delivery if provided
+            if ($request->has('expected_delivery_at')) {
+                $order->expected_delivery_at = $request->validated()['expected_delivery_at'];
+                $order->save();
             }
 
             return $this->successResponse(
                 new OrderResource($order->fresh(['items'])),
-                'Order partially approved successfully'
+                'Partial approval requests submitted. Waiting for branch manager approval.'
             );
         } catch (\InvalidArgumentException $e) {
             return $this->errorResponse($e->getMessage(), 400);
@@ -411,6 +351,82 @@ class PendingOrderController extends BaseController
      *
      * @group Supplier Pending Orders
      */
+    /**
+     * Request delivery time change for specific item
+     *
+     * @group Supplier Pending Orders
+     */
+    public function requestTimeChange(RequestModificationRequest $request, string $id, string $itemId): JsonResponse
+    {
+        try {
+            $supplier = auth('supplier')->user();
+            $order = PurchaseOrder::findOrFail($id);
+
+            if ($order->supplier_id !== $supplier->id) {
+                return $this->errorResponse('Unauthorized access to this order', 403);
+            }
+
+            $validated = $request->validated();
+
+            $order = $this->orderService->requestTimeChange(
+                $order,
+                $supplier,
+                $itemId,
+                $validated['new_delivery_time'],
+                $validated['reason'],
+                $validated['note'] ?? null
+            );
+
+            return $this->successResponse(
+                new OrderResource($order->fresh(['items'])),
+                'Time change request submitted. Waiting for branch manager approval.'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'requesting time change');
+        }
+    }
+
+    /**
+     * Request alternative product for specific item
+     *
+     * @group Supplier Pending Orders
+     */
+    public function requestAlternative(RequestModificationRequest $request, string $id, string $itemId): JsonResponse
+    {
+        try {
+            $supplier = auth('supplier')->user();
+            $order = PurchaseOrder::findOrFail($id);
+
+            if ($order->supplier_id !== $supplier->id) {
+                return $this->errorResponse('Unauthorized access to this order', 403);
+            }
+
+            $validated = $request->validated();
+
+            $order = $this->orderService->requestAlternative(
+                $order,
+                $supplier,
+                $itemId,
+                $validated['alternative_item_id'],
+                $validated['alternative_item_name'],
+                $validated['price'] ?? null,
+                $validated['reason'],
+                $validated['note'] ?? null
+            );
+
+            return $this->successResponse(
+                new OrderResource($order->fresh(['items'])),
+                'Alternative product request submitted. Waiting for branch manager approval.'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'requesting alternative product');
+        }
+    }
+
     public function timeline(string $id): JsonResponse
     {
         try {

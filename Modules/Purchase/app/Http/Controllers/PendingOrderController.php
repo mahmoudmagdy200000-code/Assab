@@ -646,4 +646,72 @@ class PendingOrderController extends BaseController
             return $this->handleException($e, 'fetching via purchasing officer order details');
         }
     }
+
+    /**
+     * Approve item request (branch manager approves supplier's request for specific item)
+     *
+     * @group Pending Orders
+     */
+    public function approveItemRequest(string $id, string $itemId): JsonResponse
+    {
+        try {
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
+
+            if (!$order) {
+                return $this->notFoundResponse('Order not found');
+            }
+
+            $additionalData = request()->only(['new_delivery_time']);
+
+            $success = $this->orderService->approveItemRequest($order, $itemId, $additionalData);
+
+            if (!$success) {
+                return $this->errorResponse('Failed to approve item request', 400);
+            }
+
+            return $this->successResponse(
+                new PurchaseOrderResource($order->fresh(['items'])),
+                'Item request approved successfully'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'approving item request');
+        }
+    }
+
+    /**
+     * Reject item request (branch manager rejects supplier's request for specific item)
+     *
+     * @group Pending Orders
+     */
+    public function rejectItemRequest(RejectOrderRequest $request, string $id, string $itemId): JsonResponse
+    {
+        try {
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
+
+            if (!$order) {
+                return $this->notFoundResponse('Order not found');
+            }
+
+            $reason = $request->validated()['reason'] ?? null;
+
+            $success = $this->orderService->rejectItemRequest($order, $itemId, $reason);
+
+            if (!$success) {
+                return $this->errorResponse('Failed to reject item request', 400);
+            }
+
+            return $this->successResponse(
+                new PurchaseOrderResource($order->fresh(['items'])),
+                'Item request rejected successfully'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'rejecting item request');
+        }
+    }
 }

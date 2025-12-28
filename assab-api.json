@@ -1,0 +1,162 @@
+{
+    "type": "postman",
+    "data": {
+      "info": {
+        "_postman_id": "019b562b-b3c5-7085-9a9e-bafcde4dba47",
+        "name": "Assab API - New Item Approval Endpoints",
+        "description": "API documentation for new item-level approval endpoints",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+      },
+      "item": [
+        {
+          "name": "Supplier - Request Time Change",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"new_delivery_time\": \"2025-12-30 14:00:00\",\n  \"reason\": \"نقص في المخزون - نحتاج وقت إضافي للتوريد\",\n  \"note\": \"سيتم التوريد في أقرب وقت ممكن\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/supplier/pending-orders/{{order_id}}/items/{{item_id}}/request-time-change",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "v1",
+                "supplier",
+                "pending-orders",
+                "{{order_id}}",
+                "items",
+                "{{item_id}}",
+                "request-time-change"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Supplier - Request Alternative Product",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"alternative_item_id\": \"019b5156-3b59-7266-b60e-7f63db6f33de\",\n  \"alternative_item_name\": \"Chicken Breast (Fresh)\",\n  \"price\": 30.00,\n  \"reason\": \"المنتج المطلوب غير متوفر - نقدم بديل بجودة أعلى\",\n  \"note\": \"المنتج البديل من نفس المورد وبنفس المواصفات\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/supplier/pending-orders/{{order_id}}/items/{{item_id}}/request-alternative",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "v1",
+                "supplier",
+                "pending-orders",
+                "{{order_id}}",
+                "items",
+                "{{item_id}}",
+                "request-alternative"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Supplier - Partial Approve",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"item_id\": \"019b5156-3b56-735c-9081-08be280c42d7\", \"quantity\": 0.5 }\n  ],\n  \"expected_delivery_at\": \"2025-12-30 14:00:00\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/supplier/pending-orders/{{order_id}}/partial-approve",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "v1",
+                "supplier",
+                "pending-orders",
+                "{{order_id}}",
+                "partial-approve"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Branch Manager - Approve Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"new_delivery_time\": \"2025-12-30 16:00:00\" }"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/pending/{{order_id}}/items/{{item_id}}/approve",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "v1",
+                "purchase",
+                "pending",
+                "{{order_id}}",
+                "items",
+                "{{item_id}}",
+                "approve"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Branch Manager - Reject Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"reason\": \"الكمية المطلوبة غير كافية لتلبية احتياجات الفرع\" }"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase/pending/{{order_id}}/items/{{item_id}}/reject",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "v1",
+                "purchase",
+                "pending",
+                "{{order_id}}",
+                "items",
+                "{{item_id}}",
+                "reject"
+              ]
+            }
+          }
+        }
+      ],
+      "variable": [
+        { "key": "base_url", "value": "https://ivory-snail-183262.hostingersite.com" },
+        { "key": "token", "value": "your-auth-token-here" },
+        { "key": "order_id", "value": "ORDER_UUID" },
+        { "key": "item_id", "value": "ITEM_UUID" }
+      ]
+    }
+  }

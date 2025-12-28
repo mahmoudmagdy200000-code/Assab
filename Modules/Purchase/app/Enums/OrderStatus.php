@@ -4,19 +4,26 @@ namespace Modules\Purchase\Enums;
 
 enum OrderStatus: string
 {
+    // Decision Phase Statuses
     case DRAFT = 'draft';
     case PENDING = 'pending';
-    case PENDING_CONFIRMATION = 'pending_confirmation';
-    case PENDING_APPROVAL = 'pending_approval';
-    case PARTIAL_CONFIRMATION = 'partial_confirmation';
     case CONFIRMED = 'confirmed';
+    case REJECTED = 'rejected';
+    case CANCELED = 'canceled';
+    
+    // Execution Phase Statuses
     case PREPARING = 'preparing';
     case ON_THE_WAY = 'on_the_way';
     case DELIVERED = 'delivered';
     case CLOSED = 'closed';
-    case CANCELED = 'canceled';
-    case REJECTED = 'rejected';
+    
+    // Special Status (temporary during execution)
     case DELAYED = 'delayed';
+    
+    // Deprecated Statuses (for backward compatibility - will be migrated)
+    case PENDING_CONFIRMATION = 'pending_confirmation';
+    case PENDING_APPROVAL = 'pending_approval';
+    case PARTIAL_CONFIRMATION = 'partial_confirmation';
     case FULLY_APPROVED = 'fully_approved';
     case PARTIAL_APPROVED = 'partial_approved';
     case PARTIAL_CONFIRMED = 'partial_confirmed';
@@ -24,41 +31,55 @@ enum OrderStatus: string
     public function label(): string
     {
         return match ($this) {
+            // Decision Phase
             self::DRAFT => 'Draft',
             self::PENDING => 'Pending',
-            self::PENDING_CONFIRMATION => 'Pending Your Confirmation',
-            self::PENDING_APPROVAL => 'Pending Your Approval',
-            self::PARTIAL_CONFIRMATION => 'Partial Confirmation',
             self::CONFIRMED => 'Confirmed',
+            self::REJECTED => 'Rejected',
+            self::CANCELED => 'Canceled',
+            
+            // Execution Phase
             self::PREPARING => 'Preparing',
             self::ON_THE_WAY => 'On The Way',
             self::DELIVERED => 'Delivered',
             self::CLOSED => 'Closed',
-            self::CANCELED => 'Canceled',
-            self::REJECTED => 'Rejected',
+            
+            // Special
             self::DELAYED => 'Delay Reported',
-            self::FULLY_APPROVED => 'Fully Approved',
-            self::PARTIAL_APPROVED => 'Partial Approved',
-            self::PARTIAL_CONFIRMED => 'Partial Confirmed',
+            
+            // Deprecated (for backward compatibility)
+            self::PENDING_CONFIRMATION => 'Pending Confirmation (Deprecated)',
+            self::PENDING_APPROVAL => 'Pending Approval (Deprecated)',
+            self::PARTIAL_CONFIRMATION => 'Partial Confirmation (Deprecated)',
+            self::FULLY_APPROVED => 'Fully Approved (Deprecated)',
+            self::PARTIAL_APPROVED => 'Partial Approved (Deprecated)',
+            self::PARTIAL_CONFIRMED => 'Partial Confirmed (Deprecated)',
         };
     }
 
     public function color(): string
     {
         return match ($this) {
+            // Decision Phase
             self::DRAFT => '#6B7280',
             self::PENDING => '#F59E0B',
-            self::PENDING_CONFIRMATION => '#F97316',
-            self::PENDING_APPROVAL => '#F97316',
-            self::PARTIAL_CONFIRMATION => '#8B5CF6',
             self::CONFIRMED => '#10B981',
+            self::REJECTED => '#DC2626',
+            self::CANCELED => '#EF4444',
+            
+            // Execution Phase
             self::PREPARING => '#3B82F6',
             self::ON_THE_WAY => '#06B6D4',
             self::DELIVERED => '#22C55E',
             self::CLOSED => '#6B7280',
-            self::CANCELED => '#EF4444',
-            self::REJECTED => '#DC2626',
+            
+            // Special
             self::DELAYED => '#F59E0B',
+            
+            // Deprecated (mapped to similar statuses)
+            self::PENDING_CONFIRMATION => '#F97316',
+            self::PENDING_APPROVAL => '#F97316',
+            self::PARTIAL_CONFIRMATION => '#8B5CF6',
             self::FULLY_APPROVED => '#10B981',
             self::PARTIAL_APPROVED => '#8B5CF6',
             self::PARTIAL_CONFIRMED => '#8B5CF6',
@@ -71,22 +92,27 @@ enum OrderStatus: string
     public function canTransitionTo(OrderStatus $newStatus): bool
     {
         $allowedTransitions = match ($this) {
+            // Decision Phase Transitions
             self::DRAFT => [self::PENDING, self::CANCELED],
-            self::PENDING => [self::PENDING_CONFIRMATION, self::PENDING_APPROVAL, self::CONFIRMED, self::FULLY_APPROVED, self::PARTIAL_CONFIRMATION, self::PARTIAL_APPROVED, self::REJECTED, self::CANCELED],
-            self::PENDING_CONFIRMATION => [self::CONFIRMED, self::FULLY_APPROVED, self::REJECTED, self::CANCELED],
-            self::PENDING_APPROVAL => [self::CONFIRMED, self::FULLY_APPROVED, self::PARTIAL_CONFIRMATION, self::PARTIAL_APPROVED, self::REJECTED, self::CANCELED],
-            self::PARTIAL_CONFIRMATION => [self::CONFIRMED, self::FULLY_APPROVED, self::PARTIAL_APPROVED, self::PREPARING, self::CANCELED],
+            self::PENDING => [self::CONFIRMED, self::REJECTED, self::CANCELED],
             self::CONFIRMED => [self::PREPARING, self::CANCELED],
+            self::REJECTED => [],
+            self::CANCELED => [],
+            
+            // Execution Phase Transitions
             self::PREPARING => [self::ON_THE_WAY, self::DELAYED, self::CANCELED],
             self::ON_THE_WAY => [self::DELIVERED, self::DELAYED],
             self::DELAYED => [self::PREPARING, self::ON_THE_WAY, self::CANCELED],
             self::DELIVERED => [self::CLOSED],
             self::CLOSED => [],
-            self::CANCELED => [],
-            self::REJECTED => [],
+            
+            // Deprecated Statuses (for backward compatibility - allow transitions to new statuses)
+            self::PENDING_CONFIRMATION => [self::CONFIRMED, self::REJECTED, self::CANCELED],
+            self::PENDING_APPROVAL => [self::CONFIRMED, self::REJECTED, self::CANCELED],
+            self::PARTIAL_CONFIRMATION => [self::CONFIRMED, self::REJECTED, self::CANCELED],
             self::FULLY_APPROVED => [self::CONFIRMED, self::PREPARING, self::CANCELED],
-            self::PARTIAL_APPROVED => [self::PARTIAL_CONFIRMED, self::FULLY_APPROVED, self::PREPARING, self::CANCELED],
-            self::PARTIAL_CONFIRMED => [self::PREPARING, self::CANCELED],
+            self::PARTIAL_APPROVED => [self::CONFIRMED, self::PREPARING, self::CANCELED],
+            self::PARTIAL_CONFIRMED => [self::CONFIRMED, self::PREPARING, self::CANCELED],
         };
 
         return in_array($newStatus, $allowedTransitions);
@@ -99,11 +125,14 @@ enum OrderStatus: string
     {
         return in_array($this, [
             self::CONFIRMED,
+            self::PREPARING,
+            self::ON_THE_WAY,
+            self::DELIVERED,
+            // Deprecated (for backward compatibility)
             self::PARTIAL_CONFIRMATION,
             self::FULLY_APPROVED,
             self::PARTIAL_APPROVED,
             self::PARTIAL_CONFIRMED,
-            self::DELIVERED,
         ]);
     }
 
@@ -125,14 +154,15 @@ enum OrderStatus: string
     public function isInProgress(): bool
     {
         return in_array($this, [
+            self::CONFIRMED,
             self::PREPARING,
             self::ON_THE_WAY,
-            self::CONFIRMED,
+            self::DELIVERED,
+            // Deprecated (for backward compatibility)
             self::PARTIAL_CONFIRMATION,
             self::FULLY_APPROVED,
             self::PARTIAL_APPROVED,
             self::PARTIAL_CONFIRMED,
-            self::DELIVERED,
         ]);
     }
 
@@ -145,6 +175,7 @@ enum OrderStatus: string
             self::CLOSED,
             self::CANCELED,
             self::CONFIRMED,
+            // Deprecated (for backward compatibility)
             self::PARTIAL_CONFIRMATION,
             self::FULLY_APPROVED,
             self::PARTIAL_APPROVED,
@@ -153,23 +184,24 @@ enum OrderStatus: string
     }
 
     /**
-     * Get statuses for pending orders
+     * Get statuses for pending orders (decision phase + execution phase)
      */
     public static function pendingStatuses(): array
     {
         return [
             self::DRAFT,
             self::PENDING,
-            self::PENDING_CONFIRMATION,
-            self::PENDING_APPROVAL,
-            self::PARTIAL_CONFIRMATION,
             self::CONFIRMED,
-            self::FULLY_APPROVED,
-            self::PARTIAL_APPROVED,
-            self::PARTIAL_CONFIRMED,
             self::PREPARING,
             self::ON_THE_WAY,
             self::DELAYED,
+            // Deprecated (for backward compatibility)
+            self::PENDING_CONFIRMATION,
+            self::PENDING_APPROVAL,
+            self::PARTIAL_CONFIRMATION,
+            self::FULLY_APPROVED,
+            self::PARTIAL_APPROVED,
+            self::PARTIAL_CONFIRMED,
         ];
     }
 
@@ -179,14 +211,43 @@ enum OrderStatus: string
     public static function receivingStatuses(): array
     {
         return [
+            self::CONFIRMED,
             self::PREPARING,
             self::ON_THE_WAY,
+            self::DELIVERED,
+            // Deprecated (for backward compatibility)
             self::PARTIAL_CONFIRMATION,
-            self::CONFIRMED,
             self::FULLY_APPROVED,
             self::PARTIAL_APPROVED,
             self::PARTIAL_CONFIRMED,
-            self::DELIVERED,
         ];
+    }
+
+    /**
+     * Check if status is in decision phase
+     */
+    public function isDecisionPhase(): bool
+    {
+        return in_array($this, [
+            self::DRAFT,
+            self::PENDING,
+            self::CONFIRMED,
+            self::REJECTED,
+            self::CANCELED,
+        ]);
+    }
+
+    /**
+     * Check if status is in execution phase
+     */
+    public function isExecutionPhase(): bool
+    {
+        return in_array($this, [
+            self::PREPARING,
+            self::ON_THE_WAY,
+            self::DELIVERED,
+            self::CLOSED,
+            self::DELAYED,
+        ]);
     }
 }

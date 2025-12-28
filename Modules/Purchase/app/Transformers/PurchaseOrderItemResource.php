@@ -120,6 +120,24 @@ class PurchaseOrderItemResource extends JsonResource
             'quantity_variance' => $this->quantity_variance,
             'has_variance' => $this->has_variance,
             
+            // Approval Information (if item needs approval)
+            'approval_type' => $this->when(
+                $this->status?->needsApproval(),
+                fn() => $this->approval_type
+            ),
+            'approval_data' => $this->when(
+                $this->status?->needsApproval(),
+                fn() => $this->approval_data
+            ),
+            'can_approve' => $this->when(
+                $this->status?->needsApproval(),
+                fn() => true // Branch manager can approve
+            ),
+            'can_reject' => $this->when(
+                $this->status?->needsApproval(),
+                fn() => true // Branch manager can reject
+            ),
+            
             // Modifications
             'modification_note' => $this->modification_note,
             'is_alternative' => $this->is_alternative,

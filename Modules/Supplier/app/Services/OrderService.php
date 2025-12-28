@@ -5,8 +5,10 @@ namespace Modules\Supplier\Services;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Supplier\Models\Supplier;
 
 class OrderService
@@ -30,10 +32,12 @@ class OrderService
             ->where('order_type', 'direct_supplier')
             ->whereIn('status', [
                 OrderStatus::PENDING,
+                OrderStatus::CONFIRMED,
+                OrderStatus::DELAYED,
+                // Deprecated (for backward compatibility)
                 OrderStatus::PENDING_CONFIRMATION,
                 OrderStatus::PENDING_APPROVAL,
                 OrderStatus::PARTIAL_CONFIRMATION,
-                OrderStatus::DELAYED,
             ])
             ->orderBy('created_at', 'desc');
 
@@ -123,26 +127,30 @@ class OrderService
             throw new \Exception('Unauthorized access to this order');
         }
 
-        if (!in_array($order->status, [OrderStatus::PENDING, OrderStatus::PENDING_CONFIRMATION])) {
+        if ($order->status !== OrderStatus::PENDING) {
             throw new \Exception('Order cannot be accepted in current status');
         }
 
         return DB::transaction(function () use ($order, $data) {
-            $order->update([
-                'status' => OrderStatus::CONFIRMED,
-                'confirmed_at' => now(),
-                'expected_delivery_at' => $data['expected_delivery_at'] ?? null,
-                'message' => $data['message'] ?? null,
-            ]);
-
             // Mark all items as confirmed when order is fully accepted
-            $order->items()->update([
-                'status' => 'confirmed',
-                'quantity_confirmed' => DB::raw('quantity_ordered'),
-            ]);
+            $order->items()
+                ->where('status', OrderItemStatus::PENDING)
+                ->get()
+                ->each(function ($item) {
+                    $item->confirm();
+                });
 
-            // Recalculate totals for all items
-            $order->items->each->calculateTotalPrice();
+            // Update order with expected delivery if provided
+            if (isset($data['expected_delivery_at'])) {
+                $order->expected_delivery_at = $data['expected_delivery_at'];
+            }
+            if (isset($data['message'])) {
+                $order->message = $data['message'];
+            }
+            $order->save();
+
+            // Check and transition to CONFIRMED (auto-check)
+            $order->checkAndTransitionToConfirmed();
 
             // Send notification to branch manager
             $this->notificationService->notifyOrderAccepted($order);
@@ -160,22 +168,26 @@ class OrderService
             throw new \Exception('Unauthorized access to this order');
         }
 
-        if (!in_array($order->status, [OrderStatus::PENDING, OrderStatus::PENDING_CONFIRMATION])) {
+        if ($order->status !== OrderStatus::PENDING) {
             throw new \Exception('Order cannot be rejected in current status');
         }
 
         return DB::transaction(function () use ($order, $data) {
+            // Mark all items as rejected when order is rejected
+            $order->items()
+                ->where('status', OrderItemStatus::PENDING)
+                ->get()
+                ->each(function ($item) {
+                    $item->status = OrderItemStatus::REJECTED;
+                    $item->quantity_confirmed = 0;
+                    $item->save();
+                });
+
             $order->update([
                 'status' => OrderStatus::REJECTED,
                 'rejected_at' => now(),
                 'rejection_reason' => $data['reason'],
                 'message' => $data['explanation'] ?? null,
-            ]);
-
-            // Mark all items as rejected when order is rejected
-            $order->items()->update([
-                'status' => 'rejected',
-                'quantity_confirmed' => 0,
             ]);
 
             // Send notification to branch manager
@@ -186,7 +198,7 @@ class OrderService
     }
 
     /**
-     * Request order modification
+     * Request order modification (deprecated - use item-level requests instead)
      */
     public function requestModification(PurchaseOrder $order, Supplier $supplier, array $data): PurchaseOrder
     {
@@ -199,11 +211,134 @@ class OrderService
             // For now, we'll update the order with modification request
             $order->update([
                 'message' => $data['modification_request'],
-                'status' => OrderStatus::PENDING_CONFIRMATION, // Awaiting branch approval
             ]);
 
             // Send notification to branch manager
             $this->notificationService->notifyOrderModificationRequested($order, $data);
+
+            return $order->fresh();
+        });
+    }
+
+    /**
+     * Request partial approval for specific items
+     */
+    public function requestPartialApproval(PurchaseOrder $order, Supplier $supplier, array $itemRequests): PurchaseOrder
+    {
+        if ($order->supplier_id !== $supplier->id) {
+            throw new \Exception('Unauthorized access to this order');
+        }
+
+        if ($order->status !== OrderStatus::PENDING) {
+            throw new \Exception('Order must be in pending status to request partial approval');
+        }
+
+        return DB::transaction(function () use ($order, $itemRequests) {
+            foreach ($itemRequests as $request) {
+                $item = $order->items()->where('item_id', $request['item_id'])->first();
+                
+                if (!$item) {
+                    continue;
+                }
+
+                if ($item->status !== OrderItemStatus::PENDING) {
+                    continue;
+                }
+
+                $item->requestPartialApproval(
+                    $request['quantity'],
+                    $request['note'] ?? null
+                );
+            }
+
+            // Send notification to branch manager
+            $this->notificationService->notifyOrderModificationRequested($order, [
+                'type' => 'partial_approval',
+                'items' => $itemRequests,
+            ]);
+
+            return $order->fresh();
+        });
+    }
+
+    /**
+     * Request delivery time change
+     */
+    public function requestTimeChange(PurchaseOrder $order, Supplier $supplier, string $itemId, string $newDeliveryTime, string $reason, ?string $note = null): PurchaseOrder
+    {
+        if ($order->supplier_id !== $supplier->id) {
+            throw new \Exception('Unauthorized access to this order');
+        }
+
+        if ($order->status !== OrderStatus::PENDING) {
+            throw new \Exception('Order must be in pending status to request time change');
+        }
+
+        return DB::transaction(function () use ($order, $itemId, $newDeliveryTime, $reason, $note) {
+            $item = $order->items()->where('item_id', $itemId)->first();
+
+            if (!$item) {
+                throw new \Exception('Item not found in order');
+            }
+
+            if ($item->status !== OrderItemStatus::PENDING) {
+                throw new \Exception('Item must be in pending status to request time change');
+            }
+
+            $item->requestTimeChange($newDeliveryTime, $reason, $note);
+
+            // Send notification to branch manager
+            $this->notificationService->notifyOrderModificationRequested($order, [
+                'type' => 'time_change',
+                'item_id' => $itemId,
+                'new_delivery_time' => $newDeliveryTime,
+                'reason' => $reason,
+            ]);
+
+            return $order->fresh();
+        });
+    }
+
+    /**
+     * Request alternative product
+     */
+    public function requestAlternative(PurchaseOrder $order, Supplier $supplier, string $itemId, string $alternativeItemId, string $alternativeItemName, ?float $price = null, string $reason, ?string $note = null): PurchaseOrder
+    {
+        if ($order->supplier_id !== $supplier->id) {
+            throw new \Exception('Unauthorized access to this order');
+        }
+
+        if ($order->status !== OrderStatus::PENDING) {
+            throw new \Exception('Order must be in pending status to request alternative');
+        }
+
+        return DB::transaction(function () use ($order, $itemId, $alternativeItemId, $alternativeItemName, $price, $reason, $note) {
+            $item = $order->items()->where('item_id', $itemId)->first();
+
+            if (!$item) {
+                throw new \Exception('Item not found in order');
+            }
+
+            if ($item->status !== OrderItemStatus::PENDING) {
+                throw new \Exception('Item must be in pending status to request alternative');
+            }
+
+            $item->requestAlternative(
+                $alternativeItemId,
+                $alternativeItemName,
+                $price ?? $item->unit_price,
+                $reason,
+                $note
+            );
+
+            // Send notification to branch manager
+            $this->notificationService->notifyOrderModificationRequested($order, [
+                'type' => 'alternative',
+                'item_id' => $itemId,
+                'alternative_item_id' => $alternativeItemId,
+                'alternative_item_name' => $alternativeItemName,
+                'reason' => $reason,
+            ]);
 
             return $order->fresh();
         });

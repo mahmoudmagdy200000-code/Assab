@@ -91,6 +91,10 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         Route::post('/{id}/approve-modifications', [PendingOrderController::class, 'approveModifications'])->name('purchase.pending.approve-modifications');
         Route::post('/{id}/reject-modifications', [PendingOrderController::class, 'rejectModifications'])->name('purchase.pending.reject-modifications');
 
+        // Item-level approval requests
+        Route::post('/{id}/items/{itemId}/approve', [PendingOrderController::class, 'approveItemRequest'])->name('purchase.pending.approve-item');
+        Route::post('/{id}/items/{itemId}/reject', [PendingOrderController::class, 'rejectItemRequest'])->name('purchase.pending.reject-item');
+
         /*
         |--------------------------------------------------------------------------
         | Direct Supplier Orders (3.1.2.4.3.2.1)
