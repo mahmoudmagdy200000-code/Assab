@@ -405,12 +405,13 @@ class PurchaseOrder extends Model
 
         // Get all items
         $items = $this->items;
-        
+
         if ($items->isEmpty()) {
             return false;
         }
 
-        // Check if all items are cancelled
+        // Check if all items are cancelled FIRST (before checking if all are decided)
+        // This is important because cancelled items are also "decided", but we want cancelled status
         $allCancelled = $items->every(function ($item) {
             return $item->status->isCancelled();
         });
@@ -436,14 +437,15 @@ class PurchaseOrder extends Model
             }
         }
 
-        // Check if all items are decided (confirmed or rejected)
+        // Check if all items are decided (confirmed or rejected, but NOT cancelled)
         // Items in NEEDS_APPROVAL or PENDING are not decided yet
+        // Exclude cancelled items from this check since we already handled them above
         $allDecided = $items->every(function ($item) {
-            return $item->status->isDecided();
+            return $item->status->isDecided() && !$item->status->isCancelled();
         });
 
         if ($allDecided) {
-            // All items are decided, transition order to CONFIRMED
+            // All items are decided (confirmed/rejected), transition order to CONFIRMED
             return $this->transitionTo(OrderStatus::CONFIRMED);
         }
 
