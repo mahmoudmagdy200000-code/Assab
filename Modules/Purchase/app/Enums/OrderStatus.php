@@ -10,6 +10,8 @@ enum OrderStatus: string
     case CONFIRMED = 'confirmed';
     case REJECTED = 'rejected';
     case CANCELED = 'canceled';
+    case CANCELLED_BY_BRANCH = 'cancelled_by_branch';
+    case CANCELLED_BY_SUPPLIER = 'cancelled_by_supplier';
     
     // Execution Phase Statuses
     case PREPARING = 'preparing';
@@ -37,6 +39,10 @@ enum OrderStatus: string
             self::CONFIRMED => 'Confirmed',
             self::REJECTED => 'Rejected',
             self::CANCELED => 'Canceled',
+            self::CANCELLED_BY_BRANCH => 'Cancelled by Branch',
+            self::CANCELLED_BY_SUPPLIER => 'Cancelled by Supplier',
+            self::CANCELLED_BY_BRANCH => 'Cancelled by Branch',
+            self::CANCELLED_BY_SUPPLIER => 'Cancelled by Supplier',
             
             // Execution Phase
             self::PREPARING => 'Preparing',
@@ -66,6 +72,8 @@ enum OrderStatus: string
             self::CONFIRMED => '#10B981',
             self::REJECTED => '#DC2626',
             self::CANCELED => '#EF4444',
+            self::CANCELLED_BY_BRANCH => '#EF4444',
+            self::CANCELLED_BY_SUPPLIER => '#EF4444',
             
             // Execution Phase
             self::PREPARING => '#3B82F6',
@@ -93,11 +101,13 @@ enum OrderStatus: string
     {
         $allowedTransitions = match ($this) {
             // Decision Phase Transitions
-            self::DRAFT => [self::PENDING, self::CANCELED],
-            self::PENDING => [self::CONFIRMED, self::REJECTED, self::CANCELED],
-            self::CONFIRMED => [self::PREPARING, self::CANCELED],
+            self::DRAFT => [self::PENDING, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
+            self::PENDING => [self::CONFIRMED, self::REJECTED, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
+            self::CONFIRMED => [self::PREPARING, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
             self::REJECTED => [],
             self::CANCELED => [],
+            self::CANCELLED_BY_BRANCH => [],
+            self::CANCELLED_BY_SUPPLIER => [],
             
             // Execution Phase Transitions
             self::PREPARING => [self::ON_THE_WAY, self::DELAYED, self::CANCELED],

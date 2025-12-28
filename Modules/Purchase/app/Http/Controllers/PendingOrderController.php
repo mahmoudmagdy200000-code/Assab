@@ -255,7 +255,8 @@ class PendingOrderController extends BaseController
                 return $this->notFoundResponse('Order not found');
             }
 
-            $success = $this->orderService->cancelOrder($order, $request->reason);
+            // Branch manager is canceling (from Purchase module)
+            $success = $this->orderService->cancelOrder($order, $request->reason, byBranch: true);
 
             if (!$success) {
                 return $this->errorResponse('Cannot cancel order in current status', 400);
@@ -520,7 +521,8 @@ class PendingOrderController extends BaseController
             }
 
             // Reject delay: cancel the order
-            $success = $this->orderService->cancelOrder($order, $request->reason);
+            // Branch manager is canceling (from Purchase module)
+            $success = $this->orderService->cancelOrder($order, $request->reason, byBranch: true);
 
             if (!$success) {
                 return $this->errorResponse('Cannot reject delay', 400);
@@ -712,6 +714,40 @@ class PendingOrderController extends BaseController
             return $this->errorResponse($e->getMessage(), 400);
         } catch (\Exception $e) {
             return $this->handleException($e, 'rejecting item request');
+        }
+    }
+
+    /**
+     * Cancel item (branch manager cancels specific item)
+     *
+     * @group Pending Orders
+     */
+    public function cancelItem(RejectOrderRequest $request, string $id, string $itemId): JsonResponse
+    {
+        try {
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
+
+            if (!$order) {
+                return $this->notFoundResponse('Order not found');
+            }
+
+            $reason = $request->validated()['reason'] ?? null;
+
+            $success = $this->orderService->cancelItem($order, $itemId, $reason);
+
+            if (!$success) {
+                return $this->errorResponse('Failed to cancel item', 400);
+            }
+
+            return $this->successResponse(
+                new PurchaseOrderResource($order->fresh(['items'])),
+                'Item cancelled successfully'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'cancelling item');
         }
     }
 }

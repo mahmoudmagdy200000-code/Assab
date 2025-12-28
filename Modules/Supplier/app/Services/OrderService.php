@@ -486,6 +486,49 @@ class OrderService
     }
 
     /**
+     * Cancel specific item in order (by supplier)
+     */
+    public function cancelItem(PurchaseOrder $order, Supplier $supplier, string $itemId, string $reason): PurchaseOrder
+    {
+        if ($order->supplier_id !== $supplier->id) {
+            throw new \InvalidArgumentException('Unauthorized access to this order');
+        }
+
+        if (!in_array($order->status, [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION])) {
+            throw new \InvalidArgumentException('Order must be in pending or partial confirmation status to cancel item');
+        }
+
+        return DB::transaction(function () use ($order, $itemId, $reason) {
+            $item = $order->items()->where('item_id', $itemId)->first();
+
+            if (!$item) {
+                throw new \InvalidArgumentException('Item not found in order');
+            }
+
+            if ($item->status->isCancelled()) {
+                throw new \InvalidArgumentException('Item is already cancelled');
+            }
+
+            // Cancel item by supplier
+            $item->cancelBySupplier($reason);
+
+            // Check and transition order status if all items are decided
+            $order->checkAndTransitionToConfirmed();
+
+            // Send notification to branch manager
+            $this->notificationService->notifyOrderModificationRequested($order, [
+                'type' => 'item_cancelled',
+                'item_id' => $itemId,
+                'item_name' => $item->item_name,
+                'reason' => $reason,
+                'cancelled_by' => 'supplier',
+            ]);
+
+            return $order->fresh(['items']);
+        });
+    }
+
+    /**
      * Get order dashboard statistics
      */
     public function getDashboardStats(Supplier $supplier): array

@@ -301,8 +301,8 @@ class PurchaseOrderItem extends Model
      */
     public function approveRequest(?array $additionalData = null): void
     {
-        if (!in_array($this->status, [OrderItemStatus::NEEDS_APPROVAL, OrderItemStatus::PARTIAL_CONFIRMATION])) {
-            throw new \InvalidArgumentException('Item must be in needs_approval or partial_confirmation status to approve request');
+        if (!in_array($this->status, [OrderItemStatus::NEEDS_APPROVAL, OrderItemStatus::PARTIAL_CONFIRMATION, OrderItemStatus::PARTIAL])) {
+            throw new \InvalidArgumentException('Item must be in needs_approval, partial_confirmation, or partial status to approve request');
         }
 
         // Handle different approval types
@@ -333,8 +333,8 @@ class PurchaseOrderItem extends Model
      */
     public function rejectRequest(?string $reason = null): void
     {
-        if (!in_array($this->status, [OrderItemStatus::NEEDS_APPROVAL, OrderItemStatus::PARTIAL_CONFIRMATION])) {
-            throw new \InvalidArgumentException('Item must be in needs_approval or partial_confirmation status to reject request');
+        if (!in_array($this->status, [OrderItemStatus::NEEDS_APPROVAL, OrderItemStatus::PARTIAL_CONFIRMATION, OrderItemStatus::PARTIAL])) {
+            throw new \InvalidArgumentException('Item must be in needs_approval, partial_confirmation, or partial status to reject request');
         }
 
         // Set to rejected and clear approval data
@@ -382,6 +382,73 @@ class PurchaseOrderItem extends Model
             $this->purchaseOrder->expected_delivery_at = $this->approval_data['requested_delivery_time'];
             $this->purchaseOrder->save();
         }
+    }
+
+    /**
+     * Cancel item by branch
+     */
+    public function cancelByBranch(?string $reason = null): void
+    {
+        if ($this->status->isCancelled()) {
+            throw new \InvalidArgumentException('Item is already cancelled');
+        }
+
+        $this->status = OrderItemStatus::CANCELLED_BY_BRANCH;
+        $this->quantity_confirmed = 0;
+        
+        if ($reason) {
+            $this->approval_data = array_merge($this->approval_data ?? [], ['cancellation_reason' => $reason]);
+        }
+        
+        $this->save();
+
+        // Refresh purchase order and check status
+        $this->purchaseOrder->refresh();
+        $this->purchaseOrder->load('items');
+        $this->purchaseOrder->checkAndTransitionToConfirmed();
+    }
+
+    /**
+     * Cancel item by supplier
+     */
+    public function cancelBySupplier(?string $reason = null): void
+    {
+        if ($this->status->isCancelled()) {
+            throw new \InvalidArgumentException('Item is already cancelled');
+        }
+
+        $this->status = OrderItemStatus::CANCELLED_BY_SUPPLIER;
+        $this->quantity_confirmed = 0;
+        
+        if ($reason) {
+            $this->approval_data = array_merge($this->approval_data ?? [], ['cancellation_reason' => $reason]);
+        }
+        
+        $this->save();
+
+        // Refresh purchase order and check status
+        $this->purchaseOrder->refresh();
+        $this->purchaseOrder->load('items');
+        $this->purchaseOrder->checkAndTransitionToConfirmed();
+    }
+
+    /**
+     * Cancel item (when order is cancelled - no specific by)
+     */
+    public function cancel(?string $reason = null): void
+    {
+        if ($this->status->isCancelled()) {
+            throw new \InvalidArgumentException('Item is already cancelled');
+        }
+
+        $this->status = OrderItemStatus::CANCELLED;
+        $this->quantity_confirmed = 0;
+        
+        if ($reason) {
+            $this->approval_data = array_merge($this->approval_data ?? [], ['cancellation_reason' => $reason]);
+        }
+        
+        $this->save();
     }
 
     /**

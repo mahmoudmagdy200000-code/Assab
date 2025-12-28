@@ -94,6 +94,7 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         // Item-level approval requests
         Route::post('/{id}/items/{itemId}/approve', [PendingOrderController::class, 'approveItemRequest'])->name('purchase.pending.approve-item');
         Route::post('/{id}/items/{itemId}/reject', [PendingOrderController::class, 'rejectItemRequest'])->name('purchase.pending.reject-item');
+        Route::post('/{id}/items/{itemId}/cancel', [PendingOrderController::class, 'cancelItem'])->name('purchase.pending.cancel-item');
 
         /*
         |--------------------------------------------------------------------------

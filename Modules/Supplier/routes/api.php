@@ -58,6 +58,7 @@ Route::middleware(['auth:sanctum', \Modules\Supplier\Http\Middleware\SupplierMid
         Route::post('/{id}/items/{itemId}/request-alternative', [PendingOrderController::class, 'requestAlternative'])->name('supplier.pending-orders.request-alternative');
         Route::post('/{id}/items/{itemId}/confirm', [PendingOrderController::class, 'confirmItem'])->name('supplier.pending-orders.confirm-item');
         Route::post('/{id}/items/{itemId}/reject', [PendingOrderController::class, 'rejectItem'])->name('supplier.pending-orders.reject-item');
+        Route::post('/{id}/items/{itemId}/cancel', [PendingOrderController::class, 'cancelItem'])->name('supplier.pending-orders.cancel-item');
 
         // Status updates
         Route::post('/{id}/mark-preparing', [PendingOrderController::class, 'markAsPreparing']);

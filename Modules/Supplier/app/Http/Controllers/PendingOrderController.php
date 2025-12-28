@@ -525,6 +525,41 @@ class PendingOrderController extends BaseController
         }
     }
 
+    /**
+     * Cancel specific item in order (by supplier)
+     *
+     * @group Supplier Pending Orders
+     */
+    public function cancelItem(RejectItemRequest $request, string $id, string $itemId): JsonResponse
+    {
+        try {
+            $supplier = auth('supplier')->user();
+            $order = PurchaseOrder::findOrFail($id);
+
+            if ($order->supplier_id !== $supplier->id) {
+                return $this->errorResponse('Unauthorized access to this order', 403);
+            }
+
+            $validated = $request->validated();
+
+            $order = $this->orderService->cancelItem(
+                $order,
+                $supplier,
+                $itemId,
+                $validated['reason']
+            );
+
+            return $this->successResponse(
+                new OrderResource($order->fresh(['items'])),
+                'Item cancelled successfully'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'cancelling item');
+        }
+    }
+
     public function timeline(string $id): JsonResponse
     {
         try {

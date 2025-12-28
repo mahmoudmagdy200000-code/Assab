@@ -13,6 +13,11 @@ enum OrderItemStatus: string
     case PARTIAL = 'partial';
     case PARTIAL_CONFIRMATION = 'partial_confirmation';
     
+    // Cancellation Statuses
+    case CANCELLED = 'cancelled';
+    case CANCELLED_BY_BRANCH = 'cancelled_by_branch';
+    case CANCELLED_BY_SUPPLIER = 'cancelled_by_supplier';
+    
     // Execution Phase Statuses
     case RECEIVED = 'received';
     case VARIANCE = 'variance';
@@ -26,6 +31,9 @@ enum OrderItemStatus: string
             self::NEEDS_APPROVAL => 'Needs Approval',
             self::PARTIAL => 'Partial Confirmed',
             self::PARTIAL_CONFIRMATION => 'Partial Confirmation',
+            self::CANCELLED => 'Cancelled',
+            self::CANCELLED_BY_BRANCH => 'Cancelled by Branch',
+            self::CANCELLED_BY_SUPPLIER => 'Cancelled by Supplier',
             self::RECEIVED => 'Received',
             self::VARIANCE => 'Variance',
         };
@@ -40,6 +48,9 @@ enum OrderItemStatus: string
             self::NEEDS_APPROVAL => '#F97316',
             self::PARTIAL => '#8B5CF6',
             self::PARTIAL_CONFIRMATION => '#8B5CF6',
+            self::CANCELLED => '#EF4444',
+            self::CANCELLED_BY_BRANCH => '#EF4444',
+            self::CANCELLED_BY_SUPPLIER => '#EF4444',
             self::RECEIVED => '#22C55E',
             self::VARIANCE => '#F97316',
         };
@@ -66,6 +77,9 @@ enum OrderItemStatus: string
             self::REJECTED,
             self::PARTIAL,
             self::PARTIAL_CONFIRMATION,
+            self::CANCELLED,
+            self::CANCELLED_BY_BRANCH,
+            self::CANCELLED_BY_SUPPLIER,
         ]);
     }
 
@@ -86,6 +100,18 @@ enum OrderItemStatus: string
     public function isRejected(): bool
     {
         return $this === self::REJECTED;
+    }
+
+    /**
+     * Check if item is cancelled
+     */
+    public function isCancelled(): bool
+    {
+        return in_array($this, [
+            self::CANCELLED,
+            self::CANCELLED_BY_BRANCH,
+            self::CANCELLED_BY_SUPPLIER,
+        ]);
     }
 
     /**

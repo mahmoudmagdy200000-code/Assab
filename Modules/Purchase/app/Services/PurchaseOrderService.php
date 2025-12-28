@@ -1043,6 +1043,45 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     }
 
     /**
+     * Cancel item (branch manager cancels specific item)
+     *
+     * @param PurchaseOrder $order
+     * @param string $itemId
+     * @param string|null $reason
+     * @return bool
+     * @throws \InvalidArgumentException
+     */
+    public function cancelItem(PurchaseOrder $order, string $itemId, ?string $reason = null): bool
+    {
+        $item = $order->items()->where('item_id', $itemId)->first();
+
+        if (!$item) {
+            throw new \InvalidArgumentException('Item not found in order');
+        }
+
+        if ($item->status->isCancelled()) {
+            throw new \InvalidArgumentException('Item is already cancelled');
+        }
+
+        return DB::transaction(function () use ($item, $reason, $order) {
+            // Cancel item by branch
+            $item->cancelByBranch($reason);
+
+            // Refresh order to get latest items status
+            $order->refresh();
+            $order->load('items');
+
+            // Check if all items are now cancelled/confirmed/rejected, update order status accordingly
+            $order->checkAndTransitionToConfirmed();
+
+            // Log timeline event
+            $this->timelineService->logItemRejected($order, $item, $reason ?? 'Item cancelled by branch manager');
+
+            return true;
+        });
+    }
+
+    /**
      * Close order
      */
     public function closeOrder(PurchaseOrder $order): bool

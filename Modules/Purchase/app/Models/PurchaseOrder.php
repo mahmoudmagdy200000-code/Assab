@@ -367,6 +367,8 @@ class PurchaseOrder extends Model
             OrderStatus::DELIVERED => $updateData['actual_delivery_at'] = now(),
             OrderStatus::CLOSED => $updateData['closed_at'] = now(),
             OrderStatus::CANCELED => $updateData['canceled_at'] = now(),
+            OrderStatus::CANCELLED_BY_BRANCH => $updateData['canceled_at'] = now(),
+            OrderStatus::CANCELLED_BY_SUPPLIER => $updateData['canceled_at'] = now(),
             OrderStatus::REJECTED => $updateData['rejected_at'] = now(),
             // Deprecated statuses (for backward compatibility)
             OrderStatus::FULLY_APPROVED => $updateData['confirmed_at'] = now(),
@@ -445,14 +447,29 @@ class PurchaseOrder extends Model
         return $this->transitionTo(OrderStatus::PENDING);
     }
 
-    public function cancel(?string $reason = null): bool
+    public function cancel(?string $reason = null, bool $byBranch = false, bool $bySupplier = false): bool
     {
         if (!$this->status->isActive()) {
             return false;
         }
 
         $this->cancellation_reason = $reason;
-        return $this->transitionTo(OrderStatus::CANCELED);
+
+        // Determine cancellation status based on who is canceling
+        $cancelStatus = OrderStatus::CANCELED;
+        if ($byBranch) {
+            $cancelStatus = OrderStatus::CANCELLED_BY_BRANCH;
+        } elseif ($bySupplier) {
+            $cancelStatus = OrderStatus::CANCELLED_BY_SUPPLIER;
+        }
+
+        // Cancel all items with regular cancelled status (not cancelled_by_*)
+        $this->items()->update([
+            'status' => \Modules\Purchase\Enums\OrderItemStatus::CANCELLED->value,
+            'quantity_confirmed' => 0,
+        ]);
+
+        return $this->transitionTo($cancelStatus);
     }
 
     public function reject(?string $reason = null): bool
