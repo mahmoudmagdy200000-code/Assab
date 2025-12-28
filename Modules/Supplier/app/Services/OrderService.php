@@ -290,6 +290,13 @@ class OrderService
                 );
             }
 
+            // Refresh order to get latest items status
+            $order->refresh();
+            $order->load('items');
+
+            // Check and transition order status based on items status
+            $order->checkAndTransitionToConfirmed();
+
             // Send notification to branch manager
             $this->notificationService->notifyOrderModificationRequested($order, [
                 'type' => 'partial_approval',

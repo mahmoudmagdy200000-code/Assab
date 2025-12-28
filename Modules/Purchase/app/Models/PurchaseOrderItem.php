@@ -251,6 +251,11 @@ class PurchaseOrderItem extends Model
         ];
         $this->quantity_confirmed = $requestedQuantity;
         $this->save();
+
+        // Refresh purchase order and check if status should transition
+        $this->purchaseOrder->refresh();
+        $this->purchaseOrder->load('items');
+        $this->purchaseOrder->checkAndTransitionToConfirmed();
     }
 
     /**
