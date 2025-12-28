@@ -965,6 +965,76 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     }
 
     /**
+     * Approve item request (branch manager approves supplier's request for specific item)
+     *
+     * @param PurchaseOrder $order
+     * @param string $itemId
+     * @param array|null $additionalData Optional data like new_delivery_time
+     * @return bool
+     * @throws \InvalidArgumentException
+     */
+    public function approveItemRequest(PurchaseOrder $order, string $itemId, ?array $additionalData = null): bool
+    {
+        $item = $order->items()->where('item_id', $itemId)->first();
+
+        if (!$item) {
+            throw new \InvalidArgumentException('Item not found in order');
+        }
+
+        if ($item->status !== OrderItemStatus::NEEDS_APPROVAL) {
+            throw new \InvalidArgumentException('Item must be in needs_approval status to approve request');
+        }
+
+        return DB::transaction(function () use ($item, $additionalData, $order) {
+            $item->approveRequest($additionalData);
+            $item->save();
+
+            // Check if all items are now confirmed/rejected, update order status accordingly
+            $order->checkAndTransitionToConfirmed();
+
+            // Log timeline event
+            $this->timelineService->logItemApproved($order, $item);
+
+            return true;
+        });
+    }
+
+    /**
+     * Reject item request (branch manager rejects supplier's request for specific item)
+     *
+     * @param PurchaseOrder $order
+     * @param string $itemId
+     * @param string|null $reason
+     * @return bool
+     * @throws \InvalidArgumentException
+     */
+    public function rejectItemRequest(PurchaseOrder $order, string $itemId, ?string $reason = null): bool
+    {
+        $item = $order->items()->where('item_id', $itemId)->first();
+
+        if (!$item) {
+            throw new \InvalidArgumentException('Item not found in order');
+        }
+
+        if ($item->status !== OrderItemStatus::NEEDS_APPROVAL) {
+            throw new \InvalidArgumentException('Item must be in needs_approval status to reject request');
+        }
+
+        return DB::transaction(function () use ($item, $reason, $order) {
+            $item->rejectRequest($reason);
+            $item->save();
+
+            // Check if all items are now confirmed/rejected, update order status accordingly
+            $order->checkAndTransitionToConfirmed();
+
+            // Log timeline event
+            $this->timelineService->logItemRejected($order, $item, $reason);
+
+            return true;
+        });
+    }
+
+    /**
      * Close order
      */
     public function closeOrder(PurchaseOrder $order): bool
