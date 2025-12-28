@@ -13,23 +13,42 @@ class RequestModificationRequest extends FormRequest
 
     public function rules(): array
     {
+        $route = $this->route();
+        $routeName = $route?->getName();
+        $routeAction = $route?->getActionMethod();
+        $modificationType = $this->input('modification_type');
+
         // Rules for time change request
-        if ($this->route()->getName() === 'supplier.pending-orders.request-time-change') {
+        // Check route name, action method, or modification_type
+        if (
+            $routeName === 'supplier.pending-orders.request-time-change' ||
+            $routeAction === 'requestTimeChange' ||
+            $modificationType === 'delivery_time'
+        ) {
             return [
                 'new_delivery_time' => 'required|date|after:now',
                 'reason' => 'required|string|max:500',
                 'note' => 'nullable|string|max:1000',
+                'modification_type' => 'nullable|in:delivery_time',
+                'modification_request' => 'nullable|string|max:2000',
             ];
         }
 
         // Rules for alternative product request
-        if ($this->route()->getName() === 'supplier.pending-orders.request-alternative') {
+        // Check route name, action method, or modification_type
+        if (
+            $routeName === 'supplier.pending-orders.request-alternative' ||
+            $routeAction === 'requestAlternative' ||
+            $modificationType === 'alternative_product'
+        ) {
             return [
                 'alternative_item_id' => 'required|uuid',
                 'alternative_item_name' => 'required|string|max:255',
                 'price' => 'nullable|numeric|min:0',
                 'reason' => 'required|string|max:500',
                 'note' => 'nullable|string|max:1000',
+                'modification_type' => 'nullable|in:alternative_product',
+                'modification_request' => 'nullable|string|max:2000',
             ];
         }
 
@@ -41,4 +60,3 @@ class RequestModificationRequest extends FormRequest
         ];
     }
 }
-

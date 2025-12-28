@@ -368,6 +368,14 @@ class PendingOrderController extends BaseController
 
             $validated = $request->validated();
 
+            if (!isset($validated['new_delivery_time'])) {
+                return $this->errorResponse('new_delivery_time is required for time change requests', 422);
+            }
+
+            if (!isset($validated['reason'])) {
+                return $this->errorResponse('reason is required for time change requests', 422);
+            }
+
             $order = $this->orderService->requestTimeChange(
                 $order,
                 $supplier,
