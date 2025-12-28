@@ -390,6 +390,7 @@ class PurchaseOrder extends Model
 
     /**
      * Check if all items are decided (confirmed or rejected) and transition order to CONFIRMED
+     * Also checks if all items are cancelled and transitions order to CANCELLED accordingly
      * This is called automatically when item status changes
      */
     public function checkAndTransitionToConfirmed(): bool
@@ -407,6 +408,32 @@ class PurchaseOrder extends Model
         
         if ($items->isEmpty()) {
             return false;
+        }
+
+        // Check if all items are cancelled
+        $allCancelled = $items->every(function ($item) {
+            return $item->status->isCancelled();
+        });
+
+        if ($allCancelled) {
+            // Determine cancellation type based on item cancellation types
+            $cancelledByBranch = $items->every(function ($item) {
+                return $item->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH;
+            });
+
+            $cancelledBySupplier = $items->every(function ($item) {
+                return $item->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_SUPPLIER;
+            });
+
+            // Determine order cancellation status
+            if ($cancelledByBranch) {
+                return $this->transitionTo(OrderStatus::CANCELLED_BY_BRANCH);
+            } elseif ($cancelledBySupplier) {
+                return $this->transitionTo(OrderStatus::CANCELLED_BY_SUPPLIER);
+            } else {
+                // Mixed cancellation types or regular cancelled
+                return $this->transitionTo(OrderStatus::CANCELED);
+            }
         }
 
         // Check if all items are decided (confirmed or rejected)

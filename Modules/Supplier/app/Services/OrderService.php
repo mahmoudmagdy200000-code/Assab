@@ -20,7 +20,7 @@ class OrderService
     /**
      * Get pending orders for supplier with filters
      * Returns orders with pending statuses (PENDING, PENDING_CONFIRMATION, PENDING_APPROVAL, PARTIAL_CONFIRMATION, DELAYED)
-     * 
+     *
      * Supported status filters:
      * - pending: OrderStatus::PENDING
      * - partial_confirmed: OrderStatus::PARTIAL_CONFIRMED
@@ -54,7 +54,7 @@ class OrderService
         // Filter by status
         if (!empty($filters['status'])) {
             $statusFilter = $this->mapStatusFilter($filters['status']);
-            
+
             if ($statusFilter === 'alternative_product') {
                 // Filter orders that have items with is_alternative = true
                 $query->whereHas('items', function ($q) {
@@ -84,7 +84,7 @@ class OrderService
 
     /**
      * Map status filter string to OrderStatus enum value
-     * 
+     *
      * @param string $status
      * @return string|OrderStatus
      */
@@ -275,7 +275,7 @@ class OrderService
         return DB::transaction(function () use ($order, $itemRequests) {
             foreach ($itemRequests as $request) {
                 $item = $order->items()->where('item_id', $request['item_id'])->first();
-                
+
                 if (!$item) {
                     continue;
                 }
@@ -454,17 +454,17 @@ class OrderService
             // Reject the item
             $item->status = OrderItemStatus::REJECTED;
             $item->quantity_confirmed = 0;
-            
+
             // Store rejection reason in approval_data for history
             $item->approval_data = [
                 'rejection_reason' => $reason,
                 'explanation' => $explanation,
                 'rejected_at' => now()->toDateTimeString(),
             ];
-            
+
             $item->save();
 
-            // Check and transition order status if all items are decided
+            // Check and transition order status if all items are decided or cancelled
             $order->checkAndTransitionToConfirmed();
 
             // Send notification to branch manager
