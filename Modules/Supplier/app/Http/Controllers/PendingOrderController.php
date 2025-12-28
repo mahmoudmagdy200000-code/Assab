@@ -10,7 +10,9 @@ use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Services\TimelineService;
 use Modules\Supplier\Http\Requests\Orders\AcceptOrderRequest;
+use Modules\Supplier\Http\Requests\Orders\FilterPendingOrdersRequest;
 use Modules\Supplier\Http\Requests\Orders\RejectOrderRequest;
+use Modules\Supplier\Http\Requests\Orders\RejectItemRequest;
 use Modules\Supplier\Http\Requests\Orders\RequestModificationRequest;
 use Modules\Supplier\Services\NotificationService;
 use Modules\Supplier\Services\OrderService;
@@ -29,16 +31,24 @@ class PendingOrderController extends BaseController
      * Get pending orders list for supplier
      *
      * @group Supplier Pending Orders
+     *
+     * Query Parameters:
+     * - status: Filter by status (pending, partial_confirmed, confirmed, delayed, alternative_product, rejected)
+     * - date_from: Filter orders from date
+     * - date_to: Filter orders to date
+     * - search: Search by order number
+     * - per_page: Number of items per page (default: 15, max: 100)
      */
-    public function index(): JsonResponse
+    public function index(FilterPendingOrdersRequest $request): JsonResponse
     {
         try {
             $supplier = auth('supplier')->user();
-            $filters = request()->only(['status', 'date_from', 'date_to', 'search']);
-            $perPage = request()->get('per_page', 15);
+            $filters = $request->validated();
+            $perPage = $filters['per_page'] ?? 15;
 
-            // Get orders with pending statuses
-            $filters['status'] = $filters['status'] ?? null;
+            // Remove per_page from filters as it's not a filter
+            unset($filters['per_page']);
+
             $orders = $this->orderService->getPendingOrders($supplier, $filters, $perPage);
 
             return $this->paginatedResponse(
@@ -432,6 +442,86 @@ class PendingOrderController extends BaseController
             return $this->errorResponse($e->getMessage(), 400);
         } catch (\Exception $e) {
             return $this->handleException($e, 'requesting alternative product');
+        }
+    }
+
+    /**
+     * Confirm specific item in order
+     *
+     * @group Supplier Pending Orders
+     */
+    public function confirmItem(AcceptOrderRequest $request, string $id, string $itemId): JsonResponse
+    {
+        try {
+            $supplier = auth('supplier')->user();
+            $order = PurchaseOrder::findOrFail($id);
+
+            if ($order->supplier_id !== $supplier->id) {
+                return $this->errorResponse('Unauthorized access to this order', 403);
+            }
+
+            $validated = $request->validated();
+            $quantity = $request->input('quantity');
+
+            // Extract quantity from items array if provided (for backward compatibility)
+            if ($quantity === null && isset($validated['items']) && is_array($validated['items'])) {
+                foreach ($validated['items'] as $item) {
+                    if (isset($item['item_id']) && $item['item_id'] === $itemId) {
+                        $quantity = $item['quantity'] ?? null;
+                        break;
+                    }
+                }
+            }
+
+            // Convert to float if provided
+            $quantity = $quantity !== null ? (float) $quantity : null;
+
+            $order = $this->orderService->confirmItem($order, $supplier, $itemId, $quantity);
+
+            return $this->successResponse(
+                new OrderResource($order->fresh(['items'])),
+                'Item confirmed successfully'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'confirming item');
+        }
+    }
+
+    /**
+     * Reject specific item in order
+     *
+     * @group Supplier Pending Orders
+     */
+    public function rejectItem(RejectItemRequest $request, string $id, string $itemId): JsonResponse
+    {
+        try {
+            $supplier = auth('supplier')->user();
+            $order = PurchaseOrder::findOrFail($id);
+
+            if ($order->supplier_id !== $supplier->id) {
+                return $this->errorResponse('Unauthorized access to this order', 403);
+            }
+
+            $validated = $request->validated();
+
+            $order = $this->orderService->rejectItem(
+                $order,
+                $supplier,
+                $itemId,
+                $validated['reason'],
+                $validated['explanation'] ?? null
+            );
+
+            return $this->successResponse(
+                new OrderResource($order->fresh(['items'])),
+                'Item rejected successfully'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'rejecting item');
         }
     }
 

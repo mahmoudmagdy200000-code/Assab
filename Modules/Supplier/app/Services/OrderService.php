@@ -20,11 +20,19 @@ class OrderService
     /**
      * Get pending orders for supplier with filters
      * Returns orders with pending statuses (PENDING, PENDING_CONFIRMATION, PENDING_APPROVAL, PARTIAL_CONFIRMATION, DELAYED)
+     * 
+     * Supported status filters:
+     * - pending: OrderStatus::PENDING
+     * - partial_confirmed: OrderStatus::PARTIAL_CONFIRMED
+     * - confirmed: OrderStatus::CONFIRMED
+     * - delayed: OrderStatus::DELAYED
+     * - alternative_product: Orders with items that have is_alternative = true
+     * - rejected: OrderStatus::REJECTED
      */
     public function getPendingOrders(Supplier $supplier, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
         $query = PurchaseOrder::with([
-            'items:id,purchase_order_id,item_id,item_name,item_logo,quantity_ordered,quantity_confirmed,unit_of_measurement,unit_price,total_price,quality_ordered,quality_received,status,approval_type,approval_data',
+            'items:id,purchase_order_id,item_id,item_name,item_logo,quantity_ordered,quantity_confirmed,unit_of_measurement,unit_price,total_price,quality_ordered,quality_received,status,approval_type,approval_data,is_alternative',
             'branch:id,name,location',
             'requestedBy:id,name,email,phone',
         ])
@@ -34,16 +42,28 @@ class OrderService
                 OrderStatus::PENDING,
                 OrderStatus::CONFIRMED,
                 OrderStatus::DELAYED,
+                OrderStatus::REJECTED,
                 // Deprecated (for backward compatibility)
                 OrderStatus::PENDING_CONFIRMATION,
                 OrderStatus::PENDING_APPROVAL,
                 OrderStatus::PARTIAL_CONFIRMATION,
+                OrderStatus::PARTIAL_CONFIRMED,
             ])
             ->orderBy('created_at', 'desc');
 
         // Filter by status
         if (!empty($filters['status'])) {
-            $query->where('status', $filters['status']);
+            $statusFilter = $this->mapStatusFilter($filters['status']);
+            
+            if ($statusFilter === 'alternative_product') {
+                // Filter orders that have items with is_alternative = true
+                $query->whereHas('items', function ($q) {
+                    $q->where('is_alternative', true);
+                });
+            } else {
+                // Filter by order status
+                $query->where('status', $statusFilter);
+            }
         }
 
         // Filter by date range
@@ -60,6 +80,25 @@ class OrderService
         }
 
         return $query->paginate($perPage);
+    }
+
+    /**
+     * Map status filter string to OrderStatus enum value
+     * 
+     * @param string $status
+     * @return string|OrderStatus
+     */
+    private function mapStatusFilter(string $status): string|OrderStatus
+    {
+        return match (strtolower($status)) {
+            'pending' => OrderStatus::PENDING,
+            'partial_confirmed' => OrderStatus::PARTIAL_CONFIRMED,
+            'confirmed' => OrderStatus::CONFIRMED,
+            'delayed' => OrderStatus::DELAYED,
+            'alternative_product' => 'alternative_product', // Special case - handled separately
+            'rejected' => OrderStatus::REJECTED,
+            default => $status, // Return as-is if not recognized (for backward compatibility)
+        };
     }
 
     /**
@@ -341,6 +380,108 @@ class OrderService
             ]);
 
             return $order->fresh();
+        });
+    }
+
+    /**
+     * Confirm specific item in order
+     */
+    public function confirmItem(PurchaseOrder $order, Supplier $supplier, string $itemId, ?float $quantity = null): PurchaseOrder
+    {
+        if ($order->supplier_id !== $supplier->id) {
+            throw new \InvalidArgumentException('Unauthorized access to this order');
+        }
+
+        if (!in_array($order->status, [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION])) {
+            throw new \InvalidArgumentException('Order must be in pending or partial confirmation status to confirm item');
+        }
+
+        return DB::transaction(function () use ($order, $itemId, $quantity) {
+            $item = $order->items()->where('item_id', $itemId)->first();
+
+            if (!$item) {
+                throw new \InvalidArgumentException('Item not found in order');
+            }
+
+            if ($item->status !== OrderItemStatus::PENDING) {
+                throw new \InvalidArgumentException('Item must be in pending status to confirm');
+            }
+
+            // Validate quantity if provided
+            if ($quantity !== null) {
+                if ($quantity <= 0) {
+                    throw new \InvalidArgumentException('Quantity must be greater than zero');
+                }
+                if ($quantity > $item->quantity_ordered) {
+                    throw new \InvalidArgumentException('Confirmed quantity cannot exceed ordered quantity');
+                }
+            }
+
+            // Confirm the item
+            $item->confirm($quantity);
+
+            // Check and transition order status if all items are confirmed
+            $order->checkAndTransitionToConfirmed();
+
+            // Send notification to branch manager if order is fully confirmed
+            if ($order->status === OrderStatus::CONFIRMED) {
+                $this->notificationService->notifyOrderAccepted($order);
+            }
+
+            return $order->fresh(['items']);
+        });
+    }
+
+    /**
+     * Reject specific item in order
+     */
+    public function rejectItem(PurchaseOrder $order, Supplier $supplier, string $itemId, string $reason, ?string $explanation = null): PurchaseOrder
+    {
+        if ($order->supplier_id !== $supplier->id) {
+            throw new \InvalidArgumentException('Unauthorized access to this order');
+        }
+
+        if (!in_array($order->status, [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION])) {
+            throw new \InvalidArgumentException('Order must be in pending or partial confirmation status to reject item');
+        }
+
+        return DB::transaction(function () use ($order, $itemId, $reason, $explanation) {
+            $item = $order->items()->where('item_id', $itemId)->first();
+
+            if (!$item) {
+                throw new \InvalidArgumentException('Item not found in order');
+            }
+
+            if ($item->status !== OrderItemStatus::PENDING) {
+                throw new \InvalidArgumentException('Item must be in pending status to reject');
+            }
+
+            // Reject the item
+            $item->status = OrderItemStatus::REJECTED;
+            $item->quantity_confirmed = 0;
+            
+            // Store rejection reason in approval_data for history
+            $item->approval_data = [
+                'rejection_reason' => $reason,
+                'explanation' => $explanation,
+                'rejected_at' => now()->toDateTimeString(),
+            ];
+            
+            $item->save();
+
+            // Check and transition order status if all items are decided
+            $order->checkAndTransitionToConfirmed();
+
+            // Send notification to branch manager
+            $this->notificationService->notifyOrderModificationRequested($order, [
+                'type' => 'item_rejected',
+                'item_id' => $itemId,
+                'item_name' => $item->item_name,
+                'reason' => $reason,
+                'explanation' => $explanation,
+            ]);
+
+            return $order->fresh(['items']);
         });
     }
 
