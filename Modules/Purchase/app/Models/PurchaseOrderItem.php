@@ -320,6 +320,10 @@ class PurchaseOrderItem extends Model
         $this->calculateTotalPrice();
         $this->save();
 
+        // Refresh purchase order and reload items to get latest status
+        $this->purchaseOrder->refresh();
+        $this->purchaseOrder->load('items');
+
         // Trigger order status check
         $this->purchaseOrder->checkAndTransitionToConfirmed();
     }
@@ -344,6 +348,10 @@ class PurchaseOrderItem extends Model
         
         $this->approval_type = null;
         $this->save();
+
+        // Refresh purchase order and reload items to get latest status
+        $this->purchaseOrder->refresh();
+        $this->purchaseOrder->load('items');
 
         // Trigger order status check
         $this->purchaseOrder->checkAndTransitionToConfirmed();

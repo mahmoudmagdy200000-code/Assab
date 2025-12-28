@@ -989,6 +989,10 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             $item->approveRequest($additionalData);
             $item->save();
 
+            // Refresh order to get latest items status
+            $order->refresh();
+            $order->load('items');
+
             // Check if all items are now confirmed/rejected, update order status accordingly
             $order->checkAndTransitionToConfirmed();
 
@@ -1023,6 +1027,10 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         return DB::transaction(function () use ($item, $reason, $order) {
             $item->rejectRequest($reason);
             $item->save();
+
+            // Refresh order to get latest items status
+            $order->refresh();
+            $order->load('items');
 
             // Check if all items are now confirmed/rejected, update order status accordingly
             $order->checkAndTransitionToConfirmed();
