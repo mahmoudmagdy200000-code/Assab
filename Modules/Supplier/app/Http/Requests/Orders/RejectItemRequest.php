@@ -14,8 +14,8 @@ class RejectItemRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'reason' => 'required|string|in:insufficient_stock,quality_unavailable,capacity_limitations,pricing_conflict,delivery_schedule_not_feasible,other',
-            'explanation' => 'required|string|max:1000',
+            'reason' => 'required|string|max:1000',
+            // 'explanation' => 'required|string|max:1000',
         ];
     }
 }
