@@ -63,6 +63,8 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 return $this->items->map(function ($item) {
                     $itemData = [
                         'item_name' => $item->item_name ?? 'n/a',
+                        'item_id' => $item->item_id ?? 'n/a',
+                        'item_logo' => $item->item_logo_url ?? 'n/a',
                         'status' => $item->status?->value ?? 'pending',
                         'status_label' => $item->status?->label() ?? 'Pending',
                         'status_color' => $item->status?->color() ?? '#F59E0B',
