@@ -420,13 +420,8 @@ class OrderService
             // Confirm the item
             $item->confirm($quantity);
 
-            // Check and transition order status if all items are confirmed
-            $order->checkAndTransitionToConfirmed();
-
-            // Send notification to branch manager if order is fully confirmed
-            if ($order->status === OrderStatus::CONFIRMED) {
-                $this->notificationService->notifyOrderAccepted($order);
-            }
+            // Don't change order status - keep it pending until all items are decided
+            // The order status will be updated when all items are confirmed/rejected
 
             return $order->fresh(['items']);
         });
