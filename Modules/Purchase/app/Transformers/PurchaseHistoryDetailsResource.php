@@ -62,6 +62,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 }
                 return $this->items->map(function ($item) {
                     $itemData = [
+                        'id' => $item->id ?? 'n/a',
                         'item_name' => $item->item_name ?? 'n/a',
                         'item_id' => $item->item_id ?? 'n/a',
                         'item_logo' => $item->item_logo_url ?? 'n/a',
