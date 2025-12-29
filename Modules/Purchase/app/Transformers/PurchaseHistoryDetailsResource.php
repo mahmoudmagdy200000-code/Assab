@@ -122,6 +122,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     $priceComparison = $this->calculatePriceComparisonForItem($item);
 
                     return [
+                        'id' => $item->id ?? 'n/a',
                         'item_unit' => $item->unit_of_measurement ?? 'n/a',
                         'item_id' => $item->item_id ?? 'n/a',
                         'item_name' => $item->item_name ?? 'n/a',
@@ -221,6 +222,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     }
 
                     return [
+                        'id' => $item->id ?? 'n/a',
                         'item_name' => $item->item_name ?? 'n/a',
                         'requested_qty' => $item->quantity_ordered ? (float) $item->quantity_ordered : 0.0,
                         'available_in_branch_name' => $fromBranchNameOnly ?? 'n/a',
