@@ -158,7 +158,12 @@ class PurchaseOrderItem extends Model
 
     public function scopeConfirmed($query)
     {
-        return $query->where('status', 'confirmed');
+        return $query->whereIn('status', [
+            OrderItemStatus::CONFIRMED,
+            OrderItemStatus::PARTIAL_CONFIRMATION,
+            OrderItemStatus::CONFIRMED_NEED_TIME,
+            OrderItemStatus::CONFIRMED_ALTERNATIVE_PRODUCT,
+        ]);
     }
 
     public function scopeReceived($query)
@@ -183,7 +188,11 @@ class PurchaseOrderItem extends Model
 
     public function scopeNeedsApproval($query)
     {
-        return $query->where('status', OrderItemStatus::NEEDS_APPROVAL);
+        return $query->whereIn('status', [
+            OrderItemStatus::NEEDS_APPROVAL,
+            OrderItemStatus::NEEDS_APPROVAL_SUPPLIER,
+            OrderItemStatus::NEEDS_APPROVAL_BRANCH,
+        ]);
     }
 
     // Methods
@@ -297,12 +306,18 @@ class PurchaseOrderItem extends Model
     }
 
     /**
-     * Approve approval request (branch manager approves)
+     * Approve approval request (branch manager approves supplier request or supplier approves branch request)
      */
     public function approveRequest(?array $additionalData = null): void
     {
-        if (!in_array($this->status, [OrderItemStatus::NEEDS_APPROVAL, OrderItemStatus::PARTIAL_CONFIRMATION, OrderItemStatus::PARTIAL])) {
-            throw new \InvalidArgumentException('Item must be in needs_approval, partial_confirmation, or partial status to approve request');
+        if (!in_array($this->status, [
+            OrderItemStatus::NEEDS_APPROVAL,
+            OrderItemStatus::NEEDS_APPROVAL_SUPPLIER,
+            OrderItemStatus::NEEDS_APPROVAL_BRANCH,
+            OrderItemStatus::PARTIAL_CONFIRMATION,
+            OrderItemStatus::PARTIAL
+        ])) {
+            throw new \InvalidArgumentException('Item must be in needs_approval, needs_approval_supplier, needs_approval_branch, partial_confirmation, or partial status to approve request');
         }
 
         // Handle different approval types
@@ -329,12 +344,18 @@ class PurchaseOrderItem extends Model
     }
 
     /**
-     * Reject approval request (branch manager rejects)
+     * Reject approval request (branch manager rejects supplier request or supplier rejects branch request)
      */
     public function rejectRequest(?string $reason = null): void
     {
-        if (!in_array($this->status, [OrderItemStatus::NEEDS_APPROVAL, OrderItemStatus::PARTIAL_CONFIRMATION, OrderItemStatus::PARTIAL])) {
-            throw new \InvalidArgumentException('Item must be in needs_approval, partial_confirmation, or partial status to reject request');
+        if (!in_array($this->status, [
+            OrderItemStatus::NEEDS_APPROVAL,
+            OrderItemStatus::NEEDS_APPROVAL_SUPPLIER,
+            OrderItemStatus::NEEDS_APPROVAL_BRANCH,
+            OrderItemStatus::PARTIAL_CONFIRMATION,
+            OrderItemStatus::PARTIAL
+        ])) {
+            throw new \InvalidArgumentException('Item must be in needs_approval, needs_approval_supplier, needs_approval_branch, partial_confirmation, or partial status to reject request');
         }
 
         // Set to rejected and clear approval data

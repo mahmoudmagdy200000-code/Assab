@@ -61,6 +61,9 @@ Route::middleware(['auth:sanctum', \Modules\Supplier\Http\Middleware\SupplierMid
         Route::post('/{id}/items/{itemId}/reject', [PendingOrderController::class, 'rejectItem'])->name('supplier.pending-orders.reject-item');
         Route::post('/{id}/items/{itemId}/cancel', [PendingOrderController::class, 'cancelItem'])->name('supplier.pending-orders.cancel-item');
 
+        // Approval requests (for needs_approval_supplier status)
+        Route::post('/{id}/items/{itemId}/approve-request', [PendingOrderController::class, 'approveItemRequest'])->name('supplier.pending-orders.approve-item-request');
+
         // Modification details and cancellation reason
         Route::get('/{id}/items/{itemId}/modification', [PendingOrderController::class, 'getModificationDetails'])->name('supplier.pending-orders.get-modification');
         Route::get('/{id}/items/{itemId}/cancellation-reason', [PendingOrderController::class, 'getCancellationReason'])->name('supplier.pending-orders.get-cancellation-reason');

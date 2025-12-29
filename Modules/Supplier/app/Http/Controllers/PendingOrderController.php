@@ -562,6 +562,41 @@ class PendingOrderController extends BaseController
         }
     }
 
+    /**
+     * Approve item request (supplier approves branch request for specific item)
+     * Used when item status is needs_approval_supplier
+     *
+     * @group Supplier Pending Orders
+     */
+    public function approveItemRequest(string $id, string $itemId): JsonResponse
+    {
+        try {
+            $supplier = auth('supplier')->user();
+            $order = PurchaseOrder::findOrFail($id);
+
+            if ($order->supplier_id !== $supplier->id) {
+                return $this->errorResponse('Unauthorized access to this order', 403);
+            }
+
+            $additionalData = request()->only(['new_delivery_time']);
+
+            $success = $this->purchaseOrderService->approveItemRequest($order, $itemId, $additionalData);
+
+            if (!$success) {
+                return $this->errorResponse('Failed to approve item request', 400);
+            }
+
+            return $this->successResponse(
+                new OrderResource($order->fresh(['items'])),
+                'Item request approved successfully'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'approving item request');
+        }
+    }
+
     public function timeline(string $id): JsonResponse
     {
         try {

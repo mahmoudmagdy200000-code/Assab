@@ -981,8 +981,13 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             throw new \InvalidArgumentException('Item not found in order');
         }
 
-        if (!in_array($item->status, [OrderItemStatus::NEEDS_APPROVAL, OrderItemStatus::PARTIAL_CONFIRMATION])) {
-            throw new \InvalidArgumentException('Item must be in needs_approval or partial_confirmation status to approve request');
+        if (!in_array($item->status, [
+            OrderItemStatus::NEEDS_APPROVAL,
+            OrderItemStatus::NEEDS_APPROVAL_SUPPLIER,
+            OrderItemStatus::NEEDS_APPROVAL_BRANCH,
+            OrderItemStatus::PARTIAL_CONFIRMATION
+        ])) {
+            throw new \InvalidArgumentException('Item must be in needs_approval, needs_approval_supplier, needs_approval_branch, or partial_confirmation status to approve request');
         }
 
         return DB::transaction(function () use ($item, $additionalData, $order) {
@@ -1020,8 +1025,13 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             throw new \InvalidArgumentException('Item not found in order');
         }
 
-        if (!in_array($item->status, [OrderItemStatus::NEEDS_APPROVAL, OrderItemStatus::PARTIAL_CONFIRMATION])) {
-            throw new \InvalidArgumentException('Item must be in needs_approval or partial_confirmation status to reject request');
+        if (!in_array($item->status, [
+            OrderItemStatus::NEEDS_APPROVAL,
+            OrderItemStatus::NEEDS_APPROVAL_SUPPLIER,
+            OrderItemStatus::NEEDS_APPROVAL_BRANCH,
+            OrderItemStatus::PARTIAL_CONFIRMATION
+        ])) {
+            throw new \InvalidArgumentException('Item must be in needs_approval, needs_approval_supplier, needs_approval_branch, or partial_confirmation status to reject request');
         }
 
         return DB::transaction(function () use ($item, $reason, $order) {
