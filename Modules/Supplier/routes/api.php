@@ -36,6 +36,7 @@ Route::middleware(['auth:sanctum', \Modules\Supplier\Http\Middleware\SupplierMid
     // Orders
     Route::get('/orders', [OrderController::class, 'index']);
     Route::get('/orders/dashboard', [OrderController::class, 'dashboard']);
+    Route::get('/orders/supplier-items', [OrderController::class, 'getSupplierItems']);
     Route::get('/orders/{id}', [OrderController::class, 'show']);
     Route::post('/orders/{id}/accept', [OrderController::class, 'accept']);
     Route::post('/orders/{id}/reject', [OrderController::class, 'reject']);

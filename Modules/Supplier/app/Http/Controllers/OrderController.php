@@ -5,6 +5,7 @@ namespace Modules\Supplier\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Models\SupplierItem;
 use Modules\Supplier\Http\Requests\Orders\AcceptOrderRequest;
 use Modules\Supplier\Http\Requests\Orders\RejectOrderRequest;
 use Modules\Supplier\Http\Requests\Orders\RequestModificationRequest;
@@ -134,5 +135,50 @@ class OrderController extends BaseController
             return $this->handleException($e, 'fetching dashboard statistics');
         }
     }
-}
 
+    /**
+     * Get supplier items for logged in supplier
+     *
+     * Filters:
+     * - Search: by item name
+     * - is_available: filter by availability
+     *
+     * @group Supplier Orders
+     */
+    public function getSupplierItems(): JsonResponse
+    {
+        try {
+            $supplier = auth('supplier')->user();
+            $filters = request()->only(['search', 'is_available']);
+            $perPage = request()->get('per_page', 15);
+
+            // Build query
+            $query = SupplierItem::where('supplier_id', $supplier->id)
+                ->with(['item' => function ($q) {
+                    $q->select('id', 'name', 'code', 'unit', 'logo', 'category', 'subcategory');
+                }]);
+
+            // Search by item name (through Item model)
+            if (!empty($filters['search'])) {
+                $searchTerm = $filters['search'];
+                $query->whereHas('item', function ($q) use ($searchTerm) {
+                    $q->where('name', 'like', '%' . $searchTerm . '%');
+                });
+            }
+
+            // Filter by availability
+            if (isset($filters['is_available'])) {
+                $query->where('is_available', filter_var($filters['is_available'], FILTER_VALIDATE_BOOLEAN));
+            }
+
+            $items = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
+            return $this->paginatedResponse(
+                $items,
+                'Supplier items retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching supplier items');
+        }
+    }
+}
