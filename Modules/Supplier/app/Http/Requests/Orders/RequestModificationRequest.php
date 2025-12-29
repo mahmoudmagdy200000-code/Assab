@@ -43,9 +43,6 @@ class RequestModificationRequest extends FormRequest
         ) {
             return [
                 'alternative_item_id' => 'required|uuid',
-                'alternative_item_name' => 'required|string|max:255',
-                'price' => 'nullable|numeric|min:0',
-                'reason' => 'required|string|max:500',
                 'note' => 'nullable|string|max:1000',
                 'modification_type' => 'nullable|in:alternative_product',
                 'modification_request' => 'nullable|string|max:2000',

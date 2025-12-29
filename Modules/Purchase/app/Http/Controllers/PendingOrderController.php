@@ -14,11 +14,13 @@ use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Services\TimelineService;
 use Modules\Purchase\Transformers\DirectSupplierOrderResource;
 use Modules\Purchase\Transformers\InternalTransferOrderResource;
+use Modules\Purchase\Transformers\ModificationDetailResource;
 use Modules\Purchase\Transformers\PendingOrderListResource;
 use Modules\Purchase\Transformers\PurchaseOrderListResource;
 use Modules\Purchase\Transformers\PurchaseOrderResource;
 use Modules\Purchase\Transformers\TimelineResource;
 use Modules\Purchase\Transformers\ViaPurchasingOfficerOrderResource;
+use Modules\Purchase\Models\PurchaseOrderItem;
 
 class PendingOrderController extends BaseController
 {
@@ -748,6 +750,176 @@ class PendingOrderController extends BaseController
             return $this->errorResponse($e->getMessage(), 400);
         } catch (\Exception $e) {
             return $this->handleException($e, 'cancelling item');
+        }
+    }
+
+    /**
+     * Get modification details for a specific item
+     *
+     * @group Pending Orders
+     */
+    public function getModificationDetails(string $id, string $itemId): JsonResponse
+    {
+        try {
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
+
+            if (!$order) {
+                return $this->notFoundResponse('Order not found');
+            }
+
+            $item = PurchaseOrderItem::where('purchase_order_id', $order->id)
+                ->where('id', $itemId)
+                ->with('purchaseOrder')
+                ->first();
+
+            if (!$item) {
+                return $this->notFoundResponse('Item not found');
+            }
+
+            // Check if item has modifications
+            $hasModifications = $item->approval_type !== null 
+                || $item->original_quantity !== null 
+                || $item->is_alternative 
+                || ($order->expected_delivery_at && $order->preferred_delivery_date);
+
+            if (!$hasModifications) {
+                return $this->errorResponse('No modifications found for this item', 404);
+            }
+
+            return $this->successResponse(
+                new ModificationDetailResource($item),
+                'Modification details retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching modification details');
+        }
+    }
+
+    /**
+     * Approve modification for a specific item
+     *
+     * @group Pending Orders
+     */
+    public function approveModification(string $id, string $itemId): JsonResponse
+    {
+        try {
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
+
+            if (!$order) {
+                return $this->notFoundResponse('Order not found');
+            }
+
+            // Get the purchase order item
+            $purchaseOrderItem = PurchaseOrderItem::where('purchase_order_id', $order->id)
+                ->where('id', $itemId)
+                ->first();
+
+            if (!$purchaseOrderItem) {
+                return $this->notFoundResponse('Item not found');
+            }
+
+            $additionalData = request()->only(['new_delivery_time']);
+            $success = $this->orderService->approveItemRequest($order, $purchaseOrderItem->item_id, $additionalData);
+
+            if (!$success) {
+                return $this->errorResponse('Failed to approve modification', 400);
+            }
+
+            return $this->successResponse(
+                new PurchaseOrderResource($order->fresh(['items'])),
+                'Modification approved successfully'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'approving modification');
+        }
+    }
+
+    /**
+     * Reject modification for a specific item
+     *
+     * @group Pending Orders
+     */
+    public function rejectModification(RejectOrderRequest $request, string $id, string $itemId): JsonResponse
+    {
+        try {
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
+
+            if (!$order) {
+                return $this->notFoundResponse('Order not found');
+            }
+
+            // Get the purchase order item
+            $purchaseOrderItem = PurchaseOrderItem::where('purchase_order_id', $order->id)
+                ->where('id', $itemId)
+                ->first();
+
+            if (!$purchaseOrderItem) {
+                return $this->notFoundResponse('Item not found');
+            }
+
+            $reason = $request->validated()['reason'] ?? null;
+            $success = $this->orderService->rejectItemRequest($order, $purchaseOrderItem->item_id, $reason);
+
+            if (!$success) {
+                return $this->errorResponse('Failed to reject modification', 400);
+            }
+
+            return $this->successResponse(
+                new PurchaseOrderResource($order->fresh(['items'])),
+                'Modification rejected successfully'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'rejecting modification');
+        }
+    }
+
+    /**
+     * Get cancellation reason for a specific item
+     *
+     * @group Pending Orders
+     */
+    public function getCancellationReason(string $id, string $itemId): JsonResponse
+    {
+        try {
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
+
+            if (!$order) {
+                return $this->notFoundResponse('Order not found');
+            }
+
+            $item = PurchaseOrderItem::where('purchase_order_id', $order->id)
+                ->where('id', $itemId)
+                ->first();
+
+            if (!$item) {
+                return $this->notFoundResponse('Item not found');
+            }
+
+            if (!$item->status->isCancelled()) {
+                return $this->errorResponse('Item is not cancelled', 400);
+            }
+
+            $cancellationReason = $item->approval_data['cancellation_reason'] ?? null;
+
+            return $this->successResponse(
+                [
+                    'item_id' => $item->id,
+                    'item_name' => $item->item_name,
+                    'cancellation_reason' => $cancellationReason,
+                    'cancelled_at' => $item->updated_at?->format('Y-m-d H:i:s'),
+                ],
+                'Cancellation reason retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching cancellation reason');
         }
     }
 }

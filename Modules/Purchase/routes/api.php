@@ -96,6 +96,12 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         Route::post('/{id}/items/{itemId}/reject', [PendingOrderController::class, 'rejectItemRequest'])->name('purchase.pending.reject-item');
         Route::post('/{id}/items/{itemId}/cancel', [PendingOrderController::class, 'cancelItem'])->name('purchase.pending.cancel-item');
 
+        // Modification details and actions
+        Route::get('/{id}/items/{itemId}/modification', [PendingOrderController::class, 'getModificationDetails'])->name('purchase.pending.get-modification');
+        Route::post('/{id}/items/{itemId}/modification/approve', [PendingOrderController::class, 'approveModification'])->name('purchase.pending.approve-modification');
+        Route::post('/{id}/items/{itemId}/modification/reject', [PendingOrderController::class, 'rejectModification'])->name('purchase.pending.reject-modification');
+        Route::get('/{id}/items/{itemId}/cancellation-reason', [PendingOrderController::class, 'getCancellationReason'])->name('purchase.pending.get-cancellation-reason');
+
         /*
         |--------------------------------------------------------------------------
         | Direct Supplier Orders (3.1.2.4.3.2.1)

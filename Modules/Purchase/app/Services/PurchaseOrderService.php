@@ -857,9 +857,9 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     /**
      * Cancel order
      */
-    public function cancelOrder(PurchaseOrder $order, ?string $reason = null): bool
+    public function cancelOrder(PurchaseOrder $order, ?string $reason = null, bool $byBranch = false, bool $bySupplier = false): bool
     {
-        if (!$order->cancel($reason)) {
+        if (!$order->cancel($reason, $byBranch, $bySupplier)) {
             return false;
         }
 

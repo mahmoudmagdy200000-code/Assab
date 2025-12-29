@@ -14,6 +14,8 @@ use Modules\Supplier\Http\Requests\Orders\FilterPendingOrdersRequest;
 use Modules\Supplier\Http\Requests\Orders\RejectOrderRequest;
 use Modules\Supplier\Http\Requests\Orders\RejectItemRequest;
 use Modules\Supplier\Http\Requests\Orders\RequestModificationRequest;
+use Modules\Purchase\Models\PurchaseOrderItem;
+use Modules\Purchase\Transformers\ModificationDetailResource;
 use Modules\Supplier\Services\NotificationService;
 use Modules\Supplier\Services\OrderService;
 use Modules\Supplier\Transformers\OrderResource;
@@ -578,6 +580,92 @@ class PendingOrderController extends BaseController
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'fetching order timeline');
+        }
+    }
+
+    /**
+     * Get modification details for a specific item (for supplier)
+     *
+     * @group Supplier Pending Orders
+     */
+    public function getModificationDetails(string $id, string $itemId): JsonResponse
+    {
+        try {
+            $supplier = auth('supplier')->user();
+            $order = PurchaseOrder::findOrFail($id);
+
+            if ($order->supplier_id !== $supplier->id) {
+                return $this->errorResponse('Unauthorized access to this order', 403);
+            }
+
+            $item = PurchaseOrderItem::where('purchase_order_id', $order->id)
+                ->where('id', $itemId)
+                ->with('purchaseOrder')
+                ->first();
+
+            if (!$item) {
+                return $this->notFoundResponse('Item not found');
+            }
+
+            // Check if item has modifications
+            $hasModifications = $item->approval_type !== null
+                || $item->original_quantity !== null
+                || $item->is_alternative
+                || ($order->expected_delivery_at && $order->preferred_delivery_date);
+
+            if (!$hasModifications) {
+                return $this->errorResponse('No modifications found for this item', 404);
+            }
+
+            return $this->successResponse(
+                new ModificationDetailResource($item),
+                'Modification details retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching modification details');
+        }
+    }
+
+    /**
+     * Get cancellation reason for a specific item (for supplier)
+     *
+     * @group Supplier Pending Orders
+     */
+    public function getCancellationReason(string $id, string $itemId): JsonResponse
+    {
+        try {
+            $supplier = auth('supplier')->user();
+            $order = PurchaseOrder::findOrFail($id);
+
+            if ($order->supplier_id !== $supplier->id) {
+                return $this->errorResponse('Unauthorized access to this order', 403);
+            }
+
+            $item = PurchaseOrderItem::where('purchase_order_id', $order->id)
+                ->where('id', $itemId)
+                ->first();
+
+            if (!$item) {
+                return $this->notFoundResponse('Item not found');
+            }
+
+            if (!$item->status->isCancelled()) {
+                return $this->errorResponse('Item is not cancelled', 400);
+            }
+
+            $cancellationReason = $item->approval_data['cancellation_reason'] ?? null;
+
+            return $this->successResponse(
+                [
+                    'item_id' => $item->id,
+                    'item_name' => $item->item_name,
+                    'cancellation_reason' => $cancellationReason,
+                    'cancelled_at' => $item->updated_at?->format('Y-m-d H:i:s'),
+                ],
+                'Cancellation reason retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching cancellation reason');
         }
     }
 }
