@@ -320,16 +320,24 @@ class PurchaseOrderItem extends Model
             throw new \InvalidArgumentException('Item must be in needs_approval, needs_approval_supplier, needs_approval_branch, partial_confirmation, or partial status to approve request');
         }
 
-        // Handle different approval types
-        match ($this->approval_type) {
-            'partial' => $this->handlePartialApproval(),
-            'time_change' => $this->handleTimeChangeApproval($additionalData),
-            'alternative' => $this->handleAlternativeApproval($additionalData),
-            default => throw new \InvalidArgumentException("Unknown approval type: {$this->approval_type}"),
+        // Handle different approval types (they modify data only)
+        if ($this->approval_type === 'partial') {
+            $this->handlePartialApproval();
+        } elseif (in_array($this->approval_type, ['time_change', 'need_time'])) {
+            $this->handleTimeChangeApproval($additionalData);
+        } elseif ($this->approval_type === 'alternative') {
+            $this->handleAlternativeApproval($additionalData);
+        }
+
+        // Set status based on approval_type
+        $this->status = match ($this->approval_type) {
+            'partial' => OrderItemStatus::PARTIAL_CONFIRMATION,
+            'time_change', 'need_time' => OrderItemStatus::CONFIRMED_NEED_TIME,
+            'alternative' => OrderItemStatus::CONFIRMED_ALTERNATIVE_PRODUCT,
+            default => OrderItemStatus::CONFIRMED,
         };
 
-        // Clear approval data and set to confirmed
-        $this->status = OrderItemStatus::CONFIRMED;
+        // Clear approval data
         $this->approval_type = null;
         $this->approval_data = null;
         $this->calculateTotalPrice();
