@@ -53,8 +53,8 @@ class DataProtectionTest extends TestCase
     public function test_password_not_in_responses(): void
     {
         $manager = BranchManager::factory()->create([
-            'email' => 'password-test@assab.com',
-            'password' => Hash::make('password123'),
+            'email' => 'sensitive-data-test@assab.com',
+            'password' => Hash::make('secret123'),
             'is_first_login' => false,
         ]);
 
