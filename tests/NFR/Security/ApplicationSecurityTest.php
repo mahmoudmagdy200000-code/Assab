@@ -51,10 +51,12 @@ class ApplicationSecurityTest extends TestCase
         // Response structure: { success: true, message: "...", data: { id: ..., name: ..., ... } }
         // BranchManagerDetailResource is wrapped in data field
         $profile1 = $responseData['data'] ?? null;
-        $this->assertNotNull($profile1, "Profile data should be returned");
+        $this->assertNotNull($profile1, "Profile data should be returned. Response: " . json_encode($responseData));
         
         // Verify Manager1 sees their own data, not Manager2's
-        $this->assertEquals($manager1->id, $profile1['id'] ?? null, "User should only see their own data");
+        // The id should be in the data object directly
+        $profileId = is_array($profile1) ? ($profile1['id'] ?? null) : ($profile1->id ?? null);
+        $this->assertEquals($manager1->id, $profileId, "User should only see their own data. Got: " . json_encode($profile1));
     }
 
     /**
