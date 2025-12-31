@@ -46,10 +46,14 @@ class ApplicationSecurityTest extends TestCase
             ->getJson('/api/v1/branch-manager/profile');
 
         $response->assertStatus(200);
-        $profile1 = $response->json('data');
-
+        $responseData = $response->json();
+        
+        // Response structure: { success: true, message: "...", data: { id: ..., name: ..., ... } }
+        // BranchManagerDetailResource is wrapped in data field
+        $profile1 = $responseData['data'] ?? null;
+        $this->assertNotNull($profile1, "Profile data should be returned");
+        
         // Verify Manager1 sees their own data, not Manager2's
-        // Profile response is wrapped in data field from BranchManagerDetailResource
         $this->assertEquals($manager1->id, $profile1['id'] ?? null, "User should only see their own data");
     }
 
