@@ -225,7 +225,7 @@ class ApplicationSecurityTest extends TestCase
         ]);
 
         $response = $this->postJson('/api/v1/branch-manager/auth/login', [
-            'email' => 'log-test@assab.com',
+            'identifier' => 'log-test@assab.com',
             'password' => 'wrongpassword',
         ]);
 
@@ -264,7 +264,7 @@ class ApplicationSecurityTest extends TestCase
 
         // Login to get token
         $response = $this->postJson('/api/v1/branch-manager/auth/login', [
-            'email' => 'apikey-test@assab.com',
+            'identifier' => 'apikey-test@assab.com',
             'password' => 'password123',
         ]);
 
