@@ -126,10 +126,9 @@ class AuthenticationTest extends TestCase
     {
         $response = $this->getJson('/api/v1/branch-manager/profile');
 
-        $response->assertStatus(401)
-            ->assertJson([
-                'success' => false,
-            ]);
+        $response->assertStatus(401);
+        // Laravel Sanctum returns ['message' => 'Unauthenticated.'] format
+        $this->assertArrayHasKey('message', $response->json());
     }
 
     /**
@@ -253,7 +252,7 @@ class AuthenticationTest extends TestCase
 
         // Login
         $response = $this->postJson('/api/v1/branch-manager/auth/login', [
-            'email' => 'logout-test-manager@assab.com',
+            'identifier' => 'logout-test-manager@assab.com',
             'password' => 'password123',
         ]);
 

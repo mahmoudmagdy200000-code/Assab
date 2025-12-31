@@ -49,6 +49,7 @@ class ApplicationSecurityTest extends TestCase
         $profile1 = $response->json('data');
 
         // Verify Manager1 sees their own data, not Manager2's
+        // Profile response is wrapped in data field from BranchManagerDetailResource
         $this->assertEquals($manager1->id, $profile1['id'] ?? null, "User should only see their own data");
     }
 
@@ -175,7 +176,7 @@ class ApplicationSecurityTest extends TestCase
 
         // Invalid credentials should be rejected
         $response = $this->postJson('/api/v1/branch-manager/auth/login', [
-            'email' => 'auth-test@assab.com',
+            'identifier' => 'auth-test@assab.com',
             'password' => 'wrongpassword',
         ]);
 
@@ -183,7 +184,7 @@ class ApplicationSecurityTest extends TestCase
 
         // Valid credentials should work
         $response = $this->postJson('/api/v1/branch-manager/auth/login', [
-            'email' => 'auth-test@assab.com',
+            'identifier' => 'auth-test@assab.com',
             'password' => 'password123',
         ]);
 
