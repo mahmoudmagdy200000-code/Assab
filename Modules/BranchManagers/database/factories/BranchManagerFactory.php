@@ -17,12 +17,15 @@ class BranchManagerFactory extends Factory
         static $counter = 0;
         $counter++;
 
+        // Create a branch if none exists (for testing)
+        $branchId = Branch::first()?->id ?? Branch::factory()->create()->id;
+
         return [
             'name' => 'Manager ' . $counter,
             'email' => 'manager' . $counter . time() . '@example.com',
             'phone' => '+9665' . str_pad(time() + $counter, 8, '0', STR_PAD_LEFT),
             'password' => Hash::make('password123'),
-            'branch_id' => null, // Always pass from Seeder
+            'branch_id' => $branchId,
             'image' => null,
             'status' => 'active',
             'is_active' => true,

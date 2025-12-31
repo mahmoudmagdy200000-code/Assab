@@ -12,12 +12,21 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // First, modify the status enum to include 'needs_approval'
-        DB::statement("ALTER TABLE purchase_order_items MODIFY COLUMN status ENUM('pending', 'confirmed', 'partial', 'rejected', 'received', 'variance', 'needs_approval') DEFAULT 'pending'");
+        $driver = DB::getDriverName();
 
-        Schema::table('purchase_order_items', function (Blueprint $table) {
-            // Add approval_type enum field
-            $table->enum('approval_type', ['partial', 'time_change', 'alternative'])->nullable()->after('status');
+        // SQLite doesn't support MODIFY COLUMN or ENUM
+        if ($driver !== 'sqlite') {
+            // First, modify the status enum to include 'needs_approval'
+            DB::statement("ALTER TABLE purchase_order_items MODIFY COLUMN status ENUM('pending', 'confirmed', 'partial', 'rejected', 'received', 'variance', 'needs_approval') DEFAULT 'pending'");
+        }
+
+        Schema::table('purchase_order_items', function (Blueprint $table) use ($driver) {
+            // Add approval_type enum field (SQLite uses string, MySQL uses enum)
+            if ($driver === 'sqlite') {
+                $table->string('approval_type')->nullable()->after('status');
+            } else {
+                $table->enum('approval_type', ['partial', 'time_change', 'alternative'])->nullable()->after('status');
+            }
             
             // Add approval_data JSON field for storing request details
             $table->json('approval_data')->nullable()->after('approval_type');

@@ -37,5 +37,11 @@ class Shift extends Model
         return $this->hasMany(CashierShift::class);
     }
 
-
+    /**
+     * Create a new factory instance for the model.
+     */
+    protected static function newFactory()
+    {
+        return \Modules\Shift\Database\Factories\ShiftFactory::new();
+    }
 }

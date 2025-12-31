@@ -115,17 +115,41 @@ return new class extends Migration
      */
     private function indexExists(string $table, string $index): bool
     {
-        $databaseName = DB::getDatabaseName();
+        $driver = DB::getDriverName();
 
-        $result = DB::select(
-            "SELECT COUNT(*) as count
-             FROM information_schema.statistics
-             WHERE table_schema = ?
-             AND table_name = ?
-             AND index_name = ?",
-            [$databaseName, $table, $index]
-        );
+        if ($driver === 'sqlite') {
+            // SQLite: Query sqlite_master table
+            $result = DB::select(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name=? AND tbl_name=?",
+                [$index, $table]
+            );
+            return count($result) > 0;
+        } elseif ($driver === 'mysql' || $driver === 'mariadb') {
+            // MySQL/MariaDB: Use information_schema
+            $databaseName = DB::getDatabaseName();
 
-        return $result[0]->count > 0;
+            $result = DB::select(
+                "SELECT COUNT(*) as count
+                 FROM information_schema.statistics
+                 WHERE table_schema = ?
+                 AND table_name = ?
+                 AND index_name = ?",
+                [$databaseName, $table, $index]
+            );
+
+            return $result[0]->count > 0;
+        } else {
+            // PostgreSQL and others: Query pg_indexes
+            try {
+                $result = DB::select(
+                    "SELECT indexname FROM pg_indexes WHERE tablename = ? AND indexname = ?",
+                    [$table, $index]
+                );
+                return count($result) > 0;
+            } catch (\Exception $e) {
+                // Fallback: return false and let it attempt to create
+                return false;
+            }
+        }
     }
 };

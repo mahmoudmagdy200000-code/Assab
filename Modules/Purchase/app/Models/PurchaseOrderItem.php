@@ -117,6 +117,14 @@ class PurchaseOrderItem extends Model
         return $this->hasMany(ReturnOrderItem::class);
     }
 
+    /**
+     * Create a new factory instance for the model.
+     */
+    protected static function newFactory()
+    {
+        return \Modules\Purchase\Database\Factories\PurchaseOrderItemFactory::new();
+    }
+
     // Accessors
     public function getItemLogoUrlAttribute(): ?string
     {

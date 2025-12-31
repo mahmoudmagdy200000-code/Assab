@@ -17,15 +17,19 @@ class CashierFactory extends Factory
         static $counter = 0;
         $counter++;
 
+        // Automatically create branch and manager for testing if not provided
+        $branchId = Branch::first()?->id ?? Branch::factory()->create()->id;
+        $managerId = BranchManager::first()?->id ?? BranchManager::factory()->create(['branch_id' => $branchId])->id;
+
         return [
             'name' => 'Cashier ' . $counter,
             'email' => 'cashier' . $counter . time() . '@example.com',
             'password' => Hash::make('password123'),
             'phone' => '+9665' . str_pad((time() + $counter), 8, '0', STR_PAD_LEFT),
             'image' => null,
-            'branch_id' => null, // Will be passed from seeder
+            'branch_id' => $branchId, // Automatically create branch if none exists
             'status' => 'active',
-            'created_by' => null, // Will be passed from seeder
+            'created_by' => $managerId, // Automatically create manager if none exists
             'activated_at' => now(),
             'deactivated_at' => null,
         ];

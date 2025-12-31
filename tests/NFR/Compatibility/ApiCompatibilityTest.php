@@ -6,6 +6,7 @@ use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Branch\Models\Branch;
 
 /**
  * Compatibility Requirements Test: API Compatibility
@@ -27,10 +28,14 @@ class ApiCompatibilityTest extends TestCase
     {
         parent::setUp();
         
+        // Create branch first (required for BranchManager)
+        $branch = Branch::factory()->create();
+        
         $this->manager = BranchManager::factory()->create([
             'email' => 'compatibility-test-manager@assab.com',
             'password' => Hash::make('password123'),
             'is_first_login' => false,
+            'branch_id' => $branch->id,
         ]);
     }
 

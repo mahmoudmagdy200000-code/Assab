@@ -12,6 +12,19 @@ return new class extends Migration
      */
     public function up(): void
     {
+        $driver = DB::getDriverName();
+
+        // SQLite doesn't support MODIFY COLUMN or ENUM
+        // SQLite uses TEXT for enum-like columns, so just update the values
+        if ($driver === 'sqlite') {
+            // Update existing values to new format (SQLite uses TEXT, so no enum modification needed)
+            DB::statement("UPDATE purchase_orders SET ready_time = 'non' WHERE ready_time = '3_minutes' OR ready_time IS NULL");
+            DB::statement("UPDATE purchase_orders SET ready_time = '1_hour' WHERE ready_time = '1_hour'");
+            DB::statement("UPDATE purchase_orders SET ready_time = '2_hours' WHERE ready_time = '2_hours'");
+            DB::statement("UPDATE purchase_orders SET ready_time = '3_hours_or_more' WHERE ready_time = '3_hours' OR ready_time = 'more_than_3_hours'");
+            return;
+        }
+
         // For MySQL, we need to modify the enum values
         // First, change the column to string temporarily
         DB::statement("ALTER TABLE purchase_orders MODIFY ready_time VARCHAR(50) NULL");
@@ -33,6 +46,19 @@ return new class extends Migration
      */
     public function down(): void
     {
+        $driver = DB::getDriverName();
+
+        // SQLite doesn't support MODIFY COLUMN or ENUM
+        if ($driver === 'sqlite') {
+            // Revert values (SQLite uses TEXT, so no enum modification needed)
+            DB::statement("UPDATE purchase_orders SET ready_time = '3_minutes' WHERE ready_time = 'non'");
+            DB::statement("UPDATE purchase_orders SET ready_time = '1_hour' WHERE ready_time = '30_min'");
+            DB::statement("UPDATE purchase_orders SET ready_time = '2_hours' WHERE ready_time = '1_hour'");
+            DB::statement("UPDATE purchase_orders SET ready_time = '3_hours' WHERE ready_time = '2_hours'");
+            DB::statement("UPDATE purchase_orders SET ready_time = 'more_than_3_hours' WHERE ready_time = '3_hours_or_more'");
+            return;
+        }
+
         // Change to string first
         DB::statement("ALTER TABLE purchase_orders MODIFY ready_time VARCHAR(50) NULL");
 

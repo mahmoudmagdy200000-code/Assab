@@ -38,7 +38,32 @@ return new class extends Migration
 
     private function indexExists(string $table, string $indexName): bool
     {
-        $indexes = DB::select("SHOW INDEXES FROM `{$table}` WHERE Key_name = ?", [$indexName]);
-        return count($indexes) > 0;
+        $driver = DB::getDriverName();
+
+        if ($driver === 'sqlite') {
+            // SQLite: Query sqlite_master table
+            $result = DB::select(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name=? AND tbl_name=?",
+                [$indexName, $table]
+            );
+            return count($result) > 0;
+        } elseif ($driver === 'mysql') {
+            // MySQL: Use SHOW INDEXES
+            $indexes = DB::select("SHOW INDEXES FROM `{$table}` WHERE Key_name = ?", [$indexName]);
+            return count($indexes) > 0;
+        } else {
+            // PostgreSQL and others: Query information_schema
+            try {
+                $result = DB::select(
+                    "SELECT indexname FROM pg_indexes WHERE tablename = ? AND indexname = ?",
+                    [$table, $indexName]
+                );
+                return count($result) > 0;
+            } catch (\Exception $e) {
+                // Fallback: Try to use Laravel's schema inspector if available
+                // For other databases, return false and let it attempt to create
+                return false;
+            }
+        }
     }
 };

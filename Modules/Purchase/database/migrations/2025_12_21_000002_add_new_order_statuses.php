@@ -12,6 +12,13 @@ return new class extends Migration
      */
     public function up(): void
     {
+        $driver = DB::getDriverName();
+        
+        // SQLite doesn't support MODIFY COLUMN or ENUM
+        if ($driver === 'sqlite') {
+            return;
+        }
+
         // For MySQL, we need to modify the enum values
         // First, change the column to string temporarily
         DB::statement("ALTER TABLE purchase_orders MODIFY status VARCHAR(50) NOT NULL DEFAULT 'draft'");
@@ -44,6 +51,13 @@ return new class extends Migration
      */
     public function down(): void
     {
+        $driver = DB::getDriverName();
+        
+        // SQLite doesn't support MODIFY COLUMN or ENUM
+        if ($driver === 'sqlite') {
+            return;
+        }
+
         // Change to string first
         DB::statement("ALTER TABLE purchase_orders MODIFY status VARCHAR(50) NOT NULL DEFAULT 'draft'");
 

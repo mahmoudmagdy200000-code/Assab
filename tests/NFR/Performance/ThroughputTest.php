@@ -10,6 +10,7 @@ use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\Shift;
 use Illuminate\Support\Facades\Hash;
 
 /**
@@ -30,7 +31,7 @@ class ThroughputTest extends TestCase
     use RefreshDatabase;
 
     protected BranchManager $manager;
-    protected array $cashiers;
+    protected $cashiers;
 
     protected function setUp(): void
     {
@@ -45,7 +46,7 @@ class ThroughputTest extends TestCase
         // Create multiple cashiers for concurrent operations
         $this->cashiers = Cashier::factory()->count(10)->create([
             'branch_id' => $this->manager->branch_id,
-        ])->toArray();
+        ]);
     }
 
     /**
@@ -56,10 +57,14 @@ class ThroughputTest extends TestCase
     {
         // Create shifts for handover testing
         $shifts = [];
+        $shiftModel = Shift::factory()->create([
+            'branch_id' => $this->manager->branch_id,
+        ]);
+        
         foreach ($this->cashiers as $cashier) {
             $shift = CashierShift::factory()->create([
-                'cashier_id' => $cashier['id'],
-                'branch_id' => $this->manager->branch_id,
+                'cashier_id' => $cashier->id,
+                'shift_id' => $shiftModel->id,
             ]);
             $shifts[] = $shift;
         }
@@ -76,8 +81,9 @@ class ThroughputTest extends TestCase
         for ($i = 0; $i < $testConcurrent; $i++) {
             try {
                 $shift = $shifts[$i % count($shifts)] ?? $shifts[0];
+                $cashier = $this->cashiers[$i % $this->cashiers->count()];
                 
-                $response = $this->actingAs($this->cashiers[$i % count($this->cashiers)]['id'], 'sanctum')
+                $response = $this->actingAs($cashier, 'sanctum')
                     ->getJson("/api/v1/cashier/shifts/{$shift->id}/handover/status");
 
                 if ($response->status() === 200 || $response->status() === 404) {
@@ -208,9 +214,10 @@ class ThroughputTest extends TestCase
         $recordsPerMinute = 1000;
         $targetRecordsPerSecond = $recordsPerMinute / 60; // ≈16.67 records/second
         
-        // Create test data
+        // Create test data with CLOSED status (history endpoint only returns closed/canceled orders)
         PurchaseOrder::factory()->count(100)->create([
             'branch_id' => $this->manager->branch_id,
+            'status' => \Modules\Purchase\Enums\OrderStatus::CLOSED,
         ]);
 
         $testRecords = 100;
@@ -226,9 +233,15 @@ class ThroughputTest extends TestCase
                 ->getJson("/api/v1/purchase/history?page={$page}&per_page={$perPage}");
 
             if ($response->status() === 200) {
-                $data = $response->json('data.data', []);
+                // Paginated response structure: { success: true, data: [...], meta: {...} }
+                $responseData = $response->json();
+                $data = $responseData['data'] ?? [];
+                $data = is_array($data) ? $data : [];
                 $fetchedRecords += count($data);
                 if (count($data) < $perPage) break; // No more data
+            } else {
+                // If request failed, break the loop to avoid infinite loop
+                break;
             }
             $page++;
         }

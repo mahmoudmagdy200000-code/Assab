@@ -65,6 +65,13 @@ class CashierShift extends Model
     // Default relationships to load
     protected $with = ['cashier', 'shift', 'nextCashier'];
 
+    /**
+     * Create a new factory instance for the model.
+     */
+    protected static function newFactory()
+    {
+        return \Modules\Shift\Database\Factories\CashierShiftFactory::new();
+    }
 
     public function assignedBy(): BelongsTo
     {

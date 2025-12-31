@@ -10,6 +10,13 @@ return new class extends Migration
      */
     public function up(): void
     {
+        $driver = DB::getDriverName();
+        
+        // SQLite doesn't support MODIFY COLUMN or ENUM
+        if ($driver === 'sqlite') {
+            return;
+        }
+
         // Add new statuses to purchase_order_items status enum
         DB::statement("ALTER TABLE purchase_order_items MODIFY COLUMN status ENUM(
             'pending',
@@ -36,6 +43,13 @@ return new class extends Migration
      */
     public function down(): void
     {
+        $driver = DB::getDriverName();
+        
+        // SQLite doesn't support MODIFY COLUMN or ENUM
+        if ($driver === 'sqlite') {
+            return;
+        }
+
         // Convert new statuses back to existing ones
         DB::table('purchase_order_items')
             ->whereIn('status', ['confirmed_need_time', 'confirmed_alternative_product'])

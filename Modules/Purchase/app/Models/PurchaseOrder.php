@@ -124,6 +124,14 @@ class PurchaseOrder extends Model
         });
     }
 
+    /**
+     * Create a new factory instance for the model.
+     */
+    protected static function newFactory()
+    {
+        return \Modules\Purchase\Database\Factories\PurchaseOrderFactory::new();
+    }
+
     // Relationships
     public function branch(): BelongsTo
     {

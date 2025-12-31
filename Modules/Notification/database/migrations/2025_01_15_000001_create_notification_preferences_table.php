@@ -20,11 +20,26 @@ return new class extends Migration
 
             // uuidMorphs already creates index on notifiable_type and notifiable_id
             $table->index('notification_type');
+
+            // Add unique constraint - use database-agnostic approach
+            // For SQLite: use standard unique constraint
+            // For MySQL: handle long class names with prefix (if needed)
+            if (DB::getDriverName() === 'sqlite') {
+                // SQLite doesn't support column length in unique constraints
+                $table->unique(['notifiable_type', 'notifiable_id', 'notification_type'], 'unique_notification_preference');
+            }
         });
 
-        // Add unique constraint with prefix to handle long class names
+        // For MySQL, add unique constraint with prefix to handle long class names
         // Using smaller prefixes to stay within MySQL's 1000 byte limit
-        DB::statement('ALTER TABLE `notification_preferences` ADD UNIQUE `unique_notification_preference` (`notifiable_type`(80), `notifiable_id`, `notification_type`(50))');
+        if (DB::getDriverName() !== 'sqlite') {
+            try {
+                DB::statement('ALTER TABLE `notification_preferences` ADD UNIQUE `unique_notification_preference` (`notifiable_type`(80), `notifiable_id`, `notification_type`(50))');
+            } catch (\Exception $e) {
+                // If constraint already exists (e.g., from Laravel schema builder), skip
+                // This handles the case where the constraint was already added above for SQLite
+            }
+        }
     }
 
     public function down(): void
@@ -32,4 +47,3 @@ return new class extends Migration
         Schema::dropIfExists('notification_preferences');
     }
 };
-

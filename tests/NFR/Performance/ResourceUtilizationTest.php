@@ -54,7 +54,7 @@ class ResourceUtilizationTest extends TestCase
         // Perform operation that processes large dataset
         $response = $this->actingAs($this->manager, 'sanctum')
             ->getJson('/api/v1/purchase/history?' . http_build_query([
-                'per_page' => 1000,
+                'per_page' => 100, // Maximum allowed per API validation
             ]));
 
         $peakMemoryAfter = memory_get_peak_usage(true);

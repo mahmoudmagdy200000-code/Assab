@@ -10,6 +10,13 @@ return new class extends Migration
      */
     public function up(): void
     {
+        $driver = DB::getDriverName();
+        
+        // SQLite doesn't support MODIFY COLUMN or ENUM
+        if ($driver === 'sqlite') {
+            return;
+        }
+
         // Add cancellation statuses to purchase_order_items
         DB::statement("ALTER TABLE purchase_order_items MODIFY COLUMN status ENUM('pending', 'confirmed', 'partial', 'partial_confirmation', 'rejected', 'cancelled', 'cancelled_by_branch', 'cancelled_by_supplier', 'received', 'variance', 'needs_approval') DEFAULT 'pending'");
 
@@ -22,6 +29,13 @@ return new class extends Migration
      */
     public function down(): void
     {
+        $driver = DB::getDriverName();
+        
+        // SQLite doesn't support MODIFY COLUMN or ENUM
+        if ($driver === 'sqlite') {
+            return;
+        }
+
         // Convert cancelled_by_branch and cancelled_by_supplier back to cancelled
         DB::table('purchase_order_items')
             ->whereIn('status', ['cancelled_by_branch', 'cancelled_by_supplier'])
