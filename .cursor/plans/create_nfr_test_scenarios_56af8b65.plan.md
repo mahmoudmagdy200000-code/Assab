@@ -146,5 +146,3 @@ todos: []
 - **Laravel Debugbar** لتحليل الاستعلامات
 
 ## الملاحظات
-
-- كل test scenario سيستخدم endpoints حقيقية من النظام
