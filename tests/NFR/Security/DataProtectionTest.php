@@ -312,7 +312,7 @@ class DataProtectionTest extends TestCase
 
         for ($i = 0; $i < $attempts; $i++) {
             $response = $this->postJson('/api/v1/branch-manager/auth/login', [
-                'email' => 'ratelimit-test@assab.com',
+                'identifier' => 'ratelimit-test@assab.com',
                 'password' => 'wrongpassword',
             ]);
 
