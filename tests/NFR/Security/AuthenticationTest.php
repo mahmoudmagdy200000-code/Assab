@@ -41,7 +41,7 @@ class AuthenticationTest extends TestCase
 
         // Login to get token
         $response = $this->postJson('/api/v1/branch-manager/auth/login', [
-            'email' => 'token-test-manager@assab.com',
+            'identifier' => 'token-test-manager@assab.com',
             'password' => 'password123',
         ]);
 
@@ -77,7 +77,7 @@ class AuthenticationTest extends TestCase
 
         // Login
         $response = $this->postJson('/api/v1/branch-manager/auth/login', [
-            'email' => 'session-test-manager@assab.com',
+            'identifier' => 'session-test-manager@assab.com',
             'password' => 'password123',
         ]);
 
@@ -108,7 +108,7 @@ class AuthenticationTest extends TestCase
         ]);
 
         $response = $this->postJson('/api/v1/branch-manager/auth/login', [
-            'email' => 'reject-test-manager@assab.com',
+            'identifier' => 'reject-test-manager@assab.com',
             'password' => 'wrongpassword',
         ]);
 
@@ -221,7 +221,7 @@ class AuthenticationTest extends TestCase
 
         // Login to get initial token
         $response = $this->postJson('/api/v1/branch-manager/auth/login', [
-            'email' => 'refresh-test-manager@assab.com',
+            'identifier' => 'refresh-test-manager@assab.com',
             'password' => 'password123',
         ]);
 
