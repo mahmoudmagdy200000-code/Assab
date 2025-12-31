@@ -12,5 +12,6 @@
     "Custody": true,
     "Notification": true,
     "RecurringOrder": true,
-    "Supplier": true
+    "Supplier": true,
+    "Inventory": true
 }
