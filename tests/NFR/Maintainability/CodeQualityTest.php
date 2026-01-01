@@ -182,12 +182,23 @@ class CodeQualityTest extends TestCase
         if (File::exists($gitIgnorePath)) {
             $gitIgnoreContent = File::get($gitIgnorePath);
             
-            $sensitiveFiles = ['.env', 'vendor/', 'node_modules/'];
-            foreach ($sensitiveFiles as $file) {
-                $this->assertStringContainsString(
-                    $file,
-                    $gitIgnoreContent,
-                    ".gitignore should exclude: {$file}"
+            $sensitiveFiles = [
+                '.env' => ['.env'],
+                'vendor' => ['vendor', '/vendor'],
+                'node_modules' => ['node_modules', '/node_modules'],
+            ];
+            
+            foreach ($sensitiveFiles as $key => $patterns) {
+                $found = false;
+                foreach ($patterns as $pattern) {
+                    if (strpos($gitIgnoreContent, $pattern) !== false) {
+                        $found = true;
+                        break;
+                    }
+                }
+                $this->assertTrue(
+                    $found,
+                    ".gitignore should exclude: {$key} (checked patterns: " . implode(', ', $patterns) . ")"
                 );
             }
         } else {

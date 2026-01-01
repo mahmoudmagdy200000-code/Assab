@@ -14,9 +14,8 @@ class RejectReturnRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'reason' => 'required|string|in:outside_return_policy,no_quality_issue,customer_damage,passed_return_window,other',
+            'reason' => 'required|string|max:1000',
             'explanation' => 'required|string|max:1000',
         ];
     }
 }
-
