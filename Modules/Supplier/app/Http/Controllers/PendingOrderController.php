@@ -232,7 +232,8 @@ class PendingOrderController extends BaseController
                 return $this->errorResponse('Order is not in pending confirmation status', 400);
             }
 
-            $success = $this->purchaseOrderService->rejectOrder($order, $request->validated()['reason']);
+            $validated = $request->validated();
+            $success = $this->purchaseOrderService->rejectOrder($order, $validated['reason'] ?? '');
 
             if (!$success) {
                 return $this->errorResponse('Cannot reject modifications', 400);

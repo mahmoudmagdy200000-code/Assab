@@ -225,7 +225,7 @@ class OrderService
             $order->update([
                 'status' => OrderStatus::REJECTED,
                 'rejected_at' => now(),
-                'rejection_reason' => $data['reason'],
+                'rejection_reason' => $data['reason'] ?? null,
                 'message' => $data['explanation'] ?? null,
             ]);
 

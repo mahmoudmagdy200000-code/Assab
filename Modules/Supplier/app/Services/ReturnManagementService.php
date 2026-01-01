@@ -95,7 +95,7 @@ class ReturnManagementService
                 'responded_by' => auth()->id(),
                 'responded_at' => now(),
                 'rejected_at' => now(),
-                'rejection_reason' => $data['reason'],
+                'rejection_reason' => $data['reason'] ?? null,
                 'response_notes' => $data['explanation'] ?? null,
             ]);
 
