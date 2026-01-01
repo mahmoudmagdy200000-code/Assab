@@ -394,7 +394,7 @@ class PendingOrderController extends BaseController
                 $supplier,
                 $itemId,
                 $validated['new_delivery_time'],
-                $validated['reason'],
+                $validated['reason'] ?? '',
                 $validated['note'] ?? null
             );
 
@@ -431,7 +431,7 @@ class PendingOrderController extends BaseController
                 $supplier,
                 $itemId,
                 $validated['alternative_item_id'],
-                $validated['reason'],
+                $validated['reason'] ?? '',
                 $validated['note'] ?? null
             );
 
@@ -511,7 +511,7 @@ class PendingOrderController extends BaseController
                 $order,
                 $supplier,
                 $itemId,
-                $validated['reason'],
+                $validated['reason'] ?? '',
                 $validated['explanation'] ?? null
             );
 
@@ -547,7 +547,7 @@ class PendingOrderController extends BaseController
                 $order,
                 $supplier,
                 $itemId,
-                $validated['reason']
+                $validated['reason'] ?? ''
             );
 
             return $this->successResponse(
