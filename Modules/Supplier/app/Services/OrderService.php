@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
+use Modules\Purchase\Models\BranchItem;
+use Modules\Purchase\Models\Item;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Supplier\Models\Supplier;
@@ -362,8 +364,23 @@ class OrderService
                 throw new \Exception('Item must be in pending status to request alternative');
             }
 
+            // Get alternative item details
+            $alternativeItem = Item::find($alternativeItemId);
+            if (!$alternativeItem) {
+                throw new \Exception('Alternative item not found');
+            }
+
+            // Get price from BranchItem or use original item price as default
+            $branchItem = BranchItem::where('branch_id', $order->branch_id)
+                ->where('item_id', $alternativeItemId)
+                ->first();
+
+            $alternativePrice = $branchItem?->price ?? $item->unit_price;
+
             $item->requestAlternative(
                 $alternativeItemId,
+                $alternativeItem->name,
+                $alternativePrice ? (float) $alternativePrice : null,
                 $reason,
                 $note
             );
