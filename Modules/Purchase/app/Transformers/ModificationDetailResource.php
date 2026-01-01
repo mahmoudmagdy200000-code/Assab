@@ -9,7 +9,7 @@ class ModificationDetailResource extends JsonResource
 {
     /**
      * Transform the resource into an array.
-     * 
+     *
      * Returns different structure based on modification type:
      * - new_quantity: Quantity modification details
      * - need_time: Delivery time modification details
@@ -19,10 +19,10 @@ class ModificationDetailResource extends JsonResource
     {
         // Get modification type from approval_type or determine from item data
         $modificationType = $this->getModificationType();
-        
+
         $status = $this->getModificationStatus();
         $order = $this->relationLoaded('purchaseOrder') ? $this->purchaseOrder : $this->purchaseOrder()->first();
-        
+
         $baseData = [
             'item_id' => $this->id,
             'type' => $modificationType->value,
@@ -63,9 +63,9 @@ class ModificationDetailResource extends JsonResource
         }
 
         // Check if order has delivery time change
-        if ($this->relationLoaded('purchaseOrder') && 
-            $this->purchaseOrder && 
-            $this->purchaseOrder->expected_delivery_at && 
+        if ($this->relationLoaded('purchaseOrder') &&
+            $this->purchaseOrder &&
+            $this->purchaseOrder->expected_delivery_at &&
             $this->purchaseOrder->preferred_delivery_date) {
             return ModificationType::NEED_TIME;
         }
@@ -113,7 +113,7 @@ class ModificationDetailResource extends JsonResource
     private function getNewQuantityData(array $baseData): array
     {
         $order = $this->relationLoaded('purchaseOrder') ? $this->purchaseOrder : $this->purchaseOrder()->first();
-        
+
         return array_merge($baseData, [
             'original_order' => [
                 'item_id' => $this->id,
@@ -136,7 +136,7 @@ class ModificationDetailResource extends JsonResource
                 'price_per_unit' => (float) $this->unit_price . ' / ' . $this->unit_of_measurement,
                 'total_price' => (float) (($this->new_quantity ?? $this->quantity_ordered) * $this->unit_price),
             ],
-            'modification_notes' => $this->modification_note,
+            'modification_notes' => $this->modification_note ?? $this->message,
         ]);
     }
 
@@ -147,16 +147,16 @@ class ModificationDetailResource extends JsonResource
     {
         $order = $this->relationLoaded('purchaseOrder') ? $this->purchaseOrder : $this->purchaseOrder()->first();
         $approvalData = $this->approval_data ?? [];
-        
+
         $originalDeliveryDate = $order->preferred_delivery_date;
         $newDeliveryDate = $order->expected_delivery_at ?? ($approvalData['requested_delivery_time'] ?? null);
-        
+
         if (is_string($newDeliveryDate)) {
             $newDeliveryDate = \Carbon\Carbon::parse($newDeliveryDate);
         }
 
-        $daysDifference = $originalDeliveryDate && $newDeliveryDate 
-            ? $originalDeliveryDate->diffInDays($newDeliveryDate) 
+        $daysDifference = $originalDeliveryDate && $newDeliveryDate
+            ? $originalDeliveryDate->diffInDays($newDeliveryDate)
             : 0;
 
         return array_merge($baseData, [
@@ -193,7 +193,7 @@ class ModificationDetailResource extends JsonResource
     {
         $order = $this->relationLoaded('purchaseOrder') ? $this->purchaseOrder : $this->purchaseOrder()->first();
         $approvalData = $this->approval_data ?? [];
-        
+
         $originalItemId = $approvalData['original_item_id'] ?? $this->item_id;
         $alternativeItemId = $approvalData['alternative_item_id'] ?? $this->item_id;
         $alternativeItemName = $approvalData['alternative_item_name'] ?? $this->item_name;

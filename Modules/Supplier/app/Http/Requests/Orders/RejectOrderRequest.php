@@ -15,8 +15,8 @@ class RejectOrderRequest extends FormRequest
     {
         return [
             'reason' => 'required|string|max:1000',
-            'explanation' => 'required|string|max:1000',
-            'rejection_type' => 'required|in:entire_order,partial_items',
+            'explanation' => 'nullable|string|max:1000',
+            // 'rejection_type' => 'required|in:entire_order,partial_items',
         ];
     }
 }
