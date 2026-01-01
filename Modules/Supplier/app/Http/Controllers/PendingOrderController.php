@@ -430,8 +430,6 @@ class PendingOrderController extends BaseController
                 $supplier,
                 $itemId,
                 $validated['alternative_item_id'],
-                $validated['alternative_item_name'],
-                $validated['price'] ?? null,
                 $validated['reason'],
                 $validated['note'] ?? null
             );

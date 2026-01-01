@@ -341,7 +341,7 @@ class OrderService
     /**
      * Request alternative product
      */
-    public function requestAlternative(PurchaseOrder $order, Supplier $supplier, string $itemId, string $alternativeItemId, string $alternativeItemName, ?float $price = null, string $reason, ?string $note = null): PurchaseOrder
+    public function requestAlternative(PurchaseOrder $order, Supplier $supplier, string $itemId, string $alternativeItemId, string $reason, ?string $note = null): PurchaseOrder
     {
         if ($order->supplier_id !== $supplier->id) {
             throw new \Exception('Unauthorized access to this order');
@@ -351,7 +351,7 @@ class OrderService
             throw new \Exception('Order must be in pending status to request alternative');
         }
 
-        return DB::transaction(function () use ($order, $itemId, $alternativeItemId, $alternativeItemName, $price, $reason, $note) {
+        return DB::transaction(function () use ($order, $itemId, $alternativeItemId, $reason, $note) {
             $item = $order->items()->where('item_id', $itemId)->first();
 
             if (!$item) {
@@ -364,8 +364,6 @@ class OrderService
 
             $item->requestAlternative(
                 $alternativeItemId,
-                $alternativeItemName,
-                $price ?? $item->unit_price,
                 $reason,
                 $note
             );
@@ -375,7 +373,6 @@ class OrderService
                 'type' => 'alternative',
                 'item_id' => $itemId,
                 'alternative_item_id' => $alternativeItemId,
-                'alternative_item_name' => $alternativeItemName,
                 'reason' => $reason,
             ]);
 
