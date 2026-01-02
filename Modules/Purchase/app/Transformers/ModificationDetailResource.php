@@ -162,7 +162,8 @@ class ModificationDetailResource extends JsonResource
 
         return array_merge($baseData, [
             'original_order' => [
-                'item_id' => $this->id,
+                'id' => $this->id,
+                'item_id' => $this->item_id,
                 'item_name' => $this->item_name,
                 'item_logo' => $this->item_logo_url,
                 'requested_qty' => (float) $this->quantity_ordered,
@@ -202,6 +203,7 @@ class ModificationDetailResource extends JsonResource
 
         return array_merge($baseData, [
             'original_order' => [
+                'id' => $this->id,
                 'item_id' => $originalItemId,
                 'item_name' => $approvalData['original_item_name'] ?? $this->item_name,
                 'item_logo' => $this->item_logo_url,
