@@ -36,6 +36,20 @@ class OrderResource extends JsonResource
 
             // Order Items
             'items' => $this->items->map(function ($item) {
+                // For supplier view: if status is needs_approval_branch (supplier requested modification),
+                // show it as needs_approval_supplier in the response (from supplier's perspective)
+                $displayStatus = $item->status;
+                $displayStatusValue = $item->status?->value ?? 'pending';
+                $displayStatusLabel = $item->status?->label() ?? 'Pending';
+                $displayStatusColor = $item->status?->color() ?? '#F59E0B';
+
+                // If supplier requested modification (needs_approval_branch), show as needs_approval_supplier in supplier view
+                if ($item->status === \Modules\Purchase\Enums\OrderItemStatus::NEEDS_APPROVAL_BRANCH && $item->approval_type) {
+                    $displayStatusValue = 'needs_approval_supplier';
+                    $displayStatusLabel = 'Needs Approval (Supplier)';
+                    $displayStatusColor = '#F97316';
+                }
+
                 $itemData = [
                     'id' => $item->id,
                     'item_id' => $item->item_id,
@@ -47,9 +61,9 @@ class OrderResource extends JsonResource
                     'unit_price' => (float) $item->unit_price,
                     'total_price' => (float) $item->total_price,
                     'quality_level' => $item->quality_ordered?->value,
-                    'status' => $item->status?->value ?? 'pending',
-                    'status_label' => $item->status?->label() ?? 'Pending',
-                    'status_color' => $item->status?->color() ?? '#F59E0B',
+                    'status' => $displayStatusValue,
+                    'status_label' => $displayStatusLabel,
+                    'status_color' => $displayStatusColor,
                 ];
 
                 // Add approval information if item needs approval or has approval data
