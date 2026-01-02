@@ -311,8 +311,13 @@ class OrderService
             throw new \Exception('Unauthorized access to this order');
         }
 
-        if ($order->status !== OrderStatus::PENDING) {
-            throw new \Exception('Order must be in pending status to request time change');
+        // Refresh order to get latest status (in case it changed after item cancellations)
+        $order->refresh();
+
+        // Allow time change request if order is in pending status or partial confirmation
+        // Order can still be pending even if some items are cancelled
+        if (!in_array($order->status, [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION])) {
+            throw new \Exception('Order must be in pending or partial confirmation status to request time change');
         }
 
         return DB::transaction(function () use ($order, $itemId, $newDeliveryTime, $reason, $note) {
@@ -322,6 +327,8 @@ class OrderService
                 throw new \Exception('Item not found in order');
             }
 
+            // Item must be in pending status to request time change
+            // Cannot request time change for cancelled or already confirmed items
             if ($item->status !== OrderItemStatus::PENDING) {
                 throw new \Exception('Item must be in pending status to request time change');
             }
