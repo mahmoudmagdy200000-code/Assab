@@ -21,7 +21,6 @@ class ModificationDetailResource extends JsonResource
         $modificationType = $this->getModificationType();
 
         $status = $this->getModificationStatus();
-        $order = $this->relationLoaded('purchaseOrder') ? $this->purchaseOrder : $this->purchaseOrder()->first();
 
         $baseData = [
             'item_id' => $this->id,
@@ -115,6 +114,17 @@ class ModificationDetailResource extends JsonResource
     private function getNewQuantityData(array $baseData): array
     {
         $order = $this->relationLoaded('purchaseOrder') ? $this->purchaseOrder : $this->purchaseOrder()->first();
+        $approvalData = $this->approval_data ?? [];
+
+        // Get quantities from approval_data (where they are stored during requestPartialApproval)
+        $originalQuantity = $approvalData['original_quantity'] ?? $this->original_quantity ?? $this->quantity_ordered;
+        $requestedQuantity = $approvalData['requested_quantity'] ?? $this->new_quantity ?? $this->quantity_ordered;
+
+        // Calculate shortage (difference between original and requested)
+        $shortage = max(0, $originalQuantity - $requestedQuantity);
+
+        // Calculate total price for proposed quantity
+        $proposedTotalPrice = $requestedQuantity * $this->unit_price;
 
         return array_merge($baseData, [
             'original_order' => [
@@ -122,24 +132,24 @@ class ModificationDetailResource extends JsonResource
                 'item_id' => $this->item_id,
                 'item_name' => $this->item_name,
                 'item_logo' => $this->item_logo_url,
-                'requested_qty' => (float) ($this->original_quantity ?? $this->quantity_ordered),
+                'requested_qty' => (float) $originalQuantity,
                 'unit' => $this->unit_of_measurement,
                 'quality' => $this->quality_ordered?->value,
                 'price' => (float) $this->unit_price,
                 'price_per_unit' => (float) $this->unit_price . ' / ' . $this->unit_of_measurement,
-                'total_price' => (float) $this->total_price,
+                'total_price' => (float) ($originalQuantity * $this->unit_price),
                 'delivery_date' => $order->preferred_delivery_date?->format('Y-m-d'),
             ],
             'supplier_proposal' => [
                 'type' => 'New Quantity',
-                'proposed_qty' => (float) ($this->new_quantity ?? $this->quantity_ordered),
-                'shortage' => (float) max(0, ($this->original_quantity ?? $this->quantity_ordered) - ($this->new_quantity ?? $this->quantity_ordered)),
+                'proposed_qty' => (float) $requestedQuantity,
+                'shortage' => (float) $shortage,
                 'quality' => $this->quality_ordered?->value,
                 'price' => (float) $this->unit_price,
                 'price_per_unit' => (float) $this->unit_price . ' / ' . $this->unit_of_measurement,
-                'total_price' => (float) (($this->new_quantity ?? $this->quantity_ordered) * $this->unit_price),
+                'total_price' => (float) $proposedTotalPrice,
             ],
-            'modification_notes' => $this->note ?? $this->reason,
+            'modification_notes' => $approvalData['note'] ?? $this->note ?? $this->reason,
         ]);
     }
 
