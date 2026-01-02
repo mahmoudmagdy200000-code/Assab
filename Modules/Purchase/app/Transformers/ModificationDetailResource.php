@@ -137,7 +137,7 @@ class ModificationDetailResource extends JsonResource
                 'price_per_unit' => (float) $this->unit_price . ' / ' . $this->unit_of_measurement,
                 'total_price' => (float) (($this->new_quantity ?? $this->quantity_ordered) * $this->unit_price),
             ],
-            'modification_notes' => $this->modification_note ?? $this->message,
+            'modification_notes' => $this->note ?? $this->reason,
         ]);
     }
 
@@ -184,7 +184,7 @@ class ModificationDetailResource extends JsonResource
                     'days_difference_label' => $daysDifference > 0 ? "+{$daysDifference} Days" : null,
                 ],
             ],
-            'modification_notes' => $approvalData['note'] ?? $order->message ?? $this->modification_note,
+            'modification_notes' => $approvalData['note'] ?? $order->message ?? $this->reason,
         ]);
     }
 
@@ -228,7 +228,7 @@ class ModificationDetailResource extends JsonResource
                     'total_price' => (float) ($this->quantity_ordered * $alternativePrice),
                 ],
             ],
-            'modification_notes' => $approvalData['note'] ?? $this->modification_note,
+            'modification_notes' => $approvalData['note'] ?? $this->reason,
         ]);
     }
 }
