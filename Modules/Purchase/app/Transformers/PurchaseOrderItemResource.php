@@ -79,8 +79,8 @@ class PurchaseOrderItemResource extends JsonResource
                 ? (float) $inventory->weekend_forecast 
                 : ($this->weekend_forecast ? (float) $this->weekend_forecast : null),
             'next_supply' => $inventory 
-                ? ($inventory->next_supply_date?->timestamp ?? null)
-                : ($this->next_supply_date?->timestamp ?? null),
+                ? ($inventory->next_supply_date?->format('Y-m-d') ?? null)
+                : ($this->next_supply_date?->format('Y-m-d') ?? null),
             
             // Pricing
             'unit_price' => (float) $this->unit_price,
@@ -96,10 +96,10 @@ class PurchaseOrderItemResource extends JsonResource
             'remaining_balance' => $this->remaining_balance ? (float) $this->remaining_balance : null,
             'daily_consumption' => $this->daily_consumption ? (float) $this->daily_consumption : null,
             'weekend_forecast' => $this->weekend_forecast ? (float) $this->weekend_forecast : null,
-            'next_supply_date' => $this->next_supply_date?->timestamp,
+            'next_supply_date' => $this->next_supply_date?->format('Y-m-d'),
             
             // Product info
-            'expiry_date' => $this->expiry_date?->timestamp,
+            'expiry_date' => $this->expiry_date?->format('Y-m-d'),
             'temperature' => $this->temperature,
             'cooling_status' => $this->cooling_status,
             
@@ -127,7 +127,7 @@ class PurchaseOrderItemResource extends JsonResource
             ),
             'approval_data' => $this->when(
                 $this->status?->needsApproval() || $this->approval_type || $this->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION,
-                fn() => $this->formatApprovalData($this->approval_data)
+                fn() => $this->approval_data
             ),
             'can_approve' => $this->when(
                 $this->status?->needsApproval() || ($this->approval_type && !$this->status?->isCancelled()),
@@ -143,40 +143,6 @@ class PurchaseOrderItemResource extends JsonResource
             'is_alternative' => $this->is_alternative,
             'is_gift' => $this->is_gift,
         ];
-    }
-
-    /**
-     * Format approval_data dates to timestamps
-     */
-    private function formatApprovalData(?array $approvalData): ?array
-    {
-        if (!$approvalData) {
-            return null;
-        }
-
-        $formatted = $approvalData;
-
-        // Convert original_delivery_time to timestamp if exists
-        if (isset($formatted['original_delivery_time']) && $formatted['original_delivery_time']) {
-            try {
-                $date = \Carbon\Carbon::parse($formatted['original_delivery_time']);
-                $formatted['original_delivery_time'] = $date->timestamp;
-            } catch (\Exception $e) {
-                // Keep original value if parsing fails
-            }
-        }
-
-        // Convert requested_delivery_time to timestamp if exists
-        if (isset($formatted['requested_delivery_time']) && $formatted['requested_delivery_time']) {
-            try {
-                $date = \Carbon\Carbon::parse($formatted['requested_delivery_time']);
-                $formatted['requested_delivery_time'] = $date->timestamp;
-            } catch (\Exception $e) {
-                // Keep original value if parsing fails
-            }
-        }
-
-        return $formatted;
     }
 }
 

@@ -34,7 +34,7 @@ class PurchaseOrderListResource extends JsonResource
             'id' => $this->id,
             'status' => $this->status?->value,
             'order_type' => $this->order_type?->value,
-            'created_at' => $this->created_at?->timestamp,
+            'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
             'items' => $items,
             'source_name' => $sourceName,
             'request_type' => $requestType,

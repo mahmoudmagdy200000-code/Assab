@@ -55,10 +55,10 @@ class PurchaseOrderResource extends JsonResource
             'total_amount' => (float) $this->total_amount,
 
             // Delivery info
-            'preferred_delivery_date' => $this->preferred_delivery_date?->timestamp,
-            'latest_delivery_date' => $this->latest_delivery_date?->timestamp,
-            'expected_delivery_at' => $this->expected_delivery_at?->timestamp,
-            'actual_delivery_at' => $this->actual_delivery_at?->timestamp,
+            'preferred_delivery_date' => $this->preferred_delivery_date?->format('Y-m-d'),
+            'latest_delivery_date' => $this->latest_delivery_date?->format('Y-m-d'),
+            'expected_delivery_at' => $this->expected_delivery_at?->format('Y-m-d H:i:s'),
+            'actual_delivery_at' => $this->actual_delivery_at?->format('Y-m-d H:i:s'),
 
             // Transfer details
             'transport_method' => $this->transport_method,
@@ -70,11 +70,11 @@ class PurchaseOrderResource extends JsonResource
             'special_instructions' => $this->special_instructions,
 
             // Timestamps
-            'submitted_at' => $this->submitted_at?->timestamp,
-            'confirmed_at' => $this->confirmed_at?->timestamp,
-            'rejected_at' => $this->rejected_at?->timestamp,
-            'created_at' => $this->created_at?->timestamp,
-            'updated_at' => $this->updated_at?->timestamp,
+            'submitted_at' => $this->submitted_at?->format('Y-m-d H:i:s'),
+            'confirmed_at' => $this->confirmed_at?->format('Y-m-d H:i:s'),
+            'rejected_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
+            'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
+            'updated_at' => $this->updated_at?->format('Y-m-d H:i:s'),
 
             // Rejection details (for Internal Transfer)
             'rejection_reason' => $this->when($this->status?->value === 'rejected', $this->rejection_reason),
@@ -93,10 +93,10 @@ class PurchaseOrderResource extends JsonResource
                 function () {
                     $statusValue = $this->status?->value;
                     $statusDate = match($statusValue) {
-                        'confirmed' => $this->confirmed_at?->timestamp,
-                        'partial_confirmation' => $this->confirmed_at?->timestamp,
-                        'rejected' => $this->rejected_at?->timestamp,
-                        default => $this->created_at?->timestamp,
+                        'confirmed' => $this->confirmed_at?->format('Y-m-d H:i:s'),
+                        'partial_confirmation' => $this->confirmed_at?->format('Y-m-d H:i:s'),
+                        'rejected' => $this->rejected_at?->format('Y-m-d H:i:s'),
+                        default => $this->created_at?->format('Y-m-d H:i:s'),
                     };
                     
                     return [

@@ -30,12 +30,12 @@ class PendingOrderListResource extends JsonResource
             'type_label' => $this->order_type_label,
 
             // Date and Time (use submitted_at if available, otherwise created_at)
-            'date_time' => $this->submitted_at?->timestamp
-                ?? $this->created_at?->timestamp,
-            'date' => $this->submitted_at?->timestamp
-                ?? $this->created_at?->timestamp,
-            'time' => $this->submitted_at?->timestamp
-                ?? $this->created_at?->timestamp,
+            'date_time' => $this->submitted_at?->format('Y-m-d H:i:s')
+                ?? $this->created_at?->format('Y-m-d H:i:s'),
+            'date' => $this->submitted_at?->format('Y-m-d')
+                ?? $this->created_at?->format('Y-m-d'),
+            'time' => $this->submitted_at?->format('H:i:s')
+                ?? $this->created_at?->format('H:i:s'),
 
             // branch name
             'branch_name' => $this->branch?->name,

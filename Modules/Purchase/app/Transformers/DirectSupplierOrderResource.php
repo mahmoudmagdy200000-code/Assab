@@ -30,12 +30,12 @@ class DirectSupplierOrderResource extends JsonResource
 
             // Basic Info
             'number_of_items' => $this->total_items,
-            'date_time' => $this->submitted_at?->timestamp
-                ?? $this->created_at?->timestamp,
-            'date' => $this->submitted_at?->timestamp
-                ?? $this->created_at?->timestamp,
-            'time' => $this->submitted_at?->timestamp
-                ?? $this->created_at?->timestamp,
+            'date_time' => $this->submitted_at?->format('Y-m-d H:i:s')
+                ?? $this->created_at?->format('Y-m-d H:i:s'),
+            'date' => $this->submitted_at?->format('Y-m-d')
+                ?? $this->created_at?->format('Y-m-d'),
+            'time' => $this->submitted_at?->format('H:i:s')
+                ?? $this->created_at?->format('H:i:s'),
 
             // Status Information
             'status' => $this->status?->value,
@@ -74,14 +74,14 @@ class DirectSupplierOrderResource extends JsonResource
             'total_amount' => (float) $this->total_amount,
 
             // Delivery Information
-            'preferred_delivery_date' => $this->preferred_delivery_date?->timestamp,
-            'latest_delivery_date' => $this->latest_delivery_date?->timestamp,
-            'expected_delivery_at' => $this->expected_delivery_at?->timestamp,
-            'actual_delivery_at' => $this->actual_delivery_at?->timestamp,
+            'preferred_delivery_date' => $this->preferred_delivery_date?->format('Y-m-d'),
+            'latest_delivery_date' => $this->latest_delivery_date?->format('Y-m-d'),
+            'expected_delivery_at' => $this->expected_delivery_at?->format('Y-m-d H:i:s'),
+            'actual_delivery_at' => $this->actual_delivery_at?->format('Y-m-d H:i:s'),
 
             // Timestamps
-            'created_at' => $this->created_at?->timestamp,
-            'updated_at' => $this->updated_at?->timestamp,
+            'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
+            'updated_at' => $this->updated_at?->format('Y-m-d H:i:s'),
         ];
 
         return $data;
@@ -99,7 +99,7 @@ class DirectSupplierOrderResource extends JsonResource
                 'supplier_name' => $this->supplier?->name ?? null,
                 'supplier_image' => $this->supplier?->image_url ?? null,
                 'rejection_reason' => $this->rejection_reason,
-                'rejected_at' => $this->rejected_at?->timestamp,
+                'rejected_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
                 'rejected_by' => $this->whenLoaded('requestedBy', function () {
                     return [
                         'id' => $this->requestedBy->id,
@@ -109,7 +109,7 @@ class DirectSupplierOrderResource extends JsonResource
             ],
             'canceled' => [
                 'cancellation_reason' => $this->rejection_reason, // Using rejection_reason for cancellation
-                'canceled_at' => $this->rejected_at?->timestamp, // Using rejected_at for canceled_at
+                'canceled_at' => $this->rejected_at?->format('Y-m-d H:i:s'), // Using rejected_at for canceled_at
                 'canceled_by' => $this->whenLoaded('requestedBy', function () {
                     return [
                         'id' => $this->requestedBy->id,
@@ -123,9 +123,9 @@ class DirectSupplierOrderResource extends JsonResource
             ],
             'delayed' => [
                 'delay_reason' => $this->message, // Using message field for delay reason
-                'new_delivery_date' => $this->expected_delivery_at?->timestamp,
-                'new_delivery_time' => $this->expected_delivery_at?->timestamp,
-                'delayed_at' => $this->updated_at?->timestamp,
+                'new_delivery_date' => $this->expected_delivery_at?->format('Y-m-d'),
+                'new_delivery_time' => $this->expected_delivery_at?->format('H:i:s'),
+                'delayed_at' => $this->updated_at?->format('Y-m-d H:i:s'),
             ],
             'partial_confirmation' => [
                 'confirmed_items_count' => $this->relationLoaded('items')
@@ -134,14 +134,14 @@ class DirectSupplierOrderResource extends JsonResource
                 'total_items_count' => $this->total_items,
             ],
             'confirmed' => [
-                'confirmed_at' => $this->confirmed_at?->timestamp,
+                'confirmed_at' => $this->confirmed_at?->format('Y-m-d H:i:s'),
                 'all_items_confirmed' => $this->relationLoaded('items')
                     ? $this->items->every(fn($item) => $item->quantity_confirmed !== null)
                     : false,
             ],
             'draft' => [
                 'is_draft' => true,
-                'saved_at' => $this->created_at?->timestamp,
+                'saved_at' => $this->created_at?->format('Y-m-d H:i:s'),
             ],
             default => [],
         };
@@ -192,8 +192,8 @@ class DirectSupplierOrderResource extends JsonResource
             if ($this->expected_delivery_at && $this->preferred_delivery_date) {
                 $itemModifications['delivery_time_change'] = [
                     'item_quantity_to_deliver' => (float) $item->quantity_ordered,
-                    'new_delivery_date' => $this->expected_delivery_at->timestamp,
-                    'new_delivery_time' => $this->expected_delivery_at->timestamp,
+                    'new_delivery_date' => $this->expected_delivery_at->format('Y-m-d'),
+                    'new_delivery_time' => $this->expected_delivery_at->format('H:i:s'),
                     'modification_note' => $this->message,
                 ];
             }
