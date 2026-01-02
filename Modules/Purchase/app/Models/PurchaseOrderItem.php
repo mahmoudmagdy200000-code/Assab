@@ -200,9 +200,6 @@ class PurchaseOrderItem extends Model
             OrderItemStatus::NEEDS_APPROVAL,
             OrderItemStatus::NEEDS_APPROVAL_SUPPLIER,
             OrderItemStatus::NEEDS_APPROVAL_BRANCH,
-            OrderItemStatus::NEEDS_TIME_CHANGE_APPROVAL,
-            OrderItemStatus::NEEDS_ALTERNATIVE_PRODUCT_APPROVAL,
-            OrderItemStatus::NEEDS_PARTIAL_APPROVAL,
         ]);
     }
 
@@ -251,8 +248,11 @@ class PurchaseOrderItem extends Model
 
     /**
      * Request partial approval (supplier can only confirm partial quantity)
+     * 
+     * When supplier requests: status = needs_approval_branch
+     * When branch requests: status = needs_approval_supplier
      */
-    public function requestPartialApproval(float $requestedQuantity, ?string $note = null): void
+    public function requestPartialApproval(float $requestedQuantity, ?string $note = null, bool $isSupplierRequest = true): void
     {
         if ($this->status !== OrderItemStatus::PENDING) {
             throw new \InvalidArgumentException('Item must be in pending status to request partial approval');
@@ -262,7 +262,11 @@ class PurchaseOrderItem extends Model
             throw new \InvalidArgumentException('Requested quantity must be less than ordered quantity for partial approval');
         }
 
-        $this->status = OrderItemStatus::NEEDS_PARTIAL_APPROVAL;
+        // Set status based on who is making the request
+        $this->status = $isSupplierRequest 
+            ? OrderItemStatus::NEEDS_APPROVAL_BRANCH 
+            : OrderItemStatus::NEEDS_APPROVAL_SUPPLIER;
+        
         $this->approval_type = 'partial';
         $this->approval_data = [
             'original_quantity' => $this->quantity_ordered,
@@ -275,14 +279,21 @@ class PurchaseOrderItem extends Model
 
     /**
      * Request delivery time change
+     * 
+     * When supplier requests: status = needs_approval_branch
+     * When branch requests: status = needs_approval_supplier
      */
-    public function requestTimeChange(string $newDeliveryTime, string $reason, ?string $note = null): void
+    public function requestTimeChange(string $newDeliveryTime, string $reason, ?string $note = null, bool $isSupplierRequest = true): void
     {
         if ($this->status !== OrderItemStatus::PENDING) {
             throw new \InvalidArgumentException('Item must be in pending status to request time change');
         }
 
-        $this->status = OrderItemStatus::NEEDS_TIME_CHANGE_APPROVAL;
+        // Set status based on who is making the request
+        $this->status = $isSupplierRequest 
+            ? OrderItemStatus::NEEDS_APPROVAL_BRANCH 
+            : OrderItemStatus::NEEDS_APPROVAL_SUPPLIER;
+        
         $this->approval_type = 'time_change';
         $this->approval_data = [
             'original_delivery_time' => $this->purchaseOrder->expected_delivery_at?->toDateTimeString(),
@@ -295,14 +306,21 @@ class PurchaseOrderItem extends Model
 
     /**
      * Request alternative product
+     * 
+     * When supplier requests: status = needs_approval_branch
+     * When branch requests: status = needs_approval_supplier
      */
-    public function requestAlternative(string $alternativeItemId, string $alternativeItemName, ?float $price = null, string $reason, ?string $note = null): void
+    public function requestAlternative(string $alternativeItemId, string $alternativeItemName, ?float $price = null, string $reason, ?string $note = null, bool $isSupplierRequest = true): void
     {
         if ($this->status !== OrderItemStatus::PENDING) {
             throw new \InvalidArgumentException('Item must be in pending status to request alternative');
         }
 
-        $this->status = OrderItemStatus::NEEDS_ALTERNATIVE_PRODUCT_APPROVAL;
+        // Set status based on who is making the request
+        $this->status = $isSupplierRequest 
+            ? OrderItemStatus::NEEDS_APPROVAL_BRANCH 
+            : OrderItemStatus::NEEDS_APPROVAL_SUPPLIER;
+        
         $this->approval_type = 'alternative';
         $this->approval_data = [
             'original_item_id' => $this->item_id,
@@ -325,9 +343,6 @@ class PurchaseOrderItem extends Model
             OrderItemStatus::NEEDS_APPROVAL,
             OrderItemStatus::NEEDS_APPROVAL_SUPPLIER,
             OrderItemStatus::NEEDS_APPROVAL_BRANCH,
-            OrderItemStatus::NEEDS_TIME_CHANGE_APPROVAL,
-            OrderItemStatus::NEEDS_ALTERNATIVE_PRODUCT_APPROVAL,
-            OrderItemStatus::NEEDS_PARTIAL_APPROVAL,
             OrderItemStatus::PARTIAL_CONFIRMATION,
             OrderItemStatus::PARTIAL
         ])) {
@@ -377,9 +392,6 @@ class PurchaseOrderItem extends Model
             OrderItemStatus::NEEDS_APPROVAL,
             OrderItemStatus::NEEDS_APPROVAL_SUPPLIER,
             OrderItemStatus::NEEDS_APPROVAL_BRANCH,
-            OrderItemStatus::NEEDS_TIME_CHANGE_APPROVAL,
-            OrderItemStatus::NEEDS_ALTERNATIVE_PRODUCT_APPROVAL,
-            OrderItemStatus::NEEDS_PARTIAL_APPROVAL,
             OrderItemStatus::PARTIAL_CONFIRMATION,
             OrderItemStatus::PARTIAL
         ])) {

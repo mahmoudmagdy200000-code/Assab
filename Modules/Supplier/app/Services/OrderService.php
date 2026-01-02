@@ -288,7 +288,8 @@ class OrderService
 
                 $item->requestPartialApproval(
                     $request['quantity'],
-                    $request['note'] ?? null
+                    $request['note'] ?? null,
+                    true // isSupplierRequest = true (supplier is requesting)
                 );
             }
 
@@ -345,7 +346,7 @@ class OrderService
                 throw new \Exception('Order must be in pending or partial confirmation status to request time change');
             }
 
-            $item->requestTimeChange($newDeliveryTime, $reason, $note);
+            $item->requestTimeChange($newDeliveryTime, $reason, $note, true); // isSupplierRequest = true (supplier is requesting)
 
             // Send notification to branch manager
             $this->notificationService->notifyOrderModificationRequested($order, [
@@ -401,7 +402,8 @@ class OrderService
                 $alternativeItem->name,
                 $alternativePrice ? (float) $alternativePrice : null,
                 $reason,
-                $note
+                $note,
+                true // isSupplierRequest = true (supplier is requesting)
             );
 
             // Send notification to branch manager

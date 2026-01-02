@@ -11,25 +11,20 @@ enum OrderItemStatus: string
     case NEEDS_APPROVAL = 'needs_approval';
     case NEEDS_APPROVAL_SUPPLIER = 'needs_approval_supplier';
     case NEEDS_APPROVAL_BRANCH = 'needs_approval_branch';
-    
-    // Specific Approval Statuses (based on modification type)
-    case NEEDS_TIME_CHANGE_APPROVAL = 'needs_time_change_approval';
-    case NEEDS_ALTERNATIVE_PRODUCT_APPROVAL = 'needs_alternative_product_approval';
-    case NEEDS_PARTIAL_APPROVAL = 'needs_partial_approval';
-    
-    // Confirmed Statuses (all treated as confirmed)
+
+        // Confirmed Statuses (all treated as confirmed)
     case PARTIAL = 'partial';
     case PARTIAL_CONFIRMATION = 'partial_confirmation';
     case CONFIRMED_NEED_TIME = 'confirmed_need_time';
     case CONFIRMED_ALTERNATIVE_PRODUCT = 'confirmed_alternative_product';
-    
-    // Cancellation Statuses
+
+        // Cancellation Statuses
     case CANCELLED = 'cancelled';
     case CANCELLED_BY_BRANCH = 'cancelled_by_branch';
     case CANCELLED_BY_SUPPLIER = 'cancelled_by_supplier';
     case CANCELED_MODIFICATION = 'canceled_modification';
-    
-    // Execution Phase Statuses
+
+        // Execution Phase Statuses
     case RECEIVED = 'received';
     case VARIANCE = 'variance';
 
@@ -42,9 +37,6 @@ enum OrderItemStatus: string
             self::NEEDS_APPROVAL => 'Needs Approval',
             self::NEEDS_APPROVAL_SUPPLIER => 'Needs Approval (Supplier)',
             self::NEEDS_APPROVAL_BRANCH => 'Needs Approval (Branch)',
-            self::NEEDS_TIME_CHANGE_APPROVAL => 'Needs Time Change Approval',
-            self::NEEDS_ALTERNATIVE_PRODUCT_APPROVAL => 'Needs Alternative Product Approval',
-            self::NEEDS_PARTIAL_APPROVAL => 'Needs Partial Approval',
             self::PARTIAL => 'Partial Confirmed',
             self::PARTIAL_CONFIRMATION => 'Partial Confirmation',
             self::CONFIRMED_NEED_TIME => 'Confirmed (Need Time)',
@@ -67,9 +59,6 @@ enum OrderItemStatus: string
             self::NEEDS_APPROVAL => '#F97316',
             self::NEEDS_APPROVAL_SUPPLIER => '#F97316',
             self::NEEDS_APPROVAL_BRANCH => '#F97316',
-            self::NEEDS_TIME_CHANGE_APPROVAL => '#F97316',
-            self::NEEDS_ALTERNATIVE_PRODUCT_APPROVAL => '#F97316',
-            self::NEEDS_PARTIAL_APPROVAL => '#F97316',
             self::PARTIAL => '#8B5CF6',
             self::PARTIAL_CONFIRMATION => '#8B5CF6',
             self::CONFIRMED_NEED_TIME => '#10B981',
@@ -93,9 +82,6 @@ enum OrderItemStatus: string
             self::NEEDS_APPROVAL,
             self::NEEDS_APPROVAL_SUPPLIER,
             self::NEEDS_APPROVAL_BRANCH,
-            self::NEEDS_TIME_CHANGE_APPROVAL,
-            self::NEEDS_ALTERNATIVE_PRODUCT_APPROVAL,
-            self::NEEDS_PARTIAL_APPROVAL,
         ]);
     }
 
@@ -131,7 +117,7 @@ enum OrderItemStatus: string
 
     /**
      * Check if item status is confirmed (including all confirmed variants)
-     * 
+     *
      * These statuses are treated as confirmed:
      * - confirmed
      * - partial_confirmation
@@ -178,9 +164,6 @@ enum OrderItemStatus: string
             self::NEEDS_APPROVAL,
             self::NEEDS_APPROVAL_SUPPLIER,
             self::NEEDS_APPROVAL_BRANCH,
-            self::NEEDS_TIME_CHANGE_APPROVAL,
-            self::NEEDS_ALTERNATIVE_PRODUCT_APPROVAL,
-            self::NEEDS_PARTIAL_APPROVAL,
         ]);
     }
 
@@ -211,4 +194,3 @@ enum OrderItemStatus: string
         ]);
     }
 }
-
