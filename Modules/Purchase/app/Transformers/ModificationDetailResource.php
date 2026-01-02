@@ -149,7 +149,12 @@ class ModificationDetailResource extends JsonResource
                 'price_per_unit' => (float) $this->unit_price . ' / ' . $this->unit_of_measurement,
                 'total_price' => (float) $proposedTotalPrice,
             ],
-            'modification_notes' => $approvalData['note'] ?? $this->note ?? $this->reason,
+            'modified_total' => [
+                'original_total' => (float) ($originalQuantity * $this->unit_price),
+                'modified_total' => (float) $proposedTotalPrice,
+                'difference' => (float) (($originalQuantity * $this->unit_price) - $proposedTotalPrice),
+            ],
+            'modification_notes' => $approvalData['note'] ?? $this->modification_note ?? null,
         ]);
     }
 
@@ -196,7 +201,7 @@ class ModificationDetailResource extends JsonResource
                     'days_difference_label' => $daysDifference > 0 ? "+{$daysDifference} Days" : null,
                 ],
             ],
-            'modification_notes' => $approvalData['note'] ?? $order->message ?? $this->reason,
+            'modification_notes' => $approvalData['note'] ?? $this->modification_note ?? $order->message ?? null,
         ]);
     }
 
@@ -240,12 +245,8 @@ class ModificationDetailResource extends JsonResource
                     'total_price' => (float) ($this->quantity_ordered * $alternativePrice),
                 ],
             ],
-            'modified_total' => [
-                'original_total' => (float) $this->total_price,
-                'modified_total' => (float) ($this->quantity_ordered * $alternativePrice),
-                'difference' => (float) ($this->total_price - ($this->quantity_ordered * $alternativePrice)),
-            ],
-            'modification_notes' => $approvalData['note'] ?? $this->reason,
+            
+            'modification_notes' => $approvalData['note'] ?? $this->modification_note ?? null,
         ]);
     }
 }
