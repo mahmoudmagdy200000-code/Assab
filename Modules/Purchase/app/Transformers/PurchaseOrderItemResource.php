@@ -120,21 +120,21 @@ class PurchaseOrderItemResource extends JsonResource
             'quantity_variance' => $this->quantity_variance,
             'has_variance' => $this->has_variance,
             
-            // Approval Information (if item needs approval or has approval data)
+            // Approval Information (if item needs approval, has approval data, or is canceled modification)
             'approval_type' => $this->when(
-                $this->status?->needsApproval() || $this->approval_type,
+                $this->status?->needsApproval() || $this->approval_type || $this->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION,
                 fn() => $this->approval_type
             ),
             'approval_data' => $this->when(
-                $this->status?->needsApproval() || $this->approval_type,
+                $this->status?->needsApproval() || $this->approval_type || $this->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION,
                 fn() => $this->approval_data
             ),
             'can_approve' => $this->when(
-                $this->status?->needsApproval() || $this->approval_type,
+                $this->status?->needsApproval() || ($this->approval_type && !$this->status?->isCancelled()),
                 fn() => true // Branch manager can approve
             ),
             'can_reject' => $this->when(
-                $this->status?->needsApproval() || $this->approval_type,
+                $this->status?->needsApproval() || ($this->approval_type && !$this->status?->isCancelled()),
                 fn() => true // Branch manager can reject
             ),
             

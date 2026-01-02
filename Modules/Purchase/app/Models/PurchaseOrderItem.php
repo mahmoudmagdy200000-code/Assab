@@ -361,6 +361,9 @@ class PurchaseOrderItem extends Model
 
     /**
      * Reject approval request (branch manager rejects supplier request or supplier rejects branch request)
+     * 
+     * If item has approval_type (modification), sets status to CANCELED_MODIFICATION
+     * Otherwise, sets status to REJECTED (first-time rejection)
      */
     public function rejectRequest(?string $reason = null): void
     {
@@ -374,8 +377,14 @@ class PurchaseOrderItem extends Model
             throw new \InvalidArgumentException('Item must be in needs_approval, needs_approval_supplier, needs_approval_branch, partial_confirmation, or partial status to reject request');
         }
 
-        // Set to rejected and clear approval data
-        $this->status = OrderItemStatus::REJECTED;
+        // Check if this is a modification cancellation (has approval_type)
+        $isModificationCancellation = !empty($this->approval_type);
+        
+        // Set status: canceled_modification if it's a modification, otherwise rejected
+        $this->status = $isModificationCancellation 
+            ? OrderItemStatus::CANCELED_MODIFICATION 
+            : OrderItemStatus::REJECTED;
+        
         $this->quantity_confirmed = 0;
         
         // Store rejection reason in approval_data for history
@@ -383,7 +392,12 @@ class PurchaseOrderItem extends Model
             $this->approval_data = array_merge($this->approval_data ?? [], ['rejection_reason' => $reason]);
         }
         
-        $this->approval_type = null;
+        // Keep approval_type when canceling modification (for display purposes)
+        // Only clear it if it's not a modification cancellation
+        if (!$isModificationCancellation) {
+            $this->approval_type = null;
+        }
+        
         $this->save();
 
         // Refresh purchase order and reload items to get latest status
