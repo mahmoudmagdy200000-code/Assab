@@ -245,7 +245,7 @@ class ModificationDetailResource extends JsonResource
                     'total_price' => (float) ($this->quantity_ordered * $alternativePrice),
                 ],
             ],
-            
+
             'modification_notes' => $approvalData['note'] ?? $this->modification_note ?? null,
         ]);
     }
