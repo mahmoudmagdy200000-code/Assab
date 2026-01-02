@@ -437,6 +437,9 @@ class PurchaseOrderItem extends Model
 
     /**
      * Cancel item by branch
+     * 
+     * If item has approval_type (modification request), sets status to CANCELED_MODIFICATION
+     * Otherwise, sets status to CANCELLED_BY_BRANCH (first-time cancellation)
      */
     public function cancelByBranch(?string $reason = null): void
     {
@@ -444,11 +447,24 @@ class PurchaseOrderItem extends Model
             throw new \InvalidArgumentException('Item is already cancelled');
         }
 
-        $this->status = OrderItemStatus::CANCELLED_BY_BRANCH;
+        // Check if this is a modification cancellation (has approval_type)
+        $isModificationCancellation = !empty($this->approval_type);
+        
+        // Set status: canceled_modification if it's a modification, otherwise cancelled_by_branch
+        $this->status = $isModificationCancellation 
+            ? OrderItemStatus::CANCELED_MODIFICATION 
+            : OrderItemStatus::CANCELLED_BY_BRANCH;
+        
         $this->quantity_confirmed = 0;
         
         if ($reason) {
             $this->approval_data = array_merge($this->approval_data ?? [], ['cancellation_reason' => $reason]);
+        }
+        
+        // Keep approval_type when canceling modification (for display purposes)
+        // Only clear it if it's not a modification cancellation
+        if (!$isModificationCancellation) {
+            $this->approval_type = null;
         }
         
         $this->save();

@@ -1054,6 +1054,10 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
     /**
      * Cancel item (branch manager cancels specific item)
+     * 
+     * cancelByBranch will automatically check if item has approval_type:
+     * - If yes: sets status to CANCELED_MODIFICATION
+     * - Otherwise: sets status to CANCELLED_BY_BRANCH
      *
      * @param PurchaseOrder $order
      * @param string $itemId
@@ -1075,6 +1079,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
         return DB::transaction(function () use ($item, $reason, $order) {
             // Cancel item by branch
+            // cancelByBranch will automatically check for approval_type and set appropriate status
             $item->cancelByBranch($reason);
 
             // Refresh order to get latest items status
