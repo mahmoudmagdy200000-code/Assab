@@ -21,13 +21,12 @@ class ModificationDetailResource extends JsonResource
         $modificationType = $this->getModificationType();
 
         $status = $this->getModificationStatus();
-        $order = $this->relationLoaded('purchaseOrder') ? $this->purchaseOrder : $this->purchaseOrder()->first();
 
         $baseData = [
             'item_id' => $this->id,
             'type' => $modificationType->value,
             'type_label' => $modificationType->label(),
-            'modified_at' => $this->updated_at?->format('F d, Y - g:i A'),
+            'modified_at' => $this->updated_at?->timestamp,
             'status' => $status,
             'status_message' => $this->getStatusMessage($status),
         ];
@@ -63,10 +62,12 @@ class ModificationDetailResource extends JsonResource
         }
 
         // Check if order has delivery time change
-        if ($this->relationLoaded('purchaseOrder') &&
+        if (
+            $this->relationLoaded('purchaseOrder') &&
             $this->purchaseOrder &&
             $this->purchaseOrder->expected_delivery_at &&
-            $this->purchaseOrder->preferred_delivery_date) {
+            $this->purchaseOrder->preferred_delivery_date
+        ) {
             return ModificationType::NEED_TIME;
         }
 
@@ -126,7 +127,7 @@ class ModificationDetailResource extends JsonResource
                 'price' => (float) $this->unit_price,
                 'price_per_unit' => (float) $this->unit_price . ' / ' . $this->unit_of_measurement,
                 'total_price' => (float) $this->total_price,
-                'delivery_date' => $order->preferred_delivery_date?->format('F d, Y'),
+                'delivery_date' => $order->preferred_delivery_date?->timestamp,
             ],
             'supplier_proposal' => [
                 'type' => 'New Quantity',
@@ -179,7 +180,7 @@ class ModificationDetailResource extends JsonResource
                 'delivery_details' => [
                     'qty_to_deliver' => (float) $this->quantity_ordered . ' (Full)',
                     'is_full' => true,
-                    'new_delivery_date' => $newDeliveryDate?->format('F d, Y'),
+                    'new_delivery_date' => $newDeliveryDate?->timestamp,
                     'days_difference' => $daysDifference,
                     'days_difference_label' => $daysDifference > 0 ? "+{$daysDifference} Days" : null,
                 ],
@@ -213,7 +214,7 @@ class ModificationDetailResource extends JsonResource
                 'price' => (float) $this->unit_price,
                 'price_per_unit' => (float) $this->unit_price . ' / ' . $this->unit_of_measurement,
                 'total_price' => (float) $this->total_price,
-                'delivery_date' => $order->preferred_delivery_date?->format('F d, Y'),
+                'delivery_date' => $order->preferred_delivery_date?->timestamp,
             ],
             'supplier_proposal' => [
                 'type' => 'Propose Alternative Product',
@@ -237,4 +238,3 @@ class ModificationDetailResource extends JsonResource
         ]);
     }
 }
-

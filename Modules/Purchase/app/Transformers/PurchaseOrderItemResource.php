@@ -79,8 +79,8 @@ class PurchaseOrderItemResource extends JsonResource
                 ? (float) $inventory->weekend_forecast 
                 : ($this->weekend_forecast ? (float) $this->weekend_forecast : null),
             'next_supply' => $inventory 
-                ? ($inventory->next_supply_date?->format('Y-m-d') ?? null)
-                : ($this->next_supply_date?->format('Y-m-d') ?? null),
+                ? ($inventory->next_supply_date?->timestamp ?? null)
+                : ($this->next_supply_date?->timestamp ?? null),
             
             // Pricing
             'unit_price' => (float) $this->unit_price,
@@ -96,10 +96,10 @@ class PurchaseOrderItemResource extends JsonResource
             'remaining_balance' => $this->remaining_balance ? (float) $this->remaining_balance : null,
             'daily_consumption' => $this->daily_consumption ? (float) $this->daily_consumption : null,
             'weekend_forecast' => $this->weekend_forecast ? (float) $this->weekend_forecast : null,
-            'next_supply_date' => $this->next_supply_date?->format('Y-m-d'),
+            'next_supply_date' => $this->next_supply_date?->timestamp,
             
             // Product info
-            'expiry_date' => $this->expiry_date?->format('Y-m-d'),
+            'expiry_date' => $this->expiry_date?->timestamp,
             'temperature' => $this->temperature,
             'cooling_status' => $this->cooling_status,
             

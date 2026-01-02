@@ -88,8 +88,8 @@ class OrderResource extends JsonResource
             'total_amount' => (float) ($this->total_amount ?? 0),
 
             // Delivery Information
-            'preferred_delivery_date' => $this->preferred_delivery_date?->toDateString(),
-            'expected_delivery_at' => $this->expected_delivery_at?->toDateTimeString(),
+            'preferred_delivery_date' => $this->preferred_delivery_date?->timestamp,
+            'expected_delivery_at' => $this->expected_delivery_at?->timestamp,
 
             // Additional Information
             'priority' => $this->priority?->value,
@@ -98,9 +98,9 @@ class OrderResource extends JsonResource
             'rejection_reason' => $this->rejection_reason,
 
             // Timestamps
-            'created_at' => $this->created_at?->toDateTimeString(),
-            'confirmed_at' => $this->confirmed_at?->toDateTimeString(),
-            'rejected_at' => $this->rejected_at?->toDateTimeString(),
+            'created_at' => $this->created_at?->timestamp,
+            'confirmed_at' => $this->confirmed_at?->timestamp,
+            'rejected_at' => $this->rejected_at?->timestamp,
         ];
     }
 }

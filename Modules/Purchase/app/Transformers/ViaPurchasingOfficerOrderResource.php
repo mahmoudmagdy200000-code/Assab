@@ -30,12 +30,12 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
 
             // Basic Info
             'number_of_items' => $this->total_items,
-            'date_time' => $this->submitted_at?->format('Y-m-d H:i:s')
-                ?? $this->created_at?->format('Y-m-d H:i:s'),
-            'date' => $this->submitted_at?->format('Y-m-d')
-                ?? $this->created_at?->format('Y-m-d'),
-            'time' => $this->submitted_at?->format('H:i:s')
-                ?? $this->created_at?->format('H:i:s'),
+            'date_time' => $this->submitted_at?->timestamp
+                ?? $this->created_at?->timestamp,
+            'date' => $this->submitted_at?->timestamp
+                ?? $this->created_at?->timestamp,
+            'time' => $this->submitted_at?->timestamp
+                ?? $this->created_at?->timestamp,
 
             // Status Information
             'status' => $this->status?->value,
@@ -71,14 +71,14 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
             'total_amount' => (float) $this->total_amount,
 
             // Delivery Information
-            'preferred_delivery_date' => $this->preferred_delivery_date?->format('Y-m-d'),
-            'latest_delivery_date' => $this->latest_delivery_date?->format('Y-m-d'),
-            'expected_delivery_at' => $this->expected_delivery_at?->format('Y-m-d H:i:s'),
-            'actual_delivery_at' => $this->actual_delivery_at?->format('Y-m-d H:i:s'),
+            'preferred_delivery_date' => $this->preferred_delivery_date?->timestamp,
+            'latest_delivery_date' => $this->latest_delivery_date?->timestamp,
+            'expected_delivery_at' => $this->expected_delivery_at?->timestamp,
+            'actual_delivery_at' => $this->actual_delivery_at?->timestamp,
 
             // Timestamps
-            'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
-            'updated_at' => $this->updated_at?->format('Y-m-d H:i:s'),
+            'created_at' => $this->created_at?->timestamp,
+            'updated_at' => $this->updated_at?->timestamp,
         ];
 
         return $data;
@@ -94,7 +94,7 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
         return match ($status) {
             'rejected' => [
                 'rejection_reason' => $this->rejection_reason,
-                'rejected_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
+                'rejected_at' => $this->rejected_at?->timestamp,
                 'rejected_by' => $this->whenLoaded('requestedBy', function () {
                     return [
                         'id' => $this->requestedBy->id,
@@ -104,7 +104,7 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
             ],
             'canceled' => [
                 'cancellation_reason' => $this->rejection_reason,
-                'canceled_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
+                'canceled_at' => $this->rejected_at?->timestamp,
                 'canceled_by' => $this->whenLoaded('requestedBy', function () {
                     return [
                         'id' => $this->requestedBy->id,
@@ -118,9 +118,9 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
             ],
             'delayed' => [
                 'delay_reason' => $this->message,
-                'new_delivery_date' => $this->expected_delivery_at?->format('Y-m-d'),
-                'new_delivery_time' => $this->expected_delivery_at?->format('H:i:s'),
-                'delayed_at' => $this->updated_at?->format('Y-m-d H:i:s'),
+                'new_delivery_date' => $this->expected_delivery_at?->timestamp,
+                'new_delivery_time' => $this->expected_delivery_at?->timestamp,
+                'delayed_at' => $this->updated_at?->timestamp,
             ],
             'partial_confirmation' => [
                 'confirmed_items_count' => $this->relationLoaded('items')
@@ -129,14 +129,14 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
                 'total_items_count' => $this->total_items,
             ],
             'confirmed' => [
-                'confirmed_at' => $this->confirmed_at?->format('Y-m-d H:i:s'),
+                'confirmed_at' => $this->confirmed_at?->timestamp,
                 'all_items_confirmed' => $this->relationLoaded('items')
                     ? $this->items->every(fn($item) => $item->quantity_confirmed !== null)
                     : false,
             ],
             'draft' => [
                 'is_draft' => true,
-                'saved_at' => $this->created_at?->format('Y-m-d H:i:s'),
+                'saved_at' => $this->created_at?->timestamp,
             ],
             default => [],
         };
@@ -187,8 +187,8 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
             if ($this->expected_delivery_at && $this->preferred_delivery_date) {
                 $itemModifications['delivery_time_change'] = [
                     'item_quantity_to_deliver' => (float) $item->quantity_ordered,
-                    'new_delivery_date' => $this->expected_delivery_at->format('Y-m-d'),
-                    'new_delivery_time' => $this->expected_delivery_at->format('H:i:s'),
+                    'new_delivery_date' => $this->expected_delivery_at->timestamp,
+                    'new_delivery_time' => $this->expected_delivery_at->timestamp,
                     'modification_note' => $this->message,
                 ];
             }
