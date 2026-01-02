@@ -200,6 +200,9 @@ class PurchaseOrderItem extends Model
             OrderItemStatus::NEEDS_APPROVAL,
             OrderItemStatus::NEEDS_APPROVAL_SUPPLIER,
             OrderItemStatus::NEEDS_APPROVAL_BRANCH,
+            OrderItemStatus::NEEDS_TIME_CHANGE_APPROVAL,
+            OrderItemStatus::NEEDS_ALTERNATIVE_PRODUCT_APPROVAL,
+            OrderItemStatus::NEEDS_PARTIAL_APPROVAL,
         ]);
     }
 
@@ -259,7 +262,7 @@ class PurchaseOrderItem extends Model
             throw new \InvalidArgumentException('Requested quantity must be less than ordered quantity for partial approval');
         }
 
-        $this->status = OrderItemStatus::PARTIAL_CONFIRMATION;
+        $this->status = OrderItemStatus::NEEDS_PARTIAL_APPROVAL;
         $this->approval_type = 'partial';
         $this->approval_data = [
             'original_quantity' => $this->quantity_ordered,
@@ -279,7 +282,7 @@ class PurchaseOrderItem extends Model
             throw new \InvalidArgumentException('Item must be in pending status to request time change');
         }
 
-        $this->status = OrderItemStatus::NEEDS_APPROVAL;
+        $this->status = OrderItemStatus::NEEDS_TIME_CHANGE_APPROVAL;
         $this->approval_type = 'time_change';
         $this->approval_data = [
             'original_delivery_time' => $this->purchaseOrder->expected_delivery_at?->toDateTimeString(),
@@ -299,7 +302,7 @@ class PurchaseOrderItem extends Model
             throw new \InvalidArgumentException('Item must be in pending status to request alternative');
         }
 
-        $this->status = OrderItemStatus::NEEDS_APPROVAL;
+        $this->status = OrderItemStatus::NEEDS_ALTERNATIVE_PRODUCT_APPROVAL;
         $this->approval_type = 'alternative';
         $this->approval_data = [
             'original_item_id' => $this->item_id,
@@ -322,10 +325,13 @@ class PurchaseOrderItem extends Model
             OrderItemStatus::NEEDS_APPROVAL,
             OrderItemStatus::NEEDS_APPROVAL_SUPPLIER,
             OrderItemStatus::NEEDS_APPROVAL_BRANCH,
+            OrderItemStatus::NEEDS_TIME_CHANGE_APPROVAL,
+            OrderItemStatus::NEEDS_ALTERNATIVE_PRODUCT_APPROVAL,
+            OrderItemStatus::NEEDS_PARTIAL_APPROVAL,
             OrderItemStatus::PARTIAL_CONFIRMATION,
             OrderItemStatus::PARTIAL
         ])) {
-            throw new \InvalidArgumentException('Item must be in needs_approval, needs_approval_supplier, needs_approval_branch, partial_confirmation, or partial status to approve request');
+            throw new \InvalidArgumentException('Item must be in needs approval status to approve request');
         }
 
         // Handle different approval types (they modify data only)
@@ -371,10 +377,13 @@ class PurchaseOrderItem extends Model
             OrderItemStatus::NEEDS_APPROVAL,
             OrderItemStatus::NEEDS_APPROVAL_SUPPLIER,
             OrderItemStatus::NEEDS_APPROVAL_BRANCH,
+            OrderItemStatus::NEEDS_TIME_CHANGE_APPROVAL,
+            OrderItemStatus::NEEDS_ALTERNATIVE_PRODUCT_APPROVAL,
+            OrderItemStatus::NEEDS_PARTIAL_APPROVAL,
             OrderItemStatus::PARTIAL_CONFIRMATION,
             OrderItemStatus::PARTIAL
         ])) {
-            throw new \InvalidArgumentException('Item must be in needs_approval, needs_approval_supplier, needs_approval_branch, partial_confirmation, or partial status to reject request');
+            throw new \InvalidArgumentException('Item must be in needs approval status to reject request');
         }
 
         // Check if this is a modification cancellation (has approval_type)
