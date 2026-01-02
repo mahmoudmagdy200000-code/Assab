@@ -311,16 +311,11 @@ class OrderService
             throw new \Exception('Unauthorized access to this order');
         }
 
-        // Refresh order to get latest status (in case it changed after item cancellations)
-        $order->refresh();
-
-        // Allow time change request if order is in pending status or partial confirmation
-        // Order can still be pending even if some items are cancelled
-        if (!in_array($order->status, [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION])) {
-            throw new \Exception('Order must be in pending or partial confirmation status to request time change');
-        }
-
         return DB::transaction(function () use ($order, $itemId, $newDeliveryTime, $reason, $note) {
+            // Refresh order to get latest status (in case it changed after item cancellations)
+            $order->refresh();
+
+            // Get the item first to check its status
             $item = $order->items()->where('item_id', $itemId)->first();
 
             if (!$item) {
@@ -331,6 +326,23 @@ class OrderService
             // Cannot request time change for cancelled or already confirmed items
             if ($item->status !== OrderItemStatus::PENDING) {
                 throw new \Exception('Item must be in pending status to request time change');
+            }
+
+            // Allow time change request if:
+            // 1. Order is in pending status, OR
+            // 2. Order is in partial confirmation status, OR
+            // 3. Order status is cancelled but there are still pending items (edge case)
+            // The key check is that the item itself is pending, which we already validated above
+            $allowedStatuses = [
+                OrderStatus::PENDING,
+                OrderStatus::PARTIAL_CONFIRMATION,
+                OrderStatus::CANCELLED_BY_BRANCH, // Allow if item is still pending
+                OrderStatus::CANCELLED_BY_SUPPLIER, // Allow if item is still pending
+                OrderStatus::CANCELED, // Allow if item is still pending
+            ];
+
+            if (!in_array($order->status, $allowedStatuses)) {
+                throw new \Exception('Order must be in pending or partial confirmation status to request time change');
             }
 
             $item->requestTimeChange($newDeliveryTime, $reason, $note);
