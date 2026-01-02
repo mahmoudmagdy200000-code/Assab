@@ -445,15 +445,16 @@ class PurchaseOrder extends Model
             }
         }
 
-        // Check if all items are decided (confirmed or rejected, but NOT cancelled)
-        // Items in NEEDS_APPROVAL or PENDING are not decided yet
-        // Exclude cancelled items from this check since we already handled them above
+        // Check if all items are decided (confirmed, rejected, or cancelled)
+        // This means no items are pending or waiting for approval
+        // If all items are decided (mix of confirmed/rejected/cancelled), transition to CONFIRMED
         $allDecided = $items->every(function ($item) {
-            return $item->status->isDecided() && !$item->status->isCancelled();
+            return $item->status->isDecided();
         });
 
         if ($allDecided) {
-            // All items are decided (confirmed/rejected), transition order to CONFIRMED
+            // All items are decided (confirmed/rejected/cancelled mix), transition order to CONFIRMED
+            // This handles the case where some items are confirmed and others are cancelled
             return $this->transitionTo(OrderStatus::CONFIRMED);
         }
 
