@@ -669,7 +669,8 @@ class PendingOrderController extends BaseController
     {
         try {
             $supplier = auth('supplier')->user();
-            $order = PurchaseOrder::findOrFail($id);
+            $order = PurchaseOrder::with(['requestedBy', 'supplier'])
+                ->findOrFail($id);
 
             if ($order->supplier_id !== $supplier->id) {
                 return $this->errorResponse('Unauthorized access to this order', 403);
@@ -688,18 +689,70 @@ class PendingOrderController extends BaseController
             }
 
             $cancellationReason = $item->approval_data['cancellation_reason'] ?? null;
+            $cancelledAt = $item->updated_at?->format('Y-m-d H:i:s');
+
+            // Determine who cancelled based on item status
+            $cancelledBy = $this->getCancelledByInfo($item, $order);
 
             return $this->successResponse(
                 [
-                    'item_id' => $item->id,
-                    'item_name' => $item->item_name,
                     'cancellation_reason' => $cancellationReason,
-                    'cancelled_at' => $item->updated_at?->format('Y-m-d H:i:s'),
+                    'cancelled_at' => $cancelledAt,
+                    'cancelled_by' => $cancelledBy,
                 ],
                 'Cancellation reason retrieved successfully'
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'fetching cancellation reason');
         }
+    }
+
+    /**
+     * Get information about who cancelled the item
+     */
+    private function getCancelledByInfo(PurchaseOrderItem $item, PurchaseOrder $order): ?array
+    {
+        $status = $item->status;
+
+        // Check if cancelled by branch manager
+        if (in_array($status, [
+            \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH,
+            \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION,
+        ])) {
+            if ($order->relationLoaded('requestedBy') && $order->requestedBy) {
+                return [
+                    'id' => $order->requestedBy->id,
+                    'name' => $order->requestedBy->name,
+                    'type' => 'branch_manager',
+                    'image' => $order->requestedBy->image_url ?? null,
+                ];
+            }
+        }
+
+        // Check if cancelled by supplier
+        if ($status === \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_SUPPLIER) {
+            if ($order->relationLoaded('supplier') && $order->supplier) {
+                return [
+                    'id' => $order->supplier->id,
+                    'name' => $order->supplier->name,
+                    'type' => 'supplier',
+                    'image' => $order->supplier->image_url ?? null,
+                ];
+            }
+        }
+
+        // Default: cancelled by branch manager (for CANCELLED status)
+        if ($status === \Modules\Purchase\Enums\OrderItemStatus::CANCELLED) {
+            if ($order->relationLoaded('requestedBy') && $order->requestedBy) {
+                return [
+                    'id' => $order->requestedBy->id,
+                    'name' => $order->requestedBy->name,
+                    'type' => 'branch_manager',
+                    'image' => $order->requestedBy->image_url ?? null,
+                ];
+            }
+        }
+
+        return null;
     }
 }

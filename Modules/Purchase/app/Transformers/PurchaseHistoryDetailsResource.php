@@ -58,13 +58,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
             OrderStatus::CANCELLED_BY_BRANCH,
             OrderStatus::CANCELLED_BY_SUPPLIER,
         ])) {
-            $cancelledBy = null;
-            if ($this->relationLoaded('requestedBy') && $this->requestedBy) {
-                $cancelledBy = [
-                    'id' => $this->requestedBy->id ?? null,
-                    'name' => $this->requestedBy->name ?? null,
-                ];
-            }
+            $cancelledBy = $this->getCancelledByInfo($status);
             
             return [
                 'cancellation_reason' => $this->cancellation_reason,
@@ -80,6 +74,8 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 $rejectedBy = [
                     'id' => $this->requestedBy->id ?? null,
                     'name' => $this->requestedBy->name ?? null,
+                    'type' => 'branch_manager',
+                    'image' => $this->requestedBy->image_url ?? null,
                 ];
             }
             
@@ -91,6 +87,38 @@ class PurchaseHistoryDetailsResource extends JsonResource
         }
 
         // For all other statuses, return null
+        return null;
+    }
+
+    /**
+     * Get information about who cancelled the order
+     */
+    private function getCancelledByInfo(OrderStatus $status): ?array
+    {
+        // Check if cancelled by supplier
+        if ($status === OrderStatus::CANCELLED_BY_SUPPLIER) {
+            if ($this->relationLoaded('supplier') && $this->supplier) {
+                return [
+                    'id' => $this->supplier->id ?? null,
+                    'name' => $this->supplier->name ?? null,
+                    'type' => 'supplier',
+                    'image' => $this->supplier->image_url ?? null,
+                ];
+            }
+        }
+
+        // Check if cancelled by branch manager (CANCELLED_BY_BRANCH or CANCELED)
+        if (in_array($status, [OrderStatus::CANCELLED_BY_BRANCH, OrderStatus::CANCELED])) {
+            if ($this->relationLoaded('requestedBy') && $this->requestedBy) {
+                return [
+                    'id' => $this->requestedBy->id ?? null,
+                    'name' => $this->requestedBy->name ?? null,
+                    'type' => 'branch_manager',
+                    'image' => $this->requestedBy->image_url ?? null,
+                ];
+            }
+        }
+
         return null;
     }
 
