@@ -501,11 +501,26 @@ class PurchaseOrder extends Model
             $cancelStatus = OrderStatus::CANCELLED_BY_SUPPLIER;
         }
 
-        // Cancel all items with regular cancelled status (not cancelled_by_*)
-        $this->items()->update([
-            'status' => \Modules\Purchase\Enums\OrderItemStatus::CANCELLED->value,
-            'quantity_confirmed' => 0,
-        ]);
+        // Cancel all items that are not already cancelled
+        // Load items to ensure we have the latest status
+        $this->load('items');
+
+        foreach ($this->items as $item) {
+            // Only cancel items that are not already cancelled
+            if (!$item->status->isCancelled()) {
+                $item->status = OrderItemStatus::CANCELLED;
+                $item->quantity_confirmed = 0;
+
+                // Add cancellation reason to approval_data if provided
+                if ($reason) {
+                    $approvalData = $item->approval_data ?? [];
+                    $approvalData['cancellation_reason'] = $reason;
+                    $item->approval_data = $approvalData;
+                }
+
+                $item->save();
+            }
+        }
 
         return $this->transitionTo($cancelStatus);
     }

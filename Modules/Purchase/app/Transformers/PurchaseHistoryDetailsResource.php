@@ -5,6 +5,7 @@ namespace Modules\Purchase\Transformers;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Enums\OrderType;
+use Modules\Purchase\Enums\OrderStatus;
 use Carbon\Carbon;
 
 class PurchaseHistoryDetailsResource extends JsonResource
@@ -32,8 +33,41 @@ class PurchaseHistoryDetailsResource extends JsonResource
             'request_summary' => [
                 'request_no' => $this->order_number ?? 'n/a',
                 'type' => $this->order_type?->value ?? 'n/a',
+                'reason_for_rejected' => $this->getReasonForRejected(),
             ],
         ];
+    }
+
+    /**
+     * Get reason for rejected/cancelled order
+     * Returns cancellation_reason if order is cancelled, rejection_reason if rejected, null otherwise
+     *
+     * @return string|null
+     */
+    private function getReasonForRejected(): ?string
+    {
+        $status = $this->status;
+
+        if (!$status) {
+            return null;
+        }
+
+        // Check if order is cancelled (any cancellation type)
+        if (in_array($status, [
+            OrderStatus::CANCELED,
+            OrderStatus::CANCELLED_BY_BRANCH,
+            OrderStatus::CANCELLED_BY_SUPPLIER,
+        ])) {
+            return $this->cancellation_reason;
+        }
+
+        // Check if order is rejected
+        if ($status === OrderStatus::REJECTED) {
+            return $this->rejection_reason;
+        }
+
+        // For all other statuses, return null
+        return null;
     }
 
     /**
@@ -55,6 +89,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'total_amount' => $this->total_amount ? (float) $this->total_amount : 0.0,
                 'message' => $this->message ?? 'n/a',
                 'contact_methods' => $this->getContactMethodsWithDetails(),
+                'reason_for_rejected' => $this->getReasonForRejected(),
             ],
             'product_details' => $this->whenLoaded('items', function () {
                 if (!$this->items) {
@@ -112,6 +147,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'requested_by' => $this->requestedBy?->name ?? 'n/a',
                 'requested_date' => $this->created_at?->toDateTimeString() ?? 'n/a',
                 'total_price' => $this->total_amount ? (float) $this->total_amount : 0.0,
+                'reason_for_rejected' => $this->getReasonForRejected(),
             ],
             'product_details' => $this->whenLoaded('items', function () {
                 if (!$this->items) {
@@ -166,6 +202,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'priority' => $this->priority?->value ?? 'n/a',
                 'request_date' => $this->created_at?->toDateTimeString() ?? 'n/a',
                 'justification' => $this->message ?? 'n/a',
+                'reason_for_rejected' => $this->getReasonForRejected(),
             ],
             'product_details' => $this->whenLoaded('items', function () use ($fromBranchNameOnly) {
                 // Get from_branch_id for inventory lookup

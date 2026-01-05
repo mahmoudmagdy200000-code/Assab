@@ -154,6 +154,8 @@ enum OrderStatus: string
         return !in_array($this, [
             self::CLOSED,
             self::CANCELED,
+            self::CANCELLED_BY_BRANCH,
+            self::CANCELLED_BY_SUPPLIER,
             self::REJECTED,
         ]);
     }

@@ -202,6 +202,8 @@ class OrderService
 
     /**
      * Reject order
+     * When supplier rejects entire order, it should be cancelled by supplier
+     * and all items should be cancelled (not rejected)
      */
     public function rejectOrder(PurchaseOrder $order, Supplier $supplier, array $data): PurchaseOrder
     {
@@ -209,32 +211,40 @@ class OrderService
             throw new \Exception('Unauthorized access to this order');
         }
 
-        if ($order->status !== OrderStatus::PENDING) {
+        if (!$order->status->isActive()) {
             throw new \Exception('Order cannot be rejected in current status');
         }
 
         return DB::transaction(function () use ($order, $data) {
-            // Mark all items as rejected when order is rejected
-            $order->items()
-                ->where('status', OrderItemStatus::PENDING)
-                ->get()
-                ->each(function ($item) {
-                    $item->status = OrderItemStatus::REJECTED;
-                    $item->quantity_confirmed = 0;
-                    $item->save();
-                });
+            $reason = $data['reason'] ?? null;
+            $explanation = $data['explanation'] ?? null;
+            
+            // Combine reason and explanation if both exist
+            $cancellationReason = $reason;
+            if ($explanation) {
+                $cancellationReason = $reason 
+                    ? "{$reason}: {$explanation}" 
+                    : $explanation;
+            }
 
+            // Cancel order by supplier - this will:
+            // 1. Set order status to CANCELLED_BY_SUPPLIER
+            // 2. Cancel all items (set status to CANCELLED)
+            if (!$order->cancel($cancellationReason, byBranch: false, bySupplier: true)) {
+                throw new \Exception('Failed to cancel order');
+            }
+
+            // Update additional fields
             $order->update([
-                'status' => OrderStatus::REJECTED,
                 'rejected_at' => now(),
-                'rejection_reason' => $data['reason'] ?? null,
-                'message' => $data['explanation'] ?? null,
+                'rejection_reason' => $reason,
+                'message' => $explanation,
             ]);
 
             // Send notification to branch manager
             $this->notificationService->notifyOrderRejected($order);
 
-            return $order->fresh();
+            return $order->fresh(['items']);
         });
     }
 
