@@ -502,24 +502,30 @@ class PurchaseOrder extends Model
         }
 
         // Cancel all items that are not already cancelled
-        // Load items to ensure we have the latest status
-        $this->load('items');
+        // Use direct update query for better performance and reliability
+        $itemsToUpdate = $this->items()
+            ->whereNotIn('status', [
+                OrderItemStatus::CANCELLED->value,
+                OrderItemStatus::CANCELLED_BY_BRANCH->value,
+                OrderItemStatus::CANCELLED_BY_SUPPLIER->value,
+                OrderItemStatus::CANCELED_MODIFICATION->value,
+            ])
+            ->get();
 
-        foreach ($this->items as $item) {
-            // Only cancel items that are not already cancelled
-            if (!$item->status->isCancelled()) {
-                $item->status = OrderItemStatus::CANCELLED;
-                $item->quantity_confirmed = 0;
+        foreach ($itemsToUpdate as $item) {
+            $updateData = [
+                'status' => OrderItemStatus::CANCELLED->value,
+                'quantity_confirmed' => 0,
+            ];
 
-                // Add cancellation reason to approval_data if provided
-                if ($reason) {
-                    $approvalData = $item->approval_data ?? [];
-                    $approvalData['cancellation_reason'] = $reason;
-                    $item->approval_data = $approvalData;
-                }
-
-                $item->save();
+            // Add cancellation reason to approval_data if provided
+            if ($reason) {
+                $approvalData = $item->approval_data ?? [];
+                $approvalData['cancellation_reason'] = $reason;
+                $updateData['approval_data'] = $approvalData;
             }
+
+            $item->update($updateData);
         }
 
         return $this->transitionTo($cancelStatus);
@@ -527,7 +533,40 @@ class PurchaseOrder extends Model
 
     public function reject(?string $reason = null): bool
     {
+        if (!$this->status->isActive()) {
+            return false;
+        }
+
         $this->rejection_reason = $reason;
+
+        // Reject all items that are not already cancelled or rejected
+        // Use direct update query for better performance and reliability
+        $itemsToUpdate = $this->items()
+            ->whereNotIn('status', [
+                OrderItemStatus::REJECTED->value,
+                OrderItemStatus::CANCELLED->value,
+                OrderItemStatus::CANCELLED_BY_BRANCH->value,
+                OrderItemStatus::CANCELLED_BY_SUPPLIER->value,
+                OrderItemStatus::CANCELED_MODIFICATION->value,
+            ])
+            ->get();
+
+        foreach ($itemsToUpdate as $item) {
+            $updateData = [
+                'status' => OrderItemStatus::REJECTED->value,
+                'quantity_confirmed' => 0,
+            ];
+
+            // Add rejection reason to approval_data if provided
+            if ($reason) {
+                $approvalData = $item->approval_data ?? [];
+                $approvalData['rejection_reason'] = $reason;
+                $updateData['approval_data'] = $approvalData;
+            }
+
+            $item->update($updateData);
+        }
+
         return $this->transitionTo(OrderStatus::REJECTED);
     }
 
