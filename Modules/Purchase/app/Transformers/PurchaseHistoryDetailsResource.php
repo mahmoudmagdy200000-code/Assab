@@ -40,14 +40,14 @@ class PurchaseHistoryDetailsResource extends JsonResource
 
     /**
      * Get reason for rejected/cancelled order
-     * Returns cancellation_reason if order is cancelled, rejection_reason if rejected, null otherwise
+     * Returns full object with cancellation/rejection details, null otherwise
      *
-     * @return string|null
+     * @return array|null
      */
-    private function getReasonForRejected(): ?string
+    private function getReasonForRejected(): ?array
     {
         $status = $this->status;
-
+        
         if (!$status) {
             return null;
         }
@@ -58,12 +58,36 @@ class PurchaseHistoryDetailsResource extends JsonResource
             OrderStatus::CANCELLED_BY_BRANCH,
             OrderStatus::CANCELLED_BY_SUPPLIER,
         ])) {
-            return $this->cancellation_reason;
+            $cancelledBy = null;
+            if ($this->relationLoaded('requestedBy') && $this->requestedBy) {
+                $cancelledBy = [
+                    'id' => $this->requestedBy->id ?? null,
+                    'name' => $this->requestedBy->name ?? null,
+                ];
+            }
+            
+            return [
+                'cancellation_reason' => $this->cancellation_reason,
+                'cancelled_at' => $this->canceled_at?->format('Y-m-d H:i:s'),
+                'cancelled_by' => $cancelledBy,
+            ];
         }
 
         // Check if order is rejected
         if ($status === OrderStatus::REJECTED) {
-            return $this->rejection_reason;
+            $rejectedBy = null;
+            if ($this->relationLoaded('requestedBy') && $this->requestedBy) {
+                $rejectedBy = [
+                    'id' => $this->requestedBy->id ?? null,
+                    'name' => $this->requestedBy->name ?? null,
+                ];
+            }
+            
+            return [
+                'rejection_reason' => $this->rejection_reason,
+                'rejected_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
+                'rejected_by' => $rejectedBy,
+            ];
         }
 
         // For all other statuses, return null
