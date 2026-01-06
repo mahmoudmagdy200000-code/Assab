@@ -1,631 +1,712 @@
 {
-  "info": {
-    "name": "Supplier Module - New Endpoints",
-    "description": "New API endpoints added for Order Fulfillment Requirements",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "version": "1.0.0"
-  },
-  "auth": {
-    "type": "bearer",
-    "bearer": [
-      {
-        "key": "token",
-        "value": "{{token}}",
-        "type": "string"
-      }
+    "info": {
+        "name": "Supplier Module - New Endpoints",
+        "description": "New API endpoints added for Order Fulfillment Requirements",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+        "version": "1.0.0"
+    },
+    "auth": {
+        "type": "bearer",
+        "bearer": [
+            {
+                "key": "token",
+                "value": "{{token}}",
+                "type": "string"
+            }
+        ]
+    },
+    "item": [
+        {
+            "name": "Order Fulfillment - Enhanced",
+            "item": [
+                {
+                    "name": "Start Preparation (Enhanced)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "message",
+                                    "value": "Starting order preparation",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "estimated_completion_time",
+                                    "value": "2025-12-26 14:00:00",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "quality_documents[]",
+                                    "type": "file",
+                                    "src": []
+                                },
+                                {
+                                    "key": "testing_reports[]",
+                                    "type": "file",
+                                    "src": []
+                                },
+                                {
+                                    "key": "compliance_documents[]",
+                                    "type": "file",
+                                    "src": []
+                                },
+                                {
+                                    "key": "batch_information[]",
+                                    "type": "file",
+                                    "src": []
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/start-preparation",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "v1",
+                                "supplier",
+                                "fulfillment",
+                                "orders",
+                                "{order_id}",
+                                "start-preparation"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "order_id",
+                                    "value": ""
+                                }
+                            ]
+                        },
+                        "description": "Start order preparation with quality documents, testing reports, compliance documents, and batch information"
+                    }
+                },
+                {
+                    "name": "Start Delivery (Enhanced)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "driver_name",
+                                    "value": "Ahmed Ali",
+                                    "type": "text",
+                                    "required": true
+                                },
+                                {
+                                    "key": "driver_contact",
+                                    "value": "+966501234567",
+                                    "type": "text",
+                                    "required": true
+                                },
+                                {
+                                    "key": "driver_photo",
+                                    "type": "file",
+                                    "src": [],
+                                    "description": "Driver photo (jpeg, jpg, png, max 5MB)"
+                                },
+                                {
+                                    "key": "vehicle_number",
+                                    "value": "ABC-1234",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "transport_method",
+                                    "value": "Truck",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "estimated_transport_hours",
+                                    "value": "2",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "expected_delivery_at",
+                                    "value": "2025-12-26 16:00:00",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "gps_tracking_url",
+                                    "value": "https://tracking.example.com/order-123",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "delivery_route",
+                                    "value": "[{\"latitude\": 24.7136, \"longitude\": 46.6753, \"timestamp\": \"2025-12-26T14:00:00Z\"}]",
+                                    "type": "text",
+                                    "description": "JSON array of coordinates"
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/start-delivery",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "v1",
+                                "supplier",
+                                "fulfillment",
+                                "orders",
+                                "{order_id}",
+                                "start-delivery"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "order_id",
+                                    "value": ""
+                                }
+                            ]
+                        },
+                        "description": "Start delivery with driver photo, GPS tracking, and delivery route"
+                    }
+                },
+                {
+                    "name": "Complete Delivery (Enhanced)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "recipient_name",
+                                    "value": "Mohammed Al-Saud",
+                                    "type": "text",
+                                    "required": true
+                                },
+                                {
+                                    "key": "recipient_signature",
+                                    "type": "file",
+                                    "src": [],
+                                    "required": true,
+                                    "description": "Digital signature (jpeg, jpg, png, max 5MB)"
+                                },
+                                {
+                                    "key": "delivery_photos[]",
+                                    "type": "file",
+                                    "src": [],
+                                    "required": true,
+                                    "description": "Array of delivery photos (at least 1 photo)"
+                                },
+                                {
+                                    "key": "delivery_notes",
+                                    "value": "All items delivered in good condition",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "condition_confirmation",
+                                    "value": "All items were inspected and confirmed to be in excellent condition. Temperature maintained throughout delivery.",
+                                    "type": "text",
+                                    "required": true
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/complete",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "v1",
+                                "supplier",
+                                "fulfillment",
+                                "orders",
+                                "{order_id}",
+                                "complete"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "order_id",
+                                    "value": ""
+                                }
+                            ]
+                        },
+                        "description": "Complete delivery with recipient acknowledgment, digital signature, delivery photos, and condition confirmation"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Delivery Proofs",
+            "item": [
+                {
+                    "name": "Get Delivery Proof",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/delivery-proof",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "v1",
+                                "supplier",
+                                "fulfillment",
+                                "orders",
+                                "{order_id}",
+                                "delivery-proof"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "order_id",
+                                    "value": ""
+                                }
+                            ]
+                        },
+                        "description": "Get delivery proof for a specific order"
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "GET",
+                                "header": [],
+                                "url": {
+                                    "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/delivery-proof",
+                                    "host": ["{{base_url}}"],
+                                    "path": [
+                                        "v1",
+                                        "supplier",
+                                        "fulfillment",
+                                        "orders",
+                                        "{order_id}",
+                                        "delivery-proof"
+                                    ]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Delivery proof retrieved successfully\",\n    \"data\": {\n        \"id\": \"uuid\",\n        \"purchase_order_id\": \"uuid\",\n        \"recipient_name\": \"Mohammed Al-Saud\",\n        \"recipient_signature\": \"https://example.com/storage/supplier/deliveries/signatures/signature.png\",\n        \"delivery_photos\": [\n            \"https://example.com/storage/supplier/deliveries/photos/photo1.jpg\",\n            \"https://example.com/storage/supplier/deliveries/photos/photo2.jpg\"\n        ],\n        \"condition_confirmation\": \"All items were inspected and confirmed to be in excellent condition.\",\n        \"acknowledgment_received_at\": \"2025-12-26T14:30:00Z\",\n        \"created_at\": \"2025-12-26T14:30:00Z\",\n        \"updated_at\": \"2025-12-26T14:30:00Z\"\n    }\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Update Delivery Proof",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "recipient_name",
+                                    "value": "Mohammed Al-Saud",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "recipient_signature",
+                                    "type": "file",
+                                    "src": []
+                                },
+                                {
+                                    "key": "delivery_photos[]",
+                                    "type": "file",
+                                    "src": []
+                                },
+                                {
+                                    "key": "condition_confirmation",
+                                    "value": "Updated condition confirmation",
+                                    "type": "text"
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/delivery-proof",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "v1",
+                                "supplier",
+                                "fulfillment",
+                                "orders",
+                                "{order_id}",
+                                "delivery-proof"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "order_id",
+                                    "value": ""
+                                }
+                            ]
+                        },
+                        "description": "Update delivery proof for an order"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Communication - Emergency Contacts",
+            "item": [
+                {
+                    "name": "Get Emergency Contacts",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/v1/supplier/communications/emergency-contacts?branch_id=&is_after_hours=&escalation_level=&per_page=15",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "v1",
+                                "supplier",
+                                "communications",
+                                "emergency-contacts"
+                            ],
+                            "query": [
+                                {
+                                    "key": "branch_id",
+                                    "value": "",
+                                    "description": "Filter by branch ID"
+                                },
+                                {
+                                    "key": "is_after_hours",
+                                    "value": "",
+                                    "description": "Filter by after hours (true/false)"
+                                },
+                                {
+                                    "key": "escalation_level",
+                                    "value": "",
+                                    "description": "Filter by escalation level (low, medium, high, critical)"
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "15",
+                                    "description": "Items per page"
+                                }
+                            ]
+                        },
+                        "description": "Get list of emergency contacts"
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "GET",
+                                "header": [],
+                                "url": {
+                                    "raw": "{{base_url}}/v1/supplier/communications/emergency-contacts",
+                                    "host": ["{{base_url}}"],
+                                    "path": [
+                                        "v1",
+                                        "supplier",
+                                        "communications",
+                                        "emergency-contacts"
+                                    ]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Emergency contacts retrieved successfully\",\n    \"data\": {\n        \"current_page\": 1,\n        \"data\": [\n            {\n                \"id\": \"uuid\",\n                \"supplier_id\": \"uuid\",\n                \"branch_id\": \"uuid\",\n                \"contact_name\": \"Emergency Contact\",\n                \"contact_phone\": \"+966501234567\",\n                \"contact_email\": \"emergency@example.com\",\n                \"is_after_hours\": true,\n                \"escalation_level\": \"high\",\n                \"created_at\": \"2025-12-26T10:00:00Z\"\n            }\n        ],\n        \"per_page\": 15,\n        \"total\": 1\n    }\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Create Emergency Contact",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"branch_id\": \"uuid\",\n    \"contact_name\": \"Emergency Contact\",\n    \"contact_phone\": \"+966501234567\",\n    \"contact_email\": \"emergency@example.com\",\n    \"is_after_hours\": true,\n    \"escalation_level\": \"high\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/v1/supplier/communications/emergency-contacts",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "v1",
+                                "supplier",
+                                "communications",
+                                "emergency-contacts"
+                            ]
+                        },
+                        "description": "Create a new emergency contact"
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "POST",
+                                "header": [],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n    \"branch_id\": \"uuid\",\n    \"contact_name\": \"Emergency Contact\",\n    \"contact_phone\": \"+966501234567\",\n    \"contact_email\": \"emergency@example.com\",\n    \"is_after_hours\": true,\n    \"escalation_level\": \"high\"\n}",
+                                    "options": {
+                                        "raw": {
+                                            "language": "json"
+                                        }
+                                    }
+                                },
+                                "url": {
+                                    "raw": "{{base_url}}/v1/supplier/communications/emergency-contacts",
+                                    "host": ["{{base_url}}"],
+                                    "path": [
+                                        "v1",
+                                        "supplier",
+                                        "communications",
+                                        "emergency-contacts"
+                                    ]
+                                }
+                            },
+                            "status": "Created",
+                            "code": 201,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Emergency contact created successfully\",\n    \"data\": {\n        \"id\": \"uuid\",\n        \"supplier_id\": \"uuid\",\n        \"branch_id\": \"uuid\",\n        \"contact_name\": \"Emergency Contact\",\n        \"contact_phone\": \"+966501234567\",\n        \"contact_email\": \"emergency@example.com\",\n        \"is_after_hours\": true,\n        \"escalation_level\": \"high\",\n        \"created_at\": \"2025-12-26T10:00:00Z\"\n    }\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Escalate Issue",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"title\": \"Urgent Delivery Issue\",\n    \"message\": \"Delivery vehicle broke down. Need immediate assistance.\",\n    \"escalation_level\": \"critical\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/v1/supplier/communications/escalate",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "v1",
+                                "supplier",
+                                "communications",
+                                "escalate"
+                            ]
+                        },
+                        "description": "Escalate an issue to emergency contact based on escalation level"
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "POST",
+                                "header": [],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n    \"title\": \"Urgent Delivery Issue\",\n    \"message\": \"Delivery vehicle broke down. Need immediate assistance.\",\n    \"escalation_level\": \"critical\"\n}",
+                                    "options": {
+                                        "raw": {
+                                            "language": "json"
+                                        }
+                                    }
+                                },
+                                "url": {
+                                    "raw": "{{base_url}}/v1/supplier/communications/escalate",
+                                    "host": ["{{base_url}}"],
+                                    "path": [
+                                        "v1",
+                                        "supplier",
+                                        "communications",
+                                        "escalate"
+                                    ]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Issue escalated successfully\"\n}"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Analytics - Customer Feedback",
+            "item": [
+                {
+                    "name": "Get Customer Feedback",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/v1/supplier/analytics/customer-feedback?branch_id=&order_id=&min_rating=&per_page=15",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "v1",
+                                "supplier",
+                                "analytics",
+                                "customer-feedback"
+                            ],
+                            "query": [
+                                {
+                                    "key": "branch_id",
+                                    "value": "",
+                                    "description": "Filter by branch ID"
+                                },
+                                {
+                                    "key": "order_id",
+                                    "value": "",
+                                    "description": "Filter by order ID"
+                                },
+                                {
+                                    "key": "min_rating",
+                                    "value": "",
+                                    "description": "Minimum rating (1.00 to 5.00)"
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "15",
+                                    "description": "Items per page"
+                                }
+                            ]
+                        },
+                        "description": "Get customer feedback from branch managers"
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "GET",
+                                "header": [],
+                                "url": {
+                                    "raw": "{{base_url}}/v1/supplier/analytics/customer-feedback",
+                                    "host": ["{{base_url}}"],
+                                    "path": [
+                                        "v1",
+                                        "supplier",
+                                        "analytics",
+                                        "customer-feedback"
+                                    ]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Customer feedback retrieved successfully\",\n    \"data\": {\n        \"current_page\": 1,\n        \"data\": [\n            {\n                \"id\": \"uuid\",\n                \"supplier_id\": \"uuid\",\n                \"purchase_order_id\": \"uuid\",\n                \"branch_id\": \"uuid\",\n                \"rating\": 4.5,\n                \"quality_feedback\": \"Excellent quality products\",\n                \"delivery_satisfaction\": \"On-time delivery, well packaged\",\n                \"improvement_insights\": \"Could improve communication during delays\",\n                \"branch\": {\n                    \"id\": \"uuid\",\n                    \"name\": \"Branch Name\"\n                },\n                \"purchase_order\": {\n                    \"id\": \"uuid\",\n                    \"order_number\": \"DS-20251226-ABCD\"\n                },\n                \"created_at\": \"2025-12-26T10:00:00Z\"\n            }\n        ],\n        \"per_page\": 15,\n        \"total\": 1\n    }\n}"
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://localhost:8000/api",
+            "type": "string"
+        },
+        {
+            "key": "token",
+            "value": "",
+            "type": "string"
+        }
     ]
-  },
-  "item": [
-    {
-      "name": "Order Fulfillment - Enhanced",
-      "item": [
-        {
-          "name": "Start Preparation (Enhanced)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "message",
-                  "value": "Starting order preparation",
-                  "type": "text"
-                },
-                {
-                  "key": "estimated_completion_time",
-                  "value": "2025-12-26 14:00:00",
-                  "type": "text"
-                },
-                {
-                  "key": "quality_documents[]",
-                  "type": "file",
-                  "src": []
-                },
-                {
-                  "key": "testing_reports[]",
-                  "type": "file",
-                  "src": []
-                },
-                {
-                  "key": "compliance_documents[]",
-                  "type": "file",
-                  "src": []
-                },
-                {
-                  "key": "batch_information[]",
-                  "type": "file",
-                  "src": []
-                }
-              ]
-            },
-            "url": {
-              "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/start-preparation",
-              "host": ["{{base_url}}"],
-              "path": ["v1", "supplier", "fulfillment", "orders", "{order_id}", "start-preparation"],
-              "variable": [
-                {
-                  "key": "order_id",
-                  "value": ""
-                }
-              ]
-            },
-            "description": "Start order preparation with quality documents, testing reports, compliance documents, and batch information"
-          }
-        },
-        {
-          "name": "Start Delivery (Enhanced)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "driver_name",
-                  "value": "Ahmed Ali",
-                  "type": "text",
-                  "required": true
-                },
-                {
-                  "key": "driver_contact",
-                  "value": "+966501234567",
-                  "type": "text",
-                  "required": true
-                },
-                {
-                  "key": "driver_photo",
-                  "type": "file",
-                  "src": [],
-                  "description": "Driver photo (jpeg, jpg, png, max 5MB)"
-                },
-                {
-                  "key": "vehicle_number",
-                  "value": "ABC-1234",
-                  "type": "text"
-                },
-                {
-                  "key": "transport_method",
-                  "value": "Truck",
-                  "type": "text"
-                },
-                {
-                  "key": "estimated_transport_hours",
-                  "value": "2",
-                  "type": "text"
-                },
-                {
-                  "key": "expected_delivery_at",
-                  "value": "2025-12-26 16:00:00",
-                  "type": "text"
-                },
-                {
-                  "key": "gps_tracking_url",
-                  "value": "https://tracking.example.com/order-123",
-                  "type": "text"
-                },
-                {
-                  "key": "delivery_route",
-                  "value": "[{\"latitude\": 24.7136, \"longitude\": 46.6753, \"timestamp\": \"2025-12-26T14:00:00Z\"}]",
-                  "type": "text",
-                  "description": "JSON array of coordinates"
-                }
-              ]
-            },
-            "url": {
-              "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/start-delivery",
-              "host": ["{{base_url}}"],
-              "path": ["v1", "supplier", "fulfillment", "orders", "{order_id}", "start-delivery"],
-              "variable": [
-                {
-                  "key": "order_id",
-                  "value": ""
-                }
-              ]
-            },
-            "description": "Start delivery with driver photo, GPS tracking, and delivery route"
-          }
-        },
-        {
-          "name": "Complete Delivery (Enhanced)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "recipient_name",
-                  "value": "Mohammed Al-Saud",
-                  "type": "text",
-                  "required": true
-                },
-                {
-                  "key": "recipient_signature",
-                  "type": "file",
-                  "src": [],
-                  "required": true,
-                  "description": "Digital signature (jpeg, jpg, png, max 5MB)"
-                },
-                {
-                  "key": "delivery_photos[]",
-                  "type": "file",
-                  "src": [],
-                  "required": true,
-                  "description": "Array of delivery photos (at least 1 photo)"
-                },
-                {
-                  "key": "delivery_notes",
-                  "value": "All items delivered in good condition",
-                  "type": "text"
-                },
-                {
-                  "key": "condition_confirmation",
-                  "value": "All items were inspected and confirmed to be in excellent condition. Temperature maintained throughout delivery.",
-                  "type": "text",
-                  "required": true
-                }
-              ]
-            },
-            "url": {
-              "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/complete",
-              "host": ["{{base_url}}"],
-              "path": ["v1", "supplier", "fulfillment", "orders", "{order_id}", "complete"],
-              "variable": [
-                {
-                  "key": "order_id",
-                  "value": ""
-                }
-              ]
-            },
-            "description": "Complete delivery with recipient acknowledgment, digital signature, delivery photos, and condition confirmation"
-          }
-        }
-      ]
-    },
-    {
-      "name": "Delivery Proofs",
-      "item": [
-        {
-          "name": "Get Delivery Proof",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/delivery-proof",
-              "host": ["{{base_url}}"],
-              "path": ["v1", "supplier", "fulfillment", "orders", "{order_id}", "delivery-proof"],
-              "variable": [
-                {
-                  "key": "order_id",
-                  "value": ""
-                }
-              ]
-            },
-            "description": "Get delivery proof for a specific order"
-          },
-          "response": [
-            {
-              "name": "Success Response",
-              "originalRequest": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/delivery-proof",
-                  "host": ["{{base_url}}"],
-                  "path": ["v1", "supplier", "fulfillment", "orders", "{order_id}", "delivery-proof"]
-                }
-              },
-              "status": "OK",
-              "code": 200,
-              "_postman_previewlanguage": "json",
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json"
-                }
-              ],
-              "body": "{\n    \"success\": true,\n    \"message\": \"Delivery proof retrieved successfully\",\n    \"data\": {\n        \"id\": \"uuid\",\n        \"purchase_order_id\": \"uuid\",\n        \"recipient_name\": \"Mohammed Al-Saud\",\n        \"recipient_signature\": \"https://example.com/storage/supplier/deliveries/signatures/signature.png\",\n        \"delivery_photos\": [\n            \"https://example.com/storage/supplier/deliveries/photos/photo1.jpg\",\n            \"https://example.com/storage/supplier/deliveries/photos/photo2.jpg\"\n        ],\n        \"condition_confirmation\": \"All items were inspected and confirmed to be in excellent condition.\",\n        \"acknowledgment_received_at\": \"2025-12-26T14:30:00Z\",\n        \"created_at\": \"2025-12-26T14:30:00Z\",\n        \"updated_at\": \"2025-12-26T14:30:00Z\"\n    }\n}"
-            }
-          ]
-        },
-        {
-          "name": "Update Delivery Proof",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "recipient_name",
-                  "value": "Mohammed Al-Saud",
-                  "type": "text"
-                },
-                {
-                  "key": "recipient_signature",
-                  "type": "file",
-                  "src": []
-                },
-                {
-                  "key": "delivery_photos[]",
-                  "type": "file",
-                  "src": []
-                },
-                {
-                  "key": "condition_confirmation",
-                  "value": "Updated condition confirmation",
-                  "type": "text"
-                }
-              ]
-            },
-            "url": {
-              "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/delivery-proof",
-              "host": ["{{base_url}}"],
-              "path": ["v1", "supplier", "fulfillment", "orders", "{order_id}", "delivery-proof"],
-              "variable": [
-                {
-                  "key": "order_id",
-                  "value": ""
-                }
-              ]
-            },
-            "description": "Update delivery proof for an order"
-          }
-        }
-      ]
-    },
-    {
-      "name": "Communication - Emergency Contacts",
-      "item": [
-        {
-          "name": "Get Emergency Contacts",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/v1/supplier/communications/emergency-contacts?branch_id=&is_after_hours=&escalation_level=&per_page=15",
-              "host": ["{{base_url}}"],
-              "path": ["v1", "supplier", "communications", "emergency-contacts"],
-              "query": [
-                {
-                  "key": "branch_id",
-                  "value": "",
-                  "description": "Filter by branch ID"
-                },
-                {
-                  "key": "is_after_hours",
-                  "value": "",
-                  "description": "Filter by after hours (true/false)"
-                },
-                {
-                  "key": "escalation_level",
-                  "value": "",
-                  "description": "Filter by escalation level (low, medium, high, critical)"
-                },
-                {
-                  "key": "per_page",
-                  "value": "15",
-                  "description": "Items per page"
-                }
-              ]
-            },
-            "description": "Get list of emergency contacts"
-          },
-          "response": [
-            {
-              "name": "Success Response",
-              "originalRequest": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/v1/supplier/communications/emergency-contacts",
-                  "host": ["{{base_url}}"],
-                  "path": ["v1", "supplier", "communications", "emergency-contacts"]
-                }
-              },
-              "status": "OK",
-              "code": 200,
-              "_postman_previewlanguage": "json",
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json"
-                }
-              ],
-              "body": "{\n    \"success\": true,\n    \"message\": \"Emergency contacts retrieved successfully\",\n    \"data\": {\n        \"current_page\": 1,\n        \"data\": [\n            {\n                \"id\": \"uuid\",\n                \"supplier_id\": \"uuid\",\n                \"branch_id\": \"uuid\",\n                \"contact_name\": \"Emergency Contact\",\n                \"contact_phone\": \"+966501234567\",\n                \"contact_email\": \"emergency@example.com\",\n                \"is_after_hours\": true,\n                \"escalation_level\": \"high\",\n                \"created_at\": \"2025-12-26T10:00:00Z\"\n            }\n        ],\n        \"per_page\": 15,\n        \"total\": 1\n    }\n}"
-            }
-          ]
-        },
-        {
-          "name": "Create Emergency Contact",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"branch_id\": \"uuid\",\n    \"contact_name\": \"Emergency Contact\",\n    \"contact_phone\": \"+966501234567\",\n    \"contact_email\": \"emergency@example.com\",\n    \"is_after_hours\": true,\n    \"escalation_level\": \"high\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/v1/supplier/communications/emergency-contacts",
-              "host": ["{{base_url}}"],
-              "path": ["v1", "supplier", "communications", "emergency-contacts"]
-            },
-            "description": "Create a new emergency contact"
-          },
-          "response": [
-            {
-              "name": "Success Response",
-              "originalRequest": {
-                "method": "POST",
-                "header": [],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n    \"branch_id\": \"uuid\",\n    \"contact_name\": \"Emergency Contact\",\n    \"contact_phone\": \"+966501234567\",\n    \"contact_email\": \"emergency@example.com\",\n    \"is_after_hours\": true,\n    \"escalation_level\": \"high\"\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                },
-                "url": {
-                  "raw": "{{base_url}}/v1/supplier/communications/emergency-contacts",
-                  "host": ["{{base_url}}"],
-                  "path": ["v1", "supplier", "communications", "emergency-contacts"]
-                }
-              },
-              "status": "Created",
-              "code": 201,
-              "_postman_previewlanguage": "json",
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json"
-                }
-              ],
-              "body": "{\n    \"success\": true,\n    \"message\": \"Emergency contact created successfully\",\n    \"data\": {\n        \"id\": \"uuid\",\n        \"supplier_id\": \"uuid\",\n        \"branch_id\": \"uuid\",\n        \"contact_name\": \"Emergency Contact\",\n        \"contact_phone\": \"+966501234567\",\n        \"contact_email\": \"emergency@example.com\",\n        \"is_after_hours\": true,\n        \"escalation_level\": \"high\",\n        \"created_at\": \"2025-12-26T10:00:00Z\"\n    }\n}"
-            }
-          ]
-        },
-        {
-          "name": "Escalate Issue",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"title\": \"Urgent Delivery Issue\",\n    \"message\": \"Delivery vehicle broke down. Need immediate assistance.\",\n    \"escalation_level\": \"critical\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/v1/supplier/communications/escalate",
-              "host": ["{{base_url}}"],
-              "path": ["v1", "supplier", "communications", "escalate"]
-            },
-            "description": "Escalate an issue to emergency contact based on escalation level"
-          },
-          "response": [
-            {
-              "name": "Success Response",
-              "originalRequest": {
-                "method": "POST",
-                "header": [],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n    \"title\": \"Urgent Delivery Issue\",\n    \"message\": \"Delivery vehicle broke down. Need immediate assistance.\",\n    \"escalation_level\": \"critical\"\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                },
-                "url": {
-                  "raw": "{{base_url}}/v1/supplier/communications/escalate",
-                  "host": ["{{base_url}}"],
-                  "path": ["v1", "supplier", "communications", "escalate"]
-                }
-              },
-              "status": "OK",
-              "code": 200,
-              "_postman_previewlanguage": "json",
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json"
-                }
-              ],
-              "body": "{\n    \"success\": true,\n    \"message\": \"Issue escalated successfully\"\n}"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "Analytics - Customer Feedback",
-      "item": [
-        {
-          "name": "Get Customer Feedback",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/v1/supplier/analytics/customer-feedback?branch_id=&order_id=&min_rating=&per_page=15",
-              "host": ["{{base_url}}"],
-              "path": ["v1", "supplier", "analytics", "customer-feedback"],
-              "query": [
-                {
-                  "key": "branch_id",
-                  "value": "",
-                  "description": "Filter by branch ID"
-                },
-                {
-                  "key": "order_id",
-                  "value": "",
-                  "description": "Filter by order ID"
-                },
-                {
-                  "key": "min_rating",
-                  "value": "",
-                  "description": "Minimum rating (1.00 to 5.00)"
-                },
-                {
-                  "key": "per_page",
-                  "value": "15",
-                  "description": "Items per page"
-                }
-              ]
-            },
-            "description": "Get customer feedback from branch managers"
-          },
-          "response": [
-            {
-              "name": "Success Response",
-              "originalRequest": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/v1/supplier/analytics/customer-feedback",
-                  "host": ["{{base_url}}"],
-                  "path": ["v1", "supplier", "analytics", "customer-feedback"]
-                }
-              },
-              "status": "OK",
-              "code": 200,
-              "_postman_previewlanguage": "json",
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json"
-                }
-              ],
-              "body": "{\n    \"success\": true,\n    \"message\": \"Customer feedback retrieved successfully\",\n    \"data\": {\n        \"current_page\": 1,\n        \"data\": [\n            {\n                \"id\": \"uuid\",\n                \"supplier_id\": \"uuid\",\n                \"purchase_order_id\": \"uuid\",\n                \"branch_id\": \"uuid\",\n                \"rating\": 4.5,\n                \"quality_feedback\": \"Excellent quality products\",\n                \"delivery_satisfaction\": \"On-time delivery, well packaged\",\n                \"improvement_insights\": \"Could improve communication during delays\",\n                \"branch\": {\n                    \"id\": \"uuid\",\n                    \"name\": \"Branch Name\"\n                },\n                \"purchase_order\": {\n                    \"id\": \"uuid\",\n                    \"order_number\": \"DS-20251226-ABCD\"\n                },\n                \"created_at\": \"2025-12-26T10:00:00Z\"\n            }\n        ],\n        \"per_page\": 15,\n        \"total\": 1\n    }\n}"
-            }
-          ]
-        }
-      ]
-    }
-  ],
-  "variable": [
-    {
-      "key": "base_url",
-      "value": "http://localhost:8000/api",
-      "type": "string"
-    },
-    {
-      "key": "token",
-      "value": "",
-      "type": "string"
-    }
-  ]
 }
-

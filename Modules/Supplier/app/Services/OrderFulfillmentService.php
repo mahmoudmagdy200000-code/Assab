@@ -39,61 +39,81 @@ class OrderFulfillmentService
 
             // Upload quality documents if provided
             if (!empty($data['quality_documents'])) {
-                foreach ($data['quality_documents'] as $document) {
-                    SupplierQualityDocument::create([
-                        'supplier_id' => $supplier->id,
-                        'order_id' => $order->id,
-                        'document_type' => $document['type'] ?? 'certificate',
-                        'title' => $document['title'] ?? 'Quality Certificate',
-                        'file_path' => $document['file_path'],
-                        'file_name' => $document['file_name'],
-                        'file_type' => $document['file_type'] ?? 'pdf',
-                    ]);
+                foreach ($data['quality_documents'] as $file) {
+                    if ($file && $file->isValid()) {
+                        $filePath = $file->store('supplier/quality-documents', 'public');
+                        $fileExtension = $file->getClientOriginalExtension();
+                        
+                        SupplierQualityDocument::create([
+                            'supplier_id' => $supplier->id,
+                            'order_id' => $order->id,
+                            'document_type' => 'certificate',
+                            'title' => 'Quality Certificate - ' . now()->format('Y-m-d H:i:s'),
+                            'file_path' => $filePath,
+                            'file_name' => $file->getClientOriginalName(),
+                            'file_type' => $fileExtension,
+                        ]);
+                    }
                 }
             }
 
             // Upload testing reports if provided
             if (!empty($data['testing_reports'])) {
-                foreach ($data['testing_reports'] as $report) {
-                    SupplierQualityDocument::create([
-                        'supplier_id' => $supplier->id,
-                        'order_id' => $order->id,
-                        'document_type' => 'test_report',
-                        'title' => $report['title'] ?? 'Testing Report',
-                        'file_path' => $report['file_path'],
-                        'file_name' => $report['file_name'],
-                        'file_type' => $report['file_type'] ?? 'pdf',
-                    ]);
+                foreach ($data['testing_reports'] as $file) {
+                    if ($file && $file->isValid()) {
+                        $filePath = $file->store('supplier/testing-reports', 'public');
+                        $fileExtension = $file->getClientOriginalExtension();
+                        
+                        SupplierQualityDocument::create([
+                            'supplier_id' => $supplier->id,
+                            'order_id' => $order->id,
+                            'document_type' => 'test_report',
+                            'title' => 'Testing Report - ' . now()->format('Y-m-d H:i:s'),
+                            'file_path' => $filePath,
+                            'file_name' => $file->getClientOriginalName(),
+                            'file_type' => $fileExtension,
+                        ]);
+                    }
                 }
             }
 
             // Upload compliance documents if provided
             if (!empty($data['compliance_documents'])) {
-                foreach ($data['compliance_documents'] as $doc) {
-                    SupplierQualityDocument::create([
-                        'supplier_id' => $supplier->id,
-                        'order_id' => $order->id,
-                        'document_type' => 'compliance_doc',
-                        'title' => $doc['title'] ?? 'Compliance Document',
-                        'file_path' => $doc['file_path'],
-                        'file_name' => $doc['file_name'],
-                        'file_type' => $doc['file_type'] ?? 'pdf',
-                    ]);
+                foreach ($data['compliance_documents'] as $file) {
+                    if ($file && $file->isValid()) {
+                        $filePath = $file->store('supplier/compliance-documents', 'public');
+                        $fileExtension = $file->getClientOriginalExtension();
+                        
+                        SupplierQualityDocument::create([
+                            'supplier_id' => $supplier->id,
+                            'order_id' => $order->id,
+                            'document_type' => 'compliance_doc',
+                            'title' => 'Compliance Document - ' . now()->format('Y-m-d H:i:s'),
+                            'file_path' => $filePath,
+                            'file_name' => $file->getClientOriginalName(),
+                            'file_type' => $fileExtension,
+                        ]);
+                    }
                 }
             }
 
             // Upload batch information if provided
             if (!empty($data['batch_information'])) {
-                foreach ($data['batch_information'] as $batch) {
-                    SupplierQualityDocument::create([
-                        'supplier_id' => $supplier->id,
-                        'order_id' => $order->id,
-                        'document_type' => 'batch_info',
-                        'title' => $batch['title'] ?? 'Batch Information',
-                        'file_path' => $batch['file_path'],
-                        'file_name' => $batch['file_name'],
-                        'file_type' => $batch['file_type'] ?? 'pdf',
-                    ]);
+                foreach ($data['batch_information'] as $file) {
+                    if ($file && $file->isValid()) {
+                        $filePath = $file->store('supplier/batch-information', 'public');
+                        $fileExtension = $file->getClientOriginalExtension();
+                        
+                        SupplierQualityDocument::create([
+                            'supplier_id' => $supplier->id,
+                            'order_id' => $order->id,
+                            'document_type' => 'batch_info',
+                            'title' => 'Batch Information - ' . now()->format('Y-m-d H:i:s'),
+                            'file_path' => $filePath,
+                            'file_name' => $file->getClientOriginalName(),
+                            'file_type' => $fileExtension,
+                        ]);
+                    }
                 }
             }
 
@@ -152,7 +172,7 @@ class OrderFulfillmentService
             ];
 
             // Handle driver photo upload
-            if (isset($data['driver_photo']) && $data['driver_photo']->isValid()) {
+            if (isset($data['driver_photo']) && is_object($data['driver_photo']) && method_exists($data['driver_photo'], 'isValid') && $data['driver_photo']->isValid()) {
                 $photoPath = $data['driver_photo']->store('supplier/drivers', 'public');
                 $updateData['driver_photo'] = $photoPath;
             }
@@ -215,7 +235,7 @@ class OrderFulfillmentService
 
             // Handle recipient signature upload
             $signaturePath = null;
-            if (isset($data['recipient_signature']) && $data['recipient_signature']->isValid()) {
+            if (isset($data['recipient_signature']) && is_object($data['recipient_signature']) && method_exists($data['recipient_signature'], 'isValid') && $data['recipient_signature']->isValid()) {
                 $signaturePath = $data['recipient_signature']->store('supplier/deliveries/signatures', 'public');
                 $updateData['recipient_signature'] = $signaturePath;
             }
@@ -224,7 +244,7 @@ class OrderFulfillmentService
             $deliveryPhotos = [];
             if (!empty($data['delivery_photos'])) {
                 foreach ($data['delivery_photos'] as $photo) {
-                    if ($photo->isValid()) {
+                    if ($photo && is_object($photo) && method_exists($photo, 'isValid') && $photo->isValid()) {
                         $photoPath = $photo->store('supplier/deliveries/photos', 'public');
                         $deliveryPhotos[] = $photoPath;
                     }

@@ -21,14 +21,14 @@ class DeliveryProofService
 
         return DB::transaction(function () use ($order, $data) {
             $signaturePath = null;
-            if (isset($data['recipient_signature']) && $data['recipient_signature']->isValid()) {
+            if (isset($data['recipient_signature']) && is_object($data['recipient_signature']) && method_exists($data['recipient_signature'], 'isValid') && $data['recipient_signature']->isValid()) {
                 $signaturePath = $data['recipient_signature']->store('supplier/deliveries/signatures', 'public');
             }
 
             $deliveryPhotos = [];
             if (!empty($data['delivery_photos'])) {
                 foreach ($data['delivery_photos'] as $photo) {
-                    if ($photo->isValid()) {
+                    if ($photo && is_object($photo) && method_exists($photo, 'isValid') && $photo->isValid()) {
                         $photoPath = $photo->store('supplier/deliveries/photos', 'public');
                         $deliveryPhotos[] = $photoPath;
                     }
@@ -79,7 +79,7 @@ class DeliveryProofService
                 $updateData['condition_confirmation'] = $data['condition_confirmation'];
             }
 
-            if (isset($data['recipient_signature']) && $data['recipient_signature']->isValid()) {
+            if (isset($data['recipient_signature']) && is_object($data['recipient_signature']) && method_exists($data['recipient_signature'], 'isValid') && $data['recipient_signature']->isValid()) {
                 // Delete old signature if exists
                 if ($proof->recipient_signature) {
                     Storage::disk('public')->delete($proof->recipient_signature);
@@ -97,7 +97,7 @@ class DeliveryProofService
 
                 $deliveryPhotos = [];
                 foreach ($data['delivery_photos'] as $photo) {
-                    if ($photo->isValid()) {
+                    if ($photo && is_object($photo) && method_exists($photo, 'isValid') && $photo->isValid()) {
                         $photoPath = $photo->store('supplier/deliveries/photos', 'public');
                         $deliveryPhotos[] = $photoPath;
                     }

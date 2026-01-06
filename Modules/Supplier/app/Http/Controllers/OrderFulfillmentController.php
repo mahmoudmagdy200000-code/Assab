@@ -30,7 +30,23 @@ class OrderFulfillmentController extends BaseController
             $supplier = auth()->user();
             $order = PurchaseOrder::findOrFail($id);
 
-            $order = $this->fulfillmentService->startPreparation($order, $supplier, $request->validated());
+            $data = $request->validated();
+            
+            // Handle file uploads
+            if ($request->hasFile('quality_documents')) {
+                $data['quality_documents'] = $request->file('quality_documents');
+            }
+            if ($request->hasFile('testing_reports')) {
+                $data['testing_reports'] = $request->file('testing_reports');
+            }
+            if ($request->hasFile('compliance_documents')) {
+                $data['compliance_documents'] = $request->file('compliance_documents');
+            }
+            if ($request->hasFile('batch_information')) {
+                $data['batch_information'] = $request->file('batch_information');
+            }
+
+            $order = $this->fulfillmentService->startPreparation($order, $supplier, $data);
 
             return $this->successResponse(
                 new OrderResource($order),
@@ -119,8 +135,14 @@ class OrderFulfillmentController extends BaseController
             if ($request->hasFile('recipient_signature')) {
                 $data['recipient_signature'] = $request->file('recipient_signature');
             }
+            // Handle delivery_photos array
             if ($request->hasFile('delivery_photos')) {
-                $data['delivery_photos'] = $request->file('delivery_photos');
+                $photos = $request->file('delivery_photos');
+                // Ensure it's an array
+                if (!is_array($photos)) {
+                    $photos = [$photos];
+                }
+                $data['delivery_photos'] = $photos;
             }
 
             $order = $this->fulfillmentService->completeDelivery($order, $supplier, $data);
