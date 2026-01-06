@@ -113,8 +113,9 @@ class OrderFulfillmentService
             throw new \Exception('Unauthorized access to this order');
         }
 
-        if ($order->status !== OrderStatus::PREPARING) {
-            throw new \Exception('Order must be in preparing status before starting delivery');
+        // Allow starting delivery if order is in PREPARING or DELAYED status
+        if (!in_array($order->status, [OrderStatus::PREPARING, OrderStatus::DELAYED])) {
+            throw new \Exception('Order must be in preparing or delayed status before starting delivery');
         }
 
         return DB::transaction(function () use ($order, $data, $supplier) {
