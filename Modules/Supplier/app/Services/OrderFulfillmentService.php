@@ -223,17 +223,7 @@ class OrderFulfillmentService
                 'status' => OrderStatus::DELIVERED,
                 'received_at' => now(),
                 'actual_delivery_at' => now(),
-                'message' => $data['delivery_notes'] ?? null,
-                'recipient_name' => $data['recipient_name'] ?? null,
-                'condition_confirmation' => $data['condition_confirmation'] ?? null,
             ];
-
-            // Handle recipient signature upload
-            $signaturePath = null;
-            if (isset($data['recipient_signature']) && is_object($data['recipient_signature']) && method_exists($data['recipient_signature'], 'isValid') && $data['recipient_signature']->isValid()) {
-                $signaturePath = $data['recipient_signature']->store('supplier/deliveries/signatures', 'public');
-                $updateData['recipient_signature'] = $signaturePath;
-            }
 
             // Handle delivery photos upload
             $deliveryPhotos = [];
@@ -257,10 +247,10 @@ class OrderFulfillmentService
             // Create delivery proof record
             DeliveryProof::create([
                 'purchase_order_id' => $order->id,
-                'recipient_name' => $data['recipient_name'] ?? null,
-                'recipient_signature' => $signaturePath,
+                'recipient_name' => null,
+                'recipient_signature' => null,
                 'delivery_photos' => $deliveryPhotos,
-                'condition_confirmation' => $data['condition_confirmation'] ?? null,
+                'condition_confirmation' => null,
                 'acknowledgment_received_at' => now(),
             ]);
 
