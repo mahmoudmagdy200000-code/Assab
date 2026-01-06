@@ -21,13 +21,13 @@ class ReportDelayRequest extends FormRequest
 
         // If type is today, require new_time
         if ($this->input('new_expected_delivery_date_type') === 'today') {
-            $rules['new_time'] = 'required|date_format:H:i';
+            $rules['new_time'] = 'required|string';
         }
 
         // If type is custom, require new_time and new_date
         if ($this->input('new_expected_delivery_date_type') === 'custom') {
-            $rules['new_time'] = 'required|date_format:H:i';
-            $rules['new_date'] = 'required|date|after_or_equal:today';
+            $rules['new_time'] = 'required|string';
+            $rules['new_date'] = 'required|string';
         }
 
         return $rules;

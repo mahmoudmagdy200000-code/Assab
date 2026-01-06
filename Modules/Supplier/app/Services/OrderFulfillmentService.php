@@ -162,18 +162,16 @@ class OrderFulfillmentService
         }
 
         return DB::transaction(function () use ($order, $data) {
-            // Calculate new expected delivery date based on type
+            // Store new expected delivery date as string based on type
             $newExpectedDeliveryAt = null;
 
             if ($data['new_expected_delivery_date_type'] === 'today') {
-                // Use today's date with new_time
-                $time = Carbon::parse($data['new_time']);
-                $newExpectedDeliveryAt = Carbon::today()->setTime($time->hour, $time->minute);
+                // Use today's date with new_time (store as string)
+                $today = Carbon::today()->format('Y-m-d');
+                $newExpectedDeliveryAt = $today . ' ' . $data['new_time'];
             } elseif ($data['new_expected_delivery_date_type'] === 'custom') {
-                // Use custom date and time
-                $date = Carbon::parse($data['new_date']);
-                $time = Carbon::parse($data['new_time']);
-                $newExpectedDeliveryAt = $date->setTime($time->hour, $time->minute);
+                // Use custom date and time (store as string)
+                $newExpectedDeliveryAt = $data['new_date'] . ' ' . $data['new_time'];
             }
 
             $updateData = [
