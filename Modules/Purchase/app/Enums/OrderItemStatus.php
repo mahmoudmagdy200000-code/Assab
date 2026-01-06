@@ -20,6 +20,7 @@ enum OrderItemStatus: string
 
         // Execution Phase Statuses
     case PREPARING = 'preparing';
+    case ON_THE_WAY = 'on_the_way';
     case DELIVERED = 'delivered';
     case DELAYED = 'delayed';
 
@@ -47,6 +48,7 @@ enum OrderItemStatus: string
             self::CONFIRMED_NEED_TIME => 'Confirmed (Need Time)',
             self::CONFIRMED_ALTERNATIVE_PRODUCT => 'Confirmed (Alternative Product)',
             self::PREPARING => 'Preparing',
+            self::ON_THE_WAY => 'On The Way',
             self::DELIVERED => 'Delivered',
             self::DELAYED => 'Delayed',
             self::CANCELLED => 'Cancelled',
@@ -72,6 +74,7 @@ enum OrderItemStatus: string
             self::CONFIRMED_NEED_TIME => '#10B981',
             self::CONFIRMED_ALTERNATIVE_PRODUCT => '#10B981',
             self::PREPARING => '#3B82F6',
+            self::ON_THE_WAY => '#6366F1',
             self::DELIVERED => '#22C55E',
             self::DELAYED => '#F59E0B',
             self::CANCELLED => '#EF4444',
