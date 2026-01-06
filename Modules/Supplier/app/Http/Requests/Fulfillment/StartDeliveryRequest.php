@@ -22,4 +22,3 @@ class StartDeliveryRequest extends FormRequest
         ];
     }
 }
-

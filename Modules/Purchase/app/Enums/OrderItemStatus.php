@@ -20,6 +20,8 @@ enum OrderItemStatus: string
 
         // Execution Phase Statuses
     case PREPARING = 'preparing';
+    case DELIVERED = 'delivered';
+    case DELAYED = 'delayed';
 
         // Cancellation Statuses
     case CANCELLED = 'cancelled';
@@ -45,6 +47,8 @@ enum OrderItemStatus: string
             self::CONFIRMED_NEED_TIME => 'Confirmed (Need Time)',
             self::CONFIRMED_ALTERNATIVE_PRODUCT => 'Confirmed (Alternative Product)',
             self::PREPARING => 'Preparing',
+            self::DELIVERED => 'Delivered',
+            self::DELAYED => 'Delayed',
             self::CANCELLED => 'Cancelled',
             self::CANCELLED_BY_BRANCH => 'Cancelled by Branch',
             self::CANCELLED_BY_SUPPLIER => 'Cancelled by Supplier',
@@ -68,6 +72,8 @@ enum OrderItemStatus: string
             self::CONFIRMED_NEED_TIME => '#10B981',
             self::CONFIRMED_ALTERNATIVE_PRODUCT => '#10B981',
             self::PREPARING => '#3B82F6',
+            self::DELIVERED => '#22C55E',
+            self::DELAYED => '#F59E0B',
             self::CANCELLED => '#EF4444',
             self::CANCELLED_BY_BRANCH => '#EF4444',
             self::CANCELLED_BY_SUPPLIER => '#EF4444',

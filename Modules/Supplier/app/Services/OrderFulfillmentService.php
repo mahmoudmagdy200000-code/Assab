@@ -196,6 +196,11 @@ class OrderFulfillmentService
 
             $order->update($updateData);
 
+            // Update items status to delayed
+            $order->items()
+                ->whereIn('status', [OrderItemStatus::CONFIRMED, OrderItemStatus::PREPARING])
+                ->update(['status' => OrderItemStatus::DELAYED]);
+
             $this->notificationService->notifyOrderStatusChanged($order, 'delayed');
 
             return $order->fresh();
@@ -245,6 +250,11 @@ class OrderFulfillmentService
             }
 
             $order->update($updateData);
+
+            // Update items status to delivered
+            $order->items()
+                ->whereIn('status', [OrderItemStatus::CONFIRMED, OrderItemStatus::PREPARING])
+                ->update(['status' => OrderItemStatus::DELIVERED]);
 
             // Create delivery proof record
             DeliveryProof::create([
