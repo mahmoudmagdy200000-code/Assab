@@ -70,7 +70,12 @@ class OrderFulfillmentController extends BaseController
             $supplier = auth()->user();
             $order = PurchaseOrder::findOrFail($id);
 
-            $order = $this->fulfillmentService->startDelivery($order, $supplier, $request->validated());
+            $data = $request->validated();
+            if ($request->hasFile('driver_photo')) {
+                $data['driver_photo'] = $request->file('driver_photo');
+            }
+
+            $order = $this->fulfillmentService->startDelivery($order, $supplier, $data);
 
             return $this->successResponse(
                 new OrderResource($order),
@@ -110,7 +115,15 @@ class OrderFulfillmentController extends BaseController
             $supplier = auth()->user();
             $order = PurchaseOrder::findOrFail($id);
 
-            $order = $this->fulfillmentService->completeDelivery($order, $supplier, $request->validated());
+            $data = $request->validated();
+            if ($request->hasFile('recipient_signature')) {
+                $data['recipient_signature'] = $request->file('recipient_signature');
+            }
+            if ($request->hasFile('delivery_photos')) {
+                $data['delivery_photos'] = $request->file('delivery_photos');
+            }
+
+            $order = $this->fulfillmentService->completeDelivery($order, $supplier, $data);
 
             return $this->successResponse(
                 new OrderResource($order),

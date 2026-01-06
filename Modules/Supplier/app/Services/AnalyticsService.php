@@ -3,9 +3,11 @@
 namespace Modules\Supplier\Services;
 
 use Carbon\Carbon;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Supplier\Models\Supplier;
+use Modules\Supplier\Models\SupplierFeedback;
 use Modules\Supplier\Models\SupplierInvoice;
 
 class AnalyticsService
@@ -118,13 +120,44 @@ class AnalyticsService
 
         $responseRate = $totalOrders > 0 ? ($respondedOrders / $totalOrders) * 100 : 0;
 
+        // Get customer feedback metrics
+        $feedbacks = SupplierFeedback::where('supplier_id', $supplier->id);
+        $averageRating = (clone $feedbacks)->avg('rating') ?? 0;
+        $totalFeedbacks = (clone $feedbacks)->count();
+
         return [
             'total_orders' => $totalOrders,
             'completed_orders' => $completedOrders,
             'response_rate' => round($responseRate, 2),
             'rating' => (float) ($supplier->rating ?? 0),
             'average_response_time_hours' => (float) ($supplier->average_response_time_hours ?? 0),
+            'customer_rating' => round((float) $averageRating, 2),
+            'total_feedbacks' => $totalFeedbacks,
         ];
+    }
+
+    /**
+     * Get customer feedback
+     */
+    public function getCustomerFeedback(Supplier $supplier, array $filters = [], int $perPage = 15): LengthAwarePaginator
+    {
+        $query = SupplierFeedback::where('supplier_id', $supplier->id)
+            ->with(['purchaseOrder', 'branch'])
+            ->orderBy('created_at', 'desc');
+
+        if (!empty($filters['branch_id'])) {
+            $query->where('branch_id', $filters['branch_id']);
+        }
+
+        if (!empty($filters['order_id'])) {
+            $query->where('purchase_order_id', $filters['order_id']);
+        }
+
+        if (isset($filters['min_rating'])) {
+            $query->where('rating', '>=', $filters['min_rating']);
+        }
+
+        return $query->paginate($perPage);
     }
 }
 

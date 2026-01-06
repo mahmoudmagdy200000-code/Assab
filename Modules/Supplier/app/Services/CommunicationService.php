@@ -3,6 +3,8 @@
 namespace Modules\Supplier\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
+use Modules\Supplier\Models\EmergencyContact;
 use Modules\Supplier\Models\Supplier;
 use Modules\Supplier\Models\SupplierMessage;
 use Modules\Supplier\Models\SupplierNotification;
@@ -100,6 +102,77 @@ class CommunicationService
             'is_read' => true,
             'read_at' => now(),
         ]);
+    }
+
+    /**
+     * Get emergency contacts
+     */
+    public function getEmergencyContacts(Supplier $supplier, array $filters = [], int $perPage = 15): LengthAwarePaginator
+    {
+        $query = EmergencyContact::where('supplier_id', $supplier->id)
+            ->with('branch')
+            ->orderBy('created_at', 'desc');
+
+        if (!empty($filters['branch_id'])) {
+            $query->where('branch_id', $filters['branch_id']);
+        }
+
+        if (isset($filters['is_after_hours'])) {
+            $query->where('is_after_hours', $filters['is_after_hours']);
+        }
+
+        if (!empty($filters['escalation_level'])) {
+            $query->where('escalation_level', $filters['escalation_level']);
+        }
+
+        return $query->paginate($perPage);
+    }
+
+    /**
+     * Create emergency contact
+     */
+    public function createEmergencyContact(Supplier $supplier, array $data): EmergencyContact
+    {
+        return DB::transaction(function () use ($supplier, $data) {
+            return EmergencyContact::create([
+                'supplier_id' => $supplier->id,
+                'branch_id' => $data['branch_id'] ?? null,
+                'contact_name' => $data['contact_name'],
+                'contact_phone' => $data['contact_phone'],
+                'contact_email' => $data['contact_email'] ?? null,
+                'is_after_hours' => $data['is_after_hours'] ?? false,
+                'escalation_level' => $data['escalation_level'] ?? 'medium',
+            ]);
+        });
+    }
+
+    /**
+     * Escalate issue
+     */
+    public function escalateIssue(Supplier $supplier, array $data): void
+    {
+        // Find appropriate emergency contact based on escalation level
+        $escalationLevel = $data['escalation_level'] ?? 'high';
+        
+        $emergencyContact = EmergencyContact::where('supplier_id', $supplier->id)
+            ->where('escalation_level', $escalationLevel)
+            ->first();
+
+        if ($emergencyContact) {
+            // Create notification or message for escalation
+            SupplierNotification::create([
+                'supplier_id' => $supplier->id,
+                'type' => 'escalation',
+                'title' => $data['title'] ?? 'Issue Escalation',
+                'message' => $data['message'] ?? 'An issue has been escalated',
+                'data' => [
+                    'emergency_contact_id' => $emergencyContact->id,
+                    'contact_name' => $emergencyContact->contact_name,
+                    'contact_phone' => $emergencyContact->contact_phone,
+                    'escalation_level' => $escalationLevel,
+                ],
+            ]);
+        }
     }
 }
 

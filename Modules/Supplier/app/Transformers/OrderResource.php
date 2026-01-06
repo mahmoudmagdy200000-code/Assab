@@ -90,6 +90,28 @@ class OrderResource extends JsonResource
             // Delivery Information
             'preferred_delivery_date' => $this->preferred_delivery_date?->toDateString(),
             'expected_delivery_at' => $this->expected_delivery_at?->toDateTimeString(),
+            'actual_delivery_at' => $this->actual_delivery_at?->toDateTimeString(),
+            'driver_name' => $this->driver_name,
+            'driver_contact' => $this->driver_contact,
+            'driver_photo' => $this->driver_photo ? asset('storage/' . $this->driver_photo) : null,
+            'vehicle_number' => $this->vehicle_number,
+            'gps_tracking_url' => $this->gps_tracking_url,
+            'delivery_route' => $this->delivery_route,
+            'recipient_name' => $this->recipient_name,
+            'delivery_photos' => $this->delivery_photos ? array_map(function ($photo) {
+                return asset('storage/' . $photo);
+            }, $this->delivery_photos) : null,
+            'condition_confirmation' => $this->condition_confirmation,
+
+            // Delivery Proof
+            'delivery_proof' => $this->whenLoaded('deliveryProof', function () {
+                return new DeliveryProofResource($this->deliveryProof);
+            }),
+
+            // Customer Feedback
+            'feedbacks' => $this->whenLoaded('feedbacks', function () {
+                return SupplierFeedbackResource::collection($this->feedbacks);
+            }),
 
             // Additional Information
             'priority' => $this->priority?->value,
@@ -100,6 +122,8 @@ class OrderResource extends JsonResource
             // Timestamps
             'created_at' => $this->created_at?->toDateTimeString(),
             'confirmed_at' => $this->confirmed_at?->toDateTimeString(),
+            'preparation_started_at' => $this->preparation_started_at?->toDateTimeString(),
+            'dispatched_at' => $this->dispatched_at?->toDateTimeString(),
             'rejected_at' => $this->rejected_at?->toDateTimeString(),
         ];
     }

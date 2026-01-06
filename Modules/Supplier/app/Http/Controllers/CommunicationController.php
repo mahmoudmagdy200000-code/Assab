@@ -4,6 +4,7 @@ namespace Modules\Supplier\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
+use Modules\Supplier\Http\Requests\Communication\EmergencyContactRequest;
 use Modules\Supplier\Http\Requests\Communication\SendMessageRequest;
 use Modules\Supplier\Services\CommunicationService;
 use Modules\Supplier\Transformers\MessageResource;
@@ -102,6 +103,65 @@ class CommunicationController extends BaseController
             return $this->successResponse(null, 'Notifications marked as read');
         } catch (\Exception $e) {
             return $this->handleException($e, 'marking notifications as read');
+        }
+    }
+
+    /**
+     * Get emergency contacts
+     */
+    public function getEmergencyContacts(): JsonResponse
+    {
+        try {
+            $supplier = auth()->user();
+            $filters = request()->only(['branch_id', 'is_after_hours', 'escalation_level']);
+            $perPage = request()->get('per_page', 15);
+
+            $contacts = $this->communicationService->getEmergencyContacts($supplier, $filters, $perPage);
+
+            return $this->paginatedResponse(
+                $contacts,
+                'Emergency contacts retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching emergency contacts');
+        }
+    }
+
+    /**
+     * Create emergency contact
+     */
+    public function createEmergencyContact(EmergencyContactRequest $request): JsonResponse
+    {
+        try {
+            $supplier = auth()->user();
+            $contact = $this->communicationService->createEmergencyContact($supplier, $request->validated());
+
+            return $this->createdResponse(
+                $contact,
+                'Emergency contact created successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'creating emergency contact');
+        }
+    }
+
+    /**
+     * Escalate issue
+     */
+    public function escalateIssue(): JsonResponse
+    {
+        try {
+            $supplier = auth()->user();
+            $data = request()->only(['title', 'message', 'escalation_level']);
+
+            $this->communicationService->escalateIssue($supplier, $data);
+
+            return $this->successResponse(
+                null,
+                'Issue escalated successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'escalating issue');
         }
     }
 }

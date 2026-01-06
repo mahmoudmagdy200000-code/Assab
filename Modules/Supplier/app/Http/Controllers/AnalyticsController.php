@@ -63,5 +63,26 @@ class AnalyticsController extends BaseController
             return $this->handleException($e, 'fetching performance metrics');
         }
     }
+
+    /**
+     * Get customer feedback
+     */
+    public function getCustomerFeedback(): JsonResponse
+    {
+        try {
+            $supplier = auth()->user();
+            $filters = request()->only(['branch_id', 'order_id', 'min_rating']);
+            $perPage = request()->get('per_page', 15);
+
+            $feedbacks = $this->analyticsService->getCustomerFeedback($supplier, $filters, $perPage);
+
+            return $this->paginatedResponse(
+                $feedbacks,
+                'Customer feedback retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching customer feedback');
+        }
+    }
 }
 

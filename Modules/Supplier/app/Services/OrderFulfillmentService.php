@@ -4,8 +4,10 @@ namespace Modules\Supplier\Services;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Supplier\Models\DeliveryProof;
 use Modules\Supplier\Models\Supplier;
 use Modules\Supplier\Models\SupplierQualityDocument;
 
@@ -28,7 +30,7 @@ class OrderFulfillmentService
             throw new \Exception('Order must be confirmed before starting preparation');
         }
 
-        return DB::transaction(function () use ($order, $data) {
+        return DB::transaction(function () use ($order, $data, $supplier) {
             $order->update([
                 'status' => OrderStatus::PREPARING,
                 'preparation_started_at' => now(),
@@ -46,6 +48,51 @@ class OrderFulfillmentService
                         'file_path' => $document['file_path'],
                         'file_name' => $document['file_name'],
                         'file_type' => $document['file_type'] ?? 'pdf',
+                    ]);
+                }
+            }
+
+            // Upload testing reports if provided
+            if (!empty($data['testing_reports'])) {
+                foreach ($data['testing_reports'] as $report) {
+                    SupplierQualityDocument::create([
+                        'supplier_id' => $supplier->id,
+                        'order_id' => $order->id,
+                        'document_type' => 'test_report',
+                        'title' => $report['title'] ?? 'Testing Report',
+                        'file_path' => $report['file_path'],
+                        'file_name' => $report['file_name'],
+                        'file_type' => $report['file_type'] ?? 'pdf',
+                    ]);
+                }
+            }
+
+            // Upload compliance documents if provided
+            if (!empty($data['compliance_documents'])) {
+                foreach ($data['compliance_documents'] as $doc) {
+                    SupplierQualityDocument::create([
+                        'supplier_id' => $supplier->id,
+                        'order_id' => $order->id,
+                        'document_type' => 'compliance_doc',
+                        'title' => $doc['title'] ?? 'Compliance Document',
+                        'file_path' => $doc['file_path'],
+                        'file_name' => $doc['file_name'],
+                        'file_type' => $doc['file_type'] ?? 'pdf',
+                    ]);
+                }
+            }
+
+            // Upload batch information if provided
+            if (!empty($data['batch_information'])) {
+                foreach ($data['batch_information'] as $batch) {
+                    SupplierQualityDocument::create([
+                        'supplier_id' => $supplier->id,
+                        'order_id' => $order->id,
+                        'document_type' => 'batch_info',
+                        'title' => $batch['title'] ?? 'Batch Information',
+                        'file_path' => $batch['file_path'],
+                        'file_name' => $batch['file_name'],
+                        'file_type' => $batch['file_type'] ?? 'pdf',
                     ]);
                 }
             }
@@ -90,8 +137,8 @@ class OrderFulfillmentService
             throw new \Exception('Order must be preparing or confirmed before starting delivery');
         }
 
-        return DB::transaction(function () use ($order, $data) {
-            $order->update([
+        return DB::transaction(function () use ($order, $data, $supplier) {
+            $updateData = [
                 'status' => OrderStatus::ON_THE_WAY,
                 'dispatched_at' => now(),
                 'driver_name' => $data['driver_name'] ?? null,
@@ -100,7 +147,17 @@ class OrderFulfillmentService
                 'transport_method' => $data['transport_method'] ?? null,
                 'estimated_transport_hours' => $data['estimated_transport_hours'] ?? null,
                 'expected_delivery_at' => $data['expected_delivery_at'] ?? now()->addHours($data['estimated_transport_hours'] ?? 2),
-            ]);
+                'gps_tracking_url' => $data['gps_tracking_url'] ?? null,
+                'delivery_route' => $data['delivery_route'] ?? null,
+            ];
+
+            // Handle driver photo upload
+            if (isset($data['driver_photo']) && $data['driver_photo']->isValid()) {
+                $photoPath = $data['driver_photo']->store('supplier/drivers', 'public');
+                $updateData['driver_photo'] = $photoPath;
+            }
+
+            $order->update($updateData);
 
             $this->notificationService->notifyOrderStatusChanged($order, 'on_the_way');
 
@@ -146,12 +203,45 @@ class OrderFulfillmentService
             throw new \Exception('Order must be out for delivery or delayed');
         }
 
-        return DB::transaction(function () use ($order, $data) {
-            $order->update([
+        return DB::transaction(function () use ($order, $data, $supplier) {
+            $updateData = [
                 'status' => OrderStatus::DELIVERED,
                 'received_at' => now(),
                 'actual_delivery_at' => now(),
                 'message' => $data['delivery_notes'] ?? null,
+                'recipient_name' => $data['recipient_name'] ?? null,
+                'condition_confirmation' => $data['condition_confirmation'] ?? null,
+            ];
+
+            // Handle recipient signature upload
+            $signaturePath = null;
+            if (isset($data['recipient_signature']) && $data['recipient_signature']->isValid()) {
+                $signaturePath = $data['recipient_signature']->store('supplier/deliveries/signatures', 'public');
+                $updateData['recipient_signature'] = $signaturePath;
+            }
+
+            // Handle delivery photos upload
+            $deliveryPhotos = [];
+            if (!empty($data['delivery_photos'])) {
+                foreach ($data['delivery_photos'] as $photo) {
+                    if ($photo->isValid()) {
+                        $photoPath = $photo->store('supplier/deliveries/photos', 'public');
+                        $deliveryPhotos[] = $photoPath;
+                    }
+                }
+                $updateData['delivery_photos'] = $deliveryPhotos;
+            }
+
+            $order->update($updateData);
+
+            // Create delivery proof record
+            DeliveryProof::create([
+                'purchase_order_id' => $order->id,
+                'recipient_name' => $data['recipient_name'] ?? null,
+                'recipient_signature' => $signaturePath,
+                'delivery_photos' => $deliveryPhotos,
+                'condition_confirmation' => $data['condition_confirmation'] ?? null,
+                'acknowledgment_received_at' => now(),
             ]);
 
             $this->notificationService->notifyOrderStatusChanged($order, 'delivered');

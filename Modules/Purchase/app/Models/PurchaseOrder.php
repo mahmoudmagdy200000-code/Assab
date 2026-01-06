@@ -61,6 +61,13 @@ class PurchaseOrder extends Model
         'driver_name',
         'driver_contact',
         'vehicle_number',
+        'driver_photo',
+        'gps_tracking_url',
+        'delivery_route',
+        'recipient_name',
+        'recipient_signature',
+        'delivery_photos',
+        'condition_confirmation',
         'temperature',
         'cooling_status',
         'ready_time',
@@ -82,6 +89,8 @@ class PurchaseOrder extends Model
         'processing_time' => ProcessingTime::class,
         'priority' => Priority::class,
         'notification_channels' => 'array',
+        'delivery_route' => 'array',
+        'delivery_photos' => 'array',
         'preferred_delivery_date' => 'date',
         'latest_delivery_date' => 'date',
         'expected_delivery_at' => 'datetime',
@@ -217,6 +226,16 @@ class PurchaseOrder extends Model
     public function documents(): MorphMany
     {
         return $this->morphMany(OrderDocument::class, 'documentable');
+    }
+
+    public function deliveryProof(): HasOne
+    {
+        return $this->hasOne(\Modules\Supplier\Models\DeliveryProof::class, 'purchase_order_id');
+    }
+
+    public function feedbacks(): HasMany
+    {
+        return $this->hasMany(\Modules\Supplier\Models\SupplierFeedback::class, 'purchase_order_id');
     }
 
     // Accessors

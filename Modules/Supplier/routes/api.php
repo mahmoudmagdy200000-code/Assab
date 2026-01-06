@@ -82,6 +82,10 @@ Route::middleware(['auth:sanctum', \Modules\Supplier\Http\Middleware\SupplierMid
     Route::post('/fulfillment/orders/{id}/complete', [\Modules\Supplier\Http\Controllers\OrderFulfillmentController::class, 'completeDelivery']);
     Route::post('/fulfillment/orders/{id}/submit-invoice', [\Modules\Supplier\Http\Controllers\OrderFulfillmentController::class, 'submitInvoice']);
 
+    // Delivery Proofs
+    Route::get('/fulfillment/orders/{id}/delivery-proof', [\Modules\Supplier\Http\Controllers\DeliveryProofController::class, 'show']);
+    Route::put('/fulfillment/orders/{id}/delivery-proof', [\Modules\Supplier\Http\Controllers\DeliveryProofController::class, 'update']);
+
     // Inventory
     Route::get('/inventory/products', [\Modules\Supplier\Http\Controllers\InventoryController::class, 'getProducts']);
     Route::post('/inventory/products', [\Modules\Supplier\Http\Controllers\InventoryController::class, 'createProduct']);
@@ -95,11 +99,15 @@ Route::middleware(['auth:sanctum', \Modules\Supplier\Http\Middleware\SupplierMid
     Route::post('/communications/messages/{id}/read', [\Modules\Supplier\Http\Controllers\CommunicationController::class, 'markAsRead']);
     Route::get('/communications/notifications', [\Modules\Supplier\Http\Controllers\CommunicationController::class, 'getNotifications']);
     Route::post('/communications/notifications/{id}/read', [\Modules\Supplier\Http\Controllers\CommunicationController::class, 'markNotificationAsRead']);
+    Route::get('/communications/emergency-contacts', [\Modules\Supplier\Http\Controllers\CommunicationController::class, 'getEmergencyContacts']);
+    Route::post('/communications/emergency-contacts', [\Modules\Supplier\Http\Controllers\CommunicationController::class, 'createEmergencyContact']);
+    Route::post('/communications/escalate', [\Modules\Supplier\Http\Controllers\CommunicationController::class, 'escalateIssue']);
 
     // Analytics
     Route::get('/analytics/orders', [\Modules\Supplier\Http\Controllers\AnalyticsController::class, 'getOrderStatistics']);
     Route::get('/analytics/financial', [\Modules\Supplier\Http\Controllers\AnalyticsController::class, 'getFinancialReport']);
     Route::get('/analytics/performance', [\Modules\Supplier\Http\Controllers\AnalyticsController::class, 'getPerformanceMetrics']);
+    Route::get('/analytics/customer-feedback', [\Modules\Supplier\Http\Controllers\AnalyticsController::class, 'getCustomerFeedback']);
 
     // Reporting
     Route::get('/reports/performance', [\Modules\Supplier\Http\Controllers\ReportingController::class, 'generatePerformanceReport']);

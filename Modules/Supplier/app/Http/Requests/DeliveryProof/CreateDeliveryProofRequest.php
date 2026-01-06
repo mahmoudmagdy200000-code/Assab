@@ -1,10 +1,10 @@
 <?php
 
-namespace Modules\Supplier\Http\Requests\Fulfillment;
+namespace Modules\Supplier\Http\Requests\DeliveryProof;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class CompleteDeliveryRequest extends FormRequest
+class CreateDeliveryProofRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -18,7 +18,6 @@ class CompleteDeliveryRequest extends FormRequest
             'recipient_signature' => 'required|file|image|mimes:jpeg,jpg,png|max:5120',
             'delivery_photos' => 'required|array|min:1',
             'delivery_photos.*' => 'required|file|image|mimes:jpeg,jpg,png|max:5120',
-            'delivery_notes' => 'nullable|string|max:1000',
             'condition_confirmation' => 'required|string|max:2000',
         ];
     }
