@@ -48,10 +48,12 @@ class OrderFulfillmentService
                         ->first();
 
                     if ($item) {
-                        // Update item status to preparing (or confirmed if not already)
-                        if ($item->status === OrderItemStatus::CONFIRMED || $item->status === OrderItemStatus::PENDING) {
+                        // Update item status to preparing
+                        if ($item->status === OrderItemStatus::CONFIRMED || 
+                            $item->status === OrderItemStatus::PENDING ||
+                            $item->status->isConfirmed()) {
                             $item->update([
-                                'status' => OrderItemStatus::CONFIRMED,
+                                'status' => OrderItemStatus::PREPARING,
                             ]);
                         }
 
@@ -134,10 +136,10 @@ class OrderFulfillmentService
 
             $order->update($updateData);
 
-            // Update items that are in preparing status (confirmed status)
+            // Update items that are in preparing status to confirmed (ready for delivery)
             $order->items()
-                ->where('status', OrderItemStatus::CONFIRMED)
-                ->update(['status' => OrderItemStatus::CONFIRMED]); // Keep confirmed, or change if needed
+                ->where('status', OrderItemStatus::PREPARING)
+                ->update(['status' => OrderItemStatus::CONFIRMED]);
 
             $this->notificationService->notifyOrderStatusChanged($order, 'on_the_way');
 

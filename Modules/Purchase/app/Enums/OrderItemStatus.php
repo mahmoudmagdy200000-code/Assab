@@ -18,6 +18,9 @@ enum OrderItemStatus: string
     case CONFIRMED_NEED_TIME = 'confirmed_need_time';
     case CONFIRMED_ALTERNATIVE_PRODUCT = 'confirmed_alternative_product';
 
+        // Execution Phase Statuses
+    case PREPARING = 'preparing';
+
         // Cancellation Statuses
     case CANCELLED = 'cancelled';
     case CANCELLED_BY_BRANCH = 'cancelled_by_branch';
@@ -41,6 +44,7 @@ enum OrderItemStatus: string
             self::PARTIAL_CONFIRMATION => 'Partial Confirmation',
             self::CONFIRMED_NEED_TIME => 'Confirmed (Need Time)',
             self::CONFIRMED_ALTERNATIVE_PRODUCT => 'Confirmed (Alternative Product)',
+            self::PREPARING => 'Preparing',
             self::CANCELLED => 'Cancelled',
             self::CANCELLED_BY_BRANCH => 'Cancelled by Branch',
             self::CANCELLED_BY_SUPPLIER => 'Cancelled by Supplier',
@@ -63,6 +67,7 @@ enum OrderItemStatus: string
             self::PARTIAL_CONFIRMATION => '#8B5CF6',
             self::CONFIRMED_NEED_TIME => '#10B981',
             self::CONFIRMED_ALTERNATIVE_PRODUCT => '#10B981',
+            self::PREPARING => '#3B82F6',
             self::CANCELLED => '#EF4444',
             self::CANCELLED_BY_BRANCH => '#EF4444',
             self::CANCELLED_BY_SUPPLIER => '#EF4444',
@@ -132,6 +137,14 @@ enum OrderItemStatus: string
             self::CONFIRMED_NEED_TIME,
             self::CONFIRMED_ALTERNATIVE_PRODUCT,
         ]);
+    }
+
+    /**
+     * Check if item is in preparing status
+     */
+    public function isPreparing(): bool
+    {
+        return $this === self::PREPARING;
     }
 
     /**
