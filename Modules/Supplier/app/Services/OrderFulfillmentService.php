@@ -239,9 +239,16 @@ class OrderFulfillmentService
 
             $order->update($updateData);
 
-            // Update items status to delivered
+            // Update items status to delivered (all items that are not already delivered, cancelled, or rejected)
             $order->items()
-                ->whereIn('status', [OrderItemStatus::CONFIRMED, OrderItemStatus::PREPARING])
+                ->whereNotIn('status', [
+                    OrderItemStatus::DELIVERED,
+                    OrderItemStatus::CANCELLED,
+                    OrderItemStatus::CANCELLED_BY_BRANCH,
+                    OrderItemStatus::CANCELLED_BY_SUPPLIER,
+                    OrderItemStatus::CANCELED_MODIFICATION,
+                    OrderItemStatus::REJECTED,
+                ])
                 ->update(['status' => OrderItemStatus::DELIVERED]);
 
             // Create delivery proof record
