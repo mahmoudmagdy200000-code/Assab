@@ -14,12 +14,12 @@ class CompleteDeliveryRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'recipient_name' => 'required|string|max:255',
-            'recipient_signature' => 'required|file|image|mimes:jpeg,jpg,png|max:5120',
+            // 'recipient_name' => 'required|string|max:255',
+            // 'recipient_signature' => 'required|file|image|mimes:jpeg,jpg,png|max:5120',
             'delivery_photos' => 'required|array|min:1',
             'delivery_photos.*' => 'required|file|image|mimes:jpeg,jpg,png|max:5120',
-            'delivery_notes' => 'nullable|string|max:1000',
-            'condition_confirmation' => 'required|string|max:2000',
+            // 'delivery_notes' => 'nullable|string|max:1000',
+            // 'condition_confirmation' => 'required|string|max:2000',
         ];
     }
 }
