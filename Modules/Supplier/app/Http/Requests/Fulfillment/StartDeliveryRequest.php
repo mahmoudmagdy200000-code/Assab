@@ -15,17 +15,10 @@ class StartDeliveryRequest extends FormRequest
     {
         return [
             'driver_name' => 'required|string|max:255',
-            'driver_contact' => 'required|string|max:20',
+            'vehicle_number' => 'required|string|max:50',
+            'expected_delivery_at' => 'required|date|after:now',
             'driver_photo' => 'nullable|file|image|mimes:jpeg,jpg,png|max:5120',
-            'vehicle_number' => 'nullable|string|max:50',
-            'transport_method' => 'nullable|string|max:100',
-            'estimated_transport_hours' => 'nullable|integer|min:1',
-            'expected_delivery_at' => 'nullable|date|after:now',
-            'gps_tracking_url' => 'nullable|string|url|max:500',
-            'delivery_route' => 'nullable|array',
-            'delivery_route.*.latitude' => 'required_with:delivery_route|numeric',
-            'delivery_route.*.longitude' => 'required_with:delivery_route|numeric',
-            'delivery_route.*.timestamp' => 'nullable|date',
+            'notes' => 'nullable|string|max:1000',
         ];
     }
 }

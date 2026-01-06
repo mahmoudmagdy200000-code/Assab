@@ -13,11 +13,23 @@ class ReportDelayRequest extends FormRequest
 
     public function rules(): array
     {
-        return [
-            'reason' => 'required|string|in:traffic,vehicle_issues,bad_weather,loading_delays,other',
-            'explanation' => 'required|string|max:1000',
-            'updated_eta' => 'required|date|after:now',
+        $rules = [
+            'message' => 'required|string|max:1000',
+            'new_expected_delivery_date_type' => 'required|string|in:today,custom',
+            'photo' => 'nullable|file|image|mimes:jpeg,jpg,png|max:5120',
         ];
+
+        // If type is today, require new_time
+        if ($this->input('new_expected_delivery_date_type') === 'today') {
+            $rules['new_time'] = 'required|date_format:H:i';
+        }
+
+        // If type is custom, require new_time and new_date
+        if ($this->input('new_expected_delivery_date_type') === 'custom') {
+            $rules['new_time'] = 'required|date_format:H:i';
+            $rules['new_date'] = 'required|date|after_or_equal:today';
+        }
+
+        return $rules;
     }
 }
-

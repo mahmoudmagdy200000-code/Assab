@@ -24,27 +24,48 @@ class OrderFulfillmentController extends BaseController
     /**
      * Start order preparation
      */
-    public function startPreparation(StartPreparationRequest $request, string $id): JsonResponse
+    public function startPreparation(StartPreparationRequest $request): JsonResponse
     {
         try {
             $supplier = auth()->user();
-            $order = PurchaseOrder::findOrFail($id);
-
             $data = $request->validated();
             
-            // Handle file uploads
-            if ($request->hasFile('quality_documents')) {
-                $data['quality_documents'] = $request->file('quality_documents');
+            $order = PurchaseOrder::findOrFail($data['order_id']);
+
+            // Handle items with files
+            // In formdata, files come as items[0][file], items[1][file], etc.
+            $items = [];
+            $allFiles = $request->allFiles();
+            
+            // Get items from request
+            $itemsInput = $request->input('items', []);
+            if (is_array($itemsInput)) {
+                foreach ($itemsInput as $index => $itemData) {
+                    if (is_array($itemData) && isset($itemData['id'])) {
+                        $item = [
+                            'id' => $itemData['id'],
+                            'file' => null,
+                        ];
+                        
+                        // Try to get file using different formats
+                        $fileKey1 = "items.{$index}.file";
+                        $fileKey2 = "items[{$index}][file]";
+                        
+                        if (isset($allFiles[$fileKey1])) {
+                            $item['file'] = $allFiles[$fileKey1];
+                        } elseif (isset($allFiles[$fileKey2])) {
+                            $item['file'] = $allFiles[$fileKey2];
+                        } elseif ($request->hasFile($fileKey1)) {
+                            $item['file'] = $request->file($fileKey1);
+                        } elseif ($request->hasFile($fileKey2)) {
+                            $item['file'] = $request->file($fileKey2);
+                        }
+                        
+                        $items[] = $item;
+                    }
+                }
             }
-            if ($request->hasFile('testing_reports')) {
-                $data['testing_reports'] = $request->file('testing_reports');
-            }
-            if ($request->hasFile('compliance_documents')) {
-                $data['compliance_documents'] = $request->file('compliance_documents');
-            }
-            if ($request->hasFile('batch_information')) {
-                $data['batch_information'] = $request->file('batch_information');
-            }
+            $data['items'] = $items;
 
             $order = $this->fulfillmentService->startPreparation($order, $supplier, $data);
 
@@ -90,6 +111,10 @@ class OrderFulfillmentController extends BaseController
             if ($request->hasFile('driver_photo')) {
                 $data['driver_photo'] = $request->file('driver_photo');
             }
+            // Add notes if provided
+            if ($request->has('notes')) {
+                $data['notes'] = $request->input('notes');
+            }
 
             $order = $this->fulfillmentService->startDelivery($order, $supplier, $data);
 
@@ -111,7 +136,12 @@ class OrderFulfillmentController extends BaseController
             $supplier = auth()->user();
             $order = PurchaseOrder::findOrFail($id);
 
-            $order = $this->fulfillmentService->reportDelay($order, $supplier, $request->validated());
+            $data = $request->validated();
+            if ($request->hasFile('photo')) {
+                $data['photo'] = $request->file('photo');
+            }
+
+            $order = $this->fulfillmentService->reportDelay($order, $supplier, $data);
 
             return $this->successResponse(
                 new OrderResource($order),

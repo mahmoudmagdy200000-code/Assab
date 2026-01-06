@@ -75,7 +75,7 @@ Route::middleware(['auth:sanctum', \Modules\Supplier\Http\Middleware\SupplierMid
     });
 
     // Order Fulfillment
-    Route::post('/fulfillment/orders/{id}/start-preparation', [\Modules\Supplier\Http\Controllers\OrderFulfillmentController::class, 'startPreparation']);
+    Route::post('/fulfillment/start-preparation', [\Modules\Supplier\Http\Controllers\OrderFulfillmentController::class, 'startPreparation']);
     Route::put('/fulfillment/orders/{id}/update-preparation', [\Modules\Supplier\Http\Controllers\OrderFulfillmentController::class, 'updatePreparation']);
     Route::post('/fulfillment/orders/{id}/start-delivery', [\Modules\Supplier\Http\Controllers\OrderFulfillmentController::class, 'startDelivery']);
     Route::post('/fulfillment/orders/{id}/report-delay', [\Modules\Supplier\Http\Controllers\OrderFulfillmentController::class, 'reportDelay']);

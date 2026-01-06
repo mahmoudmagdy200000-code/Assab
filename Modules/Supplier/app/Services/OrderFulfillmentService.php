@@ -2,11 +2,14 @@
 
 namespace Modules\Supplier\Services;
 
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Supplier\Models\DeliveryProof;
 use Modules\Supplier\Models\Supplier;
 use Modules\Supplier\Models\SupplierQualityDocument;
@@ -31,91 +34,46 @@ class OrderFulfillmentService
         }
 
         return DB::transaction(function () use ($order, $data, $supplier) {
+            // Update order status
             $order->update([
                 'status' => OrderStatus::PREPARING,
                 'preparation_started_at' => now(),
-                'message' => $data['message'] ?? null,
             ]);
 
-            // Upload quality documents if provided
-            if (!empty($data['quality_documents'])) {
-                foreach ($data['quality_documents'] as $file) {
-                    if ($file && $file->isValid()) {
-                        $filePath = $file->store('supplier/quality-documents', 'public');
-                        $fileExtension = $file->getClientOriginalExtension();
-                        
-                        SupplierQualityDocument::create([
-                            'supplier_id' => $supplier->id,
-                            'order_id' => $order->id,
-                            'document_type' => 'certificate',
-                            'title' => 'Quality Certificate - ' . now()->format('Y-m-d H:i:s'),
-                            'file_path' => $filePath,
-                            'file_name' => $file->getClientOriginalName(),
-                            'file_type' => $fileExtension,
-                        ]);
+            // Update items status and upload files
+            if (!empty($data['items'])) {
+                foreach ($data['items'] as $itemData) {
+                    $item = PurchaseOrderItem::where('id', $itemData['id'])
+                        ->where('purchase_order_id', $order->id)
+                        ->first();
+
+                    if ($item) {
+                        // Update item status to preparing (or confirmed if not already)
+                        if ($item->status === OrderItemStatus::CONFIRMED || $item->status === OrderItemStatus::PENDING) {
+                            $item->update([
+                                'status' => OrderItemStatus::CONFIRMED,
+                            ]);
+                        }
+
+                        // Upload file for this item if provided
+                        if (isset($itemData['file']) && is_object($itemData['file']) && method_exists($itemData['file'], 'isValid') && $itemData['file']->isValid()) {
+                            $filePath = $itemData['file']->store('supplier/order-items', 'public');
+                            $fileExtension = $itemData['file']->getClientOriginalExtension();
+
+                            SupplierQualityDocument::create([
+                                'supplier_id' => $supplier->id,
+                                'order_id' => $order->id,
+                                'document_type' => 'certificate',
+                                'title' => 'Item Document - ' . $item->item_name,
+                                'file_path' => $filePath,
+                                'file_name' => $itemData['file']->getClientOriginalName(),
+                                'file_type' => $fileExtension,
+                            ]);
+                        }
                     }
                 }
             }
 
-            // Upload testing reports if provided
-            if (!empty($data['testing_reports'])) {
-                foreach ($data['testing_reports'] as $file) {
-                    if ($file && $file->isValid()) {
-                        $filePath = $file->store('supplier/testing-reports', 'public');
-                        $fileExtension = $file->getClientOriginalExtension();
-                        
-                        SupplierQualityDocument::create([
-                            'supplier_id' => $supplier->id,
-                            'order_id' => $order->id,
-                            'document_type' => 'test_report',
-                            'title' => 'Testing Report - ' . now()->format('Y-m-d H:i:s'),
-                            'file_path' => $filePath,
-                            'file_name' => $file->getClientOriginalName(),
-                            'file_type' => $fileExtension,
-                        ]);
-                    }
-                }
-            }
-
-            // Upload compliance documents if provided
-            if (!empty($data['compliance_documents'])) {
-                foreach ($data['compliance_documents'] as $file) {
-                    if ($file && $file->isValid()) {
-                        $filePath = $file->store('supplier/compliance-documents', 'public');
-                        $fileExtension = $file->getClientOriginalExtension();
-                        
-                        SupplierQualityDocument::create([
-                            'supplier_id' => $supplier->id,
-                            'order_id' => $order->id,
-                            'document_type' => 'compliance_doc',
-                            'title' => 'Compliance Document - ' . now()->format('Y-m-d H:i:s'),
-                            'file_path' => $filePath,
-                            'file_name' => $file->getClientOriginalName(),
-                            'file_type' => $fileExtension,
-                        ]);
-                    }
-                }
-            }
-
-            // Upload batch information if provided
-            if (!empty($data['batch_information'])) {
-                foreach ($data['batch_information'] as $file) {
-                    if ($file && $file->isValid()) {
-                        $filePath = $file->store('supplier/batch-information', 'public');
-                        $fileExtension = $file->getClientOriginalExtension();
-                        
-                        SupplierQualityDocument::create([
-                            'supplier_id' => $supplier->id,
-                            'order_id' => $order->id,
-                            'document_type' => 'batch_info',
-                            'title' => 'Batch Information - ' . now()->format('Y-m-d H:i:s'),
-                            'file_path' => $filePath,
-                            'file_name' => $file->getClientOriginalName(),
-                            'file_type' => $fileExtension,
-                        ]);
-                    }
-                }
-            }
 
             $this->notificationService->notifyOrderStatusChanged($order, 'preparing');
 
@@ -153,22 +111,19 @@ class OrderFulfillmentService
             throw new \Exception('Unauthorized access to this order');
         }
 
-        if (!in_array($order->status, [OrderStatus::PREPARING, OrderStatus::CONFIRMED])) {
-            throw new \Exception('Order must be preparing or confirmed before starting delivery');
+        if ($order->status !== OrderStatus::PREPARING) {
+            throw new \Exception('Order must be in preparing status before starting delivery');
         }
 
         return DB::transaction(function () use ($order, $data, $supplier) {
+            // Update order status
             $updateData = [
                 'status' => OrderStatus::ON_THE_WAY,
                 'dispatched_at' => now(),
                 'driver_name' => $data['driver_name'] ?? null,
-                'driver_contact' => $data['driver_contact'] ?? null,
                 'vehicle_number' => $data['vehicle_number'] ?? null,
-                'transport_method' => $data['transport_method'] ?? null,
-                'estimated_transport_hours' => $data['estimated_transport_hours'] ?? null,
-                'expected_delivery_at' => $data['expected_delivery_at'] ?? now()->addHours($data['estimated_transport_hours'] ?? 2),
-                'gps_tracking_url' => $data['gps_tracking_url'] ?? null,
-                'delivery_route' => $data['delivery_route'] ?? null,
+                'expected_delivery_at' => $data['expected_delivery_at'] ?? null,
+                'message' => $data['notes'] ?? null,
             ];
 
             // Handle driver photo upload
@@ -178,6 +133,11 @@ class OrderFulfillmentService
             }
 
             $order->update($updateData);
+
+            // Update items that are in preparing status (confirmed status)
+            $order->items()
+                ->where('status', OrderItemStatus::CONFIRMED)
+                ->update(['status' => OrderItemStatus::CONFIRMED]); // Keep confirmed, or change if needed
 
             $this->notificationService->notifyOrderStatusChanged($order, 'on_the_way');
 
@@ -194,20 +154,50 @@ class OrderFulfillmentService
             throw new \Exception('Unauthorized access to this order');
         }
 
-        if ($order->status !== OrderStatus::ON_THE_WAY) {
-            throw new \Exception('Order must be out for delivery');
+        // Allow delay reporting in both PREPARING and ON_THE_WAY statuses
+        if (!in_array($order->status, [OrderStatus::PREPARING, OrderStatus::ON_THE_WAY])) {
+            throw new \Exception('Order must be in preparing or delivery status to report delay');
         }
 
-        $order->update([
-            'status' => OrderStatus::DELAYED,
-            'delay_reason' => $data['reason'],
-            'expected_delivery_at' => $data['updated_eta'] ?? $order->expected_delivery_at,
-            'message' => $data['explanation'] ?? null,
-        ]);
+        return DB::transaction(function () use ($order, $data) {
+            // Calculate new expected delivery date based on type
+            $newExpectedDeliveryAt = null;
 
-        $this->notificationService->notifyOrderStatusChanged($order, 'delayed');
+            if ($data['new_expected_delivery_date_type'] === 'today') {
+                // Use today's date with new_time
+                $time = Carbon::parse($data['new_time']);
+                $newExpectedDeliveryAt = Carbon::today()->setTime($time->hour, $time->minute);
+            } elseif ($data['new_expected_delivery_date_type'] === 'custom') {
+                // Use custom date and time
+                $date = Carbon::parse($data['new_date']);
+                $time = Carbon::parse($data['new_time']);
+                $newExpectedDeliveryAt = $date->setTime($time->hour, $time->minute);
+            }
 
-        return $order->fresh();
+            $updateData = [
+                'status' => OrderStatus::DELAYED,
+                'delay_reason' => $data['message'],
+                'expected_delivery_at' => $newExpectedDeliveryAt,
+                'message' => $data['message'],
+            ];
+
+            // Handle photo upload if provided
+            if (isset($data['photo']) && is_object($data['photo']) && method_exists($data['photo'], 'isValid') && $data['photo']->isValid()) {
+                $photoPath = $data['photo']->store('supplier/delays', 'public');
+                // Store photo path in delay_reason or create a separate field if needed
+                // For now, we'll store it in a JSON format in delay_reason or message
+                $updateData['delay_reason'] = json_encode([
+                    'message' => $data['message'],
+                    'photo' => $photoPath,
+                ]);
+            }
+
+            $order->update($updateData);
+
+            $this->notificationService->notifyOrderStatusChanged($order, 'delayed');
+
+            return $order->fresh();
+        });
     }
 
     /**

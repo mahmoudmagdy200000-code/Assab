@@ -20,7 +20,7 @@
             "name": "Order Fulfillment - Enhanced",
             "item": [
                 {
-                    "name": "Start Preparation (Enhanced)",
+                    "name": "Start Preparation",
                     "request": {
                         "method": "POST",
                         "header": [
@@ -37,60 +37,82 @@
                             "mode": "formdata",
                             "formdata": [
                                 {
-                                    "key": "message",
-                                    "value": "Starting order preparation",
-                                    "type": "text"
+                                    "key": "order_id",
+                                    "value": "uuid-here",
+                                    "type": "text",
+                                    "description": "Order ID (UUID)",
+                                    "required": true
                                 },
                                 {
-                                    "key": "estimated_completion_time",
-                                    "value": "2025-12-26 14:00:00",
-                                    "type": "text"
+                                    "key": "items[0][id]",
+                                    "value": "item-uuid-1",
+                                    "type": "text",
+                                    "description": "First item ID"
                                 },
                                 {
-                                    "key": "quality_documents[]",
+                                    "key": "items[0][file]",
                                     "type": "file",
-                                    "src": []
+                                    "src": [],
+                                    "description": "File for first item"
                                 },
                                 {
-                                    "key": "testing_reports[]",
-                                    "type": "file",
-                                    "src": []
+                                    "key": "items[1][id]",
+                                    "value": "item-uuid-2",
+                                    "type": "text",
+                                    "description": "Second item ID"
                                 },
                                 {
-                                    "key": "compliance_documents[]",
+                                    "key": "items[1][file]",
                                     "type": "file",
-                                    "src": []
-                                },
-                                {
-                                    "key": "batch_information[]",
-                                    "type": "file",
-                                    "src": []
+                                    "src": [],
+                                    "description": "File for second item"
                                 }
                             ]
                         },
                         "url": {
-                            "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/start-preparation",
+                            "raw": "{{base_url}}/v1/supplier/fulfillment/start-preparation",
                             "host": ["{{base_url}}"],
                             "path": [
                                 "v1",
                                 "supplier",
                                 "fulfillment",
-                                "orders",
-                                "{order_id}",
                                 "start-preparation"
-                            ],
-                            "variable": [
-                                {
-                                    "key": "order_id",
-                                    "value": ""
-                                }
                             ]
                         },
-                        "description": "Start order preparation with quality documents, testing reports, compliance documents, and batch information"
-                    }
+                        "description": "Start order preparation. Send order_id and array of items with id and file for each item. Updates order status to PREPARING and items status to CONFIRMED."
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "POST",
+                                "header": [],
+                                "url": {
+                                    "raw": "{{base_url}}/v1/supplier/fulfillment/start-preparation",
+                                    "host": ["{{base_url}}"],
+                                    "path": [
+                                        "v1",
+                                        "supplier",
+                                        "fulfillment",
+                                        "start-preparation"
+                                    ]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Order preparation started successfully\",\n    \"data\": {\n        \"id\": \"uuid\",\n        \"order_number\": \"DS-20251226-ABCD\",\n        \"status\": \"preparing\",\n        \"status_label\": \"Preparing\",\n        \"preparation_started_at\": \"2025-12-26T14:00:00Z\"\n    }\n}"
+                        }
+                    ]
                 },
                 {
-                    "name": "Start Delivery (Enhanced)",
+                    "name": "Start Delivery",
                     "request": {
                         "method": "POST",
                         "header": [
@@ -110,50 +132,34 @@
                                     "key": "driver_name",
                                     "value": "Ahmed Ali",
                                     "type": "text",
+                                    "description": "Driver name (required)",
                                     "required": true
                                 },
                                 {
-                                    "key": "driver_contact",
-                                    "value": "+966501234567",
+                                    "key": "vehicle_number",
+                                    "value": "ABC-1234",
                                     "type": "text",
+                                    "description": "Vehicle number (required)",
+                                    "required": true
+                                },
+                                {
+                                    "key": "expected_delivery_at",
+                                    "value": "2025-12-26 16:00:00",
+                                    "type": "text",
+                                    "description": "Expected delivery date and time (required)",
                                     "required": true
                                 },
                                 {
                                     "key": "driver_photo",
                                     "type": "file",
                                     "src": [],
-                                    "description": "Driver photo (jpeg, jpg, png, max 5MB)"
+                                    "description": "Driver photo (optional, jpeg, jpg, png, max 5MB)"
                                 },
                                 {
-                                    "key": "vehicle_number",
-                                    "value": "ABC-1234",
-                                    "type": "text"
-                                },
-                                {
-                                    "key": "transport_method",
-                                    "value": "Truck",
-                                    "type": "text"
-                                },
-                                {
-                                    "key": "estimated_transport_hours",
-                                    "value": "2",
-                                    "type": "text"
-                                },
-                                {
-                                    "key": "expected_delivery_at",
-                                    "value": "2025-12-26 16:00:00",
-                                    "type": "text"
-                                },
-                                {
-                                    "key": "gps_tracking_url",
-                                    "value": "https://tracking.example.com/order-123",
-                                    "type": "text"
-                                },
-                                {
-                                    "key": "delivery_route",
-                                    "value": "[{\"latitude\": 24.7136, \"longitude\": 46.6753, \"timestamp\": \"2025-12-26T14:00:00Z\"}]",
+                                    "key": "notes",
+                                    "value": "Delivery notes",
                                     "type": "text",
-                                    "description": "JSON array of coordinates"
+                                    "description": "Optional delivery notes"
                                 }
                             ]
                         },
@@ -175,8 +181,39 @@
                                 }
                             ]
                         },
-                        "description": "Start delivery with driver photo, GPS tracking, and delivery route"
-                    }
+                        "description": "Start delivery. Updates order status to ON_THE_WAY and items that are in PREPARING status. Requires: driver_name, vehicle_number, expected_delivery_at. Optional: driver_photo, notes."
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response",
+                            "originalRequest": {
+                                "method": "POST",
+                                "header": [],
+                                "url": {
+                                    "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/start-delivery",
+                                    "host": ["{{base_url}}"],
+                                    "path": [
+                                        "v1",
+                                        "supplier",
+                                        "fulfillment",
+                                        "orders",
+                                        "{order_id}",
+                                        "start-delivery"
+                                    ]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Delivery started successfully\",\n    \"data\": {\n        \"id\": \"uuid\",\n        \"order_number\": \"DS-20251226-ABCD\",\n        \"status\": \"on_the_way\",\n        \"status_label\": \"On The Way\",\n        \"driver_name\": \"Ahmed Ali\",\n        \"vehicle_number\": \"ABC-1234\",\n        \"expected_delivery_at\": \"2025-12-26T16:00:00Z\",\n        \"dispatched_at\": \"2025-12-26T14:00:00Z\"\n    }\n}"
+                        }
+                    ]
                 },
                 {
                     "name": "Complete Delivery (Enhanced)",
@@ -248,6 +285,183 @@
                         },
                         "description": "Complete delivery with recipient acknowledgment, digital signature, delivery photos, and condition confirmation"
                     }
+                },
+                {
+                    "name": "Report Delay",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "message",
+                                    "value": "Vehicle broke down, need to reschedule delivery",
+                                    "type": "text",
+                                    "description": "Delay message (required)",
+                                    "required": true
+                                },
+                                {
+                                    "key": "new_expected_delivery_date_type",
+                                    "value": "today",
+                                    "type": "text",
+                                    "description": "Type: 'today' or 'custom' (required)",
+                                    "required": true
+                                },
+                                {
+                                    "key": "new_time",
+                                    "value": "18:00",
+                                    "type": "text",
+                                    "description": "New delivery time in HH:mm format (required for both types)"
+                                },
+                                {
+                                    "key": "new_date",
+                                    "value": "2025-12-27",
+                                    "type": "text",
+                                    "description": "New delivery date (required only if type is 'custom')"
+                                },
+                                {
+                                    "key": "photo",
+                                    "type": "file",
+                                    "src": [],
+                                    "description": "Photo evidence of delay (optional, jpeg, jpg, png, max 5MB)"
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/report-delay",
+                            "host": ["{{base_url}}"],
+                            "path": [
+                                "v1",
+                                "supplier",
+                                "fulfillment",
+                                "orders",
+                                "{order_id}",
+                                "report-delay"
+                            ],
+                            "variable": [
+                                {
+                                    "key": "order_id",
+                                    "value": ""
+                                }
+                            ]
+                        },
+                        "description": "Report delivery delay. Works when order is in PREPARING or ON_THE_WAY status. If type is 'today', only new_time is required. If type is 'custom', both new_time and new_date are required. Photo is optional."
+                    },
+                    "response": [
+                        {
+                            "name": "Success Response (Today)",
+                            "originalRequest": {
+                                "method": "POST",
+                                "header": [],
+                                "body": {
+                                    "mode": "formdata",
+                                    "formdata": [
+                                        {
+                                            "key": "message",
+                                            "value": "Vehicle broke down",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "new_expected_delivery_date_type",
+                                            "value": "today",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "new_time",
+                                            "value": "18:00",
+                                            "type": "text"
+                                        }
+                                    ]
+                                },
+                                "url": {
+                                    "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/report-delay",
+                                    "host": ["{{base_url}}"],
+                                    "path": [
+                                        "v1",
+                                        "supplier",
+                                        "fulfillment",
+                                        "orders",
+                                        "{order_id}",
+                                        "report-delay"
+                                    ]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Delay reported successfully\",\n    \"data\": {\n        \"id\": \"uuid\",\n        \"order_number\": \"DS-20251226-ABCD\",\n        \"status\": \"delayed\",\n        \"status_label\": \"Delayed\",\n        \"delay_reason\": \"Vehicle broke down\",\n        \"expected_delivery_at\": \"2025-12-26T18:00:00Z\",\n        \"message\": \"Vehicle broke down\"\n    }\n}"
+                        },
+                        {
+                            "name": "Success Response (Custom)",
+                            "originalRequest": {
+                                "method": "POST",
+                                "header": [],
+                                "body": {
+                                    "mode": "formdata",
+                                    "formdata": [
+                                        {
+                                            "key": "message",
+                                            "value": "Weather conditions",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "new_expected_delivery_date_type",
+                                            "value": "custom",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "new_time",
+                                            "value": "14:00",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "new_date",
+                                            "value": "2025-12-27",
+                                            "type": "text"
+                                        }
+                                    ]
+                                },
+                                "url": {
+                                    "raw": "{{base_url}}/v1/supplier/fulfillment/orders/{order_id}/report-delay",
+                                    "host": ["{{base_url}}"],
+                                    "path": [
+                                        "v1",
+                                        "supplier",
+                                        "fulfillment",
+                                        "orders",
+                                        "{order_id}",
+                                        "report-delay"
+                                    ]
+                                }
+                            },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": "{\n    \"success\": true,\n    \"message\": \"Delay reported successfully\",\n    \"data\": {\n        \"id\": \"uuid\",\n        \"order_number\": \"DS-20251226-ABCD\",\n        \"status\": \"delayed\",\n        \"status_label\": \"Delayed\",\n        \"delay_reason\": \"Weather conditions\",\n        \"expected_delivery_at\": \"2025-12-27T14:00:00Z\",\n        \"message\": \"Weather conditions\"\n    }\n}"
+                        }
+                    ]
                 }
             ]
         },
