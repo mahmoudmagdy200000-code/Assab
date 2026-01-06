@@ -136,10 +136,10 @@ class OrderFulfillmentService
 
             $order->update($updateData);
 
-            // Update items that are in preparing status to confirmed (ready for delivery)
+            // Update items status to on_the_way
             $order->items()
-                ->where('status', OrderItemStatus::PREPARING)
-                ->update(['status' => OrderItemStatus::CONFIRMED]);
+                ->whereIn('status', [OrderItemStatus::PREPARING, OrderItemStatus::CONFIRMED])
+                ->update(['status' => OrderItemStatus::ON_THE_WAY]);
 
             $this->notificationService->notifyOrderStatusChanged($order, 'on_the_way');
 
@@ -196,7 +196,7 @@ class OrderFulfillmentService
 
             // Update items status to delayed
             $order->items()
-                ->whereIn('status', [OrderItemStatus::CONFIRMED, OrderItemStatus::PREPARING])
+                ->whereIn('status', [OrderItemStatus::CONFIRMED, OrderItemStatus::PREPARING, OrderItemStatus::ON_THE_WAY])
                 ->update(['status' => OrderItemStatus::DELAYED]);
 
             $this->notificationService->notifyOrderStatusChanged($order, 'delayed');
