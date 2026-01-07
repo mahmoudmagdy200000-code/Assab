@@ -107,16 +107,9 @@ class DirectSupplierOrderResource extends JsonResource
                     ];
                 }),
             ],
-            'canceled' => [
-                'cancellation_reason' => $this->rejection_reason, // Using rejection_reason for cancellation
-                'canceled_at' => $this->rejected_at?->format('Y-m-d H:i:s'), // Using rejected_at for canceled_at
-                'canceled_by' => $this->whenLoaded('requestedBy', function () {
-                    return [
-                        'id' => $this->requestedBy->id,
-                        'name' => $this->requestedBy->name,
-                    ];
-                }),
-            ],
+            'canceled' => $this->getCancellationDetails(),
+            'cancelled_by_branch' => $this->getCancellationDetails(),
+            'cancelled_by_supplier' => $this->getCancellationDetails(),
             'pending_approval' => [
                 'has_modifications' => $this->hasModifications(),
                 'modification_count' => $this->getModificationCount(),
@@ -286,5 +279,33 @@ class DirectSupplierOrderResource extends JsonResource
                 || $item->is_alternative
                 || $item->modification_note !== null;
         })->count();
+    }
+
+    /**
+     * Get cancellation details for canceled/cancelled orders
+     */
+    private function getCancellationDetails(): array
+    {
+        $status = $this->status?->value;
+        
+        // Only return cancellation_reason for branch/supplier cancellations
+        $cancellationReason = null;
+        if (in_array($status, ['cancelled_by_branch', 'cancelled_by_supplier'])) {
+            $cancellationReason = $this->cancellation_reason ?? null;
+        } elseif ($status === 'canceled') {
+            // For generic 'canceled' status, use cancellation_reason if available, otherwise null
+            $cancellationReason = $this->cancellation_reason ?? null;
+        }
+
+        return [
+            'cancellation_reason' => $cancellationReason,
+            'canceled_at' => $this->canceled_at?->format('Y-m-d H:i:s') ?? $this->rejected_at?->format('Y-m-d H:i:s'),
+            'canceled_by' => $this->whenLoaded('requestedBy', function () {
+                return [
+                    'id' => $this->requestedBy->id,
+                    'name' => $this->requestedBy->name,
+                ];
+            }),
+        ];
     }
 }

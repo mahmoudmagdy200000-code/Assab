@@ -641,18 +641,48 @@ class PendingOrderController extends BaseController
                 return $this->notFoundResponse('Item not found');
             }
 
-            // Check if item has modifications
+            // Check if item has modifications or is cancelled
             $hasModifications = $item->approval_type !== null
                 || $item->original_quantity !== null
                 || $item->is_alternative
                 || ($order->expected_delivery_at && $order->preferred_delivery_date);
 
-            if (!$hasModifications) {
+            $isCancelled = $item->status->isCancelled();
+
+            if (!$hasModifications && !$isCancelled) {
                 return $this->errorResponse('No modifications found for this item', 404);
             }
 
+            // Get modification details
+            $modificationResource = new ModificationDetailResource($item);
+            $responseData = $modificationResource->toArray(request());
+
+            // Add cancellation_reason if item is cancelled (same logic as getCancellationReason)
+            if ($isCancelled) {
+                $isCancelledByBranchOrSupplier = in_array($item->status, [
+                    \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH,
+                    \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_SUPPLIER,
+                    \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION,
+                ]);
+
+                $cancellationReason = null;
+                if ($isCancelledByBranchOrSupplier) {
+                    $cancellationReason = $item->approval_data['cancellation_reason'] ?? null;
+                }
+
+                $cancelledAt = $item->updated_at?->format('Y-m-d H:i:s');
+                $cancelledBy = $this->getCancelledByInfo($item, $order);
+
+                // Add cancellation details to response
+                $responseData = array_merge($responseData, [
+                    'cancellation_reason' => $cancellationReason,
+                    'cancelled_at' => $cancelledAt,
+                    'cancelled_by' => $cancelledBy,
+                ]);
+            }
+
             return $this->successResponse(
-                new ModificationDetailResource($item),
+                $responseData,
                 'Modification details retrieved successfully'
             );
         } catch (\Exception $e) {
@@ -688,7 +718,18 @@ class PendingOrderController extends BaseController
                 return $this->errorResponse('Item is not cancelled', 400);
             }
 
-            $cancellationReason = $item->approval_data['cancellation_reason'] ?? null;
+            // Only return cancellation_reason if cancelled by branch or supplier
+            $isCancelledByBranchOrSupplier = in_array($item->status, [
+                \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH,
+                \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_SUPPLIER,
+                \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION,
+            ]);
+
+            $cancellationReason = null;
+            if ($isCancelledByBranchOrSupplier) {
+                $cancellationReason = $item->approval_data['cancellation_reason'] ?? null;
+            }
+
             $cancelledAt = $item->updated_at?->format('Y-m-d H:i:s');
 
             // Determine who cancelled based on item status

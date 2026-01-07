@@ -79,6 +79,22 @@ class OrderResource extends JsonResource
                     $itemData['can_reject'] = false;
                 }
 
+                // Add cancellation_reason only if cancelled by branch or supplier
+                if ($item->status?->isCancelled()) {
+                    $isCancelledByBranchOrSupplier = in_array($item->status, [
+                        \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH,
+                        \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_SUPPLIER,
+                        \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION, // Also include modification cancellation
+                    ]);
+
+                    if ($isCancelledByBranchOrSupplier) {
+                        $itemData['cancellation_reason'] = $item->approval_data['cancellation_reason'] ?? null;
+                    } else {
+                        // For other cancellation types (e.g., CANCELLED), set to null
+                        $itemData['cancellation_reason'] = null;
+                    }
+                }
+
                 return $itemData;
             }),
 
