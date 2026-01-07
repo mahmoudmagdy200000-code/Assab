@@ -769,6 +769,9 @@ class PendingOrderController extends BaseController
                 return $this->notFoundResponse('Order not found');
             }
 
+            // Ensure relationships are loaded
+            $order->load(['requestedBy', 'supplier']);
+
             $item = PurchaseOrderItem::where('purchase_order_id', $order->id)
                 ->where('id', $itemId)
                 ->with('purchaseOrder')
@@ -987,7 +990,12 @@ class PendingOrderController extends BaseController
             \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH,
             \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION,
         ])) {
-            if ($order->relationLoaded('requestedBy') && $order->requestedBy) {
+            // Load relationship if not already loaded
+            if (!$order->relationLoaded('requestedBy')) {
+                $order->load('requestedBy');
+            }
+            
+            if ($order->requestedBy) {
                 return [
                     'id' => $order->requestedBy->id,
                     'name' => $order->requestedBy->name,
@@ -999,7 +1007,12 @@ class PendingOrderController extends BaseController
 
         // Check if cancelled by supplier
         if ($status === \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_SUPPLIER) {
-            if ($order->relationLoaded('supplier') && $order->supplier) {
+            // Load relationship if not already loaded
+            if (!$order->relationLoaded('supplier')) {
+                $order->load('supplier');
+            }
+            
+            if ($order->supplier) {
                 return [
                     'id' => $order->supplier->id,
                     'name' => $order->supplier->name,
@@ -1011,7 +1024,12 @@ class PendingOrderController extends BaseController
 
         // Default: cancelled by branch manager (for CANCELLED status)
         if ($status === \Modules\Purchase\Enums\OrderItemStatus::CANCELLED) {
-            if ($order->relationLoaded('requestedBy') && $order->requestedBy) {
+            // Load relationship if not already loaded
+            if (!$order->relationLoaded('requestedBy')) {
+                $order->load('requestedBy');
+            }
+            
+            if ($order->requestedBy) {
                 return [
                     'id' => $order->requestedBy->id,
                     'name' => $order->requestedBy->name,
