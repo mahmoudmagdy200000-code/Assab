@@ -701,12 +701,14 @@ class PendingOrderController extends BaseController
     {
         try {
             $supplier = auth('supplier')->user();
-            $order = PurchaseOrder::with(['requestedBy', 'supplier'])
-                ->findOrFail($id);
+            $order = PurchaseOrder::findOrFail($id);
 
             if ($order->supplier_id !== $supplier->id) {
                 return $this->errorResponse('Unauthorized access to this order', 403);
             }
+
+            // Ensure relationships are loaded
+            $order->load(['requestedBy', 'supplier']);
 
             $item = PurchaseOrderItem::where('purchase_order_id', $order->id)
                 ->where('id', $itemId)
