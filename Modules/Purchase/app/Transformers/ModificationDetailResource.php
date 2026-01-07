@@ -20,17 +20,29 @@ class ModificationDetailResource extends JsonResource
         // Get modification type from approval_type or determine from item data
         $modificationType = $this->getModificationType();
 
-        // Use item status directly instead of modification status
-        $itemStatus = $this->status?->value ?? 'pending';
-        $itemStatusLabel = $this->status?->label() ?? 'Pending';
-        $itemStatusColor = $this->status?->color() ?? '#F59E0B';
+        // Use item status directly, but adjust for viewer perspective (supplier vs branch)
+        $itemStatus = $this->status;
+        $itemStatusValue = $itemStatus?->value ?? 'pending';
+        $itemStatusLabel = $itemStatus?->label() ?? 'Pending';
+        $itemStatusColor = $itemStatus?->color() ?? '#F59E0B';
+
+        // Adjust status display based on viewer perspective
+        // If supplier requested modification (needs_approval_branch), show as needs_approval_supplier for supplier view
+        // Check if this is a supplier view by checking the route
+        $isSupplierView = $this->isSupplierView($request);
+
+        if ($isSupplierView && $itemStatus === \Modules\Purchase\Enums\OrderItemStatus::NEEDS_APPROVAL_BRANCH && $this->approval_type) {
+            $itemStatusValue = 'needs_approval_supplier';
+            $itemStatusLabel = 'Needs Approval (Supplier)';
+            $itemStatusColor = '#F97316';
+        }
 
         $baseData = [
             'item_id' => $this->id,
             'type' => $modificationType->value,
             'type_label' => $modificationType->label(),
             'modified_at' => $this->updated_at?->format('Y-m-d H:i:s'),
-            'status' => $itemStatus,
+            'status' => $itemStatusValue,
             'status_label' => $itemStatusLabel,
             'status_color' => $itemStatusColor,
         ];
@@ -77,39 +89,6 @@ class ModificationDetailResource extends JsonResource
 
         // Default to new quantity if quantity fields are set
         return ModificationType::NEW_QUANTITY;
-    }
-
-    /**
-     * Get modification status
-     */
-    private function getModificationStatus(): string
-    {
-        if ($this->status->needsApproval()) {
-            return 'pending_approval';
-        }
-
-        if ($this->status->isRejected()) {
-            return 'rejected';
-        }
-
-        if ($this->status->value === 'confirmed') {
-            return 'approved';
-        }
-
-        return 'pending';
-    }
-
-    /**
-     * Get status message based on status
-     */
-    private function getStatusMessage(string $status): string
-    {
-        return match ($status) {
-            'pending_approval' => 'Supplier modified this item, pending your approval.',
-            'approved' => 'Modifications approved by you. Item has been updated to new suggestions.',
-            'rejected' => 'Modifications rejected by you.',
-            default => 'Pending approval.',
-        };
     }
 
     /**
@@ -252,5 +231,37 @@ class ModificationDetailResource extends JsonResource
 
             'modification_notes' => $approvalData['note'] ?? $this->modification_note ?? null,
         ]);
+    }
+
+    /**
+     * Check if this is a supplier view (based on route or auth guard)
+     */
+    private function isSupplierView($request): bool
+    {
+        if (!$request) {
+            return false;
+        }
+
+        // Check if supplier guard is authenticated
+        if (auth('supplier')->check()) {
+            return true;
+        }
+
+        // Check route name or path
+        $route = $request->route();
+        if ($route) {
+            $routeName = $route->getName();
+            if ($routeName && str_contains($routeName, 'supplier')) {
+                return true;
+            }
+        }
+
+        // Check path
+        $path = $request->path();
+        if (str_contains($path, '/supplier/') || str_contains($path, 'supplier')) {
+            return true;
+        }
+
+        return false;
     }
 }
