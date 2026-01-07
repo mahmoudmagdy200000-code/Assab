@@ -106,6 +106,9 @@ class CashierShiftResource extends JsonResource
                 ] : null;
             }),
 
+            // Handover To (who received the handover - cashier or branch manager)
+            'handover_to' => $this->getHandoverTo(),
+
             // Reassignment Info (Only show if shift was reassigned)
             'reassignment' => $this->when(
                 $this->status?->value === 'reassigned' || $this->original_cashier_id || $this->reassigned_by,
@@ -164,5 +167,75 @@ class CashierShiftResource extends JsonResource
                 }
             ),
         ];
+    }
+
+    /**
+     * Get handover_to information (who received the handover)
+     * Supports both cashier and branch_manager handovers
+     * 
+     * @return array|null
+     */
+    private function getHandoverTo(): ?array
+    {
+        // Try to get from handover relationship first (most accurate)
+        if ($this->relationLoaded('handover') && $this->handover) {
+            $handover = $this->handover;
+            
+            // Load handoverTo relationship if not loaded
+            if (!$handover->relationLoaded('handoverTo')) {
+                $handover->load('handoverTo');
+            }
+            
+            $handoverTo = $handover->handoverTo;
+            
+            if ($handoverTo) {
+                return [
+                    'id' => $handover->handover_to_id,
+                    'name' => $handoverTo->name ?? 'N/A',
+                    'type' => $handover->handover_to_type, // 'cashier' or 'branch_manager'
+                    'email' => $handoverTo->email ?? null,
+                    'phone' => $handoverTo->phone ?? null,
+                ];
+            }
+        }
+        
+        // Fallback: if handover relationship is not loaded, try to get from CashierShiftHandover directly
+        if ($this->handed_over_at || $this->relationLoaded('handoverStatus')) {
+            $handover = \Modules\Shift\Models\CashierShiftHandover::where('cashier_shift_id', $this->id)
+                ->first();
+            
+            if ($handover) {
+                // Load handoverTo based on type
+                $handoverTo = null;
+                if ($handover->handover_to_type === 'cashier') {
+                    $handoverTo = \Modules\Cashier\Models\Cashier::find($handover->handover_to_id);
+                } elseif ($handover->handover_to_type === 'branch_manager') {
+                    $handoverTo = \Modules\BranchManagers\Models\BranchManager::find($handover->handover_to_id);
+                }
+                
+                if ($handoverTo) {
+                    return [
+                        'id' => $handover->handover_to_id,
+                        'name' => $handoverTo->name ?? 'N/A',
+                        'type' => $handover->handover_to_type,
+                        'email' => $handoverTo->email ?? null,
+                        'phone' => $handoverTo->phone ?? null,
+                    ];
+                }
+            }
+        }
+        
+        // Final fallback: use nextCashier if available (for backward compatibility)
+        if ($this->relationLoaded('nextCashier') && $this->nextCashier) {
+            return [
+                'id' => $this->nextCashier->id,
+                'name' => $this->nextCashier->name,
+                'type' => 'cashier',
+                'email' => $this->nextCashier->email ?? null,
+                'phone' => $this->nextCashier->phone ?? null,
+            ];
+        }
+        
+        return null;
     }
 }

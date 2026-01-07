@@ -305,6 +305,10 @@ class ShiftController extends BaseController
                     'shift.branch:id,name,location',
                     'assignedBy:id,name',
                     'nextCashier:id,name,email,phone',
+                    'handover' => function ($q) {
+                        // Note: Polymorphic relationship loading needs special handling
+                        // We'll load the related model in the Resource transformer
+                    },
                     'handoverStatus.reviewedBy:id,name',
                     'salesBreakdown.aggregator:id,name',
                     'varianceDetails.responsibleCashier:id,name'
