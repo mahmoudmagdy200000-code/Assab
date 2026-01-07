@@ -114,14 +114,14 @@ class OrderResource extends JsonResource
                             }
                         }
 
-                        $itemData['cancellation_reason'] = $cancellationReason;
-                        $itemData['cancelled_at'] = $cancelledAt;
-                        $itemData['cancelled_by'] = $cancelledBy;
+                        $itemData['cancellation'] = [
+                            'cancellation_reason' => $cancellationReason,
+                            'cancelled_at' => $cancelledAt,
+                            'cancelled_by' => $cancelledBy,
+                        ];
                     } else {
                         // For other cancellation types (e.g., CANCELLED), set to null
-                        $itemData['cancellation_reason'] = null;
-                        $itemData['cancelled_at'] = null;
-                        $itemData['cancelled_by'] = null;
+                        $itemData['cancellation'] = null;
                     }
                 }
 
