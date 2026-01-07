@@ -1276,7 +1276,7 @@ class BranchManagerShiftController extends BaseController
                     'cashierShift.shift:id,name,branch_id',
                     'cashierShift.salesBreakdown:id,cashier_shift_id,aggregator_id,amount',
                     'cashierShift.salesBreakdown.aggregator:id,name',
-                    'cashierShift.varianceDetails:id,cashier_shift_id,responsible_cashier_id,amount,notes',
+                    'cashierShift.varianceDetails:id,cashier_shift_id,responsible_cashier_id,assigned_amount,reason',
                     'cashierShift.varianceDetails.responsibleCashier:id,name',
                     'handoverTo:id,name',
                     'approvedBy:id,name'
