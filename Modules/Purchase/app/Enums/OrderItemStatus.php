@@ -22,6 +22,13 @@ enum OrderItemStatus: string
     case PREPARING = 'preparing';
     case ON_THE_WAY = 'on_the_way';
     case DELIVERED = 'delivered';
+    
+    // Delay Statuses
+    case DELAYED_BRANCH = 'delayed_branch';
+    case DELAYED_SUPPLIER = 'delayed_supplier';
+    case DELAYED_APPROVED = 'delayed_approved';
+    
+    // Deprecated - use DELAYED_BRANCH or DELAYED_SUPPLIER instead
     case DELAYED = 'delayed';
 
         // Cancellation Statuses
@@ -29,6 +36,7 @@ enum OrderItemStatus: string
     case CANCELLED_BY_BRANCH = 'cancelled_by_branch';
     case CANCELLED_BY_SUPPLIER = 'cancelled_by_supplier';
     case CANCELED_MODIFICATION = 'cancelled_modification';
+    case CANCELLED_DELAYED = 'cancelled_delayed';
 
         // Execution Phase Statuses
     case RECEIVED = 'received';
@@ -50,11 +58,15 @@ enum OrderItemStatus: string
             self::PREPARING => 'Preparing',
             self::ON_THE_WAY => 'On The Way',
             self::DELIVERED => 'Delivered',
-            self::DELAYED => 'Delayed',
+            self::DELAYED_BRANCH => 'Delayed (Branch)',
+            self::DELAYED_SUPPLIER => 'Delayed (Supplier)',
+            self::DELAYED_APPROVED => 'Delayed Approved',
+            self::DELAYED => 'Delayed (Deprecated)',
             self::CANCELLED => 'Cancelled',
             self::CANCELLED_BY_BRANCH => 'Cancelled by Branch',
             self::CANCELLED_BY_SUPPLIER => 'Cancelled by Supplier',
             self::CANCELED_MODIFICATION => 'Canceled Modification',
+            self::CANCELLED_DELAYED => 'Cancelled (Delayed)',
             self::RECEIVED => 'Received',
             self::VARIANCE => 'Variance',
         };
@@ -76,11 +88,15 @@ enum OrderItemStatus: string
             self::PREPARING => '#3B82F6',
             self::ON_THE_WAY => '#6366F1',
             self::DELIVERED => '#22C55E',
+            self::DELAYED_BRANCH => '#F59E0B',
+            self::DELAYED_SUPPLIER => '#F59E0B',
+            self::DELAYED_APPROVED => '#10B981',
             self::DELAYED => '#F59E0B',
             self::CANCELLED => '#EF4444',
             self::CANCELLED_BY_BRANCH => '#EF4444',
             self::CANCELLED_BY_SUPPLIER => '#EF4444',
             self::CANCELED_MODIFICATION => '#EF4444',
+            self::CANCELLED_DELAYED => '#EF4444',
             self::RECEIVED => '#22C55E',
             self::VARIANCE => '#F97316',
         };
@@ -174,6 +190,20 @@ enum OrderItemStatus: string
             self::CANCELLED_BY_BRANCH,
             self::CANCELLED_BY_SUPPLIER,
             self::CANCELED_MODIFICATION,
+            self::CANCELLED_DELAYED,
+        ]);
+    }
+    
+    /**
+     * Check if item is delayed (any delay status)
+     */
+    public function isDelayed(): bool
+    {
+        return in_array($this, [
+            self::DELAYED,
+            self::DELAYED_BRANCH,
+            self::DELAYED_SUPPLIER,
+            self::DELAYED_APPROVED,
         ]);
     }
 

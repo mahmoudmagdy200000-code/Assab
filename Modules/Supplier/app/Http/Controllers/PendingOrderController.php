@@ -666,6 +666,7 @@ class PendingOrderController extends BaseController
                     \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH,
                     \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_SUPPLIER,
                     \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION,
+                    \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_DELAYED,
                 ]);
 
                 $cancellationReason = null;
@@ -730,6 +731,7 @@ class PendingOrderController extends BaseController
                 \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH,
                 \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_SUPPLIER,
                 \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION,
+                \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_DELAYED,
             ]);
 
             $cancellationReason = null;
@@ -768,6 +770,7 @@ class PendingOrderController extends BaseController
         if (in_array($status, [
             \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH,
             \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION,
+            \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_DELAYED, // Branch rejected delay request
         ])) {
             // Load relationship if not already loaded
             if (!$order->relationLoaded('requestedBy')) {

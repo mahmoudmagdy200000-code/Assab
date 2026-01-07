@@ -138,8 +138,13 @@ class OrderFulfillmentService
             $order->update($updateData);
 
             // Update items status to on_the_way
+            // Include delayed_approved items (approved delays can continue delivery)
             $order->items()
-                ->whereIn('status', [OrderItemStatus::PREPARING, OrderItemStatus::CONFIRMED])
+                ->whereIn('status', [
+                    OrderItemStatus::PREPARING,
+                    OrderItemStatus::CONFIRMED,
+                    OrderItemStatus::DELAYED_APPROVED, // Approved delays can continue
+                ])
                 ->update(['status' => OrderItemStatus::ON_THE_WAY]);
 
             $this->notificationService->notifyOrderStatusChanged($order, 'on_the_way');
@@ -201,10 +206,10 @@ class OrderFulfillmentService
 
             $order->update($updateData);
 
-            // Update items status to delayed
+            // Update items status to delayed_supplier (supplier is reporting the delay)
             $order->items()
-                ->whereIn('status', [OrderItemStatus::CONFIRMED, OrderItemStatus::PREPARING, OrderItemStatus::ON_THE_WAY])
-                ->update(['status' => OrderItemStatus::DELAYED]);
+                ->whereIn('status', [OrderItemStatus::CONFIRMED, OrderItemStatus::PREPARING, OrderItemStatus::ON_THE_WAY, OrderItemStatus::DELAYED_APPROVED])
+                ->update(['status' => OrderItemStatus::DELAYED_SUPPLIER]);
 
             $this->notificationService->notifyOrderStatusChanged($order, 'delayed');
 
@@ -247,6 +252,8 @@ class OrderFulfillmentService
             $order->update($updateData);
 
             // Update items status to delivered (all items that are not already delivered, cancelled, or rejected)
+            // Include delayed_approved items (approved delays can be delivered)
+            // Exclude delayed_supplier and delayed_branch (need approval first)
             $order->items()
                 ->whereNotIn('status', [
                     OrderItemStatus::DELIVERED,
@@ -254,7 +261,10 @@ class OrderFulfillmentService
                     OrderItemStatus::CANCELLED_BY_BRANCH,
                     OrderItemStatus::CANCELLED_BY_SUPPLIER,
                     OrderItemStatus::CANCELED_MODIFICATION,
+                    OrderItemStatus::CANCELLED_DELAYED,
                     OrderItemStatus::REJECTED,
+                    OrderItemStatus::DELAYED_SUPPLIER, // Need branch approval first
+                    OrderItemStatus::DELAYED_BRANCH, // Need branch approval first
                 ])
                 ->update(['status' => OrderItemStatus::DELIVERED]);
 

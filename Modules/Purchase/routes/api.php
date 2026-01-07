@@ -102,6 +102,10 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         Route::post('/{id}/items/{itemId}/modification/reject', [PendingOrderController::class, 'rejectModification'])->name('purchase.pending.reject-modification');
         Route::get('/{id}/items/{itemId}/cancellation-reason', [PendingOrderController::class, 'getCancellationReason'])->name('purchase.pending.get-cancellation-reason');
 
+        // Delay handling for items
+        Route::post('/{id}/items/{itemId}/delay/approve', [PendingOrderController::class, 'approveItemDelay'])->name('purchase.pending.approve-item-delay');
+        Route::post('/{id}/items/{itemId}/delay/reject', [PendingOrderController::class, 'rejectItemDelay'])->name('purchase.pending.reject-item-delay');
+
         /*
         |--------------------------------------------------------------------------
         | Direct Supplier Orders (3.1.2.4.3.2.1)

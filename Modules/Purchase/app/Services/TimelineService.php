@@ -197,6 +197,52 @@ class TimelineService
         );
     }
 
+    /**
+     * Log item delay approval
+     */
+    public function logItemDelayApproved(PurchaseOrder $order, PurchaseOrderItem $item): OrderTimeline
+    {
+        return $this->log(
+            $order,
+            TimelineEventType::APPROVAL_GRANTED,
+            'Item Delay Approved',
+            "Item '{$item->item_name}' delay request approved by branch manager",
+            $item->status->value,
+            'delayed_approved',
+            [
+                'item_id' => $item->id,
+                'item_name' => $item->item_name,
+                'approval_type' => 'delay',
+            ]
+        );
+    }
+
+    /**
+     * Log item delay rejection
+     */
+    public function logItemDelayRejected(PurchaseOrder $order, PurchaseOrderItem $item, ?string $reason = null): OrderTimeline
+    {
+        $message = "Item '{$item->item_name}' delay request rejected by branch manager";
+        if ($reason) {
+            $message .= ": {$reason}";
+        }
+
+        return $this->log(
+            $order,
+            TimelineEventType::APPROVAL_DENIED,
+            'Item Delay Rejected',
+            $message,
+            $item->status->value,
+            'cancelled_delayed',
+            [
+                'item_id' => $item->id,
+                'item_name' => $item->item_name,
+                'approval_type' => 'delay',
+                'reason' => $reason,
+            ]
+        );
+    }
+
     public function logPreparationStarted(PurchaseOrder $order): OrderTimeline
     {
         return $this->log(
