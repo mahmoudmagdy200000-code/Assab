@@ -994,7 +994,7 @@ class PendingOrderController extends BaseController
             if (!$order->relationLoaded('requestedBy')) {
                 $order->load('requestedBy');
             }
-            
+
             if ($order->requestedBy) {
                 return [
                     'id' => $order->requestedBy->id,
@@ -1011,7 +1011,7 @@ class PendingOrderController extends BaseController
             if (!$order->relationLoaded('supplier')) {
                 $order->load('supplier');
             }
-            
+
             if ($order->supplier) {
                 return [
                     'id' => $order->supplier->id,
@@ -1028,7 +1028,7 @@ class PendingOrderController extends BaseController
             if (!$order->relationLoaded('requestedBy')) {
                 $order->load('requestedBy');
             }
-            
+
             if ($order->requestedBy) {
                 return [
                     'id' => $order->requestedBy->id,
