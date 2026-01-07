@@ -79,7 +79,7 @@ class OrderResource extends JsonResource
                     $itemData['can_reject'] = false;
                 }
 
-                // Add cancellation_reason only if cancelled by branch or supplier
+                // Add cancellation object only if cancelled by branch or supplier
                 if ($item->status?->isCancelled()) {
                     $isCancelledByBranchOrSupplier = in_array($item->status, [
                         \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH,
@@ -88,10 +88,40 @@ class OrderResource extends JsonResource
                     ]);
 
                     if ($isCancelledByBranchOrSupplier) {
-                        $itemData['cancellation_reason'] = $item->approval_data['cancellation_reason'] ?? null;
+                        $cancellationReason = $item->approval_data['cancellation_reason'] ?? null;
+                        $cancelledAt = $item->updated_at?->format('Y-m-d H:i:s');
+                        
+                        // Determine who cancelled
+                        $cancelledBy = null;
+                        if ($item->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH || 
+                            $item->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION) {
+                            if ($this->relationLoaded('requestedBy') && $this->requestedBy) {
+                                $cancelledBy = [
+                                    'id' => $this->requestedBy->id,
+                                    'name' => $this->requestedBy->name,
+                                    'type' => 'branch_manager',
+                                    'image' => $this->requestedBy->image_url ?? null,
+                                ];
+                            }
+                        } elseif ($item->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_SUPPLIER) {
+                            if ($this->relationLoaded('supplier') && $this->supplier) {
+                                $cancelledBy = [
+                                    'id' => $this->supplier->id,
+                                    'name' => $this->supplier->name,
+                                    'type' => 'supplier',
+                                    'image' => $this->supplier->image_url ?? null,
+                                ];
+                            }
+                        }
+
+                        $itemData['cancellation'] = [
+                            'reason' => $cancellationReason,
+                            'cancelled_at' => $cancelledAt,
+                            'cancelled_by' => $cancelledBy,
+                        ];
                     } else {
                         // For other cancellation types (e.g., CANCELLED), set to null
-                        $itemData['cancellation_reason'] = null;
+                        $itemData['cancellation'] = null;
                     }
                 }
 

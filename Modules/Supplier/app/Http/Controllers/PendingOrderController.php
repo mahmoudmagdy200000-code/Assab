@@ -673,11 +673,13 @@ class PendingOrderController extends BaseController
                 $cancelledAt = $item->updated_at?->format('Y-m-d H:i:s');
                 $cancelledBy = $this->getCancelledByInfo($item, $order);
 
-                // Add cancellation details to response
+                // Add cancellation details as object to response
                 $responseData = array_merge($responseData, [
-                    'cancellation_reason' => $cancellationReason,
-                    'cancelled_at' => $cancelledAt,
-                    'cancelled_by' => $cancelledBy,
+                    'cancellation' => [
+                        'reason' => $cancellationReason,
+                        'cancelled_at' => $cancelledAt,
+                        'cancelled_by' => $cancelledBy,
+                    ],
                 ]);
             }
 
@@ -737,9 +739,11 @@ class PendingOrderController extends BaseController
 
             return $this->successResponse(
                 [
-                    'cancellation_reason' => $cancellationReason,
-                    'cancelled_at' => $cancelledAt,
-                    'cancelled_by' => $cancelledBy,
+                    'cancellation' => [
+                        'reason' => $cancellationReason,
+                        'cancelled_at' => $cancelledAt,
+                        'cancelled_by' => $cancelledBy,
+                    ],
                 ],
                 'Cancellation reason retrieved successfully'
             );
