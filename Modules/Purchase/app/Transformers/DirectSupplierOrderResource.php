@@ -107,7 +107,7 @@ class DirectSupplierOrderResource extends JsonResource
                     ];
                 }),
             ],
-            'canceled' => $this->getCancellationDetails(),
+            'cancelled' => $this->getCancellationDetails(),
             'cancelled_by_branch' => $this->getCancellationDetails(),
             'cancelled_by_supplier' => $this->getCancellationDetails(),
             'pending_approval' => [
@@ -292,8 +292,8 @@ class DirectSupplierOrderResource extends JsonResource
         $cancellationReason = null;
         if (in_array($status, ['cancelled_by_branch', 'cancelled_by_supplier'])) {
             $cancellationReason = $this->cancellation_reason ?? null;
-        } elseif ($status === 'canceled') {
-            // For generic 'canceled' status, use cancellation_reason if available, otherwise null
+        } elseif ($status === 'cancelled') {
+            // For generic 'cancelled' status, use cancellation_reason if available, otherwise null
             $cancellationReason = $this->cancellation_reason ?? null;
         }
 

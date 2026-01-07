@@ -9,7 +9,7 @@ enum OrderStatus: string
     case PENDING = 'pending';
     case CONFIRMED = 'confirmed';
     case REJECTED = 'rejected';
-    case CANCELED = 'canceled';
+    case CANCELED = 'cancelled';
     case CANCELLED_BY_BRANCH = 'cancelled_by_branch';
     case CANCELLED_BY_SUPPLIER = 'cancelled_by_supplier';
     

@@ -98,7 +98,7 @@ class TimelineService
             'Order Canceled',
             $reason ? "Order was canceled: {$reason}" : "Order was canceled",
             $order->status->value,
-            'canceled',
+            'cancelled',
             ['reason' => $reason]
         );
     }
@@ -136,7 +136,7 @@ class TimelineService
             'Modifications Rejected',
             "Order modifications were rejected: {$reason}",
             'pending_approval',
-            'canceled',
+            'cancelled',
             ['reason' => $reason]
         );
     }

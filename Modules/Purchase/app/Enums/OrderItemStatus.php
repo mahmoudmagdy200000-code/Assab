@@ -28,7 +28,7 @@ enum OrderItemStatus: string
     case CANCELLED = 'cancelled';
     case CANCELLED_BY_BRANCH = 'cancelled_by_branch';
     case CANCELLED_BY_SUPPLIER = 'cancelled_by_supplier';
-    case CANCELED_MODIFICATION = 'canceled_modification';
+    case CANCELED_MODIFICATION = 'cancelled_modification';
 
         // Execution Phase Statuses
     case RECEIVED = 'received';

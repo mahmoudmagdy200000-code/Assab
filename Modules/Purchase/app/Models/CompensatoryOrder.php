@@ -162,7 +162,7 @@ class CompensatoryOrder extends Model
 
     public function cancel(): void
     {
-        $this->update(['status' => 'canceled']);
+        $this->update(['status' => 'cancelled']);
     }
 }
 

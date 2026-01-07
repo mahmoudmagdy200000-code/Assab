@@ -91,11 +91,13 @@ class OrderResource extends JsonResource
                     if ($isCancelledByBranchOrSupplier) {
                         $cancellationReason = $item->approval_data['cancellation_reason'] ?? null;
                         $cancelledAt = $item->updated_at?->format('Y-m-d H:i:s');
-                        
+
                         // Determine who cancelled
                         $cancelledBy = null;
-                        if ($item->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH || 
-                            $item->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION) {
+                        if (
+                            $item->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH ||
+                            $item->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION
+                        ) {
                             if ($this->relationLoaded('requestedBy') && $this->requestedBy) {
                                 $cancelledBy = [
                                     'id' => $this->requestedBy->id,
@@ -186,7 +188,7 @@ class OrderResource extends JsonResource
     private function getReasonForRejected(): ?array
     {
         $status = $this->status;
-        
+
         if (!$status) {
             return null;
         }
@@ -197,7 +199,7 @@ class OrderResource extends JsonResource
             OrderStatus::CANCELLED_BY_SUPPLIER,
         ])) {
             $cancelledBy = $this->getCancelledByInfo($status);
-            
+
             return [
                 'cancellation_reason' => $this->cancellation_reason ?? null,
                 'cancelled_at' => $this->canceled_at?->format('Y-m-d H:i:s') ?? $this->rejected_at?->format('Y-m-d H:i:s'),
@@ -221,7 +223,7 @@ class OrderResource extends JsonResource
                     'image' => $this->requestedBy->image_url ?? null,
                 ];
             }
-            
+
             return [
                 'rejection_reason' => $this->rejection_reason,
                 'rejected_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
