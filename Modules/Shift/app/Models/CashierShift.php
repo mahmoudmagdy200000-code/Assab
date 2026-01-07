@@ -199,9 +199,20 @@ class CashierShift extends Model
         ]);
     }
 
+    /**
+     * Calculate variance as the difference between total sales and total collected payments
+     * Variance = Total Sales - (Cash Collected + Card Payments + Delivery Apps)
+     *
+     * @return float
+     */
     public function calculateVariance(): float
     {
-        return $this->total_sales - ($this->cash_collected + $this->card_payments);
+        $totalCollected = $this->cash_collected + $this->card_payments;
+        
+        // Add delivery apps (aggregators) payments
+        $deliveryAppsTotal = $this->salesBreakdown()->sum('amount');
+        
+        return $this->total_sales - ($totalCollected + $deliveryAppsTotal);
     }
 
     public function recordHistory(string $action, ?array $oldValue, array $newValue): void

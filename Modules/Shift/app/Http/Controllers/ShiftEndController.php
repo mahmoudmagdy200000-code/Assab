@@ -377,8 +377,9 @@ class ShiftEndController extends Controller
                 $variance = $this->varianceService->getVarianceFormatted($updatedShift);
             }
 
-            // Calculate variance amount
-            $varianceAmount = $request->total_sales - $request->handover_amount;
+            // Calculate variance amount using the correct formula:
+            // Variance = Total Sales - (Cash Collected + Card Payments + Delivery Apps)
+            $varianceAmount = $updatedShift->calculateVariance();
             $varianceType = $varianceAmount > 0 ? 'Over' : ($varianceAmount < 0 ? 'Short' : 'None');
             $salesCalculation = $this->shiftEndService->calculateNetSales($request->total_sales);
 
@@ -572,7 +573,9 @@ class ShiftEndController extends Controller
                 $this->varianceService->recordVariance($updatedShift, $request->variance);
             }
 
-            $variance = $shiftModel->total_sales - $request->handover_amount;
+            // Calculate variance using the correct formula:
+            // Variance = Total Sales - (Cash Collected + Card Payments + Delivery Apps)
+            $variance = $shiftModel->calculateVariance();
 
             // Get handover status from the created handover
             $handoverStatus = 'pending';

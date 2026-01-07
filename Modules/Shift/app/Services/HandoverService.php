@@ -52,9 +52,11 @@ class HandoverService
                 ]);
             }
 
-            // Calculate variance
+            // Calculate variance using the correct formula:
+            // Variance = Total Sales - (Cash Collected + Card Payments + Delivery Apps)
+            // Note: handover_amount is the cash being handed over, not used for variance calculation
+            $variance = $shift->calculateVariance();
             $expectedBalance = $shift->total_sales;
-            $variance = $expectedBalance - $data['handover_amount'];
 
             $shift->update([
                 'closing_balance' => $data['handover_amount'],
@@ -385,9 +387,10 @@ class HandoverService
                 'handover_notes' => $data['handover_notes'] ?? $shift->handover_notes,
             ]);
 
-            // Recalculate variance
+            // Recalculate variance using the correct formula:
+            // Variance = Total Sales - (Cash Collected + Card Payments + Delivery Apps)
+            $variance = $shift->calculateVariance();
             $expectedBalance = $shift->total_sales;
-            $variance = $expectedBalance - $data['handover_amount'];
             $shift->update([
                 'expected_balance' => $expectedBalance,
                 'variance' => $variance,
