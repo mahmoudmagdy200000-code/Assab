@@ -152,6 +152,7 @@ class OrderService
             'items',
             'branch',
             'requestedBy',
+            'supplier',
             'timelines',
         ])
             ->where('id', $orderId)

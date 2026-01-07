@@ -3,6 +3,7 @@
 namespace Modules\Supplier\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\Purchase\Enums\OrderStatus;
 
 class OrderResource extends JsonResource
 {
@@ -164,6 +165,7 @@ class OrderResource extends JsonResource
             'special_instructions' => $this->special_instructions,
             'message' => $this->message,
             'rejection_reason' => $this->rejection_reason,
+            'reason_for_rejected' => $this->getReasonForRejected(),
 
             // Timestamps
             'created_at' => $this->created_at?->toDateTimeString(),
@@ -172,5 +174,94 @@ class OrderResource extends JsonResource
             'dispatched_at' => $this->dispatched_at?->toDateTimeString(),
             'rejected_at' => $this->rejected_at?->toDateTimeString(),
         ];
+    }
+
+    /**
+     * Get reason for rejected/cancelled order
+     * Returns full object with cancellation/rejection details, null otherwise
+     * Only returns cancellation_reason if cancelled by branch or supplier
+     *
+     * @return array|null
+     */
+    private function getReasonForRejected(): ?array
+    {
+        $status = $this->status;
+        
+        if (!$status) {
+            return null;
+        }
+
+        // Check if order is cancelled by branch or supplier only
+        if (in_array($status, [
+            OrderStatus::CANCELLED_BY_BRANCH,
+            OrderStatus::CANCELLED_BY_SUPPLIER,
+        ])) {
+            $cancelledBy = $this->getCancelledByInfo($status);
+            
+            return [
+                'cancellation_reason' => $this->cancellation_reason ?? null,
+                'cancelled_at' => $this->canceled_at?->format('Y-m-d H:i:s') ?? $this->rejected_at?->format('Y-m-d H:i:s'),
+                'cancelled_by' => $cancelledBy,
+            ];
+        }
+
+        // For generic CANCELED status (not by branch or supplier), return null
+        if ($status === OrderStatus::CANCELED) {
+            return null;
+        }
+
+        // Check if order is rejected
+        if ($status === OrderStatus::REJECTED) {
+            $rejectedBy = null;
+            if ($this->relationLoaded('requestedBy') && $this->requestedBy) {
+                $rejectedBy = [
+                    'id' => $this->requestedBy->id ?? null,
+                    'name' => $this->requestedBy->name ?? null,
+                    'type' => 'branch_manager',
+                    'image' => $this->requestedBy->image_url ?? null,
+                ];
+            }
+            
+            return [
+                'rejection_reason' => $this->rejection_reason,
+                'rejected_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
+                'rejected_by' => $rejectedBy,
+            ];
+        }
+
+        // For all other statuses, return null
+        return null;
+    }
+
+    /**
+     * Get information about who cancelled the order
+     */
+    private function getCancelledByInfo(OrderStatus $status): ?array
+    {
+        // Check if cancelled by supplier
+        if ($status === OrderStatus::CANCELLED_BY_SUPPLIER) {
+            if ($this->relationLoaded('supplier') && $this->supplier) {
+                return [
+                    'id' => $this->supplier->id ?? null,
+                    'name' => $this->supplier->name ?? null,
+                    'type' => 'supplier',
+                    'image' => $this->supplier->image_url ?? null,
+                ];
+            }
+        }
+
+        // Check if cancelled by branch manager (CANCELLED_BY_BRANCH)
+        if ($status === OrderStatus::CANCELLED_BY_BRANCH) {
+            if ($this->relationLoaded('requestedBy') && $this->requestedBy) {
+                return [
+                    'id' => $this->requestedBy->id ?? null,
+                    'name' => $this->requestedBy->name ?? null,
+                    'type' => 'branch_manager',
+                    'image' => $this->requestedBy->image_url ?? null,
+                ];
+            }
+        }
+
+        return null;
     }
 }
