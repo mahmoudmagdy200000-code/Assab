@@ -10,6 +10,7 @@ use Modules\Purchase\Http\Requests\ApproveOrderRequest;
 use Modules\Purchase\Http\Requests\ApproveTransferRequest;
 use Modules\Purchase\Http\Requests\FilterPendingOrdersRequest;
 use Modules\Purchase\Http\Requests\RejectOrderRequest;
+use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Services\TimelineService;
 use Modules\Purchase\Transformers\DirectSupplierOrderResource;
@@ -778,9 +779,9 @@ class PendingOrderController extends BaseController
             }
 
             // Check if item has modifications
-            $hasModifications = $item->approval_type !== null 
-                || $item->original_quantity !== null 
-                || $item->is_alternative 
+            $hasModifications = $item->approval_type !== null
+                || $item->original_quantity !== null
+                || $item->is_alternative
                 || ($order->expected_delivery_at && $order->preferred_delivery_date);
 
             if (!$hasModifications) {
@@ -897,7 +898,7 @@ class PendingOrderController extends BaseController
 
             // Ensure relationships are loaded
             $order->load(['requestedBy', 'supplier']);
-            
+
             $item = PurchaseOrderItem::where('purchase_order_id', $order->id)
                 ->where('id', $itemId)
                 ->first();
