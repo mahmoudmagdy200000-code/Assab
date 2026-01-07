@@ -20,15 +20,19 @@ class ModificationDetailResource extends JsonResource
         // Get modification type from approval_type or determine from item data
         $modificationType = $this->getModificationType();
 
-        $status = $this->getModificationStatus();
+        // Use item status directly instead of modification status
+        $itemStatus = $this->status?->value ?? 'pending';
+        $itemStatusLabel = $this->status?->label() ?? 'Pending';
+        $itemStatusColor = $this->status?->color() ?? '#F59E0B';
 
         $baseData = [
             'item_id' => $this->id,
             'type' => $modificationType->value,
             'type_label' => $modificationType->label(),
             'modified_at' => $this->updated_at?->format('Y-m-d H:i:s'),
-            'status' => $status,
-            'status_message' => $this->getStatusMessage($status),
+            'status' => $itemStatus,
+            'status_label' => $itemStatusLabel,
+            'status_color' => $itemStatusColor,
         ];
 
         // Add type-specific data
