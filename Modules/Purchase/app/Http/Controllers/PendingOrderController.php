@@ -1046,12 +1046,12 @@ class PendingOrderController extends BaseController
     }
 
     /**
-     * Approve delay report for a specific item
-     * Branch manager approves supplier's delay request for an item
+     * Approve delay report for the entire order
+     * Branch manager approves supplier's delay request for all items in the order
      *
      * @group Pending Orders
      */
-    public function approveItemDelay(string $id, string $itemId): JsonResponse
+    public function approveOrderDelay(string $id): JsonResponse
     {
         try {
             $userBranchId = auth()->user()->branch_id;
@@ -1061,47 +1061,35 @@ class PendingOrderController extends BaseController
                 return $this->notFoundResponse('Order not found');
             }
 
-            $item = PurchaseOrderItem::where('purchase_order_id', $order->id)
-                ->where('id', $itemId)
-                ->first();
-
-            if (!$item) {
-                return $this->notFoundResponse('Item not found');
+            // Check if order is in delayed status
+            if ($order->status !== \Modules\Purchase\Enums\OrderStatus::DELAYED) {
+                return $this->errorResponse('Order is not in delayed status', 400);
             }
 
-            // Check if item is in delayed status (delayed_supplier or delayed_branch)
-            if (!in_array($item->status, [
-                \Modules\Purchase\Enums\OrderItemStatus::DELAYED_SUPPLIER,
-                \Modules\Purchase\Enums\OrderItemStatus::DELAYED_BRANCH,
-                \Modules\Purchase\Enums\OrderItemStatus::DELAYED, // For backward compatibility
-            ])) {
-                return $this->errorResponse('Item is not in delayed status', 400);
-            }
-
-            $success = $this->orderService->approveItemDelay($order, $itemId);
+            $success = $this->orderService->approveOrderDelay($order);
 
             if (!$success) {
-                return $this->errorResponse('Failed to approve item delay', 400);
+                return $this->errorResponse('Failed to approve order delay', 400);
             }
 
             return $this->successResponse(
                 new PurchaseOrderResource($order->fresh(['items'])),
-                'Item delay approved successfully'
+                'Order delay approved successfully'
             );
         } catch (\InvalidArgumentException $e) {
             return $this->errorResponse($e->getMessage(), 400);
         } catch (\Exception $e) {
-            return $this->handleException($e, 'approving item delay');
+            return $this->handleException($e, 'approving order delay');
         }
     }
 
     /**
-     * Reject delay report for a specific item
-     * Branch manager rejects supplier's delay request for an item
+     * Reject delay report for the entire order
+     * Branch manager rejects supplier's delay request and cancels all delayed items
      *
      * @group Pending Orders
      */
-    public function rejectItemDelay(RejectOrderRequest $request, string $id, string $itemId): JsonResponse
+    public function rejectOrderDelay(RejectOrderRequest $request, string $id): JsonResponse
     {
         try {
             $userBranchId = auth()->user()->branch_id;
@@ -1111,38 +1099,26 @@ class PendingOrderController extends BaseController
                 return $this->notFoundResponse('Order not found');
             }
 
-            $item = PurchaseOrderItem::where('purchase_order_id', $order->id)
-                ->where('id', $itemId)
-                ->first();
-
-            if (!$item) {
-                return $this->notFoundResponse('Item not found');
-            }
-
-            // Check if item is in delayed status (delayed_supplier or delayed_branch)
-            if (!in_array($item->status, [
-                \Modules\Purchase\Enums\OrderItemStatus::DELAYED_SUPPLIER,
-                \Modules\Purchase\Enums\OrderItemStatus::DELAYED_BRANCH,
-                \Modules\Purchase\Enums\OrderItemStatus::DELAYED, // For backward compatibility
-            ])) {
-                return $this->errorResponse('Item is not in delayed status', 400);
+            // Check if order is in delayed status
+            if ($order->status !== \Modules\Purchase\Enums\OrderStatus::DELAYED) {
+                return $this->errorResponse('Order is not in delayed status', 400);
             }
 
             $reason = $request->validated()['reason'] ?? null;
-            $success = $this->orderService->rejectItemDelay($order, $itemId, $reason);
+            $success = $this->orderService->rejectOrderDelay($order, $reason);
 
             if (!$success) {
-                return $this->errorResponse('Failed to reject item delay', 400);
+                return $this->errorResponse('Failed to reject order delay', 400);
             }
 
             return $this->successResponse(
                 new PurchaseOrderResource($order->fresh(['items'])),
-                'Item delay rejected. Item has been cancelled.'
+                'Order delay rejected. All delayed items have been cancelled.'
             );
         } catch (\InvalidArgumentException $e) {
             return $this->errorResponse($e->getMessage(), 400);
         } catch (\Exception $e) {
-            return $this->handleException($e, 'rejecting item delay');
+            return $this->handleException($e, 'rejecting order delay');
         }
     }
 }

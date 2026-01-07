@@ -102,9 +102,9 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         Route::post('/{id}/items/{itemId}/modification/reject', [PendingOrderController::class, 'rejectModification'])->name('purchase.pending.reject-modification');
         Route::get('/{id}/items/{itemId}/cancellation-reason', [PendingOrderController::class, 'getCancellationReason'])->name('purchase.pending.get-cancellation-reason');
 
-        // Delay handling for items
-        Route::post('/{id}/items/{itemId}/delay/approve', [PendingOrderController::class, 'approveItemDelay'])->name('purchase.pending.approve-item-delay');
-        Route::post('/{id}/items/{itemId}/delay/reject', [PendingOrderController::class, 'rejectItemDelay'])->name('purchase.pending.reject-item-delay');
+        // Delay handling for orders
+        Route::post('/{id}/delay/approve', [PendingOrderController::class, 'approveOrderDelay'])->name('purchase.pending.approve-order-delay');
+        Route::post('/{id}/delay/reject', [PendingOrderController::class, 'rejectOrderDelay'])->name('purchase.pending.reject-order-delay');
 
         /*
         |--------------------------------------------------------------------------
