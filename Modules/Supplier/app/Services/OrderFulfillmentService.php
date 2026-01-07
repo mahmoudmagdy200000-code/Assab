@@ -171,8 +171,14 @@ class OrderFulfillmentService
                 $today = Carbon::today()->format('Y-m-d');
                 $newExpectedDeliveryAt = $today . ' ' . $data['new_time'];
             } elseif ($data['new_expected_delivery_date_type'] === 'custom') {
+                // Extract date only from new_date (handle ISO format like 2026-01-12T00:00:00.000)
+                $dateString = $data['new_date'];
+                // If it's an ISO format, extract only the date part (before 'T')
+                if (strpos($dateString, 'T') !== false) {
+                    $dateString = explode('T', $dateString)[0];
+                }
                 // Use custom date and time (store as string)
-                $newExpectedDeliveryAt = $data['new_date'] . ' ' . $data['new_time'];
+                $newExpectedDeliveryAt = $dateString . ' ' . $data['new_time'];
             }
 
             $updateData = [
