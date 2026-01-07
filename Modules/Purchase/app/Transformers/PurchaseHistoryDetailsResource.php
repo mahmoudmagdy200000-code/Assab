@@ -41,6 +41,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
     /**
      * Get reason for rejected/cancelled order
      * Returns full object with cancellation/rejection details, null otherwise
+     * Only returns cancellation_reason if cancelled by branch or supplier
      *
      * @return array|null
      */
@@ -52,19 +53,23 @@ class PurchaseHistoryDetailsResource extends JsonResource
             return null;
         }
 
-        // Check if order is cancelled (any cancellation type)
+        // Check if order is cancelled by branch or supplier only
         if (in_array($status, [
-            OrderStatus::CANCELED,
             OrderStatus::CANCELLED_BY_BRANCH,
             OrderStatus::CANCELLED_BY_SUPPLIER,
         ])) {
             $cancelledBy = $this->getCancelledByInfo($status);
             
             return [
-                'cancellation_reason' => $this->cancellation_reason,
+                'cancellation_reason' => $this->cancellation_reason ?? null,
                 'cancelled_at' => $this->canceled_at?->format('Y-m-d H:i:s'),
                 'cancelled_by' => $cancelledBy,
             ];
+        }
+
+        // For generic CANCELED status (not by branch or supplier), return null
+        if ($status === OrderStatus::CANCELED) {
+            return null;
         }
 
         // Check if order is rejected
