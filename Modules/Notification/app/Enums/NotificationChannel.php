@@ -7,6 +7,7 @@ enum NotificationChannel: string
     case IN_APP = 'app';
     case EMAIL = 'email';
     case SMS = 'sms';
+    case PUSH = 'push';
 
     public function label(): string
     {
@@ -14,6 +15,7 @@ enum NotificationChannel: string
             self::IN_APP => 'In-App',
             self::EMAIL => 'Email',
             self::SMS => 'SMS',
+            self::PUSH => 'Push Notification',
         };
     }
 
@@ -23,6 +25,7 @@ enum NotificationChannel: string
             self::IN_APP => 'bell',
             self::EMAIL => 'mail',
             self::SMS => 'message',
+            self::PUSH => 'radio',
         };
     }
 }

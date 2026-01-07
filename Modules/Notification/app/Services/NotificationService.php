@@ -45,7 +45,7 @@ class NotificationService implements NotificationServiceInterface
         // Send via each enabled channel
         foreach ($channels as $channelValue) {
             $channel = NotificationChannel::from($channelValue);
-            $this->sendViaChannel($notifiable, $channel, $type, $data, $priority);
+            $this->sendViaChannel($notifiable, $channel, $type, $data, $priority, $channels);
         }
     }
 
@@ -96,16 +96,32 @@ class NotificationService implements NotificationServiceInterface
         NotificationChannel $channel,
         NotificationType $type,
         array $data,
-        NotificationPriority $priority
+        NotificationPriority $priority,
+        array $allChannels = []
     ): void {
         try {
             $title = $this->generateTitle($type, $data);
             $message = $this->generateMessage($type, $data);
 
-            // Create in-app notification first
-            if ($channel === NotificationChannel::IN_APP) {
+            // Handle push notifications (broadcasting)
+            if ($channel === NotificationChannel::PUSH) {
+                // Create notification with broadcast enabled
+                $notification = new \Modules\Notification\Notifications\BaseNotification($type, $data, $priority, $allChannels);
+                $notifiable->notify($notification);
+
+                // Broadcast the notification via Pusher
+                $notification->broadcastTo($notifiable);
+
+                // Log notification - get ID from database notification
+                $dbNotification = $notifiable->notifications()->latest()->first();
+                if ($dbNotification) {
+                    $this->logNotification($dbNotification->id, $channel, 'sent');
+                }
+            }
+            // Create in-app notification
+            elseif ($channel === NotificationChannel::IN_APP) {
                 $notification = $notifiable->notify(
-                    new \Modules\Notification\Notifications\BaseNotification($type, $data, $priority)
+                    new \Modules\Notification\Notifications\BaseNotification($type, $data, $priority, $allChannels)
                 );
 
                 // Log notification - get ID from database notification
@@ -114,12 +130,12 @@ class NotificationService implements NotificationServiceInterface
                     $this->logNotification($dbNotification->id, $channel, 'sent');
                 }
             } else {
-                // Send via external channel
+                // Send via external channel (Email, SMS)
                 $success = $this->channelService->send($notifiable, $channel, $title, $message, $data);
 
                 // Also create in-app notification for tracking
                 $dbNotification = $notifiable->notify(
-                    new \Modules\Notification\Notifications\BaseNotification($type, $data, $priority)
+                    new \Modules\Notification\Notifications\BaseNotification($type, $data, $priority, $allChannels)
                 );
 
                 $dbNotification = $notifiable->notifications()->latest()->first();

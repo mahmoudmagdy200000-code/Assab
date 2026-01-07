@@ -6,19 +6,28 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use Modules\Notification\Enums\NotificationChannel;
 use Modules\Notification\Enums\NotificationPriority;
 use Modules\Notification\Enums\NotificationType;
+use Modules\Notification\Events\NotificationBroadcasted;
 
 class BaseNotification extends Notification implements ShouldQueue
 {
     use Queueable;
 
+    /**
+     * Whether this notification should be broadcast
+     */
+    protected bool $shouldBroadcast = false;
+
     public function __construct(
         public NotificationType $type,
         public array $data = [],
-        public NotificationPriority $priority = null
+        public NotificationPriority $priority = null,
+        array $channels = []
     ) {
         $this->priority = $priority ?? $this->type->defaultPriority();
+        $this->shouldBroadcast = in_array(NotificationChannel::PUSH->value, $channels);
     }
 
     /**
@@ -26,7 +35,48 @@ class BaseNotification extends Notification implements ShouldQueue
      */
     public function via($notifiable): array
     {
-        return ['database'];
+        $channels = ['database'];
+        
+        // Broadcasting is handled manually after notification is sent
+        // to avoid always broadcasting when ShouldBroadcast is implemented
+        
+        return $channels;
+    }
+
+    /**
+     * Broadcast the notification manually via Pusher
+     * Called after notification is sent if push channel is enabled
+     */
+    public function broadcastTo($notifiable): void
+    {
+        if (!$this->shouldBroadcast) {
+            return;
+        }
+
+        // Get notification ID from database
+        $dbNotification = $notifiable->notifications()->latest()->first();
+        
+        event(new NotificationBroadcasted(
+            $notifiable,
+            $this->getBroadcastData($dbNotification?->id)
+        ));
+    }
+
+    /**
+     * Get the data to broadcast.
+     */
+    protected function getBroadcastData(?string $notificationId = null): array
+    {
+        return [
+            'id' => $notificationId,
+            'type' => $this->type->value,
+            'title' => $this->getTitle(),
+            'message' => $this->getMessage(),
+            'priority' => $this->priority->value,
+            'category' => $this->type->category()->value,
+            'data' => $this->data,
+            'created_at' => now()->toIso8601String(),
+        ];
     }
 
     /**

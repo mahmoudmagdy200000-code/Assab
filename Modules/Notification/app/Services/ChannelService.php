@@ -7,13 +7,15 @@ use Illuminate\Support\Facades\Log;
 use Modules\Notification\Contracts\ChannelServiceInterface;
 use Modules\Notification\Enums\NotificationChannel;
 use Modules\Notification\Services\Channels\EmailChannelService;
+use Modules\Notification\Services\Channels\PushChannelService;
 use Modules\Notification\Services\Channels\SmsChannelService;
 
 class ChannelService implements ChannelServiceInterface
 {
     public function __construct(
         private EmailChannelService $emailChannel,
-        private SmsChannelService $smsChannel
+        private SmsChannelService $smsChannel,
+        private PushChannelService $pushChannel
     ) {}
 
     /**
@@ -29,6 +31,7 @@ class ChannelService implements ChannelServiceInterface
         return match ($channel) {
             NotificationChannel::EMAIL => $this->emailChannel->send($notifiable, $title, $message, $data),
             NotificationChannel::SMS => $this->smsChannel->send($notifiable, $title, $message, $data),
+            NotificationChannel::PUSH => $this->pushChannel->send($notifiable, $title, $message, $data),
             NotificationChannel::IN_APP => true, // Handled by Laravel notifications
         };
     }
