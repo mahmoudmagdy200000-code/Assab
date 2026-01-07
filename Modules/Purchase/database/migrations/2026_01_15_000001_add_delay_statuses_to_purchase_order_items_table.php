@@ -49,7 +49,7 @@ return new class extends Migration
                 'cancelled',
                 'cancelled_by_branch',
                 'cancelled_by_supplier',
-                'canceled_modification',
+                'cancelled_modification',
                 'cancelled_delayed',
                 'received',
                 'variance'
@@ -101,7 +101,7 @@ return new class extends Migration
                 'cancelled',
                 'cancelled_by_branch',
                 'cancelled_by_supplier',
-                'canceled_modification',
+                'cancelled_modification',
                 'received',
                 'variance'
             ) DEFAULT 'pending'");
