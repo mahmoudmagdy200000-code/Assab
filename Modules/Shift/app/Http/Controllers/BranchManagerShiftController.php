@@ -1248,8 +1248,8 @@ class BranchManagerShiftController extends BaseController
         try {
             $manager = auth()->user();
 
+            // Get handover - support both cashier-to-cashier and cashier-to-manager handovers
             $handover = \Modules\Shift\Models\CashierShiftHandover::where('id', $handoverId)
-                ->where('handover_to_type', 'cashier')
                 ->select([
                     'id',
                     'cashier_shift_id',
@@ -1286,9 +1286,20 @@ class BranchManagerShiftController extends BaseController
             $cashierShift = $handover->cashierShift;
             $shift = $cashierShift->shift;
 
-            // Check if handover belongs to manager's branch
-            if ($shift->branch_id !== $manager->branch_id) {
-                return $this->errorResponse('You do not have access to this handover', 403);
+            // Check access permissions based on handover type
+            // For branch_manager handovers: must be handover to this manager
+            // For cashier handovers: must be in manager's branch
+            if ($handover->handover_to_type === 'branch_manager') {
+                if ($handover->handover_to_id !== $manager->id) {
+                    return $this->errorResponse('You do not have access to this handover', 403);
+                }
+            } elseif ($handover->handover_to_type === 'cashier') {
+                // For cashier-to-cashier handovers, manager must have access to the branch
+                if ($shift->branch_id !== $manager->branch_id) {
+                    return $this->errorResponse('You do not have access to this handover', 403);
+                }
+            } else {
+                return $this->errorResponse('Invalid handover type', 403);
             }
 
             // Prepare variance details
@@ -1312,9 +1323,9 @@ class BranchManagerShiftController extends BaseController
                     $varianceDetails['other_cashiers'] = $cashierShift->varianceDetails->map(function ($detail) {
                         return [
                             'cashier_id' => $detail->responsible_cashier_id,
-                            'cashier_name' => $detail->responsibleCashier?->name,
-                            'amount' => (float) $detail->amount,
-                            'notes' => $detail->notes,
+                            'cashier_name' => $detail->responsibleCashier?->name ?? 'External Factors',
+                            'amount' => (float) $detail->assigned_amount,
+                            'notes' => $detail->reason,
                         ];
                     })->toArray();
                 }
