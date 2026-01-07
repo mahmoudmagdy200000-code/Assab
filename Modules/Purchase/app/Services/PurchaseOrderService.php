@@ -1130,20 +1130,8 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 $this->timelineService->logItemDelayApproved($order, $item);
             }
 
-            // Update order status back to the previous status (preparing or on_the_way)
-            // Determine previous status based on timestamps
-            // If order was on_the_way (dispatched_at exists), go back to on_the_way
-            // If order was preparing (preparation_started_at exists), go back to preparing
-            // Default to preparing if we can't determine
-            $previousStatus = OrderStatus::PREPARING;
-            if ($order->dispatched_at) {
-                $previousStatus = OrderStatus::ON_THE_WAY;
-            } elseif ($order->preparation_started_at) {
-                $previousStatus = OrderStatus::PREPARING;
-            }
-
-            // Transition order back to previous status
-            $order->transitionTo($previousStatus);
+            // Update order status to delayed_approved
+            $order->transitionTo(OrderStatus::DELAYED_APPROVED);
 
             return true;
         });

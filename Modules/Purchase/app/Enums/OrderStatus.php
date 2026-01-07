@@ -21,6 +21,7 @@ enum OrderStatus: string
     
     // Special Status (temporary during execution)
     case DELAYED = 'delayed';
+    case DELAYED_APPROVED = 'delayed_approved';
     
     // Deprecated Statuses (for backward compatibility - will be migrated)
     case PENDING_CONFIRMATION = 'pending_confirmation';
@@ -52,6 +53,7 @@ enum OrderStatus: string
             
             // Special
             self::DELAYED => 'Delay Reported',
+            self::DELAYED_APPROVED => 'Delayed Approved',
             
             // Deprecated (for backward compatibility)
             self::PENDING_CONFIRMATION => 'Pending Confirmation (Deprecated)',
@@ -83,6 +85,7 @@ enum OrderStatus: string
             
             // Special
             self::DELAYED => '#F59E0B',
+            self::DELAYED_APPROVED => '#10B981',
             
             // Deprecated (mapped to similar statuses)
             self::PENDING_CONFIRMATION => '#F97316',
@@ -112,7 +115,8 @@ enum OrderStatus: string
             // Execution Phase Transitions
             self::PREPARING => [self::ON_THE_WAY, self::DELAYED, self::CANCELED],
             self::ON_THE_WAY => [self::DELIVERED, self::DELAYED],
-            self::DELAYED => [self::PREPARING, self::ON_THE_WAY, self::CANCELED],
+            self::DELAYED => [self::DELAYED_APPROVED, self::PREPARING, self::ON_THE_WAY, self::CANCELED],
+            self::DELAYED_APPROVED => [self::PREPARING, self::ON_THE_WAY, self::DELIVERED],
             self::DELIVERED => [self::CLOSED],
             self::CLOSED => [],
             
@@ -137,6 +141,7 @@ enum OrderStatus: string
             self::CONFIRMED,
             self::PREPARING,
             self::ON_THE_WAY,
+            self::DELAYED_APPROVED,
             self::DELIVERED,
             // Deprecated (for backward compatibility)
             self::PARTIAL_CONFIRMATION,
@@ -169,6 +174,7 @@ enum OrderStatus: string
             self::CONFIRMED,
             self::PREPARING,
             self::ON_THE_WAY,
+            self::DELAYED_APPROVED,
             self::DELIVERED,
             // Deprecated (for backward compatibility)
             self::PARTIAL_CONFIRMATION,
@@ -207,6 +213,7 @@ enum OrderStatus: string
             self::PREPARING,
             self::ON_THE_WAY,
             self::DELAYED,
+            self::DELAYED_APPROVED,
             // Deprecated (for backward compatibility)
             self::PENDING_CONFIRMATION,
             self::PENDING_APPROVAL,
@@ -226,6 +233,7 @@ enum OrderStatus: string
             self::CONFIRMED,
             self::PREPARING,
             self::ON_THE_WAY,
+            self::DELAYED_APPROVED,
             self::DELIVERED,
             // Deprecated (for backward compatibility)
             self::PARTIAL_CONFIRMATION,
@@ -260,6 +268,7 @@ enum OrderStatus: string
             self::DELIVERED,
             self::CLOSED,
             self::DELAYED,
+            self::DELAYED_APPROVED,
         ]);
     }
 }
