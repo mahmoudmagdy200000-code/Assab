@@ -30,7 +30,7 @@ class GoodsReceiptService
         $paginator = GoodsReceipt::with(['purchaseOrder:id,order_type'])
             ->withCount('items as items_count')
             ->byBranch($branchId)
-            ->whereIn('status', ['delivered'])
+            ->whereIn('status', ['draft', 'in_progress'])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
 
