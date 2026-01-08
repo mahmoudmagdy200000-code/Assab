@@ -255,23 +255,6 @@ class TimelineService
         );
     }
 
-    public function logOutForDelivery(PurchaseOrder $order): OrderTimeline
-    {
-        return $this->log(
-            $order,
-            TimelineEventType::OUT_FOR_DELIVERY,
-            'Out for Delivery',
-            "Order is out for delivery",
-            'preparing',
-            'on_the_way',
-            [
-                'driver' => $order->driver_name,
-                'vehicle' => $order->vehicle_number,
-                'expected_delivery' => $order->expected_delivery_at?->format('Y-m-d H:i'),
-            ]
-        );
-    }
-
     public function logDeliveryDelayed(PurchaseOrder $order, string $reason): OrderTimeline
     {
         return $this->log(
