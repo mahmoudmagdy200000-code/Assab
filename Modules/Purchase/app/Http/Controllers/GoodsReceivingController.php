@@ -677,6 +677,29 @@ class GoodsReceivingController extends BaseController
     }
 
     /**
+     * Get inspection details by order ID
+     *
+     * @group Goods Receiving
+     */
+    public function getInspectionDetailsByOrderId(string $orderId): JsonResponse
+    {
+        try {
+            $details = $this->receiptService->getInspectionDetailsByOrderId($orderId);
+
+            if (!$details) {
+                return $this->notFoundResponse('Order or receipt not found');
+            }
+
+            return $this->successResponse(
+                $details,
+                'Inspection details retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching inspection details');
+        }
+    }
+
+    /**
      * Create delivery note
      *
      * @group Goods Receiving

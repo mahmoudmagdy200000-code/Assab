@@ -566,6 +566,87 @@ class GoodsReceiptService
     }
 
     /**
+     * Get inspection details by order ID
+     */
+    public function getInspectionDetailsByOrderId(string $orderId): ?array
+    {
+        $order = PurchaseOrder::with([
+            'goodsReceipts.items',
+            'goodsReceipts.items.variance',
+            'supplier',
+            'branch',
+        ])->find($orderId);
+
+        if (!$order || $order->goodsReceipts->isEmpty()) {
+            return null;
+        }
+
+        // Get the latest receipt (most recent)
+        $receipt = $order->goodsReceipts()->latest()->first();
+        
+        if (!$receipt) {
+            return null;
+        }
+        
+        // Load items with variance
+        $receipt->load(['items.variance']);
+
+        return [
+            'order_id' => $order->id,
+            'order_number' => $order->order_number,
+            'delivery_details' => [
+                'driver_name' => $receipt->driver_name,
+                'contact_number' => $receipt->driver_contact,
+                'vehicle_number' => $receipt->vehicle_number,
+                'arrival_time' => $receipt->arrival_time?->format('Y-m-d H:i:s'),
+                'delivery_address' => $receipt->delivery_address,
+            ],
+            'goods_inspection' => $receipt->items->map(function ($item) {
+                $variance = $item->variance;
+                $hasVariance = $item->has_variance;
+                
+                $varianceDetails = null;
+                if ($hasVariance && $variance) {
+                    $varianceType = $variance->variance_type?->value;
+                    $varianceAmount = abs($item->quantity_variance);
+                    $varianceUnit = $item->unit_of_measurement;
+                    
+                    $varianceMessage = match($varianceType) {
+                        'short' => "Item delivered is {$varianceAmount}{$varianceUnit} lower than requested & Confirmed Qty.",
+                        'damage' => "Item quality variance detected.",
+                        'both' => "Item delivered is {$varianceAmount}{$varianceUnit} lower than requested & Confirmed Qty with quality issues.",
+                        default => "Variance detected for this item.",
+                    };
+                    
+                    $varianceDetails = [
+                        'variance_detected' => true,
+                        'variance_type' => $varianceType,
+                        'variance_amount' => (float) $varianceAmount,
+                        'variance_unit' => $varianceUnit,
+                        'variance_message' => $varianceMessage,
+                    ];
+                }
+
+                return [
+                    'item_id' => $item->id,
+                    'product_name' => $item->item_name,
+                    'item_logo' => $item->item_logo_url,
+                    'qty_ordered' => (float) $item->quantity_ordered,
+                    'qty_received' => (float) $item->quantity_received,
+                    'unit' => $item->unit_of_measurement,
+                    'quality' => $item->quality_received?->value ?? 'normal',
+                    'temperature' => $item->temperature ? (float) $item->temperature : null,
+                    'temperature_unit' => '°C',
+                    'expiration_date' => $item->expiry_date?->format('Y-m-d'),
+                    'photo' => $item->photo_url,
+                    'note' => $item->notes,
+                    'variance' => $varianceDetails,
+                ];
+            }),
+        ];
+    }
+
+    /**
      * Get comprehensive receipt summary
      */
     public function getReceiptSummary(string $receiptId): array
