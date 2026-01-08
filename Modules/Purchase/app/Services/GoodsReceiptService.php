@@ -573,76 +573,105 @@ class GoodsReceiptService
         $order = PurchaseOrder::with([
             'goodsReceipts.items',
             'goodsReceipts.items.variance',
+            'items',
             'supplier',
             'branch',
         ])->find($orderId);
 
-        if (!$order || $order->goodsReceipts->isEmpty()) {
+        if (!$order) {
             return null;
         }
 
-        // Get the latest receipt (most recent)
+        // Get the latest receipt (most recent) if exists
         $receipt = $order->goodsReceipts()->latest()->first();
-        
-        if (!$receipt) {
-            return null;
+
+        // Use receipt delivery details if available, otherwise fallback to order
+        $deliveryDetails = [
+            'driver_name' => $receipt?->driver_name ?? $order->driver_name,
+            'contact_number' => $receipt?->driver_contact ?? $order->driver_contact,
+            'vehicle_number' => $receipt?->vehicle_number ?? $order->vehicle_number,
+            'arrival_time' => $receipt?->arrival_time?->format('Y-m-d H:i:s')
+                ?? $order->actual_delivery_at?->format('Y-m-d H:i:s'),
+            'delivery_address' => $receipt?->delivery_address ?? $order->branch?->location,
+        ];
+
+        // If receipt exists, use receipt items, otherwise use order items
+        if ($receipt && $receipt->items->isNotEmpty()) {
+            $receipt->load(['items.variance']);
+            $inspectionItems = $receipt->items->map(function ($item) {
+                return $this->formatInspectionItem($item);
+            });
+        } else {
+            // Use order items as fallback (not inspected yet)
+            $inspectionItems = $order->items->map(function ($orderItem) {
+                return [
+                    'item_id' => $orderItem->id,
+                    'product_name' => $orderItem->item_name,
+                    'item_logo' => $orderItem->item_logo_url ?? null,
+                    'qty_ordered' => (float) $orderItem->quantity,
+                    'qty_received' => 0.0, // Not inspected yet
+                    'unit' => $orderItem->unit_of_measurement,
+                    'quality' => 'normal', // Default until inspected
+                    'temperature' => null,
+                    'expiration_date' => null,
+                    'photo' => null,
+                    'note' => null,
+                    'variance' => null,
+                ];
+            });
         }
-        
-        // Load items with variance
-        $receipt->load(['items.variance']);
 
         return [
             'order_id' => $order->id,
             'order_number' => $order->order_number,
-            'delivery_details' => [
-                'driver_name' => $receipt->driver_name,
-                'contact_number' => $receipt->driver_contact,
-                'vehicle_number' => $receipt->vehicle_number,
-                'arrival_time' => $receipt->arrival_time?->format('Y-m-d H:i:s'),
-                'delivery_address' => $receipt->delivery_address,
-            ],
-            'goods_inspection' => $receipt->items->map(function ($item) {
-                $variance = $item->variance;
-                $hasVariance = $item->has_variance;
-                
-                $varianceDetails = null;
-                if ($hasVariance && $variance) {
-                    $varianceType = $variance->variance_type?->value;
-                    $varianceAmount = abs($item->quantity_variance);
-                    $varianceUnit = $item->unit_of_measurement;
-                    
-                    $varianceMessage = match($varianceType) {
-                        'short' => "Item delivered is {$varianceAmount}{$varianceUnit} lower than requested & Confirmed Qty.",
-                        'damage' => "Item quality variance detected.",
-                        'both' => "Item delivered is {$varianceAmount}{$varianceUnit} lower than requested & Confirmed Qty with quality issues.",
-                        default => "Variance detected for this item.",
-                    };
-                    
-                    $varianceDetails = [
-                        'variance_detected' => true,
-                        'variance_type' => $varianceType,
-                        'variance_amount' => (float) $varianceAmount,
-                        'variance_unit' => $varianceUnit,
-                        'variance_message' => $varianceMessage,
-                    ];
-                }
+            'delivery_details' => $deliveryDetails,
+            'goods_inspection' => $inspectionItems,
+        ];
+    }
 
-                return [
-                    'item_id' => $item->id,
-                    'product_name' => $item->item_name,
-                    'item_logo' => $item->item_logo_url,
-                    'qty_ordered' => (float) $item->quantity_ordered,
-                    'qty_received' => (float) $item->quantity_received,
-                    'unit' => $item->unit_of_measurement,
-                    'quality' => $item->quality_received?->value ?? 'normal',
-                    'temperature' => $item->temperature ? (float) $item->temperature : null,
-                    'temperature_unit' => '°C',
-                    'expiration_date' => $item->expiry_date?->format('Y-m-d'),
-                    'photo' => $item->photo_url,
-                    'note' => $item->notes,
-                    'variance' => $varianceDetails,
-                ];
-            }),
+    /**
+     * Format inspection item for response
+     */
+    private function formatInspectionItem(GoodsReceiptItem $item): array
+    {
+        $variance = $item->variance;
+        $hasVariance = $item->has_variance;
+
+        $varianceDetails = null;
+        if ($hasVariance && $variance) {
+            $varianceType = $variance->variance_type?->value;
+            $varianceAmount = abs($item->quantity_variance);
+            $varianceUnit = $item->unit_of_measurement;
+
+            $varianceMessage = match ($varianceType) {
+                'short' => "Item delivered is {$varianceAmount}{$varianceUnit} lower than requested & Confirmed Qty.",
+                'damage' => "Item quality variance detected.",
+                'both' => "Item delivered is {$varianceAmount}{$varianceUnit} lower than requested & Confirmed Qty with quality issues.",
+                default => "Variance detected for this item.",
+            };
+
+            $varianceDetails = [
+                'variance_detected' => true,
+                'variance_type' => $varianceType,
+                'variance_amount' => (float) $varianceAmount,
+                'variance_unit' => $varianceUnit,
+                'variance_message' => $varianceMessage,
+            ];
+        }
+
+        return [
+            'item_id' => $item->id,
+            'product_name' => $item->item_name,
+            'item_logo' => $item->item_logo_url,
+            'qty_ordered' => (float) $item->quantity_ordered,
+            'qty_received' => (float) $item->quantity_received,
+            'unit' => $item->unit_of_measurement,
+            'quality' => $item->quality_received?->value ?? 'normal',
+            'temperature' => $item->temperature ? (float) $item->temperature : null,
+            'expiration_date' => $item->expiry_date?->format('Y-m-d'),
+            'photo' => $item->photo_url,
+            'note' => $item->notes,
+            'variance' => $varianceDetails,
         ];
     }
 

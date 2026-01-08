@@ -188,7 +188,7 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
 
         // Order tracking
         Route::get('/orders/{orderId}/tracking', [GoodsReceivingController::class, 'getOrderTracking'])->name('purchase.receiving.tracking');
-        
+
         // Get inspection details by order ID
         Route::get('/orders/{orderId}/inspection', [GoodsReceivingController::class, 'getInspectionDetailsByOrderId'])->name('purchase.receiving.inspection-by-order');
 
