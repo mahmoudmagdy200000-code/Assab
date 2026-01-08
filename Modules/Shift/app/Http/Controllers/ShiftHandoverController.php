@@ -208,13 +208,13 @@ class ShiftHandoverController extends Controller
                 ], 404);
             }
 
-            if (!in_array($shiftModel->handoverStatus->manager_approval_status, ['pending', 'rejected'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Handover is not pending approval',
-                    'current_status' => $shiftModel->handoverStatus->manager_approval_status
-                ], 400);
-            }
+            // if (!in_array($shiftModel->handoverStatus->manager_approval_status, ['pending', 'rejected'])) {
+            //     return response()->json([
+            //         'success' => false,
+            //         'message' => 'Handover is not pending approval',
+            //         'current_status' => $shiftModel->handoverStatus->manager_approval_status
+            //     ], 400);
+            // }
 
             $result = $this->handoverService->approveHandover(
                 $shiftModel,
@@ -231,7 +231,7 @@ class ShiftHandoverController extends Controller
                     'approval_details' => [
                         'approved_by' => $manager->name,
                         'approved_at' => now()->format('Y-m-d H:i:s'),
-                        'manager_comment' => $request->get('manager_comment'),
+                        'manager_comment' => $request->get('manager_comment') ?? null,
                     ]
                 ]
             ]);
@@ -256,7 +256,7 @@ class ShiftHandoverController extends Controller
     public function rejectHandover(Request $request, string $shift): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'rejection_reason' => 'required|string|max:500',
+            'rejection_reason' => 'nullable|string|max:500',
             'manager_comment' => 'nullable|string|max:500',
             'rejection_files' => 'sometimes|array',
             'rejection_files.*' => 'file|mimes:pdf,png,jpeg,jpg|max:5120',
@@ -313,7 +313,7 @@ class ShiftHandoverController extends Controller
                 $shiftModel,
                 $manager->id,
                 get_class($manager),
-                $request->rejection_reason,
+                $request->rejection_reason ?? null,
                 $request->file('rejection_files', []),
                 $request->manager_comment
             );
@@ -328,7 +328,7 @@ class ShiftHandoverController extends Controller
                     'rejection_details' => [
                         'status' => $result['handover_status'],
                         'rejected_by' => $manager->name,
-                        'rejection_reason' => $request->rejection_reason,
+                        'rejection_reason' => $request->rejection_reason ?? null,
                         'manager_comment' => $request->manager_comment,
                         'rejected_at' => $result['rejected_at'],
                         'rejection_count' => $result['rejection_count'],

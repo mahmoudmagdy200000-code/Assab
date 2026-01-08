@@ -536,6 +536,181 @@ class TimelineService
     }
 
     /**
+     * Log preparing stage
+     */
+    public function logPreparing(PurchaseOrder $order): OrderTimeline
+    {
+        return $this->log(
+            $order,
+            TimelineEventType::PREPARATION_STARTED,
+            'Preparing',
+            'Order items are being prepared',
+            $order->status->value,
+            'preparing'
+        );
+    }
+
+    /**
+     * Log quality certificate upload
+     */
+    public function logQualityCertificate(PurchaseOrder $order, PurchaseOrderItem $item): OrderTimeline
+    {
+        return $this->log(
+            $order,
+            TimelineEventType::QUALITY_CERTIFICATE_UPLOADED,
+            'Quality Certificate Uploaded',
+            "Quality certificate uploaded for item {$item->item_name}",
+            null,
+            null,
+            ['item_id' => $item->id, 'item_name' => $item->item_name]
+        );
+    }
+
+    /**
+     * Log out for delivery
+     */
+    public function logOutForDelivery(PurchaseOrder $order): OrderTimeline
+    {
+        return $this->log(
+            $order,
+            TimelineEventType::OUT_FOR_DELIVERY,
+            'Out for Delivery',
+            'Order is out for delivery',
+            'preparing',
+            'on_the_way',
+            [
+                'arrival_time' => $order->expected_delivery_at?->format('Y-m-d H:i:s'),
+                'driver_name' => $order->driver_name,
+                'driver_photo' => $order->driver_photo,
+                'vehicle_number' => $order->vehicle_number,
+                'delivery_address' => $order->branch->location ?? null,
+                'delivery_notes' => null,
+            ]
+        );
+    }
+
+    /**
+     * Log delivered
+     */
+    public function logDelivered(PurchaseOrder $order): OrderTimeline
+    {
+        return $this->log(
+            $order,
+            TimelineEventType::DELIVERED,
+            'Delivered',
+            'Order has been delivered',
+            'on_the_way',
+            'delivered'
+        );
+    }
+
+    /**
+     * Log order confirmation
+     */
+    public function logOrderConfirmation(GoodsReceipt $receipt): OrderTimeline
+    {
+        return $this->log(
+            $receipt,
+            TimelineEventType::ORDER_CONFIRMED,
+            'Order Confirmed',
+            'Order confirmation completed after inspection',
+            'delivered',
+            'confirmed',
+            [
+                'items_received' => $receipt->total_items_received,
+                'total_amount' => $receipt->received_amount,
+            ]
+        );
+    }
+
+    /**
+     * Log variance logged
+     */
+    public function logVarianceLogged(PurchaseVariance $variance): OrderTimeline
+    {
+        return $this->log(
+            $variance,
+            TimelineEventType::VARIANCE_DETECTED,
+            'Variance Logged',
+            "Variance logged for {$variance->item_name}",
+            null,
+            'pending',
+            [
+                'variance_type' => $variance->variance_type->value,
+                'amount' => $variance->variance_amount,
+            ]
+        );
+    }
+
+    /**
+     * Log supplier contact
+     */
+    public function logSupplierContact(
+        PurchaseOrder $order,
+        string $channel,
+        ?string $message = null
+    ): OrderTimeline {
+        $channelLabels = [
+            'whatsapp' => 'WhatsApp',
+            'sms' => 'SMS',
+            'email' => 'Email',
+            'in_app' => 'In-App Notification',
+        ];
+
+        return $this->log(
+            $order,
+            TimelineEventType::ORDER_VIEWED,
+            'Supplier Contacted',
+            "Contacted supplier via {$channelLabels[$channel] ?? $channel}",
+            null,
+            null,
+            [
+                'channel' => $channel,
+                'message' => $message,
+                'contacted_at' => now()->format('Y-m-d H:i:s'),
+            ]
+        );
+    }
+
+    /**
+     * Log variance submitted
+     */
+    public function logVarianceSubmitted(PurchaseVariance $variance): OrderTimeline
+    {
+        return $this->log(
+            $variance,
+            TimelineEventType::VARIANCE_DETECTED,
+            'Variance Submitted',
+            "Variance submitted for {$variance->item_name}",
+            null,
+            'reported',
+            [
+                'submitted_by' => auth()->id(),
+                'submitted_at' => now()->format('Y-m-d H:i:s'),
+            ]
+        );
+    }
+
+    /**
+     * Log variance viewed
+     */
+    public function logVarianceViewed(PurchaseVariance $variance, string $viewedBy): OrderTimeline
+    {
+        return $this->log(
+            $variance,
+            TimelineEventType::ORDER_VIEWED,
+            'Variance Viewed',
+            "Variance was viewed by supplier",
+            null,
+            null,
+            [
+                'viewed_by' => $viewedBy,
+                'viewed_at' => now()->format('Y-m-d H:i:s'),
+            ]
+        );
+    }
+
+    /**
      * Core logging method
      */
     private function log(

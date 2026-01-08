@@ -51,6 +51,11 @@ class OrderTimeline extends Model
         return $this->morphTo();
     }
 
+    public function actor(): MorphTo
+    {
+        return $this->morphTo('actor');
+    }
+
     // Accessors
     public function getEventLabelAttribute(): ?string
     {

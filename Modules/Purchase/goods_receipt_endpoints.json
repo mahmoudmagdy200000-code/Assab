@@ -1,0 +1,948 @@
+{
+  "info": {
+    "name": "Goods Receipt API Endpoints",
+    "description": "Complete API documentation for Goods Receipt System (3.1.2.4.4)",
+    "version": "1.0.0",
+    "base_url": "/api/v1/purchase/receiving"
+  },
+  "endpoints": [
+    {
+      "name": "Get In-Progress Receipts",
+      "method": "GET",
+      "path": "/in-progress",
+      "description": "Get list of receipts that are in progress (draft or in_progress status)",
+      "query_parameters": {
+        "per_page": {
+          "type": "integer",
+          "required": false,
+          "default": 15,
+          "description": "Number of items per page"
+        }
+      },
+      "response": {
+        "status": 200,
+        "example": {
+          "success": true,
+          "message": "In-progress receipts retrieved successfully",
+          "data": [
+            {
+              "items_count": 5,
+              "order_type": "direct_supplier",
+              "status": "in_progress",
+              "date": "2025-01-15 10:30:00"
+            }
+          ],
+          "meta": {
+            "current_page": 1,
+            "per_page": 15,
+            "total": 10
+          }
+        }
+      }
+    },
+    {
+      "name": "Get Orders for Receiving",
+      "method": "GET",
+      "path": "/orders",
+      "description": "Get list of orders ready for receiving",
+      "query_parameters": {
+        "type": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by order type (direct_supplier, via_purchasing_officer, internal_transfer)"
+        },
+        "per_page": {
+          "type": "integer",
+          "required": false,
+          "default": 15
+        }
+      }
+    },
+    {
+      "name": "Get Draft Receipts",
+      "method": "GET",
+      "path": "/drafts",
+      "description": "Get list of draft receipts saved by Branch Manager",
+      "query_parameters": {
+        "type": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by order type"
+        },
+        "per_page": {
+          "type": "integer",
+          "required": false,
+          "default": 15
+        }
+      },
+      "response": {
+        "status": 200,
+        "example": {
+          "success": true,
+          "data": [
+            {
+              "id": "uuid",
+              "items_count": 3,
+              "type": "direct_supplier",
+              "status": "draft",
+              "date": "2025-01-15 10:30:00"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Draft Details",
+      "method": "GET",
+      "path": "/drafts/{id}",
+      "description": "Get detailed information about a draft receipt",
+      "path_parameters": {
+        "id": {
+          "type": "uuid",
+          "required": true,
+          "description": "Receipt ID"
+        }
+      },
+      "response": {
+        "status": 200,
+        "example": {
+          "success": true,
+          "data": {
+            "id": "uuid",
+            "receipt_number": "GR-20250115-ABCD",
+            "status": "draft",
+            "inspection_summary": {
+              "total_items_expected": 5,
+              "total_items_received": 3,
+              "quantity_variances": 1,
+              "quality_variances": 0
+            },
+            "delivery_details": {
+              "driver_name": "John Doe",
+              "driver_contact": "+966501234567",
+              "vehicle_number": "ABC-1234"
+            },
+            "items": [],
+            "invoice": null,
+            "variances": []
+          }
+        }
+      }
+    },
+    {
+      "name": "Get Missing Goods Receipts",
+      "method": "GET",
+      "path": "/missing",
+      "description": "Get list of receipts with missing goods (variances)",
+      "query_parameters": {
+        "type": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by order type (direct_supplier, via_purchasing_officer)"
+        },
+        "per_page": {
+          "type": "integer",
+          "required": false,
+          "default": 15
+        }
+      }
+    },
+    {
+      "name": "Get Missing Goods Details",
+      "method": "GET",
+      "path": "/missing/{id}",
+      "description": "Get detailed information about missing goods receipt with tracking and supplier info",
+      "path_parameters": {
+        "id": {
+          "type": "uuid",
+          "required": true
+        }
+      },
+      "response": {
+        "status": 200,
+        "example": {
+          "success": true,
+          "data": {
+            "receipt": {},
+            "inspection_summary": {
+              "order_number": "DS-20250115-ABCD",
+              "branch_name": "Main Branch",
+              "order_type": "direct_supplier",
+              "supplier_name": "ABC Supplier",
+              "total_amount": 5000.00
+            },
+            "list_of_items": [],
+            "contact_methods": [
+              {
+                "channel": "whatsapp",
+                "date_sent": "2025-01-15 11:00:00"
+              }
+            ],
+            "timeline_tracking": [],
+            "supplier_information": {
+              "supplier_name": "ABC Supplier",
+              "supplier_status": "online",
+              "available_contact_methods": {
+                "whatsapp": true,
+                "sms": true,
+                "email": true,
+                "in_app_chat": true
+              },
+              "response_statistics": {
+                "average_response_time_hours": 2.5,
+                "response_rate_percentage": 95.5
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Get Completed Receipts",
+      "method": "GET",
+      "path": "/completed",
+      "description": "Get list of completed receipts",
+      "query_parameters": {
+        "type": {
+          "type": "string",
+          "required": false
+        },
+        "per_page": {
+          "type": "integer",
+          "required": false,
+          "default": 15
+        }
+      }
+    },
+    {
+      "name": "Get Complete Goods Details",
+      "method": "GET",
+      "path": "/completed/{id}",
+      "description": "Get detailed information about completed goods receipt",
+      "path_parameters": {
+        "id": {
+          "type": "uuid",
+          "required": true
+        }
+      }
+    },
+    {
+      "name": "Start Receiving Order",
+      "method": "POST",
+      "path": "/orders/{orderId}/start",
+      "description": "Start receiving process for an order",
+      "path_parameters": {
+        "orderId": {
+          "type": "uuid",
+          "required": true,
+          "description": "Purchase Order ID"
+        }
+      },
+      "response": {
+        "status": 201,
+        "example": {
+          "success": true,
+          "message": "Receiving started successfully",
+          "data": {
+            "id": "uuid",
+            "receipt_number": "GR-20250115-ABCD",
+            "status": "in_progress",
+            "inspection_started_at": "2025-01-15 10:30:00"
+          }
+        }
+      }
+    },
+    {
+      "name": "Receive Internal Transfer",
+      "method": "POST",
+      "path": "/orders/{orderId}/receive-internal-transfer",
+      "description": "Receive internal transfer order from another branch",
+      "path_parameters": {
+        "orderId": {
+          "type": "uuid",
+          "required": true
+        }
+      },
+      "request_body": {
+        "content_type": "application/json",
+        "schema": {
+          "driver_name": {
+            "type": "string",
+            "required": false
+          },
+          "driver_contact": {
+            "type": "string",
+            "required": false
+          },
+          "vehicle_number": {
+            "type": "string",
+            "required": false
+          },
+          "arrival_time": {
+            "type": "datetime",
+            "required": false
+          },
+          "delivery_address": {
+            "type": "string",
+            "required": false
+          }
+        }
+      }
+    },
+    {
+      "name": "Receive Without Prior Order",
+      "method": "POST",
+      "path": "/without-order",
+      "description": "Receive goods without a prior purchase order",
+      "request_body": {
+        "content_type": "application/json",
+        "schema": {
+          "supplier_id": {
+            "type": "uuid",
+            "required": true
+          },
+          "delivery_reference": {
+            "type": "string",
+            "required": false
+          },
+          "driver_name": {
+            "type": "string",
+            "required": false
+          },
+          "driver_contact": {
+            "type": "string",
+            "required": false
+          },
+          "vehicle_number": {
+            "type": "string",
+            "required": false
+          },
+          "arrival_time": {
+            "type": "datetime",
+            "required": false
+          },
+          "items": {
+            "type": "array",
+            "required": true,
+            "items": {
+              "product_name": "string",
+              "item_id": "uuid",
+              "unit": "kg|pk",
+              "quantity": "decimal",
+              "price_per_unit": "decimal",
+              "quality": "excellent|normal|poor",
+              "temperature": "decimal",
+              "expiry_date": "date",
+              "payment_terms": "string",
+              "note": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Get Receipt Details",
+      "method": "GET",
+      "path": "/{id}",
+      "description": "Get detailed information about a receipt",
+      "path_parameters": {
+        "id": {
+          "type": "uuid",
+          "required": true
+        }
+      }
+    },
+    {
+      "name": "Get Receipt Summary",
+      "method": "GET",
+      "path": "/{id}/summary",
+      "description": "Get comprehensive receipt summary including inspection, goods, documents, variances, and financial details",
+      "path_parameters": {
+        "id": {
+          "type": "uuid",
+          "required": true
+        }
+      },
+      "response": {
+        "status": 200,
+        "example": {
+          "success": true,
+          "data": {
+            "inspection_summary": {
+              "number_of_items_received": 5,
+              "number_of_quantity_variances": 1,
+              "total_amount": 5000.00,
+              "driver_name": "John Doe",
+              "contact_number": "+966501234567",
+              "vehicle_number": "ABC-1234",
+              "arrival_time": "2025-01-15 10:30:00"
+            },
+            "goods_inspection": [],
+            "document_summary": {
+              "document_type": "invoice",
+              "invoice_details": {
+                "invoice_number": "INV-20250115-ABCD",
+                "invoice_date": "2025-01-15",
+                "supplier_name": "ABC Supplier",
+                "attachment": "https://..."
+              }
+            },
+            "variance_summary": [],
+            "financial_summary": {
+              "amount_before_tax": 4347.83,
+              "vat": 652.17,
+              "total_amount": 5000.00
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Get Order Tracking",
+      "method": "GET",
+      "path": "/orders/{orderId}/tracking",
+      "description": "Get order tracking stages (Preparing, Out for Delivery, Delivered, Order Confirmation, Variance Logged)",
+      "path_parameters": {
+        "orderId": {
+          "type": "uuid",
+          "required": true
+        }
+      },
+      "response": {
+        "status": 200,
+        "example": {
+          "success": true,
+          "data": {
+            "order_id": "uuid",
+            "stages": {
+              "preparing": {
+                "status": "preparing",
+                "items": []
+              },
+              "out_for_delivery": {
+                "status": "out_for_delivery",
+                "arrival_time": "2025-01-15 14:00:00",
+                "driver_details": {
+                  "name": "John Doe",
+                  "photo": "https://...",
+                  "vehicle_number": "ABC-1234"
+                }
+              },
+              "delivered": {
+                "status": "delivered",
+                "invoice_file": "https://..."
+              },
+              "order_confirmation": {
+                "status": "confirmed",
+                "receipt_details": {}
+              },
+              "variance_logged": {
+                "status": "variance_logged",
+                "variances": []
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Update Delivery Details",
+      "method": "PUT",
+      "path": "/{id}/delivery-details",
+      "description": "Update delivery details for a receipt",
+      "path_parameters": {
+        "id": {
+          "type": "uuid",
+          "required": true
+        }
+      },
+      "request_body": {
+        "content_type": "multipart/form-data",
+        "schema": {
+          "driver_name": {
+            "type": "string",
+            "required": false
+          },
+          "driver_contact": {
+            "type": "string",
+            "required": false
+          },
+          "driver_image": {
+            "type": "file",
+            "required": false,
+            "description": "Image file (jpg, jpeg, png, max 5MB)"
+          },
+          "vehicle_number": {
+            "type": "string",
+            "required": false
+          },
+          "arrival_time": {
+            "type": "datetime",
+            "required": false
+          },
+          "delivery_address": {
+            "type": "string",
+            "required": false
+          },
+          "delivery_notes": {
+            "type": "string",
+            "required": false
+          }
+        }
+      }
+    },
+    {
+      "name": "Inspect Item",
+      "method": "POST",
+      "path": "/{id}/items/{itemId}/inspect",
+      "description": "Inspect and update item details (quantity received, quality, temperature, expiry, photo, notes)",
+      "path_parameters": {
+        "id": {
+          "type": "uuid",
+          "required": true
+        },
+        "itemId": {
+          "type": "uuid",
+          "required": true
+        }
+      },
+      "request_body": {
+        "content_type": "multipart/form-data",
+        "schema": {
+          "quantity_received": {
+            "type": "decimal",
+            "required": true,
+            "description": "Quantity received"
+          },
+          "quality": {
+            "type": "string",
+            "required": true,
+            "enum": ["excellent", "normal", "poor"]
+          },
+          "temperature": {
+            "type": "decimal",
+            "required": false
+          },
+          "expiry_date": {
+            "type": "date",
+            "required": false,
+            "description": "Must be today or later"
+          },
+          "photo": {
+            "type": "file",
+            "required": false,
+            "description": "Image file (jpg, jpeg, png, max 5MB)"
+          },
+          "notes": {
+            "type": "string",
+            "required": false,
+            "max_length": 1000
+          }
+        }
+      }
+    },
+    {
+      "name": "Add Unlisted Item",
+      "method": "POST",
+      "path": "/{id}/unlisted-item",
+      "description": "Add unlisted item (gift from supplier) to receipt",
+      "path_parameters": {
+        "id": {
+          "type": "uuid",
+          "required": true
+        }
+      },
+      "request_body": {
+        "content_type": "multipart/form-data",
+        "schema": {
+          "item_id": {
+            "type": "uuid",
+            "required": false,
+            "description": "Item ID if searching from items list"
+          },
+          "item_name": {
+            "type": "string",
+            "required": true
+          },
+          "item_logo": {
+            "type": "string",
+            "required": false
+          },
+          "unit": {
+            "type": "string",
+            "required": true,
+            "enum": ["kg", "pk", "unit", "box", "liter", "piece"]
+          },
+          "quantity": {
+            "type": "decimal",
+            "required": true,
+            "min": 0.001
+          },
+          "quality": {
+            "type": "string",
+            "required": true,
+            "enum": ["excellent", "normal", "poor"]
+          },
+          "price_per_unit": {
+            "type": "decimal",
+            "required": false
+          },
+          "supplier_id": {
+            "type": "uuid",
+            "required": false
+          },
+          "reason": {
+            "type": "string",
+            "required": false,
+            "description": "Reason for manual addition"
+          },
+          "temperature": {
+            "type": "decimal",
+            "required": false
+          },
+          "expiry_date": {
+            "type": "date",
+            "required": false
+          },
+          "photo": {
+            "type": "file",
+            "required": false,
+            "description": "Image file (jpg, jpeg, png, max 5MB)"
+          }
+        }
+      }
+    },
+    {
+      "name": "Set Document Type",
+      "method": "PUT",
+      "path": "/{id}/document-type",
+      "description": "Set document type for receipt (invoice, delivery_note, receipt_without_document)",
+      "path_parameters": {
+        "id": {
+          "type": "uuid",
+          "required": true
+        }
+      },
+      "request_body": {
+        "content_type": "application/json",
+        "schema": {
+          "document_type": {
+            "type": "string",
+            "required": true,
+            "enum": ["invoice", "delivery_note", "receipt_without_document"]
+          }
+        }
+      }
+    },
+    {
+      "name": "Create Invoice",
+      "method": "POST",
+      "path": "/{id}/invoice",
+      "description": "Create invoice for receipt with VAT calculation",
+      "path_parameters": {
+        "id": {
+          "type": "uuid",
+          "required": true
+        }
+      },
+      "request_body": {
+        "content_type": "multipart/form-data",
+        "schema": {
+          "invoice_number": {
+            "type": "string",
+            "required": true,
+            "description": "Unique invoice number"
+          },
+          "invoice_date": {
+            "type": "date",
+            "required": true
+          },
+          "amount_before_tax": {
+            "type": "decimal",
+            "required": true
+          },
+          "tax_rate": {
+            "type": "decimal",
+            "required": false,
+            "default": 15.00
+          },
+          "payment_terms": {
+            "type": "string",
+            "required": false,
+            "default": "Net 30 days"
+          },
+          "file": {
+            "type": "file",
+            "required": false,
+            "description": "Invoice file (pdf, jpg, jpeg, png, max 10MB)"
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "example": {
+          "success": true,
+          "data": {
+            "id": "uuid",
+            "invoice_number": "INV-20250115-ABCD",
+            "invoice_date": "2025-01-15",
+            "due_date": "2025-02-14",
+            "amount_before_tax": 4347.83,
+            "tax_rate": 15.00,
+            "tax_amount": 652.17,
+            "total_amount": 5000.00
+          }
+        }
+      }
+    },
+    {
+      "name": "Create Delivery Note",
+      "method": "POST",
+      "path": "/{id}/delivery-note",
+      "description": "Create delivery note for receipt",
+      "path_parameters": {
+        "id": {
+          "type": "uuid",
+          "required": true
+        }
+      },
+      "request_body": {
+        "content_type": "multipart/form-data",
+        "schema": {
+          "file": {
+            "type": "file",
+            "required": false,
+            "description": "Delivery note file (pdf, jpg, jpeg, png, max 10MB)"
+          }
+        }
+      }
+    },
+    {
+      "name": "Create Receipt Without Document",
+      "method": "POST",
+      "path": "/{id}/receipt-without-document",
+      "description": "Mark receipt as receipt without document",
+      "path_parameters": {
+        "id": {
+          "type": "uuid",
+          "required": true
+        }
+      }
+    },
+    {
+      "name": "Complete Inspection",
+      "method": "POST",
+      "path": "/{id}/complete",
+      "description": "Complete inspection and process variances automatically",
+      "path_parameters": {
+        "id": {
+          "type": "uuid",
+          "required": true
+        }
+      },
+      "response": {
+        "status": 200,
+        "example": {
+          "success": true,
+          "message": "Inspection completed successfully",
+          "data": {
+            "id": "uuid",
+            "status": "completed",
+            "inspection_completed_at": "2025-01-15 11:00:00",
+            "variances": []
+          }
+        }
+      }
+    },
+    {
+      "name": "Save as Draft",
+      "method": "POST",
+      "path": "/{id}/save-draft",
+      "description": "Save receipt as draft for later editing",
+      "path_parameters": {
+        "id": {
+          "type": "uuid",
+          "required": true
+        }
+      }
+    },
+    {
+      "name": "Delete Draft",
+      "method": "DELETE",
+      "path": "/{id}/draft",
+      "description": "Permanently delete a draft receipt",
+      "path_parameters": {
+        "id": {
+          "type": "uuid",
+          "required": true
+        }
+      }
+    },
+    {
+      "name": "Handle Variance Action",
+      "method": "POST",
+      "path": "/variances/{varianceId}/action",
+      "description": "Handle variance action (accept, create compensatory order, or deduct from invoice)",
+      "path_parameters": {
+        "varianceId": {
+          "type": "uuid",
+          "required": true
+        }
+      },
+      "request_body": {
+        "content_type": "application/json",
+        "schema": {
+          "action": {
+            "type": "string",
+            "required": true,
+            "enum": ["accept", "compensatory_order", "deduct_from_invoice"]
+          },
+          "supplier_id": {
+            "type": "uuid",
+            "required": false,
+            "description": "Required if action is compensatory_order"
+          },
+          "source": {
+            "type": "string",
+            "required": false
+          },
+          "deadline": {
+            "type": "date",
+            "required": false,
+            "description": "Required if action is compensatory_order, must be in future"
+          },
+          "photos": {
+            "type": "array",
+            "required": false,
+            "description": "Photo evidence files (images, max 5MB each)"
+          },
+          "notes": {
+            "type": "string",
+            "required": false
+          },
+          "amount": {
+            "type": "decimal",
+            "required": false,
+            "description": "Required if action is deduct_from_invoice"
+          },
+          "reason": {
+            "type": "string",
+            "required": false,
+            "enum": ["short_quantity", "damaged_quality"],
+            "description": "Required if action is deduct_from_invoice"
+          }
+        }
+      }
+    },
+    {
+      "name": "Handle Supplier Response",
+      "method": "POST",
+      "path": "/variances/{varianceId}/supplier-response",
+      "description": "Handle supplier response to variance (approve or reject)",
+      "path_parameters": {
+        "varianceId": {
+          "type": "uuid",
+          "required": true
+        }
+      },
+      "request_body": {
+        "content_type": "application/json",
+        "schema": {
+          "action": {
+            "type": "string",
+            "required": true,
+            "enum": ["approve", "reject"]
+          },
+          "response": {
+            "type": "string",
+            "required": false,
+            "description": "Optional response message if action is approve"
+          },
+          "reason": {
+            "type": "string",
+            "required": false,
+            "description": "Required if action is reject"
+          }
+        }
+      }
+    },
+    {
+      "name": "Accept Supplier Rejection",
+      "method": "POST",
+      "path": "/variances/{varianceId}/accept-rejection",
+      "description": "Accept supplier rejection and close the variance",
+      "path_parameters": {
+        "varianceId": {
+          "type": "uuid",
+          "required": true
+        }
+      }
+    },
+    {
+      "name": "Escalate Rejection",
+      "method": "POST",
+      "path": "/variances/{varianceId}/escalate",
+      "description": "Escalate supplier rejection to Brand Owner for review",
+      "path_parameters": {
+        "varianceId": {
+          "type": "uuid",
+          "required": true
+        }
+      },
+      "request_body": {
+        "content_type": "application/json",
+        "schema": {
+          "reason": {
+            "type": "string",
+            "required": true,
+            "max_length": 1000
+          },
+          "escalated_to": {
+            "type": "string",
+            "required": true,
+            "description": "Brand Owner ID or identifier"
+          }
+        }
+      }
+    }
+  ],
+  "common_responses": {
+    "401": {
+      "description": "Unauthorized - Authentication required"
+    },
+    "403": {
+      "description": "Forbidden - Insufficient permissions"
+    },
+    "404": {
+      "description": "Not Found - Resource not found",
+      "example": {
+        "success": false,
+        "message": "Receipt not found"
+      }
+    },
+    "422": {
+      "description": "Validation Error",
+      "example": {
+        "success": false,
+        "message": "Validation failed",
+        "errors": {
+          "quantity_received": ["The quantity received field is required."]
+        }
+      }
+    },
+    "500": {
+      "description": "Internal Server Error"
+    }
+  },
+  "notes": [
+    "All endpoints require authentication via Sanctum",
+    "All UUIDs should be valid UUID format",
+    "File uploads should use multipart/form-data content type",
+    "Dates should be in Y-m-d format",
+    "DateTimes should be in Y-m-d H:i:s format",
+    "All monetary values are in SAR (Saudi Riyal)",
+    "VAT rate is 15% by default",
+    "Payment terms default to 'Net 30 days'",
+    "Due date is automatically calculated as invoice_date + 30 days"
+  ]
+}

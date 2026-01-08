@@ -465,8 +465,8 @@ class BranchManagerShiftController extends BaseController
         $requestData = !empty($jsonData) ? $jsonData : $request->all();
 
         $validator = Validator::make($requestData, [
-            'decision' => 'required|in:approve_rejection,request_corrections',
-            'manager_comment' => 'required|string|max:1000',
+            'decision' => 'nullable|in:approve_rejection,request_corrections',
+            'manager_comment' => 'nullable|string|max:1000',
         ]);
 
         if ($validator->fails()) {
@@ -517,7 +517,7 @@ class BranchManagerShiftController extends BaseController
                     'manager_approval_status' => 'rejected_final',
                     'rejection_count' => 2,
                     'second_rejected_at' => now(),
-                    'manager_comment' => $comment,
+                    'manager_comment' => $comment ?? null,
                     'reviewed_by_id' => $manager->id,
                     'reviewed_by_type' => get_class($manager),
                     'reviewed_at' => now(),
@@ -537,14 +537,14 @@ class BranchManagerShiftController extends BaseController
                         'cashier_name' => $shiftModel->cashier->name,
                         'rejection_count' => 2,
                         'is_final_rejection' => true,
-                        'manager_comment' => $comment,
+                        'manager_comment' => $comment ?? null,
                         'processed_at' => now()->format('Y-m-d H:i:s'),
                     ],
                 ], 'Rejection approved successfully');
             } else {
                 // Request corrections = add comment, keep as rejected (cashier can edit)
                 $handoverStatus->update([
-                    'manager_comment' => $comment,
+                    'manager_comment' => $comment ?? null,
                     'reviewed_by_id' => $manager->id,
                     'reviewed_by_type' => get_class($manager),
                     'reviewed_at' => now(),
@@ -557,7 +557,7 @@ class BranchManagerShiftController extends BaseController
                         'cashier_name' => $shiftModel->cashier->name,
                         'rejection_count' => $handoverStatus->rejection_count,
                         'is_final_rejection' => false,
-                        'manager_comment' => $comment,
+                        'manager_comment' => $comment ?? null,
                         'can_cashier_edit' => true,
                         'processed_at' => now()->format('Y-m-d H:i:s'),
                     ],

@@ -371,7 +371,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
             $firstOrder = $ordersGroup->first();
             $expectedDeliveryDate = null;
-            
+
             if ($date !== 'no-date' && $firstOrder->expected_delivery_at) {
                 // Format as ISO 8601 with Z timezone (UTC)
                 $expectedDeliveryDate = $firstOrder->expected_delivery_at

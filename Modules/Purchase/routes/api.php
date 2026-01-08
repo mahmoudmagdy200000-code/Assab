@@ -160,19 +160,40 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         // Start receiving
         Route::post('/orders/{orderId}/start', [GoodsReceivingController::class, 'startReceiving'])->name('purchase.receiving.start');
 
+        // Receive internal transfer
+        Route::post('/orders/{orderId}/receive-internal-transfer', [GoodsReceivingController::class, 'receiveInternalTransfer'])->name('purchase.receiving.receive-internal-transfer');
+
         // Receipt management
         Route::get('/{id}', [GoodsReceivingController::class, 'show'])->name('purchase.receiving.show');
+        Route::get('/{id}/summary', [GoodsReceivingController::class, 'getReceiptSummary'])->name('purchase.receiving.summary');
         Route::put('/{id}/delivery-details', [GoodsReceivingController::class, 'updateDeliveryDetails'])->name('purchase.receiving.delivery-details');
         Route::post('/{id}/items/{itemId}/inspect', [GoodsReceivingController::class, 'inspectItem'])->name('purchase.receiving.inspect-item');
         Route::post('/{id}/unlisted-item', [GoodsReceivingController::class, 'addUnlistedItem'])->name('purchase.receiving.add-unlisted');
         Route::put('/{id}/document-type', [GoodsReceivingController::class, 'setDocumentType'])->name('purchase.receiving.document-type');
         Route::post('/{id}/invoice', [GoodsReceivingController::class, 'createInvoice'])->name('purchase.receiving.invoice');
+        Route::post('/{id}/delivery-note', [GoodsReceivingController::class, 'createDeliveryNote'])->name('purchase.receiving.delivery-note');
+        Route::post('/{id}/receipt-without-document', [GoodsReceivingController::class, 'createReceiptWithoutDocument'])->name('purchase.receiving.receipt-without-document');
         Route::post('/{id}/complete', [GoodsReceivingController::class, 'completeInspection'])->name('purchase.receiving.complete');
         Route::post('/{id}/save-draft', [GoodsReceivingController::class, 'saveDraft'])->name('purchase.receiving.save-draft');
         Route::delete('/{id}/draft', [GoodsReceivingController::class, 'deleteDraft'])->name('purchase.receiving.delete-draft');
 
+        // Draft details
+        Route::get('/drafts/{id}', [GoodsReceivingController::class, 'getDraftDetails'])->name('purchase.receiving.draft-details');
+
+        // Missing goods details
+        Route::get('/missing/{id}', [GoodsReceivingController::class, 'getMissingGoodsDetails'])->name('purchase.receiving.missing-details');
+
+        // Complete goods details
+        Route::get('/completed/{id}', [GoodsReceivingController::class, 'getCompleteGoodsDetails'])->name('purchase.receiving.completed-details');
+
+        // Order tracking
+        Route::get('/orders/{orderId}/tracking', [GoodsReceivingController::class, 'getOrderTracking'])->name('purchase.receiving.tracking');
+
         // Variance handling
         Route::post('/variances/{varianceId}/action', [GoodsReceivingController::class, 'handleVariance'])->name('purchase.receiving.variance-action');
+        Route::post('/variances/{varianceId}/supplier-response', [GoodsReceivingController::class, 'handleSupplierResponse'])->name('purchase.receiving.supplier-response');
+        Route::post('/variances/{varianceId}/accept-rejection', [GoodsReceivingController::class, 'acceptRejection'])->name('purchase.receiving.accept-rejection');
+        Route::post('/variances/{varianceId}/escalate', [GoodsReceivingController::class, 'escalateRejection'])->name('purchase.receiving.escalate-rejection');
     });
 
     /*

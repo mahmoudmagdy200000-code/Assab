@@ -57,6 +57,40 @@ class GoodsReceiptResource extends JsonResource
             'items' => GoodsReceiptItemResource::collection($this->whenLoaded('items')),
             'invoice' => $this->whenLoaded('invoice', fn() => new InvoiceResource($this->invoice)),
             'variances' => VarianceResource::collection($this->whenLoaded('variances')),
+            
+            // Document summary
+            'document_summary' => [
+                'document_type' => $this->document_type?->value,
+                'invoice_details' => $this->when($this->invoice, [
+                    'invoice_number' => $this->invoice->invoice_number,
+                    'invoice_date' => $this->invoice->invoice_date?->format('Y-m-d'),
+                    'supplier_name' => $this->purchaseOrder->supplier?->name,
+                    'attachment' => $this->invoice->file_url,
+                ]),
+            ],
+            
+            // Variance summary with actions
+            'variance_summary' => $this->whenLoaded('variances', function () {
+                return $this->variances->map(function ($variance) {
+                    return [
+                        'item_name' => $variance->item_name,
+                        'variance_type' => $variance->variance_type?->value,
+                        'amount_variance' => (float) $variance->variance_amount,
+                        'required_action' => $variance->action?->value,
+                        'amount_to_deduct' => $variance->amount_to_deduct ? (float) $variance->amount_to_deduct : null,
+                        'reason_for_deduction' => $variance->deduction_reason,
+                        'additional_note' => $variance->additional_notes,
+                    ];
+                });
+            }),
+            
+            // Financial summary with VAT
+            'financial_summary' => $this->when($this->invoice, [
+                'amount_before_tax' => (float) $this->invoice->amount_before_tax,
+                'vat_rate' => (float) $this->invoice->tax_rate,
+                'vat_amount' => (float) $this->invoice->tax_amount,
+                'total_amount' => (float) $this->invoice->total_amount,
+            ]),
         ];
     }
 }
