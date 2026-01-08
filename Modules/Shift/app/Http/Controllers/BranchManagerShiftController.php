@@ -1278,6 +1278,7 @@ class BranchManagerShiftController extends BaseController
                     'cashierShift.salesBreakdown.aggregator:id,name',
                     'cashierShift.varianceDetails:id,cashier_shift_id,responsible_cashier_id,assigned_amount,reason',
                     'cashierShift.varianceDetails.responsibleCashier:id,name',
+                    'cashierShift.handoverStatus.reviewedBy:id,name',
                     'handoverTo:id,name',
                     'approvedBy:id,name'
                 ])
@@ -1369,6 +1370,7 @@ class BranchManagerShiftController extends BaseController
                     'handover_date' => $handover->handover_date?->format('Y-m-d'),
                     'handover_time' => $handover->handover_time?->format('H:i:s'),
                     'handover_notes' => $handover->handover_notes,
+                    'correction_details' => $cashierShift->handoverStatus ? $this->getCorrectionDetails($cashierShift->handoverStatus) : null,
                 ],
             ], 'Cashier handover details retrieved successfully');
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
@@ -1563,6 +1565,72 @@ class BranchManagerShiftController extends BaseController
         }
 
         return 'pending';
+    }
+
+    /**
+     * Get correction details (request corrections information)
+     * Returns details about who requested corrections, when, and the comment
+     *
+     * @param \Modules\Shift\Models\ShiftHandoverStatus|null $handoverStatus
+     * @return array|null
+     */
+    private function getCorrectionDetails($handoverStatus): ?array
+    {
+        if (!$handoverStatus) {
+            return null;
+        }
+
+        // Only return correction details if:
+        // 1. manager_comment exists (correction was requested)
+        // 2. reviewed_at exists (correction was processed)
+        // 3. Status is rejected (not approved or permanently rejected)
+        if (!$handoverStatus->manager_comment || !$handoverStatus->reviewed_at) {
+            return null;
+        }
+
+        // If permanently rejected, it's not a correction request
+        if ($handoverStatus->isPermanentlyRejected()) {
+            return null;
+        }
+
+        // If status is rejected and manager_comment exists, it's a correction request
+        if ($handoverStatus->manager_approval_status === 'rejected') {
+            return [
+                'requested_by' => $handoverStatus->reviewedBy?->name ?? 'N/A',
+                'requested_by_id' => $handoverStatus->reviewed_by_id,
+                'requested_by_type' => $this->getReviewerTypeLabel($handoverStatus->reviewed_by_type),
+                'manager_comment' => $handoverStatus->manager_comment,
+                'requested_at' => $handoverStatus->reviewed_at?->format('Y-m-d H:i:s'),
+                'can_cashier_edit' => $handoverStatus->canCashierEdit(),
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Get reviewer type in readable format
+     *
+     * @param string|null $reviewerType
+     * @return string|null
+     */
+    private function getReviewerTypeLabel(?string $reviewerType): ?string
+    {
+        if (!$reviewerType) {
+            return null;
+        }
+
+        // Check if it's a BranchManager type
+        if (str_contains($reviewerType, 'BranchManager') || $reviewerType === 'branch_manager') {
+            return 'Branch Manager';
+        }
+
+        // Check if it's a Cashier type
+        if (str_contains($reviewerType, 'Cashier') || $reviewerType === 'cashier') {
+            return 'Cashier';
+        }
+
+        return class_basename($reviewerType);
     }
 
     /**
