@@ -62,7 +62,7 @@ class GoodsReceivingController extends BaseController
 
             $orders = $this->orderService->getOrdersForReceiving($filters, $request->get('per_page', 15));
 
-            return $this->successResponse(
+            return $this->paginatedResponse(
                 $orders,
                 'Orders for receiving retrieved successfully'
             );

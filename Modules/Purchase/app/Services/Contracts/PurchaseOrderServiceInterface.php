@@ -38,7 +38,7 @@ interface PurchaseOrderServiceInterface
      * Get orders for receiving grouped by expected delivery date
      * Returns only orders with DELIVERED status
      */
-    public function getOrdersForReceiving(array $filters, int $perPage = null): array;
+    public function getOrdersForReceiving(array $filters, int $perPage = null): LengthAwarePaginator;
 
     /**
      * Create a new purchase order

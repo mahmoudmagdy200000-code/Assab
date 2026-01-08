@@ -3,8 +3,10 @@
 namespace Modules\Purchase\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Http\Request;
 use Modules\Purchase\Constants\PurchaseConstants;
 use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
@@ -301,8 +303,11 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      * Get orders for receiving grouped by expected delivery date
      * Returns only orders with DELIVERED status
      */
-    public function getOrdersForReceiving(array $filters, int $perPage = null): array
+    public function getOrdersForReceiving(array $filters, int $perPage = null): LengthAwarePaginator
     {
+        $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
+        $currentPage = request()->get('page', 1);
+
         $query = PurchaseOrder::withCount('items as items_count')
             ->byStatus(OrderStatus::DELIVERED)
             ->whereNotNull('expected_delivery_at')
@@ -325,7 +330,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         });
 
         // Transform to the required format
-        $result = $groupedOrders->map(function ($ordersGroup, $date) {
+        $transformedSections = $groupedOrders->map(function ($ordersGroup, $date) {
             $ordersArray = $ordersGroup->map(function ($order) {
                 $orderType = null;
                 try {
@@ -378,9 +383,22 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 'expected_delivery_date' => $expectedDeliveryDate,
                 'orders' => $ordersArray,
             ];
-        })->values()->toArray();
+        })->values();
 
-        return $result;
+        // Create paginator manually for the grouped sections
+        $total = $transformedSections->count();
+        $items = $transformedSections->slice(($currentPage - 1) * $perPage, $perPage)->values();
+
+        return new LengthAwarePaginator(
+            $items,
+            $total,
+            $perPage,
+            $currentPage,
+            [
+                'path' => request()->url(),
+                'pageName' => 'page',
+            ]
+        );
     }
 
     /**
@@ -681,9 +699,9 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         }
 
         // Get category and subcategory from Item (with fallback)
-        $category = $item->category 
+        $category = $item->category
             ?? ($branchItem && $branchItem->item ? $branchItem->item->category : null);
-        $subcategory = $item->subcategory 
+        $subcategory = $item->subcategory
             ?? ($branchItem && $branchItem->item ? $branchItem->item->subcategory : null);
 
         try {
@@ -1071,7 +1089,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
     /**
      * Cancel item (branch manager cancels specific item)
-     * 
+     *
      * cancelByBranch will automatically check if item has approval_type:
      * - If yes: sets status to CANCELED_MODIFICATION
      * - Otherwise: sets status to CANCELLED_BY_BRANCH
@@ -1191,12 +1209,12 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             // Update all delayed items to cancelled_delayed
             foreach ($delayedItems as $item) {
                 $item->status = OrderItemStatus::CANCELLED_DELAYED;
-                
+
                 // Store cancellation reason in approval_data
                 $approvalData = $item->approval_data ?? [];
                 $approvalData['cancellation_reason'] = $reason;
                 $item->approval_data = $approvalData;
-                
+
                 $item->save();
 
                 // Log timeline event for each item
