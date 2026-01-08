@@ -669,7 +669,7 @@ class GoodsReceiptService
             'quality' => $item->quality_received?->value ?? 'normal',
             'temperature' => $item->temperature ? (float) $item->temperature : null,
             'expiration_date' => $item->expiry_date?->format('Y-m-d'),
-            'photo' => $item->photo_url,
+            'photo' => $item->item_logo,
             'note' => $item->notes,
             'variance' => $varianceDetails,
         ];
