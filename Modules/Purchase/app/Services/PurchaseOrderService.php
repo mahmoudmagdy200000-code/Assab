@@ -298,14 +298,15 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     }
 
     /**
-     * Get orders for receiving
+     * Get orders for receiving grouped by expected delivery date
+     * Returns only orders with DELIVERED status
      */
-    public function getOrdersForReceiving(array $filters, int $perPage = null): LengthAwarePaginator
+    public function getOrdersForReceiving(array $filters, int $perPage = null): array
     {
-        $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
-
         $query = PurchaseOrder::withCount('items as items_count')
-            ->forReceiving()
+            ->byStatus(OrderStatus::DELIVERED)
+            ->whereNotNull('expected_delivery_at')
+            ->orderBy('expected_delivery_at', 'asc')
             ->orderBy('created_at', 'desc');
 
         if (!empty($filters['type'])) {
@@ -316,50 +317,70 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             $query->byBranch($filters['branch_id']);
         }
 
-        $paginator = $query->paginate($perPage);
+        $orders = $query->get();
 
-        // Transform results to return only requested fields
-        $paginator->getCollection()->transform(function ($order) {
-            $orderType = null;
-            try {
-                if ($order->order_type) {
-                    $orderTypeValue = $order->order_type;
-                    if ($orderTypeValue instanceof \BackedEnum) {
-                        $orderType = $orderTypeValue->value;
-                    } elseif (is_string($orderTypeValue)) {
-                        $orderType = $orderTypeValue;
-                    }
-                }
-            } catch (\Exception $e) {
-                // If enum access fails, set to null
+        // Group orders by expected_delivery_at date
+        $groupedOrders = $orders->groupBy(function ($order) {
+            return $order->expected_delivery_at?->format('Y-m-d') ?? 'no-date';
+        });
+
+        // Transform to the required format
+        $result = $groupedOrders->map(function ($ordersGroup, $date) {
+            $ordersArray = $ordersGroup->map(function ($order) {
                 $orderType = null;
-            }
-
-            $status = null;
-            try {
-                if ($order->status) {
-                    $statusValue = $order->status;
-                    if ($statusValue instanceof \BackedEnum) {
-                        $status = $statusValue->value;
-                    } elseif (is_string($statusValue)) {
-                        $status = $statusValue;
+                try {
+                    if ($order->order_type) {
+                        $orderTypeValue = $order->order_type;
+                        if ($orderTypeValue instanceof \BackedEnum) {
+                            $orderType = $orderTypeValue->value;
+                        } elseif (is_string($orderTypeValue)) {
+                            $orderType = $orderTypeValue;
+                        }
                     }
+                } catch (\Exception $e) {
+                    $orderType = null;
                 }
-            } catch (\Exception $e) {
-                // If enum access fails, set to null
+
                 $status = null;
+                try {
+                    if ($order->status) {
+                        $statusValue = $order->status;
+                        if ($statusValue instanceof \BackedEnum) {
+                            $status = $statusValue->value;
+                        } elseif (is_string($statusValue)) {
+                            $status = $statusValue;
+                        }
+                    }
+                } catch (\Exception $e) {
+                    $status = null;
+                }
+
+                return [
+                    'items_count' => (int) ($order->items_count ?? 0),
+                    'order_id' => $order->id,
+                    'order_type' => $orderType,
+                    'status' => $status ?? 'draft',
+                    'date' => $order->created_at?->format('Y-m-d H:i:s') ?? null,
+                ];
+            })->values()->toArray();
+
+            $firstOrder = $ordersGroup->first();
+            $expectedDeliveryDate = null;
+            
+            if ($date !== 'no-date' && $firstOrder->expected_delivery_at) {
+                // Format as ISO 8601 with Z timezone (UTC)
+                $expectedDeliveryDate = $firstOrder->expected_delivery_at
+                    ->setTimezone('UTC')
+                    ->format('Y-m-d\TH:i:s\Z');
             }
 
             return [
-                'items_count' => (int) ($order->items_count ?? 0),
-                'order_id' => $order->id,
-                'order_type' => $orderType,
-                'status' => $status ?? 'draft',
-                'date' => $order->created_at?->format('Y-m-d H:i:s') ?? null,
+                'expected_delivery_date' => $expectedDeliveryDate,
+                'orders' => $ordersArray,
             ];
-        });
+        })->values()->toArray();
 
-        return $paginator;
+        return $result;
     }
 
     /**

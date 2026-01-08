@@ -35,9 +35,10 @@ interface PurchaseOrderServiceInterface
     public function getPendingOrders(array $filters, int $perPage = null): LengthAwarePaginator;
 
     /**
-     * Get orders for receiving
+     * Get orders for receiving grouped by expected delivery date
+     * Returns only orders with DELIVERED status
      */
-    public function getOrdersForReceiving(array $filters, int $perPage = null): LengthAwarePaginator;
+    public function getOrdersForReceiving(array $filters, int $perPage = null): array;
 
     /**
      * Create a new purchase order
