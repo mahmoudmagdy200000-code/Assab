@@ -76,20 +76,20 @@ class ShiftHandoverController extends Controller
 
         try {
             $user = auth()->user();
-            
+
             // Check if user is cashier or manager
             $isCashier = $user instanceof \Modules\Cashier\Models\Cashier;
             $isManager = $user instanceof \Modules\BranchManagers\Models\BranchManager;
-            
+
             if (!$isCashier && !$isManager) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
                 ], 403);
             }
-            
+
             $shiftModel = CashierShift::with(['cashier', 'shift', 'nextCashier'])->findOrFail($shift);
-            
+
             // If cashier, verify it's their shift
             if ($isCashier && $shiftModel->cashier_id !== $user->id) {
                 return response()->json([
@@ -97,7 +97,7 @@ class ShiftHandoverController extends Controller
                     'message' => 'Unauthorized: This shift does not belong to you',
                 ], 403);
             }
-            
+
             // If manager, verify shift belongs to their branch
             if ($isManager && $shiftModel->shift->branch_id !== $user->branch_id) {
                 return response()->json([
@@ -126,7 +126,7 @@ class ShiftHandoverController extends Controller
             $varianceType = $variance > 0 ? 'Over' : ($variance < 0 ? 'Short' : 'None');
 
             $nextCashier = Cashier::findOrFail($request->next_cashier_id);
-            
+
             // Verify next cashier belongs to same branch
             if ($isManager && $nextCashier->branch_id !== $user->branch_id) {
                 return response()->json([
@@ -134,7 +134,7 @@ class ShiftHandoverController extends Controller
                     'message' => 'Unauthorized: The selected cashier does not belong to your branch',
                 ], 403);
             }
-            
+
             if ($isCashier && $nextCashier->branch_id !== $shiftModel->cashier->branch_id) {
                 return response()->json([
                     'success' => false,
@@ -182,7 +182,7 @@ class ShiftHandoverController extends Controller
     {
         try {
             $manager = auth()->user();
-            
+
             // Ensure the user is a branch manager
             if (!$manager || !$manager->branch_id) {
                 return response()->json([
@@ -190,9 +190,9 @@ class ShiftHandoverController extends Controller
                     'message' => 'Unauthorized',
                 ], 403);
             }
-            
+
             $shiftModel = CashierShift::with(['handoverStatus', 'shift'])->findOrFail($shift);
-            
+
             // Verify shift belongs to manager's branch
             if ($shiftModel->shift->branch_id !== $manager->branch_id) {
                 return response()->json([
@@ -272,7 +272,7 @@ class ShiftHandoverController extends Controller
 
         try {
             $manager = auth()->user();
-            
+
             // Ensure the user is a branch manager
             if (!$manager || !$manager->branch_id) {
                 return response()->json([
@@ -280,10 +280,10 @@ class ShiftHandoverController extends Controller
                     'message' => 'Unauthorized',
                 ], 403);
             }
-            
+
             $shiftModel = CashierShift::with(['handoverStatus', 'cashier', 'shift'])
                 ->findOrFail($shift);
-            
+
             // Verify shift belongs to manager's branch
             if ($shiftModel->shift->branch_id !== $manager->branch_id) {
                 return response()->json([
@@ -506,6 +506,7 @@ class ShiftHandoverController extends Controller
                     'manager_comment' => $handoverStatus->manager_comment,
                     'was_edited_after_rejection' => $handoverStatus->was_edited_after_rejection,
                     'edited_at' => $handoverStatus->edited_at?->format('Y-m-d H:i:s'),
+                    'correction_details' => $this->getCorrectionDetails($handoverStatus),
                 ]
             ]);
         } catch (\Exception $e) {
@@ -515,6 +516,68 @@ class ShiftHandoverController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Get correction details (request corrections information)
+     * Returns details about who requested corrections, when, and the comment
+     *
+     * @param ShiftHandoverStatus $handoverStatus
+     * @return array|null
+     */
+    private function getCorrectionDetails($handoverStatus): ?array
+    {
+        // Only return correction details if:
+        // 1. manager_comment exists (correction was requested)
+        // 2. reviewed_at exists (correction was processed)
+        // 3. Status is rejected (not approved or permanently rejected)
+        if (!$handoverStatus->manager_comment || !$handoverStatus->reviewed_at) {
+            return null;
+        }
+
+        // If permanently rejected, it's not a correction request
+        if ($handoverStatus->isPermanentlyRejected()) {
+            return null;
+        }
+
+        // If status is rejected and manager_comment exists, it's a correction request
+        if ($handoverStatus->manager_approval_status === 'rejected') {
+            return [
+                'requested_by' => $handoverStatus->reviewedBy?->name ?? 'N/A',
+                'requested_by_id' => $handoverStatus->reviewed_by_id,
+                'requested_by_type' => $this->getReviewerTypeLabel($handoverStatus->reviewed_by_type),
+                'manager_comment' => $handoverStatus->manager_comment,
+                'requested_at' => $handoverStatus->reviewed_at?->format('Y-m-d H:i:s'),
+                'can_cashier_edit' => $handoverStatus->canCashierEdit(),
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Get reviewer type in readable format
+     *
+     * @param string|null $reviewerType
+     * @return string|null
+     */
+    private function getReviewerTypeLabel(?string $reviewerType): ?string
+    {
+        if (!$reviewerType) {
+            return null;
+        }
+
+        // Check if it's a BranchManager type
+        if (str_contains($reviewerType, 'BranchManager') || $reviewerType === 'branch_manager') {
+            return 'Branch Manager';
+        }
+
+        // Check if it's a Cashier type
+        if (str_contains($reviewerType, 'Cashier') || $reviewerType === 'cashier') {
+            return 'Cashier';
+        }
+
+        return class_basename($reviewerType);
     }
 
     /**
