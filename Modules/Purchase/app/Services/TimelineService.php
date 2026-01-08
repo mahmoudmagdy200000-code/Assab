@@ -657,11 +657,13 @@ class TimelineService
             'in_app' => 'In-App Notification',
         ];
 
+        $channelLabel = $channelLabels[$channel] ?? $channel;
+        
         return $this->log(
             $order,
             TimelineEventType::ORDER_VIEWED,
             'Supplier Contacted',
-            "Contacted supplier via {$channelLabels[$channel] ?? $channel}",
+            "Contacted supplier via {$channelLabel}",
             null,
             null,
             [

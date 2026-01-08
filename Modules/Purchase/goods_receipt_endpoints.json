@@ -1,948 +1,1188 @@
 {
-  "info": {
-    "name": "Goods Receipt API Endpoints",
-    "description": "Complete API documentation for Goods Receipt System (3.1.2.4.4)",
-    "version": "1.0.0",
-    "base_url": "/api/v1/purchase/receiving"
-  },
-  "endpoints": [
-    {
-      "name": "Get In-Progress Receipts",
-      "method": "GET",
-      "path": "/in-progress",
-      "description": "Get list of receipts that are in progress (draft or in_progress status)",
-      "query_parameters": {
-        "per_page": {
-          "type": "integer",
-          "required": false,
-          "default": 15,
-          "description": "Number of items per page"
-        }
-      },
-      "response": {
-        "status": 200,
-        "example": {
-          "success": true,
-          "message": "In-progress receipts retrieved successfully",
-          "data": [
-            {
-              "items_count": 5,
-              "order_type": "direct_supplier",
-              "status": "in_progress",
-              "date": "2025-01-15 10:30:00"
-            }
-          ],
-          "meta": {
-            "current_page": 1,
-            "per_page": 15,
-            "total": 10
-          }
-        }
-      }
+    "openapi": "3.0.0",
+    "info": {
+        "title": "Goods Receipt API",
+        "description": "Complete API documentation for Goods Receipt System (3.1.2.4.4)",
+        "version": "1.0.0"
     },
-    {
-      "name": "Get Orders for Receiving",
-      "method": "GET",
-      "path": "/orders",
-      "description": "Get list of orders ready for receiving",
-      "query_parameters": {
-        "type": {
-          "type": "string",
-          "required": false,
-          "description": "Filter by order type (direct_supplier, via_purchasing_officer, internal_transfer)"
-        },
-        "per_page": {
-          "type": "integer",
-          "required": false,
-          "default": 15
+    "servers": [
+        {
+            "url": "/api/v1/purchase/receiving",
+            "description": "Goods Receipt API Server"
         }
-      }
-    },
-    {
-      "name": "Get Draft Receipts",
-      "method": "GET",
-      "path": "/drafts",
-      "description": "Get list of draft receipts saved by Branch Manager",
-      "query_parameters": {
-        "type": {
-          "type": "string",
-          "required": false,
-          "description": "Filter by order type"
-        },
-        "per_page": {
-          "type": "integer",
-          "required": false,
-          "default": 15
+    ],
+    "tags": [
+        {
+            "name": "Goods Receiving",
+            "description": "Goods receipt management endpoints"
         }
-      },
-      "response": {
-        "status": 200,
-        "example": {
-          "success": true,
-          "data": [
-            {
-              "id": "uuid",
-              "items_count": 3,
-              "type": "direct_supplier",
-              "status": "draft",
-              "date": "2025-01-15 10:30:00"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "name": "Get Draft Details",
-      "method": "GET",
-      "path": "/drafts/{id}",
-      "description": "Get detailed information about a draft receipt",
-      "path_parameters": {
-        "id": {
-          "type": "uuid",
-          "required": true,
-          "description": "Receipt ID"
-        }
-      },
-      "response": {
-        "status": 200,
-        "example": {
-          "success": true,
-          "data": {
-            "id": "uuid",
-            "receipt_number": "GR-20250115-ABCD",
-            "status": "draft",
-            "inspection_summary": {
-              "total_items_expected": 5,
-              "total_items_received": 3,
-              "quantity_variances": 1,
-              "quality_variances": 0
-            },
-            "delivery_details": {
-              "driver_name": "John Doe",
-              "driver_contact": "+966501234567",
-              "vehicle_number": "ABC-1234"
-            },
-            "items": [],
-            "invoice": null,
-            "variances": []
-          }
-        }
-      }
-    },
-    {
-      "name": "Get Missing Goods Receipts",
-      "method": "GET",
-      "path": "/missing",
-      "description": "Get list of receipts with missing goods (variances)",
-      "query_parameters": {
-        "type": {
-          "type": "string",
-          "required": false,
-          "description": "Filter by order type (direct_supplier, via_purchasing_officer)"
-        },
-        "per_page": {
-          "type": "integer",
-          "required": false,
-          "default": 15
-        }
-      }
-    },
-    {
-      "name": "Get Missing Goods Details",
-      "method": "GET",
-      "path": "/missing/{id}",
-      "description": "Get detailed information about missing goods receipt with tracking and supplier info",
-      "path_parameters": {
-        "id": {
-          "type": "uuid",
-          "required": true
-        }
-      },
-      "response": {
-        "status": 200,
-        "example": {
-          "success": true,
-          "data": {
-            "receipt": {},
-            "inspection_summary": {
-              "order_number": "DS-20250115-ABCD",
-              "branch_name": "Main Branch",
-              "order_type": "direct_supplier",
-              "supplier_name": "ABC Supplier",
-              "total_amount": 5000.00
-            },
-            "list_of_items": [],
-            "contact_methods": [
-              {
-                "channel": "whatsapp",
-                "date_sent": "2025-01-15 11:00:00"
-              }
-            ],
-            "timeline_tracking": [],
-            "supplier_information": {
-              "supplier_name": "ABC Supplier",
-              "supplier_status": "online",
-              "available_contact_methods": {
-                "whatsapp": true,
-                "sms": true,
-                "email": true,
-                "in_app_chat": true
-              },
-              "response_statistics": {
-                "average_response_time_hours": 2.5,
-                "response_rate_percentage": 95.5
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "name": "Get Completed Receipts",
-      "method": "GET",
-      "path": "/completed",
-      "description": "Get list of completed receipts",
-      "query_parameters": {
-        "type": {
-          "type": "string",
-          "required": false
-        },
-        "per_page": {
-          "type": "integer",
-          "required": false,
-          "default": 15
-        }
-      }
-    },
-    {
-      "name": "Get Complete Goods Details",
-      "method": "GET",
-      "path": "/completed/{id}",
-      "description": "Get detailed information about completed goods receipt",
-      "path_parameters": {
-        "id": {
-          "type": "uuid",
-          "required": true
-        }
-      }
-    },
-    {
-      "name": "Start Receiving Order",
-      "method": "POST",
-      "path": "/orders/{orderId}/start",
-      "description": "Start receiving process for an order",
-      "path_parameters": {
-        "orderId": {
-          "type": "uuid",
-          "required": true,
-          "description": "Purchase Order ID"
-        }
-      },
-      "response": {
-        "status": 201,
-        "example": {
-          "success": true,
-          "message": "Receiving started successfully",
-          "data": {
-            "id": "uuid",
-            "receipt_number": "GR-20250115-ABCD",
-            "status": "in_progress",
-            "inspection_started_at": "2025-01-15 10:30:00"
-          }
-        }
-      }
-    },
-    {
-      "name": "Receive Internal Transfer",
-      "method": "POST",
-      "path": "/orders/{orderId}/receive-internal-transfer",
-      "description": "Receive internal transfer order from another branch",
-      "path_parameters": {
-        "orderId": {
-          "type": "uuid",
-          "required": true
-        }
-      },
-      "request_body": {
-        "content_type": "application/json",
-        "schema": {
-          "driver_name": {
-            "type": "string",
-            "required": false
-          },
-          "driver_contact": {
-            "type": "string",
-            "required": false
-          },
-          "vehicle_number": {
-            "type": "string",
-            "required": false
-          },
-          "arrival_time": {
-            "type": "datetime",
-            "required": false
-          },
-          "delivery_address": {
-            "type": "string",
-            "required": false
-          }
-        }
-      }
-    },
-    {
-      "name": "Receive Without Prior Order",
-      "method": "POST",
-      "path": "/without-order",
-      "description": "Receive goods without a prior purchase order",
-      "request_body": {
-        "content_type": "application/json",
-        "schema": {
-          "supplier_id": {
-            "type": "uuid",
-            "required": true
-          },
-          "delivery_reference": {
-            "type": "string",
-            "required": false
-          },
-          "driver_name": {
-            "type": "string",
-            "required": false
-          },
-          "driver_contact": {
-            "type": "string",
-            "required": false
-          },
-          "vehicle_number": {
-            "type": "string",
-            "required": false
-          },
-          "arrival_time": {
-            "type": "datetime",
-            "required": false
-          },
-          "items": {
-            "type": "array",
-            "required": true,
-            "items": {
-              "product_name": "string",
-              "item_id": "uuid",
-              "unit": "kg|pk",
-              "quantity": "decimal",
-              "price_per_unit": "decimal",
-              "quality": "excellent|normal|poor",
-              "temperature": "decimal",
-              "expiry_date": "date",
-              "payment_terms": "string",
-              "note": "string"
-            }
-          }
-        }
-      }
-    },
-    {
-      "name": "Get Receipt Details",
-      "method": "GET",
-      "path": "/{id}",
-      "description": "Get detailed information about a receipt",
-      "path_parameters": {
-        "id": {
-          "type": "uuid",
-          "required": true
-        }
-      }
-    },
-    {
-      "name": "Get Receipt Summary",
-      "method": "GET",
-      "path": "/{id}/summary",
-      "description": "Get comprehensive receipt summary including inspection, goods, documents, variances, and financial details",
-      "path_parameters": {
-        "id": {
-          "type": "uuid",
-          "required": true
-        }
-      },
-      "response": {
-        "status": 200,
-        "example": {
-          "success": true,
-          "data": {
-            "inspection_summary": {
-              "number_of_items_received": 5,
-              "number_of_quantity_variances": 1,
-              "total_amount": 5000.00,
-              "driver_name": "John Doe",
-              "contact_number": "+966501234567",
-              "vehicle_number": "ABC-1234",
-              "arrival_time": "2025-01-15 10:30:00"
-            },
-            "goods_inspection": [],
-            "document_summary": {
-              "document_type": "invoice",
-              "invoice_details": {
-                "invoice_number": "INV-20250115-ABCD",
-                "invoice_date": "2025-01-15",
-                "supplier_name": "ABC Supplier",
-                "attachment": "https://..."
-              }
-            },
-            "variance_summary": [],
-            "financial_summary": {
-              "amount_before_tax": 4347.83,
-              "vat": 652.17,
-              "total_amount": 5000.00
-            }
-          }
-        }
-      }
-    },
-    {
-      "name": "Get Order Tracking",
-      "method": "GET",
-      "path": "/orders/{orderId}/tracking",
-      "description": "Get order tracking stages (Preparing, Out for Delivery, Delivered, Order Confirmation, Variance Logged)",
-      "path_parameters": {
-        "orderId": {
-          "type": "uuid",
-          "required": true
-        }
-      },
-      "response": {
-        "status": 200,
-        "example": {
-          "success": true,
-          "data": {
-            "order_id": "uuid",
-            "stages": {
-              "preparing": {
-                "status": "preparing",
-                "items": []
-              },
-              "out_for_delivery": {
-                "status": "out_for_delivery",
-                "arrival_time": "2025-01-15 14:00:00",
-                "driver_details": {
-                  "name": "John Doe",
-                  "photo": "https://...",
-                  "vehicle_number": "ABC-1234"
+    ],
+    "paths": {
+        "/in-progress": {
+            "get": {
+                "tags": ["Goods Receiving"],
+                "summary": "Get In-Progress Receipts",
+                "description": "Get list of receipts that are in progress (draft or in_progress status)",
+                "parameters": [
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "default": 15
+                        },
+                        "description": "Number of items per page"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "content": {
+                            "application/json": {
+                                "example": {
+                                    "success": true,
+                                    "message": "In-progress receipts retrieved successfully",
+                                    "data": [
+                                        {
+                                            "items_count": 5,
+                                            "order_type": "direct_supplier",
+                                            "status": "in_progress",
+                                            "date": "2025-01-15 10:30:00"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
                 }
-              },
-              "delivered": {
-                "status": "delivered",
-                "invoice_file": "https://..."
-              },
-              "order_confirmation": {
-                "status": "confirmed",
-                "receipt_details": {}
-              },
-              "variance_logged": {
-                "status": "variance_logged",
-                "variances": []
-              }
             }
-          }
-        }
-      }
-    },
-    {
-      "name": "Update Delivery Details",
-      "method": "PUT",
-      "path": "/{id}/delivery-details",
-      "description": "Update delivery details for a receipt",
-      "path_parameters": {
-        "id": {
-          "type": "uuid",
-          "required": true
-        }
-      },
-      "request_body": {
-        "content_type": "multipart/form-data",
-        "schema": {
-          "driver_name": {
-            "type": "string",
-            "required": false
-          },
-          "driver_contact": {
-            "type": "string",
-            "required": false
-          },
-          "driver_image": {
-            "type": "file",
-            "required": false,
-            "description": "Image file (jpg, jpeg, png, max 5MB)"
-          },
-          "vehicle_number": {
-            "type": "string",
-            "required": false
-          },
-          "arrival_time": {
-            "type": "datetime",
-            "required": false
-          },
-          "delivery_address": {
-            "type": "string",
-            "required": false
-          },
-          "delivery_notes": {
-            "type": "string",
-            "required": false
-          }
-        }
-      }
-    },
-    {
-      "name": "Inspect Item",
-      "method": "POST",
-      "path": "/{id}/items/{itemId}/inspect",
-      "description": "Inspect and update item details (quantity received, quality, temperature, expiry, photo, notes)",
-      "path_parameters": {
-        "id": {
-          "type": "uuid",
-          "required": true
         },
-        "itemId": {
-          "type": "uuid",
-          "required": true
+        "/orders": {
+            "get": {
+                "tags": ["Goods Receiving"],
+                "summary": "Get Orders for Receiving",
+                "description": "Get list of orders ready for receiving",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "direct_supplier",
+                                "via_purchasing_officer",
+                                "internal_transfer"
+                            ]
+                        },
+                        "description": "Filter by order type"
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "default": 15
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success"
+                    }
+                }
+            }
+        },
+        "/drafts": {
+            "get": {
+                "tags": ["Goods Receiving"],
+                "summary": "Get Draft Receipts",
+                "description": "Get list of draft receipts saved by Branch Manager",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter by order type"
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "default": 15
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success"
+                    }
+                }
+            }
+        },
+        "/drafts/{id}": {
+            "get": {
+                "tags": ["Goods Receiving"],
+                "summary": "Get Draft Details",
+                "description": "Get detailed information about a draft receipt",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success"
+                    },
+                    "404": {
+                        "description": "Draft receipt not found"
+                    }
+                }
+            }
+        },
+        "/missing": {
+            "get": {
+                "tags": ["Goods Receiving"],
+                "summary": "Get Missing Goods Receipts",
+                "description": "Get list of receipts with missing goods (variances)",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "direct_supplier",
+                                "via_purchasing_officer"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "default": 15
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success"
+                    }
+                }
+            }
+        },
+        "/missing/{id}": {
+            "get": {
+                "tags": ["Goods Receiving"],
+                "summary": "Get Missing Goods Details",
+                "description": "Get detailed information about missing goods receipt with tracking and supplier info",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success"
+                    },
+                    "404": {
+                        "description": "Missing goods receipt not found"
+                    }
+                }
+            }
+        },
+        "/completed": {
+            "get": {
+                "tags": ["Goods Receiving"],
+                "summary": "Get Completed Receipts",
+                "description": "Get list of completed receipts",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "default": 15
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success"
+                    }
+                }
+            }
+        },
+        "/completed/{id}": {
+            "get": {
+                "tags": ["Goods Receiving"],
+                "summary": "Get Complete Goods Details",
+                "description": "Get detailed information about completed goods receipt",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success"
+                    },
+                    "404": {
+                        "description": "Complete goods receipt not found"
+                    }
+                }
+            }
+        },
+        "/orders/{orderId}/start": {
+            "post": {
+                "tags": ["Goods Receiving"],
+                "summary": "Start Receiving Order",
+                "description": "Start receiving process for an order",
+                "parameters": [
+                    {
+                        "name": "orderId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Receiving started successfully"
+                    },
+                    "400": {
+                        "description": "Order cannot be received in current status"
+                    },
+                    "404": {
+                        "description": "Order not found"
+                    }
+                }
+            }
+        },
+        "/orders/{orderId}/receive-internal-transfer": {
+            "post": {
+                "tags": ["Goods Receiving"],
+                "summary": "Receive Internal Transfer",
+                "description": "Receive internal transfer order from another branch",
+                "parameters": [
+                    {
+                        "name": "orderId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "driver_name": { "type": "string" },
+                                    "driver_contact": { "type": "string" },
+                                    "vehicle_number": { "type": "string" },
+                                    "arrival_time": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                    },
+                                    "delivery_address": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Internal transfer received successfully"
+                    },
+                    "400": {
+                        "description": "This endpoint is only for internal transfer orders"
+                    },
+                    "404": {
+                        "description": "Order not found"
+                    }
+                }
+            }
+        },
+        "/orders/{orderId}/tracking": {
+            "get": {
+                "tags": ["Goods Receiving"],
+                "summary": "Get Order Tracking",
+                "description": "Get order tracking stages (Preparing, Out for Delivery, Delivered, Order Confirmation, Variance Logged)",
+                "parameters": [
+                    {
+                        "name": "orderId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success"
+                    },
+                    "404": {
+                        "description": "Order not found"
+                    }
+                }
+            }
+        },
+        "/without-order": {
+            "post": {
+                "tags": ["Goods Receiving"],
+                "summary": "Receive Without Prior Order",
+                "description": "Receive goods without a prior purchase order",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["supplier_id", "items"],
+                                "properties": {
+                                    "supplier_id": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                    },
+                                    "delivery_reference": { "type": "string" },
+                                    "driver_name": { "type": "string" },
+                                    "driver_contact": { "type": "string" },
+                                    "vehicle_number": { "type": "string" },
+                                    "arrival_time": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                    },
+                                    "items": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "required": [
+                                                "product_name",
+                                                "quantity",
+                                                "quality"
+                                            ],
+                                            "properties": {
+                                                "product_name": {
+                                                    "type": "string"
+                                                },
+                                                "item_id": {
+                                                    "type": "string",
+                                                    "format": "uuid"
+                                                },
+                                                "unit": {
+                                                    "type": "string",
+                                                    "enum": ["kg", "pk"]
+                                                },
+                                                "quantity": {
+                                                    "type": "number"
+                                                },
+                                                "price_per_unit": {
+                                                    "type": "number"
+                                                },
+                                                "quality": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "excellent",
+                                                        "normal",
+                                                        "poor"
+                                                    ]
+                                                },
+                                                "temperature": {
+                                                    "type": "number"
+                                                },
+                                                "expiry_date": {
+                                                    "type": "string",
+                                                    "format": "date"
+                                                },
+                                                "payment_terms": {
+                                                    "type": "string"
+                                                },
+                                                "note": { "type": "string" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Goods received successfully"
+                    }
+                }
+            }
+        },
+        "/{id}": {
+            "get": {
+                "tags": ["Goods Receiving"],
+                "summary": "Get Receipt Details",
+                "description": "Get detailed information about a receipt",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success"
+                    },
+                    "404": {
+                        "description": "Receipt not found"
+                    }
+                }
+            }
+        },
+        "/{id}/summary": {
+            "get": {
+                "tags": ["Goods Receiving"],
+                "summary": "Get Receipt Summary",
+                "description": "Get comprehensive receipt summary including inspection, goods, documents, variances, and financial details",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success"
+                    },
+                    "404": {
+                        "description": "Receipt not found"
+                    }
+                }
+            }
+        },
+        "/{id}/delivery-details": {
+            "put": {
+                "tags": ["Goods Receiving"],
+                "summary": "Update Delivery Details",
+                "description": "Update delivery details for a receipt",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "driver_name": { "type": "string" },
+                                    "driver_contact": { "type": "string" },
+                                    "driver_image": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    },
+                                    "vehicle_number": { "type": "string" },
+                                    "arrival_time": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                    },
+                                    "delivery_address": { "type": "string" },
+                                    "delivery_notes": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Delivery details updated successfully"
+                    },
+                    "404": {
+                        "description": "Receipt not found"
+                    }
+                }
+            }
+        },
+        "/{id}/items/{itemId}/inspect": {
+            "post": {
+                "tags": ["Goods Receiving"],
+                "summary": "Inspect Item",
+                "description": "Inspect and update item details (quantity received, quality, temperature, expiry, photo, notes)",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "itemId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["quantity_received", "quality"],
+                                "properties": {
+                                    "quantity_received": {
+                                        "type": "number",
+                                        "minimum": 0
+                                    },
+                                    "quality": {
+                                        "type": "string",
+                                        "enum": ["excellent", "normal", "poor"]
+                                    },
+                                    "temperature": { "type": "number" },
+                                    "expiry_date": {
+                                        "type": "string",
+                                        "format": "date"
+                                    },
+                                    "photo": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    },
+                                    "notes": {
+                                        "type": "string",
+                                        "maxLength": 1000
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Item inspected successfully"
+                    },
+                    "404": {
+                        "description": "Item not found"
+                    }
+                }
+            }
+        },
+        "/{id}/unlisted-item": {
+            "post": {
+                "tags": ["Goods Receiving"],
+                "summary": "Add Unlisted Item",
+                "description": "Add unlisted item (gift from supplier) to receipt",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "required": [
+                                    "item_name",
+                                    "unit",
+                                    "quantity",
+                                    "quality"
+                                ],
+                                "properties": {
+                                    "item_id": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                    },
+                                    "item_name": { "type": "string" },
+                                    "item_logo": { "type": "string" },
+                                    "unit": {
+                                        "type": "string",
+                                        "enum": [
+                                            "kg",
+                                            "pk",
+                                            "unit",
+                                            "box",
+                                            "liter",
+                                            "piece"
+                                        ]
+                                    },
+                                    "quantity": {
+                                        "type": "number",
+                                        "minimum": 0.001
+                                    },
+                                    "quality": {
+                                        "type": "string",
+                                        "enum": ["excellent", "normal", "poor"]
+                                    },
+                                    "price_per_unit": { "type": "number" },
+                                    "supplier_id": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                    },
+                                    "reason": { "type": "string" },
+                                    "temperature": { "type": "number" },
+                                    "expiry_date": {
+                                        "type": "string",
+                                        "format": "date"
+                                    },
+                                    "photo": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Unlisted item added successfully"
+                    },
+                    "404": {
+                        "description": "Receipt not found"
+                    }
+                }
+            }
+        },
+        "/{id}/document-type": {
+            "put": {
+                "tags": ["Goods Receiving"],
+                "summary": "Set Document Type",
+                "description": "Set document type for receipt (invoice, delivery_note, receipt_without_document)",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["document_type"],
+                                "properties": {
+                                    "document_type": {
+                                        "type": "string",
+                                        "enum": [
+                                            "invoice",
+                                            "delivery_note",
+                                            "receipt_without_document"
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Document type set successfully"
+                    },
+                    "404": {
+                        "description": "Receipt not found"
+                    }
+                }
+            }
+        },
+        "/{id}/invoice": {
+            "post": {
+                "tags": ["Goods Receiving"],
+                "summary": "Create Invoice",
+                "description": "Create invoice for receipt with VAT calculation",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "required": [
+                                    "invoice_number",
+                                    "invoice_date",
+                                    "amount_before_tax"
+                                ],
+                                "properties": {
+                                    "invoice_number": {
+                                        "type": "string",
+                                        "maxLength": 100
+                                    },
+                                    "invoice_date": {
+                                        "type": "string",
+                                        "format": "date"
+                                    },
+                                    "amount_before_tax": {
+                                        "type": "number",
+                                        "minimum": 0
+                                    },
+                                    "tax_rate": {
+                                        "type": "number",
+                                        "default": 15.0,
+                                        "minimum": 0,
+                                        "maximum": 100
+                                    },
+                                    "payment_terms": {
+                                        "type": "string",
+                                        "default": "Net 30 days",
+                                        "maxLength": 100
+                                    },
+                                    "file": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Invoice created successfully"
+                    },
+                    "404": {
+                        "description": "Receipt not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
+        "/{id}/delivery-note": {
+            "post": {
+                "tags": ["Goods Receiving"],
+                "summary": "Create Delivery Note",
+                "description": "Create delivery note for receipt",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "file": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Delivery note created successfully"
+                    },
+                    "404": {
+                        "description": "Receipt not found"
+                    }
+                }
+            }
+        },
+        "/{id}/receipt-without-document": {
+            "post": {
+                "tags": ["Goods Receiving"],
+                "summary": "Create Receipt Without Document",
+                "description": "Mark receipt as receipt without document",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Receipt without document created successfully"
+                    },
+                    "404": {
+                        "description": "Receipt not found"
+                    }
+                }
+            }
+        },
+        "/{id}/complete": {
+            "post": {
+                "tags": ["Goods Receiving"],
+                "summary": "Complete Inspection",
+                "description": "Complete inspection and process variances automatically",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Inspection completed successfully"
+                    },
+                    "404": {
+                        "description": "Receipt not found"
+                    }
+                }
+            }
+        },
+        "/{id}/save-draft": {
+            "post": {
+                "tags": ["Goods Receiving"],
+                "summary": "Save as Draft",
+                "description": "Save receipt as draft for later editing",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Receipt saved as draft successfully"
+                    },
+                    "404": {
+                        "description": "Receipt not found"
+                    }
+                }
+            }
+        },
+        "/{id}/draft": {
+            "delete": {
+                "tags": ["Goods Receiving"],
+                "summary": "Delete Draft",
+                "description": "Permanently delete a draft receipt",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Draft deleted successfully"
+                    },
+                    "400": {
+                        "description": "Cannot delete non-draft receipt"
+                    },
+                    "404": {
+                        "description": "Receipt not found"
+                    }
+                }
+            }
+        },
+        "/variances/{varianceId}/action": {
+            "post": {
+                "tags": ["Goods Receiving"],
+                "summary": "Handle Variance Action",
+                "description": "Handle variance action (accept, create compensatory order, or deduct from invoice)",
+                "parameters": [
+                    {
+                        "name": "varianceId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["action"],
+                                "properties": {
+                                    "action": {
+                                        "type": "string",
+                                        "enum": [
+                                            "accept",
+                                            "compensatory_order",
+                                            "deduct_from_invoice"
+                                        ]
+                                    },
+                                    "supplier_id": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                    },
+                                    "source": { "type": "string" },
+                                    "deadline": {
+                                        "type": "string",
+                                        "format": "date"
+                                    },
+                                    "photos": {
+                                        "type": "array",
+                                        "items": { "type": "string" }
+                                    },
+                                    "notes": { "type": "string" },
+                                    "amount": {
+                                        "type": "number",
+                                        "minimum": 0.01
+                                    },
+                                    "reason": {
+                                        "type": "string",
+                                        "enum": [
+                                            "short_quantity",
+                                            "damaged_quality"
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Variance action processed successfully"
+                    },
+                    "404": {
+                        "description": "Variance not found"
+                    }
+                }
+            }
+        },
+        "/variances/{varianceId}/supplier-response": {
+            "post": {
+                "tags": ["Goods Receiving"],
+                "summary": "Handle Supplier Response",
+                "description": "Handle supplier response to variance (approve or reject)",
+                "parameters": [
+                    {
+                        "name": "varianceId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["action"],
+                                "properties": {
+                                    "action": {
+                                        "type": "string",
+                                        "enum": ["approve", "reject"]
+                                    },
+                                    "response": { "type": "string" },
+                                    "reason": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Supplier response processed successfully"
+                    },
+                    "404": {
+                        "description": "Variance not found"
+                    }
+                }
+            }
+        },
+        "/variances/{varianceId}/accept-rejection": {
+            "post": {
+                "tags": ["Goods Receiving"],
+                "summary": "Accept Supplier Rejection",
+                "description": "Accept supplier rejection and close the variance",
+                "parameters": [
+                    {
+                        "name": "varianceId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Rejection accepted successfully"
+                    },
+                    "400": {
+                        "description": "Variance is not in rejected status"
+                    },
+                    "404": {
+                        "description": "Variance not found"
+                    }
+                }
+            }
+        },
+        "/variances/{varianceId}/escalate": {
+            "post": {
+                "tags": ["Goods Receiving"],
+                "summary": "Escalate Rejection",
+                "description": "Escalate supplier rejection to Brand Owner for review",
+                "parameters": [
+                    {
+                        "name": "varianceId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["reason", "escalated_to"],
+                                "properties": {
+                                    "reason": {
+                                        "type": "string",
+                                        "maxLength": 1000
+                                    },
+                                    "escalated_to": {
+                                        "type": "string",
+                                        "description": "Brand Owner ID or identifier"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Rejection escalated successfully"
+                    },
+                    "400": {
+                        "description": "Variance is not in rejected status"
+                    },
+                    "404": {
+                        "description": "Variance not found"
+                    }
+                }
+            }
         }
-      },
-      "request_body": {
-        "content_type": "multipart/form-data",
-        "schema": {
-          "quantity_received": {
-            "type": "decimal",
-            "required": true,
-            "description": "Quantity received"
-          },
-          "quality": {
-            "type": "string",
-            "required": true,
-            "enum": ["excellent", "normal", "poor"]
-          },
-          "temperature": {
-            "type": "decimal",
-            "required": false
-          },
-          "expiry_date": {
-            "type": "date",
-            "required": false,
-            "description": "Must be today or later"
-          },
-          "photo": {
-            "type": "file",
-            "required": false,
-            "description": "Image file (jpg, jpeg, png, max 5MB)"
-          },
-          "notes": {
-            "type": "string",
-            "required": false,
-            "max_length": 1000
-          }
-        }
-      }
     },
-    {
-      "name": "Add Unlisted Item",
-      "method": "POST",
-      "path": "/{id}/unlisted-item",
-      "description": "Add unlisted item (gift from supplier) to receipt",
-      "path_parameters": {
-        "id": {
-          "type": "uuid",
-          "required": true
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT"
+            }
         }
-      },
-      "request_body": {
-        "content_type": "multipart/form-data",
-        "schema": {
-          "item_id": {
-            "type": "uuid",
-            "required": false,
-            "description": "Item ID if searching from items list"
-          },
-          "item_name": {
-            "type": "string",
-            "required": true
-          },
-          "item_logo": {
-            "type": "string",
-            "required": false
-          },
-          "unit": {
-            "type": "string",
-            "required": true,
-            "enum": ["kg", "pk", "unit", "box", "liter", "piece"]
-          },
-          "quantity": {
-            "type": "decimal",
-            "required": true,
-            "min": 0.001
-          },
-          "quality": {
-            "type": "string",
-            "required": true,
-            "enum": ["excellent", "normal", "poor"]
-          },
-          "price_per_unit": {
-            "type": "decimal",
-            "required": false
-          },
-          "supplier_id": {
-            "type": "uuid",
-            "required": false
-          },
-          "reason": {
-            "type": "string",
-            "required": false,
-            "description": "Reason for manual addition"
-          },
-          "temperature": {
-            "type": "decimal",
-            "required": false
-          },
-          "expiry_date": {
-            "type": "date",
-            "required": false
-          },
-          "photo": {
-            "type": "file",
-            "required": false,
-            "description": "Image file (jpg, jpeg, png, max 5MB)"
-          }
-        }
-      }
     },
-    {
-      "name": "Set Document Type",
-      "method": "PUT",
-      "path": "/{id}/document-type",
-      "description": "Set document type for receipt (invoice, delivery_note, receipt_without_document)",
-      "path_parameters": {
-        "id": {
-          "type": "uuid",
-          "required": true
+    "security": [
+        {
+            "bearerAuth": []
         }
-      },
-      "request_body": {
-        "content_type": "application/json",
-        "schema": {
-          "document_type": {
-            "type": "string",
-            "required": true,
-            "enum": ["invoice", "delivery_note", "receipt_without_document"]
-          }
-        }
-      }
-    },
-    {
-      "name": "Create Invoice",
-      "method": "POST",
-      "path": "/{id}/invoice",
-      "description": "Create invoice for receipt with VAT calculation",
-      "path_parameters": {
-        "id": {
-          "type": "uuid",
-          "required": true
-        }
-      },
-      "request_body": {
-        "content_type": "multipart/form-data",
-        "schema": {
-          "invoice_number": {
-            "type": "string",
-            "required": true,
-            "description": "Unique invoice number"
-          },
-          "invoice_date": {
-            "type": "date",
-            "required": true
-          },
-          "amount_before_tax": {
-            "type": "decimal",
-            "required": true
-          },
-          "tax_rate": {
-            "type": "decimal",
-            "required": false,
-            "default": 15.00
-          },
-          "payment_terms": {
-            "type": "string",
-            "required": false,
-            "default": "Net 30 days"
-          },
-          "file": {
-            "type": "file",
-            "required": false,
-            "description": "Invoice file (pdf, jpg, jpeg, png, max 10MB)"
-          }
-        }
-      },
-      "response": {
-        "status": 201,
-        "example": {
-          "success": true,
-          "data": {
-            "id": "uuid",
-            "invoice_number": "INV-20250115-ABCD",
-            "invoice_date": "2025-01-15",
-            "due_date": "2025-02-14",
-            "amount_before_tax": 4347.83,
-            "tax_rate": 15.00,
-            "tax_amount": 652.17,
-            "total_amount": 5000.00
-          }
-        }
-      }
-    },
-    {
-      "name": "Create Delivery Note",
-      "method": "POST",
-      "path": "/{id}/delivery-note",
-      "description": "Create delivery note for receipt",
-      "path_parameters": {
-        "id": {
-          "type": "uuid",
-          "required": true
-        }
-      },
-      "request_body": {
-        "content_type": "multipart/form-data",
-        "schema": {
-          "file": {
-            "type": "file",
-            "required": false,
-            "description": "Delivery note file (pdf, jpg, jpeg, png, max 10MB)"
-          }
-        }
-      }
-    },
-    {
-      "name": "Create Receipt Without Document",
-      "method": "POST",
-      "path": "/{id}/receipt-without-document",
-      "description": "Mark receipt as receipt without document",
-      "path_parameters": {
-        "id": {
-          "type": "uuid",
-          "required": true
-        }
-      }
-    },
-    {
-      "name": "Complete Inspection",
-      "method": "POST",
-      "path": "/{id}/complete",
-      "description": "Complete inspection and process variances automatically",
-      "path_parameters": {
-        "id": {
-          "type": "uuid",
-          "required": true
-        }
-      },
-      "response": {
-        "status": 200,
-        "example": {
-          "success": true,
-          "message": "Inspection completed successfully",
-          "data": {
-            "id": "uuid",
-            "status": "completed",
-            "inspection_completed_at": "2025-01-15 11:00:00",
-            "variances": []
-          }
-        }
-      }
-    },
-    {
-      "name": "Save as Draft",
-      "method": "POST",
-      "path": "/{id}/save-draft",
-      "description": "Save receipt as draft for later editing",
-      "path_parameters": {
-        "id": {
-          "type": "uuid",
-          "required": true
-        }
-      }
-    },
-    {
-      "name": "Delete Draft",
-      "method": "DELETE",
-      "path": "/{id}/draft",
-      "description": "Permanently delete a draft receipt",
-      "path_parameters": {
-        "id": {
-          "type": "uuid",
-          "required": true
-        }
-      }
-    },
-    {
-      "name": "Handle Variance Action",
-      "method": "POST",
-      "path": "/variances/{varianceId}/action",
-      "description": "Handle variance action (accept, create compensatory order, or deduct from invoice)",
-      "path_parameters": {
-        "varianceId": {
-          "type": "uuid",
-          "required": true
-        }
-      },
-      "request_body": {
-        "content_type": "application/json",
-        "schema": {
-          "action": {
-            "type": "string",
-            "required": true,
-            "enum": ["accept", "compensatory_order", "deduct_from_invoice"]
-          },
-          "supplier_id": {
-            "type": "uuid",
-            "required": false,
-            "description": "Required if action is compensatory_order"
-          },
-          "source": {
-            "type": "string",
-            "required": false
-          },
-          "deadline": {
-            "type": "date",
-            "required": false,
-            "description": "Required if action is compensatory_order, must be in future"
-          },
-          "photos": {
-            "type": "array",
-            "required": false,
-            "description": "Photo evidence files (images, max 5MB each)"
-          },
-          "notes": {
-            "type": "string",
-            "required": false
-          },
-          "amount": {
-            "type": "decimal",
-            "required": false,
-            "description": "Required if action is deduct_from_invoice"
-          },
-          "reason": {
-            "type": "string",
-            "required": false,
-            "enum": ["short_quantity", "damaged_quality"],
-            "description": "Required if action is deduct_from_invoice"
-          }
-        }
-      }
-    },
-    {
-      "name": "Handle Supplier Response",
-      "method": "POST",
-      "path": "/variances/{varianceId}/supplier-response",
-      "description": "Handle supplier response to variance (approve or reject)",
-      "path_parameters": {
-        "varianceId": {
-          "type": "uuid",
-          "required": true
-        }
-      },
-      "request_body": {
-        "content_type": "application/json",
-        "schema": {
-          "action": {
-            "type": "string",
-            "required": true,
-            "enum": ["approve", "reject"]
-          },
-          "response": {
-            "type": "string",
-            "required": false,
-            "description": "Optional response message if action is approve"
-          },
-          "reason": {
-            "type": "string",
-            "required": false,
-            "description": "Required if action is reject"
-          }
-        }
-      }
-    },
-    {
-      "name": "Accept Supplier Rejection",
-      "method": "POST",
-      "path": "/variances/{varianceId}/accept-rejection",
-      "description": "Accept supplier rejection and close the variance",
-      "path_parameters": {
-        "varianceId": {
-          "type": "uuid",
-          "required": true
-        }
-      }
-    },
-    {
-      "name": "Escalate Rejection",
-      "method": "POST",
-      "path": "/variances/{varianceId}/escalate",
-      "description": "Escalate supplier rejection to Brand Owner for review",
-      "path_parameters": {
-        "varianceId": {
-          "type": "uuid",
-          "required": true
-        }
-      },
-      "request_body": {
-        "content_type": "application/json",
-        "schema": {
-          "reason": {
-            "type": "string",
-            "required": true,
-            "max_length": 1000
-          },
-          "escalated_to": {
-            "type": "string",
-            "required": true,
-            "description": "Brand Owner ID or identifier"
-          }
-        }
-      }
-    }
-  ],
-  "common_responses": {
-    "401": {
-      "description": "Unauthorized - Authentication required"
-    },
-    "403": {
-      "description": "Forbidden - Insufficient permissions"
-    },
-    "404": {
-      "description": "Not Found - Resource not found",
-      "example": {
-        "success": false,
-        "message": "Receipt not found"
-      }
-    },
-    "422": {
-      "description": "Validation Error",
-      "example": {
-        "success": false,
-        "message": "Validation failed",
-        "errors": {
-          "quantity_received": ["The quantity received field is required."]
-        }
-      }
-    },
-    "500": {
-      "description": "Internal Server Error"
-    }
-  },
-  "notes": [
-    "All endpoints require authentication via Sanctum",
-    "All UUIDs should be valid UUID format",
-    "File uploads should use multipart/form-data content type",
-    "Dates should be in Y-m-d format",
-    "DateTimes should be in Y-m-d H:i:s format",
-    "All monetary values are in SAR (Saudi Riyal)",
-    "VAT rate is 15% by default",
-    "Payment terms default to 'Net 30 days'",
-    "Due date is automatically calculated as invoice_date + 30 days"
-  ]
+    ]
 }
