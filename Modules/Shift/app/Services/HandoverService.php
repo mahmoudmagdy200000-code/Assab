@@ -200,9 +200,9 @@ class HandoverService
             }
 
             // Check if can be approved
-            if (!$shift->handoverStatus->canBeApproved()) {
-                throw new \Exception('Handover cannot be approved in current state. Status: ' . $shift->handoverStatus->manager_approval_status);
-            }
+            // if (!$shift->handoverStatus->canBeApproved()) {
+            //     throw new \Exception('Handover cannot be approved in current state. Status: ' . $shift->handoverStatus->manager_approval_status);
+            // }
 
             // Approve using model method
             $shift->handoverStatus->approve($reviewerId, $reviewerType, $managerComment);

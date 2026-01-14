@@ -258,8 +258,8 @@ class ShiftHandoverController extends Controller
         $validator = Validator::make($request->all(), [
             'rejection_reason' => 'nullable|string|max:500',
             'manager_comment' => 'nullable|string|max:500',
-            'rejection_files' => 'sometimes|array',
-            'rejection_files.*' => 'file|mimes:pdf,png,jpeg,jpg|max:5120',
+            'rejection_files' => 'nullable|array',
+            'rejection_files.*' => 'nullable|file|mimes:pdf,png,jpeg,jpg|max:5120',
         ]);
 
         if ($validator->fails()) {
@@ -750,8 +750,8 @@ class ShiftHandoverController extends Controller
         $requestData = !empty($jsonData) ? $jsonData : $request->all();
 
         $validator = Validator::make($requestData, [
-            'decision' => 'required|in:approve_rejection,request_corrections',
-            'manager_comment' => 'required|string|max:1000',
+            'decision' => 'nullable|in:approve_rejection,request_corrections',
+            'manager_comment' => 'nullable|string|max:1000',
         ]);
 
         if ($validator->fails()) {
