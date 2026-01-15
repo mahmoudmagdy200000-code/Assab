@@ -612,6 +612,7 @@ class GoodsReceiptService
                     'qty_received' => 0.0, // Not inspected yet
                     'unit' => $orderItem->unit_of_measurement,
                     'quality' => 'normal', // Default until inspected
+                    'price' => (float) $orderItem->unit_price,
                     'temperature' => null,
                     'expiration_date' => null,
                     'photo' => null,
@@ -624,6 +625,7 @@ class GoodsReceiptService
         $response = [
             'order_id' => $order->id,
             'order_number' => $order->order_number,
+            'supplier_name' => $order->supplier?->name ?? null,
             'delivery_details' => $deliveryDetails,
             'goods_inspection' => $inspectionItems,
         ];
@@ -680,6 +682,7 @@ class GoodsReceiptService
             'qty_received' => (float) $item->quantity_received,
             'unit' => $item->unit_of_measurement,
             'quality' => $item->quality_received?->value ?? 'normal',
+            'price' => (float) $item->unit_price,
             'temperature' => $item->temperature ? (float) $item->temperature : null,
             'expiration_date' => $item->expiry_date?->format('Y-m-d'),
             'photo' => $item->item_logo,
