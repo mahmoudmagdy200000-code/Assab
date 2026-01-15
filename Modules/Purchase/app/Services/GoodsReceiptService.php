@@ -636,7 +636,7 @@ class GoodsReceiptService
             if (isset($requestData['unit_price'])) {
                 $response['unit_price'] = $requestData['unit_price'];
             }
-            $response['order_number'] = $requestData['order_number'];
+            $response['request_order_number'] = $requestData['order_number'];
         }
 
         return $response;
