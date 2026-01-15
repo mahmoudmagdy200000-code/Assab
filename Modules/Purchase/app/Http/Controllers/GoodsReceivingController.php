@@ -681,10 +681,10 @@ class GoodsReceivingController extends BaseController
      *
      * @group Goods Receiving
      */
-    public function getInspectionDetailsByOrderId(string $orderId): JsonResponse
+    public function getInspectionDetailsByOrderId(Request $request, string $orderId): JsonResponse
     {
         try {
-            $details = $this->receiptService->getInspectionDetailsByOrderId($orderId);
+            $details = $this->receiptService->getInspectionDetailsByOrderId($orderId, $request->all());
 
             if (!$details) {
                 return $this->notFoundResponse('Order or receipt not found');

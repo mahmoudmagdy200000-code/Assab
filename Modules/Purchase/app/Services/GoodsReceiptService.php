@@ -568,7 +568,7 @@ class GoodsReceiptService
     /**
      * Get inspection details by order ID
      */
-    public function getInspectionDetailsByOrderId(string $orderId): ?array
+    public function getInspectionDetailsByOrderId(string $orderId, array $requestData = []): ?array
     {
         $order = PurchaseOrder::with([
             'goodsReceipts.items',
@@ -621,12 +621,25 @@ class GoodsReceiptService
             });
         }
 
-        return [
+        $response = [
             'order_id' => $order->id,
             'order_number' => $order->order_number,
             'delivery_details' => $deliveryDetails,
             'goods_inspection' => $inspectionItems,
         ];
+
+        // Add unit_price and order_number from request if supplier_name and order_number are in request
+        if (
+            !empty($requestData['supplier_name']) &&
+            !empty($requestData['order_number'])
+        ) {
+            if (isset($requestData['unit_price'])) {
+                $response['unit_price'] = $requestData['unit_price'];
+            }
+            $response['order_number'] = $requestData['order_number'];
+        }
+
+        return $response;
     }
 
     /**
