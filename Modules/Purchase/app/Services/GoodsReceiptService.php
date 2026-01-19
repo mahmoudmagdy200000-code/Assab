@@ -214,11 +214,16 @@ class GoodsReceiptService
     }
 
     /**
-     * Start receiving an order
+     * Start receiving an order with items inspection data
+     *
+     * @param PurchaseOrder $order
+     * @param string $receivedBy
+     * @param array $itemsData Array of items with inspection details: item_id, quantity_received, quality, temperature, expiration_date, photo, notes
+     * @return GoodsReceipt
      */
-    public function startReceiving(PurchaseOrder $order, string $receivedBy): GoodsReceipt
+    public function startReceiving(PurchaseOrder $order, string $receivedBy, array $itemsData = []): GoodsReceipt
     {
-        return DB::transaction(function () use ($order, $receivedBy) {
+        return DB::transaction(function () use ($order, $receivedBy, $itemsData) {
             $receipt = GoodsReceipt::create([
                 'purchase_order_id' => $order->id,
                 'branch_id' => $order->branch_id,
@@ -229,23 +234,58 @@ class GoodsReceiptService
                 'inspection_started_at' => now(),
             ]);
 
-            // Create receipt items from order items
-            foreach ($order->items as $item) {
-                GoodsReceiptItem::create([
+            // Create a map of order items by ID for quick lookup
+            $orderItemsMap = $order->items->keyBy('id');
+
+            // Create a map of received items data by item_id
+            $receivedItemsMap = collect($itemsData)->keyBy('item_id');
+
+            // Create receipt items from order items with inspection data
+            foreach ($order->items as $orderItem) {
+                $receivedItemData = $receivedItemsMap->get($orderItem->id);
+
+                // Get inspection data if provided, otherwise use defaults
+                $quantityReceived = $receivedItemData['quantity_received'] ?? 0;
+                $qualityReceived = isset($receivedItemData['quality'])
+                    ? \Modules\Purchase\Enums\InspectionQuality::from($receivedItemData['quality'])
+                    : null;
+                $temperature = $receivedItemData['temperature'] ?? null;
+                // Map expiration_date from request to expiry_date for model
+                $expiryDate = isset($receivedItemData['expiration_date'])
+                    ? $receivedItemData['expiration_date']
+                    : (isset($receivedItemData['expiry_date']) ? $receivedItemData['expiry_date'] : null);
+                $photo = $receivedItemData['photo'] ?? null;
+                $notes = $receivedItemData['notes'] ?? null;
+
+                // Calculate received total
+                $receivedTotal = $quantityReceived * $orderItem->unit_price;
+
+                $receiptItem = GoodsReceiptItem::create([
                     'goods_receipt_id' => $receipt->id,
-                    'purchase_order_item_id' => $item->id,
-                    'item_id' => $item->item_id,
-                    'item_name' => $item->item_name,
-                    'item_logo' => $item->item_logo,
-                    'unit_of_measurement' => $item->unit_of_measurement,
-                    'quantity_ordered' => $item->quantity_ordered,
-                    'quantity_received' => 0,
-                    'quality_ordered' => $item->quality_ordered,
-                    'unit_price' => $item->unit_price,
-                    'expected_total' => $item->total_price,
-                    'received_total' => 0,
+                    'purchase_order_item_id' => $orderItem->id,
+                    'item_id' => $orderItem->item_id,
+                    'item_name' => $orderItem->item_name,
+                    'item_logo' => $orderItem->item_logo,
+                    'unit_of_measurement' => $orderItem->unit_of_measurement,
+                    'quantity_ordered' => $orderItem->quantity_ordered,
+                    'quantity_received' => $quantityReceived,
+                    'quality_ordered' => $orderItem->quality_ordered,
+                    'quality_received' => $qualityReceived,
+                    'temperature' => $temperature,
+                    'expiry_date' => $expiryDate,
+                    'photo' => $photo,
+                    'notes' => $notes,
+                    'unit_price' => $orderItem->unit_price,
+                    'expected_total' => $orderItem->total_price,
+                    'received_total' => $receivedTotal,
                 ]);
+
+                // Calculate variance for the item
+                $receiptItem->calculateVariance();
             }
+
+            // Calculate receipt summary
+            $receipt->calculateSummary();
 
             // Update order status based on current status
             // If fully approved, transition to confirmed when received

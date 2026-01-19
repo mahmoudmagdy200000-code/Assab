@@ -13,6 +13,7 @@ use Modules\Purchase\Http\Requests\CreateInvoiceRequest;
 use Modules\Purchase\Http\Requests\InspectItemRequest;
 use Modules\Purchase\Http\Requests\ReceiveGoodsRequest;
 use Modules\Purchase\Http\Requests\ReceiveWithoutOrderRequest;
+use Modules\Purchase\Http\Requests\StartReceivingRequest;
 use Modules\Purchase\Http\Requests\SupplierResponseRequest;
 use Modules\Purchase\Http\Requests\UpdateDeliveryDetailsRequest;
 use Modules\Purchase\Http\Requests\VarianceActionRequest;
@@ -89,7 +90,7 @@ class GoodsReceivingController extends BaseController
      *
      * @group Goods Receiving
      */
-    public function startReceiving(string $orderId): JsonResponse
+    public function startReceiving(StartReceivingRequest $request, string $orderId): JsonResponse
     {
         try {
             // Security: Pass branch_id to service for authorization check
@@ -104,7 +105,27 @@ class GoodsReceivingController extends BaseController
                 return $this->errorResponse('Order cannot be received in current status', 400);
             }
 
-            $receipt = $this->receiptService->startReceiving($order, auth()->id());
+            // Get validated data
+            $validated = $request->validated();
+
+            // Validate that all item_ids belong to this order
+            $orderItemIds = $order->items->pluck('id')->toArray();
+            $requestItemIds = collect($validated['items'])->pluck('item_id')->toArray();
+
+            $invalidItems = array_diff($requestItemIds, $orderItemIds);
+            if (!empty($invalidItems)) {
+                return $this->errorResponse('Some items do not belong to this order', 400);
+            }
+
+            // Handle file uploads for photos
+            $itemsData = $validated['items'];
+            foreach ($itemsData as $index => $itemData) {
+                if ($request->hasFile("items.{$index}.photo")) {
+                    $itemsData[$index]['photo'] = $request->file("items.{$index}.photo")->store('receipts/items', 'public');
+                }
+            }
+
+            $receipt = $this->receiptService->startReceiving($order, auth()->id(), $itemsData);
 
             return $this->createdResponse(
                 new GoodsReceiptResource($receipt),
