@@ -112,6 +112,12 @@ class GoodsReceivingController extends BaseController
             $orderItemIds = $order->items->pluck('id')->toArray();
             $requestItemIds = collect($validated['items'])->pluck('item_id')->toArray();
 
+            // Also collect variance items if present
+            if (isset($validated['variance']['items'])) {
+                $varianceItemIds = collect($validated['variance']['items'])->pluck('item_id')->toArray();
+                $requestItemIds = array_merge($requestItemIds, $varianceItemIds);
+            }
+
             $invalidItems = array_diff($requestItemIds, $orderItemIds);
             if (!empty($invalidItems)) {
                 return $this->errorResponse('Some items do not belong to this order', 400);
