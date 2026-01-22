@@ -734,7 +734,7 @@ class GoodsReceiptService
                     'item_id' => $orderItem->id,
                     'product_name' => $orderItem->item_name,
                     'item_logo' => $orderItem->item_logo_url ?? null,
-                    'qty_ordered' => (float) $orderItem->quantity,
+                    'qty_ordered' => (float) $orderItem->quantity_ordered,
                     'qty_received' => 0.0, // Not inspected yet
                     'unit' => $orderItem->unit_of_measurement,
                     'quality' => 'normal', // Default until inspected
