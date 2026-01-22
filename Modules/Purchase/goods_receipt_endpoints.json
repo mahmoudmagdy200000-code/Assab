@@ -412,7 +412,7 @@
             "post": {
                 "tags": ["Goods Receiving"],
                 "summary": "Start Receiving Order",
-                "description": "Start receiving process for an order",
+                "description": "Start receiving process for an order. **Important:** For `items[].item_id` and `variance.items[].item_id`, use the order line **`id`** from the order details response (each item's `id`), NOT the catalog `item_id`.",
                 "parameters": [
                     {
                         "name": "Accept",
@@ -442,12 +442,69 @@
                         }
                     }
                 ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["items"],
+                                "properties": {
+                                    "items": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["item_id", "quantity_received", "quality"],
+                                            "properties": {
+                                                "item_id": {
+                                                    "type": "string",
+                                                    "format": "uuid",
+                                                    "description": "Order line id (order details item.id), NOT catalog item_id"
+                                                },
+                                                "quantity_received": { "type": "number", "minimum": 0 },
+                                                "quality": { "type": "string", "enum": ["excellent", "normal", "poor"] },
+                                                "temperature": { "type": "number" },
+                                                "expiration_date": { "type": "string", "format": "date" },
+                                                "notes": { "type": "string", "maxLength": 1000 }
+                                            }
+                                        }
+                                    },
+                                    "document_type": { "type": "string", "enum": ["invoice", "delivery_note", "receipt_without_document"] },
+                                    "variance": {
+                                        "type": "object",
+                                        "properties": {
+                                            "action": { "type": "string", "enum": ["accept", "compensatory_order", "deduct_from_invoice"] },
+                                            "note": { "type": "string" },
+                                            "items": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "item_id": {
+                                                            "type": "string",
+                                                            "format": "uuid",
+                                                            "description": "Order line id (order details item.id), NOT catalog item_id"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
                 "responses": {
                     "201": {
                         "description": "Receiving started successfully"
                     },
                     "400": {
                         "description": "Order cannot be received in current status"
+                    },
+                    "422": {
+                        "description": "Validation error (e.g. item_id not in order – use order line id, not catalog item_id)"
                     },
                     "404": {
                         "description": "Order not found"

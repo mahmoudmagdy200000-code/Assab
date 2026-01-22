@@ -3,6 +3,7 @@
 namespace Modules\Purchase\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StartReceivingRequest extends FormRequest
 {
@@ -16,14 +17,19 @@ class StartReceivingRequest extends FormRequest
 
     /**
      * Get the validation rules that apply to the request.
+     *
+     * Note: items.*.item_id and variance.items.*.item_id must be the order line id
+     * (order details response "id"), NOT the catalog item_id.
      */
     public function rules(): array
     {
-        $documentType = $this->input('document_type');
+        $orderId = $this->route('orderId');
+        $orderLineExists = Rule::exists('purchase_order_items', 'id')
+            ->where('purchase_order_id', $orderId);
 
-        $rules = [
+        return [
             'items' => ['required', 'array', 'min:1'],
-            'items.*.item_id' => ['required', 'uuid', 'exists:purchase_order_items,id'],
+            'items.*.item_id' => ['required', 'uuid', $orderLineExists],
             'items.*.quantity_received' => ['required', 'numeric', 'min:0'],
             'items.*.quality' => ['required', 'string', 'in:excellent,normal,poor'],
             'items.*.temperature' => ['nullable', 'numeric'],
@@ -55,7 +61,7 @@ class StartReceivingRequest extends FormRequest
 
             // Items for compensatory order (required if action is compensatory_order)
             'variance.items' => ['required_if:variance.action,compensatory_order', 'array', 'min:1'],
-            'variance.items.*.item_id' => ['required', 'uuid', 'exists:purchase_order_items,id'],
+            'variance.items.*.item_id' => ['required', 'uuid', $orderLineExists],
 
             // Deduct from invoice data (required if action is deduct_from_invoice)
             'variance.deduct_data' => ['required_if:variance.action,deduct_from_invoice', 'array'],
@@ -63,8 +69,6 @@ class StartReceivingRequest extends FormRequest
             'variance.deduct_data.reason' => ['required_with:variance.deduct_data', 'string', 'in:short_quantity,damaged_quality'],
             'variance.deduct_data.notes' => ['nullable', 'string', 'max:1000'],
         ];
-
-        return $rules;
     }
 
     /**
@@ -78,7 +82,7 @@ class StartReceivingRequest extends FormRequest
             'items.min' => 'At least one item is required.',
             'items.*.item_id.required' => 'Item ID is required for each item.',
             'items.*.item_id.uuid' => 'Item ID must be a valid UUID.',
-            'items.*.item_id.exists' => 'The selected item does not exist in the order.',
+            'items.*.item_id.exists' => 'The selected item does not exist in the order. Use the order line "id" from order details, not "item_id".',
             'items.*.quantity_received.required' => 'Quantity received is required for each item.',
             'items.*.quantity_received.numeric' => 'Quantity received must be a number.',
             'items.*.quantity_received.min' => 'Quantity received must be at least 0.',
@@ -120,7 +124,7 @@ class StartReceivingRequest extends FormRequest
             'variance.items.min' => 'At least one item is required for compensatory orders.',
             'variance.items.*.item_id.required' => 'Item ID is required for each item in compensatory order.',
             'variance.items.*.item_id.uuid' => 'Item ID must be a valid UUID.',
-            'variance.items.*.item_id.exists' => 'The selected item does not exist in the order.',
+            'variance.items.*.item_id.exists' => 'The selected item does not exist in the order. Use the order line "id" from order details, not "item_id".',
 
             // Deduct from invoice
             'variance.deduct_data.required_if' => 'Deduct data is required when action is deduct_from_invoice.',

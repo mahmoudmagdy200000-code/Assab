@@ -740,7 +740,7 @@
       "post": {
         "tags": ["Goods Receiving"],
         "summary": "Start receiving order",
-        "description": "Start the goods receiving process for an order",
+        "description": "Start the goods receiving process for an order. Use order line `id` (not `item_id`) for items[].item_id and variance.items[].item_id.",
         "operationId": "startReceiving",
         "parameters": [
           {
