@@ -214,16 +214,25 @@ class GoodsReceiptService
     }
 
     /**
-     * Start receiving an order with items inspection data
+     * Start receiving an order with items inspection data, document type, and variance actions
      *
      * @param PurchaseOrder $order
      * @param string $receivedBy
      * @param array $itemsData Array of items with inspection details: item_id, quantity_received, quality, temperature, expiration_date, photo, notes
+     * @param string|null $documentType Optional: invoice, delivery_note, receipt_without_document
+     * @param array|null $documentData Optional: Data for document type (invoice_data or delivery_note_data)
+     * @param array|null $varianceData Optional: Single variance action object for all items with variance (action, note, photo, compensatory_order_data, deduct_data)
      * @return GoodsReceipt
      */
-    public function startReceiving(PurchaseOrder $order, string $receivedBy, array $itemsData = []): GoodsReceipt
-    {
-        return DB::transaction(function () use ($order, $receivedBy, $itemsData) {
+    public function startReceiving(
+        PurchaseOrder $order,
+        string $receivedBy,
+        array $itemsData = [],
+        ?string $documentType = null,
+        ?array $documentData = null,
+        ?array $varianceData = null
+    ): GoodsReceipt {
+        return DB::transaction(function () use ($order, $receivedBy, $itemsData, $documentType, $documentData, $varianceData) {
             $receipt = GoodsReceipt::create([
                 'purchase_order_id' => $order->id,
                 'branch_id' => $order->branch_id,
@@ -234,13 +243,11 @@ class GoodsReceiptService
                 'inspection_started_at' => now(),
             ]);
 
-            // Create a map of order items by ID for quick lookup
-            $orderItemsMap = $order->items->keyBy('id');
-
             // Create a map of received items data by item_id
             $receivedItemsMap = collect($itemsData)->keyBy('item_id');
 
             // Create receipt items from order items with inspection data
+            $receiptItemsMap = [];
             foreach ($order->items as $orderItem) {
                 $receivedItemData = $receivedItemsMap->get($orderItem->id);
 
@@ -251,9 +258,12 @@ class GoodsReceiptService
                     : null;
                 $temperature = $receivedItemData['temperature'] ?? null;
                 // Map expiration_date from request to expiry_date for model
-                $expiryDate = isset($receivedItemData['expiration_date'])
-                    ? $receivedItemData['expiration_date']
-                    : (isset($receivedItemData['expiry_date']) ? $receivedItemData['expiry_date'] : null);
+                $expiryDate = null;
+                if (isset($receivedItemData['expiration_date'])) {
+                    $expiryDate = $receivedItemData['expiration_date'];
+                } elseif (isset($receivedItemData['expiry_date'])) {
+                    $expiryDate = $receivedItemData['expiry_date'];
+                }
                 $photo = $receivedItemData['photo'] ?? null;
                 $notes = $receivedItemData['notes'] ?? null;
 
@@ -282,10 +292,70 @@ class GoodsReceiptService
 
                 // Calculate variance for the item
                 $receiptItem->calculateVariance();
+
+                // Store receipt item in map for variance processing
+                $receiptItemsMap[$orderItem->id] = $receiptItem;
             }
 
             // Calculate receipt summary
             $receipt->calculateSummary();
+
+            // Refresh receipt to get updated items with variances
+            $receipt->refresh();
+            $receipt->load('items');
+
+            // Create variance records for items with discrepancies
+            $variancesMap = [];
+            foreach ($receipt->items as $item) {
+                if ($item->has_variance) {
+                    // Check if variance already exists
+                    $variance = $item->variance;
+                    if (!$variance) {
+                        $variance = $this->varianceService->createVariance($receipt, $item);
+                    }
+                    $variancesMap[$item->purchase_order_item_id] = $variance;
+                }
+            }
+
+            // Process variance action if provided (applies to all items with variance)
+            if (!empty($varianceData) && !empty($variancesMap)) {
+                $action = $varianceData['action'];
+                $varianceNote = $varianceData['note'] ?? null;
+                $variancePhoto = $varianceData['photo'] ?? null;
+
+                // Apply action to all variances
+                foreach ($variancesMap as $variance) {
+                    // Process the action
+                    match ($action) {
+                        'accept' => $this->varianceService->acceptVariance($variance),
+                        'compensatory_order' => $this->varianceService->createCompensatoryOrder(
+                            $variance,
+                            array_merge(
+                                ['items' => $varianceData['items'] ?? []],
+                                ['notes' => $varianceNote ?? null, 'photos' => $variancePhoto ? [$variancePhoto] : []]
+                            )
+                        ),
+                        'deduct_from_invoice' => $this->varianceService->deductFromInvoice(
+                            $variance,
+                            $varianceData['deduct_data']['amount'] ?? 0,
+                            $varianceData['deduct_data']['reason'] ?? 'short_quantity',
+                            $varianceData['deduct_data']['notes'] ?? $varianceNote
+                        ),
+                    };
+                }
+            }
+
+            // Handle document type if provided
+            if ($documentType) {
+                $docType = DocumentType::from($documentType);
+                $receipt->setDocumentType($docType);
+
+                match ($documentType) {
+                    'invoice' => $this->createInvoice($receipt, $documentData ?? []),
+                    'delivery_note' => $this->createDeliveryNote($receipt, $documentData ?? []),
+                    'receipt_without_document' => $this->createReceiptWithoutDocument($receipt),
+                };
+            }
 
             // Update order status based on current status
             // If fully approved, transition to confirmed when received
@@ -302,7 +372,7 @@ class GoodsReceiptService
 
             $this->timelineService->logInspectionStarted($receipt);
 
-            return $receipt->fresh(['items', 'purchaseOrder']);
+            return $receipt->fresh(['items', 'purchaseOrder', 'variances', 'invoice']);
         });
     }
 
@@ -376,8 +446,9 @@ class GoodsReceiptService
      */
     public function createInvoice(GoodsReceipt $receipt, array $data): PurchaseInvoice
     {
-        $amountBeforeTax = $data['amount_before_tax'] ?? $receipt->received_amount;
-        $taxRate = $data['tax_rate'] ?? 15.00;
+        // Calculate amounts from receipt (amount_before_tax and tax_rate are calculated automatically)
+        $amountBeforeTax = $receipt->received_amount;
+        $taxRate = 15.00; // Default tax rate
         $taxAmount = $this->calculationService->calculateVAT($amountBeforeTax, $taxRate);
         $totalAmount = $amountBeforeTax + $taxAmount;
 
@@ -397,9 +468,24 @@ class GoodsReceiptService
             'status' => 'pending',
         ]);
 
-        // Handle file upload
-        if (!empty($data['file'])) {
-            OrderDocument::upload($invoice, $data['file'], DocumentType::INVOICE, 'Invoice');
+        // Handle photo upload (photo is already stored as path string)
+        if (!empty($data['photo'])) {
+            // Create document record for the photo
+            OrderDocument::create([
+                'documentable_type' => get_class($invoice),
+                'documentable_id' => $invoice->id,
+                'type' => DocumentType::INVOICE,
+                'file_path' => $data['photo'],
+                'file_name' => basename($data['photo']),
+                'original_name' => basename($data['photo']),
+                'mime_type' => 'image/jpeg', // Default, can be improved
+                'file_size' => 0, // Can be improved by reading file size
+                'title' => 'Invoice Photo',
+                'description' => $data['notes'] ?? null,
+                'uploaded_by' => \Illuminate\Support\Facades\Auth::id(),
+                'uploaded_by_type' => \Illuminate\Support\Facades\Auth::user() ? get_class(\Illuminate\Support\Facades\Auth::user()) : null,
+                'is_active' => true,
+            ]);
         }
 
         $this->timelineService->logInvoiceUploaded($receipt, $invoice);

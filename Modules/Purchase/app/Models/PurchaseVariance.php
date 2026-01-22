@@ -176,6 +176,13 @@ class PurchaseVariance extends Model
             'status' => 'pending',
         ]);
         
+        // Store items list in additional_notes or create a separate field
+        // For now, we'll store items as JSON in additional_notes along with notes
+        $notesData = [
+            'notes' => $data['notes'] ?? null,
+            'items' => $data['items'] ?? [],
+        ];
+        
         return CompensatoryOrder::create([
             'variance_id' => $this->id,
             'original_order_id' => $this->purchase_order_id,
@@ -183,12 +190,12 @@ class PurchaseVariance extends Model
             'item_logo' => $this->item_logo,
             'quantity' => $this->quantity_variance,
             'quality' => $this->quality_ordered,
-            'reorder_supplier_id' => $data['supplier_id'] ?? null,
-            'reorder_source' => $data['source'] ?? null,
-            'delivery_urgency_deadline' => $data['deadline'],
+            'reorder_supplier_id' => null, // Will be set later when creating the order
+            'reorder_source' => null, // Will be set later
+            'delivery_urgency_deadline' => now()->addDays(7), // Default deadline, can be updated later
             'photo_evidence' => $data['photos'] ?? null,
-            'additional_notes' => $data['notes'] ?? null,
-            'created_by' => auth()->id(),
+            'additional_notes' => json_encode($notesData), // Store items and notes as JSON
+            'created_by' => \Illuminate\Support\Facades\Auth::id(),
             'status' => 'pending',
         ]);
     }

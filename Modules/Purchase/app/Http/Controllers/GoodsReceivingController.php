@@ -125,7 +125,56 @@ class GoodsReceivingController extends BaseController
                 }
             }
 
-            $receipt = $this->receiptService->startReceiving($order, auth()->id(), $itemsData);
+            // Prepare document type and data
+            $documentType = $validated['document_type'] ?? null;
+            $documentData = null;
+
+            if ($documentType === 'invoice' && isset($validated['invoice_data'])) {
+                $documentData = $validated['invoice_data'];
+                // Handle invoice photo upload
+                if ($request->hasFile('invoice_data.photo')) {
+                    $documentData['photo'] = $request->file('invoice_data.photo')->store('invoices', 'public');
+                }
+            } elseif ($documentType === 'delivery_note' && isset($validated['delivery_note_data'])) {
+                $documentData = $validated['delivery_note_data'];
+                // Handle delivery note file upload
+                if ($request->hasFile('delivery_note_data.file')) {
+                    $documentData['file'] = $request->file('delivery_note_data.file');
+                }
+            }
+
+            // Prepare variance data (single object for all items with variance)
+            $varianceData = null;
+            if (isset($validated['variance']) && is_array($validated['variance'])) {
+                $varianceData = [
+                    'action' => $validated['variance']['action'],
+                    'note' => $validated['variance']['note'] ?? null,
+                ];
+
+                // Handle variance photo upload
+                if ($request->hasFile('variance.photo')) {
+                    $varianceData['photo'] = $request->file('variance.photo')->store('variances', 'public');
+                }
+
+                // Handle compensatory order items (directly in variance)
+                if ($varianceData['action'] === 'compensatory_order' && isset($validated['variance']['items'])) {
+                    $varianceData['items'] = $validated['variance']['items'];
+                }
+
+                // Handle deduct from invoice data
+                if ($varianceData['action'] === 'deduct_from_invoice' && isset($validated['variance']['deduct_data'])) {
+                    $varianceData['deduct_data'] = $validated['variance']['deduct_data'];
+                }
+            }
+
+            $receipt = $this->receiptService->startReceiving(
+                $order,
+                auth()->id(),
+                $itemsData,
+                $documentType,
+                $documentData,
+                $varianceData
+            );
 
             return $this->createdResponse(
                 new GoodsReceiptResource($receipt),
