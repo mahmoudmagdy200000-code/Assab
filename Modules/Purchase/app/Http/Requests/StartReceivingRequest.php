@@ -55,7 +55,7 @@ class StartReceivingRequest extends FormRequest
 
             // Items for compensatory order (required if action is compensatory_order)
             'variance.items' => ['required_if:variance.action,compensatory_order', 'array', 'min:1'],
-            'variance.items.*.item_id' => ['required', 'uuid', 'exists:items,id'],
+            'variance.items.*.item_id' => ['required', 'uuid', 'exists:purchase_order_items,id'],
 
             // Deduct from invoice data (required if action is deduct_from_invoice)
             'variance.deduct_data' => ['required_if:variance.action,deduct_from_invoice', 'array'],
@@ -120,7 +120,7 @@ class StartReceivingRequest extends FormRequest
             'variance.items.min' => 'At least one item is required for compensatory orders.',
             'variance.items.*.item_id.required' => 'Item ID is required for each item in compensatory order.',
             'variance.items.*.item_id.uuid' => 'Item ID must be a valid UUID.',
-            'variance.items.*.item_id.exists' => 'The selected item does not exist.',
+            'variance.items.*.item_id.exists' => 'The selected item does not exist in the order.',
 
             // Deduct from invoice
             'variance.deduct_data.required_if' => 'Deduct data is required when action is deduct_from_invoice.',
