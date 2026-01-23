@@ -22,6 +22,7 @@ enum OrderStatus: string
     // Special Status (temporary during execution)
     case DELAYED = 'delayed';
     case DELAYED_APPROVED = 'delayed_approved';
+    case VARIANCE = 'variance';
     
     // Deprecated Statuses (for backward compatibility - will be migrated)
     case PENDING_CONFIRMATION = 'pending_confirmation';
@@ -54,6 +55,7 @@ enum OrderStatus: string
             // Special
             self::DELAYED => 'Delay Reported',
             self::DELAYED_APPROVED => 'Delayed Approved',
+            self::VARIANCE => 'Variance',
             
             // Deprecated (for backward compatibility)
             self::PENDING_CONFIRMATION => 'Pending Confirmation (Deprecated)',
@@ -86,6 +88,7 @@ enum OrderStatus: string
             // Special
             self::DELAYED => '#F59E0B',
             self::DELAYED_APPROVED => '#10B981',
+            self::VARIANCE => '#F97316',
             
             // Deprecated (mapped to similar statuses)
             self::PENDING_CONFIRMATION => '#F97316',
@@ -117,6 +120,7 @@ enum OrderStatus: string
             self::ON_THE_WAY => [self::DELIVERED, self::DELAYED],
             self::DELAYED => [self::DELAYED_APPROVED, self::PREPARING, self::ON_THE_WAY, self::CANCELED],
             self::DELAYED_APPROVED => [self::PREPARING, self::ON_THE_WAY, self::DELIVERED],
+            self::VARIANCE => [self::PENDING, self::CONFIRMED, self::PREPARING, self::CANCELED],
             self::DELIVERED => [self::CLOSED],
             self::CLOSED => [],
             
@@ -127,6 +131,7 @@ enum OrderStatus: string
             self::FULLY_APPROVED => [self::CONFIRMED, self::PREPARING, self::CANCELED],
             self::PARTIAL_APPROVED => [self::CONFIRMED, self::PREPARING, self::CANCELED],
             self::PARTIAL_CONFIRMED => [self::CONFIRMED, self::PREPARING, self::CANCELED],
+            self::VARIANCE => [self::PENDING, self::CONFIRMED, self::PREPARING, self::CANCELED],
         };
 
         return in_array($newStatus, $allowedTransitions);

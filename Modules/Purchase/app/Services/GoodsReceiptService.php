@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Modules\Purchase\Enums\DocumentType;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\VarianceType;
+use Modules\Purchase\Models\CompensatoryOrder;
 use Modules\Purchase\Models\GoodsReceipt;
 use Modules\Purchase\Models\GoodsReceiptItem;
 use Modules\Purchase\Models\OrderDocument;
@@ -19,7 +20,8 @@ class GoodsReceiptService
     public function __construct(
         private readonly TimelineService $timelineService,
         private readonly VarianceService $varianceService,
-        private readonly CalculationService $calculationService
+        private readonly CalculationService $calculationService,
+        private readonly PurchaseOrderService $orderService
     ) {}
 
     /**
@@ -328,12 +330,12 @@ class GoodsReceiptService
                     // Process the action
                     match ($action) {
                         'accept' => $this->varianceService->acceptVariance($variance),
-                        'compensatory_order' => $this->varianceService->createCompensatoryOrder(
+                        'compensatory_order' => $this->handleCompensatoryOrder(
                             $variance,
-                            array_merge(
-                                ['items' => $varianceData['items'] ?? []],
-                                ['notes' => $varianceNote ?? null, 'photos' => $variancePhoto ? [$variancePhoto] : []]
-                            )
+                            $order,
+                            $varianceData['items'] ?? [],
+                            $varianceNote,
+                            $variancePhoto
                         ),
                         'deduct_from_invoice' => $this->varianceService->deductFromInvoice(
                             $variance,
@@ -1118,5 +1120,75 @@ class GoodsReceiptService
         }
 
         return $stages;
+    }
+
+    /**
+     * Handle compensatory order: Create new PurchaseOrder with variance items
+     */
+    private function handleCompensatoryOrder(
+        PurchaseVariance $variance,
+        PurchaseOrder $originalOrder,
+        array $items,
+        ?string $note = null,
+        ?string $photo = null
+    ): CompensatoryOrder {
+        // Create compensatory order record first
+        $compensatory = $this->varianceService->createCompensatoryOrder(
+            $variance,
+            [
+                'items' => $items,
+                'notes' => $note,
+                'photos' => $photo ? [$photo] : [],
+            ]
+        );
+
+        // Get order items from variance.items (order line IDs)
+        $orderItems = $originalOrder->items()
+            ->whereIn('id', collect($items)->pluck('item_id')->toArray())
+            ->get();
+
+        if ($orderItems->isEmpty()) {
+            return $compensatory;
+        }
+
+        // Prepare items data for new order
+        $newOrderItems = $orderItems->map(function ($orderItem) {
+            return [
+                'item_id' => $orderItem->item_id,
+                'item_name' => $orderItem->item_name,
+                'item_logo' => $orderItem->item_logo,
+                'item_sku' => $orderItem->item_sku,
+                'category' => $orderItem->category,
+                'subcategory' => $orderItem->subcategory,
+                'quantity_ordered' => $orderItem->quantity_ordered,
+                'unit_of_measurement' => $orderItem->unit_of_measurement,
+                'unit_price' => $orderItem->unit_price,
+                'quality_ordered' => $orderItem->quality_ordered?->value,
+            ];
+        })->toArray();
+
+        // Create new PurchaseOrder with same supplier and branch
+        $newOrder = $this->orderService->createOrder([
+            'order_type' => $originalOrder->order_type->value,
+            'status' => OrderStatus::VARIANCE->value,
+            'branch_id' => $originalOrder->branch_id,
+            'requested_by' => $originalOrder->requested_by,
+            'supplier_id' => $originalOrder->supplier_id,
+            'from_branch_id' => $originalOrder->from_branch_id,
+            'to_branch_id' => $originalOrder->to_branch_id,
+            'quality_level' => $originalOrder->quality_level?->value,
+            'processing_time' => $originalOrder->processing_time?->value,
+            'priority' => $originalOrder->priority?->value ?? 'normal',
+            'items' => $newOrderItems,
+        ]);
+
+        // Update compensatory order with new_order_id
+        $compensatory->update([
+            'new_order_id' => $newOrder->id,
+            'reorder_supplier_id' => $originalOrder->supplier_id,
+            'status' => 'ordered',
+        ]);
+
+        return $compensatory;
     }
 }
