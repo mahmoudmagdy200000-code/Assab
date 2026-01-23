@@ -95,7 +95,8 @@ class PurchaseServiceProvider extends ServiceProvider
             return new GoodsReceiptService(
                 $app->make(TimelineService::class),
                 $app->make(VarianceService::class),
-                $app->make(CalculationService::class)
+                $app->make(CalculationService::class),
+                $app->make(PurchaseOrderService::class)
             );
         });
         
