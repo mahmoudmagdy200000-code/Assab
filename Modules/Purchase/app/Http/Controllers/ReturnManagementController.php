@@ -31,7 +31,7 @@ class ReturnManagementController extends BaseController
             $returns = $this->returnService->getInProgressReturns($branchId, $request->get('per_page', 15));
             
             return $this->paginatedResponse(
-                ReturnOrderResource::collection($returns),
+                ReturnOrderResource::collection($returns->load(['purchaseOrder', 'supplier', 'items'])),
                 'In-progress returns retrieved successfully'
             );
         } catch (\Exception $e) {
@@ -51,7 +51,7 @@ class ReturnManagementController extends BaseController
             $returns = $this->returnService->getDraftReturns($branchId, $request->get('per_page', 15));
             
             return $this->paginatedResponse(
-                ReturnOrderResource::collection($returns),
+                ReturnOrderResource::collection($returns->load(['purchaseOrder', 'supplier', 'items'])),
                 'Draft returns retrieved successfully'
             );
         } catch (\Exception $e) {
@@ -71,7 +71,7 @@ class ReturnManagementController extends BaseController
             $returns = $this->returnService->getCompletedReturns($branchId, $request->get('per_page', 15));
             
             return $this->paginatedResponse(
-                ReturnOrderResource::collection($returns),
+                ReturnOrderResource::collection($returns->load(['purchaseOrder', 'supplier', 'items'])),
                 'Completed returns retrieved successfully'
             );
         } catch (\Exception $e) {
@@ -96,13 +96,21 @@ class ReturnManagementController extends BaseController
                 return $this->notFoundResponse('Purchase order not found');
             }
             
+            // Validate that order is CLOSED (required for returns)
+            if ($order->status !== \Modules\Purchase\Enums\OrderStatus::CLOSED) {
+                return $this->errorResponse(
+                    'Returns can only be created for closed orders. Current order status: ' . $order->status->label(),
+                    400
+                );
+            }
+            
             $data = $request->validated();
             $data['created_by'] = auth()->id();
             
-            $return = $this->returnService->createReturn($order, $data);
+            $return = $this->returnService->createReturn($order, $data, $request);
             
             return $this->createdResponse(
-                new ReturnOrderResource($return),
+                new ReturnOrderResource($return->load(['purchaseOrder', 'supplier', 'items', 'timelines'])),
                 'Return order created successfully'
             );
         } catch (\Exception $e) {
@@ -115,7 +123,7 @@ class ReturnManagementController extends BaseController
      * 
      * @group Return Management
      */
-    public function update(Request $request, string $id): JsonResponse
+    public function update(CreateReturnRequest $request, string $id): JsonResponse
     {
         try {
             $return = ReturnOrder::find($id);
@@ -128,10 +136,17 @@ class ReturnManagementController extends BaseController
                 return $this->errorResponse('Can only update draft returns', 400);
             }
             
-            $return = $this->returnService->updateReturn($return, $request->all());
+            // Security: Verify user has access to this return's branch
+            $userBranchId = auth()->user()->branch_id;
+            if ($return->branch_id !== $userBranchId) {
+                return $this->errorResponse('Unauthorized access to this return order', 403);
+            }
+            
+            $data = $request->validated();
+            $return = $this->returnService->updateReturn($return, $data, $request);
             
             return $this->successResponse(
-                new ReturnOrderResource($return),
+                new ReturnOrderResource($return->load(['purchaseOrder', 'supplier', 'items', 'timelines'])),
                 'Return order updated successfully'
             );
         } catch (\Exception $e) {
@@ -238,13 +253,21 @@ class ReturnManagementController extends BaseController
                 return $this->notFoundResponse('Purchase order not found');
             }
             
+            // Validate that order is CLOSED (required for returns)
+            if ($order->status !== \Modules\Purchase\Enums\OrderStatus::CLOSED) {
+                return $this->errorResponse(
+                    'Returns can only be created for closed orders. Current order status: ' . $order->status->label(),
+                    400
+                );
+            }
+            
             $data = $request->validated();
             $data['created_by'] = auth()->id();
             
-            $return = $this->returnService->saveDraft($order, $data);
+            $return = $this->returnService->saveDraft($order, $data, $request);
             
             return $this->createdResponse(
-                new ReturnOrderResource($return),
+                new ReturnOrderResource($return->load(['purchaseOrder', 'supplier', 'items', 'timelines'])),
                 'Return saved as draft successfully'
             );
         } catch (\Exception $e) {
@@ -290,6 +313,12 @@ class ReturnManagementController extends BaseController
             
             if (!$return) {
                 return $this->notFoundResponse('Return order not found');
+            }
+            
+            // Security: Verify user has access to this return's branch
+            $userBranchId = auth()->user()->branch_id;
+            if ($return->branch_id !== $userBranchId) {
+                return $this->errorResponse('Unauthorized access to this return order', 403);
             }
             
             return $this->successResponse(

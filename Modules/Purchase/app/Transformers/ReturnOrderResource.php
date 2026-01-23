@@ -61,8 +61,32 @@ class ReturnOrderResource extends JsonResource
             'is_completed' => $this->is_completed,
             
             // Relations
-            'purchase_order' => $this->whenLoaded('purchaseOrder', fn() => new PurchaseOrderResource($this->purchaseOrder)),
-            'supplier' => $this->whenLoaded('supplier', fn() => new SupplierResource($this->supplier)),
+            'purchase_order' => $this->whenLoaded('purchaseOrder', function () {
+                if (!$this->purchaseOrder) {
+                    return null;
+                }
+                return [
+                    'id' => $this->purchaseOrder->id,
+                    'order_number' => $this->purchaseOrder->order_number,
+                    'status' => $this->purchaseOrder->status?->value,
+                    'status_label' => $this->purchaseOrder->status?->label(),
+                ];
+            }),
+            'supplier' => $this->whenLoaded('supplier', function () {
+                if (!$this->supplier) {
+                    return null;
+                }
+                return [
+                    'id' => $this->supplier->id,
+                    'name' => $this->supplier->name,
+                    'image' => $this->supplier->image_url ?? null,
+                    'status' => $this->supplier->status ?? 'offline',
+                    'status_label' => $this->supplier->status_label ?? 'Offline',
+                    'contact_methods' => $this->supplier->contact_methods ?? [],
+                    'average_response_time_hours' => $this->supplier->average_response_time_hours ? (float) $this->supplier->average_response_time_hours : null,
+                    'response_rate_percentage' => $this->supplier->response_rate_percentage ? (float) $this->supplier->response_rate_percentage : null,
+                ];
+            }),
             'items' => ReturnOrderItemResource::collection($this->whenLoaded('items')),
             'timelines' => TimelineResource::collection($this->whenLoaded('timelines')),
         ];

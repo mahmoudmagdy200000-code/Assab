@@ -26,7 +26,12 @@ class ReturnOrderItemResource extends JsonResource
             'return_amount' => (float) $this->return_amount,
             
             // Files
-            'files' => $this->files,
+            'files' => $this->files ? array_map(function ($file) {
+                return str_starts_with($file, 'http') 
+                    ? $file 
+                    : asset('storage/' . $file);
+            }, $this->files) : [],
+            'file_count' => count($this->files ?? []),
             'notes' => $this->notes,
         ];
     }

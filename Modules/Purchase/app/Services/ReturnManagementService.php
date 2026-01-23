@@ -57,9 +57,9 @@ class ReturnManagementService
     /**
      * Create return order
      */
-    public function createReturn(PurchaseOrder $order, array $data): ReturnOrder
+    public function createReturn(PurchaseOrder $order, array $data, $request = null): ReturnOrder
     {
-        return DB::transaction(function () use ($order, $data) {
+        return DB::transaction(function () use ($order, $data, $request) {
             $returnOrder = ReturnOrder::create([
                 'purchase_order_id' => $order->id,
                 'supplier_id' => $order->supplier_id,
@@ -71,9 +71,9 @@ class ReturnManagementService
                 'additional_notes' => $data['additional_notes'] ?? null,
             ]);
 
-            // Add return items
-            foreach ($data['items'] as $itemData) {
-                $this->addReturnItem($returnOrder, $itemData);
+            // Add return items with file uploads
+            foreach ($data['items'] as $index => $itemData) {
+                $this->addReturnItem($returnOrder, $itemData, $request, $index);
             }
 
             $returnOrder->calculateTotalReturnAmount();
@@ -87,31 +87,69 @@ class ReturnManagementService
     /**
      * Add item to return order
      */
-    public function addReturnItem(ReturnOrder $returnOrder, array $data): ReturnOrderItem
+    public function addReturnItem(ReturnOrder $returnOrder, array $data, $request = null, int $itemIndex = 0): ReturnOrderItem
     {
-        $returnAmount = ($data['return_quantity'] ?? 0) * ($data['unit_price'] ?? 0);
+        // Get purchase order item details
+        $purchaseOrderItem = \Modules\Purchase\Models\PurchaseOrderItem::find($data['purchase_order_item_id']);
+        
+        if (!$purchaseOrderItem) {
+            throw new \InvalidArgumentException("Purchase order item not found: {$data['purchase_order_item_id']}");
+        }
+        
+        // Verify the item belongs to the same purchase order
+        if ($purchaseOrderItem->purchase_order_id !== $returnOrder->purchase_order_id) {
+            throw new \InvalidArgumentException("Purchase order item does not belong to the specified purchase order");
+        }
+        
+        // Calculate return amount using unit price from purchase order item
+        $returnAmount = ($data['return_quantity'] ?? 0) * ($purchaseOrderItem->unit_price ?? 0);
+        
+        // Handle file uploads if request is provided
+        $uploadedFiles = [];
+        if ($request && $request->hasFile("items.{$itemIndex}.files")) {
+            $files = $request->file("items.{$itemIndex}.files");
+            if (is_array($files)) {
+                foreach ($files as $file) {
+                    $document = OrderDocument::upload(
+                        $returnOrder,
+                        $file,
+                        DocumentType::PHOTO,
+                        "Return evidence for {$purchaseOrderItem->item_name}"
+                    );
+                    $uploadedFiles[] = $document->file_path;
+                }
+            } elseif ($files) {
+                $document = OrderDocument::upload(
+                    $returnOrder,
+                    $files,
+                    DocumentType::PHOTO,
+                    "Return evidence for {$purchaseOrderItem->item_name}"
+                );
+                $uploadedFiles[] = $document->file_path;
+            }
+        }
         
         return ReturnOrderItem::create([
             'return_order_id' => $returnOrder->id,
-            'purchase_order_item_id' => $data['purchase_order_item_id'] ?? null,
-            'item_name' => $data['item_name'],
-            'item_logo' => $data['item_logo'] ?? null,
+            'purchase_order_item_id' => $purchaseOrderItem->id,
+            'item_name' => $purchaseOrderItem->item_name,
+            'item_logo' => $purchaseOrderItem->item_logo,
             'return_quantity' => $data['return_quantity'],
-            'unit_of_measurement' => $data['unit'] ?? 'kg',
+            'unit_of_measurement' => $purchaseOrderItem->unit_of_measurement ?? 'kg',
             'quality_reason' => $data['quality_reason'],
-            'unit_price' => $data['unit_price'] ?? 0,
+            'unit_price' => $purchaseOrderItem->unit_price ?? 0,
             'return_amount' => $returnAmount,
-            'files' => $data['files'] ?? null,
-            'notes' => $data['notes'] ?? null,
+            'files' => !empty($uploadedFiles) ? $uploadedFiles : null,
+            'notes' => null,
         ]);
     }
 
     /**
      * Update return order
      */
-    public function updateReturn(ReturnOrder $returnOrder, array $data): ReturnOrder
+    public function updateReturn(ReturnOrder $returnOrder, array $data, $request = null): ReturnOrder
     {
-        return DB::transaction(function () use ($returnOrder, $data) {
+        return DB::transaction(function () use ($returnOrder, $data, $request) {
             $returnOrder->update([
                 'required_action' => $data['required_action'] ?? $returnOrder->required_action,
                 'additional_notes' => $data['additional_notes'] ?? $returnOrder->additional_notes,
@@ -119,25 +157,62 @@ class ReturnManagementService
 
             // Update items if provided
             if (!empty($data['items'])) {
-                foreach ($data['items'] as $itemData) {
+                foreach ($data['items'] as $index => $itemData) {
                     if (!empty($itemData['id'])) {
                         $item = ReturnOrderItem::find($itemData['id']);
-                        if ($item) {
+                        if ($item && $item->return_order_id === $returnOrder->id) {
+                            // Handle file uploads
+                            $uploadedFiles = [];
+                            if ($request && $request->hasFile("items.{$index}.files")) {
+                                $files = $request->file("items.{$index}.files");
+                                if (is_array($files)) {
+                                    foreach ($files as $file) {
+                                        $document = OrderDocument::upload(
+                                            $returnOrder,
+                                            $file,
+                                            DocumentType::PHOTO,
+                                            "Return evidence for {$item->item_name}"
+                                        );
+                                        $uploadedFiles[] = $document->file_path;
+                                    }
+                                } elseif ($files) {
+                                    $document = OrderDocument::upload(
+                                        $returnOrder,
+                                        $files,
+                                        DocumentType::PHOTO,
+                                        "Return evidence for {$item->item_name}"
+                                    );
+                                    $uploadedFiles[] = $document->file_path;
+                                }
+                            }
+                            
+                            // Merge files
+                            $existingFiles = $item->files ?? [];
+                            $newFiles = $itemData['files'] ?? [];
+                            $allFiles = array_unique(array_merge($existingFiles, $newFiles, $uploadedFiles));
+                            
+                            // Handle file deletions if specified
+                            if (isset($itemData['deleted_files']) && is_array($itemData['deleted_files'])) {
+                                $allFiles = array_diff($allFiles, $itemData['deleted_files']);
+                            }
+                            
                             $item->update([
                                 'return_quantity' => $itemData['return_quantity'] ?? $item->return_quantity,
                                 'quality_reason' => $itemData['quality_reason'] ?? $item->quality_reason,
-                                'files' => $itemData['files'] ?? $item->files,
-                                'notes' => $itemData['notes'] ?? $item->notes,
+                                'files' => !empty($allFiles) ? array_values($allFiles) : null,
                             ]);
                             $item->calculateReturnAmount();
                         }
+                    } else {
+                        // New item - add it
+                        $this->addReturnItem($returnOrder, $itemData, $request, $index);
                     }
                 }
             }
 
             $returnOrder->calculateTotalReturnAmount();
 
-            return $returnOrder->fresh(['items']);
+            return $returnOrder->fresh(['items', 'purchaseOrder', 'supplier']);
         });
     }
 
@@ -232,10 +307,10 @@ class ReturnManagementService
     /**
      * Save return as draft
      */
-    public function saveDraft(PurchaseOrder $order, array $data): ReturnOrder
+    public function saveDraft(PurchaseOrder $order, array $data, $request = null): ReturnOrder
     {
         $data['status'] = ReturnStatus::DRAFT;
-        return $this->createReturn($order, $data);
+        return $this->createReturn($order, $data, $request);
     }
 
     /**
