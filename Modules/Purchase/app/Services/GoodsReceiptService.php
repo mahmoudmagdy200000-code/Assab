@@ -272,6 +272,10 @@ class GoodsReceiptService
                 // Calculate received total
                 $receivedTotal = $quantityReceived * $orderItem->unit_price;
 
+                // Use quantity_confirmed if available (for partial confirmation), otherwise use quantity_ordered
+                $expectedQuantity = $orderItem->quantity_confirmed ?? $orderItem->quantity_ordered;
+                $expectedTotal = $expectedQuantity * $orderItem->unit_price;
+
                 $receiptItem = GoodsReceiptItem::create([
                     'goods_receipt_id' => $receipt->id,
                     'purchase_order_item_id' => $orderItem->id,
@@ -279,7 +283,7 @@ class GoodsReceiptService
                     'item_name' => $orderItem->item_name,
                     'item_logo' => $orderItem->item_logo,
                     'unit_of_measurement' => $orderItem->unit_of_measurement,
-                    'quantity_ordered' => $orderItem->quantity_ordered,
+                    'quantity_ordered' => $expectedQuantity, // Use confirmed quantity if available
                     'quantity_received' => $quantityReceived,
                     'quality_ordered' => $orderItem->quality_ordered,
                     'quality_received' => $qualityReceived,
@@ -288,7 +292,7 @@ class GoodsReceiptService
                     'photo' => $photo,
                     'notes' => $notes,
                     'unit_price' => $orderItem->unit_price,
-                    'expected_total' => $orderItem->total_price,
+                    'expected_total' => $expectedTotal, // Calculate based on confirmed quantity
                     'received_total' => $receivedTotal,
                 ]);
 
@@ -732,11 +736,14 @@ class GoodsReceiptService
         } else {
             // Use order items as fallback (not inspected yet)
             $inspectionItems = $order->items->map(function ($orderItem) {
+                // Use quantity_confirmed if available (for partial confirmation), otherwise use quantity_ordered
+                $expectedQuantity = $orderItem->quantity_confirmed ?? $orderItem->quantity_ordered;
+                
                 return [
                     'item_id' => $orderItem->id,
                     'product_name' => $orderItem->item_name,
                     'item_logo' => $orderItem->item_logo_url ?? null,
-                    'qty_ordered' => (float) $orderItem->quantity_ordered,
+                    'qty_ordered' => (float) $expectedQuantity,
                     'qty_received' => 0.0, // Not inspected yet
                     'unit' => $orderItem->unit_of_measurement,
                     'quality' => 'normal', // Default until inspected
@@ -914,6 +921,10 @@ class GoodsReceiptService
 
             // Create receipt items from order items (internal transfer has different structure)
             foreach ($order->items as $orderItem) {
+                // Use quantity_confirmed if available (for partial confirmation), otherwise use quantity_ordered
+                $expectedQuantity = $orderItem->quantity_confirmed ?? $orderItem->quantity_ordered;
+                $expectedTotal = $expectedQuantity * $orderItem->unit_price;
+                
                 GoodsReceiptItem::create([
                     'goods_receipt_id' => $receipt->id,
                     'purchase_order_item_id' => $orderItem->id,
@@ -921,12 +932,12 @@ class GoodsReceiptService
                     'item_name' => $orderItem->item_name,
                     'item_logo' => $orderItem->item_logo,
                     'unit_of_measurement' => $orderItem->unit_of_measurement,
-                    'quantity_ordered' => $orderItem->quantity_ordered, // Original Quantity
-                    'quantity_received' => $orderItem->quantity_confirmed ?? $orderItem->quantity_ordered, // New Quantity
+                    'quantity_ordered' => $expectedQuantity, // Use confirmed quantity if available
+                    'quantity_received' => $expectedQuantity, // For internal transfer, received equals expected
                     'quality_ordered' => $orderItem->quality_ordered,
                     'unit_price' => $orderItem->unit_price,
-                    'expected_total' => $orderItem->total_price,
-                    'received_total' => ($orderItem->quantity_confirmed ?? $orderItem->quantity_ordered) * $orderItem->unit_price,
+                    'expected_total' => $expectedTotal, // Calculate based on confirmed quantity
+                    'received_total' => $expectedTotal,
                 ]);
             }
 
