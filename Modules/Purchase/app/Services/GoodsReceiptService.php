@@ -801,7 +801,9 @@ class GoodsReceiptService
         }
 
         return [
-            'item_id' => $item->id,
+            // Use purchase_order_item_id (order line id) for start endpoint
+            // Note: null for unlisted items (gifts) - these cannot be used in start endpoint
+            'item_id' => $item->purchase_order_item_id,
             'product_name' => $item->item_name,
             'item_logo' => $item->item_logo_url,
             'qty_ordered' => (float) $item->quantity_ordered,
