@@ -63,10 +63,10 @@ class StartReceivingRequest extends FormRequest
             'variance.items' => ['required_if:variance.action,compensatory_order', 'array', 'min:1'],
             'variance.items.*.item_id' => ['required', 'uuid', $orderLineExists],
 
-            // Deduct from invoice data (required if action is deduct_from_invoice)
-            'variance.deduct_data' => ['required_if:variance.action,deduct_from_invoice', 'array'],
-            'variance.deduct_data.amount' => ['required_with:variance.deduct_data', 'numeric', 'min:0.01'],
-            'variance.deduct_data.reason' => ['required_with:variance.deduct_data', 'string', 'in:short_quantity,damaged_quality'],
+            // Deduct from invoice data (optional)
+            'variance.deduct_data' => ['nullable', 'array'],
+            'variance.deduct_data.amount' => ['nullable', 'numeric', 'min:0.01'],
+            'variance.deduct_data.reason' => ['nullable', 'string', 'in:short_quantity,damaged_quality'],
             'variance.deduct_data.notes' => ['nullable', 'string', 'max:1000'],
         ];
     }
@@ -127,9 +127,8 @@ class StartReceivingRequest extends FormRequest
             'variance.items.*.item_id.exists' => 'The selected item does not exist in the order. Use the order line "id" from order details, not "item_id".',
 
             // Deduct from invoice
-            'variance.deduct_data.required_if' => 'Deduct data is required when action is deduct_from_invoice.',
-            'variance.deduct_data.amount.required_with' => 'Deduction amount is required.',
-            'variance.deduct_data.reason.required_with' => 'Reason for deduction is required.',
+            'variance.deduct_data.amount.numeric' => 'Deduction amount must be a number.',
+            'variance.deduct_data.amount.min' => 'Deduction amount must be at least 0.01.',
             'variance.deduct_data.reason.in' => 'Reason must be short_quantity or damaged_quality.',
         ];
     }
