@@ -41,6 +41,7 @@ enum OrderItemStatus: string
         // Execution Phase Statuses
     case RECEIVED = 'received';
     case VARIANCE = 'variance';
+    case CLOSED = 'closed';
 
     public function label(): string
     {
@@ -69,6 +70,7 @@ enum OrderItemStatus: string
             self::CANCELLED_DELAYED => 'Cancelled (Delayed)',
             self::RECEIVED => 'Received',
             self::VARIANCE => 'Variance',
+            self::CLOSED => 'Closed',
         };
     }
 
@@ -99,6 +101,7 @@ enum OrderItemStatus: string
             self::CANCELLED_DELAYED => '#EF4444',
             self::RECEIVED => '#22C55E',
             self::VARIANCE => '#F97316',
+            self::CLOSED => '#6B7280',
         };
     }
 
