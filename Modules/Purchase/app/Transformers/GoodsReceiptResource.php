@@ -37,12 +37,23 @@ class GoodsReceiptResource extends JsonResource
                 'has_variances' => $this->has_variances,
             ],
             
-            // Financial
-            'financial_summary' => [
-                'expected_amount' => (float) $this->expected_amount,
-                'received_amount' => (float) $this->received_amount,
-                'variance_amount' => (float) $this->variance_amount,
-            ],
+            // Financial summary (basic amounts from receipt)
+            'financial_summary' => array_merge(
+                [
+                    'expected_amount' => (float) $this->expected_amount,
+                    'received_amount' => (float) $this->received_amount,
+                    'variance_amount' => (float) $this->variance_amount,
+                ],
+                // Add invoice financial details if document_type is invoice and invoice exists
+                $this->document_type?->requiresInvoiceDetails() && $this->invoice
+                    ? [
+                        'amount_before_tax' => (float) $this->invoice->amount_before_tax,
+                        'vat_rate' => (float) $this->invoice->tax_rate,
+                        'vat_amount' => (float) $this->invoice->tax_amount,
+                        'total_amount' => (float) $this->invoice->total_amount,
+                    ]
+                    : []
+            ),
             
             // Timestamps
             'inspection_started_at' => $this->inspection_started_at?->format('Y-m-d H:i:s'),
@@ -61,12 +72,15 @@ class GoodsReceiptResource extends JsonResource
             // Document summary
             'document_summary' => [
                 'document_type' => $this->document_type?->value,
-                'invoice_details' => $this->when($this->invoice, [
-                    'invoice_number' => $this->invoice->invoice_number,
-                    'invoice_date' => $this->invoice->invoice_date?->format('Y-m-d'),
-                    'supplier_name' => $this->purchaseOrder->supplier?->name,
-                    'attachment' => $this->invoice->file_url,
-                ]),
+                'invoice_details' => $this->when(
+                    $this->document_type?->requiresInvoiceDetails() && $this->invoice,
+                    fn() => [
+                        'invoice_number' => $this->invoice->invoice_number,
+                        'invoice_date' => $this->invoice->invoice_date?->format('Y-m-d'),
+                        'supplier_name' => $this->purchaseOrder->supplier?->name,
+                        'attachment' => $this->invoice->file_url,
+                    ]
+                ),
             ],
             
             // Variance summary with actions
@@ -83,14 +97,6 @@ class GoodsReceiptResource extends JsonResource
                     ];
                 });
             }),
-            
-            // Financial summary with VAT
-            'financial_summary' => $this->when($this->invoice, [
-                'amount_before_tax' => (float) $this->invoice->amount_before_tax,
-                'vat_rate' => (float) $this->invoice->tax_rate,
-                'vat_amount' => (float) $this->invoice->tax_amount,
-                'total_amount' => (float) $this->invoice->total_amount,
-            ]),
         ];
     }
 }
