@@ -55,23 +55,23 @@ class ReturnManagementService
     }
 
     /**
-     * Create return order
-     *
-     * @param  bool  $asInProgress  When true, creates as PENDING (In Progress) immediately; otherwise DRAFT.
+     * Create return order. Always creates as PENDING (In Progress) so it appears in In Progress list.
      */
-    public function createReturn(PurchaseOrder $order, array $data, $request = null, bool $asInProgress = false): ReturnOrder
+    public function createReturn(PurchaseOrder $order, array $data, $request = null): ReturnOrder
     {
-        return DB::transaction(function () use ($order, $data, $request, $asInProgress) {
+        return DB::transaction(function () use ($order, $data, $request) {
+            $isDraft = isset($data['status']) && $data['status'] === ReturnStatus::DRAFT;
+
             $returnOrder = ReturnOrder::create([
                 'purchase_order_id' => $order->id,
                 'supplier_id' => $order->supplier_id,
                 'branch_id' => $order->branch_id,
                 'created_by' => $data['created_by'],
                 'return_date' => $data['return_date'] ?? now(),
-                'status' => $asInProgress ? ReturnStatus::PENDING : ReturnStatus::DRAFT,
+                'status' => $isDraft ? ReturnStatus::DRAFT : ReturnStatus::PENDING,
                 'required_action' => $data['required_action'],
                 'additional_notes' => $data['additional_notes'] ?? null,
-                'submitted_at' => $asInProgress ? now() : null,
+                'submitted_at' => $isDraft ? null : now(),
             ]);
 
             foreach ($data['items'] as $index => $itemData) {
@@ -81,7 +81,7 @@ class ReturnManagementService
             $returnOrder->calculateTotalReturnAmount();
 
             $this->timelineService->logReturnCreated($returnOrder);
-            if ($asInProgress) {
+            if (!$isDraft) {
                 $this->timelineService->logReturnSubmitted($returnOrder);
             }
 
