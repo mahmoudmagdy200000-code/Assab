@@ -183,6 +183,8 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     return $itemData;
                 });
             }) ?? [],
+            'supplier' => $this->supplierFragment(),
+            'timelines' => $this->whenLoaded('timelines', fn () => TimelineResource::collection($this->timelines)),
         ];
     }
 
@@ -230,6 +232,8 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     ];
                 });
             }) ?? [],
+            'supplier' => null,
+            'timelines' => $this->whenLoaded('timelines', fn () => TimelineResource::collection($this->timelines)),
         ];
     }
 
@@ -329,6 +333,32 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     ];
                 });
             }) ?? [],
+            'supplier' => null,
+            'timelines' => $this->whenLoaded('timelines', fn () => TimelineResource::collection($this->timelines)),
+        ];
+    }
+
+    /**
+     * Supplier fragment (same shape as Return details). Null when no supplier.
+     */
+    private function supplierFragment(): ?array
+    {
+        if (!$this->relationLoaded('supplier') || !$this->supplier) {
+            return null;
+        }
+        return [
+            'id' => $this->supplier->id,
+            'name' => $this->supplier->name,
+            'image' => $this->supplier->image_url ?? null,
+            'status' => $this->supplier->status ?? 'offline',
+            'status_label' => $this->supplier->status_label ?? 'Offline',
+            'contact_methods' => $this->supplier->contact_methods ?? [],
+            'average_response_time_hours' => $this->supplier->average_response_time_hours !== null
+                ? (float) $this->supplier->average_response_time_hours
+                : null,
+            'response_rate_percentage' => $this->supplier->response_rate_percentage !== null
+                ? (float) $this->supplier->response_rate_percentage
+                : null,
         ];
     }
 

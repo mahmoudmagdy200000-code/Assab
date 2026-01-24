@@ -42,17 +42,29 @@ class DirectSupplierOrderResource extends JsonResource
             'status_label' => $this->status_label,
             'status_color' => $this->status_color,
 
-            // Supplier Information
+            // Supplier Information (same shape as Return details)
             'supplier' => $this->whenLoaded('supplier', function () {
+                if (!$this->supplier) {
+                    return null;
+                }
                 return [
                     'id' => $this->supplier->id,
                     'name' => $this->supplier->name,
-                    'image' => $this->supplier->image_url,
-                    'email' => $this->supplier->email,
-                    'phone' => $this->supplier->phone,
-                    'address' => $this->supplier->address,
+                    'image' => $this->supplier->image_url ?? null,
+                    'status' => $this->supplier->status ?? 'offline',
+                    'status_label' => $this->supplier->status_label ?? 'Offline',
+                    'contact_methods' => $this->supplier->contact_methods ?? [],
+                    'average_response_time_hours' => $this->supplier->average_response_time_hours !== null
+                        ? (float) $this->supplier->average_response_time_hours
+                        : null,
+                    'response_rate_percentage' => $this->supplier->response_rate_percentage !== null
+                        ? (float) $this->supplier->response_rate_percentage
+                        : null,
                 ];
             }),
+
+            // Timelines
+            'timelines' => $this->whenLoaded('timelines', fn () => TimelineResource::collection($this->timelines)),
 
             // Status-specific details
             'status_details' => $this->getStatusDetails(),
@@ -88,7 +100,7 @@ class DirectSupplierOrderResource extends JsonResource
     }
 
     /**
-     * Get status-specific details based on order status
+     * Get status-specific details based on order status (Direct Supplier)
      */
     private function getStatusDetails(): array
     {

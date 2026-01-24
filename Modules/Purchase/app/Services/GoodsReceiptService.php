@@ -964,6 +964,7 @@ class GoodsReceiptService
             'invoice',
             'variances',
             'documents',
+            'timelines',
         ])->draft()->find($receiptId);
     }
 

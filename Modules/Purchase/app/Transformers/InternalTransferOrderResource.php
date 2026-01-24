@@ -73,6 +73,9 @@ class InternalTransferOrderResource extends JsonResource
             'updated_at' => $this->updated_at?->format('Y-m-d H:i:s'),
         ];
 
+        $data['supplier'] = null;
+        $data['timelines'] = $this->whenLoaded('timelines', fn () => TimelineResource::collection($this->timelines));
+
         return $data;
     }
 

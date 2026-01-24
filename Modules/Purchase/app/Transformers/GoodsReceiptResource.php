@@ -97,6 +97,32 @@ class GoodsReceiptResource extends JsonResource
                     ];
                 });
             }),
+
+            // Supplier (from order, same shape as Return details)
+            'supplier' => $this->whenLoaded('purchaseOrder', function () {
+                $order = $this->purchaseOrder;
+                if (!$order?->relationLoaded('supplier') || !$order->supplier) {
+                    return null;
+                }
+                $s = $order->supplier;
+                return [
+                    'id' => $s->id,
+                    'name' => $s->name,
+                    'image' => $s->image_url ?? null,
+                    'status' => $s->status ?? 'offline',
+                    'status_label' => $s->status_label ?? 'Offline',
+                    'contact_methods' => $s->contact_methods ?? [],
+                    'average_response_time_hours' => $s->average_response_time_hours !== null
+                        ? (float) $s->average_response_time_hours
+                        : null,
+                    'response_rate_percentage' => $s->response_rate_percentage !== null
+                        ? (float) $s->response_rate_percentage
+                        : null,
+                ];
+            }),
+
+            // Timelines
+            'timelines' => $this->whenLoaded('timelines', fn () => TimelineResource::collection($this->timelines)),
         ];
     }
 }
