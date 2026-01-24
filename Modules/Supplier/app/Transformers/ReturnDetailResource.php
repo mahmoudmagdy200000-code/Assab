@@ -3,6 +3,7 @@
 namespace Modules\Supplier\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\Purchase\Support\PurchaseFileHelper;
 use Modules\Purchase\Transformers\ReturnOrderItemResource;
 use Modules\Purchase\Transformers\TimelineResource;
 
@@ -13,6 +14,11 @@ class ReturnDetailResource extends JsonResource
 {
     public function toArray($request): array
     {
+        $responseFiles = $this->response_files ?? [];
+        $responseFilesList = is_array($responseFiles)
+            ? array_map(fn ($f) => PurchaseFileHelper::toApiShape($f), $responseFiles)
+            : [];
+
         return [
             'id' => $this->id,
             'return_number' => $this->return_number,
@@ -31,7 +37,7 @@ class ReturnDetailResource extends JsonResource
 
             'additional_notes' => $this->additional_notes,
             'response_notes' => $this->response_notes,
-            'response_files' => $this->response_files,
+            'response_files' => $responseFilesList,
             'responded_at' => $this->responded_at?->format('Y-m-d H:i:s'),
 
             'rejection_reason' => $this->rejection_reason,
