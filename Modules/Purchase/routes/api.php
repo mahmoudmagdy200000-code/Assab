@@ -7,6 +7,7 @@ use Modules\Purchase\Http\Controllers\PendingOrderController;
 use Modules\Purchase\Http\Controllers\PurchaseHistoryController;
 use Modules\Purchase\Http\Controllers\ReturnManagementController;
 use Modules\Purchase\Http\Controllers\SupplierController;
+use Modules\Purchase\Http\Controllers\SupplierInfoController;
 
 /*
 |--------------------------------------------------------------------------
@@ -64,6 +65,7 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
 
         // Order actions
         Route::get('/{id}/summary', [NewOrderController::class, 'getSummary'])->name('purchase.orders.summary');
+        Route::get('/{id}/supplier-info', [SupplierInfoController::class, 'byOrder'])->name('purchase.orders.supplier-info');
         Route::put('/{id}/items', [NewOrderController::class, 'updateItems'])->name('purchase.orders.update-items');
         Route::post('/{id}/submit', [NewOrderController::class, 'submit'])->name('purchase.orders.submit');
     });
@@ -213,6 +215,7 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         // CRUD
         Route::post('/', [ReturnManagementController::class, 'store'])->name('purchase.returns.store');
         Route::get('/{id}', [ReturnManagementController::class, 'show'])->name('purchase.returns.show');
+        Route::get('/{id}/supplier-info', [SupplierInfoController::class, 'byReturn'])->name('purchase.returns.supplier-info');
         Route::put('/{id}', [ReturnManagementController::class, 'update'])->name('purchase.returns.update');
         Route::get('/{id}/timeline', [ReturnManagementController::class, 'timeline'])->name('purchase.returns.timeline');
 
