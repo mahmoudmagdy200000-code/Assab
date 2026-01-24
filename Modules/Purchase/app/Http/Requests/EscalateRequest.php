@@ -15,6 +15,7 @@ class EscalateRequest extends FormRequest
     {
         return [
             'reason' => ['required', 'string', 'max:2000'],
+            'escalated_to' => ['nullable', 'string', 'uuid'],
         ];
     }
 
@@ -22,6 +23,7 @@ class EscalateRequest extends FormRequest
     {
         return [
             'reason.required' => 'Please provide a reason for escalation.',
+            'escalated_to.uuid' => 'The escalated_to must be a valid UUID.',
         ];
     }
 }

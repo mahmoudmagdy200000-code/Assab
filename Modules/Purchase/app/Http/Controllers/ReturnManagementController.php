@@ -223,8 +223,21 @@ class ReturnManagementController extends BaseController
                 return $this->notFoundResponse('Return order not found');
             }
 
-            // Get brand owner ID (would come from config or relationship)
-            $escalatedTo = config('purchase.brand_owner_id', 'brand-owner-uuid');
+            // Get brand owner ID from request, config, or use default
+            // Priority: request > config > default
+            $escalatedTo = $request->input('escalated_to');
+            
+            if (empty($escalatedTo)) {
+                $escalatedTo = config('purchase.brand_owner_id') ?? 'brand-owner-uuid';
+            }
+
+            // Validate that we have a valid non-empty string
+            if (empty($escalatedTo) || !is_string($escalatedTo)) {
+                return $this->errorResponse(
+                    'Brand owner ID is required for escalation. Please configure BRAND_OWNER_ID in your .env file or provide escalated_to in the request.',
+                    400
+                );
+            }
 
             $this->returnService->escalateReturn($return, $request->reason, $escalatedTo);
 
