@@ -43,6 +43,7 @@ class ReturnManagementService
             'purchaseOrder',
             'branch',
             'items',
+            'timelines',
         ])
             ->where('id', $returnId)
             ->where('supplier_id', $supplier->id)

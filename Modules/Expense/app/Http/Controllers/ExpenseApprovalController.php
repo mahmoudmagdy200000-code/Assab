@@ -65,7 +65,8 @@ class ExpenseApprovalController extends BaseController
             'expenseLines.category',
             'attachments',
             'supplier',
-            'branchManager'
+            'branchManager',
+            'timelines' => fn ($q) => $q->orderBy('created_at', 'desc'),
         ])->findOrFail($expense);
 
         return $this->successResponse(

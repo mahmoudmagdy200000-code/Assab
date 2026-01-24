@@ -4,6 +4,7 @@ namespace Modules\Supplier\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Purchase\Enums\OrderStatus;
+use Modules\Purchase\Transformers\TimelineResource;
 
 class OrderResource extends JsonResource
 {
@@ -175,6 +176,9 @@ class OrderResource extends JsonResource
             'preparation_started_at' => $this->preparation_started_at?->toDateTimeString(),
             'dispatched_at' => $this->dispatched_at?->toDateTimeString(),
             'rejected_at' => $this->rejected_at?->toDateTimeString(),
+
+            // Timelines
+            'timelines' => $this->whenLoaded('timelines', fn () => TimelineResource::collection($this->timelines)),
         ];
     }
 

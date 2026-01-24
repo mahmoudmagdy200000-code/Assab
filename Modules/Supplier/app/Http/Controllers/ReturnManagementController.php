@@ -10,6 +10,7 @@ use Modules\Supplier\Http\Requests\Returns\RejectReturnRequest;
 use Modules\Supplier\Http\Requests\Returns\ProcessReturnRequest;
 use Modules\Supplier\Services\ReturnManagementService;
 use Modules\Purchase\Transformers\ReturnOrderResource;
+use Modules\Supplier\Transformers\ReturnDetailResource;
 
 class ReturnManagementController extends BaseController
 {
@@ -52,7 +53,7 @@ class ReturnManagementController extends BaseController
             }
 
             return $this->successResponse(
-                new ReturnOrderResource($return),
+                new ReturnDetailResource($return),
                 'Return details retrieved successfully'
             );
         } catch (\Exception $e) {

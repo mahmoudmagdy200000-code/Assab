@@ -123,7 +123,8 @@ class ExpenseController extends BaseController
             'items.category',
             'expenseLines.category',
             'attachments',
-            'supplier'
+            'supplier',
+            'timelines' => fn ($q) => $q->orderBy('created_at', 'desc'),
         ])->findOrFail($expense);
 
         // Check authorization

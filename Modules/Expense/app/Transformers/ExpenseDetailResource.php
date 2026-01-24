@@ -35,6 +35,8 @@ class ExpenseDetailResource extends JsonResource
             'payment_supplier' => $this->getPaymentSupplier(),
             'created_at' => $this->created_at->format('Y-m-d H:i:s'),
             'submitted_at' => $this->submitted_at?->format('Y-m-d H:i:s'),
+            'approval' => $this->getApprovalFragment(),
+            'timelines' => $this->whenLoaded('timelines', fn () => ExpenseTimelineResource::collection($this->timelines)),
         ];
 
         // Add type-specific details
@@ -269,6 +271,17 @@ class ExpenseDetailResource extends JsonResource
                 'uploaded_at' => $attachment->created_at->format('Y-m-d H:i:s'),
             ];
         })->values()->toArray();
+    }
+
+    private function getApprovalFragment(): array
+    {
+        return [
+            'approved_by' => $this->approved_by,
+            'approved_at' => $this->approved_at?->format('Y-m-d H:i:s'),
+            'rejected_by' => $this->rejected_by,
+            'rejected_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
+            'rejection_reason' => $this->rejection_reason,
+        ];
     }
 
     private function getExpenseTypeLabel(): string
