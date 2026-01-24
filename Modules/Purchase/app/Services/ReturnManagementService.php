@@ -11,6 +11,7 @@ use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\ReturnOrder;
 use Modules\Purchase\Models\ReturnOrderItem;
 use Modules\Purchase\Enums\DocumentType;
+use Modules\Purchase\Support\PurchaseFileHelper;
 
 class ReturnManagementService
 {
@@ -106,7 +107,6 @@ class ReturnManagementService
         // Calculate return amount using unit price from purchase order item
         $returnAmount = ($data['return_quantity'] ?? 0) * ($purchaseOrderItem->unit_price ?? 0);
         
-        // Handle file uploads if request is provided
         $uploadedFiles = [];
         if ($request && $request->hasFile("items.{$itemIndex}.files")) {
             $files = $request->file("items.{$itemIndex}.files");
@@ -118,7 +118,7 @@ class ReturnManagementService
                         DocumentType::PHOTO,
                         "Return evidence for {$purchaseOrderItem->item_name}"
                     );
-                    $uploadedFiles[] = $document->file_path;
+                    $uploadedFiles[] = PurchaseFileHelper::toStorable($document);
                 }
             } elseif ($files) {
                 $document = OrderDocument::upload(
@@ -127,10 +127,10 @@ class ReturnManagementService
                     DocumentType::PHOTO,
                     "Return evidence for {$purchaseOrderItem->item_name}"
                 );
-                $uploadedFiles[] = $document->file_path;
+                $uploadedFiles[] = PurchaseFileHelper::toStorable($document);
             }
         }
-        
+
         return ReturnOrderItem::create([
             'return_order_id' => $returnOrder->id,
             'purchase_order_item_id' => $purchaseOrderItem->id,
@@ -141,7 +141,7 @@ class ReturnManagementService
             'quality_reason' => $data['quality_reason'],
             'unit_price' => $purchaseOrderItem->unit_price ?? 0,
             'return_amount' => $returnAmount,
-            'files' => !empty($uploadedFiles) ? $uploadedFiles : null,
+            'files' => $uploadedFiles ?: null,
             'notes' => null,
         ]);
     }
@@ -163,7 +163,6 @@ class ReturnManagementService
                     if (!empty($itemData['id'])) {
                         $item = ReturnOrderItem::find($itemData['id']);
                         if ($item && $item->return_order_id === $returnOrder->id) {
-                            // Handle file uploads
                             $uploadedFiles = [];
                             if ($request && $request->hasFile("items.{$index}.files")) {
                                 $files = $request->file("items.{$index}.files");
@@ -175,7 +174,7 @@ class ReturnManagementService
                                             DocumentType::PHOTO,
                                             "Return evidence for {$item->item_name}"
                                         );
-                                        $uploadedFiles[] = $document->file_path;
+                                        $uploadedFiles[] = PurchaseFileHelper::toStorable($document);
                                     }
                                 } elseif ($files) {
                                     $document = OrderDocument::upload(
@@ -184,24 +183,31 @@ class ReturnManagementService
                                         DocumentType::PHOTO,
                                         "Return evidence for {$item->item_name}"
                                     );
-                                    $uploadedFiles[] = $document->file_path;
+                                    $uploadedFiles[] = PurchaseFileHelper::toStorable($document);
                                 }
                             }
-                            
-                            // Merge files
+
                             $existingFiles = $item->files ?? [];
-                            $newFiles = $itemData['files'] ?? [];
-                            $allFiles = array_unique(array_merge($existingFiles, $newFiles, $uploadedFiles));
-                            
-                            // Handle file deletions if specified
-                            if (isset($itemData['deleted_files']) && is_array($itemData['deleted_files'])) {
-                                $allFiles = array_diff($allFiles, $itemData['deleted_files']);
+                            $allFiles = array_merge(
+                                is_array($existingFiles) ? $existingFiles : [],
+                                $uploadedFiles
+                            );
+
+                            $deletedIds = $itemData['deleted_files'] ?? [];
+                            if (is_array($deletedIds) && !empty($deletedIds)) {
+                                $allFiles = array_values(array_filter($allFiles, function ($f) use ($deletedIds) {
+                                    $id = is_array($f) ? ($f['id'] ?? null) : null;
+                                    return !$id || !in_array($id, $deletedIds, true);
+                                }));
+                                foreach ($deletedIds as $docId) {
+                                    OrderDocument::find($docId)?->delete();
+                                }
                             }
-                            
+
                             $item->update([
                                 'return_quantity' => $itemData['return_quantity'] ?? $item->return_quantity,
                                 'quality_reason' => $itemData['quality_reason'] ?? $item->quality_reason,
-                                'files' => !empty($allFiles) ? array_values($allFiles) : null,
+                                'files' => $allFiles ?: null,
                             ]);
                             $item->calculateReturnAmount();
                         }
@@ -289,7 +295,6 @@ class ReturnManagementService
     public function uploadFiles(ReturnOrderItem $item, array $files): void
     {
         $uploadedFiles = [];
-        
         foreach ($files as $file) {
             $document = OrderDocument::upload(
                 $item->returnOrder,
@@ -297,13 +302,11 @@ class ReturnManagementService
                 DocumentType::PHOTO,
                 "Return evidence for {$item->item_name}"
             );
-            $uploadedFiles[] = $document->file_path;
+            $uploadedFiles[] = PurchaseFileHelper::toStorable($document);
         }
-        
         $existingFiles = $item->files ?? [];
-        $item->update([
-            'files' => array_merge($existingFiles, $uploadedFiles),
-        ]);
+        $allFiles = array_merge(is_array($existingFiles) ? $existingFiles : [], $uploadedFiles);
+        $item->update(['files' => $allFiles ?: null]);
     }
 
     /**
