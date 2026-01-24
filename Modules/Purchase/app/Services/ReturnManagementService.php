@@ -56,22 +56,24 @@ class ReturnManagementService
 
     /**
      * Create return order
+     *
+     * @param  bool  $asInProgress  When true, creates as PENDING (In Progress) immediately; otherwise DRAFT.
      */
-    public function createReturn(PurchaseOrder $order, array $data, $request = null): ReturnOrder
+    public function createReturn(PurchaseOrder $order, array $data, $request = null, bool $asInProgress = false): ReturnOrder
     {
-        return DB::transaction(function () use ($order, $data, $request) {
+        return DB::transaction(function () use ($order, $data, $request, $asInProgress) {
             $returnOrder = ReturnOrder::create([
                 'purchase_order_id' => $order->id,
                 'supplier_id' => $order->supplier_id,
                 'branch_id' => $order->branch_id,
                 'created_by' => $data['created_by'],
                 'return_date' => $data['return_date'] ?? now(),
-                'status' => ReturnStatus::DRAFT,
+                'status' => $asInProgress ? ReturnStatus::PENDING : ReturnStatus::DRAFT,
                 'required_action' => $data['required_action'],
                 'additional_notes' => $data['additional_notes'] ?? null,
+                'submitted_at' => $asInProgress ? now() : null,
             ]);
 
-            // Add return items with file uploads
             foreach ($data['items'] as $index => $itemData) {
                 $this->addReturnItem($returnOrder, $itemData, $request, $index);
             }
@@ -79,6 +81,9 @@ class ReturnManagementService
             $returnOrder->calculateTotalReturnAmount();
 
             $this->timelineService->logReturnCreated($returnOrder);
+            if ($asInProgress) {
+                $this->timelineService->logReturnSubmitted($returnOrder);
+            }
 
             return $returnOrder->fresh(['items', 'purchaseOrder', 'supplier']);
         });

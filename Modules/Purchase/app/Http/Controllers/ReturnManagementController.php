@@ -107,7 +107,7 @@ class ReturnManagementController extends BaseController
             $data = $request->validated();
             $data['created_by'] = auth()->id();
             
-            $return = $this->returnService->createReturn($order, $data, $request);
+            $return = $this->returnService->createReturn($order, $data, $request, asInProgress: true);
             
             return $this->createdResponse(
                 new ReturnOrderResource($return->load(['purchaseOrder', 'supplier', 'items', 'timelines'])),
