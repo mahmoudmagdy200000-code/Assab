@@ -74,12 +74,26 @@ class GoodsReceiptResource extends JsonResource
                 'document_type' => $this->document_type?->value,
                 'invoice_details' => $this->when(
                     $this->document_type?->requiresInvoiceDetails() && $this->invoice,
-                    fn() => [
-                        'invoice_number' => $this->invoice->invoice_number,
-                        'invoice_date' => $this->invoice->invoice_date?->format('Y-m-d'),
-                        'supplier_name' => $this->purchaseOrder->supplier?->name,
-                        'attachment' => $this->invoice->file_url,
-                    ]
+                    function () {
+                        $inv = $this->invoice;
+                        $file = null;
+                        if ($inv->file_path) {
+                            $file = \Modules\Purchase\Support\PurchaseFileHelper::toApiShape([
+                                'id' => $inv->id,
+                                'file_name' => $inv->file_name,
+                                'file_type' => $inv->file_type,
+                                'file_size' => $inv->file_size,
+                                'file_path' => $inv->file_path,
+                                'uploaded_at' => $inv->created_at?->format('Y-m-d H:i:s'),
+                            ]);
+                        }
+                        return [
+                            'invoice_number' => $inv->invoice_number,
+                            'invoice_date' => $inv->invoice_date?->format('Y-m-d'),
+                            'supplier_name' => $this->purchaseOrder->supplier?->name,
+                            'file' => $file,
+                        ];
+                    }
                 ),
             ],
             
