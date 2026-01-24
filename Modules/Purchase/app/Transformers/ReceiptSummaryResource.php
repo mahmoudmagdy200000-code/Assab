@@ -3,11 +3,25 @@
 namespace Modules\Purchase\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\Purchase\Support\PurchaseFileHelper;
 
 class ReceiptSummaryResource extends JsonResource
 {
     public function toArray($request): array
     {
+        $invoiceFile = null;
+        if ($this->invoice?->file_path) {
+            $inv = $this->invoice;
+            $invoiceFile = PurchaseFileHelper::toApiShape([
+                'id' => $inv->id,
+                'file_name' => $inv->file_name,
+                'file_type' => $inv->file_type,
+                'file_size' => $inv->file_size,
+                'file_path' => $inv->file_path,
+                'uploaded_at' => $inv->created_at?->format('Y-m-d H:i:s'),
+            ]);
+        }
+
         return [
             'inspection_summary' => [
                 'number_of_items_received' => $this->total_items_received,
@@ -25,7 +39,7 @@ class ReceiptSummaryResource extends JsonResource
                     'invoice_number' => $this->invoice->invoice_number,
                     'invoice_date' => $this->invoice->invoice_date?->format('Y-m-d'),
                     'supplier_name' => $this->purchaseOrder->supplier?->name,
-                    'attachment' => $this->invoice->file_url,
+                    'file' => $invoiceFile,
                 ]),
             ],
             'variance_summary' => VarianceResource::collection($this->whenLoaded('variances')),
