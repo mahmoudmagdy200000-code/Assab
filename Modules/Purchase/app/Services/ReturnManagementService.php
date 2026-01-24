@@ -23,8 +23,7 @@ class ReturnManagementService
      */
     public function getInProgressReturns(string $branchId, int $perPage = 15): LengthAwarePaginator
     {
-        return ReturnOrder::with(['purchaseOrder', 'supplier', 'items'])
-            ->byBranch($branchId)
+        return ReturnOrder::byBranch($branchId)
             ->inProgress()
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
@@ -35,8 +34,7 @@ class ReturnManagementService
      */
     public function getDraftReturns(string $branchId, int $perPage = 15): LengthAwarePaginator
     {
-        return ReturnOrder::with(['purchaseOrder', 'supplier', 'items'])
-            ->byBranch($branchId)
+        return ReturnOrder::byBranch($branchId)
             ->draft()
             ->orderBy('updated_at', 'desc')
             ->paginate($perPage);
@@ -47,8 +45,7 @@ class ReturnManagementService
      */
     public function getCompletedReturns(string $branchId, int $perPage = 15): LengthAwarePaginator
     {
-        return ReturnOrder::with(['purchaseOrder', 'supplier', 'items'])
-            ->byBranch($branchId)
+        return ReturnOrder::byBranch($branchId)
             ->completed()
             ->orderBy('closed_at', 'desc')
             ->paginate($perPage);

@@ -10,6 +10,7 @@ use Modules\Purchase\Http\Requests\EscalateRequest;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\ReturnOrder;
 use Modules\Purchase\Services\ReturnManagementService;
+use Modules\Purchase\Transformers\ReturnOrderListResource;
 use Modules\Purchase\Transformers\ReturnOrderResource;
 use Modules\Purchase\Transformers\TimelineResource;
 
@@ -21,7 +22,7 @@ class ReturnManagementController extends BaseController
 
     /**
      * Get in-progress returns
-     * 
+     *
      * @group Return Management
      */
     public function inProgress(Request $request): JsonResponse
@@ -29,9 +30,9 @@ class ReturnManagementController extends BaseController
         try {
             $branchId = auth()->user()->branch_id;
             $returns = $this->returnService->getInProgressReturns($branchId, $request->get('per_page', 15));
-            
+
             return $this->paginatedResponse(
-                ReturnOrderResource::collection($returns->load(['purchaseOrder', 'supplier', 'items'])),
+                ReturnOrderListResource::collection($returns),
                 'In-progress returns retrieved successfully'
             );
         } catch (\Exception $e) {
@@ -41,7 +42,7 @@ class ReturnManagementController extends BaseController
 
     /**
      * Get draft returns
-     * 
+     *
      * @group Return Management
      */
     public function drafts(Request $request): JsonResponse
@@ -49,9 +50,9 @@ class ReturnManagementController extends BaseController
         try {
             $branchId = auth()->user()->branch_id;
             $returns = $this->returnService->getDraftReturns($branchId, $request->get('per_page', 15));
-            
+
             return $this->paginatedResponse(
-                ReturnOrderResource::collection($returns->load(['purchaseOrder', 'supplier', 'items'])),
+                ReturnOrderListResource::collection($returns),
                 'Draft returns retrieved successfully'
             );
         } catch (\Exception $e) {
@@ -61,7 +62,7 @@ class ReturnManagementController extends BaseController
 
     /**
      * Get completed returns
-     * 
+     *
      * @group Return Management
      */
     public function completed(Request $request): JsonResponse
@@ -69,9 +70,9 @@ class ReturnManagementController extends BaseController
         try {
             $branchId = auth()->user()->branch_id;
             $returns = $this->returnService->getCompletedReturns($branchId, $request->get('per_page', 15));
-            
+
             return $this->paginatedResponse(
-                ReturnOrderResource::collection($returns->load(['purchaseOrder', 'supplier', 'items'])),
+                ReturnOrderListResource::collection($returns),
                 'Completed returns retrieved successfully'
             );
         } catch (\Exception $e) {
@@ -81,7 +82,7 @@ class ReturnManagementController extends BaseController
 
     /**
      * Create return order
-     * 
+     *
      * @group Return Management
      */
     public function store(CreateReturnRequest $request): JsonResponse
@@ -91,11 +92,11 @@ class ReturnManagementController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = PurchaseOrder::where('branch_id', $userBranchId)
                 ->find($request->purchase_order_id);
-            
+
             if (!$order) {
                 return $this->notFoundResponse('Purchase order not found');
             }
-            
+
             // Validate that order is CLOSED (required for returns)
             if ($order->status !== \Modules\Purchase\Enums\OrderStatus::CLOSED) {
                 return $this->errorResponse(
@@ -103,12 +104,12 @@ class ReturnManagementController extends BaseController
                     400
                 );
             }
-            
+
             $data = $request->validated();
             $data['created_by'] = auth()->id();
-            
+
             $return = $this->returnService->createReturn($order, $data, $request);
-            
+
             return $this->createdResponse(
                 new ReturnOrderResource($return->load(['purchaseOrder', 'supplier', 'items', 'timelines'])),
                 'Return order created successfully'
@@ -120,31 +121,31 @@ class ReturnManagementController extends BaseController
 
     /**
      * Update return order
-     * 
+     *
      * @group Return Management
      */
     public function update(CreateReturnRequest $request, string $id): JsonResponse
     {
         try {
             $return = ReturnOrder::find($id);
-            
+
             if (!$return) {
                 return $this->notFoundResponse('Return order not found');
             }
-            
+
             if (!$return->is_draft) {
                 return $this->errorResponse('Can only update draft returns', 400);
             }
-            
+
             // Security: Verify user has access to this return's branch
             $userBranchId = auth()->user()->branch_id;
             if ($return->branch_id !== $userBranchId) {
                 return $this->errorResponse('Unauthorized access to this return order', 403);
             }
-            
+
             $data = $request->validated();
             $return = $this->returnService->updateReturn($return, $data, $request);
-            
+
             return $this->successResponse(
                 new ReturnOrderResource($return->load(['purchaseOrder', 'supplier', 'items', 'timelines'])),
                 'Return order updated successfully'
@@ -156,24 +157,24 @@ class ReturnManagementController extends BaseController
 
     /**
      * Submit return order
-     * 
+     *
      * @group Return Management
      */
     public function submit(string $id): JsonResponse
     {
         try {
             $return = ReturnOrder::find($id);
-            
+
             if (!$return) {
                 return $this->notFoundResponse('Return order not found');
             }
-            
+
             $success = $this->returnService->submitReturn($return);
-            
+
             if (!$success) {
                 return $this->errorResponse('Cannot submit return in current status', 400);
             }
-            
+
             return $this->successResponse(
                 new ReturnOrderResource($return->fresh(['items'])),
                 'Return order submitted successfully'
@@ -185,20 +186,20 @@ class ReturnManagementController extends BaseController
 
     /**
      * Accept rejection
-     * 
+     *
      * @group Return Management
      */
     public function acceptRejection(string $id): JsonResponse
     {
         try {
             $return = ReturnOrder::find($id);
-            
+
             if (!$return) {
                 return $this->notFoundResponse('Return order not found');
             }
-            
+
             $this->returnService->acceptRejection($return);
-            
+
             return $this->successResponse(
                 new ReturnOrderResource($return->fresh()),
                 'Rejection accepted successfully'
@@ -210,23 +211,23 @@ class ReturnManagementController extends BaseController
 
     /**
      * Escalate return
-     * 
+     *
      * @group Return Management
      */
     public function escalate(EscalateRequest $request, string $id): JsonResponse
     {
         try {
             $return = ReturnOrder::find($id);
-            
+
             if (!$return) {
                 return $this->notFoundResponse('Return order not found');
             }
-            
+
             // Get brand owner ID (would come from config or relationship)
             $escalatedTo = config('purchase.brand_owner_id', 'brand-owner-uuid');
-            
+
             $this->returnService->escalateReturn($return, $request->reason, $escalatedTo);
-            
+
             return $this->successResponse(
                 new ReturnOrderResource($return->fresh()),
                 'Return escalated successfully'
@@ -238,7 +239,7 @@ class ReturnManagementController extends BaseController
 
     /**
      * Save return as draft
-     * 
+     *
      * @group Return Management
      */
     public function saveDraft(CreateReturnRequest $request): JsonResponse
@@ -248,11 +249,11 @@ class ReturnManagementController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = PurchaseOrder::where('branch_id', $userBranchId)
                 ->find($request->purchase_order_id);
-            
+
             if (!$order) {
                 return $this->notFoundResponse('Purchase order not found');
             }
-            
+
             // Validate that order is CLOSED (required for returns)
             if ($order->status !== \Modules\Purchase\Enums\OrderStatus::CLOSED) {
                 return $this->errorResponse(
@@ -260,12 +261,12 @@ class ReturnManagementController extends BaseController
                     400
                 );
             }
-            
+
             $data = $request->validated();
             $data['created_by'] = auth()->id();
-            
+
             $return = $this->returnService->saveDraft($order, $data, $request);
-            
+
             return $this->createdResponse(
                 new ReturnOrderResource($return->load(['purchaseOrder', 'supplier', 'items', 'timelines'])),
                 'Return saved as draft successfully'
@@ -277,24 +278,24 @@ class ReturnManagementController extends BaseController
 
     /**
      * Delete draft
-     * 
+     *
      * @group Return Management
      */
     public function deleteDraft(string $id): JsonResponse
     {
         try {
             $return = ReturnOrder::find($id);
-            
+
             if (!$return) {
                 return $this->notFoundResponse('Return order not found');
             }
-            
+
             $success = $this->returnService->deleteDraft($return);
-            
+
             if (!$success) {
                 return $this->errorResponse('Cannot delete non-draft return', 400);
             }
-            
+
             return $this->deletedResponse('Draft deleted successfully');
         } catch (\Exception $e) {
             return $this->handleException($e, 'deleting draft');
@@ -303,24 +304,24 @@ class ReturnManagementController extends BaseController
 
     /**
      * Get return details
-     * 
+     *
      * @group Return Management
      */
     public function show(string $id): JsonResponse
     {
         try {
             $return = $this->returnService->getReturnDetails($id);
-            
+
             if (!$return) {
                 return $this->notFoundResponse('Return order not found');
             }
-            
+
             // Security: Verify user has access to this return's branch
             $userBranchId = auth()->user()->branch_id;
             if ($return->branch_id !== $userBranchId) {
                 return $this->errorResponse('Unauthorized access to this return order', 403);
             }
-            
+
             return $this->successResponse(
                 new ReturnOrderResource($return),
                 'Return details retrieved successfully'
@@ -332,14 +333,14 @@ class ReturnManagementController extends BaseController
 
     /**
      * Get return timeline
-     * 
+     *
      * @group Return Management
      */
     public function timeline(string $id): JsonResponse
     {
         try {
             $timeline = $this->returnService->getReturnTimeline($id);
-            
+
             return $this->successResponse(
                 TimelineResource::collection($timeline),
                 'Return timeline retrieved successfully'
