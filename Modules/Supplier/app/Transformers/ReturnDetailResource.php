@@ -90,7 +90,8 @@ class ReturnDetailResource extends JsonResource
                     'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
 
                 ];
-            }),'branch_manager' => $this->whenLoaded('branchManager', function () {
+            }),
+            'branch_manager' => $this->whenLoaded('branchManager', function () {
                 if (!$this->branchManager) {
                     return null;
                 }
@@ -99,7 +100,7 @@ class ReturnDetailResource extends JsonResource
                     'name' => $this->branchManager->name,
                     'email' => $this->branchManager->email,
                     'phone' => $this->branchManager->phone,
-                    'image' => $this->branchManager->image ? asset('storage/' . $this->branchManager->image) : null,
+                    'image' => $this->branchManager->image_url ?? null,
                 ];
             }),
 
@@ -200,6 +201,7 @@ class ReturnDetailResource extends JsonResource
                 'id' => $this->respondedBy->id,
                 'name' => $this->respondedBy->name ?? null,
                 'type' => 'user',
+                'image' => $this->respondedBy->image_url ?? null,
             ];
         }
 
