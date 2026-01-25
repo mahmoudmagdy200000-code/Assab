@@ -37,6 +37,7 @@ class OrderResource extends JsonResource
                 'name' => $this->requestedBy->name ?? null,
                 'email' => $this->requestedBy->email ?? null,
                 'phone' => $this->requestedBy->phone ?? null,
+                'image' => $this->requestedBy->image_url ?? null,
             ],
 
             // Order Items
