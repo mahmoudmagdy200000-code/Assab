@@ -52,18 +52,8 @@ class InternalTransferOrderResource extends JsonResource
                     'image' => $this->fromBranch->image ? asset('storage/' . $this->fromBranch->image) : null,
                     'lat' => $this->fromBranch->lat ? (float) $this->fromBranch->lat : null,
                     'lng' => $this->fromBranch->lng ? (float) $this->fromBranch->lng : null,
-                    'opening_hours' => $this->fromBranch->opening_hours ? $this->fromBranch->opening_hours->format('H:i:s') : null,
-                    'closing_hours' => $this->fromBranch->closing_hours ? $this->fromBranch->closing_hours->format('H:i:s') : null,
-                    'branch_manager' => $this->when(
-                        $this->fromBranch->relationLoaded('branchManager') && $this->fromBranch->branchManager,
-                        function () {
-                            return [
-                                'id' => $this->fromBranch->branchManager->id,
-                                'name' => $this->fromBranch->branchManager->name,
-                                'image' => $this->fromBranch->branchManager->image_url ?? ($this->fromBranch->branch_manager_image ? asset('storage/' . $this->fromBranch->branch_manager_image) : null),
-                            ];
-                        }
-                    ),
+                    'opening_hours' => $this->fromBranch->opening_hours ?? null,
+                    'closing_hours' => $this->fromBranch->closing_hours ?? null,
                 ];
             }),
 
@@ -80,16 +70,6 @@ class InternalTransferOrderResource extends JsonResource
                     'lng' => $this->branch->lng ? (float) $this->branch->lng : null,
                     'opening_hours' => $this->branch->opening_hours ?? null,
                     'closing_hours' => $this->branch->closing_hours ?? null,
-                    'branch_manager' => $this->when(
-                        $this->branch->relationLoaded('branchManager') && $this->branch->branchManager,
-                        function () {
-                            return [
-                                'id' => $this->branch->branchManager->id,
-                                'name' => $this->branch->branchManager->name,
-                                'image' => $this->branch->branchManager->image_url ?? ($this->branch->branch_manager_image ? asset('storage/' . $this->branch->branch_manager_image) : null),
-                            ];
-                        }
-                    ),
                 ];
             }),
 

@@ -22,8 +22,6 @@ class Branch extends Model
         'image',
         'opening_hours',
         'closing_hours',
-        'branch_manager_id',
-        'branch_manager_image',
     ];
 
     protected $casts = [
@@ -64,10 +62,6 @@ class Branch extends Model
         return \Modules\Branch\Database\Factories\BranchFactory::new();
     }
 
-    public function branchManager()
-    {
-        return $this->belongsTo(BranchManager::class, 'branch_manager_id');
-    }
     public function branchItems()
     {
         return $this->hasMany(BranchItem::class);

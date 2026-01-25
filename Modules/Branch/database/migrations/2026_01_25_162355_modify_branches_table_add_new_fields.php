@@ -26,16 +26,6 @@ return new class extends Migration
             if (!Schema::hasColumn('branches', 'closing_hours')) {
                 $table->string('closing_hours')->nullable()->after('opening_hours');
             }
-            
-            // Add branch manager relationship
-            if (!Schema::hasColumn('branches', 'branch_manager_id')) {
-                $table->uuid('branch_manager_id')->nullable()->after('image');
-            }
-            
-            // Add branch manager image
-            if (!Schema::hasColumn('branches', 'branch_manager_image')) {
-                $table->string('branch_manager_image')->nullable()->after('branch_manager_id');
-            }
         });
 
         // Step 2: Clean and migrate existing opening_hours data
@@ -143,38 +133,6 @@ return new class extends Migration
                     $table->time('closing_hours')->nullable()->change();
                 }
             }
-            
-            // Add foreign key constraint for branch_manager_id (only if it doesn't exist)
-            if (Schema::hasColumn('branches', 'branch_manager_id')) {
-                $foreignKeys = DB::select("
-                    SELECT CONSTRAINT_NAME 
-                    FROM information_schema.KEY_COLUMN_USAGE 
-                    WHERE TABLE_SCHEMA = DATABASE() 
-                    AND TABLE_NAME = 'branches' 
-                    AND COLUMN_NAME = 'branch_manager_id' 
-                    AND REFERENCED_TABLE_NAME IS NOT NULL
-                ");
-                
-                if (empty($foreignKeys)) {
-                    $table->foreign('branch_manager_id')
-                        ->references('id')
-                        ->on('branch_managers')
-                        ->nullOnDelete();
-                }
-            }
-            
-            // Add index for performance (only if it doesn't exist)
-            if (Schema::hasColumn('branches', 'branch_manager_id')) {
-                $indexes = DB::select("
-                    SHOW INDEXES FROM branches 
-                    WHERE Column_name = 'branch_manager_id' 
-                    AND Key_name != 'PRIMARY'
-                ");
-                
-                if (empty($indexes)) {
-                    $table->index('branch_manager_id');
-                }
-            }
         });
 
         // Step 5: Remove old columns after data migration (only if they exist)
@@ -267,10 +225,6 @@ return new class extends Migration
 
         // Step 3: Modify column types and restore old structure
         Schema::table('branches', function (Blueprint $table) {
-            // Drop foreign key and index first
-            $table->dropForeign(['branch_manager_id']);
-            $table->dropIndex(['branch_manager_id']);
-            
             // Revert opening_hours to string
             $table->string('opening_hours')->nullable()->change();
             
@@ -285,8 +239,6 @@ return new class extends Migration
                 'lat',
                 'lng',
                 'closing_hours',
-                'branch_manager_id',
-                'branch_manager_image'
             ]);
         });
     }
