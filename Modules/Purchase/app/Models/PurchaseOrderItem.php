@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Purchase\Enums\InspectionQuality;
 use Modules\Purchase\Enums\OrderItemStatus;
@@ -115,6 +116,11 @@ class PurchaseOrderItem extends Model
     public function returnOrderItems(): HasMany
     {
         return $this->hasMany(ReturnOrderItem::class);
+    }
+
+    public function documents(): MorphMany
+    {
+        return $this->morphMany(OrderDocument::class, 'documentable');
     }
 
     /**
