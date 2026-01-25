@@ -98,9 +98,9 @@ class ReturnDetailResource extends JsonResource
     private function getCancellationDetails(): ?array
     {
         // Only return cancellation details if return is rejected
-        if ($this->status?->value !== 'rejected') {
-            return null;
-        }
+        // if ($this->status?->value !== 'rejected') {
+        //     return null;
+        // }
 
         // Get cancellation reason (rejection_reason)
         $cancellationReason = $this->rejection_reason ?? null;
