@@ -27,43 +27,9 @@ class Branch extends Model
     protected $casts = [
         'lat' => 'decimal:8',
         'lng' => 'decimal:8',
+        'opening_hours' => 'datetime',
+        'closing_hours' => 'datetime',
     ];
-
-    /**
-     * Get opening hours as string
-     */
-    public function getOpeningHoursAttribute($value)
-    {
-        if (empty($value)) {
-            return null;
-        }
-        
-        // If it's a Carbon instance, format it
-        if ($value instanceof \Carbon\Carbon) {
-            return $value->format('H:i:s');
-        }
-        
-        // If it's already a string, return as is
-        return (string) $value;
-    }
-
-    /**
-     * Get closing hours as string
-     */
-    public function getClosingHoursAttribute($value)
-    {
-        if (empty($value)) {
-            return null;
-        }
-        
-        // If it's a Carbon instance, format it
-        if ($value instanceof \Carbon\Carbon) {
-            return $value->format('H:i:s');
-        }
-        
-        // If it's already a string, return as is
-        return (string) $value;
-    }
 
     public function managers()
     {

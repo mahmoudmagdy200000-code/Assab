@@ -52,8 +52,8 @@ class InternalTransferOrderResource extends JsonResource
                     'image' => $this->fromBranch->image ? asset('storage/' . $this->fromBranch->image) : null,
                     'lat' => $this->fromBranch->lat ? (float) $this->fromBranch->lat : null,
                     'lng' => $this->fromBranch->lng ? (float) $this->fromBranch->lng : null,
-                    'opening_hours' => !empty($this->fromBranch->opening_hours) ? (string) $this->fromBranch->opening_hours : null,
-                    'closing_hours' => !empty($this->fromBranch->closing_hours) ? (string) $this->fromBranch->closing_hours : null,
+                    'opening_hours' => $this->fromBranch->opening_hours ? $this->fromBranch->opening_hours->format('H:i:s') : null,
+                    'closing_hours' => $this->fromBranch->closing_hours ? $this->fromBranch->closing_hours->format('H:i:s') : null,
                 ];
             }),
 
@@ -68,8 +68,8 @@ class InternalTransferOrderResource extends JsonResource
                     'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
                     'lat' => $this->branch->lat ? (float) $this->branch->lat : null,
                     'lng' => $this->branch->lng ? (float) $this->branch->lng : null,
-                    'opening_hours' => !empty($this->branch->opening_hours) ? (string) $this->branch->opening_hours : null,
-                    'closing_hours' => !empty($this->branch->closing_hours) ? (string) $this->branch->closing_hours : null,
+                    'opening_hours' => $this->branch->opening_hours ? $this->branch->opening_hours->format('H:i:s') : null,
+                    'closing_hours' => $this->branch->closing_hours ? $this->branch->closing_hours->format('H:i:s') : null,
                 ];
             }),
 
