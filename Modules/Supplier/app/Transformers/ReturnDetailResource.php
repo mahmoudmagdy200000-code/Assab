@@ -88,7 +88,18 @@ class ReturnDetailResource extends JsonResource
                     'closing_hours' => $this->branch->closing_hours ? $this->branch->closing_hours->format('Y-m-d H:i:s') : null,
                     'map_coordinates' => $this->branch->map_coordinates ?? null,
                     'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
-                    
+
+                ];
+            }),'branch_manager' => $this->whenLoaded('branchManager', function () {
+                if (!$this->branchManager) {
+                    return null;
+                }
+                return [
+                    'id' => $this->branchManager->id,
+                    'name' => $this->branchManager->name,
+                    'email' => $this->branchManager->email,
+                    'phone' => $this->branchManager->phone,
+                    'image' => $this->branchManager->image ? asset('storage/' . $this->branchManager->image) : null,
                 ];
             }),
 
