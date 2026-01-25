@@ -48,6 +48,7 @@ class ReturnManagementService
             'respondedBy',
             'items',
             'timelines',
+            'branchManager',
         ])
             ->where('id', $returnId)
             ->where('supplier_id', $supplier->id)
