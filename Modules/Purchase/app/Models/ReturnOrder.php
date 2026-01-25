@@ -112,6 +112,12 @@ class ReturnOrder extends Model
         return $this->belongsTo(BranchManager::class, 'created_by');
     }
 
+    public function branchManager(): BelongsTo
+    {
+        // Alias for createdBy - the branch manager who created this return order
+        return $this->belongsTo(BranchManager::class, 'created_by');
+    }
+
     public function respondedBy(): BelongsTo
     {
         // Check if responded_by matches supplier_id, otherwise it's a branch manager
