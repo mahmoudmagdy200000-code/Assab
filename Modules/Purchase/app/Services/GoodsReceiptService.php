@@ -718,13 +718,18 @@ class GoodsReceiptService
         $receipt = $order->goodsReceipts()->latest()->first();
 
         // Use receipt delivery details if available, otherwise fallback to order
+        // delivery_address should come from receipt (supplier input when creating out-delivery)
+        // If receipt exists but delivery_address is null, return null (supplier hasn't entered it yet)
+        // If no receipt exists, use branch location as fallback
         $deliveryDetails = [
             'driver_name' => $receipt?->driver_name ?? $order->driver_name,
             'contact_number' => $receipt?->driver_contact ?? $order->driver_contact,
             'vehicle_number' => $receipt?->vehicle_number ?? $order->vehicle_number,
             'arrival_time' => $receipt?->arrival_time?->format('Y-m-d H:i:s')
                 ?? $order->actual_delivery_at?->format('Y-m-d H:i:s'),
-            'delivery_address' => $receipt?->delivery_address,
+            'delivery_address' => $receipt
+                ? ($receipt->delivery_address ?? null)
+                : ($order->branch?->location ?? null),
         ];
 
         // If receipt exists, use receipt items, otherwise use order items
