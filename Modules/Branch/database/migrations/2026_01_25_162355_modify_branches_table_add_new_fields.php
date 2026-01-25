@@ -190,7 +190,27 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // Step 1: Convert opening_hours and closing_hours back to combined format
+        // Step 1: Change opening_hours and closing_hours back to string first
+        Schema::table('branches', function (Blueprint $table) {
+            if (Schema::hasColumn('branches', 'opening_hours')) {
+                $table->string('opening_hours')->nullable()->change();
+            }
+            if (Schema::hasColumn('branches', 'closing_hours')) {
+                $table->string('closing_hours')->nullable()->change();
+            }
+        });
+
+        // Step 2: Add back old columns first (before updating data)
+        Schema::table('branches', function (Blueprint $table) {
+            if (!Schema::hasColumn('branches', 'location')) {
+                $table->string('location')->nullable()->after('name');
+            }
+            if (!Schema::hasColumn('branches', 'map_coordinates')) {
+                $table->string('map_coordinates')->nullable()->after('location');
+            }
+        });
+
+        // Step 3: Convert opening_hours and closing_hours back to combined format
         DB::table('branches')->whereNotNull('opening_hours')->get()->each(function ($branch) {
             $openingTime = $branch->opening_hours;
             $closingTime = $branch->closing_hours;
@@ -214,32 +234,34 @@ return new class extends Migration
             }
         });
 
-        // Step 2: Combine lat/lng back into map_coordinates
-        DB::table('branches')->whereNotNull('lat')->whereNotNull('lng')->get()->each(function ($branch) {
-            $coordinates = "{$branch->lat},{$branch->lng}";
-            
-            DB::table('branches')
-                ->where('id', $branch->id)
-                ->update(['map_coordinates' => $coordinates]);
-        });
+        // Step 4: Combine lat/lng back into map_coordinates
+        if (Schema::hasColumn('branches', 'lat') && Schema::hasColumn('branches', 'lng')) {
+            DB::table('branches')->whereNotNull('lat')->whereNotNull('lng')->get()->each(function ($branch) {
+                $coordinates = "{$branch->lat},{$branch->lng}";
+                
+                DB::table('branches')
+                    ->where('id', $branch->id)
+                    ->update(['map_coordinates' => $coordinates]);
+            });
+        }
 
-        // Step 3: Modify column types and restore old structure
+        // Step 5: Drop new columns
         Schema::table('branches', function (Blueprint $table) {
-            // Revert opening_hours to string
-            $table->string('opening_hours')->nullable()->change();
+            $columnsToDrop = [];
             
-            // Add back old columns
-            $table->string('location')->nullable()->after('name');
-            $table->string('map_coordinates')->nullable()->after('location');
-        });
-
-        // Step 4: Drop new columns
-        Schema::table('branches', function (Blueprint $table) {
-            $table->dropColumn([
-                'lat',
-                'lng',
-                'closing_hours',
-            ]);
+            if (Schema::hasColumn('branches', 'lat')) {
+                $columnsToDrop[] = 'lat';
+            }
+            if (Schema::hasColumn('branches', 'lng')) {
+                $columnsToDrop[] = 'lng';
+            }
+            if (Schema::hasColumn('branches', 'closing_hours')) {
+                $columnsToDrop[] = 'closing_hours';
+            }
+            
+            if (!empty($columnsToDrop)) {
+                $table->dropColumn($columnsToDrop);
+            }
         });
     }
 };
