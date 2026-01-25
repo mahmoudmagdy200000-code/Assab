@@ -14,24 +14,52 @@ return new class extends Migration
     {
         // Step 1: Add new columns first (before modifying existing ones)
         Schema::table('branches', function (Blueprint $table) {
-            // Add latitude and longitude as separate columns
-            $table->decimal('lat', 10, 8)->nullable()->after('name');
-            $table->decimal('lng', 11, 8)->nullable()->after('lat');
+            // Add latitude and longitude as separate columns (only if they don't exist)
+            if (!Schema::hasColumn('branches', 'lat')) {
+                $table->decimal('lat', 10, 8)->nullable()->after('name');
+            }
+            if (!Schema::hasColumn('branches', 'lng')) {
+                $table->decimal('lng', 11, 8)->nullable()->after('lat');
+            }
             
             // Add closing_hours as string first (we'll convert it later)
-            $table->string('closing_hours')->nullable()->after('opening_hours');
+            if (!Schema::hasColumn('branches', 'closing_hours')) {
+                $table->string('closing_hours')->nullable()->after('opening_hours');
+            }
             
             // Add branch manager relationship
-            $table->uuid('branch_manager_id')->nullable()->after('image');
+            if (!Schema::hasColumn('branches', 'branch_manager_id')) {
+                $table->uuid('branch_manager_id')->nullable()->after('image');
+            }
             
             // Add branch manager image
-            $table->string('branch_manager_image')->nullable()->after('branch_manager_id');
+            if (!Schema::hasColumn('branches', 'branch_manager_image')) {
+                $table->string('branch_manager_image')->nullable()->after('branch_manager_id');
+            }
         });
 
         // Step 2: Clean and migrate existing opening_hours data
         // Extract opening and closing times from format like "08:00 - 22:00"
+        // Only process if opening_hours is still a string (contains dash or is not in time format)
         DB::table('branches')->whereNotNull('opening_hours')->get()->each(function ($branch) {
             $openingHours = $branch->opening_hours;
+            
+            // Check if it's already in time format (HH:MM:SS or HH:MM)
+            if (preg_match('/^\d{1,2}:\d{2}(:\d{2})?$/', $openingHours)) {
+                // Already in time format, just normalize it
+                $openingTime = $this->normalizeTime($openingHours);
+                $updateData = ['opening_hours' => $openingTime];
+                
+                // Only update closing_hours if it doesn't exist or is null
+                if (Schema::hasColumn('branches', 'closing_hours') && empty($branch->closing_hours)) {
+                    $updateData['closing_hours'] = null;
+                }
+                
+                DB::table('branches')
+                    ->where('id', $branch->id)
+                    ->update($updateData);
+                return;
+            }
             
             // Parse format like "08:00 - 22:00" or "08:00-22:00"
             if (preg_match('/(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})/', $openingHours, $matches)) {
@@ -42,64 +70,128 @@ return new class extends Migration
                 $openingTime = $this->normalizeTime($openingTime);
                 $closingTime = $this->normalizeTime($closingTime);
                 
+                $updateData = ['opening_hours' => $openingTime];
+                if (Schema::hasColumn('branches', 'closing_hours')) {
+                    $updateData['closing_hours'] = $closingTime;
+                }
+                
                 DB::table('branches')
                     ->where('id', $branch->id)
-                    ->update([
-                        'opening_hours' => $openingTime,
-                        'closing_hours' => $closingTime,
-                    ]);
+                    ->update($updateData);
             } else {
                 // If format doesn't match, try to extract just the opening time
                 // and set closing_hours to null
                 $openingTime = $this->normalizeTime($openingHours);
+                $updateData = ['opening_hours' => $openingTime];
+                
+                if (Schema::hasColumn('branches', 'closing_hours')) {
+                    $updateData['closing_hours'] = null;
+                }
+                
                 DB::table('branches')
                     ->where('id', $branch->id)
-                    ->update([
-                        'opening_hours' => $openingTime,
-                        'closing_hours' => null,
-                    ]);
+                    ->update($updateData);
             }
         });
 
         // Step 3: Extract lat/lng from map_coordinates if exists
-        DB::table('branches')->whereNotNull('map_coordinates')->get()->each(function ($branch) {
-            $coordinates = $branch->map_coordinates;
-            
-            // Parse format like "24.7136,46.6753" or "24.7136, 46.6753"
-            if (preg_match('/([\d.]+)\s*,\s*([\d.]+)/', $coordinates, $matches)) {
-                $lat = (float) $matches[1];
-                $lng = (float) $matches[2];
-                
-                DB::table('branches')
-                    ->where('id', $branch->id)
-                    ->update([
-                        'lat' => $lat,
-                        'lng' => $lng,
-                    ]);
-            }
-        });
+        // Only update if lat/lng are null or empty
+        if (Schema::hasColumn('branches', 'map_coordinates') && 
+            Schema::hasColumn('branches', 'lat') && 
+            Schema::hasColumn('branches', 'lng')) {
+            DB::table('branches')
+                ->whereNotNull('map_coordinates')
+                ->where(function ($query) {
+                    $query->whereNull('lat')
+                        ->orWhereNull('lng')
+                        ->orWhere('lat', '')
+                        ->orWhere('lng', '');
+                })
+                ->get()
+                ->each(function ($branch) {
+                    $coordinates = $branch->map_coordinates;
+                    
+                    // Parse format like "24.7136,46.6753" or "24.7136, 46.6753"
+                    if (preg_match('/([\d.]+)\s*,\s*([\d.]+)/', $coordinates, $matches)) {
+                        $lat = (float) $matches[1];
+                        $lng = (float) $matches[2];
+                        
+                        DB::table('branches')
+                            ->where('id', $branch->id)
+                            ->update([
+                                'lat' => $lat,
+                                'lng' => $lng,
+                            ]);
+                    }
+                });
+        }
 
         // Step 4: Now modify the columns to their final types
         Schema::table('branches', function (Blueprint $table) {
-            // Change opening_hours from string to time
-            $table->time('opening_hours')->nullable()->change();
+            // Change opening_hours from string to time (only if it's still string)
+            if (Schema::hasColumn('branches', 'opening_hours')) {
+                $columnType = DB::select("SHOW COLUMNS FROM branches WHERE Field = 'opening_hours'");
+                if (!empty($columnType) && strpos($columnType[0]->Type, 'time') === false) {
+                    $table->time('opening_hours')->nullable()->change();
+                }
+            }
             
-            // Change closing_hours from string to time
-            $table->time('closing_hours')->nullable()->change();
+            // Change closing_hours from string to time (only if it exists and is string)
+            if (Schema::hasColumn('branches', 'closing_hours')) {
+                $columnType = DB::select("SHOW COLUMNS FROM branches WHERE Field = 'closing_hours'");
+                if (!empty($columnType) && strpos($columnType[0]->Type, 'time') === false) {
+                    $table->time('closing_hours')->nullable()->change();
+                }
+            }
             
-            // Add foreign key constraint for branch_manager_id
-            $table->foreign('branch_manager_id')
-                ->references('id')
-                ->on('branch_managers')
-                ->nullOnDelete();
+            // Add foreign key constraint for branch_manager_id (only if it doesn't exist)
+            if (Schema::hasColumn('branches', 'branch_manager_id')) {
+                $foreignKeys = DB::select("
+                    SELECT CONSTRAINT_NAME 
+                    FROM information_schema.KEY_COLUMN_USAGE 
+                    WHERE TABLE_SCHEMA = DATABASE() 
+                    AND TABLE_NAME = 'branches' 
+                    AND COLUMN_NAME = 'branch_manager_id' 
+                    AND REFERENCED_TABLE_NAME IS NOT NULL
+                ");
+                
+                if (empty($foreignKeys)) {
+                    $table->foreign('branch_manager_id')
+                        ->references('id')
+                        ->on('branch_managers')
+                        ->nullOnDelete();
+                }
+            }
             
-            // Add index for performance
-            $table->index('branch_manager_id');
+            // Add index for performance (only if it doesn't exist)
+            if (Schema::hasColumn('branches', 'branch_manager_id')) {
+                $indexes = DB::select("
+                    SHOW INDEXES FROM branches 
+                    WHERE Column_name = 'branch_manager_id' 
+                    AND Key_name != 'PRIMARY'
+                ");
+                
+                if (empty($indexes)) {
+                    $table->index('branch_manager_id');
+                }
+            }
         });
 
-        // Step 5: Remove old columns after data migration
+        // Step 5: Remove old columns after data migration (only if they exist)
         Schema::table('branches', function (Blueprint $table) {
-            $table->dropColumn(['location', 'map_coordinates']);
+            $columnsToDrop = [];
+            
+            if (Schema::hasColumn('branches', 'location')) {
+                $columnsToDrop[] = 'location';
+            }
+            
+            if (Schema::hasColumn('branches', 'map_coordinates')) {
+                $columnsToDrop[] = 'map_coordinates';
+            }
+            
+            if (!empty($columnsToDrop)) {
+                $table->dropColumn($columnsToDrop);
+            }
         });
     }
 
