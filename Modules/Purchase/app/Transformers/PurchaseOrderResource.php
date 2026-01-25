@@ -3,6 +3,7 @@
 namespace Modules\Purchase\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\Branch\Transformers\BranchResource;
 
 class PurchaseOrderResource extends JsonResource
 {
@@ -21,18 +22,7 @@ class PurchaseOrderResource extends JsonResource
 
             // Branch info
             'branch' => $this->whenLoaded('branch', function () {
-                if (!$this->branch) {
-                    return null;
-                }
-                return [
-                    'id' => $this->branch->id,
-                    'name' => $this->branch->name,
-                    'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
-                    'lat' => $this->branch->lat ? (float) $this->branch->lat : null,
-                    'lng' => $this->branch->lng ? (float) $this->branch->lng : null,
-                    'opening_hours' => $this->branch->opening_hours ? $this->branch->opening_hours->format('Y-m-d H:i:s') : null,
-                    'closing_hours' => $this->branch->closing_hours ? $this->branch->closing_hours->format('Y-m-d H:i:s') : null,
-                ];
+                return $this->branch ? new BranchResource($this->branch) : null;
             }),
 
             // Supplier info
@@ -40,15 +30,7 @@ class PurchaseOrderResource extends JsonResource
 
             // Source branch (for transfers)
             'from_branch' => $this->whenLoaded('fromBranch', function () {
-                if (!$this->fromBranch) {
-                    return null;
-                }
-                return [
-                    'id' => $this->fromBranch->id,
-                    'name' => $this->fromBranch->name,
-                    'lat' => $this->fromBranch->lat ? (float) $this->fromBranch->lat : null,
-                    'lng' => $this->fromBranch->lng ? (float) $this->fromBranch->lng : null,
-                ];
+                return $this->fromBranch ? new BranchResource($this->fromBranch) : null;
             }),
 
             // Requested by

@@ -3,6 +3,7 @@
 namespace Modules\Supplier\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\Branch\Transformers\BranchResource;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Transformers\TimelineResource;
 
@@ -21,15 +22,9 @@ class OrderResource extends JsonResource
             'status_label' => $this->status?->label(),
 
             // Branch Information
-            'branch' => [
-                'id' => $this->branch->id ?? null,
-                'name' => $this->branch->name ?? null,
-                'lat' => $this->branch->lat ? (float) $this->branch->lat : null,
-                'lng' => $this->branch->lng ? (float) $this->branch->lng : null,
-                'opening_hours' => $this->branch->opening_hours ? $this->branch->opening_hours->format('Y-m-d H:i:s') : null,
-                'closing_hours' => $this->branch->closing_hours ? $this->branch->closing_hours->format('Y-m-d H:i:s') : null,
-                'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
-            ],
+            'branch' => $this->whenLoaded('branch', function () {
+                return $this->branch ? new BranchResource($this->branch) : null;
+            }),
 
             // Branch Manager
             'branch_manager' => [

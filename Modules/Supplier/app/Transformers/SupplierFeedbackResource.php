@@ -3,6 +3,7 @@
 namespace Modules\Supplier\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\Branch\Transformers\BranchResource;
 
 class SupplierFeedbackResource extends JsonResource
 {
@@ -21,10 +22,7 @@ class SupplierFeedbackResource extends JsonResource
             'delivery_satisfaction' => $this->delivery_satisfaction,
             'improvement_insights' => $this->improvement_insights,
             'branch' => $this->whenLoaded('branch', function () {
-                return [
-                    'id' => $this->branch->id,
-                    'name' => $this->branch->name,
-                ];
+                return $this->branch ? new BranchResource($this->branch) : null;
             }),
             'purchase_order' => $this->whenLoaded('purchaseOrder', function () {
                 return [

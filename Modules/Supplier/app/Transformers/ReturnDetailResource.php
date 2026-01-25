@@ -3,6 +3,7 @@
 namespace Modules\Supplier\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\Branch\Transformers\BranchResource;
 use Modules\Purchase\Support\PurchaseFileHelper;
 use Modules\Purchase\Transformers\ReturnOrderItemResource;
 use Modules\Purchase\Transformers\TimelineResource;
@@ -76,20 +77,7 @@ class ReturnDetailResource extends JsonResource
             }),
 
             'branch' => $this->whenLoaded('branch', function () {
-                if (!$this->branch) {
-                    return null;
-                }
-                return [
-                    'id' => $this->branch->id,
-                    'name' => $this->branch->name,
-                    'lat' => $this->branch->lat ? (float) $this->branch->lat : null,
-                    'lng' => $this->branch->lng ? (float) $this->branch->lng : null,
-                    'opening_hours' => $this->branch->opening_hours ? $this->branch->opening_hours->format('Y-m-d H:i:s') : null,
-                    'closing_hours' => $this->branch->closing_hours ? $this->branch->closing_hours->format('Y-m-d H:i:s') : null,
-                    'map_coordinates' => $this->branch->map_coordinates ?? null,
-                    'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
-
-                ];
+                return $this->branch ? new BranchResource($this->branch) : null;
             }),
             'branch_manager' => $this->whenLoaded('branchManager', function () {
                 if (!$this->branchManager) {
