@@ -4,6 +4,7 @@ namespace Modules\Supplier\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Branch\Transformers\BranchResource;
+use Modules\BranchManagers\Transformers\BranchManagerResource;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Transformers\TimelineResource;
 
@@ -27,13 +28,9 @@ class OrderResource extends JsonResource
             }),
 
             // Branch Manager
-            'branch_manager' => [
-                'id' => $this->requestedBy->id ?? null,
-                'name' => $this->requestedBy->name ?? null,
-                'email' => $this->requestedBy->email ?? null,
-                'phone' => $this->requestedBy->phone ?? null,
-                'image' => $this->requestedBy->image_url ?? null,
-            ],
+            'branch_manager' => $this->whenLoaded('requestedBy', function () {
+                return $this->requestedBy ? new BranchManagerResource($this->requestedBy) : null;
+            }),
 
             // Order Items
             'items' => $this->items->map(function ($item) {

@@ -58,6 +58,7 @@ class OrderSummaryResource extends JsonResource
                 'from' => [
                     'id' => $this->branch?->id,
                     'branch_name' => $this->branch?->name,
+                    'location' => $this->branch?->location ?? null,
                     'lat' => $this->branch?->lat ? (float) $this->branch->lat : null,
                     'lng' => $this->branch?->lng ? (float) $this->branch->lng : null,
                 ],
@@ -99,6 +100,7 @@ class OrderSummaryResource extends JsonResource
                 'from' => [
                     'id' => $this->branch?->id,
                     'branch_name' => $this->branch?->name,
+                    'location' => $this->branch?->location ?? null,
                     'lat' => $this->branch?->lat ? (float) $this->branch->lat : null,
                     'lng' => $this->branch?->lng ? (float) $this->branch->lng : null,
                 ],
@@ -155,6 +157,7 @@ class OrderSummaryResource extends JsonResource
                 'from' => [
                     'id' => $this->fromBranch?->id,
                     'name' => $this->fromBranch?->name,
+                    'location' => $this->fromBranch?->location ?? null,
                     'lat' => $this->fromBranch?->lat ? (float) $this->fromBranch->lat : null,
                     'lng' => $this->fromBranch?->lng ? (float) $this->fromBranch->lng : null,
                 ],

@@ -48,7 +48,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
     private function getReasonForRejected(): ?array
     {
         $status = $this->status;
-        
+
         if (!$status) {
             return null;
         }
@@ -59,7 +59,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
             OrderStatus::CANCELLED_BY_SUPPLIER,
         ])) {
             $cancelledBy = $this->getCancelledByInfo($status);
-            
+
             return [
                 'cancellation_reason' => $this->cancellation_reason ?? null,
                 'cancelled_at' => $this->canceled_at?->format('Y-m-d H:i:s'),
@@ -83,7 +83,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     'image' => $this->requestedBy->image_url ?? null,
                 ];
             }
-            
+
             return [
                 'rejection_reason' => $this->rejection_reason,
                 'rejected_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
@@ -139,6 +139,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'order_number' => $this->order_number ?? 'n/a',
                 'from' => [
                     'branch_name' => $this->branch?->name ?? 'n/a',
+                    'location' => $this->branch?->location ?? null,
                     'lat' => $this->branch?->lat ? (float) $this->branch->lat : null,
                     'lng' => $this->branch?->lng ? (float) $this->branch->lng : null,
                 ],
@@ -201,6 +202,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'order_number' => $this->order_number ?? 'n/a',
                 'from' => [
                     'branch_name' => $this->branch?->name ?? 'n/a',
+                    'location' => $this->branch?->location ?? 'n/a',
                     'lat' => $this->branch?->lat ? (float) $this->branch->lat : null,
                     'lng' => $this->branch?->lng ? (float) $this->branch->lng : null,
                 ],
@@ -473,6 +475,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
             return [
                 'id' => $this->fromBranch->id ?? 'n/a',
                 'name' => $this->fromBranch->name ?? 'n/a',
+                'location' => $this->fromBranch->location ?? null,
                 'lat' => $this->fromBranch->lat ? (float) $this->fromBranch->lat : null,
                 'lng' => $this->fromBranch->lng ? (float) $this->fromBranch->lng : null,
             ];

@@ -4,6 +4,7 @@ namespace Modules\Supplier\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Branch\Transformers\BranchResource;
+use Modules\BranchManagers\Transformers\BranchManagerResource;
 use Modules\Purchase\Support\PurchaseFileHelper;
 use Modules\Purchase\Transformers\ReturnOrderItemResource;
 use Modules\Purchase\Transformers\TimelineResource;
@@ -80,16 +81,7 @@ class ReturnDetailResource extends JsonResource
                 return $this->branch ? new BranchResource($this->branch) : null;
             }),
             'branch_manager' => $this->whenLoaded('branchManager', function () {
-                if (!$this->branchManager) {
-                    return null;
-                }
-                return [
-                    'id' => $this->branchManager->id,
-                    'name' => $this->branchManager->name,
-                    'email' => $this->branchManager->email,
-                    'phone' => $this->branchManager->phone,
-                    'image' => $this->branchManager->image_url ?? null,
-                ];
+                return $this->branchManager ? new BranchManagerResource($this->branchManager) : null;
             }),
 
             'items' => ReturnOrderItemResource::collection($this->whenLoaded('items')),

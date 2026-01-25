@@ -4,6 +4,7 @@ namespace Modules\Purchase\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Branch\Transformers\BranchResource;
+use Modules\BranchManagers\Transformers\BranchManagerResource;
 
 class PurchaseOrderResource extends JsonResource
 {
@@ -34,11 +35,9 @@ class PurchaseOrderResource extends JsonResource
             }),
 
             // Requested by
-            'requested_by' => $this->whenLoaded('requestedBy', fn() => [
-                'id' => $this->requestedBy->id,
-                'name' => $this->requestedBy->name,
-                'image' => $this->requestedBy->image_url ?? null,
-            ]),
+            'requested_by' => $this->whenLoaded('requestedBy', function () {
+                return $this->requestedBy ? new BranchManagerResource($this->requestedBy) : null;
+            }),
 
             // Items summary
             'total_items' => $this->total_items,

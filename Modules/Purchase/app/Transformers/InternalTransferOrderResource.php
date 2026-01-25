@@ -4,6 +4,7 @@ namespace Modules\Purchase\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Branch\Transformers\BranchResource;
+use Modules\BranchManagers\Transformers\BranchManagerResource;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
 
@@ -86,11 +87,7 @@ class InternalTransferOrderResource extends JsonResource
                 'rejection_reason' => $this->rejection_reason,
                 'rejected_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
                 'rejected_by' => $this->whenLoaded('requestedBy', function () {
-                    return [
-                        'id' => $this->requestedBy->id,
-                        'name' => $this->requestedBy->name,
-                        'image' => $this->requestedBy->image_url ?? null,
-                    ];
+                    return $this->requestedBy ? new BranchManagerResource($this->requestedBy) : null;
                 }),
             ],
             'partial_confirmation' => [
