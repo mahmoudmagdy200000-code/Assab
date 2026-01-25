@@ -724,7 +724,7 @@ class GoodsReceiptService
             'vehicle_number' => $receipt?->vehicle_number ?? $order->vehicle_number,
             'arrival_time' => $receipt?->arrival_time?->format('Y-m-d H:i:s')
                 ?? $order->actual_delivery_at?->format('Y-m-d H:i:s'),
-            'delivery_address' => $receipt?->delivery_address ?? $order->branch?->location,
+            'delivery_address' => $receipt?->delivery_address,
         ];
 
         // If receipt exists, use receipt items, otherwise use order items
