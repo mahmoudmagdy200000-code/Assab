@@ -81,6 +81,30 @@ class ReturnOrderResource extends JsonResource
                     'status_label' => $this->purchaseOrder->status?->label(),
                 ];
             }),
+            'branch' => $this->whenLoaded('branch', function () {
+                if (!$this->branch) {
+                    return null;
+                }
+                return [
+                    'id' => $this->branch->id,
+                    'name' => $this->branch->name,
+                    'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
+                    'lat' => $this->branch->lat ? (float) $this->branch->lat : null,
+                    'lng' => $this->branch->lng ? (float) $this->branch->lng : null,
+                    'opening_hours' => $this->branch->opening_hours ?? null,
+                    'closing_hours' => $this->branch->closing_hours ?? null,
+                    'branch_manager' => $this->when(
+                        $this->branch->relationLoaded('branchManager') && $this->branch->branchManager,
+                        function () {
+                            return [
+                                'id' => $this->branch->branchManager->id,
+                                'name' => $this->branch->branchManager->name,
+                                'image' => $this->branch->branchManager->image_url ?? ($this->branch->branch_manager_image ? asset('storage/' . $this->branch->branch_manager_image) : null),
+                            ];
+                        }
+                    ),
+                ];
+            }),
             'supplier' => $this->whenLoaded('supplier', function () {
                 if (!$this->supplier) {
                     return null;

@@ -17,10 +17,18 @@ class Branch extends Model
 
     protected $fillable = [
         'name',
-        'location',
+        'lat',
+        'lng',
         'image',
         'opening_hours',
-        'map_coordinates',
+        'closing_hours',
+        'branch_manager_id',
+        'branch_manager_image',
+    ];
+
+    protected $casts = [
+        'lat' => 'decimal:8',
+        'lng' => 'decimal:8',
     ];
 
     public function managers()

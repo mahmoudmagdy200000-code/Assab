@@ -44,13 +44,27 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
 
             // Store/Branch Information
             'store' => $this->whenLoaded('branch', function () {
+                if (!$this->branch) {
+                    return null;
+                }
                 return [
                     'id' => $this->branch->id,
                     'name' => $this->branch->name,
-                    'location' => $this->branch->location,
-                    'opening_hours' => $this->branch->opening_hours ?? null,
-                    'map_coordinates' => $this->branch->map_coordinates ?? null,
                     'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
+                    'lat' => $this->branch->lat ? (float) $this->branch->lat : null,
+                    'lng' => $this->branch->lng ? (float) $this->branch->lng : null,
+                    'opening_hours' => $this->branch->opening_hours ?? null,
+                    'closing_hours' => $this->branch->closing_hours ?? null,
+                    'branch_manager' => $this->when(
+                        $this->branch->relationLoaded('branchManager') && $this->branch->branchManager,
+                        function () {
+                            return [
+                                'id' => $this->branch->branchManager->id,
+                                'name' => $this->branch->branchManager->name,
+                                'image' => $this->branch->branchManager->image_url ?? ($this->branch->branch_manager_image ? asset('storage/' . $this->branch->branch_manager_image) : null),
+                            ];
+                        }
+                    ),
                 ];
             }),
 

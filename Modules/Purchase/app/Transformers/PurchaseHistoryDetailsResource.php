@@ -139,7 +139,8 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'order_number' => $this->order_number ?? 'n/a',
                 'from' => [
                     'branch_name' => $this->branch?->name ?? 'n/a',
-                    'branch_location' => $this->branch?->location ?? 'n/a',
+                    'lat' => $this->branch?->lat ? (float) $this->branch->lat : null,
+                    'lng' => $this->branch?->lng ? (float) $this->branch->lng : null,
                 ],
                 'type' => $this->order_type?->value ?? 'n/a',
                 'supplier_name' => $this->supplier?->name ?? 'n/a',
@@ -200,7 +201,8 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'order_number' => $this->order_number ?? 'n/a',
                 'from' => [
                     'branch_name' => $this->branch?->name ?? 'n/a',
-                    'branch_location' => $this->branch?->location ?? 'n/a',
+                    'lat' => $this->branch?->lat ? (float) $this->branch->lat : null,
+                    'lng' => $this->branch?->lng ? (float) $this->branch->lng : null,
                 ],
                 'type' => $this->order_type?->value ?? 'n/a',
                 'requested_by' => $this->requestedBy?->name ?? 'n/a',
@@ -470,7 +472,8 @@ class PurchaseHistoryDetailsResource extends JsonResource
             return [
                 'id' => $this->fromBranch->id ?? 'n/a',
                 'name' => $this->fromBranch->name ?? 'n/a',
-                'location' => $this->fromBranch->location ?? 'n/a',
+                'lat' => $this->fromBranch->lat ? (float) $this->fromBranch->lat : null,
+                'lng' => $this->fromBranch->lng ? (float) $this->fromBranch->lng : null,
             ];
         }
 

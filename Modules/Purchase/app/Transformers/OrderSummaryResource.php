@@ -58,7 +58,8 @@ class OrderSummaryResource extends JsonResource
                 'from' => [
                     'id' => $this->branch?->id,
                     'branch_name' => $this->branch?->name,
-                    'branch_location' => $this->branch?->location,
+                    'lat' => $this->branch?->lat ? (float) $this->branch->lat : null,
+                    'lng' => $this->branch?->lng ? (float) $this->branch->lng : null,
                 ],
                 'total_amount' => (float) $this->total_amount,
                 'message' => $this->message,
@@ -98,7 +99,8 @@ class OrderSummaryResource extends JsonResource
                 'from' => [
                     'id' => $this->branch?->id,
                     'branch_name' => $this->branch?->name,
-                    'branch_location' => $this->branch?->location,
+                    'lat' => $this->branch?->lat ? (float) $this->branch->lat : null,
+                    'lng' => $this->branch?->lng ? (float) $this->branch->lng : null,
                 ],
                 'requested_by' => $this->requestedBy?->name ?? 'Me',
                 'requested_date' => $this->created_at?->format('Y-m-d H:i:s'),
@@ -144,7 +146,8 @@ class OrderSummaryResource extends JsonResource
                 'from' => [
                     'id' => $this->fromBranch?->id,
                     'name' => $this->fromBranch?->name,
-                    'location' => $this->fromBranch?->location,
+                    'lat' => $this->fromBranch?->lat ? (float) $this->fromBranch->lat : null,
+                    'lng' => $this->fromBranch?->lng ? (float) $this->fromBranch->lng : null,
                 ],
                 'requested_by' => $this->requestedBy?->name ?? 'Me',
                 'requested_date' => $this->created_at?->format('Y-m-d H:i:s'),
