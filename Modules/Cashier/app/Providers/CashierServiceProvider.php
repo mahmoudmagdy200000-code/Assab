@@ -66,13 +66,29 @@ class CashierServiceProvider extends ServiceProvider
     protected function registerViews(): void
     {
         $viewPath = resource_path('views/modules/' . $this->moduleNameLower);
-        $sourcePath = module_path($this->moduleName, 'Resources/views');
+        
+        // Try both Resources/views and resources/views to handle case sensitivity
+        $sourcePath = null;
+        $possiblePaths = [
+            module_path($this->moduleName, 'Resources/views'),
+            module_path($this->moduleName, 'resources/views'),
+        ];
+        
+        foreach ($possiblePaths as $path) {
+            if (is_dir($path)) {
+                $sourcePath = $path;
+                break;
+            }
+        }
+        
+        // Only register views if the directory exists
+        if ($sourcePath && is_dir($sourcePath)) {
+            $this->publishes([
+                $sourcePath => $viewPath
+            ], ['views', $this->moduleNameLower . '-module-views']);
 
-        $this->publishes([
-            $sourcePath => $viewPath
-        ], ['views', $this->moduleNameLower . '-module-views']);
-
-        $this->loadViewsFrom(array_merge($this->getPublishableViewPaths(), [$sourcePath]), $this->moduleNameLower);
+            $this->loadViewsFrom(array_merge($this->getPublishableViewPaths(), [$sourcePath]), $this->moduleNameLower);
+        }
     }
 
     protected function registerTranslations(): void
