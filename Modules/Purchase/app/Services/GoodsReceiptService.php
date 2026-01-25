@@ -738,7 +738,7 @@ class GoodsReceiptService
             $inspectionItems = $order->items->map(function ($orderItem) {
                 // Use quantity_confirmed if available (for partial confirmation), otherwise use quantity_ordered
                 $expectedQuantity = $orderItem->quantity_confirmed ?? $orderItem->quantity_ordered;
-                
+
                 return [
                     'item_id' => $orderItem->id,
                     'product_name' => $orderItem->item_name,
@@ -924,7 +924,7 @@ class GoodsReceiptService
                 // Use quantity_confirmed if available (for partial confirmation), otherwise use quantity_ordered
                 $expectedQuantity = $orderItem->quantity_confirmed ?? $orderItem->quantity_ordered;
                 $expectedTotal = $expectedQuantity * $orderItem->unit_price;
-                
+
                 GoodsReceiptItem::create([
                     'goods_receipt_id' => $receipt->id,
                     'purchase_order_item_id' => $orderItem->id,
@@ -1113,12 +1113,14 @@ class GoodsReceiptService
                     return [
                         'item_name' => $variance->item_name,
                         'item_logo' => $variance->item_logo,
+                        'temperature' => $variance->goodsReceiptItem?->temperature ?? null,
                         'quantity_ordered' => (float) $variance->quantity_ordered,
                         'quantity_received' => (float) $variance->quantity_received,
                         'quality' => $variance->quality_received?->value,
                         'variance_type' => $variance->variance_type?->value,
                         'amount_variance' => (float) $variance->variance_amount,
                         'supplier_response' => $variance->supplier_response,
+
                         'supplier_decision_status' => $variance->status,
                         'reported_on' => $variance->created_at?->format('Y-m-d H:i:s'),
                         'responded_on' => $variance->responded_at?->format('Y-m-d H:i:s'),
