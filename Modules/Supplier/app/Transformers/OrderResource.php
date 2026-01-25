@@ -26,8 +26,8 @@ class OrderResource extends JsonResource
                 'name' => $this->branch->name ?? null,
                 'lat' => $this->branch->lat ? (float) $this->branch->lat : null,
                 'lng' => $this->branch->lng ? (float) $this->branch->lng : null,
-                'opening_hours' => $this->branch->opening_hours ?? null,
-                'closing_hours' => $this->branch->closing_hours ?? null,
+                'opening_hours' => !empty($this->branch->opening_hours) ? (string) $this->branch->opening_hours : null,
+                'closing_hours' => !empty($this->branch->closing_hours) ? (string) $this->branch->closing_hours : null,
                 'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
             ],
 
