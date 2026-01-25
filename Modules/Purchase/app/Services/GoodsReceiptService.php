@@ -1049,16 +1049,24 @@ class GoodsReceiptService
                     'photo' => $order->driver_photo,
                     'vehicle_number' => $order->vehicle_number,
                 ],
-                'delivery_address' => $order->branch->location ?? null,
+                'delivery_address' => $latestReceipt?->delivery_address ?? null,
                 'delivery_notes' => $latestReceipt?->delivery_notes,
             ];
         }
 
         // Stage 3: Delivered
         if ($order->status === \Modules\Purchase\Enums\OrderStatus::DELIVERED && $latestReceipt) {
+            $invoice = $latestReceipt->invoice;
             $stages['delivered'] = [
                 'status' => 'delivered',
-                'invoice_file' => $latestReceipt->invoice?->file_url,
+                'invoice_file' => $invoice ? [
+                    'id' => (string) $invoice->id,
+                    'file_name' => $invoice->file_name ?? null,
+                    'file_type' => $invoice->file_type ?? null,
+                    'file_size' => $invoice->file_size ?? null,
+                    'url' => $invoice->file_url ?? null,
+                    'uploaded_at' => $invoice->created_at?->format('Y-m-d H:i:s'),
+                ] : null,
             ];
         }
 
