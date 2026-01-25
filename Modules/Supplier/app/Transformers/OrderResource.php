@@ -25,7 +25,10 @@ class OrderResource extends JsonResource
                 'id' => $this->branch->id ?? null,
                 'name' => $this->branch->name ?? null,
                 'location' => $this->branch->location ?? null,
-                'address' => $this->branch->address ?? null,
+                'opening_hours' => $this->branch->opening_hours ?? null,
+                'map_coordinates' => $this->branch->map_coordinates ?? null,
+                'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
+                'location' => $this->branch->location ?? null,
             ],
 
             // Branch Manager

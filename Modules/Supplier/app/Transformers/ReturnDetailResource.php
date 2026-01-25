@@ -83,6 +83,10 @@ class ReturnDetailResource extends JsonResource
                     'id' => $this->branch->id,
                     'name' => $this->branch->name,
                     'location' => $this->branch->location ?? null,
+                    'opening_hours' => $this->branch->opening_hours ?? null,
+                    'map_coordinates' => $this->branch->map_coordinates ?? null,
+                    'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
+                    
                 ];
             }),
 

@@ -20,7 +20,7 @@ return new class extends Migration
                 if (!Schema::hasColumn('suppliers', 'password')) {
                     $table->string('password')->nullable()->after('tax_id');
                 }
-                
+
                 // Add other missing columns from Supplier module structure
                 if (!Schema::hasColumn('suppliers', 'is_first_login')) {
                     $table->boolean('is_first_login')->default(true)->after('is_active');
@@ -94,7 +94,7 @@ return new class extends Migration
                 if (!Schema::hasColumn('suppliers', 'deleted_at')) {
                     $table->softDeletes();
                 }
-                
+
                 // Add indexes if they don't exist
                 // Note: Laravel doesn't provide a direct way to check if index exists
                 // We'll add them and ignore errors if they already exist
@@ -142,6 +142,7 @@ return new class extends Migration
             $table->string('image')->nullable();
             $table->text('address')->nullable();
             $table->string('tax_id')->nullable();
+            
 
             // Account Information
             $table->string('password');

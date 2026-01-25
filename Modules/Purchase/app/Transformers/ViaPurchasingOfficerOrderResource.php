@@ -48,6 +48,9 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
                     'id' => $this->branch->id,
                     'name' => $this->branch->name,
                     'location' => $this->branch->location,
+                    'opening_hours' => $this->branch->opening_hours ?? null,
+                    'map_coordinates' => $this->branch->map_coordinates ?? null,
+                    'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
                 ];
             }),
 
@@ -285,7 +288,7 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
     private function getCancellationDetails(): array
     {
         $status = $this->status?->value;
-        
+
         // Only return cancellation_reason for branch/supplier cancellations
         $cancellationReason = null;
         if (in_array($status, ['cancelled_by_branch', 'cancelled_by_supplier'])) {

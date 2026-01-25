@@ -47,6 +47,9 @@ class InternalTransferOrderResource extends JsonResource
                     'id' => $this->fromBranch->id,
                     'name' => $this->fromBranch->name,
                     'location' => $this->fromBranch->location,
+                    'opening_hours' => $this->fromBranch->opening_hours ?? null,
+                    'map_coordinates' => $this->fromBranch->map_coordinates ?? null,
+                    'image' => $this->fromBranch->image ? asset('storage/' . $this->fromBranch->image) : null,
                 ];
             }),
 
@@ -56,6 +59,9 @@ class InternalTransferOrderResource extends JsonResource
                     'id' => $this->branch->id,
                     'name' => $this->branch->name,
                     'location' => $this->branch->location,
+                    'opening_hours' => $this->branch->opening_hours ?? null,
+                    'map_coordinates' => $this->branch->map_coordinates ?? null,
+                    'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
                 ];
             }),
 
