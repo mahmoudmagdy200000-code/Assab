@@ -15,10 +15,11 @@ class BranchResource extends JsonResource
         return [
             'id' => $this->id,
             'name' => $this->name,
-            'location' => $this->location,
-            'image' => $this->image,
-            'opening_hours' => $this->opening_hours,
-            'map_coordinates' => $this->map_coordinates,
+            'lat' => $this->lat ? (float) $this->lat : null,
+            'lng' => $this->lng ? (float) $this->lng : null,
+            'image' => $this->image ? asset('storage/' . $this->image) : null,
+            'opening_hours' => $this->opening_hours ?? null,
+            'closing_hours' => $this->closing_hours ?? null,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

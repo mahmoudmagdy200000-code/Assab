@@ -935,7 +935,8 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                     'branch' => $branch ? [
                         'id' => $branch->id,
                         'name' => $branch->name,
-                        'location' => $branch->location ?? null,
+                        'lat' => $branch->lat ? (float) $branch->lat : null,
+                        'lng' => $branch->lng ? (float) $branch->lng : null,
                         'image' => $branch->image ? asset('storage/' . $branch->image) : null,
                     ] : null,
                     'branch_manager' => $manager ? [

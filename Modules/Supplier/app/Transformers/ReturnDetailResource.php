@@ -82,7 +82,8 @@ class ReturnDetailResource extends JsonResource
                 return [
                     'id' => $this->branch->id,
                     'name' => $this->branch->name,
-                    'location' => $this->branch->location ?? null,
+                    'lat' => $this->branch->lat ? (float) $this->branch->lat : null,
+                    'lng' => $this->branch->lng ? (float) $this->branch->lng : null,
                     'opening_hours' => $this->branch->opening_hours ?? null,
                     'map_coordinates' => $this->branch->map_coordinates ?? null,
                     'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,

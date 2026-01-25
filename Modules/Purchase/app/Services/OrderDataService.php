@@ -144,8 +144,8 @@ class OrderDataService
         return PurchaseOrder::with([
             'items:id,purchase_order_id,item_id,item_name,item_logo,quantity_ordered,quality_ordered,unit_price,total_price,available_in_source,remaining_balance,expiry_date,cooling_status',
             'supplier', // Load all supplier columns to access image_url accessor
-            'branch:id,name,location',
-            'fromBranch:id,name,location',
+            'branch:id,name,lat,lng',
+            'fromBranch:id,name,lat,lng',
             'requestedBy:id,name,email',
         ])->select([
             'id',
@@ -804,7 +804,7 @@ class OrderDataService
         try {
             // Performance optimization: Load only needed columns
             $branches = Branch::whereIn('id', [$fromBranchId, $toBranchId])
-                ->select('id', 'name', 'location')
+                ->select('id', 'name', 'lat', 'lng')
                 ->get()
                 ->keyBy('id');
 
@@ -843,7 +843,8 @@ class OrderDataService
                 'from_branch' => [
                     'id' => $fromBranch->id,
                     'name' => $fromBranch->name,
-                    'address' => $fromBranch->location,
+                    'lat' => $fromBranch->lat ? (float) $fromBranch->lat : null,
+                    'lng' => $fromBranch->lng ? (float) $fromBranch->lng : null,
                 ],
                 'to_branch' => [
                     'id' => $toBranch->id,

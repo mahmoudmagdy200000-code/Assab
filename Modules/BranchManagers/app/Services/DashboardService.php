@@ -23,7 +23,8 @@ class DashboardService
             'branch' => [
                 'id' => $manager->branch->id,
                 'name' => $manager->branch->name,
-                'location' => $manager->branch->location,
+                'lat' => $manager->branch->lat ? (float) $manager->branch->lat : null,
+                'lng' => $manager->branch->lng ? (float) $manager->branch->lng : null,
                 'opening_hours' => $manager->branch->opening_hours,
             ],
             'today_summary' => $this->getTodaySummary($manager),
