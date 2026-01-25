@@ -43,6 +43,9 @@ class ReturnDetailResource extends JsonResource
             'rejection_reason' => $this->rejection_reason,
             'rejected_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
 
+            // Cancellation (for rejected returns)
+            'cancellation' => $this->getCancellationDetails(),
+
             'is_escalated' => $this->is_escalated,
             'escalation_reason' => $this->escalation_reason,
             'escalated_at' => $this->escalated_at?->format('Y-m-d H:i:s'),
@@ -86,5 +89,106 @@ class ReturnDetailResource extends JsonResource
             'items' => ReturnOrderItemResource::collection($this->whenLoaded('items')),
             'timelines' => $this->whenLoaded('timelines', fn () => TimelineResource::collection($this->timelines)),
         ];
+    }
+
+    /**
+     * Get cancellation details for rejected return orders
+     * Returns cancellation object with reason, timestamp, and who cancelled it
+     */
+    private function getCancellationDetails(): ?array
+    {
+        // Only return cancellation details if return is rejected
+        if ($this->status?->value !== 'rejected') {
+            return null;
+        }
+
+        // Get cancellation reason (rejection_reason)
+        $cancellationReason = $this->rejection_reason ?? null;
+
+        // Get cancelled_at (rejected_at)
+        $cancelledAt = $this->rejected_at?->format('Y-m-d\TH:i:s\Z') ?? null;
+
+        // Get cancelled_by information
+        $cancelledBy = $this->getCancelledByInfo();
+
+        // Only return if we have at least a reason or timestamp
+        if (!$cancellationReason && !$cancelledAt) {
+            return null;
+        }
+
+        return [
+            'cancellation_reason' => $cancellationReason,
+            'cancelled_at' => $cancelledAt,
+            'cancelled_by' => $cancelledBy,
+        ];
+    }
+
+    /**
+     * Get information about who cancelled/rejected the return
+     */
+    private function getCancelledByInfo(): ?array
+    {
+        if (!$this->responded_by) {
+            return null;
+        }
+
+        // Check if responded_by is a supplier
+        $supplierInfo = $this->getSupplierInfo();
+        if ($supplierInfo) {
+            return $supplierInfo;
+        }
+
+        // Check if responded_by is a branch manager/user
+        $userInfo = $this->getUserInfo();
+        if ($userInfo) {
+            return $userInfo;
+        }
+
+        // Fallback: return minimal info with type 'user'
+        return [
+            'id' => $this->responded_by,
+            'name' => null,
+            'type' => 'user',
+        ];
+    }
+
+    /**
+     * Get supplier info if responded_by is a supplier
+     */
+    private function getSupplierInfo(): ?array
+    {
+        if (!$this->relationLoaded('supplier') || !$this->supplier) {
+            return null;
+        }
+
+        // Check if responded_by matches supplier_id
+        $isSupplier = $this->responded_by === $this->supplier->id ||
+            ($this->supplier_id && $this->responded_by === $this->supplier_id);
+
+        if ($isSupplier) {
+            return [
+                'id' => $this->supplier->id,
+                'name' => $this->supplier->name ?? null,
+                'type' => 'supplier',
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Get user/branch manager info if responded_by is a user
+     */
+    private function getUserInfo(): ?array
+    {
+        if ($this->relationLoaded('respondedBy') && $this->respondedBy) {
+            return [
+                'id' => $this->respondedBy->id,
+                'name' => $this->respondedBy->name ?? null,
+                'type' => 'user',
+            ];
+        }
+
+        return null;
     }
 }

@@ -17,7 +17,9 @@ class ReturnManagementService
     {
         $query = ReturnOrder::with([
             'purchaseOrder:id,order_number',
+            'supplier',
             'branch:id,name',
+            'respondedBy',
             'items',
         ])
             ->where('supplier_id', $supplier->id)
@@ -41,7 +43,9 @@ class ReturnManagementService
     {
         return ReturnOrder::with([
             'purchaseOrder',
+            'supplier',
             'branch',
+            'respondedBy',
             'items',
             'timelines',
         ])
