@@ -18,6 +18,7 @@ class StartDeliveryRequest extends FormRequest
             'vehicle_number' => 'required|string|max:50',
             'expected_delivery_at' => 'required|string',
             'driver_photo' => 'nullable|file|image|mimes:jpeg,jpg,png|max:5120',
+            'delivery_address' => 'nullable|string|max:500',
             'notes' => 'nullable|string|max:1000',
         ];
     }

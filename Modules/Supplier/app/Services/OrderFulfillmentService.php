@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
+use Modules\Purchase\Models\GoodsReceipt;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Supplier\Models\DeliveryProof;
@@ -136,6 +137,34 @@ class OrderFulfillmentService
             }
 
             $order->update($updateData);
+
+            // Create or update GoodsReceipt with delivery_address
+            $receipt = GoodsReceipt::where('purchase_order_id', $order->id)
+                ->where('status', 'draft')
+                ->first();
+
+            if (!$receipt) {
+                // Create new receipt if doesn't exist
+                $receipt = GoodsReceipt::create([
+                    'purchase_order_id' => $order->id,
+                    'branch_id' => $order->branch_id,
+                    'received_by' => $order->requested_by, // Will be updated when branch receives
+                    'status' => 'draft',
+                    'driver_name' => $data['driver_name'] ?? null,
+                    'driver_contact' => null, // Will be updated later
+                    'vehicle_number' => $data['vehicle_number'] ?? null,
+                    'delivery_address' => $data['delivery_address'] ?? null,
+                    'delivery_notes' => $data['notes'] ?? null,
+                ]);
+            } else {
+                // Update existing receipt with delivery details
+                $receipt->update([
+                    'driver_name' => $data['driver_name'] ?? $receipt->driver_name,
+                    'vehicle_number' => $data['vehicle_number'] ?? $receipt->vehicle_number,
+                    'delivery_address' => $data['delivery_address'] ?? $receipt->delivery_address,
+                    'delivery_notes' => $data['notes'] ?? $receipt->delivery_notes,
+                ]);
+            }
 
             // Update items status to on_the_way
             // Include delayed_approved items (approved delays can continue delivery)
