@@ -15,7 +15,7 @@ class RejectReturnRequest extends FormRequest
     {
         return [
             'reason' => 'required|string|max:1000',
-            'explanation' => 'required|string|max:1000',
+            'explanation' => 'nullable|string|max:1000',
         ];
     }
 }
