@@ -94,13 +94,15 @@ class ReturnDetailResource extends JsonResource
     /**
      * Get cancellation details for rejected return orders
      * Returns cancellation object with reason, timestamp, and who cancelled it
+     * Shows cancellation if there was a rejection (regardless of current status)
      */
     private function getCancellationDetails(): ?array
     {
-        // Only return cancellation details if return is rejected
-        // if ($this->status?->value !== 'rejected') {
-        //     return null;
-        // }
+        // Return cancellation if there was a rejection (regardless of current status)
+        // Check if rejected_at or rejection_reason exists
+        if (!$this->rejected_at && !$this->rejection_reason) {
+            return null;
+        }
 
         // Get cancellation reason (rejection_reason)
         $cancellationReason = $this->rejection_reason ?? null;
@@ -110,11 +112,6 @@ class ReturnDetailResource extends JsonResource
 
         // Get cancelled_by information
         $cancelledBy = $this->getCancelledByInfo();
-
-        // Only return if we have at least a reason or timestamp
-        if (!$cancellationReason && !$cancelledAt) {
-            return null;
-        }
 
         return [
             'cancellation_reason' => $cancellationReason,
