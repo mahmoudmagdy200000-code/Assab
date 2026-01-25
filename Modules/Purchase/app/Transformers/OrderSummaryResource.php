@@ -102,7 +102,16 @@ class OrderSummaryResource extends JsonResource
                     'lat' => $this->branch?->lat ? (float) $this->branch->lat : null,
                     'lng' => $this->branch?->lng ? (float) $this->branch->lng : null,
                 ],
-                'requested_by' => $this->requestedBy?->name ?? 'Me',
+                'requested_by' => $this->whenLoaded('requestedBy', function () {
+                    if (!$this->requestedBy) {
+                        return ['name' => 'Me', 'image' => null];
+                    }
+                    return [
+                        'id' => $this->requestedBy->id,
+                        'name' => $this->requestedBy->name,
+                        'image' => $this->requestedBy->image_url ?? null,
+                    ];
+                }) ?? ['name' => 'Me', 'image' => null],
                 'requested_date' => $this->created_at?->format('Y-m-d H:i:s'),
                 'message' => $this->message,
             ],
@@ -149,7 +158,16 @@ class OrderSummaryResource extends JsonResource
                     'lat' => $this->fromBranch?->lat ? (float) $this->fromBranch->lat : null,
                     'lng' => $this->fromBranch?->lng ? (float) $this->fromBranch->lng : null,
                 ],
-                'requested_by' => $this->requestedBy?->name ?? 'Me',
+                'requested_by' => $this->whenLoaded('requestedBy', function () {
+                    if (!$this->requestedBy) {
+                        return ['name' => 'Me', 'image' => null];
+                    }
+                    return [
+                        'id' => $this->requestedBy->id,
+                        'name' => $this->requestedBy->name,
+                        'image' => $this->requestedBy->image_url ?? null,
+                    ];
+                }) ?? ['name' => 'Me', 'image' => null],
                 'requested_date' => $this->created_at?->format('Y-m-d H:i:s'),
             ],
             'items' => $this->getInternalTransferItems(),

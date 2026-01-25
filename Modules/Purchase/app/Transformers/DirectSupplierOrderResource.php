@@ -116,6 +116,7 @@ class DirectSupplierOrderResource extends JsonResource
                     return [
                         'id' => $this->requestedBy->id,
                         'name' => $this->requestedBy->name,
+                        'image' => $this->requestedBy->image_url ?? null,
                     ];
                 }),
             ],
@@ -316,6 +317,7 @@ class DirectSupplierOrderResource extends JsonResource
                 return [
                     'id' => $this->requestedBy->id,
                     'name' => $this->requestedBy->name,
+                    'image' => $this->requestedBy->image_url ?? null,
                 ];
             }),
         ];

@@ -207,6 +207,7 @@ class ReturnOrderResource extends JsonResource
                 'id' => $this->respondedBy->id,
                 'name' => $this->respondedBy->name ?? null,
                 'type' => 'user',
+                'image' => $this->respondedBy->image_url ?? null,
             ];
         }
 

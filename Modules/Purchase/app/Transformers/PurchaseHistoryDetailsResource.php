@@ -260,8 +260,9 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     return [
                         'id' => $this->requestedBy->id ?? 'n/a',
                         'name' => $this->requestedBy->name ?? 'n/a',
+                        'image' => $this->requestedBy->image_url ?? null,
                     ];
-                }) ?? ['id' => 'n/a', 'name' => 'n/a'],
+                }) ?? ['id' => 'n/a', 'name' => 'n/a', 'image' => null],
                 'priority' => $this->priority?->value ?? 'n/a',
                 'request_date' => $this->created_at?->toDateTimeString() ?? 'n/a',
                 'justification' => $this->message ?? 'n/a',
