@@ -1,0 +1,645 @@
+<?php
+
+namespace Modules\Inventory\Services;
+
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Modules\BranchManagers\Models\BranchManager;
+use Modules\Cashier\Models\Cashier;
+use Modules\Inventory\Enums\MonthlyInventoryStatus;
+use Modules\Inventory\Enums\MonthlyInventoryTimelineEventType;
+use Modules\Inventory\Models\MonthlyInventory;
+use Modules\Inventory\Models\MonthlyInventoryFeedback;
+use Modules\Inventory\Models\MonthlyInventoryProduct;
+use Modules\Inventory\Models\MonthlyInventoryStaff;
+use Modules\Inventory\Models\MonthlyInventoryTimeline;
+use Modules\Inventory\Repositories\MonthlyInventoryRepository;
+use Modules\Purchase\Enums\OrderStatus;
+use Modules\Purchase\Models\PurchaseOrderItem;
+
+class MonthlyInventoryService
+{
+    private const EXPECTED_MINUTES_PER_PRODUCT = 0.5;
+    private const MIN_EXPECTED_MINUTES = 45;
+    private const MAX_EXPECTED_MINUTES = 60;
+
+    public function __construct(
+        private readonly MonthlyInventoryRepository $repository,
+        private readonly InventorySessionService $sessionService
+    ) {}
+
+    /**
+     * Get setup info: date, product count, expected time.
+     */
+    public function getSetupInfo(string $branchId): array
+    {
+        $items = $this->sessionService->getClosedOrderItems($branchId);
+        $count = $items->count();
+
+        $expectedMinutes = (int) min(
+            max(self::MIN_EXPECTED_MINUTES, ceil($count * self::EXPECTED_MINUTES_PER_PRODUCT)),
+            self::MAX_EXPECTED_MINUTES
+        );
+
+        return [
+            'date' => now()->format('Y-m-d'),
+            'number_of_products' => $count,
+            'expected_time_minutes' => $expectedMinutes,
+            'expected_time_label' => $expectedMinutes . '-' . min($expectedMinutes + 15, self::MAX_EXPECTED_MINUTES) . ' Minutes',
+        ];
+    }
+
+    /**
+     * Get staff options for dropdowns (Cashiers in branch).
+     */
+    public function getStaffOptions(string $branchId): Collection
+    {
+        return $this->sessionService->getAvailableCashiers($branchId);
+    }
+
+    /**
+     * Get last inventory team for "Use Same Team" suggestion.
+     */
+    public function getLastTeam(string $branchId): array
+    {
+        $last = $this->repository->getLastCompletedForBranch($branchId);
+        if (!$last || $last->staff->isEmpty()) {
+            return [];
+        }
+
+        return $last->staff->map(function (MonthlyInventoryStaff $s) {
+            $user = $s->user;
+            return [
+                'id' => $s->user_id,
+                'type' => $s->user_type,
+                'name' => $user?->name ?? 'Unknown',
+                'role' => $s->role,
+            ];
+        })->values()->all();
+    }
+
+    /**
+     * Create and start a monthly inventory.
+     *
+     * @param array{inventory_date: string, staff: array<string>} $data
+     */
+    public function create(array $data, BranchManager $manager): MonthlyInventory
+    {
+        $staffIds = $data['staff'] ?? [];
+        if (count($staffIds) < 3) {
+            throw new \InvalidArgumentException('At least 3 staff members are required.');
+        }
+
+        return DB::transaction(function () use ($data, $manager) {
+            $branchId = $manager->branch_id;
+            $items = $this->sessionService->getClosedOrderItems($branchId);
+            $count = $items->count();
+            $expectedMinutes = (int) min(
+                max(self::MIN_EXPECTED_MINUTES, ceil($count * self::EXPECTED_MINUTES_PER_PRODUCT)),
+                self::MAX_EXPECTED_MINUTES
+            );
+
+            $inventory = $this->repository->create([
+                'branch_id' => $branchId,
+                'created_by' => $manager->id,
+                'inventory_date' => $data['inventory_date'],
+                'start_time' => now(),
+                'number_of_products' => $count,
+                'expected_time_minutes' => $expectedMinutes,
+                'status' => MonthlyInventoryStatus::IN_PROGRESS,
+            ]);
+
+            $this->attachTeam($inventory, $manager, $data['staff'] ?? []);
+            $this->seedProductsFromClosedItems($inventory, $items, $branchId);
+
+            MonthlyInventoryTimeline::log(
+                $inventory,
+                MonthlyInventoryTimelineEventType::CREATED,
+                'Monthly inventory created',
+                'Team assigned, products initialized.',
+                null,
+                MonthlyInventoryStatus::IN_PROGRESS->value
+            );
+
+            return $inventory->fresh(['branch', 'createdBy', 'staff', 'products']);
+        });
+    }
+
+    /**
+     * @param array<string> $staffIds Cashier IDs
+     */
+    private function attachTeam(MonthlyInventory $inventory, BranchManager $manager, array $staffIds): void
+    {
+        $cashiers = Cashier::where('branch_id', $manager->branch_id)
+            ->where('status', 'active')
+            ->whereIn('id', $staffIds)
+            ->pluck('id')
+            ->all();
+
+        MonthlyInventoryStaff::create([
+            'monthly_inventory_id' => $inventory->id,
+            'user_id' => $manager->id,
+            'user_type' => $manager->getMorphClass(),
+            'role' => MonthlyInventoryStaff::ROLE_TEAM_LEADER,
+        ]);
+
+        foreach ($cashiers as $cashierId) {
+            MonthlyInventoryStaff::create([
+                'monthly_inventory_id' => $inventory->id,
+                'user_id' => $cashierId,
+                'user_type' => (new Cashier)->getMorphClass(),
+                'role' => MonthlyInventoryStaff::ROLE_STAFF,
+            ]);
+        }
+    }
+
+    private function seedProductsFromClosedItems(MonthlyInventory $inventory, Collection $items, string $branchId): void
+    {
+        foreach ($items as $row) {
+            $poItem = PurchaseOrderItem::with('item')->find($row['id'] ?? $row['purchase_order_item_id'] ?? null);
+            if (!$poItem) {
+                continue;
+            }
+
+            $unit = $row['item_unit'] ?? $poItem->item?->unit ?? $poItem->unit_of_measurement ?? 'unit';
+            if (is_array($unit) || is_object($unit)) {
+                $unit = 'unit';
+            }
+
+            MonthlyInventoryProduct::create([
+                'monthly_inventory_id' => $inventory->id,
+                'item_id' => $poItem->item_id,
+                'purchase_order_item_id' => $poItem->id,
+                'item_name' => $poItem->item_name ?? $row['item_name'] ?? 'Unknown',
+                'unit' => $unit,
+                'quantity_inventory' => 0,
+                'unit_price' => (float) ($row['unit_price'] ?? $poItem->unit_price ?? 0),
+                'category' => $row['category'] ?? $poItem->category,
+                'subcategory' => $row['subcategory'] ?? $poItem->subcategory,
+                'branch_id' => $branchId,
+            ]);
+        }
+    }
+
+    /**
+     * @param array{branch_id?: string, created_by?: string, status?: string, date_from?: string, date_to?: string} $filters
+     */
+    public function listByStatus(string $branchId, ?string $status, array $filters, int $perPage = 15): LengthAwarePaginator
+    {
+        $filters['branch_id'] = $branchId;
+        if ($status) {
+            $filters['status'] = $status;
+        }
+
+        return $this->repository->getPaginated($filters, $perPage);
+    }
+
+    public function findForBranch(string $id, string $branchId, ?string $createdBy = null, array $relations = []): ?MonthlyInventory
+    {
+        if ($createdBy) {
+            return $this->repository->findByBranchAndCreator($id, $branchId, $createdBy, $relations);
+        }
+
+        return $this->repository->findByBranch($id, $branchId, $relations);
+    }
+
+    /**
+     * Get pending products (not yet counted or for list). Optional search.
+     */
+    public function getPendingProducts(string $inventoryId, ?string $search = null): Collection
+    {
+        $query = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
+            ->with(['item', 'purchaseOrderItem', 'handledBy']);
+
+        if ($search !== null && $search !== '') {
+            $query->where('item_name', 'like', '%' . $search . '%');
+        }
+
+        return $query->orderBy('item_name')->get();
+    }
+
+    /**
+     * Get all products with optional search (for completed list).
+     */
+    public function getProducts(string $inventoryId, ?string $search = null, bool $completedOnly = false): Collection
+    {
+        $query = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
+            ->with(['item', 'purchaseOrderItem', 'handledBy']);
+
+        if ($search !== null && $search !== '') {
+            $query->where('item_name', 'like', '%' . $search . '%');
+        }
+
+        if ($completedOnly) {
+            $query->where('quantity_inventory', '>', 0);
+        }
+
+        return $query->orderBy('item_name')->get();
+    }
+
+    /**
+     * Update product quantity. Optional count_method and count_metadata for slider.
+     *
+     * @param array{quantity_inventory: float, count_method?: string, count_metadata?: array} $data
+     */
+    public function updateProductQuantity(string $inventoryId, string $productId, array $data): MonthlyInventoryProduct
+    {
+        return DB::transaction(function () use ($inventoryId, $productId, $data) {
+            $product = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
+                ->where('id', $productId)
+                ->firstOrFail();
+
+            $inventory = $product->monthlyInventory;
+            if (!$inventory->status->isEditable()) {
+                throw new \InvalidArgumentException('Inventory is not editable in current status.');
+            }
+
+            $update = [
+                'quantity_inventory' => $data['quantity_inventory'] ?? $product->quantity_inventory,
+            ];
+            if (isset($data['count_method'])) {
+                $update['count_method'] = $data['count_method'];
+            }
+            if (isset($data['count_metadata'])) {
+                $update['count_metadata'] = $data['count_metadata'];
+            }
+
+            $product->update($update);
+
+            return $product->fresh(['item', 'purchaseOrderItem']);
+        });
+    }
+
+    public function claimProduct(string $inventoryId, string $productId, BranchManager|Cashier $user): MonthlyInventoryProduct
+    {
+        return DB::transaction(function () use ($inventoryId, $productId, $user) {
+            $product = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
+                ->where('id', $productId)
+                ->firstOrFail();
+
+            $product->update([
+                'handled_by_id' => $user->getKey(),
+                'handled_by_type' => $user->getMorphClass(),
+                'locked_at' => now(),
+            ]);
+
+            return $product->fresh(['handledBy']);
+        });
+    }
+
+    public function releaseProduct(string $inventoryId, string $productId): MonthlyInventoryProduct
+    {
+        return DB::transaction(function () use ($inventoryId, $productId) {
+            $product = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
+                ->where('id', $productId)
+                ->firstOrFail();
+
+            $product->update([
+                'handled_by_id' => null,
+                'handled_by_type' => null,
+                'locked_at' => null,
+            ]);
+
+            return $product->fresh(['handledBy']);
+        });
+    }
+
+    /**
+     * Get progress: elapsed, completed/total, completed products.
+     */
+    public function getProgress(string $inventoryId, ?string $search = null): array
+    {
+        $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
+        $products = $this->getProducts($inventoryId, $search, true);
+        $total = $inventory->products()->count();
+        $completed = $inventory->products()->where('quantity_inventory', '>', 0)->count();
+
+        $elapsed = $inventory->start_time ? (int) $inventory->start_time->diffInSeconds(now()) : 0;
+
+        return [
+            'elapsed_seconds' => $elapsed,
+            'elapsed_formatted' => $this->formatElapsed($elapsed),
+            'completed' => $completed,
+            'total' => $total,
+            'completed_products' => $products->values()->all(),
+        ];
+    }
+
+    private function formatElapsed(int $seconds): string
+    {
+        $h = (int) floor($seconds / 3600);
+        $m = (int) floor(($seconds % 3600) / 60);
+        $s = (int) ($seconds % 60);
+
+        return sprintf('%02d:%02d:%02d', $h, $m, $s);
+    }
+
+    /**
+     * Save progress. Optionally move to draft.
+     */
+    public function saveProgress(string $inventoryId, bool $moveToDraft = false): MonthlyInventory
+    {
+        return DB::transaction(function () use ($inventoryId, $moveToDraft) {
+            $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
+
+            if (!$inventory->status->isEditable()) {
+                throw new \InvalidArgumentException('Inventory is not editable.');
+            }
+
+            if ($moveToDraft && $inventory->status === MonthlyInventoryStatus::IN_PROGRESS) {
+                $old = $inventory->status->value;
+                $inventory->update(['status' => MonthlyInventoryStatus::DRAFT]);
+                MonthlyInventoryTimeline::log(
+                    $inventory,
+                    MonthlyInventoryTimelineEventType::SAVED,
+                    'Progress saved to draft',
+                    null,
+                    $old,
+                    MonthlyInventoryStatus::DRAFT->value
+                );
+            }
+
+            return $inventory->fresh();
+        });
+    }
+
+    /**
+     * Mark for review (all products counted) -> status completed.
+     */
+    public function markForReview(string $inventoryId): MonthlyInventory
+    {
+        return DB::transaction(function () use ($inventoryId) {
+            $inventory = MonthlyInventory::with('products')->where('id', $inventoryId)->firstOrFail();
+
+            if (!$inventory->status->isEditable()) {
+                throw new \InvalidArgumentException('Inventory is not editable.');
+            }
+
+            $total = $inventory->products->count();
+            $counted = $inventory->products->where('quantity_inventory', '>', 0)->count();
+            if ($total > 0 && $counted < $total) {
+                throw new \InvalidArgumentException('All products must be counted before review.');
+            }
+
+            $old = $inventory->status->value;
+            $inventory->update([
+                'status' => MonthlyInventoryStatus::COMPLETED,
+                'end_time' => now(),
+            ]);
+            $inventory->calculateTimeTaken();
+            $inventory->save();
+
+            MonthlyInventoryTimeline::log(
+                $inventory,
+                MonthlyInventoryTimelineEventType::REVIEWED,
+                'Marked for review',
+                'All products counted.',
+                $old,
+                MonthlyInventoryStatus::COMPLETED->value
+            );
+
+            return $inventory->fresh(['products', 'staff']);
+        });
+    }
+
+    /**
+     * Submit for approval.
+     */
+    public function submitForApproval(string $inventoryId, BranchManager $manager): MonthlyInventory
+    {
+        return DB::transaction(function () use ($inventoryId, $manager) {
+            $inventory = $this->findForBranch($inventoryId, $manager->branch_id, $manager->id);
+            if (!$inventory) {
+                throw new \InvalidArgumentException('Inventory not found.');
+            }
+
+            if (!$inventory->status->canSubmit()) {
+                throw new \InvalidArgumentException('Inventory cannot be submitted in current status.');
+            }
+
+            $old = $inventory->status->value;
+            $inventory->update([
+                'status' => MonthlyInventoryStatus::SUBMITTED,
+                'submitted_at' => now(),
+            ]);
+
+            MonthlyInventoryTimeline::log(
+                $inventory,
+                MonthlyInventoryTimelineEventType::SUBMITTED,
+                'Submitted for approval',
+                'Sent to management/finance for review.',
+                $old,
+                MonthlyInventoryStatus::SUBMITTED->value
+            );
+
+            return $inventory->fresh();
+        });
+    }
+
+    /**
+     * Approve inventory (finance).
+     */
+    public function approve(string $inventoryId): MonthlyInventory
+    {
+        return DB::transaction(function () use ($inventoryId) {
+            $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
+
+            if ($inventory->status !== MonthlyInventoryStatus::SUBMITTED && $inventory->status !== MonthlyInventoryStatus::PENDING_FINANCE_REVIEW) {
+                throw new \InvalidArgumentException('Only submitted inventories can be approved.');
+            }
+
+            $old = $inventory->status->value;
+            $inventory->update([
+                'status' => MonthlyInventoryStatus::APPROVED,
+                'approved_at' => now(),
+            ]);
+
+            MonthlyInventoryTimeline::log(
+                $inventory,
+                MonthlyInventoryTimelineEventType::APPROVED,
+                'Inventory approved',
+                'Official record for the period.',
+                $old,
+                MonthlyInventoryStatus::APPROVED->value
+            );
+
+            return $inventory->fresh();
+        });
+    }
+
+    /**
+     * Return to draft with feedback.
+     */
+    public function returnToDraft(string $inventoryId, string $feedback, $author = null): MonthlyInventory
+    {
+        return DB::transaction(function () use ($inventoryId, $feedback, $author) {
+            $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
+
+            if ($inventory->status !== MonthlyInventoryStatus::SUBMITTED && $inventory->status !== MonthlyInventoryStatus::PENDING_FINANCE_REVIEW) {
+                throw new \InvalidArgumentException('Only submitted inventories can be returned to draft.');
+            }
+
+            $actor = $author ?? auth()->user();
+            MonthlyInventoryFeedback::create([
+                'monthly_inventory_id' => $inventory->id,
+                'author_id' => $actor?->getKey(),
+                'author_type' => $actor ? $actor->getMorphClass() : null,
+                'author_name' => $actor?->name ?? 'Management',
+                'message' => $feedback,
+            ]);
+
+            $old = $inventory->status->value;
+            $inventory->update(['status' => MonthlyInventoryStatus::RETURNED_TO_DRAFT]);
+
+            MonthlyInventoryTimeline::log(
+                $inventory,
+                MonthlyInventoryTimelineEventType::RETURNED_TO_DRAFT,
+                'Returned to draft',
+                $feedback,
+                $old,
+                MonthlyInventoryStatus::RETURNED_TO_DRAFT->value
+            );
+
+            return $inventory->fresh(['feedback']);
+        });
+    }
+
+    /**
+     * Get full report: summary, team contributions, value, categories.
+     */
+    public function getReport(string $inventoryId): array
+    {
+        $inventory = MonthlyInventory::with(['products', 'staff.user', 'branch'])
+            ->where('id', $inventoryId)
+            ->firstOrFail();
+
+        $products = $inventory->products;
+        $totalValue = $products->sum(fn (MonthlyInventoryProduct $p) => $p->line_value);
+        $completed = $products->where('quantity_inventory', '>', 0)->count();
+        $total = $products->count();
+
+        $byCategory = $products->filter(fn ($p) => (string) $p->category !== '')
+            ->groupBy('category')
+            ->map(function ($items, $cat) {
+                $value = $items->sum(fn (MonthlyInventoryProduct $p) => $p->line_value);
+                return ['category' => $cat, 'value' => round($value, 2), 'items' => $items->count()];
+            })
+            ->values()
+            ->all();
+
+        $teamContributions = [];
+        foreach ($inventory->staff as $s) {
+            $user = $s->user;
+            $teamContributions[] = [
+                'user_id' => $s->user_id,
+                'user_type' => $s->user_type,
+                'name' => $user?->name ?? 'Unknown',
+                'role' => $s->role,
+                'products_count' => 0,
+                'performance' => 'Good',
+            ];
+        }
+
+        return [
+            'inventory' => $inventory,
+            'summary' => [
+                'products_complete' => $completed,
+                'products_total' => $total,
+                'time_taken_seconds' => $inventory->time_taken,
+                'time_taken_formatted' => $inventory->time_taken_formatted,
+                'participants_count' => $inventory->staff->count(),
+                'total_value' => round($totalValue, 2),
+                'status' => $inventory->status->value,
+            ],
+            'team_contributions' => $teamContributions,
+            'value_by_category' => $byCategory,
+            'products' => $products,
+        ];
+    }
+
+    /**
+     * Get month-over-month comparison.
+     */
+    public function getMonthlyComparison(string $branchId, int $year, int $month): array
+    {
+        $thisMonth = \Carbon\Carbon::createFromDate($year, $month, 1);
+        $prevMonth = $thisMonth->copy()->subMonth();
+
+        $current = MonthlyInventory::where('branch_id', $branchId)
+            ->whereYear('inventory_date', $thisMonth->year)
+            ->whereMonth('inventory_date', $thisMonth->month)
+            ->whereIn('status', [MonthlyInventoryStatus::COMPLETED, MonthlyInventoryStatus::SUBMITTED, MonthlyInventoryStatus::APPROVED])
+            ->with('products')
+            ->orderBy('inventory_date', 'desc')
+            ->first();
+
+        $previous = MonthlyInventory::where('branch_id', $branchId)
+            ->whereYear('inventory_date', $prevMonth->year)
+            ->whereMonth('inventory_date', $prevMonth->month)
+            ->whereIn('status', [MonthlyInventoryStatus::COMPLETED, MonthlyInventoryStatus::SUBMITTED, MonthlyInventoryStatus::APPROVED])
+            ->with('products')
+            ->orderBy('inventory_date', 'desc')
+            ->first();
+
+        $currByItem = $current ? $current->products->keyBy('item_id') : collect();
+        $prevByItem = $previous ? $previous->products->keyBy('item_id') : collect();
+
+        $allItemIds = $currByItem->keys()->merge($prevByItem->keys())->unique()->filter();
+
+        $items = [];
+        foreach ($allItemIds as $itemId) {
+            $c = $currByItem->get($itemId);
+            $p = $prevByItem->get($itemId);
+            $currQty = $c ? (float) $c->quantity_inventory : 0.0;
+            $prevQty = $p ? (float) $p->quantity_inventory : 0.0;
+
+            $changePct = $prevQty != 0
+                ? (($currQty - $prevQty) / $prevQty) * 100
+                : ($currQty > 0 ? 100.0 : 0.0);
+
+            $items[] = [
+                'item_id' => $itemId,
+                'item_name' => $c?->item_name ?? $p?->item_name ?? 'Unknown',
+                'unit' => $c?->unit ?? $p?->unit ?? 'unit',
+                'current_quantity' => $currQty,
+                'previous_quantity' => $prevQty,
+                'change_percent' => round($changePct, 2),
+                'not_in_current_report' => !$c && $p,
+            ];
+        }
+
+        return [
+            'period' => ['year' => $year, 'month' => $month],
+            'items' => $items,
+        ];
+    }
+
+    public function getTimelines(string $inventoryId): Collection
+    {
+        return MonthlyInventoryTimeline::where('monthly_inventory_id', $inventoryId)
+            ->orderBy('occurred_at', 'desc')
+            ->get();
+    }
+
+    public function getFeedback(string $inventoryId): Collection
+    {
+        return MonthlyInventoryFeedback::where('monthly_inventory_id', $inventoryId)
+            ->orderBy('created_at', 'desc')
+            ->get();
+    }
+
+    public function addFeedback(string $inventoryId, string $message, $author = null): MonthlyInventoryFeedback
+    {
+        $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
+        $actor = $author ?? auth()->user();
+
+        return MonthlyInventoryFeedback::create([
+            'monthly_inventory_id' => $inventory->id,
+            'author_id' => $actor?->getKey(),
+            'author_type' => $actor ? $actor->getMorphClass() : null,
+            'author_name' => $actor?->name ?? 'Management',
+            'message' => $message,
+        ]);
+    }
+}

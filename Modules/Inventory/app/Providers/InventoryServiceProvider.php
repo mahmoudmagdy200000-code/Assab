@@ -3,7 +3,10 @@
 namespace Modules\Inventory\Providers;
 
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
+use Modules\Inventory\Models\MonthlyInventory;
+use Modules\Inventory\Policies\MonthlyInventoryPolicy;
 use Nwidart\Modules\Traits\PathNamespace;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -17,6 +20,13 @@ class InventoryServiceProvider extends ServiceProvider
     protected string $nameLower = 'inventory';
 
     /**
+     * @var array<class-string, class-string>
+     */
+    protected array $policies = [
+        MonthlyInventory::class => MonthlyInventoryPolicy::class,
+    ];
+
+    /**
      * Boot the application events.
      */
     public function boot(): void
@@ -26,7 +36,15 @@ class InventoryServiceProvider extends ServiceProvider
         $this->registerTranslations();
         $this->registerConfig();
         $this->registerViews();
+        $this->registerPolicies();
         $this->loadMigrationsFrom(module_path($this->name, 'database/migrations'));
+    }
+
+    protected function registerPolicies(): void
+    {
+        foreach ($this->policies as $model => $policy) {
+            Gate::policy($model, $policy);
+        }
     }
 
     /**
