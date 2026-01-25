@@ -35,7 +35,7 @@ class OrderService
     {
         $query = PurchaseOrder::with([
             'items:id,purchase_order_id,item_id,item_name,item_logo,quantity_ordered,quantity_confirmed,unit_of_measurement,unit_price,total_price,quality_ordered,quality_received,status,approval_type,approval_data,is_alternative',
-            'branch:id,name,lat,lng',
+            'branch:id,name,lat,lng,opening_hours,closing_hours,image',
             'requestedBy:id,name,email,phone',
         ])
             ->where('supplier_id', $supplier->id)
@@ -112,7 +112,7 @@ class OrderService
 
         $query = PurchaseOrder::with([
             'items:id,purchase_order_id,item_id,item_name,item_logo,quantity_ordered,quantity_confirmed,unit_of_measurement,unit_price,total_price,quality_ordered,quality_received,status,approval_type,approval_data',
-            'branch:id,name,lat,lng',
+            'branch:id,name,lat,lng,opening_hours,closing_hours,image',
             'requestedBy:id,name,email,phone',
         ])
             ->where('supplier_id', $supplier->id)

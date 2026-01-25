@@ -144,7 +144,7 @@ class OrderDataService
         return PurchaseOrder::with([
             'items:id,purchase_order_id,item_id,item_name,item_logo,quantity_ordered,quality_ordered,unit_price,total_price,available_in_source,remaining_balance,expiry_date,cooling_status',
             'supplier', // Load all supplier columns to access image_url accessor
-            'branch:id,name,lat,lng',
+            'branch:id,name,lat,lng,opening_hours,closing_hours,image',
             'fromBranch:id,name,lat,lng',
             'requestedBy:id,name,email',
         ])->select([

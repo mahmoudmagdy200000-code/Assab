@@ -89,7 +89,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         $query = PurchaseOrder::with([
             'items:id,purchase_order_id,item_id,item_name,quantity_ordered,unit_price,total_price',
             'supplier:id,name,phone,email',
-            'branch:id,name,lat,lng',
+            'branch:id,name,lat,lng,opening_hours,closing_hours,image',
             'requestedBy:id,name,email',
             'fromBranch:id,name,lat,lng'
         ])
@@ -259,7 +259,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             'items:id,purchase_order_id,item_id,item_name,quantity_ordered,quantity_confirmed,unit_price,total_price,status,approval_type,approval_data',
             'items.item:id,name,code,logo,unit',
             'supplier:id,name,phone,email',
-            'branch:id,name,lat,lng',
+            'branch:id,name,lat,lng,opening_hours,closing_hours,image',
             'requestedBy:id,name,email',
             'fromBranch:id,name,lat,lng'
         ])
