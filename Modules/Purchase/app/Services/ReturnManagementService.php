@@ -340,6 +340,7 @@ class ReturnManagementService
             'supplier',
             'branch',
             'createdBy',
+            'respondedBy',
             'items',
             'timelines',
             'documents',

@@ -112,6 +112,13 @@ class ReturnOrder extends Model
         return $this->belongsTo(BranchManager::class, 'created_by');
     }
 
+    public function respondedBy(): BelongsTo
+    {
+        // Check if responded_by matches supplier_id, otherwise it's a branch manager
+        // We'll use a polymorphic approach or check in the resource
+        return $this->belongsTo(BranchManager::class, 'responded_by');
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(ReturnOrderItem::class);
