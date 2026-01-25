@@ -17,6 +17,7 @@ class Branch extends Model
 
     protected $fillable = [
         'name',
+        'location',
         'lat',
         'lng',
         'image',

@@ -3,6 +3,7 @@
 namespace Modules\Cashier\Transformers;
 
 use App\Http\Resources\BaseResource;
+use Modules\Branch\Transformers\BranchResource;
 
 class CashierResource extends BaseResource
 {
@@ -14,7 +15,9 @@ class CashierResource extends BaseResource
             'email' => $this->email,
             'phone' => $this->phone,
             'image' => $this->formatImageUrl($this->image),
-            'branch' => $this->formatNestedResource($this->whenLoaded('branch')),
+            'branch' => $this->whenLoaded('branch', function () {
+                return new BranchResource($this->branch);
+            }),
             'status' => $this->formatStatus(),
             'created_by' => $this->formatNestedResource($this->whenLoaded('creator')),
             'shifts_count' => $this->getShiftsCount(),

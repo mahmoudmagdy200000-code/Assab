@@ -15,6 +15,7 @@ class BranchResource extends JsonResource
         return [
             'id' => $this->id,
             'name' => $this->name,
+            'location' => $this->location,
             'lat' => $this->lat ? (float) $this->lat : null,
             'lng' => $this->lng ? (float) $this->lng : null,
             'image' => $this->image ? asset('storage/' . $this->image) : null,

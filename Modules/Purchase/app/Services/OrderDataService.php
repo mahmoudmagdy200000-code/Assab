@@ -843,13 +843,15 @@ class OrderDataService
                 'from_branch' => [
                     'id' => $fromBranch->id,
                     'name' => $fromBranch->name,
+                    'location' => $fromBranch->location ?? null,
                     'lat' => $fromBranch->lat ? (float) $fromBranch->lat : null,
                     'lng' => $fromBranch->lng ? (float) $fromBranch->lng : null,
                 ],
                 'to_branch' => [
                     'id' => $toBranch->id,
                     'name' => $toBranch->name,
-                    'address' => $toBranch->location,
+                    'location' => $toBranch->location ?? null,
+                    'address' => $toBranch->location ?? null, // Keep for backward compatibility
                 ],
                 'notes' => 'Transport details are estimated and may vary'
             ];
