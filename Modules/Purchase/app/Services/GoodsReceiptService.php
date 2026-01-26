@@ -386,6 +386,35 @@ class GoodsReceiptService
                 $this->trackingService->saveDeliveredStage($order);
             }
 
+            // Check if receipt should be completed automatically (no variances)
+            $receipt->refresh();
+            $receipt->load('items');
+            
+            // If no variances after processing, complete inspection and close order
+            if (!$receipt->hasVariances) {
+                // Complete inspection
+                $receipt->completeInspection();
+                
+                // Update order item quantities
+                foreach ($receipt->items as $item) {
+                    if ($item->purchase_order_item_id) {
+                        $item->purchaseOrderItem->markAsReceived(
+                            $item->quantity_received,
+                            $item->quality_received?->value
+                        );
+                    }
+                }
+                
+                // Log inspection completed
+                $this->timelineService->logInspectionCompleted($receipt);
+                
+                // Save order confirmation stage
+                $this->trackingService->saveOrderConfirmationStage($order);
+                
+                // Close order
+                $order->close();
+            }
+
             return $receipt->fresh(['items', 'purchaseOrder', 'variances', 'invoice']);
         });
     }
