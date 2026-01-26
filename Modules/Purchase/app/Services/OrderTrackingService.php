@@ -15,6 +15,11 @@ class OrderTrackingService
      */
     public function savePreparingStage(PurchaseOrder $order, array $itemsData = []): OrderTrackingStage
     {
+        // Ensure order is fresh with relationships
+        if (!$order->relationLoaded('items')) {
+            $order->load(['items.documents']);
+        }
+
         // Check if preparing stage already exists and is not completed
         $existingStage = OrderTrackingStage::byOrder($order->id)
             ->byType('preparing')
@@ -81,6 +86,11 @@ class OrderTrackingService
      */
     public function saveDeliveredStage(PurchaseOrder $order, ?array $invoiceData = null): OrderTrackingStage
     {
+        // Ensure order is fresh with relationships
+        if (!$order->relationLoaded('latestGoodsReceipt')) {
+            $order->load('latestGoodsReceipt.invoice');
+        }
+
         // Mark previous out_for_delivery stage as completed if exists
         $outForDeliveryStage = OrderTrackingStage::byOrder($order->id)
             ->byType('out_for_delivery')
@@ -151,8 +161,8 @@ class OrderTrackingService
             'stage_data' => $this->prepareOrderConfirmationStageData($order, $latestReceipt),
             'started_at' => $latestReceipt->inspection_completed_at ?? now(),
             'completed_at' => $latestReceipt->inspection_completed_at ?? now(),
-            'created_by' => auth()->id(),
-            'created_by_type' => auth()->user() ? get_class(auth()->user()) : null,
+            'created_by' => Auth::id(),
+            'created_by_type' => Auth::user() ? get_class(Auth::user()) : null,
         ]);
     }
 
@@ -194,12 +204,65 @@ class OrderTrackingService
      */
     public function getOrderTrackingStages(string $orderId): array
     {
+        $order = PurchaseOrder::with([
+            'items.documents',
+            'latestGoodsReceipt.invoice',
+            'latestGoodsReceipt.items',
+            'latestGoodsReceipt.variances',
+        ])->find($orderId);
+
+        if (!$order) {
+            return [];
+        }
+
         $stages = OrderTrackingStage::byOrder($orderId)
             ->ordered()
             ->get()
             ->keyBy('stage_type')
-            ->map(function ($stage) {
-                return $stage->stage_data;
+            ->map(function ($stage) use ($order) {
+                $stageData = $stage->stage_data;
+                
+                // Enhance stage data with fresh relationships if needed
+                switch ($stage->stage_type) {
+                    case 'preparing':
+                        // Ensure items have quality certificates
+                        if (isset($stageData['items']) && is_array($stageData['items'])) {
+                            foreach ($stageData['items'] as $key => $item) {
+                                if (!isset($item['quality_certificate'])) {
+                                    $orderItem = $order->items->firstWhere('item_name', $item['item_name']);
+                                    if ($orderItem && $orderItem->relationLoaded('documents')) {
+                                        $qualityCert = $orderItem->documents
+                                            ->where('type', DocumentType::QUALITY_CERTIFICATE)
+                                            ->first();
+                                        if ($qualityCert) {
+                                            $stageData['items'][$key]['quality_certificate'] = $qualityCert->file_url;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    
+                    case 'delivered':
+                        // Ensure invoice is included if available
+                        if (!isset($stageData['invoice_file'])) {
+                            $latestReceipt = $order->latestGoodsReceipt;
+                            $invoice = $latestReceipt?->invoice;
+                            if ($invoice) {
+                                $stageData['invoice_file'] = [
+                                    'id' => (string) $invoice->id,
+                                    'file_name' => $invoice->file_name ?? null,
+                                    'file_type' => $invoice->file_type ?? null,
+                                    'file_size' => $invoice->file_size ?? null,
+                                    'url' => $invoice->file_url ?? null,
+                                    'uploaded_at' => $invoice->created_at?->format('Y-m-d H:i:s'),
+                                ];
+                            }
+                        }
+                        break;
+                }
+                
+                return $stageData;
             })
             ->toArray();
 
@@ -211,9 +274,15 @@ class OrderTrackingService
      */
     private function preparePreparingStageData(PurchaseOrder $order, array $itemsData = []): array
     {
-        $order->load(['items.documents']);
+        // Load relationships if not already loaded
+        if (!$order->relationLoaded('items')) {
+            $order->load(['items.documents']);
+        } else {
+            // If items are loaded but documents are not, load them
+            $order->items->loadMissing('documents');
+        }
 
-        $items = $order->items->map(function ($item) use ($itemsData) {
+        $items = $order->items->map(function ($item) {
             $itemData = [
                 'item_name' => $item->item_name,
                 'item_logo' => $item->item_logo,
@@ -221,10 +290,16 @@ class OrderTrackingService
                 'status' => 'Preparing',
             ];
 
-            // Get quality certificate
-            $qualityCert = $item->documents()
-                ->where('type', DocumentType::QUALITY_CERTIFICATE)
-                ->first();
+            // Get quality certificate from loaded documents
+            if ($item->relationLoaded('documents')) {
+                $qualityCert = $item->documents
+                    ->where('type', DocumentType::QUALITY_CERTIFICATE)
+                    ->first();
+            } else {
+                $qualityCert = $item->documents()
+                    ->where('type', DocumentType::QUALITY_CERTIFICATE)
+                    ->first();
+            }
             
             if ($qualityCert) {
                 $itemData['quality_certificate'] = $qualityCert->file_url;
@@ -266,6 +341,13 @@ class OrderTrackingService
      */
     private function prepareDeliveredStageData(PurchaseOrder $order, ?array $invoiceData = null): array
     {
+        // Load latest receipt with invoice relationship
+        if (!$order->relationLoaded('latestGoodsReceipt')) {
+            $order->load('latestGoodsReceipt.invoice');
+        } else {
+            $order->latestGoodsReceipt?->loadMissing('invoice');
+        }
+
         $latestReceipt = $order->latestGoodsReceipt;
         $invoice = $latestReceipt?->invoice;
 

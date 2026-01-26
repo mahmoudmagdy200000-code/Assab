@@ -79,6 +79,9 @@ class OrderFulfillmentService
                 }
             }
 
+            // Refresh order with relationships before saving tracking stage
+            $order->load(['items.documents']);
+
             // Save tracking stage data
             $this->trackingService->savePreparingStage($order, $data['items'] ?? []);
 
@@ -313,6 +316,9 @@ class OrderFulfillmentService
                 'condition_confirmation' => null,
                 'acknowledgment_received_at' => now(),
             ]);
+
+            // Refresh order with relationships before saving tracking stage
+            $order->load('latestGoodsReceipt.invoice');
 
             // Save tracking stage data
             $this->trackingService->saveDeliveredStage($order);
