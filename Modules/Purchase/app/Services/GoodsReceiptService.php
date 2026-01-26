@@ -312,16 +312,19 @@ class GoodsReceiptService
             $receipt->refresh();
             $receipt->load('items');
 
-            // Create variance records for items with discrepancies
+            // Create variance records ONLY if varianceData is provided
+            // This ensures variances are only created when user explicitly reports them
             $variancesMap = [];
-            foreach ($receipt->items as $item) {
-                if ($item->has_variance) {
-                    // Check if variance already exists
-                    $variance = $item->variance;
-                    if (!$variance) {
-                        $variance = $this->varianceService->createVariance($receipt, $item);
+            if (!empty($varianceData)) {
+                foreach ($receipt->items as $item) {
+                    if ($item->has_variance) {
+                        // Check if variance already exists
+                        $variance = $item->variance;
+                        if (!$variance) {
+                            $variance = $this->varianceService->createVariance($receipt, $item);
+                        }
+                        $variancesMap[$item->purchase_order_item_id] = $variance;
                     }
-                    $variancesMap[$item->purchase_order_item_id] = $variance;
                 }
             }
 

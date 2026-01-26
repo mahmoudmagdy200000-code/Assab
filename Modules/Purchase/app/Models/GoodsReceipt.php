@@ -119,7 +119,9 @@ class GoodsReceipt extends Model
     // Accessors
     public function getHasVariancesAttribute(): bool
     {
-        return $this->quantity_variances > 0 || $this->quality_variances > 0;
+        // Check if there are actual variance records, not just calculated variances
+        // This ensures variances are only considered if they were explicitly reported
+        return $this->variances()->exists();
     }
 
     public function getIsDraftAttribute(): bool
