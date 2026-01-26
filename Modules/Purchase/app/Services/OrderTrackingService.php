@@ -270,7 +270,11 @@ class OrderTrackingService
                                     $supplierDoc = $qualityDocuments->get($item['item_name']);
                                     if ($supplierDoc && $supplierDoc->file_path) {
                                         $stageData['items'][$key]['quality_certificate'] = FileResource::makeOrNull([
+                                            'id' => (string) $supplierDoc->id,
                                             'file_path' => $supplierDoc->file_path,
+                                            'file_name' => $supplierDoc->file_name ?? basename($supplierDoc->file_path),
+                                            'file_type' => $supplierDoc->file_type ?? null,
+                                            'file_size' => null, // SupplierQualityDocument doesn't have file_size
                                             'created_at' => $supplierDoc->created_at,
                                         ])?->toArray(request());
                                     }
@@ -393,7 +397,11 @@ class OrderTrackingService
                 $supplierDoc = $qualityDocuments->get($item->item_name);
                 if ($supplierDoc && $supplierDoc->file_path) {
                     $itemData['quality_certificate'] = FileResource::makeOrNull([
+                        'id' => (string) $supplierDoc->id,
                         'file_path' => $supplierDoc->file_path,
+                        'file_name' => $supplierDoc->file_name ?? basename($supplierDoc->file_path),
+                        'file_type' => $supplierDoc->file_type ?? null,
+                        'file_size' => null, // SupplierQualityDocument doesn't have file_size
                         'created_at' => $supplierDoc->created_at,
                     ])?->toArray(request());
                 }
