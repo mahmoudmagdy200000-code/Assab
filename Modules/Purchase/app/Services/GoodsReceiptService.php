@@ -395,6 +395,9 @@ class GoodsReceiptService
                 // Complete inspection
                 $receipt->completeInspection();
                 
+                // Refresh receipt to get updated status
+                $receipt->refresh();
+                
                 // Update order item quantities
                 foreach ($receipt->items as $item) {
                     if ($item->purchase_order_item_id) {
@@ -407,6 +410,10 @@ class GoodsReceiptService
                 
                 // Log inspection completed
                 $this->timelineService->logInspectionCompleted($receipt);
+                
+                // Refresh order to get latest receipt
+                $order->refresh();
+                $order->load('latestGoodsReceipt');
                 
                 // Save order confirmation stage
                 $this->trackingService->saveOrderConfirmationStage($order);

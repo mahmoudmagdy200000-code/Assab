@@ -55,7 +55,7 @@ class OrderTrackingService
             ->byType('preparing')
             ->active()
             ->first();
-        
+
         if ($preparingStage) {
             $preparingStage->markAsCompleted();
         }
@@ -97,7 +97,7 @@ class OrderTrackingService
             ->byType('out_for_delivery')
             ->active()
             ->first();
-        
+
         if ($outForDeliveryStage) {
             $outForDeliveryStage->markAsCompleted();
         }
@@ -129,8 +129,12 @@ class OrderTrackingService
      */
     public function saveOrderConfirmationStage(PurchaseOrder $order): ?OrderTrackingStage
     {
-        $latestReceipt = $order->latestGoodsReceipt;
+        // Refresh order and load latest receipt to ensure we have the latest data
+        $order->refresh();
+        $order->load('latestGoodsReceipt');
         
+        $latestReceipt = $order->latestGoodsReceipt;
+
         if (!$latestReceipt || !$latestReceipt->is_completed) {
             return null;
         }
@@ -140,7 +144,7 @@ class OrderTrackingService
             ->byType('delivered')
             ->active()
             ->first();
-        
+
         if ($deliveredStage) {
             $deliveredStage->markAsCompleted();
         }
@@ -173,7 +177,7 @@ class OrderTrackingService
     public function saveVarianceLoggedStage(PurchaseOrder $order): ?OrderTrackingStage
     {
         $latestReceipt = $order->latestGoodsReceipt;
-        
+
         if (!$latestReceipt || !$latestReceipt->hasVariances) {
             return null;
         }
@@ -222,7 +226,7 @@ class OrderTrackingService
             ->keyBy('stage_type')
             ->map(function ($stage) use ($order) {
                 $stageData = $stage->stage_data;
-                
+
                 // Enhance stage data with fresh relationships if needed
                 switch ($stage->stage_type) {
                     case 'preparing':
@@ -243,7 +247,7 @@ class OrderTrackingService
                             foreach ($stageData['items'] as $key => $item) {
                                 if (!isset($item['quality_certificate'])) {
                                     $orderItem = $order->items->firstWhere('item_name', $item['item_name']);
-                                    
+
                                     // First try OrderDocument
                                     if ($orderItem) {
                                         if ($orderItem->relationLoaded('documents')) {
@@ -255,51 +259,57 @@ class OrderTrackingService
                                                 ->where('type', DocumentType::QUALITY_CERTIFICATE)
                                                 ->first();
                                         }
-                                        
+
                                         if ($qualityCert) {
-                                            $stageData['items'][$key]['quality_certificate'] = $qualityCert->file_url;
+                                            $stageData['items'][$key]['quality_certificate'] = FileResource::makeOrNull($qualityCert)?->toArray(request());
                                             continue;
                                         }
                                     }
-                                    
+
                                     // Try SupplierQualityDocument
                                     $supplierDoc = $qualityDocuments->get($item['item_name']);
                                     if ($supplierDoc && $supplierDoc->file_path) {
-                                        $stageData['items'][$key]['quality_certificate'] = str_starts_with($supplierDoc->file_path, 'http') 
-                                            ? $supplierDoc->file_path 
-                                            : asset('storage/' . $supplierDoc->file_path);
+                                        $stageData['items'][$key]['quality_certificate'] = FileResource::makeOrNull([
+                                            'file_path' => $supplierDoc->file_path,
+                                            'created_at' => $supplierDoc->created_at,
+                                        ])?->toArray(request());
                                     }
                                 }
                             }
                         }
                         break;
-                    
+
                     case 'delivered':
                         // Ensure invoice is included if available
-                        if (!isset($stageData['invoice_file'])) {
-                            $latestReceipt = $order->latestGoodsReceipt;
-                            $invoice = $latestReceipt?->invoice;
+                        // Always refresh invoice data from database
+                        if (!$order->relationLoaded('latestGoodsReceipt')) {
+                            $order->load('latestGoodsReceipt.invoice');
+                        } else {
+                            $order->latestGoodsReceipt?->loadMissing('invoice');
+                        }
+                        
+                        $latestReceipt = $order->latestGoodsReceipt;
+                        $invoice = $latestReceipt?->invoice;
+                        
+                        if ($invoice) {
+                            $stageData['invoice_file'] = FileResource::makeOrNull($invoice)?->toArray(request());
+                        } else {
+                            // Try SupplierInvoice
+                            $supplierInvoice = \Modules\Supplier\Models\SupplierInvoice::where('order_id', $order->id)
+                                ->latest()
+                                ->first();
                             
-                            if ($invoice) {
-                                $stageData['invoice_file'] = FileResource::makeOrNull($invoice)?->toArray(request());
-                            } else {
-                                // Try SupplierInvoice
-                                $supplierInvoice = \Modules\Supplier\Models\SupplierInvoice::where('order_id', $order->id)
-                                    ->latest()
-                                    ->first();
-                                
-                                if ($supplierInvoice) {
-                                    $stageData['invoice_file'] = FileResource::makeOrNull([
-                                        'id' => (string) $supplierInvoice->id,
-                                        'file_path' => $supplierInvoice->file_path,
-                                        'created_at' => $supplierInvoice->created_at,
-                                    ])?->toArray(request());
-                                }
+                            if ($supplierInvoice) {
+                                $stageData['invoice_file'] = FileResource::makeOrNull([
+                                    'id' => (string) $supplierInvoice->id,
+                                    'file_path' => $supplierInvoice->file_path,
+                                    'created_at' => $supplierInvoice->created_at,
+                                ])?->toArray(request());
                             }
                         }
                         break;
                 }
-                
+
                 return $stageData;
             })
             ->toArray();
@@ -351,16 +361,17 @@ class OrderTrackingService
                     ->where('type', DocumentType::QUALITY_CERTIFICATE)
                     ->first();
             }
-            
+
             if ($qualityCert) {
-                $itemData['quality_certificate'] = $qualityCert->file_url;
+                $itemData['quality_certificate'] = FileResource::makeOrNull($qualityCert)?->toArray(request());
             } else {
                 // Try to get from SupplierQualityDocument
                 $supplierDoc = $qualityDocuments->get($item->item_name);
                 if ($supplierDoc && $supplierDoc->file_path) {
-                    $itemData['quality_certificate'] = str_starts_with($supplierDoc->file_path, 'http') 
-                        ? $supplierDoc->file_path 
-                        : asset('storage/' . $supplierDoc->file_path);
+                    $itemData['quality_certificate'] = FileResource::makeOrNull([
+                        'file_path' => $supplierDoc->file_path,
+                        'created_at' => $supplierDoc->created_at,
+                    ])?->toArray(request());
                 }
             }
 
@@ -415,7 +426,7 @@ class OrderTrackingService
             $supplierInvoice = \Modules\Supplier\Models\SupplierInvoice::where('order_id', $order->id)
                 ->latest()
                 ->first();
-            
+
             if ($supplierInvoice) {
                 $stageData = [
                     'status' => 'delivered',
