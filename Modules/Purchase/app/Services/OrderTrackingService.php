@@ -314,6 +314,30 @@ class OrderTrackingService
             })
             ->toArray();
 
+        // If order_confirmation stage doesn't exist but receipt is completed, add it
+        if (!isset($stages['order_confirmation'])) {
+            $latestReceipt = $order->latestGoodsReceipt;
+            if ($latestReceipt && $latestReceipt->is_completed) {
+                // Try to save the stage (it will be created if it doesn't exist)
+                $orderConfirmationStage = $this->saveOrderConfirmationStage($order);
+                if ($orderConfirmationStage) {
+                    $stages['order_confirmation'] = $orderConfirmationStage->stage_data;
+                }
+            }
+        }
+
+        // If variance_logged stage doesn't exist but receipt has variances, add it
+        if (!isset($stages['variance_logged'])) {
+            $latestReceipt = $order->latestGoodsReceipt;
+            if ($latestReceipt && $latestReceipt->hasVariances) {
+                // Try to save the stage (it will be created if it doesn't exist)
+                $varianceStage = $this->saveVarianceLoggedStage($order);
+                if ($varianceStage) {
+                    $stages['variance_logged'] = $varianceStage->stage_data;
+                }
+            }
+        }
+
         return $stages;
     }
 
