@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Modules\Purchase\Enums\DocumentType;
 use Modules\Purchase\Models\OrderTrackingStage;
 use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Transformers\FileResource;
 
 class OrderTrackingService
 {
@@ -280,14 +281,7 @@ class OrderTrackingService
                             $invoice = $latestReceipt?->invoice;
                             
                             if ($invoice) {
-                                $stageData['invoice_file'] = [
-                                    'id' => (string) $invoice->id,
-                                    'file_name' => $invoice->file_name ?? null,
-                                    'file_type' => $invoice->file_type ?? null,
-                                    'file_size' => $invoice->file_size ?? null,
-                                    'url' => $invoice->file_url ?? null,
-                                    'uploaded_at' => $invoice->created_at?->format('Y-m-d H:i:s'),
-                                ];
+                                $stageData['invoice_file'] = FileResource::makeOrNull($invoice)?->toArray(request());
                             } else {
                                 // Try SupplierInvoice
                                 $supplierInvoice = \Modules\Supplier\Models\SupplierInvoice::where('order_id', $order->id)
@@ -295,16 +289,11 @@ class OrderTrackingService
                                     ->first();
                                 
                                 if ($supplierInvoice) {
-                                    $stageData['invoice_file'] = [
+                                    $stageData['invoice_file'] = FileResource::makeOrNull([
                                         'id' => (string) $supplierInvoice->id,
-                                        'file_name' => null,
-                                        'file_type' => null,
-                                        'file_size' => null,
-                                        'url' => $supplierInvoice->file_path ? (str_starts_with($supplierInvoice->file_path, 'http') 
-                                            ? $supplierInvoice->file_path 
-                                            : asset('storage/' . $supplierInvoice->file_path)) : null,
-                                        'uploaded_at' => $supplierInvoice->created_at?->format('Y-m-d H:i:s'),
-                                    ];
+                                        'file_path' => $supplierInvoice->file_path,
+                                        'created_at' => $supplierInvoice->created_at,
+                                    ])?->toArray(request());
                                 }
                             }
                         }
@@ -431,16 +420,11 @@ class OrderTrackingService
                 $stageData = [
                     'status' => 'delivered',
                     'started_at' => now()->format('Y-m-d H:i:s'),
-                    'invoice_file' => [
+                    'invoice_file' => FileResource::makeOrNull([
                         'id' => (string) $supplierInvoice->id,
-                        'file_name' => null,
-                        'file_type' => null,
-                        'file_size' => null,
-                        'url' => $supplierInvoice->file_path ? (str_starts_with($supplierInvoice->file_path, 'http') 
-                            ? $supplierInvoice->file_path 
-                            : asset('storage/' . $supplierInvoice->file_path)) : null,
-                        'uploaded_at' => $supplierInvoice->created_at?->format('Y-m-d H:i:s'),
-                    ],
+                        'file_path' => $supplierInvoice->file_path,
+                        'created_at' => $supplierInvoice->created_at,
+                    ])?->toArray(request()),
                 ];
                 return $stageData;
             }
@@ -452,14 +436,7 @@ class OrderTrackingService
         ];
 
         if ($invoice) {
-            $stageData['invoice_file'] = [
-                'id' => (string) $invoice->id,
-                'file_name' => $invoice->file_name ?? null,
-                'file_type' => $invoice->file_type ?? null,
-                'file_size' => $invoice->file_size ?? null,
-                'url' => $invoice->file_url ?? null,
-                'uploaded_at' => $invoice->created_at?->format('Y-m-d H:i:s'),
-            ];
+            $stageData['invoice_file'] = FileResource::makeOrNull($invoice)?->toArray(request());
         }
 
         return $stageData;

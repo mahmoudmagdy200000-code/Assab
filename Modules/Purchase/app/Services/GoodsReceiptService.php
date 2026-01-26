@@ -380,6 +380,12 @@ class GoodsReceiptService
 
             $this->timelineService->logInspectionStarted($receipt);
 
+            // Save delivered stage if invoice was created
+            $receipt->refresh();
+            if ($receipt->invoice || $documentType === 'invoice') {
+                $this->trackingService->saveDeliveredStage($order);
+            }
+
             return $receipt->fresh(['items', 'purchaseOrder', 'variances', 'invoice']);
         });
     }

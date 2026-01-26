@@ -93,10 +93,17 @@ class FileResource extends JsonResource
      */
     private function formatArray(): array
     {
-        $uploadedAt = $this->resource['uploaded_at']
-            ?? ($this->resource['created_at'] instanceof \DateTimeInterface
-                ? $this->resource['created_at']->format(self::DATE_FORMAT)
-                : null);
+        $uploadedAt = null;
+        if (isset($this->resource['uploaded_at'])) {
+            $uploadedAt = $this->resource['uploaded_at'];
+        } elseif (isset($this->resource['created_at'])) {
+            $createdAt = $this->resource['created_at'];
+            if ($createdAt instanceof \DateTimeInterface) {
+                $uploadedAt = $createdAt->format(self::DATE_FORMAT);
+            } elseif (is_string($createdAt)) {
+                $uploadedAt = $createdAt;
+            }
+        }
 
         return [
             'id' => isset($this->resource['id']) ? (string) $this->resource['id'] : null,
