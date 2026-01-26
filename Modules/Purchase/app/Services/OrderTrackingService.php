@@ -227,16 +227,46 @@ class OrderTrackingService
                     case 'preparing':
                         // Ensure items have quality certificates
                         if (isset($stageData['items']) && is_array($stageData['items'])) {
+                            // Load SupplierQualityDocuments for this order
+                            $qualityDocuments = \Modules\Supplier\Models\SupplierQualityDocument::where('order_id', $order->id)
+                                ->where('document_type', 'certificate')
+                                ->where('is_active', true)
+                                ->get()
+                                ->keyBy(function ($doc) {
+                                    if (str_contains($doc->title, 'Item Document - ')) {
+                                        return str_replace('Item Document - ', '', $doc->title);
+                                    }
+                                    return null;
+                                });
+
                             foreach ($stageData['items'] as $key => $item) {
                                 if (!isset($item['quality_certificate'])) {
                                     $orderItem = $order->items->firstWhere('item_name', $item['item_name']);
-                                    if ($orderItem && $orderItem->relationLoaded('documents')) {
-                                        $qualityCert = $orderItem->documents
-                                            ->where('type', DocumentType::QUALITY_CERTIFICATE)
-                                            ->first();
+                                    
+                                    // First try OrderDocument
+                                    if ($orderItem) {
+                                        if ($orderItem->relationLoaded('documents')) {
+                                            $qualityCert = $orderItem->documents
+                                                ->where('type', DocumentType::QUALITY_CERTIFICATE)
+                                                ->first();
+                                        } else {
+                                            $qualityCert = $orderItem->documents()
+                                                ->where('type', DocumentType::QUALITY_CERTIFICATE)
+                                                ->first();
+                                        }
+                                        
                                         if ($qualityCert) {
                                             $stageData['items'][$key]['quality_certificate'] = $qualityCert->file_url;
+                                            continue;
                                         }
+                                    }
+                                    
+                                    // Try SupplierQualityDocument
+                                    $supplierDoc = $qualityDocuments->get($item['item_name']);
+                                    if ($supplierDoc && $supplierDoc->file_path) {
+                                        $stageData['items'][$key]['quality_certificate'] = str_starts_with($supplierDoc->file_path, 'http') 
+                                            ? $supplierDoc->file_path 
+                                            : asset('storage/' . $supplierDoc->file_path);
                                     }
                                 }
                             }
@@ -248,6 +278,7 @@ class OrderTrackingService
                         if (!isset($stageData['invoice_file'])) {
                             $latestReceipt = $order->latestGoodsReceipt;
                             $invoice = $latestReceipt?->invoice;
+                            
                             if ($invoice) {
                                 $stageData['invoice_file'] = [
                                     'id' => (string) $invoice->id,
@@ -257,6 +288,24 @@ class OrderTrackingService
                                     'url' => $invoice->file_url ?? null,
                                     'uploaded_at' => $invoice->created_at?->format('Y-m-d H:i:s'),
                                 ];
+                            } else {
+                                // Try SupplierInvoice
+                                $supplierInvoice = \Modules\Supplier\Models\SupplierInvoice::where('order_id', $order->id)
+                                    ->latest()
+                                    ->first();
+                                
+                                if ($supplierInvoice) {
+                                    $stageData['invoice_file'] = [
+                                        'id' => (string) $supplierInvoice->id,
+                                        'file_name' => null,
+                                        'file_type' => null,
+                                        'file_size' => null,
+                                        'url' => $supplierInvoice->file_path ? (str_starts_with($supplierInvoice->file_path, 'http') 
+                                            ? $supplierInvoice->file_path 
+                                            : asset('storage/' . $supplierInvoice->file_path)) : null,
+                                        'uploaded_at' => $supplierInvoice->created_at?->format('Y-m-d H:i:s'),
+                                    ];
+                                }
                             }
                         }
                         break;
@@ -282,7 +331,20 @@ class OrderTrackingService
             $order->items->loadMissing('documents');
         }
 
-        $items = $order->items->map(function ($item) {
+        // Load SupplierQualityDocuments for this order
+        $qualityDocuments = \Modules\Supplier\Models\SupplierQualityDocument::where('order_id', $order->id)
+            ->where('document_type', 'certificate')
+            ->where('is_active', true)
+            ->get()
+            ->keyBy(function ($doc) {
+                // Extract item name from title (format: "Item Document - {item_name}")
+                if (str_contains($doc->title, 'Item Document - ')) {
+                    return str_replace('Item Document - ', '', $doc->title);
+                }
+                return null;
+            });
+
+        $items = $order->items->map(function ($item) use ($qualityDocuments) {
             $itemData = [
                 'item_name' => $item->item_name,
                 'item_logo' => $item->item_logo,
@@ -290,7 +352,7 @@ class OrderTrackingService
                 'status' => 'Preparing',
             ];
 
-            // Get quality certificate from loaded documents
+            // First try to get from OrderDocument (if exists)
             if ($item->relationLoaded('documents')) {
                 $qualityCert = $item->documents
                     ->where('type', DocumentType::QUALITY_CERTIFICATE)
@@ -303,6 +365,14 @@ class OrderTrackingService
             
             if ($qualityCert) {
                 $itemData['quality_certificate'] = $qualityCert->file_url;
+            } else {
+                // Try to get from SupplierQualityDocument
+                $supplierDoc = $qualityDocuments->get($item->item_name);
+                if ($supplierDoc && $supplierDoc->file_path) {
+                    $itemData['quality_certificate'] = str_starts_with($supplierDoc->file_path, 'http') 
+                        ? $supplierDoc->file_path 
+                        : asset('storage/' . $supplierDoc->file_path);
+                }
             }
 
             return $itemData;
@@ -350,6 +420,31 @@ class OrderTrackingService
 
         $latestReceipt = $order->latestGoodsReceipt;
         $invoice = $latestReceipt?->invoice;
+
+        // If no invoice in PurchaseInvoice, try SupplierInvoice
+        if (!$invoice) {
+            $supplierInvoice = \Modules\Supplier\Models\SupplierInvoice::where('order_id', $order->id)
+                ->latest()
+                ->first();
+            
+            if ($supplierInvoice) {
+                $stageData = [
+                    'status' => 'delivered',
+                    'started_at' => now()->format('Y-m-d H:i:s'),
+                    'invoice_file' => [
+                        'id' => (string) $supplierInvoice->id,
+                        'file_name' => null,
+                        'file_type' => null,
+                        'file_size' => null,
+                        'url' => $supplierInvoice->file_path ? (str_starts_with($supplierInvoice->file_path, 'http') 
+                            ? $supplierInvoice->file_path 
+                            : asset('storage/' . $supplierInvoice->file_path)) : null,
+                        'uploaded_at' => $supplierInvoice->created_at?->format('Y-m-d H:i:s'),
+                    ],
+                ];
+                return $stageData;
+            }
+        }
 
         $stageData = [
             'status' => 'delivered',
