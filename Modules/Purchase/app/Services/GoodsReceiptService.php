@@ -14,6 +14,7 @@ use Modules\Purchase\Models\OrderDocument;
 use Modules\Purchase\Models\PurchaseInvoice;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseVariance;
+use Modules\Purchase\Transformers\FileResource;
 
 class GoodsReceiptService
 {
@@ -1062,9 +1063,11 @@ class GoodsReceiptService
                         'item_logo' => $item->item_logo,
                         'requested_quantity' => (float) $item->quantity_ordered,
                         'status' => 'Preparing',
-                        'quality_certificate' => $item->documents()
-                            ->where('type', DocumentType::QUALITY_CERTIFICATE)
-                            ->first()?->file_url,
+                        'quality_certificate' => FileResource::makeOrNull(
+                            $item->documents()
+                                ->where('type', DocumentType::QUALITY_CERTIFICATE)
+                                ->first()
+                        )?->toArray(request()),
                     ];
                 })->toArray(),
             ];
@@ -1090,14 +1093,7 @@ class GoodsReceiptService
             $invoice = $latestReceipt->invoice;
             $stages['delivered'] = [
                 'status' => 'delivered',
-                'invoice_file' => $invoice ? [
-                    'id' => (string) $invoice->id,
-                    'file_name' => $invoice->file_name ?? null,
-                    'file_type' => $invoice->file_type ?? null,
-                    'file_size' => $invoice->file_size ?? null,
-                    'url' => $invoice->file_url ?? null,
-                    'uploaded_at' => $invoice->created_at?->format('Y-m-d H:i:s'),
-                ] : null,
+                'invoice_file' => FileResource::makeOrNull($invoice)?->toArray(request()),
             ];
         }
 
