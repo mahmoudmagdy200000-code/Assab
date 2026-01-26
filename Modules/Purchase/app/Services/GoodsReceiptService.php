@@ -21,7 +21,8 @@ class GoodsReceiptService
         private readonly TimelineService $timelineService,
         private readonly VarianceService $varianceService,
         private readonly CalculationService $calculationService,
-        private readonly PurchaseOrderService $orderService
+        private readonly PurchaseOrderService $orderService,
+        private readonly OrderTrackingService $trackingService
     ) {}
 
     /**
@@ -526,6 +527,14 @@ class GoodsReceiptService
 
             $this->timelineService->logInspectionCompleted($receipt);
 
+            // Save tracking stages
+            $order = $receipt->purchaseOrder;
+            $this->trackingService->saveOrderConfirmationStage($order);
+            
+            if ($receipt->hasVariances) {
+                $this->trackingService->saveVarianceLoggedStage($order);
+            }
+
             // Close order if no variances
             if (!$receipt->hasVariances) {
                 $receipt->purchaseOrder->close();
@@ -1009,19 +1018,36 @@ class GoodsReceiptService
      */
     public function getOrderTracking(string $orderId): array
     {
-        $order = PurchaseOrder::with([
-            'items',
-            'goodsReceipts.items',
-            'goodsReceipts.invoice',
-            'goodsReceipts.variances',
-            'documents',
-            'timelines',
-            'supplier',
-        ])->find($orderId);
+        $order = PurchaseOrder::find($orderId);
 
         if (!$order) {
             return [];
         }
+
+        // Get tracking stages from the database
+        $trackingService = app(\Modules\Purchase\Services\OrderTrackingService::class);
+        $stages = $trackingService->getOrderTrackingStages($orderId);
+
+        // If no stages exist in database, try to create them from current order state (backward compatibility)
+        if (empty($stages)) {
+            $stages = $this->getOrderTrackingFromCurrentState($order);
+        }
+
+        return $stages;
+    }
+
+    /**
+     * Get order tracking from current state (backward compatibility for existing orders)
+     */
+    private function getOrderTrackingFromCurrentState(PurchaseOrder $order): array
+    {
+        $order->load([
+            'items.documents',
+            'goodsReceipts.items',
+            'goodsReceipts.invoice',
+            'goodsReceipts.variances',
+            'supplier',
+        ]);
 
         $latestReceipt = $order->latestGoodsReceipt;
         $stages = [];
@@ -1040,7 +1066,7 @@ class GoodsReceiptService
                             ->where('type', DocumentType::QUALITY_CERTIFICATE)
                             ->first()?->file_url,
                     ];
-                }),
+                })->toArray(),
             ];
         }
 
@@ -1104,7 +1130,7 @@ class GoodsReceiptService
                             'item_image' => $item->photo_url,
                             'additional_note' => $item->notes,
                         ];
-                    }),
+                    })->toArray(),
                     'document_type' => $latestReceipt->document_type?->value,
                     'financial_summary' => $latestReceipt->invoice ? [
                         'invoice_number' => $latestReceipt->invoice->invoice_number,
@@ -1133,7 +1159,6 @@ class GoodsReceiptService
                         'variance_type' => $variance->variance_type?->value,
                         'amount_variance' => (float) $variance->variance_amount,
                         'supplier_response' => $variance->supplier_response,
-
                         'supplier_decision_status' => $variance->status,
                         'reported_on' => $variance->created_at?->format('Y-m-d H:i:s'),
                         'responded_on' => $variance->responded_at?->format('Y-m-d H:i:s'),
@@ -1142,7 +1167,7 @@ class GoodsReceiptService
                         'rejection_reason' => $variance->status === 'supplier_rejected' ? $variance->supplier_response : null,
                         'rejection_date_time' => $variance->status === 'supplier_rejected' ? $variance->responded_at?->format('Y-m-d H:i:s') : null,
                     ];
-                }),
+                })->toArray(),
             ];
         }
 

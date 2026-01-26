@@ -238,6 +238,11 @@ class PurchaseOrder extends Model
         return $this->hasMany(\Modules\Supplier\Models\SupplierFeedback::class, 'purchase_order_id');
     }
 
+    public function trackingStages(): HasMany
+    {
+        return $this->hasMany(OrderTrackingStage::class, 'purchase_order_id')->orderBy('started_at', 'asc');
+    }
+
     // Accessors
     public function getStatusLabelAttribute(): string
     {

@@ -10,6 +10,7 @@ use Carbon\Carbon;
 
 class PurchaseHistoryDetailsResource extends JsonResource
 {
+
     /**
      * Transform the resource into an array.
      *

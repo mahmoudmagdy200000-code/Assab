@@ -11,6 +11,7 @@ use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Models\GoodsReceipt;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
+use Modules\Purchase\Services\OrderTrackingService;
 use Modules\Supplier\Models\DeliveryProof;
 use Modules\Supplier\Models\Supplier;
 use Modules\Supplier\Models\SupplierQualityDocument;
@@ -18,7 +19,8 @@ use Modules\Supplier\Models\SupplierQualityDocument;
 class OrderFulfillmentService
 {
     public function __construct(
-        private readonly NotificationService $notificationService
+        private readonly NotificationService $notificationService,
+        private readonly OrderTrackingService $trackingService
     ) {}
 
     /**
@@ -77,6 +79,8 @@ class OrderFulfillmentService
                 }
             }
 
+            // Save tracking stage data
+            $this->trackingService->savePreparingStage($order, $data['items'] ?? []);
 
             $this->notificationService->notifyOrderStatusChanged($order, 'preparing');
 
@@ -175,6 +179,9 @@ class OrderFulfillmentService
                     OrderItemStatus::DELAYED_APPROVED, // Approved delays can continue
                 ])
                 ->update(['status' => OrderItemStatus::ON_THE_WAY]);
+
+            // Save tracking stage data
+            $this->trackingService->saveOutForDeliveryStage($order, $data);
 
             $this->notificationService->notifyOrderStatusChanged($order, 'on_the_way');
 
@@ -306,6 +313,9 @@ class OrderFulfillmentService
                 'condition_confirmation' => null,
                 'acknowledgment_received_at' => now(),
             ]);
+
+            // Save tracking stage data
+            $this->trackingService->saveDeliveredStage($order);
 
             $this->notificationService->notifyOrderStatusChanged($order, 'delivered');
 
