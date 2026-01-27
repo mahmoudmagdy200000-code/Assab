@@ -420,7 +420,25 @@ class OrderTrackingService
         $ins = $r['inspection_summary'] ?? [];
 
         $stageData['receipt_details'] = $stageData['receipt_details'] ?? [];
+        
+        // Calculate values from items if receipt fields are 0 (fallback)
+        $items = $latestReceipt->items;
+        $numberOfItems = $latestReceipt->total_items_received > 0
+            ? $latestReceipt->total_items_received
+            : $items->whereNotNull('quantity_received')->count();
+
+        $quantityVariance = $latestReceipt->quantity_variances > 0
+            ? $latestReceipt->quantity_variances
+            : $items->filter(fn ($item) => $item->quantity_variance != 0)->count();
+
+        $totalAmount = $latestReceipt->received_amount > 0
+            ? (float) $latestReceipt->received_amount
+            : (float) $items->sum('received_total');
+
         $stageData['receipt_details']['inspection_summary'] = array_merge($ins, [
+            'number_of_items' => $ins['number_of_items'] ?? $numberOfItems,
+            'quantity_variance' => $ins['quantity_variance'] ?? $quantityVariance,
+            'total_amount' => $ins['total_amount'] ?? $totalAmount,
             'driver_name' => $ins['driver_name'] ?? $latestReceipt->driver_name ?? $order->driver_name,
             'contact_number' => $ins['contact_number'] ?? $latestReceipt->driver_contact ?? $order->driver_contact ?? null,
             'vehicle_number' => $ins['vehicle_number'] ?? $latestReceipt->vehicle_number ?? $order->vehicle_number,
@@ -609,14 +627,28 @@ class OrderTrackingService
         $order->loadMissing('supplier');
         $invoice = $latestReceipt->invoice;
 
+        // Calculate values from items if receipt fields are 0 (fallback)
+        $items = $latestReceipt->items;
+        $numberOfItems = $latestReceipt->total_items_received > 0
+            ? $latestReceipt->total_items_received
+            : $items->whereNotNull('quantity_received')->count();
+        
+        $quantityVariance = $latestReceipt->quantity_variances > 0
+            ? $latestReceipt->quantity_variances
+            : $items->filter(fn ($item) => $item->quantity_variance != 0)->count();
+        
+        $totalAmount = $latestReceipt->received_amount > 0
+            ? (float) $latestReceipt->received_amount
+            : (float) $items->sum('received_total');
+
         return [
             'status' => 'confirmed',
             'receipt_details' => [
                 'date_time' => $latestReceipt->inspection_completed_at?->format('Y-m-d H:i:s'),
                 'inspection_summary' => [
-                    'number_of_items' => $latestReceipt->total_items_received,
-                    'quantity_variance' => $latestReceipt->quantity_variances,
-                    'total_amount' => (float) $latestReceipt->received_amount,
+                    'number_of_items' => $numberOfItems,
+                    'quantity_variance' => $quantityVariance,
+                    'total_amount' => $totalAmount,
                     'driver_name' => $latestReceipt->driver_name ?? $order->driver_name,
                     'contact_number' => $latestReceipt->driver_contact ?? $order->driver_contact ?? null,
                     'vehicle_number' => $latestReceipt->vehicle_number ?? $order->vehicle_number,
