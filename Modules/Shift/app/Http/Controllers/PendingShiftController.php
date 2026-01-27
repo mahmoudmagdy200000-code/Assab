@@ -44,6 +44,9 @@ class PendingShiftController extends BaseController
                 ->orderBy('shift_date')
                 ->paginate(10);
 
+            foreach ($shifts as $cs) {
+                $cs->setAttribute('computed_next_cashier', $this->shiftService->getNextShiftCashier($cs));
+            }
 
             return $this->paginatedResponse(
                 new CashierShiftCollection($shifts),
