@@ -1152,8 +1152,33 @@ class GoodsReceiptService
 
             // Add delivery_photos from order if available
             if ($order->delivery_photos && is_array($order->delivery_photos) && !empty($order->delivery_photos)) {
-                $deliveredStage['delivery_photos'] = array_map(function ($photoPath) {
-                    return FileResource::makeOrNull($photoPath)?->toArray(request());
+                $uploadedAt = $order->actual_delivery_at?->format('Y-m-d H:i:s')
+                    ?? $order->received_at?->format('Y-m-d H:i:s')
+                    ?? null;
+
+                $deliveredStage['delivery_photos'] = array_map(function ($photoPath) use ($uploadedAt) {
+                    if (!is_string($photoPath)) {
+                        return FileResource::makeOrNull($photoPath)?->toArray(request());
+                    }
+
+                    // Get file info from storage
+                    $fileType = pathinfo($photoPath, PATHINFO_EXTENSION);
+                    $fileSize = null;
+                    try {
+                        if (\Illuminate\Support\Facades\Storage::disk('public')->exists($photoPath)) {
+                            $fileSize = \Illuminate\Support\Facades\Storage::disk('public')->size($photoPath);
+                        }
+                    } catch (\Throwable) {
+                        // Keep null on error
+                    }
+
+                    return FileResource::makeOrNull([
+                        'file_path' => $photoPath,
+                        'file_name' => basename($photoPath),
+                        'file_type' => $fileType,
+                        'file_size' => $fileSize,
+                        'created_at' => $uploadedAt,
+                    ])?->toArray(request());
                 }, $order->delivery_photos);
             }
 
