@@ -212,6 +212,7 @@ class OrderTrackingService
         $order = PurchaseOrder::with([
             'items.documents',
             'latestGoodsReceipt.invoice',
+            'latestGoodsReceipt.documents',
             'latestGoodsReceipt.items',
             'latestGoodsReceipt.variances',
         ])->find($orderId);
