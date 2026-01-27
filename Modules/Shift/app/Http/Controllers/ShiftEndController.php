@@ -686,6 +686,9 @@ class ShiftEndController extends Controller
                     'name' => $cashier->name,
                     'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
                     'type' => 'cashier',
+                    'is_available' => true,
+                    'disabled' => false,
+                    'reason_disabled' => null,
                     'is_suggested' => $cashier->id === $suggestedCashierId,
                     'suggestion_reason' => $cashier->id === $suggestedCashierId
                         ? 'Next scheduled cashier (auto-handover)'
@@ -693,7 +696,6 @@ class ShiftEndController extends Controller
                 ];
             });
 
-            // Add branch manager option
             $recipients = $availableCashiers->toArray();
             if ($branchManager) {
                 $recipients[] = [
@@ -701,6 +703,9 @@ class ShiftEndController extends Controller
                     'name' => $branchManager->name . ' (Branch Manager)',
                     'image' => $branchManager->image ? asset('storage/' . $branchManager->image) : null,
                     'type' => 'branch_manager',
+                    'is_available' => true,
+                    'disabled' => false,
+                    'reason_disabled' => null,
                     'is_suggested' => false,
                     'suggestion_reason' => 'Final handover to Branch Manager',
                 ];

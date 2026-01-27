@@ -115,6 +115,7 @@ class CashierShiftController extends BaseController
                     'status' => $shift->status->value,
                     'status_label' => $this->getStatusLabel($shift->status),
                     'assigned_by' => $shift->assignedBy?->name ?? 'N/A',
+                    'assigned_by_user_type' => $shift->assigned_by ? 'branch_manager' : null,
                 ];
             });
 
@@ -186,6 +187,7 @@ class CashierShiftController extends BaseController
                     'assigned_to' => $shift->cashier->name ?? 'N/A',
                     'next_cashier' => $shift->nextCashier?->name ?? 'Auto-assigned',
                     'assigned_by' => $shift->assignedBy?->name ?? 'Branch Manager',
+                    'assigned_by_user_type' => $shift->assigned_by ? 'branch_manager' : null,
                     'is_next_shift' => $isFirstShift,
                     'can_start' => $shift->shift_date->isToday(),
                     'actions' => [
@@ -240,6 +242,8 @@ class CashierShiftController extends BaseController
                             : 'Not yet recorded',
                         'assigned_to' => $shift->cashier->name ?? 'N/A',
                         'next_cashier' => $shift->nextCashier?->name ?? 'Auto-assigned',
+                        'assigned_by' => $shift->assignedBy?->name ?? 'Branch Manager',
+                        'assigned_by_user_type' => $shift->assigned_by ? 'branch_manager' : null,
                         'progress' => $progress,
                         'actions' => [
                             'view_details' => true,
@@ -440,6 +444,7 @@ class CashierShiftController extends BaseController
                     'reassigned_at' => $shift->reassigned_at?->format('Y-m-d H:i:s') ?? 'N/A',
                     'reassignment_reason' => $shift->reassignment_reason ?? 'N/A',
                     'reassigned_by' => $shift->reassignedBy?->name ?? 'N/A',
+                    'reassigned_by_user_type' => $shift->reassigned_by ? 'branch_manager' : null,
                     'original_cashier' => $shift->originalCashier?->name ?? 'N/A',
                     'branch_name' => $shift->shift->branch->name ?? 'N/A',
                     'branch_id' => $shift->shift->branch_id,

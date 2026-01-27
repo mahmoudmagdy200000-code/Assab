@@ -7,6 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Cashier\Services\CashierService;
+use Modules\Cashier\Transformers\AvailableForShiftResource;
 use Modules\Cashier\Transformers\CashierResource;
 use App\Http\Controllers\BaseController;
 
@@ -69,8 +70,8 @@ class CashierManagementController extends BaseController
             branchId: auth()->user()->branch_id
         );
 
-        return  $this->paginatedResponse(
-            CashierResource::collection($availableCashiers),
+        return $this->paginatedResponse(
+            AvailableForShiftResource::collection($availableCashiers),
             'Available cashiers retrieved successfully'
         );
     }

@@ -607,6 +607,7 @@ class ShiftHandoverController extends Controller
                     'email' => $cashier->email,
                     'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
                     'is_available' => true,
+                    'disabled' => false,
                     'reason_disabled' => null,
                 ];
             })->values();

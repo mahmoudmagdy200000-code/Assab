@@ -36,6 +36,7 @@ class CashierShiftResource extends JsonResource
                 'assigned_by' => [
                     'id' => $this->assignedBy?->id,
                     'name' => $this->assignedBy?->name,
+                    'user_type' => $this->assigned_by ? 'branch_manager' : null,
                 ],
             ],
 
@@ -126,6 +127,7 @@ class CashierShiftResource extends JsonResource
                         'reassigned_by' => [
                             'id' => $this->reassignedBy?->id ?? $this->reassigned_by,
                             'name' => $this->reassignedBy?->name ?? null,
+                            'user_type' => $this->reassigned_by ? 'branch_manager' : null,
                         ],
                         'reassigned_at' => $this->reassigned_at?->format('Y-m-d H:i:s'),
                         'reason' => $this->reassignment_reason,

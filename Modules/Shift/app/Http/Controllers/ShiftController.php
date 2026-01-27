@@ -18,6 +18,7 @@ use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Transformers\CashierShiftResource;
+use Modules\Shift\Transformers\ShiftTemplateResource;
 
 class ShiftController extends BaseController
 {
@@ -44,7 +45,7 @@ class ShiftController extends BaseController
                 ->orderBy('start_time')
                 ->paginate(10);
 
-            return $this->paginatedResponse($shifts, 'Shifts retrieved successfully');
+            return $this->paginatedResponse(ShiftTemplateResource::collection($shifts), 'Shifts retrieved successfully');
         } catch (\Exception $e) {
             Log::error('Error retrieving shifts', [
                 'user_id' => auth()->id(),

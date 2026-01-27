@@ -76,6 +76,7 @@ class ReassignmentShiftController extends Controller
                         'reassigned_from' => $shiftDetails->originalCashier?->name,
                         'reassigned_to' => $shiftDetails->cashier->name,
                         'reassigned_by' => $shiftDetails->reassignedBy?->name,
+                        'reassigned_by_user_type' => $shiftDetails->reassigned_by ? 'branch_manager' : null,
                         'reason' => $shiftDetails->reassignment_reason,
                     ]
                 ]
@@ -682,8 +683,10 @@ class ReassignmentShiftController extends Controller
                 return [
                     'id' => $cashier->id,
                     'name' => $cashier->name,
-                    'image' => $cashier->image,
+                    'email' => $cashier->email ?? null,
+                    'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
                     'is_available' => $isAvailable,
+                    'disabled' => !$isAvailable,
                     'is_current_cashier' => $cashier->id == $shiftModel->cashier_id,
                     'reason_disabled' => !$isAvailable ? 'Already assigned to this shift' : null,
                 ];

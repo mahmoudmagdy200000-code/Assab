@@ -539,6 +539,7 @@ class CashierManagementController extends BaseController
                     'email' => $cashier->email,
                     'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
                     'is_available' => $isAvailable,
+                    'disabled' => !$isAvailable,
                     'reason_disabled' => !$isAvailable ? 'Already assigned to this shift' : null,
                 ];
             });
@@ -598,6 +599,7 @@ class CashierManagementController extends BaseController
                 'assigned_to' => $shift->cashier->name,
                 'next_cashier' => $shift->nextCashier?->name ?? 'N/A',
                 'assigned_by' => $shift->assignedBy?->name ?? 'N/A',
+                'assigned_by_user_type' => $shift->assigned_by ? 'branch_manager' : null,
             ];
         })->toArray();
     }

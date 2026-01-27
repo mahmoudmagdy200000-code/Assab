@@ -125,6 +125,7 @@ class ShiftDetailResource extends JsonResource
             'assigned_to_id' => $this->cashier_id,
             'assigned_by' => $this->assignedBy?->name ?? 'Branch Manager',
             'assigned_by_id' => $this->assigned_by,
+            'assigned_by_user_type' => $this->assigned_by ? 'branch_manager' : null,
             'branch_store' => $this->shift?->branch?->name ?? 'N/A',
             'branch_id' => $this->shift?->branch_id,
             'shift_name' => $this->shift?->name ?? 'N/A',
@@ -289,6 +290,7 @@ class ShiftDetailResource extends JsonResource
             'reassigned_to_id' => $this->cashier_id,
             'reassigned_by' => $this->reassignedBy?->name ?? 'N/A',
             'reassigned_by_id' => $this->reassigned_by,
+            'reassigned_by_user_type' => $this->reassigned_by ? 'branch_manager' : null,
             'reassigned_at' => $this->reassigned_at?->format('Y-m-d H:i:s'),
             'reassignment_reason' => $this->reassignment_reason,
         ];

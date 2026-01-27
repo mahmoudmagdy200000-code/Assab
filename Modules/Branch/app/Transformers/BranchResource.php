@@ -21,6 +21,8 @@ class BranchResource extends JsonResource
             'image' => $this->image ? asset('storage/' . $this->image) : null,
             'opening_hours' => $this->opening_hours ? $this->opening_hours->format('Y-m-d H:i:s') : null,
             'closing_hours' => $this->closing_hours ? $this->closing_hours->format('Y-m-d H:i:s') : null,
+            'is_active' => (bool) ($this->is_active ?? true),
+            'disabled' => ! (bool) ($this->is_active ?? true),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];
