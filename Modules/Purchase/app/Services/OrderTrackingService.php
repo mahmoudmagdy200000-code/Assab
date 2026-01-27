@@ -135,7 +135,8 @@ class OrderTrackingService
         
         $latestReceipt = $order->latestGoodsReceipt;
 
-        if (!$latestReceipt || !$latestReceipt->is_completed) {
+        // Allow creation if receipt is completed OR order is closed (fallback for edge cases)
+        if (!$latestReceipt || (!$latestReceipt->is_completed && $order->status !== \Modules\Purchase\Enums\OrderStatus::CLOSED)) {
             return null;
         }
 
@@ -357,12 +358,31 @@ class OrderTrackingService
             })
             ->toArray();
 
-        // If order_confirmation stage doesn't exist but receipt is completed, add it
+        // If order_confirmation stage doesn't exist but receipt is completed or order is closed, add it
         if (!isset($stages['order_confirmation'])) {
             $latestReceipt = $order->latestGoodsReceipt;
-            if ($latestReceipt && $latestReceipt->is_completed) {
+            // Create order_confirmation if receipt is completed OR order is closed (fallback)
+            if ($latestReceipt && ($latestReceipt->is_completed || $order->status === \Modules\Purchase\Enums\OrderStatus::CLOSED)) {
                 $orderConfirmationStage = $this->saveOrderConfirmationStage($order);
                 if ($orderConfirmationStage) {
+                    $stages['order_confirmation'] = $this->enrichOrderConfirmationStageData(
+                        $orderConfirmationStage->stage_data,
+                        $order,
+                        $latestReceipt
+                    );
+                } elseif ($order->status === \Modules\Purchase\Enums\OrderStatus::CLOSED && $latestReceipt) {
+                    // If saveOrderConfirmationStage returned null (receipt not completed),
+                    // but order is closed, create the stage directly
+                    $stageData = $this->prepareOrderConfirmationStageData($order, $latestReceipt);
+                    $orderConfirmationStage = OrderTrackingStage::create([
+                        'purchase_order_id' => $order->id,
+                        'stage_type' => 'order_confirmation',
+                        'stage_data' => $stageData,
+                        'started_at' => $latestReceipt->inspection_completed_at ?? now(),
+                        'completed_at' => $latestReceipt->inspection_completed_at ?? now(),
+                        'created_by' => Auth::id(),
+                        'created_by_type' => Auth::user() ? get_class(Auth::user()) : null,
+                    ]);
                     $stages['order_confirmation'] = $this->enrichOrderConfirmationStageData(
                         $orderConfirmationStage->stage_data,
                         $order,
