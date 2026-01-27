@@ -645,7 +645,7 @@ class OrderTrackingService
             $financialData = $calculationService->calculateTotalWithVAT((float) $latestReceipt->received_amount);
             
             return [
-                'invoice_number' => null,
+                'invoice_number' => $order->order_number ?? $latestReceipt->receipt_number ?? null,
                 'invoice_date' => $latestReceipt->inspection_completed_at?->format('Y-m-d'),
                 'supplier_name' => $order->supplier?->name,
                 'amount_before_tax' => $financialData['amount_before_tax'],
