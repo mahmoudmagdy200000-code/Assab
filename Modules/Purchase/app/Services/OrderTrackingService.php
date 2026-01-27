@@ -454,6 +454,11 @@ class OrderTrackingService
 
         $stageData['receipt_details'] = $stageData['receipt_details'] ?? [];
         
+        // Ensure receipt items are loaded
+        if (!$latestReceipt->relationLoaded('items')) {
+            $latestReceipt->load('items');
+        }
+        
         // Calculate values from items if receipt fields are 0 (fallback)
         $items = $latestReceipt->items;
         $numberOfItems = $latestReceipt->total_items_received > 0

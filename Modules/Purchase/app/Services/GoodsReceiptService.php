@@ -376,31 +376,63 @@ class GoodsReceiptService
             }
 
             // Process variance action if provided (applies to all items with variance)
+            // IMPORTANT: Variances are already created above, so even if action fails, variances will be saved
             if (!empty($varianceData) && !empty($variancesMap)) {
                 $action = $varianceData['action'];
                 $varianceNote = $varianceData['note'] ?? null;
                 $variancePhoto = $varianceData['photo'] ?? null;
 
                 // Apply action to all variances
+                // Use try-catch to ensure variance records are saved even if action processing fails
                 foreach ($variancesMap as $variance) {
-                    // Process the action
-                    match ($action) {
-                        'accept' => $this->varianceService->acceptVariance($variance),
-                        'compensatory_order' => $this->handleCompensatoryOrder(
-                            $variance,
-                            $order,
-                            $varianceData['items'] ?? [],
-                            $varianceNote,
-                            $variancePhoto
-                        ),
-                        'deduct_from_invoice' => $this->varianceService->deductFromInvoice(
-                            $variance,
-                            $varianceData['deduct_data']['amount'] ?? 0,
-                            $varianceData['deduct_data']['reason'] ?? 'short_quantity',
-                            $varianceData['deduct_data']['notes'] ?? $varianceNote
-                        ),
-                    };
+                    try {
+                        // Process the action
+                        match ($action) {
+                            'accept' => $this->varianceService->acceptVariance($variance),
+                            'compensatory_order' => $this->handleCompensatoryOrder(
+                                $variance,
+                                $order,
+                                $varianceData['items'] ?? [],
+                                $varianceNote,
+                                $variancePhoto
+                            ),
+                            'deduct_from_invoice' => $this->varianceService->deductFromInvoice(
+                                $variance,
+                                $varianceData['deduct_data']['amount'] ?? 0,
+                                $varianceData['deduct_data']['reason'] ?? 'short_quantity',
+                                $varianceData['deduct_data']['notes'] ?? $varianceNote
+                            ),
+                        };
+                    } catch (\Exception $e) {
+                        // Log error but don't fail the entire transaction
+                        // Variance record is already created and will be saved
+                        \Log::error('Error processing variance action', [
+                            'variance_id' => $variance->id,
+                            'action' => $action,
+                            'error' => $e->getMessage(),
+                            'trace' => $e->getTraceAsString(),
+                        ]);
+                        
+                        // Update variance status to indicate action failed
+                        // Use DB::table to avoid model events that might cause issues
+                        DB::table('purchase_variances')
+                            ->where('id', $variance->id)
+                            ->update([
+                                'status' => 'pending',
+                                'additional_notes' => ($variance->additional_notes ?? '') . "\n[Error processing action: " . $e->getMessage() . ']',
+                                'updated_at' => now(),
+                            ]);
+                    }
                 }
+            }
+            
+            // Log variance creation for debugging
+            if (!empty($variancesMap)) {
+                \Log::info('GoodsReceipt: Variances created', [
+                    'receipt_id' => $receipt->id,
+                    'variances_count' => count($variancesMap),
+                    'variance_ids' => collect($variancesMap)->pluck('id')->toArray(),
+                ]);
             }
 
             // Handle document type if provided
