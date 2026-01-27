@@ -1330,8 +1330,9 @@ class GoodsReceiptService
         );
 
         // Get order items from variance.items (order line IDs)
+        $varianceItemsMap = collect($items)->keyBy('item_id');
         $orderItems = $originalOrder->items()
-            ->whereIn('id', collect($items)->pluck('item_id')->toArray())
+            ->whereIn('id', $varianceItemsMap->keys()->toArray())
             ->get();
 
         if ($orderItems->isEmpty()) {
@@ -1339,7 +1340,19 @@ class GoodsReceiptService
         }
 
         // Prepare items data for new order
-        $newOrderItems = $orderItems->map(function ($orderItem) {
+        // Use quantity from variance items, not from original order
+        // Note: addItem expects 'quantity' field, not 'quantity_ordered'
+        $newOrderItems = $orderItems->map(function ($orderItem) use ($varianceItemsMap) {
+            $varianceItem = $varianceItemsMap->get($orderItem->id);
+            $quantity = $varianceItem['quantity'] ?? $orderItem->quantity_ordered;
+            
+            // Validate quantity exists and is greater than 0
+            if (!isset($quantity) || $quantity <= 0) {
+                throw new \InvalidArgumentException(
+                    "Quantity is required and must be greater than 0 for item {$orderItem->item_name}"
+                );
+            }
+            
             return [
                 'item_id' => $orderItem->item_id,
                 'item_name' => $orderItem->item_name,
@@ -1347,7 +1360,7 @@ class GoodsReceiptService
                 'item_sku' => $orderItem->item_sku,
                 'category' => $orderItem->category,
                 'subcategory' => $orderItem->subcategory,
-                'quantity_ordered' => $orderItem->quantity_ordered,
+                'quantity' => $quantity, // addItem expects 'quantity', not 'quantity_ordered'
                 'unit_of_measurement' => $orderItem->unit_of_measurement,
                 'unit_price' => $orderItem->unit_price,
                 'quality_ordered' => $orderItem->quality_ordered?->value,

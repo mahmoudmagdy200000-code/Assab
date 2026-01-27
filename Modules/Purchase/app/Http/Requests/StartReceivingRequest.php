@@ -62,6 +62,7 @@ class StartReceivingRequest extends FormRequest
             // Items for compensatory order (required if action is compensatory_order)
             'variance.items' => ['required_if:variance.action,compensatory_order', 'array', 'min:1'],
             'variance.items.*.item_id' => ['required', 'uuid', $orderLineExists],
+            'variance.items.*.quantity' => ['required', 'numeric', 'min:0.001'],
 
             // Deduct from invoice data (optional)
             'variance.deduct_data' => ['nullable', 'array'],
@@ -139,6 +140,9 @@ class StartReceivingRequest extends FormRequest
             'variance.items.*.item_id.required' => 'Item ID is required for each item in compensatory order.',
             'variance.items.*.item_id.uuid' => 'Item ID must be a valid UUID.',
             'variance.items.*.item_id.exists' => 'The selected item does not exist in the order. Use the order line "id" from order details, not "item_id".',
+            'variance.items.*.quantity.required' => 'Quantity is required for each item in compensatory order.',
+            'variance.items.*.quantity.numeric' => 'Quantity must be a number.',
+            'variance.items.*.quantity.min' => 'Quantity must be at least 0.001.',
 
             // Deduct from invoice
             'variance.deduct_data.amount.numeric' => 'Deduction amount must be a number.',
