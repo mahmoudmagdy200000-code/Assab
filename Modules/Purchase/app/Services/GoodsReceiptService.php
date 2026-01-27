@@ -1383,9 +1383,33 @@ class GoodsReceiptService
         ]);
 
         // Update compensatory order with new_order_id
+        // Note: Check if supplier exists in purchase_suppliers table (legacy constraint)
+        // If not, set to null since foreign key allows null
+        // TODO: Create migration to update foreign key from purchase_suppliers to suppliers
+        $reorderSupplierId = null;
+        if ($originalOrder->supplier_id) {
+            // Check if supplier exists in purchase_suppliers table (for foreign key constraint)
+            $supplierExists = DB::table('purchase_suppliers')
+                ->where('id', $originalOrder->supplier_id)
+                ->exists();
+            
+            if (!$supplierExists) {
+                // Log warning if supplier doesn't exist in purchase_suppliers
+                // The supplier might be in the new suppliers table, but the FK constraint
+                // still references purchase_suppliers (needs migration fix)
+                \Log::warning('Supplier not found in purchase_suppliers table for compensatory order', [
+                    'supplier_id' => $originalOrder->supplier_id,
+                    'order_id' => $originalOrder->id,
+                    'compensatory_order_id' => $compensatory->id,
+                ]);
+            }
+            
+            $reorderSupplierId = $supplierExists ? $originalOrder->supplier_id : null;
+        }
+        
         $compensatory->update([
             'new_order_id' => $newOrder->id,
-            'reorder_supplier_id' => $originalOrder->supplier_id,
+            'reorder_supplier_id' => $reorderSupplierId,
             'status' => 'ordered',
         ]);
 
