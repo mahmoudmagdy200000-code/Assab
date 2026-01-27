@@ -1149,6 +1149,14 @@ class GoodsReceiptService
                     $deliveredStage['delivery_note_file'] = FileResource::makeOrNull($deliveryNoteDoc)?->toArray(request());
                 }
             }
+
+            // Add delivery_photos from order if available
+            if ($order->delivery_photos && is_array($order->delivery_photos) && !empty($order->delivery_photos)) {
+                $deliveredStage['delivery_photos'] = array_map(function ($photoPath) {
+                    return FileResource::makeOrNull($photoPath)?->toArray(request());
+                }, $order->delivery_photos);
+            }
+
             $stages['delivered'] = $deliveredStage;
         }
 
