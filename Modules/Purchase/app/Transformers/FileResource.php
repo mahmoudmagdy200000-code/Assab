@@ -3,6 +3,7 @@
 namespace Modules\Purchase\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Storage;
 use Modules\Purchase\Models\OrderDocument;
 use Modules\Purchase\Models\PurchaseInvoice;
 
@@ -59,11 +60,22 @@ class FileResource extends JsonResource
      */
     private function formatOrderDocument(): array
     {
+        $fileSize = $this->file_size ? (int) $this->file_size : null;
+        if ($fileSize === null && $this->file_path) {
+            try {
+                if (Storage::disk('public')->exists($this->file_path)) {
+                    $fileSize = Storage::disk('public')->size($this->file_path);
+                }
+            } catch (\Throwable) {
+                // Keep null on error
+            }
+        }
+
         return [
             'id' => (string) $this->id,
             'file_name' => $this->original_name ?? null,
             'file_type' => $this->mime_type ?? null,
-            'file_size' => $this->file_size ? (int) $this->file_size : null,
+            'file_size' => $fileSize,
             'url' => $this->file_url ?? $this->getUrlFromPath($this->file_path),
             'uploaded_at' => $this->created_at?->format(self::DATE_FORMAT),
         ];

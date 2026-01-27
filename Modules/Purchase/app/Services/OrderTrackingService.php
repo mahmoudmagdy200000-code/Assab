@@ -269,12 +269,22 @@ class OrderTrackingService
                                     // Try SupplierQualityDocument
                                     $supplierDoc = $qualityDocuments->get($item['item_name']);
                                     if ($supplierDoc && $supplierDoc->file_path) {
+                                        $fileSize = $supplierDoc->file_size ?? null;
+                                        if ($fileSize === null) {
+                                            try {
+                                                if (\Illuminate\Support\Facades\Storage::disk('public')->exists($supplierDoc->file_path)) {
+                                                    $fileSize = \Illuminate\Support\Facades\Storage::disk('public')->size($supplierDoc->file_path);
+                                                }
+                                            } catch (\Throwable) {
+                                                // keep null
+                                            }
+                                        }
                                         $stageData['items'][$key]['quality_certificate'] = FileResource::makeOrNull([
                                             'id' => (string) $supplierDoc->id,
                                             'file_path' => $supplierDoc->file_path,
                                             'file_name' => $supplierDoc->file_name ?? basename($supplierDoc->file_path),
                                             'file_type' => $supplierDoc->file_type ?? null,
-                                            'file_size' => null, // SupplierQualityDocument doesn't have file_size
+                                            'file_size' => $fileSize,
                                             'created_at' => $supplierDoc->created_at,
                                         ])?->toArray(request());
                                     }
@@ -284,31 +294,35 @@ class OrderTrackingService
                         break;
 
                     case 'delivered':
-                        // Ensure invoice is included if available
-                        // Always refresh invoice data from database
+                        // Ensure invoice or delivery_note file is included
                         if (!$order->relationLoaded('latestGoodsReceipt')) {
-                            $order->load('latestGoodsReceipt.invoice');
+                            $order->load('latestGoodsReceipt.invoice', 'latestGoodsReceipt.documents');
                         } else {
-                            $order->latestGoodsReceipt?->loadMissing('invoice');
+                            $order->latestGoodsReceipt?->loadMissing(['invoice', 'documents']);
                         }
-                        
+
                         $latestReceipt = $order->latestGoodsReceipt;
                         $invoice = $latestReceipt?->invoice;
-                        
+
                         if ($invoice) {
                             $stageData['invoice_file'] = FileResource::makeOrNull($invoice)?->toArray(request());
                         } else {
-                            // Try SupplierInvoice
                             $supplierInvoice = \Modules\Supplier\Models\SupplierInvoice::where('order_id', $order->id)
                                 ->latest()
                                 ->first();
-                            
                             if ($supplierInvoice) {
                                 $stageData['invoice_file'] = FileResource::makeOrNull([
                                     'id' => (string) $supplierInvoice->id,
                                     'file_path' => $supplierInvoice->file_path,
                                     'created_at' => $supplierInvoice->created_at,
                                 ])?->toArray(request());
+                            } elseif ($latestReceipt?->document_type?->value === 'delivery_note') {
+                                $deliveryNoteDoc = $latestReceipt->documents
+                                    ->where('type', DocumentType::DELIVERY_NOTE)
+                                    ->first();
+                                if ($deliveryNoteDoc) {
+                                    $stageData['delivery_note_file'] = FileResource::makeOrNull($deliveryNoteDoc)?->toArray(request());
+                                }
                             }
                         }
                         break;
@@ -396,12 +410,22 @@ class OrderTrackingService
                 // Try to get from SupplierQualityDocument
                 $supplierDoc = $qualityDocuments->get($item->item_name);
                 if ($supplierDoc && $supplierDoc->file_path) {
+                    $fileSize = $supplierDoc->file_size ?? null;
+                    if ($fileSize === null) {
+                        try {
+                            if (\Illuminate\Support\Facades\Storage::disk('public')->exists($supplierDoc->file_path)) {
+                                $fileSize = \Illuminate\Support\Facades\Storage::disk('public')->size($supplierDoc->file_path);
+                            }
+                        } catch (\Throwable) {
+                            // keep null
+                        }
+                    }
                     $itemData['quality_certificate'] = FileResource::makeOrNull([
                         'id' => (string) $supplierDoc->id,
                         'file_path' => $supplierDoc->file_path,
                         'file_name' => $supplierDoc->file_name ?? basename($supplierDoc->file_path),
                         'file_type' => $supplierDoc->file_type ?? null,
-                        'file_size' => null, // SupplierQualityDocument doesn't have file_size
+                        'file_size' => $fileSize,
                         'created_at' => $supplierDoc->created_at,
                     ])?->toArray(request());
                 }
@@ -423,13 +447,14 @@ class OrderTrackingService
     private function prepareOutForDeliveryStageData(PurchaseOrder $order, array $deliveryData = []): array
     {
         $latestReceipt = $order->latestGoodsReceipt;
+        $driverPhotoPath = $order->driver_photo ?? $latestReceipt?->driver_image ?? null;
 
         return [
             'status' => 'out_for_delivery',
             'arrival_time' => $order->expected_delivery_at?->format('Y-m-d H:i:s'),
             'driver_details' => [
                 'name' => $order->driver_name ?? $deliveryData['driver_name'] ?? null,
-                'photo' => $order->driver_photo ?? null,
+                'photo' => FileResource::makeOrNull($driverPhotoPath)?->toArray(request()),
                 'vehicle_number' => $order->vehicle_number ?? $deliveryData['vehicle_number'] ?? null,
             ],
             'delivery_address' => $latestReceipt?->delivery_address ?? $deliveryData['delivery_address'] ?? null,
@@ -443,11 +468,11 @@ class OrderTrackingService
      */
     private function prepareDeliveredStageData(PurchaseOrder $order, ?array $invoiceData = null): array
     {
-        // Load latest receipt with invoice relationship
+        // Load latest receipt with invoice and documents
         if (!$order->relationLoaded('latestGoodsReceipt')) {
-            $order->load('latestGoodsReceipt.invoice');
+            $order->load('latestGoodsReceipt.invoice', 'latestGoodsReceipt.documents');
         } else {
-            $order->latestGoodsReceipt?->loadMissing('invoice');
+            $order->latestGoodsReceipt?->loadMissing(['invoice', 'documents']);
         }
 
         $latestReceipt = $order->latestGoodsReceipt;
@@ -480,6 +505,14 @@ class OrderTrackingService
 
         if ($invoice) {
             $stageData['invoice_file'] = FileResource::makeOrNull($invoice)?->toArray(request());
+        } elseif ($latestReceipt && $latestReceipt->document_type?->value === 'delivery_note') {
+            // When document_type is delivery_note, use delivery note document as file
+            $deliveryNoteDoc = $latestReceipt->documents
+                ->where('type', DocumentType::DELIVERY_NOTE)
+                ->first();
+            if ($deliveryNoteDoc) {
+                $stageData['delivery_note_file'] = FileResource::makeOrNull($deliveryNoteDoc)?->toArray(request());
+            }
         }
 
         return $stageData;
@@ -490,6 +523,8 @@ class OrderTrackingService
      */
     private function prepareOrderConfirmationStageData(PurchaseOrder $order, $latestReceipt): array
     {
+        $latestReceipt->loadMissing(['invoice', 'items']);
+        $order->loadMissing('supplier');
         $invoice = $latestReceipt->invoice;
 
         return [
@@ -500,10 +535,11 @@ class OrderTrackingService
                     'number_of_items' => $latestReceipt->total_items_received,
                     'quantity_variance' => $latestReceipt->quantity_variances,
                     'total_amount' => (float) $latestReceipt->received_amount,
-                    'driver_name' => $latestReceipt->driver_name,
-                    'contact_number' => $latestReceipt->driver_contact,
-                    'vehicle_number' => $latestReceipt->vehicle_number,
-                    'arrival_time' => $latestReceipt->arrival_time?->format('Y-m-d H:i:s'),
+                    'driver_name' => $latestReceipt->driver_name ?? $order->driver_name,
+                    'contact_number' => $latestReceipt->driver_contact ?? $order->driver_contact ?? null,
+                    'vehicle_number' => $latestReceipt->vehicle_number ?? $order->vehicle_number,
+                    'arrival_time' => $latestReceipt->arrival_time?->format('Y-m-d H:i:s')
+                        ?? $order->expected_delivery_at?->format('Y-m-d H:i:s'),
                 ],
                 'goods_inspections' => $latestReceipt->items->map(function ($item) {
                     return [
@@ -516,7 +552,7 @@ class OrderTrackingService
                         'amount_variance' => $item->variance_amount ? (float) $item->variance_amount : null,
                         'temperature' => $item->temperature,
                         'expiration_date' => $item->expiry_date?->format('Y-m-d'),
-                        'item_image' => $item->photo_url,
+                        'item_image' => FileResource::makeOrNull($item->photo)?->toArray(request()),
                         'additional_note' => $item->notes,
                     ];
                 })->toArray(),

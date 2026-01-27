@@ -1120,12 +1120,13 @@ class GoodsReceiptService
 
         // Stage 2: Out for Delivery
         if ($order->status === \Modules\Purchase\Enums\OrderStatus::ON_THE_WAY) {
+            $driverPhotoPath = $order->driver_photo ?? $latestReceipt?->driver_image ?? null;
             $stages['out_for_delivery'] = [
                 'status' => 'out_for_delivery',
                 'arrival_time' => $order->expected_delivery_at?->format('Y-m-d H:i:s'),
                 'driver_details' => [
                     'name' => $order->driver_name,
-                    'photo' => $order->driver_photo,
+                    'photo' => FileResource::makeOrNull($driverPhotoPath)?->toArray(request()),
                     'vehicle_number' => $order->vehicle_number,
                 ],
                 'delivery_address' => $latestReceipt?->delivery_address ?? null,
@@ -1135,15 +1136,27 @@ class GoodsReceiptService
 
         // Stage 3: Delivered
         if ($order->status === \Modules\Purchase\Enums\OrderStatus::DELIVERED && $latestReceipt) {
+            $latestReceipt->loadMissing(['invoice', 'documents']);
             $invoice = $latestReceipt->invoice;
-            $stages['delivered'] = [
-                'status' => 'delivered',
-                'invoice_file' => FileResource::makeOrNull($invoice)?->toArray(request()),
-            ];
+            $deliveredStage = ['status' => 'delivered'];
+            if ($invoice) {
+                $deliveredStage['invoice_file'] = FileResource::makeOrNull($invoice)?->toArray(request());
+            } elseif ($latestReceipt->document_type?->value === 'delivery_note') {
+                $deliveryNoteDoc = $latestReceipt->documents
+                    ->where('type', DocumentType::DELIVERY_NOTE)
+                    ->first();
+                if ($deliveryNoteDoc) {
+                    $deliveredStage['delivery_note_file'] = FileResource::makeOrNull($deliveryNoteDoc)?->toArray(request());
+                }
+            }
+            $stages['delivered'] = $deliveredStage;
         }
 
         // Stage 4: Order Confirmation
         if ($latestReceipt && $latestReceipt->is_completed) {
+            $latestReceipt->loadMissing(['invoice', 'items']);
+            $order->loadMissing('supplier');
+            $invoice = $latestReceipt->invoice;
             $stages['order_confirmation'] = [
                 'status' => 'confirmed',
                 'receipt_details' => [
@@ -1152,10 +1165,11 @@ class GoodsReceiptService
                         'number_of_items' => $latestReceipt->total_items_received,
                         'quantity_variance' => $latestReceipt->quantity_variances,
                         'total_amount' => (float) $latestReceipt->received_amount,
-                        'driver_name' => $latestReceipt->driver_name,
-                        'contact_number' => $latestReceipt->driver_contact,
-                        'vehicle_number' => $latestReceipt->vehicle_number,
-                        'arrival_time' => $latestReceipt->arrival_time?->format('Y-m-d H:i:s'),
+                        'driver_name' => $latestReceipt->driver_name ?? $order->driver_name,
+                        'contact_number' => $latestReceipt->driver_contact ?? $order->driver_contact ?? null,
+                        'vehicle_number' => $latestReceipt->vehicle_number ?? $order->vehicle_number,
+                        'arrival_time' => $latestReceipt->arrival_time?->format('Y-m-d H:i:s')
+                            ?? $order->expected_delivery_at?->format('Y-m-d H:i:s'),
                     ],
                     'goods_inspections' => $latestReceipt->items->map(function ($item) {
                         return [
@@ -1168,18 +1182,18 @@ class GoodsReceiptService
                             'amount_variance' => $item->variance_amount ? (float) $item->variance_amount : null,
                             'temperature' => $item->temperature,
                             'expiration_date' => $item->expiry_date?->format('Y-m-d'),
-                            'item_image' => $item->photo_url,
+                            'item_image' => FileResource::makeOrNull($item->photo)?->toArray(request()),
                             'additional_note' => $item->notes,
                         ];
                     })->toArray(),
                     'document_type' => $latestReceipt->document_type?->value,
-                    'financial_summary' => $latestReceipt->invoice ? [
-                        'invoice_number' => $latestReceipt->invoice->invoice_number,
-                        'invoice_date' => $latestReceipt->invoice->invoice_date?->format('Y-m-d'),
+                    'financial_summary' => $invoice ? [
+                        'invoice_number' => $invoice->invoice_number,
+                        'invoice_date' => $invoice->invoice_date?->format('Y-m-d'),
                         'supplier_name' => $order->supplier?->name,
-                        'amount_before_tax' => (float) $latestReceipt->invoice->amount_before_tax,
-                        'vat' => (float) $latestReceipt->invoice->tax_amount,
-                        'total_amount' => (float) $latestReceipt->invoice->total_amount,
+                        'amount_before_tax' => (float) $invoice->amount_before_tax,
+                        'vat' => (float) $invoice->tax_amount,
+                        'total_amount' => (float) $invoice->total_amount,
                     ] : null,
                 ],
             ];
