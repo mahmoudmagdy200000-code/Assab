@@ -254,6 +254,14 @@ class GoodsReceiptService
 
             // Create receipt items from order items with inspection data
             $receiptItemsMap = [];
+            
+            \Log::info('GoodsReceipt: Starting receipt items creation', [
+                'receipt_id' => $receipt->id,
+                'order_id' => $order->id,
+                'order_items_count' => $order->items->count(),
+                'items_data_count' => count($itemsData),
+            ]);
+            
             foreach ($order->items as $orderItem) {
                 $receivedItemData = $receivedItemsMap->get($orderItem->id);
 
@@ -305,7 +313,18 @@ class GoodsReceiptService
 
                 // Store receipt item in map for variance processing
                 $receiptItemsMap[$orderItem->id] = $receiptItem;
+                
+                \Log::info('GoodsReceipt: Created receipt item', [
+                    'receipt_item_id' => $receiptItem->id,
+                    'item_name' => $receiptItem->item_name,
+                    'quantity_received' => $receiptItem->quantity_received,
+                ]);
             }
+
+            \Log::info('GoodsReceipt: Receipt items creation completed', [
+                'receipt_id' => $receipt->id,
+                'items_created_count' => count($receiptItemsMap),
+            ]);
 
             // Process unlisted items (gifts from supplier)
             foreach ($unlistedItems as $unlistedItemData) {

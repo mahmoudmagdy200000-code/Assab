@@ -128,6 +128,14 @@ class GoodsReceivingController extends BaseController
 
             // Handle file uploads for photos
             $itemsData = $validated['items'];
+            
+            \Log::info('GoodsReceiving: startReceiving called', [
+                'order_id' => $orderId,
+                'items_count' => count($itemsData),
+                'has_variance' => isset($validated['variance']),
+                'has_unlisted' => isset($validated['unlisted_items']),
+            ]);
+            
             foreach ($itemsData as $index => $itemData) {
                 if ($request->hasFile("items.{$index}.photo")) {
                     $itemsData[$index]['photo'] = $request->file("items.{$index}.photo")->store('receipts/items', 'public');

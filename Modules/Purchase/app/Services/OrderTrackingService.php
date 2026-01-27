@@ -480,6 +480,15 @@ class OrderTrackingService
 
         $goodsInspections = $stageData['receipt_details']['goods_inspections'] ?? [];
         
+        // Debug: Log receipt items count
+        \Log::info('OrderTracking: enrichOrderConfirmationStageData', [
+            'order_id' => $order->id,
+            'receipt_id' => $latestReceipt->id,
+            'items_count' => $latestReceipt->items->count(),
+            'items_loaded' => $latestReceipt->relationLoaded('items'),
+            'existing_goods_inspections_count' => count($goodsInspections),
+        ]);
+        
         // Always repopulate goods_inspections from receipt items to ensure fresh data
         // This fixes the issue where empty array is stored but items exist
         if ($latestReceipt->items->isNotEmpty()) {
@@ -500,6 +509,11 @@ class OrderTrackingService
             })->toArray();
             $stageData['receipt_details']['goods_inspections'] = $goodsInspections;
         } else {
+            \Log::warning('OrderTracking: No items in receipt', [
+                'order_id' => $order->id,
+                'receipt_id' => $latestReceipt->id,
+            ]);
+            
             // If no items in receipt, keep existing goods_inspections (if any) but enrich item_image
             if (!empty($goodsInspections)) {
                 foreach ($goodsInspections as $giKey => $gi) {
