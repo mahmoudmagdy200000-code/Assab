@@ -479,9 +479,31 @@ class OrderTrackingService
         ]);
 
         $goodsInspections = $stageData['receipt_details']['goods_inspections'] ?? [];
-        foreach ($goodsInspections as $giKey => $gi) {
-            $item = $latestReceipt->items->firstWhere('item_name', $gi['item_name'] ?? '');
-            $stageData['receipt_details']['goods_inspections'][$giKey]['item_image'] = FileResource::makeOrNull($item?->photo ?? null)?->toArray(request());
+        
+        // If goods_inspections is empty, populate from receipt items
+        if (empty($goodsInspections) && $latestReceipt->items->isNotEmpty()) {
+            $goodsInspections = $latestReceipt->items->map(function ($item) {
+                return [
+                    'item_name' => $item->item_name,
+                    'item_logo' => $item->item_logo_url,
+                    'quantity_ordered' => (float) $item->quantity_ordered,
+                    'quantity_received' => (float) $item->quantity_received,
+                    'quality' => $item->quality_received?->value,
+                    'variance_type' => $item->variance_type?->value,
+                    'amount_variance' => $item->variance_amount ? (float) $item->variance_amount : null,
+                    'temperature' => $item->temperature,
+                    'expiration_date' => $item->expiry_date?->format('Y-m-d'),
+                    'item_image' => FileResource::makeOrNull($item->photo)?->toArray(request()),
+                    'additional_note' => $item->notes,
+                ];
+            })->toArray();
+            $stageData['receipt_details']['goods_inspections'] = $goodsInspections;
+        } else {
+            // Enrich existing goods_inspections with item_image
+            foreach ($goodsInspections as $giKey => $gi) {
+                $item = $latestReceipt->items->firstWhere('item_name', $gi['item_name'] ?? '');
+                $stageData['receipt_details']['goods_inspections'][$giKey]['item_image'] = FileResource::makeOrNull($item?->photo ?? null)?->toArray(request());
+            }
         }
 
         // Ensure document_type is set (fallback if missing)
