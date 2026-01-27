@@ -389,7 +389,7 @@ class OrderTrackingService
 
     /**
      * Enrich order_confirmation stage_data with fresh driver/arrival fallbacks,
-     * item_image as FileResource, and financial_summary when invoice exists.
+     * item_image as FileResource, and financial_summary (from invoice or calculated from received_amount).
      */
     private function enrichOrderConfirmationStageData(array $stageData, PurchaseOrder $order, $latestReceipt): array
     {
@@ -413,15 +413,9 @@ class OrderTrackingService
             $stageData['receipt_details']['goods_inspections'][$giKey]['item_image'] = FileResource::makeOrNull($item?->photo ?? null)?->toArray(request());
         }
 
-        if ($inv && empty($stageData['receipt_details']['financial_summary'])) {
-            $stageData['receipt_details']['financial_summary'] = [
-                'invoice_number' => $inv->invoice_number,
-                'invoice_date' => $inv->invoice_date?->format('Y-m-d'),
-                'supplier_name' => $order->supplier?->name,
-                'amount_before_tax' => (float) $inv->amount_before_tax,
-                'vat' => (float) $inv->tax_amount,
-                'total_amount' => (float) $inv->total_amount,
-            ];
+        // Calculate financial_summary: from invoice if exists, otherwise from received_amount
+        if (empty($stageData['receipt_details']['financial_summary'])) {
+            $stageData['receipt_details']['financial_summary'] = $this->calculateFinancialSummary($order, $latestReceipt, $inv);
         }
 
         return $stageData;
@@ -625,16 +619,42 @@ class OrderTrackingService
                     ];
                 })->toArray(),
                 'document_type' => $latestReceipt->document_type?->value,
-                'financial_summary' => $invoice ? [
-                    'invoice_number' => $invoice->invoice_number,
-                    'invoice_date' => $invoice->invoice_date?->format('Y-m-d'),
-                    'supplier_name' => $order->supplier?->name,
-                    'amount_before_tax' => (float) $invoice->amount_before_tax,
-                    'vat' => (float) $invoice->tax_amount,
-                    'total_amount' => (float) $invoice->total_amount,
-                ] : null,
+                'financial_summary' => $this->calculateFinancialSummary($order, $latestReceipt, $invoice),
             ],
         ];
+    }
+
+    /**
+     * Calculate financial summary from invoice or received_amount
+     */
+    private function calculateFinancialSummary(PurchaseOrder $order, $latestReceipt, $invoice): ?array
+    {
+        if ($invoice) {
+            // Use invoice data
+            return [
+                'invoice_number' => $invoice->invoice_number,
+                'invoice_date' => $invoice->invoice_date?->format('Y-m-d'),
+                'supplier_name' => $order->supplier?->name,
+                'amount_before_tax' => (float) $invoice->amount_before_tax,
+                'vat' => (float) $invoice->tax_amount,
+                'total_amount' => (float) $invoice->total_amount,
+            ];
+        } elseif ($latestReceipt->received_amount > 0) {
+            // Calculate from received_amount (for delivery_note or receipt_without_document)
+            $calculationService = app(\Modules\Purchase\Services\CalculationService::class);
+            $financialData = $calculationService->calculateTotalWithVAT((float) $latestReceipt->received_amount);
+            
+            return [
+                'invoice_number' => null,
+                'invoice_date' => $latestReceipt->inspection_completed_at?->format('Y-m-d'),
+                'supplier_name' => $order->supplier?->name,
+                'amount_before_tax' => $financialData['amount_before_tax'],
+                'vat' => $financialData['vat_amount'],
+                'total_amount' => $financialData['total_amount'],
+            ];
+        }
+
+        return null;
     }
 
     /**
