@@ -486,7 +486,7 @@ class OrderTrackingService
 
         // Ensure document_type is set (fallback if missing)
         if (empty($stageData['receipt_details']['document_type'])) {
-            $stageData['receipt_details']['document_type'] = $latestReceipt->document_type?->value;
+            $stageData['receipt_details']['document_type'] = $this->determineDocumentType($latestReceipt, $inv);
         }
 
         // Calculate financial_summary: from invoice if exists, otherwise from received_amount
@@ -693,7 +693,7 @@ class OrderTrackingService
      */
     private function prepareOrderConfirmationStageData(PurchaseOrder $order, $latestReceipt): array
     {
-        $latestReceipt->loadMissing(['invoice', 'items']);
+        $latestReceipt->loadMissing(['invoice', 'items', 'documents']);
         $order->loadMissing('supplier');
         $invoice = $latestReceipt->invoice;
 
@@ -740,10 +740,33 @@ class OrderTrackingService
                         'additional_note' => $item->notes,
                     ];
                 })->toArray(),
-                'document_type' => $latestReceipt->document_type?->value,
+                'document_type' => $this->determineDocumentType($latestReceipt, $invoice),
                 'financial_summary' => $this->calculateFinancialSummary($order, $latestReceipt, $invoice),
             ],
         ];
+    }
+
+    /**
+     * Determine document_type from receipt, invoice, or documents
+     */
+    private function determineDocumentType($latestReceipt, $invoice): ?string
+    {
+        // First try receipt document_type
+        if ($latestReceipt->document_type?->value) {
+            return $latestReceipt->document_type->value;
+        }
+
+        // Fallback: determine from invoice or delivery_note document
+        if ($invoice) {
+            return 'invoice';
+        }
+
+        $latestReceipt->loadMissing('documents');
+        $hasDeliveryNote = $latestReceipt->documents
+            ->where('type', DocumentType::DELIVERY_NOTE)
+            ->isNotEmpty();
+
+        return $hasDeliveryNote ? 'delivery_note' : 'receipt_without_document';
     }
 
     /**
