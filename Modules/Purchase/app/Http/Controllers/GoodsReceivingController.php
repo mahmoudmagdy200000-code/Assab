@@ -105,9 +105,8 @@ class GoodsReceivingController extends BaseController
                 return $this->errorResponse('Order cannot be received in current status', 400);
             }
 
-            // Close order and all items before starting receiving
+            // Close order and all items before starting receiving (close() also sets items to CLOSED)
             $order->close();
-            $order->items()->update(['status' => \Modules\Purchase\Enums\OrderItemStatus::CLOSED]);
 
             // Get validated data
             $validated = $request->validated();

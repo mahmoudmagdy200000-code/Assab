@@ -612,7 +612,11 @@ class PurchaseOrder extends Model
 
     public function close(): bool
     {
-        return $this->transitionTo(OrderStatus::CLOSED);
+        $closed = $this->transitionTo(OrderStatus::CLOSED);
+        if ($closed) {
+            $this->items()->update(['status' => OrderItemStatus::CLOSED]);
+        }
+        return $closed;
     }
 
     public function reportDelay(string $reason): bool
