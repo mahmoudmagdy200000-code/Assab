@@ -2,15 +2,18 @@
 
 namespace Modules\Cashier\Services;
 
-use Modules\Cashier\Models\Cashier;
-use Modules\Cashier\Repositories\CashierRepositoryInterface;
+use Carbon\Carbon;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Modules\Cashier\Models\Cashier;
+use Modules\Cashier\Repositories\CashierRepositoryInterface;
+use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Helpers\ShiftHelper;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
-use Illuminate\Pagination\LengthAwarePaginator;
 
 class CashierService
 {
@@ -71,14 +74,15 @@ class CashierService
                 'created_by' => $data['created_by'],
             ]);
 
-            // Assign shifts (أول مرة فقط)
-            // Use today's date as default if shift_date is not provided
             if (!empty($data['shift_ids'])) {
-                $shiftDate = $data['shift_date'] ?? now()->toDateString();
+                $refDate = isset($data['shift_date'])
+                    ? Carbon::parse($data['shift_date'])
+                    : Carbon::today();
                 $this->assignShiftsToCashier(
                     cashierId: $cashier->id,
                     shiftIds: $data['shift_ids'],
-                    shiftDate: $shiftDate
+                    shiftDate: $refDate->toDateString(),
+                    forFullWeek: true
                 );
             }
 
@@ -234,28 +238,43 @@ class CashierService
 
 
     /**
-     * Assign shifts to cashier
+     * Assign shifts to cashier.
+     * When forFullWeek=true, creates CashierShifts for each work day (Sun–Thu) excluding holidays.
      */
-    public function assignShiftsToCashier(string $cashierId, array $shiftIds, string $shiftDate, bool $forNext30Days = false): array
-    {
-        $cashier = Cashier::findOrFail($cashierId);
+    public function assignShiftsToCashier(
+        string $cashierId,
+        array $shiftIds,
+        string $shiftDate,
+        bool $forFullWeek = false
+    ): array {
+        Cashier::findOrFail($cashierId);
         $assignedShifts = [];
+        $refDate = Carbon::parse($shiftDate);
+        $assignedBy = auth('branch_manager')->id() ?? auth()->id();
 
-        foreach ($shiftIds as $shiftId) {
-            $shift = Shift::findOrFail($shiftId);
+        $dates = $forFullWeek
+            ? ShiftHelper::workWeekDatesExcludingHolidays($refDate)
+            : [$refDate];
 
-            // Create cashier shift record for the given date
-            $cashierShift = \Modules\Shift\Models\CashierShift::create([
-                'cashier_id' => $cashierId,
-                'shift_id' => $shiftId,
-                'shift_date' => $shiftDate,
-                'status' => \Modules\Shift\Enums\ShiftStatus::NOT_STARTED->value,
-                'opening_balance' => 0,
-                'assigned_by' => auth('branch_manager')->id() ?? auth()->id(),
-            ]);
+        foreach ($dates as $date) {
+            $d = $date->format('Y-m-d');
+            foreach ($shiftIds as $shiftId) {
+                Shift::findOrFail($shiftId);
 
-            $assignedShifts[] = $cashierShift;
+                $cashierShift = CashierShift::create([
+                    'cashier_id' => $cashierId,
+                    'shift_id' => $shiftId,
+                    'shift_date' => $d,
+                    'status' => ShiftStatus::NOT_STARTED->value,
+                    'opening_balance' => 0,
+                    'assigned_by' => $assignedBy,
+                ]);
+
+                $assignedShifts[] = $cashierShift;
+            }
         }
+
+        $this->setNextCashierIdsForCreatedShifts($assignedShifts);
 
         return [
             'cashier_id' => $cashierId,
@@ -264,29 +283,48 @@ class CashierService
         ];
     }
 
+    /**
+     * Set next_cashier_id on created CashierShifts from the chronologically next shift (same day, same branch).
+     *
+     * @param array<int, CashierShift> $created
+     */
+    private function setNextCashierIdsForCreatedShifts(array $created): void
+    {
+        $shiftService = app(\Modules\Shift\Services\ShiftService::class);
+
+        foreach ($created as $cs) {
+            $next = $shiftService->getNextShiftCashier($cs);
+            if ($next) {
+                $cs->update(['next_cashier_id' => $next->id]);
+            }
+        }
+    }
+
 
 
     /**
-     * Update cashier shifts
+     * Update cashier shifts: remove pending shifts not in new list (current work week),
+     * then assign for full work week (Sun–Thu, excluding holidays).
      */
     public function updateCashierShifts(string $cashierId, array $shiftIds): array
     {
         DB::beginTransaction();
         try {
-            $cashier = Cashier::findOrFail($cashierId);
+            Cashier::findOrFail($cashierId);
+            [$start, $end] = ShiftHelper::currentWorkWeekDates();
 
-            // Remove pending shifts not in the new list
-            Shift::where('assigned_to', $cashierId)
-                ->where('status', 'not_started')
-                ->whereDate('shift_date', '>=', today())
-                ->whereNotIn('id', $shiftIds)
+            CashierShift::where('cashier_id', $cashierId)
+                ->where('status', ShiftStatus::NOT_STARTED)
+                ->whereDate('shift_date', '>=', $start)
+                ->whereDate('shift_date', '<=', $end)
+                ->whereNotIn('shift_id', $shiftIds)
                 ->delete();
 
-            // Assign new shifts for today by default
             $result = $this->assignShiftsToCashier(
                 cashierId: $cashierId,
                 shiftIds: $shiftIds,
-                shiftDate: today()->toDateString()
+                shiftDate: $start->toDateString(),
+                forFullWeek: true
             );
 
             DB::commit();

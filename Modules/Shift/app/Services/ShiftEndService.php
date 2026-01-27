@@ -134,6 +134,8 @@ class ShiftEndService
 
     private function saveSalesBreakdown(CashierShift $shift, array $aggregators): void
     {
+        ShiftSalesBreakdown::where('cashier_shift_id', $shift->id)->delete();
+
         foreach ($aggregators as $aggregator) {
             ShiftSalesBreakdown::create([
                 'cashier_shift_id' => $shift->id,

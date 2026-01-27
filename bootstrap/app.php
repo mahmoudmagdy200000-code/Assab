@@ -54,6 +54,13 @@ return Application::configure(basePath: dirname(__DIR__))
             ->weekly()
             ->sundays()
             ->at('23:00');
+
+        // Renew shift week: create next work week shifts from current week pattern
+        $schedule->command('shifts:renew-week')
+            ->weekly()
+            ->sundays()
+            ->at('00:05')
+            ->timezone('Asia/Riyadh');
     })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([

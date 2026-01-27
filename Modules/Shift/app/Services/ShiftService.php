@@ -2,18 +2,45 @@
 
 namespace Modules\Shift\Services;
 
-use Modules\Shift\Models\CashierShift;
+use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
-use Modules\Shift\Repositories\CashierShiftRepositoryInterface;
-use Illuminate\Support\Collection;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
+use Modules\Shift\Repositories\CashierShiftRepositoryInterface;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 
 class ShiftService
 {
     public function __construct(
         private CashierShiftRepositoryInterface $cashierShiftRepository
     ) {}
+
+    /**
+     * Resolve next cashier from the chronologically next shift (same day, same branch).
+     * Used for display; override only when handing over.
+     */
+    public function getNextShiftCashier(CashierShift $shift): ?Cashier
+    {
+        $shift->loadMissing('shift');
+
+        if (!$shift->shift || !$shift->shift->branch_id) {
+            return null;
+        }
+
+        $next = CashierShift::where('id', '!=', $shift->id)
+            ->where('shift_date', $shift->shift_date)
+            ->whereHas('shift', function ($q) use ($shift) {
+                $q->where('branch_id', $shift->shift->branch_id)
+                    ->where('start_time', '>=', $shift->shift->end_time);
+            })
+            ->where('status', ShiftStatus::NOT_STARTED)
+            ->orderBy('shift_id')
+            ->with('cashier:id,name,email,phone')
+            ->first();
+
+        return $next?->cashier;
+    }
 
     public function getPendingShifts(string $cashierId = null): LengthAwarePaginator
     {

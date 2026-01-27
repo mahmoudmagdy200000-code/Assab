@@ -4,6 +4,7 @@ namespace Modules\Shift\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
 use App\Http\Controllers\Controller;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -12,8 +13,10 @@ use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Transformers\BranchManagerResource;
 use Modules\Cashier\Models\Cashier;
 use Modules\Cashier\Transformers\CashierResource;
+use Modules\Shift\Helpers\ShiftHelper;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
+use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Transformers\CashierShiftResource;
 
 class ShiftController extends BaseController
@@ -362,10 +365,10 @@ class ShiftController extends BaseController
     }
 
     /**
-     * Get shifts by cashier ID
-     * OPTIMIZED: Select only required fields, add authorization check
+     * Get shifts by cashier ID (current work week, all statuses).
+     * Optional: ?week_start=YYYY-MM-DD to view another week.
      */
-    public function getShiftByCashierId($id)
+    public function getShiftByCashierId(Request $request, ShiftService $shiftService, $id)
     {
         try {
             $manager = auth()->user();
@@ -374,7 +377,6 @@ class ShiftController extends BaseController
                 return $this->errorResponse('Unauthorized', 403);
             }
 
-            // Verify cashier belongs to manager's branch
             $cashier = Cashier::where('id', (int) $id)
                 ->where('branch_id', $manager->branch_id)
                 ->first(['id', 'branch_id']);
@@ -383,31 +385,42 @@ class ShiftController extends BaseController
                 return $this->errorResponse('Cashier not found or does not belong to your branch', 404);
             }
 
-            // OPTIMIZED: Select only required fields
+            $weekStart = $request->query('week_start');
+            $refDate = $weekStart ? Carbon::parse($weekStart) : Carbon::today();
+            [$start, $end] = ShiftHelper::workWeekDatesFor($refDate);
+
             $cashierShifts = CashierShift::select([
                 'id',
                 'cashier_id',
                 'shift_id',
                 'shift_date',
                 'status',
-                'assigned_by', // Note: column name is 'assigned_by', not 'assigned_by_id'
+                'assigned_by',
                 'created_at',
                 'updated_at'
             ])
                 ->where('cashier_id', $cashier->id)
+                ->whereDate('shift_date', '>=', $start)
+                ->whereDate('shift_date', '<=', $end)
                 ->with([
                     'cashier:id,name,branch_id',
                     'shift' => function ($q) {
                         $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
                     },
                     'shift.branch:id,name,location',
-                    'assignedBy:id,name'
+                    'assignedBy:id,name',
+                    'nextCashier:id,name,email,phone'
                 ])
-                ->orderBy('shift_date', 'desc')
+                ->orderBy('shift_date', 'asc')
                 ->get();
 
             if ($cashierShifts->isEmpty()) {
-                return $this->errorResponse('No shifts found for this cashier', 404);
+                return $this->errorResponse('No shifts found for this cashier in the selected week', 404);
+            }
+
+            foreach ($cashierShifts as $cs) {
+                $computed = $shiftService->getNextShiftCashier($cs);
+                $cs->setAttribute('computed_next_cashier', $computed);
             }
 
             return $this->successResponse(

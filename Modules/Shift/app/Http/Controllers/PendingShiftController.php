@@ -3,11 +3,14 @@
 namespace Modules\Shift\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Modules\Shift\Services\ShiftService;
-use Modules\Shift\Transformers\{CashierShiftCollection, ShiftDetailResource};
+use Modules\Shift\Helpers\ShiftHelper;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Services\ShiftService;
+use Modules\Shift\Transformers\CashierShiftCollection;
+use Modules\Shift\Transformers\ShiftDetailResource;
 
 class PendingShiftController extends BaseController
 {
@@ -121,6 +124,54 @@ class PendingShiftController extends BaseController
                 'message' => 'Failed to retrieve shift details',
                 'error' => $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Pending shifts for a specific cashier (current work week).
+     * GET /shifts/pending/cashiers/{cashier}
+     */
+    public function getPendingShiftByCashierId(Request $request, string $cashier): JsonResponse
+    {
+        try {
+            $manager = auth()->user();
+
+            if (!$manager || !$manager->branch_id) {
+                return $this->errorResponse('Unauthorized', 403);
+            }
+
+            $weekStart = $request->query('week_start');
+            $refDate = $weekStart ? Carbon::parse($weekStart) : Carbon::today();
+            [$start, $end] = ShiftHelper::workWeekDatesFor($refDate);
+
+            $shifts = CashierShift::upcoming()
+                ->where('cashier_id', $cashier)
+                ->whereDate('shift_date', '>=', $start)
+                ->whereDate('shift_date', '<=', $end)
+                ->whereHas('shift', fn ($q) => $q->where('branch_id', $manager->branch_id))
+                ->whereHas('cashier', fn ($q) => $q->where('branch_id', $manager->branch_id))
+                ->with([
+                    'cashier',
+                    'shift',
+                    'nextCashier',
+                    'originalCashier',
+                    'reassignedBy',
+                    'handover',
+                    'handoverStatus',
+                ])
+                ->orderBy('shift_date')
+                ->paginate($request->input('per_page', 10));
+
+            foreach ($shifts as $cs) {
+                $cs->setAttribute('computed_next_cashier', $this->shiftService->getNextShiftCashier($cs));
+            }
+
+            return $this->paginatedResponse(
+                new CashierShiftCollection($shifts),
+                'Pending shifts for cashier retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
         }
     }
 }

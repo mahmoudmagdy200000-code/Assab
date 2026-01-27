@@ -347,6 +347,16 @@ class ReassignmentShiftController extends Controller
             'variance.supporting_files.*' => 'file|mimes:pdf,png,jpeg,jpg|max:5120',
             // ------------------------------------------------
         ]);
+        $validator->after(function (\Illuminate\Validation\Validator $v) use ($request) {
+            $aggs = $request->input('aggregators', []);
+            if (empty($aggs)) {
+                return;
+            }
+            $ids = collect($aggs)->pluck('aggregator_id')->filter();
+            if ($ids->count() !== $ids->unique()->count()) {
+                $v->errors()->add('aggregators', 'Each aggregator can only be selected once per shift.');
+            }
+        });
 
         if ($validator->fails()) {
             return response()->json([
@@ -486,6 +496,7 @@ class ReassignmentShiftController extends Controller
                 ]);
 
                 if ($request->has('aggregators')) {
+                    $shiftModel->salesBreakdown()->delete();
                     foreach ($request->aggregators as $aggregator) {
                         $shiftModel->salesBreakdown()->create([
                             'aggregator_id' => $aggregator['aggregator_id'],

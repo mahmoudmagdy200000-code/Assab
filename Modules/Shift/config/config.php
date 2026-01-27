@@ -3,6 +3,15 @@
 return [
     'name' => 'Shift',
 
+    // Work week: Sunday = 0, Monday = 1, ... Saturday = 6
+    'week' => [
+        'week_start' => (int) env('SHIFT_WEEK_START', 0), // 0 = Sunday
+        'work_days' => array_map('intval', explode(',', env('SHIFT_WORK_DAYS', '0,1,2,3,4'))), // Sun–Thu
+    ],
+
+    // Holiday dates (Y-m-d); add via env or extend with DB later
+    'holidays' => array_filter(array_map('trim', explode(',', env('SHIFT_HOLIDAYS', '')))),
+
     // Variance Thresholds
     'variance' => [
         'alert_threshold_amount' => env('SHIFT_VARIANCE_THRESHOLD_AMOUNT', 100), // SAR

@@ -20,6 +20,7 @@ class ShiftServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->registerCommands();
         $this->registerTranslations();
         $this->registerConfig();
         $this->registerViews();
@@ -45,6 +46,17 @@ class ShiftServiceProvider extends ServiceProvider
             ShiftRepositoryInterface::class,
             ShiftRepository::class
         );
+    }
+
+    protected function registerCommands(): void
+    {
+        $this->commands([
+            \Modules\Shift\Console\ArchiveCompletedManagerShiftsCommand::class,
+            \Modules\Shift\Console\AutoEndOverdueShiftsCommand::class,
+            \Modules\Shift\Console\GenerateDailyReportCommand::class,
+            \Modules\Shift\Console\SendShiftRemindersCommand::class,
+            \Modules\Shift\Console\ShiftWeekRenewalCommand::class,
+        ]);
     }
 
     protected function registerConfig(): void

@@ -69,6 +69,9 @@ class ShiftEndController extends Controller
             'variance.supporting_files' => 'sometimes|array',
             'variance.supporting_files.*' => 'file|mimes:pdf,png,jpeg,jpg|max:5120',
         ]);
+        $validator->after(function (\Illuminate\Validation\Validator $v) use ($request) {
+            $this->validateUniqueAggregators($v, $request->input('aggregators', []));
+        });
 
         if ($validator->fails()) {
             return response()->json([
@@ -154,9 +157,9 @@ class ShiftEndController extends Controller
                         'net_sales' => (float) $salesCalculation['net_sales'],
                         'vat_amount' => (float) $salesCalculation['vat_amount'],
                         'sales_breakdown' => [
-                            'cash_collected' => (float) ($request->cash_collected ?? 0),
-                            'card_payments' => (float) ($request->card_payments ?? 0),
-                            'delivery_apps' => (float) collect($request->aggregators ?? [])->sum('amount'),
+                            'cash_collected' => (float) ($updatedShift->cash_collected ?? 0),
+                            'card_payments' => (float) ($updatedShift->card_payments ?? 0),
+                            'delivery_apps' => (float) $updatedShift->salesBreakdown->sum('amount'),
                         ],
                         'opening_balance' => (float) ($updatedShift->opening_balance ?? 0),
                         'handover_status' => 'pending',
@@ -229,6 +232,9 @@ class ShiftEndController extends Controller
             'variance.supporting_files' => 'sometimes|array',
             'variance.supporting_files.*' => 'file|mimes:pdf,png,jpeg,jpg|max:5120',
         ]);
+        $validator->after(function (\Illuminate\Validation\Validator $v) use ($request) {
+            $this->validateUniqueAggregators($v, $request->input('aggregators', []));
+        });
 
         if ($validator->fails()) {
             return response()->json([
@@ -400,9 +406,9 @@ class ShiftEndController extends Controller
                         'net_sales' => (float) $salesCalculation['net_sales'],
                         'vat_amount' => (float) $salesCalculation['vat_amount'],
                         'sales_breakdown' => [
-                            'cash_collected' => (float) ($request->cash_collected ?? 0),
-                            'card_payments' => (float) ($request->card_payments ?? 0),
-                            'delivery_apps' => (float) collect($request->aggregators ?? [])->sum('amount'),
+                            'cash_collected' => (float) ($updatedShift->cash_collected ?? 0),
+                            'card_payments' => (float) ($updatedShift->card_payments ?? 0),
+                            'delivery_apps' => (float) $updatedShift->salesBreakdown->sum('amount'),
                         ],
                         'handover_details' => [
                             'handover_amount' => (float) $request->handover_amount,
@@ -715,6 +721,24 @@ class ShiftEndController extends Controller
                 'message' => 'Failed to retrieve available recipients',
                 'error' => $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Ensure each aggregator is selected at most once per shift.
+     */
+    private function validateUniqueAggregators(\Illuminate\Validation\Validator $validator, array $aggregators): void
+    {
+        if (empty($aggregators)) {
+            return;
+        }
+
+        $ids = collect($aggregators)->pluck('aggregator_id')->filter();
+        if ($ids->count() !== $ids->unique()->count()) {
+            $validator->errors()->add(
+                'aggregators',
+                'Each aggregator can only be selected once per shift.'
+            );
         }
     }
 

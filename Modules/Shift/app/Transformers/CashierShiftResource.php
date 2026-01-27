@@ -96,15 +96,8 @@ class CashierShiftResource extends JsonResource
                 }
             ),
 
-            // Next Cashier
-            'next_cashier' => $this->whenLoaded('nextCashier', function () {
-                return $this->nextCashier ? [
-                    'id' => $this->nextCashier->id,
-                    'name' => $this->nextCashier->name,
-                    'email' => $this->nextCashier->email ?? null,
-                    'phone' => $this->nextCashier->phone ?? null,
-                ] : null;
-            }),
+            // Next Cashier (computed from next shift when available, else stored)
+            'next_cashier' => $this->formatNextCashier($this->computed_next_cashier ?? $this->nextCashier ?? null),
 
             // Handover To (who received the handover - cashier or branch manager)
             'handover_to' => $this->getHandoverTo(),
@@ -170,9 +163,27 @@ class CashierShiftResource extends JsonResource
     }
 
     /**
+     * @param \Modules\Cashier\Models\Cashier|null $cashier
+     * @return array<string, mixed>|null
+     */
+    private function formatNextCashier($cashier): ?array
+    {
+        if (!$cashier) {
+            return null;
+        }
+
+        return [
+            'id' => $cashier->id,
+            'name' => $cashier->name,
+            'email' => $cashier->email ?? null,
+            'phone' => $cashier->phone ?? null,
+        ];
+    }
+
+    /**
      * Get handover_to information (who received the handover)
      * Supports both cashier and branch_manager handovers
-     * 
+     *
      * @return array|null
      */
     private function getHandoverTo(): ?array

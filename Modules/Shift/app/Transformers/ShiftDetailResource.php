@@ -2,8 +2,9 @@
 
 namespace Modules\Shift\Transformers;
 
-use Illuminate\Http\Resources\Json\JsonResource;
 use Carbon\Carbon;
+use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\Shift\Services\ShiftService;
 
 /**
  * ShiftDetailResource
@@ -111,9 +112,14 @@ class ShiftDetailResource extends JsonResource
     /**
      * Get shift details
      * Required for: Shift info display
+     * Next cashier is computed from next shift when available.
      */
     private function getShiftDetails(): array
     {
+        $nextCashier = $this->computed_next_cashier
+            ?? app(ShiftService::class)->getNextShiftCashier($this->resource)
+            ?? $this->nextCashier;
+
         return [
             'assigned_to' => $this->cashier?->name ?? 'N/A',
             'assigned_to_id' => $this->cashier_id,
@@ -125,8 +131,8 @@ class ShiftDetailResource extends JsonResource
             'shift_id' => $this->shift_id,
             'start_time' => $this->shift?->start_time?->format('H:i') ?? 'N/A',
             'end_time' => $this->shift?->end_time?->format('H:i') ?? 'N/A',
-            'next_cashier' => $this->nextCashier?->name ?? 'Not assigned',
-            'next_cashier_id' => $this->next_cashier_id,
+            'next_cashier' => $nextCashier?->name ?? 'Not assigned',
+            'next_cashier_id' => $nextCashier?->id ?? $this->next_cashier_id,
         ];
     }
 
