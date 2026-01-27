@@ -176,13 +176,29 @@ class GoodsReceivingController extends BaseController
                 }
             }
 
+            // Prepare unlisted items (gifts from supplier)
+            $unlistedItems = [];
+            if (isset($validated['unlisted_items']) && is_array($validated['unlisted_items'])) {
+                foreach ($validated['unlisted_items'] as $index => $unlistedItem) {
+                    $itemData = $unlistedItem;
+                    
+                    // Handle photo upload for unlisted item
+                    if ($request->hasFile("unlisted_items.{$index}.photo")) {
+                        $itemData['photo'] = $request->file("unlisted_items.{$index}.photo")->store('receipts/unlisted', 'public');
+                    }
+                    
+                    $unlistedItems[] = $itemData;
+                }
+            }
+
             $receipt = $this->receiptService->startReceiving(
                 $order,
                 auth()->id(),
                 $itemsData,
                 $documentType,
                 $documentData,
-                $varianceData
+                $varianceData,
+                $unlistedItems
             );
 
             return $this->createdResponse(

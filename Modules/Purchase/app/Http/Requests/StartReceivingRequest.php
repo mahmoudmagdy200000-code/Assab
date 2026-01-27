@@ -68,6 +68,20 @@ class StartReceivingRequest extends FormRequest
             'variance.deduct_data.amount' => ['nullable', 'numeric', 'min:0.01'],
             'variance.deduct_data.reason' => ['nullable', 'string', 'in:short_quantity,damaged_quality'],
             'variance.deduct_data.notes' => ['nullable', 'string', 'max:1000'],
+
+            // Unlisted items (gifts from supplier)
+            'unlisted_items' => ['nullable', 'array'],
+            'unlisted_items.*.item_id' => ['nullable', 'uuid', 'exists:items,id'],
+            'unlisted_items.*.item_name' => ['required_with:unlisted_items', 'string', 'max:255'],
+            'unlisted_items.*.unit' => ['required_with:unlisted_items', 'string', 'in:kg,pk,unit,box,liter,piece'],
+            'unlisted_items.*.quantity' => ['required_with:unlisted_items', 'numeric', 'min:0.001'],
+            'unlisted_items.*.quality' => ['required_with:unlisted_items', 'string', 'in:excellent,normal,poor'],
+            'unlisted_items.*.price_per_unit' => ['nullable', 'numeric', 'min:0'],
+            'unlisted_items.*.temperature' => ['nullable', 'numeric'],
+            'unlisted_items.*.expiration_date' => ['nullable', 'date', 'after_or_equal:today'],
+            'unlisted_items.*.photo' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png', 'max:5120'],
+            'unlisted_items.*.reason' => ['nullable', 'string', 'max:500'],
+            'unlisted_items.*.supplier_id' => ['nullable', 'uuid'],
         ];
     }
 
@@ -130,6 +144,23 @@ class StartReceivingRequest extends FormRequest
             'variance.deduct_data.amount.numeric' => 'Deduction amount must be a number.',
             'variance.deduct_data.amount.min' => 'Deduction amount must be at least 0.01.',
             'variance.deduct_data.reason.in' => 'Reason must be short_quantity or damaged_quality.',
+
+            // Unlisted items
+            'unlisted_items.*.item_id.exists' => 'The selected item does not exist.',
+            'unlisted_items.*.item_name.required_with' => 'Item name is required for unlisted items.',
+            'unlisted_items.*.unit.required_with' => 'Unit of measurement is required for unlisted items.',
+            'unlisted_items.*.unit.in' => 'Unit must be kg, pk, unit, box, liter, or piece.',
+            'unlisted_items.*.quantity.required_with' => 'Quantity is required for unlisted items.',
+            'unlisted_items.*.quantity.min' => 'Quantity must be at least 0.001.',
+            'unlisted_items.*.quality.required_with' => 'Quality is required for unlisted items.',
+            'unlisted_items.*.quality.in' => 'Quality must be excellent, normal, or poor.',
+            'unlisted_items.*.price_per_unit.numeric' => 'Price per unit must be a number.',
+            'unlisted_items.*.temperature.numeric' => 'Temperature must be a number.',
+            'unlisted_items.*.expiration_date.date' => 'Expiration date must be a valid date.',
+            'unlisted_items.*.expiration_date.after_or_equal' => 'Expiration date must be today or later.',
+            'unlisted_items.*.photo.image' => 'Photo must be an image file.',
+            'unlisted_items.*.photo.mimes' => 'Photo must be a jpg, jpeg, or png file.',
+            'unlisted_items.*.photo.max' => 'Photo must not exceed 5MB.',
         ];
     }
 }

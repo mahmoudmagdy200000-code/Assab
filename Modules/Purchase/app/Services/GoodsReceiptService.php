@@ -226,6 +226,7 @@ class GoodsReceiptService
      * @param string|null $documentType Optional: invoice, delivery_note, receipt_without_document
      * @param array|null $documentData Optional: Data for document type (invoice_data or delivery_note_data)
      * @param array|null $varianceData Optional: Single variance action object for all items with variance (action, note, photo, compensatory_order_data, deduct_data)
+     * @param array $unlistedItems Optional: Unlisted items (gifts from supplier)
      * @return GoodsReceipt
      */
     public function startReceiving(
@@ -234,9 +235,10 @@ class GoodsReceiptService
         array $itemsData = [],
         ?string $documentType = null,
         ?array $documentData = null,
-        ?array $varianceData = null
+        ?array $varianceData = null,
+        array $unlistedItems = []
     ): GoodsReceipt {
-        return DB::transaction(function () use ($order, $receivedBy, $itemsData, $documentType, $documentData, $varianceData) {
+        return DB::transaction(function () use ($order, $receivedBy, $itemsData, $documentType, $documentData, $varianceData, $unlistedItems) {
             $receipt = GoodsReceipt::create([
                 'purchase_order_id' => $order->id,
                 'branch_id' => $order->branch_id,
@@ -305,6 +307,11 @@ class GoodsReceiptService
                 $receiptItemsMap[$orderItem->id] = $receiptItem;
             }
 
+            // Process unlisted items (gifts from supplier)
+            foreach ($unlistedItems as $unlistedItemData) {
+                $this->addUnlistedItem($receipt, $unlistedItemData);
+            }
+
             // Calculate receipt summary
             $receipt->calculateSummary();
 
@@ -333,10 +340,10 @@ class GoodsReceiptService
                     // For other actions (accept, deduct_from_invoice), create variances for all items with variance
                     // Check both has_variance attribute and actual variance values (fallback)
                     foreach ($receipt->items as $item) {
-                        $hasVariance = $item->has_variance 
-                            || $item->quantity_variance != 0 
+                        $hasVariance = $item->has_variance
+                            || $item->quantity_variance != 0
                             || $item->has_quality_variance;
-                        
+
                         if ($hasVariance) {
                             // Check if variance already exists
                             $variance = $item->variance;
