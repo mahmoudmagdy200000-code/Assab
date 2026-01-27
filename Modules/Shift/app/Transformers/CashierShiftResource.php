@@ -236,17 +236,18 @@ class CashierShiftResource extends JsonResource
             }
         }
         
-        // Final fallback: use nextCashier if available (for backward compatibility)
-        if ($this->relationLoaded('nextCashier') && $this->nextCashier) {
+        // Fallback: use nextCashier (stored) or computed_next_cashier (from next shift)
+        $cashier = $this->nextCashier ?? $this->computed_next_cashier ?? null;
+        if ($cashier) {
             return [
-                'id' => $this->nextCashier->id,
-                'name' => $this->nextCashier->name,
+                'id' => $cashier->id,
+                'name' => $cashier->name,
                 'type' => 'cashier',
-                'email' => $this->nextCashier->email ?? null,
-                'phone' => $this->nextCashier->phone ?? null,
+                'email' => $cashier->email ?? null,
+                'phone' => $cashier->phone ?? null,
             ];
         }
-        
+
         return null;
     }
 }

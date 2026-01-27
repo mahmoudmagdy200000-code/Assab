@@ -129,6 +129,11 @@ class ShiftController extends BaseController
 
             $shifts = $query->paginate($request->input('per_page', 10));
 
+            $shiftService = app(ShiftService::class);
+            foreach ($shifts as $cs) {
+                $cs->setAttribute('computed_next_cashier', $shiftService->getNextShiftCashier($cs));
+            }
+
             return $this->paginatedResponse(
                 CashierShiftResource::collection($shifts),
                 'Cashiers shifts retrieved successfully'
