@@ -480,8 +480,9 @@ class OrderTrackingService
 
         $goodsInspections = $stageData['receipt_details']['goods_inspections'] ?? [];
         
-        // If goods_inspections is empty, populate from receipt items
-        if (empty($goodsInspections) && $latestReceipt->items->isNotEmpty()) {
+        // Always repopulate goods_inspections from receipt items to ensure fresh data
+        // This fixes the issue where empty array is stored but items exist
+        if ($latestReceipt->items->isNotEmpty()) {
             $goodsInspections = $latestReceipt->items->map(function ($item) {
                 return [
                     'item_name' => $item->item_name,
@@ -499,10 +500,12 @@ class OrderTrackingService
             })->toArray();
             $stageData['receipt_details']['goods_inspections'] = $goodsInspections;
         } else {
-            // Enrich existing goods_inspections with item_image
-            foreach ($goodsInspections as $giKey => $gi) {
-                $item = $latestReceipt->items->firstWhere('item_name', $gi['item_name'] ?? '');
-                $stageData['receipt_details']['goods_inspections'][$giKey]['item_image'] = FileResource::makeOrNull($item?->photo ?? null)?->toArray(request());
+            // If no items in receipt, keep existing goods_inspections (if any) but enrich item_image
+            if (!empty($goodsInspections)) {
+                foreach ($goodsInspections as $giKey => $gi) {
+                    $item = $latestReceipt->items->firstWhere('item_name', $gi['item_name'] ?? '');
+                    $stageData['receipt_details']['goods_inspections'][$giKey]['item_image'] = FileResource::makeOrNull($item?->photo ?? null)?->toArray(request());
+                }
             }
         }
 
