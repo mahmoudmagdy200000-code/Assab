@@ -245,51 +245,67 @@ class OrderTrackingService
                                 });
 
                             foreach ($stageData['items'] as $key => $item) {
-                                if (!isset($item['quality_certificate'])) {
-                                    $orderItem = $order->items->firstWhere('item_name', $item['item_name']);
+                                $needsRefresh = !isset($item['quality_certificate'])
+                                    || (is_array($item['quality_certificate'] ?? null) && ($item['quality_certificate']['file_size'] ?? null) === null);
+                                if (!$needsRefresh) {
+                                    continue;
+                                }
+                                $orderItem = $order->items->firstWhere('item_name', $item['item_name']);
 
-                                    // First try OrderDocument
-                                    if ($orderItem) {
-                                        if ($orderItem->relationLoaded('documents')) {
-                                            $qualityCert = $orderItem->documents
-                                                ->where('type', DocumentType::QUALITY_CERTIFICATE)
-                                                ->first();
-                                        } else {
-                                            $qualityCert = $orderItem->documents()
-                                                ->where('type', DocumentType::QUALITY_CERTIFICATE)
-                                                ->first();
-                                        }
-
-                                        if ($qualityCert) {
-                                            $stageData['items'][$key]['quality_certificate'] = FileResource::makeOrNull($qualityCert)?->toArray(request());
-                                            continue;
-                                        }
+                                // First try OrderDocument
+                                if ($orderItem) {
+                                    if ($orderItem->relationLoaded('documents')) {
+                                        $qualityCert = $orderItem->documents
+                                            ->where('type', DocumentType::QUALITY_CERTIFICATE)
+                                            ->first();
+                                    } else {
+                                        $qualityCert = $orderItem->documents()
+                                            ->where('type', DocumentType::QUALITY_CERTIFICATE)
+                                            ->first();
                                     }
 
-                                    // Try SupplierQualityDocument
-                                    $supplierDoc = $qualityDocuments->get($item['item_name']);
-                                    if ($supplierDoc && $supplierDoc->file_path) {
-                                        $fileSize = $supplierDoc->file_size ?? null;
-                                        if ($fileSize === null) {
-                                            try {
-                                                if (\Illuminate\Support\Facades\Storage::disk('public')->exists($supplierDoc->file_path)) {
-                                                    $fileSize = \Illuminate\Support\Facades\Storage::disk('public')->size($supplierDoc->file_path);
-                                                }
-                                            } catch (\Throwable) {
-                                                // keep null
-                                            }
-                                        }
-                                        $stageData['items'][$key]['quality_certificate'] = FileResource::makeOrNull([
-                                            'id' => (string) $supplierDoc->id,
-                                            'file_path' => $supplierDoc->file_path,
-                                            'file_name' => $supplierDoc->file_name ?? basename($supplierDoc->file_path),
-                                            'file_type' => $supplierDoc->file_type ?? null,
-                                            'file_size' => $fileSize,
-                                            'created_at' => $supplierDoc->created_at,
-                                        ])?->toArray(request());
+                                    if ($qualityCert) {
+                                        $stageData['items'][$key]['quality_certificate'] = FileResource::makeOrNull($qualityCert)?->toArray(request());
+                                        continue;
                                     }
                                 }
+
+                                // Try SupplierQualityDocument
+                                $supplierDoc = $qualityDocuments->get($item['item_name']);
+                                if ($supplierDoc && $supplierDoc->file_path) {
+                                    $fileSize = $supplierDoc->file_size ?? null;
+                                    if ($fileSize === null) {
+                                        try {
+                                            if (\Illuminate\Support\Facades\Storage::disk('public')->exists($supplierDoc->file_path)) {
+                                                $fileSize = \Illuminate\Support\Facades\Storage::disk('public')->size($supplierDoc->file_path);
+                                            }
+                                        } catch (\Throwable) {
+                                            // keep null
+                                        }
+                                    }
+                                    $stageData['items'][$key]['quality_certificate'] = FileResource::makeOrNull([
+                                        'id' => (string) $supplierDoc->id,
+                                        'file_path' => $supplierDoc->file_path,
+                                        'file_name' => $supplierDoc->file_name ?? basename($supplierDoc->file_path),
+                                        'file_type' => $supplierDoc->file_type ?? null,
+                                        'file_size' => $fileSize,
+                                        'created_at' => $supplierDoc->created_at,
+                                    ])?->toArray(request());
+                                }
                             }
+                        }
+                        break;
+
+                    case 'out_for_delivery':
+                        $order->loadMissing('latestGoodsReceipt');
+                        $latestReceipt = $order->latestGoodsReceipt;
+                        $stageData['driver_details'] = $stageData['driver_details'] ?? [];
+                        $path = $order->driver_photo ?? $latestReceipt?->driver_image ?? null;
+                        $storedPhoto = $stageData['driver_details']['photo'] ?? null;
+                        if ($path !== null) {
+                            $stageData['driver_details']['photo'] = FileResource::makeOrNull($path)?->toArray(request());
+                        } elseif (is_string($storedPhoto)) {
+                            $stageData['driver_details']['photo'] = FileResource::makeOrNull($storedPhoto)?->toArray(request());
                         }
                         break;
 
@@ -326,6 +342,14 @@ class OrderTrackingService
                             }
                         }
                         break;
+
+                    case 'order_confirmation':
+                        $order->loadMissing(['latestGoodsReceipt', 'supplier']);
+                        $latestReceipt = $order->latestGoodsReceipt;
+                        if ($latestReceipt) {
+                            $stageData = $this->enrichOrderConfirmationStageData($stageData, $order, $latestReceipt);
+                        }
+                        break;
                 }
 
                 return $stageData;
@@ -336,10 +360,13 @@ class OrderTrackingService
         if (!isset($stages['order_confirmation'])) {
             $latestReceipt = $order->latestGoodsReceipt;
             if ($latestReceipt && $latestReceipt->is_completed) {
-                // Try to save the stage (it will be created if it doesn't exist)
                 $orderConfirmationStage = $this->saveOrderConfirmationStage($order);
                 if ($orderConfirmationStage) {
-                    $stages['order_confirmation'] = $orderConfirmationStage->stage_data;
+                    $stages['order_confirmation'] = $this->enrichOrderConfirmationStageData(
+                        $orderConfirmationStage->stage_data,
+                        $order,
+                        $latestReceipt
+                    );
                 }
             }
         }
@@ -357,6 +384,46 @@ class OrderTrackingService
         }
 
         return $stages;
+    }
+
+    /**
+     * Enrich order_confirmation stage_data with fresh driver/arrival fallbacks,
+     * item_image as FileResource, and financial_summary when invoice exists.
+     */
+    private function enrichOrderConfirmationStageData(array $stageData, PurchaseOrder $order, $latestReceipt): array
+    {
+        $latestReceipt->loadMissing(['invoice', 'items']);
+        $order->loadMissing('supplier');
+        $inv = $latestReceipt->invoice;
+        $r = $stageData['receipt_details'] ?? [];
+        $ins = $r['inspection_summary'] ?? [];
+
+        $stageData['receipt_details'] = $stageData['receipt_details'] ?? [];
+        $stageData['receipt_details']['inspection_summary'] = array_merge($ins, [
+            'driver_name' => $ins['driver_name'] ?? $latestReceipt->driver_name ?? $order->driver_name,
+            'contact_number' => $ins['contact_number'] ?? $latestReceipt->driver_contact ?? $order->driver_contact ?? null,
+            'vehicle_number' => $ins['vehicle_number'] ?? $latestReceipt->vehicle_number ?? $order->vehicle_number,
+            'arrival_time' => $ins['arrival_time'] ?? $latestReceipt->arrival_time?->format('Y-m-d H:i:s') ?? $order->expected_delivery_at?->format('Y-m-d H:i:s'),
+        ]);
+
+        $goodsInspections = $stageData['receipt_details']['goods_inspections'] ?? [];
+        foreach ($goodsInspections as $giKey => $gi) {
+            $item = $latestReceipt->items->firstWhere('item_name', $gi['item_name'] ?? '');
+            $stageData['receipt_details']['goods_inspections'][$giKey]['item_image'] = FileResource::makeOrNull($item?->photo ?? null)?->toArray(request());
+        }
+
+        if ($inv && empty($stageData['receipt_details']['financial_summary'])) {
+            $stageData['receipt_details']['financial_summary'] = [
+                'invoice_number' => $inv->invoice_number,
+                'invoice_date' => $inv->invoice_date?->format('Y-m-d'),
+                'supplier_name' => $order->supplier?->name,
+                'amount_before_tax' => (float) $inv->amount_before_tax,
+                'vat' => (float) $inv->tax_amount,
+                'total_amount' => (float) $inv->total_amount,
+            ];
+        }
+
+        return $stageData;
     }
 
     /**
