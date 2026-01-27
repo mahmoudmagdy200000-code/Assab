@@ -135,6 +135,25 @@ class OrderTrackingService
         $order->load('latestGoodsReceipt');
         
         $latestReceipt = $order->latestGoodsReceipt;
+        
+        // If latestGoodsReceipt doesn't have items, try to get the most recent receipt with items
+        if ($latestReceipt && $latestReceipt->items->isEmpty()) {
+            $receiptWithItems = \Modules\Purchase\Models\GoodsReceipt::where('purchase_order_id', $order->id)
+                ->whereHas('items')
+                ->orderBy('created_at', 'desc')
+                ->with('items')
+                ->first();
+            
+            if ($receiptWithItems) {
+                \Log::info('OrderTracking: saveOrderConfirmationStage - Using receipt with items', [
+                    'order_id' => $order->id,
+                    'old_receipt_id' => $latestReceipt->id,
+                    'new_receipt_id' => $receiptWithItems->id,
+                    'items_count' => $receiptWithItems->items->count(),
+                ]);
+                $latestReceipt = $receiptWithItems;
+            }
+        }
 
         // Allow creation if receipt is completed OR order is closed (fallback for edge cases)
         if (!$latestReceipt || (!$latestReceipt->is_completed && $order->status !== \Modules\Purchase\Enums\OrderStatus::CLOSED)) {
@@ -221,6 +240,22 @@ class OrderTrackingService
 
         if (!$order) {
             return [];
+        }
+        
+        // Ensure latestGoodsReceipt is the most recent one and has items loaded
+        if ($order->latestGoodsReceipt) {
+            // Force reload to get fresh data
+            $order->latestGoodsReceipt->refresh();
+            $order->latestGoodsReceipt->load('items');
+            
+            // Log for debugging
+            \Log::info('OrderTracking: getOrderTrackingStages', [
+                'order_id' => $orderId,
+                'receipt_id' => $order->latestGoodsReceipt->id,
+                'receipt_status' => $order->latestGoodsReceipt->status,
+                'items_count' => $order->latestGoodsReceipt->items->count(),
+                'all_receipts_count' => \Modules\Purchase\Models\GoodsReceipt::where('purchase_order_id', $orderId)->count(),
+            ]);
         }
 
         $stages = OrderTrackingStage::byOrder($orderId)
@@ -381,6 +416,26 @@ class OrderTrackingService
                     case 'order_confirmation':
                         $order->loadMissing(['latestGoodsReceipt', 'supplier']);
                         $latestReceipt = $order->latestGoodsReceipt;
+                        
+                        // If latestGoodsReceipt doesn't have items, try to get the most recent receipt with items
+                        if ($latestReceipt && $latestReceipt->items->isEmpty()) {
+                            $receiptWithItems = \Modules\Purchase\Models\GoodsReceipt::where('purchase_order_id', $order->id)
+                                ->whereHas('items')
+                                ->orderBy('created_at', 'desc')
+                                ->with('items')
+                                ->first();
+                            
+                            if ($receiptWithItems) {
+                                \Log::info('OrderTracking: Using receipt with items instead of latestGoodsReceipt', [
+                                    'order_id' => $order->id,
+                                    'old_receipt_id' => $latestReceipt->id,
+                                    'new_receipt_id' => $receiptWithItems->id,
+                                    'items_count' => $receiptWithItems->items->count(),
+                                ]);
+                                $latestReceipt = $receiptWithItems;
+                            }
+                        }
+                        
                         if ($latestReceipt) {
                             $stageData = $this->enrichOrderConfirmationStageData($stageData, $order, $latestReceipt);
                         }
@@ -446,7 +501,9 @@ class OrderTrackingService
      */
     private function enrichOrderConfirmationStageData(array $stageData, PurchaseOrder $order, $latestReceipt): array
     {
-        $latestReceipt->loadMissing(['invoice', 'items']);
+        // Force reload receipt with items to ensure fresh data
+        $latestReceipt = $latestReceipt->fresh(['invoice', 'items']);
+        
         $order->loadMissing('supplier');
         $inv = $latestReceipt->invoice;
         $r = $stageData['receipt_details'] ?? [];
@@ -454,9 +511,23 @@ class OrderTrackingService
 
         $stageData['receipt_details'] = $stageData['receipt_details'] ?? [];
         
-        // Ensure receipt items are loaded
-        if (!$latestReceipt->relationLoaded('items')) {
+        // Ensure receipt items are loaded - reload if needed
+        if (!$latestReceipt->relationLoaded('items') || $latestReceipt->items->isEmpty()) {
+            // Try to reload items directly from database
+            $itemsCount = \Modules\Purchase\Models\GoodsReceiptItem::where('goods_receipt_id', $latestReceipt->id)->count();
+            \Log::info('OrderTracking: Reloading receipt items', [
+                'receipt_id' => $latestReceipt->id,
+                'items_in_db' => $itemsCount,
+                'items_loaded' => $latestReceipt->relationLoaded('items'),
+                'items_count' => $latestReceipt->items->count(),
+            ]);
+            
             $latestReceipt->load('items');
+            
+            // If still empty, try direct query
+            if ($latestReceipt->items->isEmpty() && $itemsCount > 0) {
+                $latestReceipt->setRelation('items', \Modules\Purchase\Models\GoodsReceiptItem::where('goods_receipt_id', $latestReceipt->id)->get());
+            }
         }
         
         // Calculate values from items if receipt fields are 0 (fallback)
