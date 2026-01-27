@@ -645,7 +645,7 @@ class OrderTrackingService
     }
 
     /**
-     * Calculate financial summary from invoice or received_amount
+     * Calculate financial summary from invoice, received_amount, or order total_amount
      */
     private function calculateFinancialSummary(PurchaseOrder $order, $latestReceipt, $invoice): ?array
     {
@@ -659,14 +659,30 @@ class OrderTrackingService
                 'vat' => (float) $invoice->tax_amount,
                 'total_amount' => (float) $invoice->total_amount,
             ];
-        } elseif ($latestReceipt->received_amount > 0) {
-            // Calculate from received_amount (for delivery_note or receipt_without_document)
-            $calculationService = app(\Modules\Purchase\Services\CalculationService::class);
-            $financialData = $calculationService->calculateTotalWithVAT((float) $latestReceipt->received_amount);
+        }
+
+        $calculationService = app(\Modules\Purchase\Services\CalculationService::class);
+        $amountToUse = null;
+
+        // Try received_amount first
+        if ($latestReceipt && $latestReceipt->received_amount > 0) {
+            $amountToUse = (float) $latestReceipt->received_amount;
+        }
+        // Fallback to expected_amount if received_amount is 0
+        elseif ($latestReceipt && $latestReceipt->expected_amount > 0) {
+            $amountToUse = (float) $latestReceipt->expected_amount;
+        }
+        // Fallback to order total_amount
+        elseif ($order->total_amount > 0) {
+            $amountToUse = (float) $order->total_amount;
+        }
+
+        if ($amountToUse !== null && $amountToUse > 0) {
+            $financialData = $calculationService->calculateTotalWithVAT($amountToUse);
             
             return [
-                'invoice_number' => $order->order_number ?? $latestReceipt->receipt_number ?? null,
-                'invoice_date' => $latestReceipt->inspection_completed_at?->format('Y-m-d'),
+                'invoice_number' => $order->order_number ?? $latestReceipt?->receipt_number ?? null,
+                'invoice_date' => $latestReceipt?->inspection_completed_at?->format('Y-m-d') ?? $order->closed_at?->format('Y-m-d'),
                 'supplier_name' => $order->supplier?->name,
                 'amount_before_tax' => $financialData['amount_before_tax'],
                 'vat' => $financialData['vat_amount'],
