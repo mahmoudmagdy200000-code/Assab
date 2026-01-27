@@ -316,14 +316,35 @@ class GoodsReceiptService
             // This ensures variances are only created when user explicitly reports them
             $variancesMap = [];
             if (!empty($varianceData)) {
-                foreach ($receipt->items as $item) {
-                    if ($item->has_variance) {
-                        // Check if variance already exists
-                        $variance = $item->variance;
-                        if (!$variance) {
-                            $variance = $this->varianceService->createVariance($receipt, $item);
+                // If compensatory_order, create variances only for items in variance.items
+                if ($varianceData['action'] === 'compensatory_order' && !empty($varianceData['items'])) {
+                    $varianceItemIds = collect($varianceData['items'])->pluck('item_id')->toArray();
+                    foreach ($receipt->items as $item) {
+                        if (in_array($item->purchase_order_item_id, $varianceItemIds)) {
+                            // Check if variance already exists
+                            $variance = $item->variance;
+                            if (!$variance) {
+                                $variance = $this->varianceService->createVariance($receipt, $item);
+                            }
+                            $variancesMap[$item->purchase_order_item_id] = $variance;
                         }
-                        $variancesMap[$item->purchase_order_item_id] = $variance;
+                    }
+                } else {
+                    // For other actions (accept, deduct_from_invoice), create variances for all items with variance
+                    // Check both has_variance attribute and actual variance values (fallback)
+                    foreach ($receipt->items as $item) {
+                        $hasVariance = $item->has_variance 
+                            || $item->quantity_variance != 0 
+                            || $item->has_quality_variance;
+                        
+                        if ($hasVariance) {
+                            // Check if variance already exists
+                            $variance = $item->variance;
+                            if (!$variance) {
+                                $variance = $this->varianceService->createVariance($receipt, $item);
+                            }
+                            $variancesMap[$item->purchase_order_item_id] = $variance;
+                        }
                     }
                 }
             }
