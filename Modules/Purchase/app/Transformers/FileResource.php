@@ -100,6 +100,7 @@ class FileResource extends JsonResource
 
     /**
      * Format array data.
+     * Resolves file_type and file_size from file_path when missing (e.g. from storage path).
      *
      * @return array<string, mixed>
      */
@@ -117,31 +118,77 @@ class FileResource extends JsonResource
             }
         }
 
+        $fileType = $this->resource['file_type'] ?? $this->resource['mime_type'] ?? null;
+        $fileSize = isset($this->resource['file_size']) ? (int) $this->resource['file_size'] : null;
+        $filePath = $this->resource['file_path'] ?? null;
+
+        // Resolve file_type and file_size from path/storage when missing
+        if ($filePath && is_string($filePath) && !str_starts_with($filePath, 'http')) {
+            if (!$fileType) {
+                $ext = pathinfo($filePath, PATHINFO_EXTENSION);
+                $fileType = $ext !== '' ? strtolower($ext) : null;
+            }
+            if ($fileSize === null) {
+                try {
+                    if (Storage::disk('public')->exists($filePath)) {
+                        $fileSize = (int) Storage::disk('public')->size($filePath);
+                    }
+                } catch (\Throwable) {
+                    // Keep null on error
+                }
+            }
+        }
+
         return [
             'id' => isset($this->resource['id']) ? (string) $this->resource['id'] : null,
-            'file_name' => $this->resource['file_name'] ?? $this->resource['original_name'] ?? null,
-            'file_type' => $this->resource['file_type'] ?? $this->resource['mime_type'] ?? null,
-            'file_size' => isset($this->resource['file_size']) ? (int) $this->resource['file_size'] : null,
+            'file_name' => $this->resource['file_name'] ?? $this->resource['original_name'] ?? basename($filePath ?? ''),
+            'file_type' => $fileType,
+            'file_size' => $fileSize,
             'url' => $this->resource['url']
                 ?? $this->resource['file_url']
-                ?? $this->getUrlFromPath($this->resource['file_path'] ?? null),
+                ?? $this->getUrlFromPath($filePath),
             'uploaded_at' => $uploadedAt,
         ];
     }
 
     /**
      * Format string file path.
+     * Resolves file_type from path extension and file_size from storage when path is a storage path.
      *
      * @return array<string, mixed>
      */
     private function formatString(): array
     {
+        $path = $this->resource;
+        $fileType = null;
+        $fileSize = null;
+
+        // Resolve file_type from path (works for both storage path and URL path)
+        $pathForExtension = str_starts_with($path, 'http') ? parse_url($path, PHP_URL_PATH) : $path;
+        if ($pathForExtension !== null && $pathForExtension !== '') {
+            $ext = pathinfo($pathForExtension, PATHINFO_EXTENSION);
+            if ($ext !== '') {
+                $fileType = strtolower($ext);
+            }
+        }
+
+        // Resolve file_size from storage only for relative storage paths
+        if (!str_starts_with($path, 'http')) {
+            try {
+                if (Storage::disk('public')->exists($path)) {
+                    $fileSize = (int) Storage::disk('public')->size($path);
+                }
+            } catch (\Throwable) {
+                // Keep null on error
+            }
+        }
+
         return [
             'id' => null,
-            'file_name' => basename($this->resource),
-            'file_type' => null,
-            'file_size' => null,
-            'url' => $this->getUrlFromPath($this->resource),
+            'file_name' => basename($pathForExtension ?? $path),
+            'file_type' => $fileType,
+            'file_size' => $fileSize,
+            'url' => $this->getUrlFromPath($path),
             'uploaded_at' => null,
         ];
     }

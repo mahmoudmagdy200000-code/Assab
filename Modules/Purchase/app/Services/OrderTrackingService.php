@@ -133,9 +133,9 @@ class OrderTrackingService
         // Refresh order and load latest receipt to ensure we have the latest data
         $order->refresh();
         $order->load('latestGoodsReceipt');
-        
+
         $latestReceipt = $order->latestGoodsReceipt;
-        
+
         // If latestGoodsReceipt doesn't have items, try to get the most recent receipt with items
         if ($latestReceipt && $latestReceipt->items->isEmpty()) {
             $receiptWithItems = \Modules\Purchase\Models\GoodsReceipt::where('purchase_order_id', $order->id)
@@ -143,7 +143,7 @@ class OrderTrackingService
                 ->orderBy('created_at', 'desc')
                 ->with('items')
                 ->first();
-            
+
             if ($receiptWithItems) {
                 \Log::info('OrderTracking: saveOrderConfirmationStage - Using receipt with items', [
                     'order_id' => $order->id,
@@ -241,13 +241,13 @@ class OrderTrackingService
         if (!$order) {
             return [];
         }
-        
+
         // Ensure latestGoodsReceipt is the most recent one and has items loaded
         if ($order->latestGoodsReceipt) {
             // Force reload to get fresh data
             $order->latestGoodsReceipt->refresh();
             $order->latestGoodsReceipt->load('items');
-            
+
             // Log for debugging
             \Log::info('OrderTracking: getOrderTrackingStages', [
                 'order_id' => $orderId,
@@ -311,6 +311,7 @@ class OrderTrackingService
                                 // Try SupplierQualityDocument
                                 $supplierDoc = $qualityDocuments->get($item['item_name']);
                                 if ($supplierDoc && $supplierDoc->file_path) {
+                                    $fileType = $supplierDoc->file_type ?? pathinfo($supplierDoc->file_path, PATHINFO_EXTENSION);
                                     $fileSize = $supplierDoc->file_size ?? null;
                                     if ($fileSize === null) {
                                         try {
@@ -325,7 +326,7 @@ class OrderTrackingService
                                         'id' => (string) $supplierDoc->id,
                                         'file_path' => $supplierDoc->file_path,
                                         'file_name' => $supplierDoc->file_name ?? basename($supplierDoc->file_path),
-                                        'file_type' => $supplierDoc->file_type ?? null,
+                                        'file_type' => $fileType ? strtolower($fileType) : null,
                                         'file_size' => $fileSize,
                                         'created_at' => $supplierDoc->created_at,
                                     ])?->toArray(request());
@@ -416,7 +417,7 @@ class OrderTrackingService
                     case 'order_confirmation':
                         $order->loadMissing(['latestGoodsReceipt', 'supplier']);
                         $latestReceipt = $order->latestGoodsReceipt;
-                        
+
                         // If latestGoodsReceipt doesn't have items, try to get the most recent receipt with items
                         if ($latestReceipt && $latestReceipt->items->isEmpty()) {
                             $receiptWithItems = \Modules\Purchase\Models\GoodsReceipt::where('purchase_order_id', $order->id)
@@ -424,7 +425,7 @@ class OrderTrackingService
                                 ->orderBy('created_at', 'desc')
                                 ->with('items')
                                 ->first();
-                            
+
                             if ($receiptWithItems) {
                                 \Log::info('OrderTracking: Using receipt with items instead of latestGoodsReceipt', [
                                     'order_id' => $order->id,
@@ -435,7 +436,7 @@ class OrderTrackingService
                                 $latestReceipt = $receiptWithItems;
                             }
                         }
-                        
+
                         if ($latestReceipt) {
                             $stageData = $this->enrichOrderConfirmationStageData($stageData, $order, $latestReceipt);
                         }
@@ -503,14 +504,14 @@ class OrderTrackingService
     {
         // Force reload receipt with items to ensure fresh data
         $latestReceipt = $latestReceipt->fresh(['invoice', 'items']);
-        
+
         $order->loadMissing('supplier');
         $inv = $latestReceipt->invoice;
         $r = $stageData['receipt_details'] ?? [];
         $ins = $r['inspection_summary'] ?? [];
 
         $stageData['receipt_details'] = $stageData['receipt_details'] ?? [];
-        
+
         // Ensure receipt items are loaded - reload if needed
         if (!$latestReceipt->relationLoaded('items') || $latestReceipt->items->isEmpty()) {
             // Try to reload items directly from database
@@ -521,15 +522,15 @@ class OrderTrackingService
                 'items_loaded' => $latestReceipt->relationLoaded('items'),
                 'items_count' => $latestReceipt->items->count(),
             ]);
-            
+
             $latestReceipt->load('items');
-            
+
             // If still empty, try direct query
             if ($latestReceipt->items->isEmpty() && $itemsCount > 0) {
                 $latestReceipt->setRelation('items', \Modules\Purchase\Models\GoodsReceiptItem::where('goods_receipt_id', $latestReceipt->id)->get());
             }
         }
-        
+
         // Calculate values from items if receipt fields are 0 (fallback)
         $items = $latestReceipt->items;
         $numberOfItems = $latestReceipt->total_items_received > 0
@@ -538,7 +539,7 @@ class OrderTrackingService
 
         $quantityVariance = $latestReceipt->quantity_variances > 0
             ? $latestReceipt->quantity_variances
-            : $items->filter(fn ($item) => $item->quantity_variance != 0)->count();
+            : $items->filter(fn($item) => $item->quantity_variance != 0)->count();
 
         $totalAmount = $latestReceipt->received_amount > 0
             ? (float) $latestReceipt->received_amount
@@ -555,7 +556,7 @@ class OrderTrackingService
         ]);
 
         $goodsInspections = $stageData['receipt_details']['goods_inspections'] ?? [];
-        
+
         // Debug: Log receipt items count
         \Log::info('OrderTracking: enrichOrderConfirmationStageData', [
             'order_id' => $order->id,
@@ -564,7 +565,7 @@ class OrderTrackingService
             'items_loaded' => $latestReceipt->relationLoaded('items'),
             'existing_goods_inspections_count' => count($goodsInspections),
         ]);
-        
+
         // Always repopulate goods_inspections from receipt items to ensure fresh data
         // This fixes the issue where empty array is stored but items exist
         if ($latestReceipt->items->isNotEmpty()) {
@@ -589,7 +590,7 @@ class OrderTrackingService
                 'order_id' => $order->id,
                 'receipt_id' => $latestReceipt->id,
             ]);
-            
+
             // If no items in receipt, keep existing goods_inspections (if any) but enrich item_image
             if (!empty($goodsInspections)) {
                 foreach ($goodsInspections as $giKey => $gi) {
@@ -663,6 +664,7 @@ class OrderTrackingService
                 // Try to get from SupplierQualityDocument
                 $supplierDoc = $qualityDocuments->get($item->item_name);
                 if ($supplierDoc && $supplierDoc->file_path) {
+                    $fileType = $supplierDoc->file_type ?? pathinfo($supplierDoc->file_path, PATHINFO_EXTENSION);
                     $fileSize = $supplierDoc->file_size ?? null;
                     if ($fileSize === null) {
                         try {
@@ -677,7 +679,7 @@ class OrderTrackingService
                         'id' => (string) $supplierDoc->id,
                         'file_path' => $supplierDoc->file_path,
                         'file_name' => $supplierDoc->file_name ?? basename($supplierDoc->file_path),
-                        'file_type' => $supplierDoc->file_type ?? null,
+                        'file_type' => $fileType ? strtolower($fileType) : null,
                         'file_size' => $fileSize,
                         'created_at' => $supplierDoc->created_at,
                     ])?->toArray(request());
@@ -773,23 +775,23 @@ class OrderTrackingService
             $uploadedAt = $order->actual_delivery_at?->format('Y-m-d H:i:s')
                 ?? $order->received_at?->format('Y-m-d H:i:s')
                 ?? null;
-            
+
             $stageData['delivery_photos'] = array_map(function ($photoPath) use ($uploadedAt) {
                 if (!is_string($photoPath)) {
                     return FileResource::makeOrNull($photoPath)?->toArray(request());
                 }
-                
-                                // Get file info from storage
-                                $fileType = pathinfo($photoPath, PATHINFO_EXTENSION);
-                                $fileSize = null;
-                                try {
-                                    if (Storage::disk('public')->exists($photoPath)) {
-                                        $fileSize = Storage::disk('public')->size($photoPath);
-                                    }
-                                } catch (\Throwable) {
-                                    // Keep null on error
-                                }
-                
+
+                // Get file info from storage
+                $fileType = pathinfo($photoPath, PATHINFO_EXTENSION);
+                $fileSize = null;
+                try {
+                    if (Storage::disk('public')->exists($photoPath)) {
+                        $fileSize = Storage::disk('public')->size($photoPath);
+                    }
+                } catch (\Throwable) {
+                    // Keep null on error
+                }
+
                 return FileResource::makeOrNull([
                     'file_path' => $photoPath,
                     'file_name' => basename($photoPath),
@@ -817,11 +819,11 @@ class OrderTrackingService
         $numberOfItems = $latestReceipt->total_items_received > 0
             ? $latestReceipt->total_items_received
             : $items->whereNotNull('quantity_received')->count();
-        
+
         $quantityVariance = $latestReceipt->quantity_variances > 0
             ? $latestReceipt->quantity_variances
-            : $items->filter(fn ($item) => $item->quantity_variance != 0)->count();
-        
+            : $items->filter(fn($item) => $item->quantity_variance != 0)->count();
+
         $totalAmount = $latestReceipt->received_amount > 0
             ? (float) $latestReceipt->received_amount
             : (float) $items->sum('received_total');
@@ -919,7 +921,7 @@ class OrderTrackingService
 
         if ($amountToUse !== null && $amountToUse > 0) {
             $financialData = $calculationService->calculateTotalWithVAT($amountToUse);
-            
+
             return [
                 'invoice_number' => $order->order_number ?? $latestReceipt?->receipt_number ?? null,
                 'invoice_date' => $latestReceipt?->inspection_completed_at?->format('Y-m-d') ?? $order->closed_at?->format('Y-m-d'),
