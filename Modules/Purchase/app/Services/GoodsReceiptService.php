@@ -1158,6 +1158,16 @@ class GoodsReceiptService
             $stages = $this->getOrderTrackingFromCurrentState($order);
         }
 
+        // Add variance summary to variance_logged stage when present
+        if (!empty($stages['variance_logged'])) {
+            $order->loadMissing('latestGoodsReceipt');
+            $receiptId = $order->latestGoodsReceipt?->id;
+            if ($receiptId) {
+                $varianceService = app(\Modules\Purchase\Services\VarianceService::class);
+                $stages['variance_logged']['variance_summary'] = $varianceService->getVarianceSummary($receiptId);
+            }
+        }
+
         return $stages;
     }
 
@@ -1319,8 +1329,10 @@ class GoodsReceiptService
 
         // Stage 5: Variance Logged
         if ($latestReceipt && $latestReceipt->hasVariances) {
+            $varianceService = app(\Modules\Purchase\Services\VarianceService::class);
             $stages['variance_logged'] = [
                 'status' => 'variance_logged',
+                'variance_summary' => $varianceService->getVarianceSummary($latestReceipt->id),
                 'variances' => $latestReceipt->variances->map(function ($variance) {
                     return [
                         'item_name' => $variance->item_name,

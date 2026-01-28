@@ -195,6 +195,7 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         Route::get('/orders/{orderId}/inspection', [GoodsReceivingController::class, 'getInspectionDetailsByOrderId'])->name('purchase.receiving.inspection-by-order');
 
         // Variance handling
+        Route::get('/receipts/{receiptId}/variance-summary', [GoodsReceivingController::class, 'getVarianceSummary'])->name('purchase.receiving.variance-summary');
         Route::post('/variances/{varianceId}/action', [GoodsReceivingController::class, 'handleVariance'])->name('purchase.receiving.variance-action');
         Route::post('/variances/{varianceId}/supplier-response', [GoodsReceivingController::class, 'handleSupplierResponse'])->name('purchase.receiving.supplier-response');
         Route::post('/variances/{varianceId}/accept-rejection', [GoodsReceivingController::class, 'acceptRejection'])->name('purchase.receiving.accept-rejection');

@@ -942,17 +942,31 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      */
     public function reportDelay(PurchaseOrder $order, string $reason, ?string $newDeliveryDate = null): bool
     {
-        if ($newDeliveryDate) {
-            $order->expected_delivery_at = $newDeliveryDate;
-        }
+        return DB::transaction(function () use ($order, $reason, $newDeliveryDate) {
+            if ($newDeliveryDate) {
+                $order->expected_delivery_at = $newDeliveryDate;
+            }
 
-        if (!$order->reportDelay($reason)) {
-            return false;
-        }
+            if (!$order->reportDelay($reason)) {
+                return false;
+            }
 
-        $this->timelineService->logDeliveryDelayed($order, $reason);
+            // Update all items status to DELAYED_SUPPLIER (when supplier reports delay)
+            $order->load('items');
+            $order->items()
+                ->whereNotIn('status', [
+                    OrderItemStatus::CANCELLED,
+                    OrderItemStatus::CANCELLED_BY_BRANCH,
+                    OrderItemStatus::CANCELLED_BY_SUPPLIER,
+                    OrderItemStatus::CANCELED_MODIFICATION,
+                    OrderItemStatus::REJECTED,
+                ])
+                ->update(['status' => OrderItemStatus::DELAYED_SUPPLIER]);
 
-        return true;
+            $this->timelineService->logDeliveryDelayed($order, $reason);
+
+            return true;
+        });
     }
 
     /**

@@ -128,14 +128,14 @@ class GoodsReceivingController extends BaseController
 
             // Handle file uploads for photos
             $itemsData = $validated['items'];
-            
+
             \Log::info('GoodsReceiving: startReceiving called', [
                 'order_id' => $orderId,
                 'items_count' => count($itemsData),
                 'has_variance' => isset($validated['variance']),
                 'has_unlisted' => isset($validated['unlisted_items']),
             ]);
-            
+
             foreach ($itemsData as $index => $itemData) {
                 if ($request->hasFile("items.{$index}.photo")) {
                     $itemsData[$index]['photo'] = $request->file("items.{$index}.photo")->store('receipts/items', 'public');
@@ -189,12 +189,12 @@ class GoodsReceivingController extends BaseController
             if (isset($validated['unlisted_items']) && is_array($validated['unlisted_items'])) {
                 foreach ($validated['unlisted_items'] as $index => $unlistedItem) {
                     $itemData = $unlistedItem;
-                    
+
                     // Handle photo upload for unlisted item
                     if ($request->hasFile("unlisted_items.{$index}.photo")) {
                         $itemData['photo'] = $request->file("unlisted_items.{$index}.photo")->store('receipts/unlisted', 'public');
                     }
-                    
+
                     $unlistedItems[] = $itemData;
                 }
             }
@@ -751,6 +751,25 @@ class GoodsReceivingController extends BaseController
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'fetching receipt summary');
+        }
+    }
+
+    /**
+     * Get variance summary for receipt
+     *
+     * @group Goods Receiving
+     */
+    public function getVarianceSummary(string $receiptId): JsonResponse
+    {
+        try {
+            $summary = $this->varianceService->getVarianceSummary($receiptId);
+
+            return $this->successResponse(
+                $summary,
+                'Variance summary retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching variance summary');
         }
     }
 

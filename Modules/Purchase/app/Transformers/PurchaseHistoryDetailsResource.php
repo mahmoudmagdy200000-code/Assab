@@ -6,6 +6,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\OrderStatus;
+use Modules\Purchase\Enums\DocumentType;
 use Carbon\Carbon;
 
 class PurchaseHistoryDetailsResource extends JsonResource
@@ -150,6 +151,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'message' => $this->message ?? 'n/a',
                 'contact_methods' => $this->getContactMethodsWithDetails(),
                 'reason_for_rejected' => $this->getReasonForRejected(),
+                'delay_details' => $this->getDelayDetails(),
             ],
             'product_details' => $this->whenLoaded('items', function () {
                 if (!$this->items) {
@@ -187,7 +189,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 });
             }) ?? [],
             'supplier' => $this->supplierFragment(),
-            'timelines' => $this->whenLoaded('timelines', fn () => TimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn() => TimelineResource::collection($this->timelines)),
         ];
     }
 
@@ -212,6 +214,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'requested_date' => $this->created_at?->toDateTimeString() ?? 'n/a',
                 'total_price' => $this->total_amount ? (float) $this->total_amount : 0.0,
                 'reason_for_rejected' => $this->getReasonForRejected(),
+                'delay_details' => $this->getDelayDetails(),
             ],
             'product_details' => $this->whenLoaded('items', function () {
                 if (!$this->items) {
@@ -238,7 +241,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 });
             }) ?? [],
             'supplier' => null,
-            'timelines' => $this->whenLoaded('timelines', fn () => TimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn() => TimelineResource::collection($this->timelines)),
         ];
     }
 
@@ -270,6 +273,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'request_date' => $this->created_at?->toDateTimeString() ?? 'n/a',
                 'justification' => $this->message ?? 'n/a',
                 'reason_for_rejected' => $this->getReasonForRejected(),
+                'delay_details' => $this->getDelayDetails(),
             ],
             'product_details' => $this->whenLoaded('items', function () use ($fromBranchNameOnly) {
                 // Get from_branch_id for inventory lookup
@@ -340,7 +344,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 });
             }) ?? [],
             'supplier' => null,
-            'timelines' => $this->whenLoaded('timelines', fn () => TimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn() => TimelineResource::collection($this->timelines)),
         ];
     }
 
@@ -505,6 +509,83 @@ class PurchaseHistoryDetailsResource extends JsonResource
 
         // If supplier_id exists but relation not loaded, return n/a
         return 'n/a';
+    }
+
+    /**
+     * Get delay details if order is delayed
+     *
+     * @return array|null
+     */
+    private function getDelayDetails(): ?array
+    {
+        // Only return delay details if order status is DELAYED, DELAYED_CONFIRMED, or DELAYED_CANCELED
+        if (!in_array($this->status, [
+            OrderStatus::DELAYED,
+            OrderStatus::DELAYED_CONFIRMED,
+            OrderStatus::DELAYED_CANCELED,
+        ])) {
+            return null;
+        }
+
+        return [
+            'delay_reason' => $this->delay_reason ?? null,
+            'new_expected_delivery_date' => $this->expected_delivery_at?->format('Y-m-d') ?? null,
+            'new_expected_delivery_time' => $this->expected_delivery_at?->format('H:i') ?? null,
+            'delay_attachment' => $this->getDelayAttachment(),
+        ];
+    }
+
+    /**
+     * Get delay attachment if exists
+     *
+     * @return array|null
+     */
+    private function getDelayAttachment(): ?array
+    {
+        // Check if order has delay-related documents
+        if (!$this->relationLoaded('documents')) {
+            return null;
+        }
+
+        // Look for delay-related documents (PHOTO or OTHER with delay-related title/description)
+        $delayDocument = $this->documents
+            ->filter(function ($doc) {
+                // Check if document is PHOTO or OTHER type
+                if (!in_array($doc->type, [DocumentType::PHOTO, DocumentType::OTHER])) {
+                    return false;
+                }
+
+                // Check if title or description contains delay-related keywords
+                $title = strtolower($doc->title ?? '');
+                $description = strtolower($doc->description ?? '');
+                $keywords = ['delay', 'delayed', 'تأخير'];
+
+                foreach ($keywords as $keyword) {
+                    if (str_contains($title, $keyword) || str_contains($description, $keyword)) {
+                        return true;
+                    }
+                }
+
+                return false;
+            })
+            ->first();
+
+        if (!$delayDocument) {
+            return null;
+        }
+
+        return [
+            'id' => $delayDocument->id,
+            'file_name' => $delayDocument->file_name ?? null,
+            'original_name' => $delayDocument->original_name ?? null,
+            'file_path' => $delayDocument->file_path ?? null,
+            'file_url' => $delayDocument->file_url ?? null,
+            'file_size' => $delayDocument->file_size ?? null,
+            'formatted_size' => $delayDocument->formatted_size ?? null,
+            'mime_type' => $delayDocument->mime_type ?? null,
+            'type' => $delayDocument->type?->value ?? null,
+            'type_label' => $delayDocument->type_label ?? null,
+        ];
     }
 
     /**
