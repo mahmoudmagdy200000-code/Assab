@@ -1184,8 +1184,8 @@ class GoodsReceiptService
                 'items' => $order->items->map(function ($item) {
                     return [
                         'item_name' => $item->item_name,
-                        'item_unit' => $item->unit_of_measurement,
                         'item_logo' => $item->item_logo,
+                        'item_unit' => $item->unit_of_measurement ?? 'kg',
                         'requested_quantity' => (float) $item->quantity_ordered,
                         'status' => 'Preparing',
                         'quality_certificate' => FileResource::makeOrNull(
@@ -1288,7 +1288,7 @@ class GoodsReceiptService
                         return [
                             'item_name' => $item->item_name,
                             'item_logo' => $item->item_logo_url,
-                            'item_unit' => $item->unit_of_measurement,
+                            'item_unit' => $item->unit_of_measurement ?? 'kg',
                             'quantity_ordered' => (float) $item->quantity_ordered,
                             'quantity_received' => (float) $item->quantity_received,
                             'quality' => $item->quality_received?->value,
@@ -1321,8 +1321,8 @@ class GoodsReceiptService
                     return [
                         'item_name' => $variance->item_name,
                         'item_logo' => $variance->item_logo,
+                        'item_unit' => $variance->goodsReceiptItem?->unit_of_measurement ?? 'kg',
                         'temperature' => $variance->goodsReceiptItem?->temperature ?? null,
-                        'item_unit' => $variance->goodsReceiptItem?->unit_of_measurement ?? null,
                         'quantity_ordered' => (float) $variance->quantity_ordered,
                         'quantity_received' => (float) $variance->quantity_received,
                         'quality' => $variance->quality_received?->value,

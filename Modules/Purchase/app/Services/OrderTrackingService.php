@@ -268,8 +268,14 @@ class OrderTrackingService
                 // Enhance stage data with fresh relationships if needed
                 switch ($stage->stage_type) {
                     case 'preparing':
-                        // Ensure items have quality certificates
+                        // Ensure items have quality certificates and item_unit
                         if (isset($stageData['items']) && is_array($stageData['items'])) {
+                            foreach ($stageData['items'] as $key => $item) {
+                                if (empty($item['item_unit'])) {
+                                    $orderItem = $order->items->firstWhere('item_name', $item['item_name'] ?? '');
+                                    $stageData['items'][$key]['item_unit'] = $orderItem?->unit_of_measurement ?? 'kg';
+                                }
+                            }
                             // Load SupplierQualityDocuments for this order
                             $qualityDocuments = \Modules\Supplier\Models\SupplierQualityDocument::where('order_id', $order->id)
                                 ->where('document_type', 'certificate')
@@ -573,6 +579,7 @@ class OrderTrackingService
                 return [
                     'item_name' => $item->item_name,
                     'item_logo' => $item->item_logo_url,
+                    'item_unit' => $item->unit_of_measurement ?? 'kg',
                     'quantity_ordered' => (float) $item->quantity_ordered,
                     'quantity_received' => (float) $item->quantity_received,
                     'quality' => $item->quality_received?->value,
@@ -591,11 +598,12 @@ class OrderTrackingService
                 'receipt_id' => $latestReceipt->id,
             ]);
 
-            // If no items in receipt, keep existing goods_inspections (if any) but enrich item_image
+            // If no items in receipt, keep existing goods_inspections (if any) but enrich item_image and item_unit
             if (!empty($goodsInspections)) {
                 foreach ($goodsInspections as $giKey => $gi) {
                     $item = $latestReceipt->items->firstWhere('item_name', $gi['item_name'] ?? '');
                     $stageData['receipt_details']['goods_inspections'][$giKey]['item_image'] = FileResource::makeOrNull($item?->photo ?? null)?->toArray(request());
+                    $stageData['receipt_details']['goods_inspections'][$giKey]['item_unit'] = $item?->unit_of_measurement ?? $gi['item_unit'] ?? 'kg';
                 }
             }
         }
@@ -643,6 +651,7 @@ class OrderTrackingService
             $itemData = [
                 'item_name' => $item->item_name,
                 'item_logo' => $item->item_logo,
+                'item_unit' => $item->unit_of_measurement ?? 'kg',
                 'requested_quantity' => (float) $item->quantity_ordered,
                 'status' => 'Preparing',
             ];
@@ -846,6 +855,7 @@ class OrderTrackingService
                     return [
                         'item_name' => $item->item_name,
                         'item_logo' => $item->item_logo_url,
+                        'item_unit' => $item->unit_of_measurement ?? 'kg',
                         'quantity_ordered' => (float) $item->quantity_ordered,
                         'quantity_received' => (float) $item->quantity_received,
                         'quality' => $item->quality_received?->value,
@@ -946,6 +956,7 @@ class OrderTrackingService
                 return [
                     'item_name' => $variance->item_name,
                     'item_logo' => $variance->item_logo,
+                    'item_unit' => $variance->goodsReceiptItem?->unit_of_measurement ?? 'kg',
                     'temperature' => $variance->goodsReceiptItem?->temperature ?? null,
                     'quantity_ordered' => (float) $variance->quantity_ordered,
                     'quantity_received' => (float) $variance->quantity_received,
