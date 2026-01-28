@@ -58,16 +58,19 @@ Route::prefix('branch-manager')
             Route::get('/available-cashiers', [CashierManagementController::class, 'getAvailableCashiers'])
                 ->name('cashiers.available-cashiers');
 
-            // Section 3.1.2.1.1.4: View Detailed Cashier Information
+            // Section 3.1.2.1.1.4: View Detailed Cashier Information (UUID only - avoids matching "check-email", etc.)
             Route::get('/{cashier}', [CashierManagementController::class, 'show'])
+                ->where('cashier', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
                 ->name('cashiers.show');
 
             // Update Cashier
             Route::put('/{cashier}', [CashierManagementController::class, 'update'])
+                ->where('cashier', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
                 ->name('cashiers.update');
 
             // Get Cashier's Shifts
             Route::get('/{cashier}/shifts', [ShiftController::class, 'getShiftByCashierId'])
+                ->where('cashier', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
                 ->name('cashiers.shifts.index');
         });
 
