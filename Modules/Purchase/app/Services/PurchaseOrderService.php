@@ -1177,6 +1177,84 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     }
 
     /**
+     * Approve delay request (Branch Manager accepts) → status: delayed_confirmed, Track available
+     *
+     * @param PurchaseOrder $order
+     * @return bool
+     */
+    public function approveDelayRequest(PurchaseOrder $order): bool
+    {
+        if ($order->status !== OrderStatus::DELAYED) {
+            throw new \InvalidArgumentException('Order is not in delayed status');
+        }
+
+        return DB::transaction(function () use ($order) {
+            $order->load('items');
+
+            $delayedItems = $order->items()->whereIn('status', [
+                OrderItemStatus::DELAYED_SUPPLIER,
+                OrderItemStatus::DELAYED_BRANCH,
+                OrderItemStatus::DELAYED,
+            ])->get();
+
+            if ($delayedItems->isEmpty()) {
+                throw new \InvalidArgumentException('No delayed items found in order');
+            }
+
+            foreach ($delayedItems as $item) {
+                $item->status = OrderItemStatus::DELAYED_APPROVED;
+                $item->save();
+                $this->timelineService->logItemDelayApproved($order, $item);
+            }
+
+            $order->transitionTo(OrderStatus::DELAYED_CONFIRMED);
+
+            return true;
+        });
+    }
+
+    /**
+     * Reject delay request (Branch Manager rejects) → status: delayed_canceled, moves to Purchase History
+     *
+     * @param PurchaseOrder $order
+     * @param string|null $reason
+     * @return bool
+     */
+    public function rejectDelayRequest(PurchaseOrder $order, ?string $reason = null): bool
+    {
+        if ($order->status !== OrderStatus::DELAYED) {
+            throw new \InvalidArgumentException('Order is not in delayed status');
+        }
+
+        return DB::transaction(function () use ($order, $reason) {
+            $order->cancellation_reason = $reason;
+            $order->save();
+
+            $order->load('items');
+            $delayedItems = $order->items()->whereIn('status', [
+                OrderItemStatus::DELAYED_SUPPLIER,
+                OrderItemStatus::DELAYED_BRANCH,
+                OrderItemStatus::DELAYED,
+            ])->get();
+
+            if (!$delayedItems->isEmpty()) {
+                foreach ($delayedItems as $item) {
+                    $item->status = OrderItemStatus::CANCELLED_DELAYED;
+                    $approvalData = $item->approval_data ?? [];
+                    $approvalData['cancellation_reason'] = $reason;
+                    $item->approval_data = $approvalData;
+                    $item->save();
+                    $this->timelineService->logItemDelayRejected($order, $item, $reason ?? 'Delay request rejected by branch manager');
+                }
+            }
+
+            $order->transitionTo(OrderStatus::DELAYED_CANCELED);
+
+            return true;
+        });
+    }
+
+    /**
      * Reject delay report for the entire order
      * Branch manager rejects supplier's delay request and cancels all delayed items
      *

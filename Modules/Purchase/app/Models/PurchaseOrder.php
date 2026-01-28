@@ -403,6 +403,8 @@ class PurchaseOrder extends Model
             OrderStatus::CANCELLED_BY_SUPPLIER => $updateData['canceled_at'] = now(),
             OrderStatus::REJECTED => $updateData['rejected_at'] = now(),
             OrderStatus::DELAYED_APPROVED => null, // No specific timestamp for delayed_approved
+            OrderStatus::DELAYED_CONFIRMED => null, // Branch accepted delay → Track available
+            OrderStatus::DELAYED_CANCELED => $updateData['canceled_at'] = now(),
             // Deprecated statuses (for backward compatibility)
             OrderStatus::FULLY_APPROVED => $updateData['confirmed_at'] = now(),
             OrderStatus::PARTIAL_APPROVED => $updateData['confirmed_at'] = now(),

@@ -12,19 +12,21 @@ enum OrderStatus: string
     case CANCELED = 'cancelled';
     case CANCELLED_BY_BRANCH = 'cancelled_by_branch';
     case CANCELLED_BY_SUPPLIER = 'cancelled_by_supplier';
-    
-    // Execution Phase Statuses
+
+        // Execution Phase Statuses
     case PREPARING = 'preparing';
     case ON_THE_WAY = 'on_the_way';
     case DELIVERED = 'delivered';
     case CLOSED = 'closed';
-    
-    // Special Status (temporary during execution)
+
+        // Special Status (temporary during execution)
     case DELAYED = 'delayed';
     case DELAYED_APPROVED = 'delayed_approved';
+    case DELAYED_CONFIRMED = 'delayed_confirmed';   // Branch Manager accepted delay → Track available
+    case DELAYED_CANCELED = 'delayed_canceled';     // Branch Manager rejected delay → Purchase History
     case VARIANCE = 'variance';
-    
-    // Deprecated Statuses (for backward compatibility - will be migrated)
+
+        // Deprecated Statuses (for backward compatibility - will be migrated)
     case PENDING_CONFIRMATION = 'pending_confirmation';
     case PENDING_APPROVAL = 'pending_approval';
     case PARTIAL_CONFIRMATION = 'partial_confirmation';
@@ -45,18 +47,20 @@ enum OrderStatus: string
             self::CANCELLED_BY_SUPPLIER => 'Cancelled by Supplier',
             self::CANCELLED_BY_BRANCH => 'Cancelled by Branch',
             self::CANCELLED_BY_SUPPLIER => 'Cancelled by Supplier',
-            
+
             // Execution Phase
             self::PREPARING => 'Preparing',
             self::ON_THE_WAY => 'On The Way',
             self::DELIVERED => 'Delivered',
             self::CLOSED => 'Closed',
-            
+
             // Special
             self::DELAYED => 'Delay Reported',
             self::DELAYED_APPROVED => 'Delayed Approved',
+            self::DELAYED_CONFIRMED => 'Delayed Confirmed',
+            self::DELAYED_CANCELED => 'Delayed Canceled',
             self::VARIANCE => 'Variance',
-            
+
             // Deprecated (for backward compatibility)
             self::PENDING_CONFIRMATION => 'Pending Confirmation (Deprecated)',
             self::PENDING_APPROVAL => 'Pending Approval (Deprecated)',
@@ -78,18 +82,20 @@ enum OrderStatus: string
             self::CANCELED => '#EF4444',
             self::CANCELLED_BY_BRANCH => '#EF4444',
             self::CANCELLED_BY_SUPPLIER => '#EF4444',
-            
+
             // Execution Phase
             self::PREPARING => '#3B82F6',
             self::ON_THE_WAY => '#06B6D4',
             self::DELIVERED => '#22C55E',
             self::CLOSED => '#6B7280',
-            
+
             // Special
             self::DELAYED => '#F59E0B',
             self::DELAYED_APPROVED => '#10B981',
+            self::DELAYED_CONFIRMED => '#10B981',
+            self::DELAYED_CANCELED => '#EF4444',
             self::VARIANCE => '#F97316',
-            
+
             // Deprecated (mapped to similar statuses)
             self::PENDING_CONFIRMATION => '#F97316',
             self::PENDING_APPROVAL => '#F97316',
@@ -114,16 +120,18 @@ enum OrderStatus: string
             self::CANCELED => [],
             self::CANCELLED_BY_BRANCH => [],
             self::CANCELLED_BY_SUPPLIER => [],
-            
+
             // Execution Phase Transitions
             self::PREPARING => [self::ON_THE_WAY, self::DELAYED, self::CANCELED],
             self::ON_THE_WAY => [self::DELIVERED, self::DELAYED],
-            self::DELAYED => [self::DELAYED_APPROVED, self::PREPARING, self::ON_THE_WAY, self::CANCELED],
+            self::DELAYED => [self::DELAYED_APPROVED, self::DELAYED_CONFIRMED, self::DELAYED_CANCELED, self::PREPARING, self::ON_THE_WAY, self::CANCELED],
             self::DELAYED_APPROVED => [self::PREPARING, self::ON_THE_WAY, self::DELIVERED],
+            self::DELAYED_CONFIRMED => [self::PREPARING, self::ON_THE_WAY, self::DELIVERED],
+            self::DELAYED_CANCELED => [],
             self::VARIANCE => [self::PENDING, self::CONFIRMED, self::PREPARING, self::CANCELED],
             self::DELIVERED => [self::CLOSED],
             self::CLOSED => [],
-            
+
             // Deprecated Statuses (for backward compatibility - allow transitions to new statuses)
             self::PENDING_CONFIRMATION => [self::CONFIRMED, self::REJECTED, self::CANCELED],
             self::PENDING_APPROVAL => [self::CONFIRMED, self::REJECTED, self::CANCELED],
@@ -147,6 +155,7 @@ enum OrderStatus: string
             self::PREPARING,
             self::ON_THE_WAY,
             self::DELAYED_APPROVED,
+            self::DELAYED_CONFIRMED,
             self::DELIVERED,
             // Deprecated (for backward compatibility)
             self::PARTIAL_CONFIRMATION,
@@ -166,6 +175,7 @@ enum OrderStatus: string
             self::CANCELED,
             self::CANCELLED_BY_BRANCH,
             self::CANCELLED_BY_SUPPLIER,
+            self::DELAYED_CANCELED,
             self::REJECTED,
         ]);
     }
@@ -180,6 +190,7 @@ enum OrderStatus: string
             self::PREPARING,
             self::ON_THE_WAY,
             self::DELAYED_APPROVED,
+            self::DELAYED_CONFIRMED,
             self::DELIVERED,
             // Deprecated (for backward compatibility)
             self::PARTIAL_CONFIRMATION,
@@ -197,6 +208,7 @@ enum OrderStatus: string
         return [
             self::CLOSED,
             self::CANCELED,
+            self::DELAYED_CANCELED,
             self::CONFIRMED,
             // Deprecated (for backward compatibility)
             self::PARTIAL_CONFIRMATION,
@@ -219,6 +231,7 @@ enum OrderStatus: string
             self::ON_THE_WAY,
             self::DELAYED,
             self::DELAYED_APPROVED,
+            self::DELAYED_CONFIRMED,
             // Deprecated (for backward compatibility)
             self::PENDING_CONFIRMATION,
             self::PENDING_APPROVAL,
@@ -239,6 +252,7 @@ enum OrderStatus: string
             self::PREPARING,
             self::ON_THE_WAY,
             self::DELAYED_APPROVED,
+            self::DELAYED_CONFIRMED,
             self::DELIVERED,
             // Deprecated (for backward compatibility)
             self::PARTIAL_CONFIRMATION,
@@ -274,6 +288,7 @@ enum OrderStatus: string
             self::CLOSED,
             self::DELAYED,
             self::DELAYED_APPROVED,
+            self::DELAYED_CONFIRMED,
         ]);
     }
 }

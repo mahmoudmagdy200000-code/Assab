@@ -487,8 +487,8 @@ class PendingOrderController extends BaseController
                 return $this->errorResponse('Order is not in delayed status', 400);
             }
 
-            // Approve delay: change status to confirmed
-            $success = $this->orderService->confirmOrder($order);
+            // Approve delay: status → delayed_confirmed, Track becomes available
+            $success = $this->orderService->approveDelayRequest($order);
 
             if (!$success) {
                 return $this->errorResponse('Cannot approve delay', 400);
@@ -498,6 +498,8 @@ class PendingOrderController extends BaseController
                 new DirectSupplierOrderResource($order->fresh(['items', 'supplier'])),
                 'Delay approved successfully'
             );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
         } catch (\Exception $e) {
             return $this->handleException($e, 'approving delay');
         }
@@ -523,9 +525,8 @@ class PendingOrderController extends BaseController
                 return $this->errorResponse('Order is not in delayed status', 400);
             }
 
-            // Reject delay: cancel the order
-            // Branch manager is canceling (from Purchase module)
-            $success = $this->orderService->cancelOrder($order, $request->reason, byBranch: true);
+            // Reject delay: status → delayed_canceled, moves to Purchase History
+            $success = $this->orderService->rejectDelayRequest($order, $request->reason);
 
             if (!$success) {
                 return $this->errorResponse('Cannot reject delay', 400);
@@ -535,6 +536,8 @@ class PendingOrderController extends BaseController
                 new DirectSupplierOrderResource($order->fresh(['items', 'supplier'])),
                 'Delay rejected. Order has been canceled.'
             );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
         } catch (\Exception $e) {
             return $this->handleException($e, 'rejecting delay');
         }
