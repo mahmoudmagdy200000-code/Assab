@@ -103,6 +103,7 @@ class CashierManagementController extends BaseController
                     'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
                     'store_branch_name' => $cashier->branch->name ?? 'N/A',
                     'store_branch_id' => $cashier->branch_id,
+                    'created_by_name' => $cashier->creator?->name ?? 'N/A',
                     'number_of_shifts_per_day' => $shiftsPerDay,
                     'working_shifts' => $workingShifts,
                     'status' => $cashier->status,
