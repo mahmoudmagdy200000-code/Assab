@@ -623,6 +623,15 @@ class OrderTrackingService
             }
         }
 
+        // Ensure date_time is set (never null): inspection_completed_at then updated_at then created_at
+        if (empty($stageData['receipt_details']['date_time'])) {
+            $dateTime = $latestReceipt->inspection_completed_at
+                ?? $latestReceipt->updated_at
+                ?? $latestReceipt->created_at;
+            $stageData['receipt_details']['date_time'] = $dateTime?->format('Y-m-d H:i:s')
+                ?? now()->format('Y-m-d H:i:s');
+        }
+
         // Ensure document_type is set (fallback if missing)
         if (empty($stageData['receipt_details']['document_type'])) {
             $stageData['receipt_details']['document_type'] = $this->determineDocumentType($latestReceipt, $inv);
@@ -852,10 +861,14 @@ class OrderTrackingService
             ? (float) $latestReceipt->received_amount
             : (float) $items->sum('received_total');
 
+        $dateTime = $latestReceipt->inspection_completed_at
+            ?? $latestReceipt->updated_at
+            ?? $latestReceipt->created_at;
+
         return [
             'status' => 'confirmed',
             'receipt_details' => [
-                'date_time' => $latestReceipt->inspection_completed_at?->format('Y-m-d H:i:s'),
+                'date_time' => $dateTime?->format('Y-m-d H:i:s') ?? now()->format('Y-m-d H:i:s'),
                 'inspection_summary' => [
                     'number_of_items' => $numberOfItems,
                     'quantity_variance' => $quantityVariance,

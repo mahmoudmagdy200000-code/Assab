@@ -1270,10 +1270,14 @@ class GoodsReceiptService
             $latestReceipt->loadMissing(['invoice', 'items']);
             $order->loadMissing('supplier');
             $invoice = $latestReceipt->invoice;
+            $receiptDateTime = $latestReceipt->inspection_completed_at
+                ?? $latestReceipt->updated_at
+                ?? $latestReceipt->created_at;
+
             $stages['order_confirmation'] = [
                 'status' => 'confirmed',
                 'receipt_details' => [
-                    'date_time' => $latestReceipt->inspection_completed_at?->format('Y-m-d H:i:s'),
+                    'date_time' => $receiptDateTime?->format('Y-m-d H:i:s') ?? now()->format('Y-m-d H:i:s'),
                     'inspection_summary' => [
                         'number_of_items' => $latestReceipt->total_items_received,
                         'quantity_variance' => $latestReceipt->quantity_variances,
