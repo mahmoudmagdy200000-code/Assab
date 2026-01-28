@@ -10,6 +10,7 @@ use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Http\Requests\CheckCashierEmailRequest;
 use Modules\Shift\Services\ShiftService;
 use Carbon\Carbon;
 
@@ -135,6 +136,25 @@ class CashierManagementController extends BaseController
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
+    }
+
+    /**
+     * Check if cashier email is already registered in the system.
+     * التحقق من تسجيل إيميل الكاشير مسبقاً
+     */
+    public function checkEmail(CheckCashierEmailRequest $request): JsonResponse
+    {
+        $email = $request->validated('email');
+
+        $exists = Cashier::where('email', $email)->exists();
+
+        return $this->successResponse([
+            'email' => $email,
+            'registered' => $exists,
+            'message' => $exists
+                ? 'This email is already registered as a cashier.'
+                : 'This email is not registered yet.',
+        ], $exists ? 'Cashier already registered' : 'Email available');
     }
 
     /**

@@ -40,6 +40,10 @@ Route::prefix('branch-manager')
             Route::post('/', [CashierManagementController::class, 'store'])
                 ->name('cashiers.store');
 
+            // Check if cashier email is already registered
+            Route::post('/check-email', [CashierManagementController::class, 'checkEmail'])
+                ->name('cashiers.check-email');
+
             // Section 3.1.2.1.1.2: Search Cashiers
             Route::get('/search', [CashierManagementController::class, 'search'])
                 ->name('cashiers.search');
