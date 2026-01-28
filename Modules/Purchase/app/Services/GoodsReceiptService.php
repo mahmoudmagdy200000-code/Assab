@@ -254,14 +254,14 @@ class GoodsReceiptService
 
             // Create receipt items from order items with inspection data
             $receiptItemsMap = [];
-            
+
             \Log::info('GoodsReceipt: Starting receipt items creation', [
                 'receipt_id' => $receipt->id,
                 'order_id' => $order->id,
                 'order_items_count' => $order->items->count(),
                 'items_data_count' => count($itemsData),
             ]);
-            
+
             foreach ($order->items as $orderItem) {
                 $receivedItemData = $receivedItemsMap->get($orderItem->id);
 
@@ -313,7 +313,7 @@ class GoodsReceiptService
 
                 // Store receipt item in map for variance processing
                 $receiptItemsMap[$orderItem->id] = $receiptItem;
-                
+
                 \Log::info('GoodsReceipt: Created receipt item', [
                     'receipt_item_id' => $receiptItem->id,
                     'item_name' => $receiptItem->item_name,
@@ -412,7 +412,7 @@ class GoodsReceiptService
                             'error' => $e->getMessage(),
                             'trace' => $e->getTraceAsString(),
                         ]);
-                        
+
                         // Update variance status to indicate action failed
                         // Use DB::table to avoid model events that might cause issues
                         DB::table('purchase_variances')
@@ -425,7 +425,7 @@ class GoodsReceiptService
                     }
                 }
             }
-            
+
             // Log variance creation for debugging
             if (!empty($variancesMap)) {
                 \Log::info('GoodsReceipt: Variances created', [
@@ -471,15 +471,15 @@ class GoodsReceiptService
             // Check if receipt should be completed automatically (no variances)
             $receipt->refresh();
             $receipt->load('items');
-            
+
             // If no variances after processing, complete inspection and close order
             if (!$receipt->hasVariances) {
                 // Complete inspection
                 $receipt->completeInspection();
-                
+
                 // Refresh receipt to get updated status
                 $receipt->refresh();
-                
+
                 // Update order item quantities
                 foreach ($receipt->items as $item) {
                     if ($item->purchase_order_item_id) {
@@ -489,17 +489,17 @@ class GoodsReceiptService
                         );
                     }
                 }
-                
+
                 // Log inspection completed
                 $this->timelineService->logInspectionCompleted($receipt);
-                
+
                 // Refresh order to get latest receipt
                 $order->refresh();
                 $order->load('latestGoodsReceipt');
-                
+
                 // Save order confirmation stage
                 $this->trackingService->saveOrderConfirmationStage($order);
-                
+
                 // Close order
                 $order->close();
             }
@@ -655,7 +655,7 @@ class GoodsReceiptService
             // Save tracking stages
             $order = $receipt->purchaseOrder;
             $this->trackingService->saveOrderConfirmationStage($order);
-            
+
             if ($receipt->hasVariances) {
                 $this->trackingService->saveVarianceLoggedStage($order);
             }
@@ -1184,6 +1184,7 @@ class GoodsReceiptService
                 'items' => $order->items->map(function ($item) {
                     return [
                         'item_name' => $item->item_name,
+                        'item_unit' => $item->unit_of_measurement,
                         'item_logo' => $item->item_logo,
                         'requested_quantity' => (float) $item->quantity_ordered,
                         'status' => 'Preparing',
@@ -1287,6 +1288,7 @@ class GoodsReceiptService
                         return [
                             'item_name' => $item->item_name,
                             'item_logo' => $item->item_logo_url,
+                            'item_unit' => $item->unit_of_measurement,
                             'quantity_ordered' => (float) $item->quantity_ordered,
                             'quantity_received' => (float) $item->quantity_received,
                             'quality' => $item->quality_received?->value,
@@ -1320,6 +1322,7 @@ class GoodsReceiptService
                         'item_name' => $variance->item_name,
                         'item_logo' => $variance->item_logo,
                         'temperature' => $variance->goodsReceiptItem?->temperature ?? null,
+                        'item_unit' => $variance->goodsReceiptItem?->unit_of_measurement ?? null,
                         'quantity_ordered' => (float) $variance->quantity_ordered,
                         'quantity_received' => (float) $variance->quantity_received,
                         'quality' => $variance->quality_received?->value,
@@ -1377,14 +1380,14 @@ class GoodsReceiptService
         $newOrderItems = $orderItems->map(function ($orderItem) use ($varianceItemsMap) {
             $varianceItem = $varianceItemsMap->get($orderItem->id);
             $quantity = $varianceItem['quantity'] ?? $orderItem->quantity_ordered;
-            
+
             // Validate quantity exists and is greater than 0
             if (!isset($quantity) || $quantity <= 0) {
                 throw new \InvalidArgumentException(
                     "Quantity is required and must be greater than 0 for item {$orderItem->item_name}"
                 );
             }
-            
+
             return [
                 'item_id' => $orderItem->item_id,
                 'item_name' => $orderItem->item_name,
@@ -1424,7 +1427,7 @@ class GoodsReceiptService
             $supplierExists = DB::table('purchase_suppliers')
                 ->where('id', $originalOrder->supplier_id)
                 ->exists();
-            
+
             if (!$supplierExists) {
                 // Log warning if supplier doesn't exist in purchase_suppliers
                 // The supplier might be in the new suppliers table, but the FK constraint
@@ -1435,10 +1438,10 @@ class GoodsReceiptService
                     'compensatory_order_id' => $compensatory->id,
                 ]);
             }
-            
+
             $reorderSupplierId = $supplierExists ? $originalOrder->supplier_id : null;
         }
-        
+
         $compensatory->update([
             'new_order_id' => $newOrder->id,
             'reorder_supplier_id' => $reorderSupplierId,
