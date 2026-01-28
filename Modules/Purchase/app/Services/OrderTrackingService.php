@@ -447,6 +447,21 @@ class OrderTrackingService
                             $stageData = $this->enrichOrderConfirmationStageData($stageData, $order, $latestReceipt);
                         }
                         break;
+
+                    case 'variance_logged':
+                        // Ensure each variance has item_unit (when loaded from DB it may be missing)
+                        if (isset($stageData['variances']) && is_array($stageData['variances'])) {
+                            $order->loadMissing(['latestGoodsReceipt.variances.goodsReceiptItem']);
+                            $variancesByItemName = $order->latestGoodsReceipt?->variances?->keyBy('item_name') ?? collect();
+                            foreach ($stageData['variances'] as $vKey => $variance) {
+                                $itemName = $variance['item_name'] ?? null;
+                                if (empty($stageData['variances'][$vKey]['item_unit']) && $itemName) {
+                                    $varianceModel = $variancesByItemName->get($itemName);
+                                    $stageData['variances'][$vKey]['item_unit'] = $varianceModel?->goodsReceiptItem?->unit_of_measurement ?? 'kg';
+                                }
+                            }
+                        }
+                        break;
                 }
 
                 return $stageData;
