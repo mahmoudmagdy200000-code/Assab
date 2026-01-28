@@ -33,7 +33,7 @@ class CashierManagementController extends BaseController
                 return $this->errorResponse('Branch manager is not assigned to any branch', 400);
             }
 
-            $query = Cashier::with(['branch', 'creator'])
+            $query = Cashier::with(['branch', 'creator', 'shifts.shift'])
                 ->where('branch_id', $branchId);
 
             // Search by cashier name
@@ -80,6 +80,21 @@ class CashierManagementController extends BaseController
                     ->whereDate('shift_date', today())
                     ->count();
 
+                // Working shifts: distinct Shift templates assigned to this cashier (same format as show())
+                $workingShifts = $cashier->shifts
+                    ->pluck('shift')
+                    ->filter()
+                    ->unique('id')
+                    ->values()
+                    ->map(fn($shift) => [
+                        'id' => $shift->id,
+                        'name' => $shift->name,
+                        'start_time' => $shift->start_time?->format('H:i'),
+                        'end_time' => $shift->end_time?->format('H:i'),
+                    ])
+                    ->values()
+                    ->all();
+
                 return [
                     'id' => $cashier->id,
                     'name' => $cashier->name,
@@ -88,6 +103,7 @@ class CashierManagementController extends BaseController
                     'store_branch_name' => $cashier->branch->name ?? 'N/A',
                     'store_branch_id' => $cashier->branch_id,
                     'number_of_shifts_per_day' => $shiftsPerDay,
+                    'working_shifts' => $workingShifts,
                     'status' => $cashier->status,
                     'status_label' => $cashier->status_label ?? match ($cashier->status) {
                         'active' => 'Active',
