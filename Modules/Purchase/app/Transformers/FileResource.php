@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Transformers;
 
+use Carbon\Carbon;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\Storage;
 use Modules\Purchase\Models\OrderDocument;
@@ -27,6 +28,27 @@ class FileResource extends JsonResource
     private static function idFromPath(string $path): string
     {
         return substr(hash('sha256', $path), 0, 32);
+    }
+
+    /**
+     * Get uploaded_at from file's last modified time on storage when no DB value exists.
+     */
+    private static function uploadedAtFromPath(?string $path): ?string
+    {
+        if (!$path || str_starts_with($path, 'http')) {
+            return null;
+        }
+        try {
+            if (Storage::disk('public')->exists($path)) {
+                $timestamp = Storage::disk('public')->lastModified($path);
+
+                return Carbon::createFromTimestamp($timestamp)->format(self::DATE_FORMAT);
+            }
+        } catch (\Throwable) {
+            // Keep null on error
+        }
+
+        return null;
     }
 
     /**
@@ -79,13 +101,16 @@ class FileResource extends JsonResource
             }
         }
 
+        $uploadedAt = $this->created_at?->format(self::DATE_FORMAT)
+            ?? self::uploadedAtFromPath($this->file_path);
+
         return [
             'id' => (string) $this->id,
             'file_name' => $this->original_name ?? null,
             'file_type' => $this->mime_type ?? null,
             'file_size' => $fileSize,
             'url' => $this->file_url ?? $this->getUrlFromPath($this->file_path),
-            'uploaded_at' => $this->created_at?->format(self::DATE_FORMAT),
+            'uploaded_at' => $uploadedAt ?? Carbon::now()->format(self::DATE_FORMAT),
         ];
     }
 
@@ -96,13 +121,16 @@ class FileResource extends JsonResource
      */
     private function formatPurchaseInvoice(): array
     {
+        $uploadedAt = $this->created_at?->format(self::DATE_FORMAT)
+            ?? self::uploadedAtFromPath($this->file_path ?? null);
+
         return [
             'id' => (string) $this->id,
             'file_name' => $this->file_name ?? null,
             'file_type' => $this->file_type ?? null,
             'file_size' => $this->file_size ? (int) $this->file_size : null,
             'url' => $this->file_url ?? $this->getUrlFromPath($this->file_path ?? null),
-            'uploaded_at' => $this->created_at?->format(self::DATE_FORMAT),
+            'uploaded_at' => $uploadedAt ?? Carbon::now()->format(self::DATE_FORMAT),
         ];
     }
 
@@ -152,6 +180,10 @@ class FileResource extends JsonResource
             $id = self::idFromPath($filePath);
         }
 
+        if ($uploadedAt === null && $filePath && is_string($filePath)) {
+            $uploadedAt = self::uploadedAtFromPath($filePath);
+        }
+
         return [
             'id' => $id,
             'file_name' => $this->resource['file_name'] ?? $this->resource['original_name'] ?? basename($filePath ?? ''),
@@ -160,7 +192,7 @@ class FileResource extends JsonResource
             'url' => $this->resource['url']
                 ?? $this->resource['file_url']
                 ?? $this->getUrlFromPath($filePath),
-            'uploaded_at' => $uploadedAt,
+            'uploaded_at' => $uploadedAt ?? Carbon::now()->format(self::DATE_FORMAT),
         ];
     }
 
@@ -185,11 +217,13 @@ class FileResource extends JsonResource
             }
         }
 
-        // Resolve file_size from storage only for relative storage paths
+        // Resolve file_size and uploaded_at from storage only for relative storage paths
+        $uploadedAt = null;
         if (!str_starts_with($path, 'http')) {
             try {
                 if (Storage::disk('public')->exists($path)) {
                     $fileSize = (int) Storage::disk('public')->size($path);
+                    $uploadedAt = self::uploadedAtFromPath($path);
                 }
             } catch (\Throwable) {
                 // Keep null on error
@@ -202,7 +236,7 @@ class FileResource extends JsonResource
             'file_type' => $fileType,
             'file_size' => $fileSize,
             'url' => $this->getUrlFromPath($path),
-            'uploaded_at' => null,
+            'uploaded_at' => $uploadedAt ?? Carbon::now()->format(self::DATE_FORMAT),
         ];
     }
 
@@ -219,7 +253,7 @@ class FileResource extends JsonResource
             'file_type' => null,
             'file_size' => null,
             'url' => null,
-            'uploaded_at' => null,
+            'uploaded_at' => Carbon::now()->format(self::DATE_FORMAT),
         ];
     }
 
