@@ -40,7 +40,9 @@ Route::prefix('branch-manager')
             Route::post('/', [CashierManagementController::class, 'store'])
                 ->name('cashiers.store');
 
-            // Check if cashier email is already registered
+            // Check if cashier email is already registered (GET with ?email= or POST with body)
+            Route::get('/check-email', [CashierManagementController::class, 'checkEmail'])
+                ->name('cashiers.check-email.get');
             Route::post('/check-email', [CashierManagementController::class, 'checkEmail'])
                 ->name('cashiers.check-email');
 
