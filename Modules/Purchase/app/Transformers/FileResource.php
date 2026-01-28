@@ -22,6 +22,14 @@ class FileResource extends JsonResource
     private const DATE_FORMAT = 'Y-m-d H:i:s';
 
     /**
+     * Generate a stable, deterministic id from a file path when no DB id exists.
+     */
+    private static function idFromPath(string $path): string
+    {
+        return substr(hash('sha256', $path), 0, 32);
+    }
+
+    /**
      * Transform the resource into an array.
      *
      * @param \Illuminate\Http\Request $request
@@ -139,8 +147,13 @@ class FileResource extends JsonResource
             }
         }
 
+        $id = isset($this->resource['id']) ? (string) $this->resource['id'] : null;
+        if ($id === null && $filePath && is_string($filePath)) {
+            $id = self::idFromPath($filePath);
+        }
+
         return [
-            'id' => isset($this->resource['id']) ? (string) $this->resource['id'] : null,
+            'id' => $id,
             'file_name' => $this->resource['file_name'] ?? $this->resource['original_name'] ?? basename($filePath ?? ''),
             'file_type' => $fileType,
             'file_size' => $fileSize,
@@ -184,7 +197,7 @@ class FileResource extends JsonResource
         }
 
         return [
-            'id' => null,
+            'id' => self::idFromPath($path),
             'file_name' => basename($pathForExtension ?? $path),
             'file_type' => $fileType,
             'file_size' => $fileSize,
