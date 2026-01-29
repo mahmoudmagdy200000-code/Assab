@@ -154,6 +154,7 @@ class OrderService
             'requestedBy',
             'supplier',
             'timelines',
+            'documents',
         ])
             ->where('id', $orderId)
             ->where('supplier_id', $supplier->id)
@@ -219,12 +220,12 @@ class OrderService
         return DB::transaction(function () use ($order, $data) {
             $reason = $data['reason'] ?? null;
             $explanation = $data['explanation'] ?? null;
-            
+
             // Combine reason and explanation if both exist
             $cancellationReason = $reason;
             if ($explanation) {
-                $cancellationReason = $reason 
-                    ? "{$reason}: {$explanation}" 
+                $cancellationReason = $reason
+                    ? "{$reason}: {$explanation}"
                     : $explanation;
             }
 
