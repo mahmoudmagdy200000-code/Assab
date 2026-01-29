@@ -7,6 +7,7 @@ use Modules\Branch\Transformers\BranchResource;
 use Modules\BranchManagers\Transformers\BranchManagerResource;
 use Modules\Purchase\Enums\DocumentType;
 use Modules\Purchase\Enums\OrderStatus;
+use Modules\Purchase\Enums\TimelineEventType;
 use Modules\Purchase\Transformers\TimelineResource;
 
 class OrderResource extends JsonResource
@@ -294,6 +295,101 @@ class OrderResource extends JsonResource
             'new_expected_delivery_date' => $this->expected_delivery_at?->format('Y-m-d') ?? null,
             'new_expected_delivery_time' => $this->expected_delivery_at?->format('H:i') ?? null,
             'delay_attachment' => $this->getDelayAttachment(),
+            'delay_reported_at' => $this->getDelayReportedAt(),
+            'delay_approved_at' => $this->getDelayApprovedAt(),
+            'delay_rejected_at' => $this->getDelayRejectedAt(),
+            'branch_manager' => $this->getDelayBranchManager(),
+        ];
+    }
+
+    /**
+     * When did supplier report the delay (from first DELIVERY_DELAYED timeline event).
+     */
+    private function getDelayReportedAt(): ?string
+    {
+        if (!$this->relationLoaded('timelines')) {
+            return null;
+        }
+        $event = $this->timelines
+            ->where('event_type', TimelineEventType::DELIVERY_DELAYED)
+            ->sortBy('occurred_at')
+            ->first();
+        return $event?->occurred_at?->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * When did branch manager approve the delay.
+     */
+    private function getDelayApprovedAt(): ?string
+    {
+        if (!$this->relationLoaded('timelines')) {
+            return null;
+        }
+        $event = $this->timelines
+            ->filter(fn($t) => $t->event_type === TimelineEventType::APPROVAL_GRANTED
+                && ($t->metadata['approval_type'] ?? null) === 'delay')
+            ->sortBy('occurred_at')
+            ->first();
+        return $event?->occurred_at?->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * When did branch manager reject the delay.
+     */
+    private function getDelayRejectedAt(): ?string
+    {
+        if (!$this->relationLoaded('timelines')) {
+            return null;
+        }
+        $event = $this->timelines
+            ->filter(fn($t) => $t->event_type === TimelineEventType::APPROVAL_DENIED
+                && ($t->metadata['approval_type'] ?? null) === 'delay')
+            ->sortBy('occurred_at')
+            ->first();
+        return $event?->occurred_at?->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * Branch manager who approved or rejected the delay (from timeline actor).
+     */
+    private function getDelayBranchManager(): ?array
+    {
+        if (!$this->relationLoaded('timelines')) {
+            return $this->getDelayBranchManagerFromRequestedBy();
+        }
+        $approveEvent = $this->timelines
+            ->filter(fn($t) => $t->event_type === TimelineEventType::APPROVAL_GRANTED
+                && ($t->metadata['approval_type'] ?? null) === 'delay')
+            ->sortByDesc('occurred_at')
+            ->first();
+        $rejectEvent = $this->timelines
+            ->filter(fn($t) => $t->event_type === TimelineEventType::APPROVAL_DENIED
+                && ($t->metadata['approval_type'] ?? null) === 'delay')
+            ->sortByDesc('occurred_at')
+            ->first();
+        $event = $rejectEvent ?? $approveEvent;
+        if ($event && $event->actor_id && $event->actor_name) {
+            return [
+                'id' => $event->actor_id,
+                'name' => $event->actor_name,
+                'image' => $event->actor_image_url ?? null,
+            ];
+        }
+        return $this->getDelayBranchManagerFromRequestedBy();
+    }
+
+    /**
+     * Fallback: branch manager from order requestedBy.
+     */
+    private function getDelayBranchManagerFromRequestedBy(): ?array
+    {
+        if (!$this->relationLoaded('requestedBy') || !$this->requestedBy) {
+            return null;
+        }
+        return [
+            'id' => $this->requestedBy->id,
+            'name' => $this->requestedBy->name,
+            'image' => $this->requestedBy->image_url ?? null,
         ];
     }
 
