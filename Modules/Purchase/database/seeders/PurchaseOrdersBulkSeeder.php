@@ -339,6 +339,33 @@ class PurchaseOrdersBulkSeeder extends Seeder
         return $picked;
     }
 
+    /**
+     * Map item unit to purchase_order_items.unit_of_measurement ENUM (kg, pk, unit, box, liter, piece).
+     */
+    private function normalizeUnit(?string $unit): string
+    {
+        if ($unit === null || $unit === '') {
+            return 'piece';
+        }
+        $u = strtolower(trim($unit));
+        if (in_array($u, self::ALLOWED_UNITS, true)) {
+            return $u;
+        }
+        $map = [
+            'pack' => 'box',
+            'pcs' => 'piece',
+            'pieces' => 'piece',
+            'litre' => 'liter',
+            'litres' => 'liter',
+            'l' => 'liter',
+            'kgs' => 'kg',
+            'gram' => 'kg',
+            'grams' => 'kg',
+            'g' => 'kg',
+        ];
+        return $map[$u] ?? 'piece';
+    }
+
     private function itemStatusForOrderStatus(OrderStatus $orderStatus): OrderItemStatus
     {
         return match ($orderStatus) {
