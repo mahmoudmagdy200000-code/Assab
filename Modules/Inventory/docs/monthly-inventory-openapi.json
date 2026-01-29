@@ -1,0 +1,704 @@
+{
+    "openapi": "3.0.3",
+    "info": {
+        "title": "Monthly Inventory API",
+        "description": "API documentation for Monthly Inventory endpoints (Inventory module). All endpoints require Bearer token (Laravel Sanctum).",
+        "version": "1.0.0"
+    },
+    "servers": [
+        {
+            "url": "/api/v1",
+            "description": "API base path"
+        }
+    ],
+    "security": [{ "bearerAuth": [] }],
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": "Laravel Sanctum token"
+            }
+        },
+        "schemas": {
+            "CreateMonthlyInventoryBody": {
+                "type": "object",
+                "required": ["inventory_date", "staff"],
+                "properties": {
+                    "inventory_date": {
+                        "type": "string",
+                        "format": "date",
+                        "description": "Date of the inventory (YYYY-MM-DD)"
+                    },
+                    "staff": {
+                        "type": "array",
+                        "minItems": 3,
+                        "items": { "type": "string", "format": "uuid" },
+                        "description": "Array of cashier UUIDs (min 3)"
+                    },
+                    "notes": {
+                        "type": "string",
+                        "maxLength": 1000,
+                        "nullable": true
+                    }
+                }
+            },
+            "UpdateMonthlyInventoryProductBody": {
+                "type": "object",
+                "required": ["quantity_inventory"],
+                "properties": {
+                    "quantity_inventory": {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "Counted quantity"
+                    },
+                    "count_method": {
+                        "type": "string",
+                        "enum": ["simple", "slider"],
+                        "nullable": true
+                    },
+                    "count_metadata": {
+                        "type": "object",
+                        "nullable": true,
+                        "properties": {
+                            "full_containers": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "nullable": true
+                            },
+                            "volume_per_container": {
+                                "type": "number",
+                                "minimum": 0,
+                                "nullable": true
+                            },
+                            "partial_pct": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 100,
+                                "nullable": true
+                            }
+                        }
+                    },
+                    "notes": {
+                        "type": "string",
+                        "maxLength": 1000,
+                        "nullable": true
+                    }
+                }
+            },
+            "SaveProgressBody": {
+                "type": "object",
+                "properties": {
+                    "move_to_draft": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "If true, save and move inventory back to draft"
+                    }
+                }
+            },
+            "ReturnToDraftBody": {
+                "type": "object",
+                "required": ["feedback"],
+                "properties": {
+                    "feedback": {
+                        "type": "string",
+                        "maxLength": 2000,
+                        "description": "Required feedback when returning to draft"
+                    }
+                }
+            },
+            "ExportMonthlyInventoryBody": {
+                "type": "object",
+                "required": ["format"],
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "enum": ["pdf", "excel"],
+                        "description": "Export format: pdf or excel (CSV)"
+                    }
+                }
+            },
+            "AddFeedbackBody": {
+                "type": "object",
+                "required": ["message"],
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "maxLength": 2000,
+                        "description": "Feedback message"
+                    }
+                }
+            }
+        }
+    },
+    "paths": {
+        "/inventory/monthly/setup-info": {
+            "get": {
+                "summary": "Get setup info",
+                "description": "Returns setup information for creating a monthly inventory (branch manager must be assigned to a branch).",
+                "operationId": "inventory.monthly.setup-info",
+                "tags": ["Monthly Inventory"],
+                "responses": {
+                    "200": {
+                        "description": "Setup info retrieved successfully"
+                    },
+                    "400": {
+                        "description": "Branch manager not assigned to branch"
+                    }
+                }
+            }
+        },
+        "/inventory/monthly/staff-options": {
+            "get": {
+                "summary": "Get staff options",
+                "description": "Returns staff (cashiers) options for the branch.",
+                "operationId": "inventory.monthly.staff-options",
+                "tags": ["Monthly Inventory"],
+                "responses": {
+                    "200": {
+                        "description": "Staff options retrieved successfully"
+                    },
+                    "400": {
+                        "description": "Branch manager not assigned to branch"
+                    }
+                }
+            }
+        },
+        "/inventory/monthly/last-team": {
+            "get": {
+                "summary": "Get last team",
+                "description": "Returns the last team used for monthly inventory in the branch.",
+                "operationId": "inventory.monthly.last-team",
+                "tags": ["Monthly Inventory"],
+                "responses": {
+                    "200": {
+                        "description": "Last team retrieved successfully"
+                    },
+                    "400": {
+                        "description": "Branch manager not assigned to branch"
+                    }
+                }
+            }
+        },
+        "/inventory/monthly": {
+            "post": {
+                "summary": "Create monthly inventory",
+                "description": "Creates a new monthly inventory. Requires at least 3 staff (cashier UUIDs).",
+                "operationId": "inventory.monthly.store",
+                "tags": ["Monthly Inventory"],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateMonthlyInventoryBody"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Monthly inventory created successfully"
+                    },
+                    "400": {
+                        "description": "Validation error or branch not assigned"
+                    }
+                }
+            },
+            "get": {
+                "summary": "List monthly inventories",
+                "description": "Paginated list of monthly inventories for the branch manager.",
+                "operationId": "inventory.monthly.index",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "schema": { "type": "string" },
+                        "description": "Filter by status"
+                    },
+                    {
+                        "name": "date_from",
+                        "in": "query",
+                        "schema": { "type": "string", "format": "date" }
+                    },
+                    {
+                        "name": "date_to",
+                        "in": "query",
+                        "schema": { "type": "string", "format": "date" }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": { "type": "integer", "default": 15 }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Monthly inventories retrieved successfully"
+                    },
+                    "400": {
+                        "description": "Branch manager not assigned to branch"
+                    }
+                }
+            }
+        },
+        "/inventory/monthly/comparison": {
+            "get": {
+                "summary": "Get monthly comparison",
+                "description": "Returns monthly inventory comparison data for a branch/year/month.",
+                "operationId": "inventory.monthly.comparison",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "branch_id",
+                        "in": "query",
+                        "schema": { "type": "string", "format": "uuid" },
+                        "description": "Branch ID (defaults to manager's branch)"
+                    },
+                    {
+                        "name": "year",
+                        "in": "query",
+                        "schema": { "type": "integer" }
+                    },
+                    {
+                        "name": "month",
+                        "in": "query",
+                        "schema": { "type": "integer" }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Comparison retrieved successfully"
+                    },
+                    "400": {
+                        "description": "Branch manager not assigned to branch"
+                    }
+                }
+            }
+        },
+        "/inventory/monthly/{id}": {
+            "get": {
+                "summary": "Show monthly inventory",
+                "description": "Returns a single monthly inventory by ID.",
+                "operationId": "inventory.monthly.show",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Monthly inventory retrieved successfully"
+                    },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            }
+        },
+        "/inventory/monthly/{id}/products": {
+            "get": {
+                "summary": "Get inventory products",
+                "description": "Returns products for a monthly inventory.",
+                "operationId": "inventory.monthly.products",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    },
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "schema": { "type": "string" }
+                    },
+                    {
+                        "name": "completed_only",
+                        "in": "query",
+                        "schema": { "type": "boolean" }
+                    }
+                ],
+                "responses": {
+                    "200": { "description": "Products retrieved successfully" },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            }
+        },
+        "/inventory/monthly/{id}/products/{productId}": {
+            "put": {
+                "summary": "Update product quantity",
+                "description": "Updates counted quantity and optional count metadata for a product.",
+                "operationId": "inventory.monthly.products.update",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    },
+                    {
+                        "name": "productId",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateMonthlyInventoryProductBody"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Product quantity updated successfully"
+                    },
+                    "400": { "description": "Validation error" },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            }
+        },
+        "/inventory/monthly/{id}/products/{productId}/claim": {
+            "post": {
+                "summary": "Claim product",
+                "description": "Claims a product for counting by the current manager.",
+                "operationId": "inventory.monthly.products.claim",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    },
+                    {
+                        "name": "productId",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "responses": {
+                    "200": { "description": "Product claimed successfully" },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            }
+        },
+        "/inventory/monthly/{id}/products/{productId}/release": {
+            "post": {
+                "summary": "Release product",
+                "description": "Releases a claimed product.",
+                "operationId": "inventory.monthly.products.release",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    },
+                    {
+                        "name": "productId",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "responses": {
+                    "200": { "description": "Product released successfully" },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            }
+        },
+        "/inventory/monthly/{id}/progress": {
+            "get": {
+                "summary": "Get progress",
+                "description": "Returns progress data for the monthly inventory.",
+                "operationId": "inventory.monthly.progress",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    },
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "responses": {
+                    "200": { "description": "Progress retrieved successfully" },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            }
+        },
+        "/inventory/monthly/{id}/save-progress": {
+            "post": {
+                "summary": "Save progress",
+                "description": "Saves current progress. Optionally move inventory back to draft.",
+                "operationId": "inventory.monthly.save-progress",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SaveProgressBody"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Progress saved successfully" },
+                    "400": { "description": "Validation error" },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            }
+        },
+        "/inventory/monthly/{id}/review": {
+            "post": {
+                "summary": "Mark for review",
+                "description": "Marks the monthly inventory for review.",
+                "operationId": "inventory.monthly.review",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Inventory marked for review successfully"
+                    },
+                    "400": { "description": "Invalid state" },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            }
+        },
+        "/inventory/monthly/{id}/submit": {
+            "post": {
+                "summary": "Submit for approval",
+                "description": "Submits the monthly inventory for approval.",
+                "operationId": "inventory.monthly.submit",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Inventory submitted for approval successfully"
+                    },
+                    "400": { "description": "Invalid state" },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            }
+        },
+        "/inventory/monthly/{id}/approve": {
+            "post": {
+                "summary": "Approve inventory",
+                "description": "Approves the monthly inventory (authorized roles only).",
+                "operationId": "inventory.monthly.approve",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "responses": {
+                    "200": { "description": "Inventory approved successfully" },
+                    "400": { "description": "Invalid state" },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            }
+        },
+        "/inventory/monthly/{id}/return-to-draft": {
+            "post": {
+                "summary": "Return to draft",
+                "description": "Returns the inventory to draft with required feedback (e.g. approver rejection).",
+                "operationId": "inventory.monthly.return-to-draft",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReturnToDraftBody"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Inventory returned to draft successfully"
+                    },
+                    "400": { "description": "Validation error" },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            }
+        },
+        "/inventory/monthly/{id}/report": {
+            "get": {
+                "summary": "Get report",
+                "description": "Returns the report data for a monthly inventory.",
+                "operationId": "inventory.monthly.report",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "responses": {
+                    "200": { "description": "Report retrieved successfully" },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            }
+        },
+        "/inventory/monthly/{id}/export": {
+            "post": {
+                "summary": "Export inventory",
+                "description": "Exports the monthly inventory as PDF or Excel (CSV). Returns file stream.",
+                "operationId": "inventory.monthly.export",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExportMonthlyInventoryBody"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "File stream (application/pdf or text/csv)"
+                    },
+                    "400": { "description": "Validation error" },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            }
+        },
+        "/inventory/monthly/{id}/timelines": {
+            "get": {
+                "summary": "Get timelines",
+                "description": "Returns timeline events for the monthly inventory.",
+                "operationId": "inventory.monthly.timelines",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Timelines retrieved successfully"
+                    },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            }
+        },
+        "/inventory/monthly/{id}/feedback": {
+            "get": {
+                "summary": "Get feedback",
+                "description": "Returns feedback list for the monthly inventory.",
+                "operationId": "inventory.monthly.feedback.index",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "responses": {
+                    "200": { "description": "Feedback retrieved successfully" },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            },
+            "post": {
+                "summary": "Add feedback",
+                "description": "Adds a feedback message to the monthly inventory.",
+                "operationId": "inventory.monthly.feedback.store",
+                "tags": ["Monthly Inventory"],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AddFeedbackBody"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": { "description": "Feedback added successfully" },
+                    "400": { "description": "Validation error" },
+                    "404": { "description": "Monthly inventory not found" }
+                }
+            }
+        }
+    }
+}
