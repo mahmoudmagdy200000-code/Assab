@@ -528,11 +528,30 @@ class PurchaseHistoryDetailsResource extends JsonResource
         }
 
         return [
-            'delay_reason' => $this->delay_reason ?? null,
+            'delay_reason' => $this->getDelayReasonMessage(),
             'new_expected_delivery_date' => $this->expected_delivery_at?->format('Y-m-d') ?? null,
             'new_expected_delivery_time' => $this->expected_delivery_at?->format('H:i') ?? null,
             'delay_attachment' => $this->getDelayAttachment(),
         ];
+    }
+
+    /**
+     * Get delay reason as message only (not JSON map).
+     * If delay_reason is stored as JSON with "message" key, return that; otherwise return as-is.
+     *
+     * @return string|null
+     */
+    private function getDelayReasonMessage(): ?string
+    {
+        $reason = $this->delay_reason ?? null;
+        if ($reason === null || $reason === '') {
+            return null;
+        }
+        $decoded = json_decode($reason, true);
+        if (is_array($decoded) && isset($decoded['message'])) {
+            return (string) $decoded['message'];
+        }
+        return $reason;
     }
 
     /**

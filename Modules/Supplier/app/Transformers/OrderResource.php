@@ -83,7 +83,9 @@ class OrderResource extends JsonResource
                     $isCancelledByBranchOrSupplier = in_array($item->status, [
                         \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH,
                         \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_SUPPLIER,
-                        \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION, // Also include modification cancellation
+                        \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION,
+                        \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_DELAYED,
+                        \Modules\Purchase\Enums\OrderItemStatus::DELAYED_CANCELED,
                     ]);
 
                     if ($isCancelledByBranchOrSupplier) {
@@ -92,10 +94,12 @@ class OrderResource extends JsonResource
 
                         // Determine who cancelled
                         $cancelledBy = null;
-                        if (
-                            $item->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH ||
-                            $item->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION
-                        ) {
+                        if (in_array($item->status, [
+                            \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_BRANCH,
+                            \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION,
+                            \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_DELAYED,
+                            \Modules\Purchase\Enums\OrderItemStatus::DELAYED_CANCELED,
+                        ])) {
                             if ($this->relationLoaded('requestedBy') && $this->requestedBy) {
                                 $cancelledBy = [
                                     'id' => $this->requestedBy->id,
@@ -286,11 +290,30 @@ class OrderResource extends JsonResource
         }
 
         return [
-            'delay_reason' => $this->delay_reason ?? null,
+            'delay_reason' => $this->getDelayReasonMessage(),
             'new_expected_delivery_date' => $this->expected_delivery_at?->format('Y-m-d') ?? null,
             'new_expected_delivery_time' => $this->expected_delivery_at?->format('H:i') ?? null,
             'delay_attachment' => $this->getDelayAttachment(),
         ];
+    }
+
+    /**
+     * Get delay reason as message only (not JSON map).
+     * If delay_reason is stored as JSON with "message" key, return that; otherwise return as-is.
+     *
+     * @return string|null
+     */
+    private function getDelayReasonMessage(): ?string
+    {
+        $reason = $this->delay_reason ?? null;
+        if ($reason === null || $reason === '') {
+            return null;
+        }
+        $decoded = json_decode($reason, true);
+        if (is_array($decoded) && isset($decoded['message'])) {
+            return (string) $decoded['message'];
+        }
+        return $reason;
     }
 
     /**

@@ -22,13 +22,15 @@ enum OrderItemStatus: string
     case PREPARING = 'preparing';
     case ON_THE_WAY = 'on_the_way';
     case DELIVERED = 'delivered';
-    
-    // Delay Statuses
+
+        // Delay Statuses
     case DELAYED_BRANCH = 'delayed_branch';
     case DELAYED_SUPPLIER = 'delayed_supplier';
     case DELAYED_APPROVED = 'delayed_approved';
-    
-    // Deprecated - use DELAYED_BRANCH or DELAYED_SUPPLIER instead
+    case DELAYED_CONFIRMED = 'delayed_confirmed';   // Matches order DELAYED_CONFIRMED
+    case DELAYED_CANCELED = 'delayed_canceled';     // Matches order DELAYED_CANCELED
+
+        // Deprecated - use DELAYED_BRANCH or DELAYED_SUPPLIER instead
     case DELAYED = 'delayed';
 
         // Cancellation Statuses
@@ -62,6 +64,8 @@ enum OrderItemStatus: string
             self::DELAYED_BRANCH => 'Delayed (Branch)',
             self::DELAYED_SUPPLIER => 'Delayed (Supplier)',
             self::DELAYED_APPROVED => 'Delayed Approved',
+            self::DELAYED_CONFIRMED => 'Delayed Confirmed',
+            self::DELAYED_CANCELED => 'Delayed Canceled',
             self::DELAYED => 'Delayed (Deprecated)',
             self::CANCELLED => 'Cancelled',
             self::CANCELLED_BY_BRANCH => 'Cancelled by Branch',
@@ -93,6 +97,8 @@ enum OrderItemStatus: string
             self::DELAYED_BRANCH => '#F59E0B',
             self::DELAYED_SUPPLIER => '#F59E0B',
             self::DELAYED_APPROVED => '#10B981',
+            self::DELAYED_CONFIRMED => '#10B981',
+            self::DELAYED_CANCELED => '#EF4444',
             self::DELAYED => '#F59E0B',
             self::CANCELLED => '#EF4444',
             self::CANCELLED_BY_BRANCH => '#EF4444',
@@ -194,9 +200,10 @@ enum OrderItemStatus: string
             self::CANCELLED_BY_SUPPLIER,
             self::CANCELED_MODIFICATION,
             self::CANCELLED_DELAYED,
+            self::DELAYED_CANCELED,
         ]);
     }
-    
+
     /**
      * Check if item is delayed (any delay status)
      */
@@ -207,6 +214,7 @@ enum OrderItemStatus: string
             self::DELAYED_BRANCH,
             self::DELAYED_SUPPLIER,
             self::DELAYED_APPROVED,
+            self::DELAYED_CONFIRMED,
         ]);
     }
 

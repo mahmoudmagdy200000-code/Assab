@@ -52,9 +52,11 @@ class OrderFulfillmentService
 
                     if ($item) {
                         // Update item status to preparing
-                        if ($item->status === OrderItemStatus::CONFIRMED || 
+                        if (
+                            $item->status === OrderItemStatus::CONFIRMED ||
                             $item->status === OrderItemStatus::PENDING ||
-                            $item->status->isConfirmed()) {
+                            $item->status->isConfirmed()
+                        ) {
                             $item->update([
                                 'status' => OrderItemStatus::PREPARING,
                             ]);
@@ -301,6 +303,7 @@ class OrderFulfillmentService
                     OrderItemStatus::CANCELLED_BY_SUPPLIER,
                     OrderItemStatus::CANCELED_MODIFICATION,
                     OrderItemStatus::CANCELLED_DELAYED,
+                    OrderItemStatus::DELAYED_CANCELED,
                     OrderItemStatus::REJECTED,
                     OrderItemStatus::DELAYED_SUPPLIER, // Need branch approval first
                     OrderItemStatus::DELAYED_BRANCH, // Need branch approval first
@@ -361,4 +364,3 @@ class OrderFulfillmentService
         });
     }
 }
-

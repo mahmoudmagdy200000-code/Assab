@@ -1216,7 +1216,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             }
 
             foreach ($delayedItems as $item) {
-                $item->status = OrderItemStatus::DELAYED_APPROVED;
+                $item->status = OrderItemStatus::DELAYED_CONFIRMED;
                 $item->save();
                 $this->timelineService->logItemDelayApproved($order, $item);
             }
@@ -1253,7 +1253,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
             if (!$delayedItems->isEmpty()) {
                 foreach ($delayedItems as $item) {
-                    $item->status = OrderItemStatus::CANCELLED_DELAYED;
+                    $item->status = OrderItemStatus::DELAYED_CANCELED;
                     $approvalData = $item->approval_data ?? [];
                     $approvalData['cancellation_reason'] = $reason;
                     $item->approval_data = $approvalData;
@@ -1298,9 +1298,9 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 throw new \InvalidArgumentException('No delayed items found in order');
             }
 
-            // Update all delayed items to cancelled_delayed
+            // Update all delayed items to delayed_canceled (same as order status)
             foreach ($delayedItems as $item) {
-                $item->status = OrderItemStatus::CANCELLED_DELAYED;
+                $item->status = OrderItemStatus::DELAYED_CANCELED;
 
                 // Store cancellation reason in approval_data
                 $approvalData = $item->approval_data ?? [];
@@ -1313,12 +1313,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 $this->timelineService->logItemDelayRejected($order, $item, $reason ?? 'Delay request rejected by branch manager');
             }
 
-            // Refresh order to get latest items status
-            $order->refresh();
-            $order->load('items');
-
-            // Check if all items are now cancelled/confirmed/rejected, update order status accordingly
-            $order->checkAndTransitionToConfirmed();
+            $order->transitionTo(OrderStatus::DELAYED_CANCELED);
 
             return true;
         });
