@@ -293,7 +293,7 @@ class OrderResource extends JsonResource
         return [
             'delay_reason' => $this->getDelayReasonMessage(),
             'new_expected_delivery_date' => $this->expected_delivery_at?->format('Y-m-d') ?? null,
-            'new_expected_delivery_time' => $this->expected_delivery_at?->format('H:i') ?? null,
+            'new_expected_delivery_time' => $this->expected_delivery_at?->format('h:i A') ?? null,
             'delay_attachment' => $this->getDelayAttachment(),
             'delay_reported_at' => $this->getDelayReportedAt(),
             'delay_approved_at' => $this->getDelayApprovedAt(),
