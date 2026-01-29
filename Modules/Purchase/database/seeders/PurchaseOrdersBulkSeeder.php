@@ -30,6 +30,9 @@ class PurchaseOrdersBulkSeeder extends Seeder
 
     private const CHUNK_SIZE = 500;
 
+    /** Allowed values for purchase_order_items.unit_of_measurement (ENUM in DB) */
+    private const ALLOWED_UNITS = ['kg', 'pk', 'unit', 'box', 'liter', 'piece'];
+
     /** @var array<string> */
     private array $branchIds = [];
 
@@ -257,7 +260,7 @@ class PurchaseOrdersBulkSeeder extends Seeder
                 $list[] = [
                     'item_id' => $si->item_id,
                     'item_name' => $si->item->name ?? 'Item',
-                    'unit' => $si->item->unit ?? 'piece',
+                    'unit' => $this->normalizeUnit($si->item->unit ?? 'piece'),
                     'unit_price' => (float) ($si->unit_price ?? $si->standard_price ?? 10),
                 ];
             }
@@ -307,7 +310,7 @@ class PurchaseOrdersBulkSeeder extends Seeder
                 [
                     'item_id' => $first->id,
                     'item_name' => $first->name,
-                    'unit' => $first->unit ?? 'piece',
+                    'unit' => $this->normalizeUnit($first->unit ?? 'piece'),
                     'quantity' => $qty,
                     'unit_price' => $price,
                     'total_price' => round($qty * $price, 2),
@@ -327,7 +330,7 @@ class PurchaseOrdersBulkSeeder extends Seeder
             $picked[] = [
                 'item_id' => $row['id'],
                 'item_name' => $row['name'],
-                'unit' => $row['unit'],
+                'unit' => $this->normalizeUnit($row['unit']),
                 'quantity' => $qty,
                 'unit_price' => $unitPrice,
                 'total_price' => round($qty * $unitPrice, 2),
