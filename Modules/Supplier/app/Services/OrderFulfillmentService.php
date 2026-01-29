@@ -249,10 +249,10 @@ class OrderFulfillmentService
 
             $order->update($updateData);
 
-            // Update items status to delayed_supplier (supplier is reporting the delay)
+            // Update items status to delayed (same as order status)
             $order->items()
                 ->whereIn('status', [OrderItemStatus::CONFIRMED, OrderItemStatus::PREPARING, OrderItemStatus::ON_THE_WAY, OrderItemStatus::DELAYED_APPROVED])
-                ->update(['status' => OrderItemStatus::DELAYED_SUPPLIER]);
+                ->update(['status' => OrderItemStatus::DELAYED]);
 
             $order->refresh();
             $reasonStored = $order->delay_reason;
@@ -305,9 +305,7 @@ class OrderFulfillmentService
 
             $order->update($updateData);
 
-            // Update items status to delivered (all items that are not already delivered, cancelled, or rejected)
-            // Include delayed_approved items (approved delays can be delivered)
-            // Exclude delayed_supplier and delayed_branch (need approval first)
+            // Update items status to delivered (exclude delayed items - need approval first)
             $order->items()
                 ->whereNotIn('status', [
                     OrderItemStatus::DELIVERED,
@@ -318,8 +316,9 @@ class OrderFulfillmentService
                     OrderItemStatus::CANCELLED_DELAYED,
                     OrderItemStatus::DELAYED_CANCELED,
                     OrderItemStatus::REJECTED,
-                    OrderItemStatus::DELAYED_SUPPLIER, // Need branch approval first
-                    OrderItemStatus::DELAYED_BRANCH, // Need branch approval first
+                    OrderItemStatus::DELAYED,
+                    OrderItemStatus::DELAYED_SUPPLIER,
+                    OrderItemStatus::DELAYED_BRANCH,
                 ])
                 ->update(['status' => OrderItemStatus::DELIVERED]);
 

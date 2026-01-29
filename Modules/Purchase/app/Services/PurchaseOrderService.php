@@ -951,7 +951,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 return false;
             }
 
-            // Update all items status to DELAYED_SUPPLIER (when supplier reports delay)
+            // Update all items status to DELAYED (same as order status)
             $order->load('items');
             $order->items()
                 ->whereNotIn('status', [
@@ -961,7 +961,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                     OrderItemStatus::CANCELED_MODIFICATION,
                     OrderItemStatus::REJECTED,
                 ])
-                ->update(['status' => OrderItemStatus::DELAYED_SUPPLIER]);
+                ->update(['status' => OrderItemStatus::DELAYED]);
 
             $this->timelineService->logDeliveryDelayed($order, $reason);
 
