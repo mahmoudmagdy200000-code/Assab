@@ -413,12 +413,33 @@ class OrderResource extends JsonResource
     }
 
     /**
-     * Get delay attachment if exists (photo/other document related to delay)
+     * Get delay attachment if exists.
+     * First checks delay_reason JSON for photo path (when supplier reported delay with photo).
      *
      * @return array|null
      */
     private function getDelayAttachment(): ?array
     {
+        $reason = $this->delay_reason ?? null;
+        if (is_string($reason)) {
+            $decoded = json_decode($reason, true);
+            if (is_array($decoded) && !empty($decoded['photo'])) {
+                $photoPath = $decoded['photo'];
+                return [
+                    'id' => null,
+                    'file_name' => basename($photoPath),
+                    'original_name' => basename($photoPath),
+                    'file_path' => $photoPath,
+                    'file_url' => asset('storage/' . $photoPath),
+                    'file_size' => null,
+                    'formatted_size' => null,
+                    'mime_type' => null,
+                    'type' => 'photo',
+                    'type_label' => 'Photo',
+                ];
+            }
+        }
+
         if (!$this->relationLoaded('documents')) {
             return null;
         }

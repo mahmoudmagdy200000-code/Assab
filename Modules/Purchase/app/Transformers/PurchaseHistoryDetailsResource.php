@@ -661,36 +661,51 @@ class PurchaseHistoryDetailsResource extends JsonResource
     }
 
     /**
-     * Get delay attachment if exists
+     * Get delay attachment if exists.
+     * First checks delay_reason JSON for photo path (when supplier reported delay with photo).
+     * Otherwise looks for delay-related documents.
      *
      * @return array|null
      */
     private function getDelayAttachment(): ?array
     {
-        // Check if order has delay-related documents
+        $reason = $this->delay_reason ?? null;
+        if (is_string($reason)) {
+            $decoded = json_decode($reason, true);
+            if (is_array($decoded) && !empty($decoded['photo'])) {
+                $photoPath = $decoded['photo'];
+                return [
+                    'id' => null,
+                    'file_name' => basename($photoPath),
+                    'original_name' => basename($photoPath),
+                    'file_path' => $photoPath,
+                    'file_url' => asset('storage/' . $photoPath),
+                    'file_size' => null,
+                    'formatted_size' => null,
+                    'mime_type' => null,
+                    'type' => 'photo',
+                    'type_label' => 'Photo',
+                ];
+            }
+        }
+
         if (!$this->relationLoaded('documents')) {
             return null;
         }
 
-        // Look for delay-related documents (PHOTO or OTHER with delay-related title/description)
         $delayDocument = $this->documents
             ->filter(function ($doc) {
-                // Check if document is PHOTO or OTHER type
                 if (!in_array($doc->type, [DocumentType::PHOTO, DocumentType::OTHER])) {
                     return false;
                 }
-
-                // Check if title or description contains delay-related keywords
                 $title = strtolower($doc->title ?? '');
                 $description = strtolower($doc->description ?? '');
                 $keywords = ['delay', 'delayed', 'تأخير'];
-
                 foreach ($keywords as $keyword) {
                     if (str_contains($title, $keyword) || str_contains($description, $keyword)) {
                         return true;
                     }
                 }
-
                 return false;
             })
             ->first();

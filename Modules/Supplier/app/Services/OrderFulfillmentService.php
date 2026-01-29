@@ -12,6 +12,7 @@ use Modules\Purchase\Models\GoodsReceipt;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Purchase\Services\OrderTrackingService;
+use Modules\Purchase\Services\TimelineService as PurchaseTimelineService;
 use Modules\Supplier\Models\DeliveryProof;
 use Modules\Supplier\Models\Supplier;
 use Modules\Supplier\Models\SupplierQualityDocument;
@@ -20,7 +21,8 @@ class OrderFulfillmentService
 {
     public function __construct(
         private readonly NotificationService $notificationService,
-        private readonly OrderTrackingService $trackingService
+        private readonly OrderTrackingService $trackingService,
+        private readonly PurchaseTimelineService $timelineService
     ) {}
 
     /**
@@ -251,6 +253,17 @@ class OrderFulfillmentService
             $order->items()
                 ->whereIn('status', [OrderItemStatus::CONFIRMED, OrderItemStatus::PREPARING, OrderItemStatus::ON_THE_WAY, OrderItemStatus::DELAYED_APPROVED])
                 ->update(['status' => OrderItemStatus::DELAYED_SUPPLIER]);
+
+            $order->refresh();
+            $reasonStored = $order->delay_reason;
+            $delayReasonMessage = is_string($reasonStored)
+                ? $reasonStored
+                : '';
+            $decoded = is_string($reasonStored) ? json_decode($reasonStored, true) : null;
+            if (is_array($decoded) && isset($decoded['message'])) {
+                $delayReasonMessage = (string) $decoded['message'];
+            }
+            $this->timelineService->logDeliveryDelayed($order, $delayReasonMessage);
 
             $this->notificationService->notifyOrderStatusChanged($order, 'delayed');
 
