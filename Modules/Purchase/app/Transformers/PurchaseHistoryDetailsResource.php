@@ -70,6 +70,16 @@ class PurchaseHistoryDetailsResource extends JsonResource
             ];
         }
 
+        // Delay rejected by branch (same structure as cancellation)
+        if ($status === OrderStatus::DELAYED_CANCELED) {
+            $cancelledBy = $this->getDelayBranchManagerForRejection();
+            return [
+                'cancellation_reason' => $this->cancellation_reason ?? null,
+                'cancelled_at' => $this->canceled_at?->format('Y-m-d\TH:i:s\Z'),
+                'cancelled_by' => $cancelledBy,
+            ];
+        }
+
         // For generic CANCELED status (not by branch or supplier), return null
         if ($status === OrderStatus::CANCELED) {
             return null;
@@ -115,8 +125,8 @@ class PurchaseHistoryDetailsResource extends JsonResource
             }
         }
 
-        // Check if cancelled by branch manager (CANCELLED_BY_BRANCH or CANCELED)
-        if (in_array($status, [OrderStatus::CANCELLED_BY_BRANCH, OrderStatus::CANCELED])) {
+        // Check if cancelled by branch manager (CANCELLED_BY_BRANCH, CANCELED, or DELAYED_CANCELED)
+        if (in_array($status, [OrderStatus::CANCELLED_BY_BRANCH, OrderStatus::CANCELED, OrderStatus::DELAYED_CANCELED])) {
             if ($this->relationLoaded('requestedBy') && $this->requestedBy) {
                 return [
                     'id' => $this->requestedBy->id ?? null,
@@ -128,6 +138,19 @@ class PurchaseHistoryDetailsResource extends JsonResource
         }
 
         return null;
+    }
+
+    /**
+     * Branch manager who rejected the delay (for reason_for_rejected when status is DELAYED_CANCELED).
+     */
+    private function getDelayBranchManagerForRejection(): ?array
+    {
+        $branchManager = $this->getDelayBranchManager();
+        if ($branchManager) {
+            $branchManager['type'] = 'branch_manager';
+            return $branchManager;
+        }
+        return $this->getCancelledByInfo(OrderStatus::DELAYED_CANCELED);
     }
 
     /**
