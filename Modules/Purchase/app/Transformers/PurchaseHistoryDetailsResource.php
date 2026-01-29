@@ -662,8 +662,9 @@ class PurchaseHistoryDetailsResource extends JsonResource
 
     /**
      * Get delay attachment if exists.
-     * First checks delay_reason JSON for photo path (when supplier reported delay with photo).
-     * Otherwise looks for delay-related documents.
+     * Uses FileResource structure (id, file_name, file_type, file_size, url, uploaded_at).
+     * First checks delay_reason JSON for photo path; otherwise delay-related documents.
+     * No null values: strings default to '', file_size to 0.
      *
      * @return array|null
      */
@@ -674,18 +675,8 @@ class PurchaseHistoryDetailsResource extends JsonResource
             $decoded = json_decode($reason, true);
             if (is_array($decoded) && !empty($decoded['photo'])) {
                 $photoPath = $decoded['photo'];
-                return [
-                    'id' => null,
-                    'file_name' => basename($photoPath),
-                    'original_name' => basename($photoPath),
-                    'file_path' => $photoPath,
-                    'file_url' => asset('storage/' . $photoPath),
-                    'file_size' => null,
-                    'formatted_size' => null,
-                    'mime_type' => null,
-                    'type' => 'photo',
-                    'type_label' => 'Photo',
-                ];
+                $fileResource = FileResource::make($photoPath)->toArray(request());
+                return $this->fileResourceWithoutNulls($fileResource);
             }
         }
 
@@ -714,17 +705,25 @@ class PurchaseHistoryDetailsResource extends JsonResource
             return null;
         }
 
+        $fileResource = FileResource::make($delayDocument)->toArray(request());
+        return $this->fileResourceWithoutNulls($fileResource);
+    }
+
+    /**
+     * Ensure FileResource-shaped array has no null values (same object contract).
+     *
+     * @param array<string, mixed> $arr
+     * @return array<string, mixed>
+     */
+    private function fileResourceWithoutNulls(array $arr): array
+    {
         return [
-            'id' => $delayDocument->id,
-            'file_name' => $delayDocument->file_name ?? null,
-            'original_name' => $delayDocument->original_name ?? null,
-            'file_path' => $delayDocument->file_path ?? null,
-            'file_url' => $delayDocument->file_url ?? null,
-            'file_size' => $delayDocument->file_size ?? null,
-            'formatted_size' => $delayDocument->formatted_size ?? null,
-            'mime_type' => $delayDocument->mime_type ?? null,
-            'type' => $delayDocument->type?->value ?? null,
-            'type_label' => $delayDocument->type_label ?? null,
+            'id' => $arr['id'] ?? '',
+            'file_name' => $arr['file_name'] ?? '',
+            'file_type' => $arr['file_type'] ?? '',
+            'file_size' => isset($arr['file_size']) ? (int) $arr['file_size'] : 0,
+            'url' => $arr['url'] ?? '',
+            'uploaded_at' => $arr['uploaded_at'] ?? Carbon::now()->format('Y-m-d H:i:s'),
         ];
     }
 
