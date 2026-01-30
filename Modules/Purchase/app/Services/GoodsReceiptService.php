@@ -661,10 +661,8 @@ class GoodsReceiptService
                 $this->trackingService->saveVarianceLoggedStage($order);
             }
 
-            // Close order if no variances
-            if (!$receipt->hasVariances) {
-                $receipt->purchaseOrder->close();
-            }
+            // Always close order and set all items to CLOSED when inspection is completed (with or without variances)
+            $receipt->purchaseOrder->close();
 
             return $receipt->fresh(['items', 'variances', 'invoice']);
         });
