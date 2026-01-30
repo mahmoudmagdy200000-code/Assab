@@ -243,6 +243,8 @@ class OrderService
                 throw new \Exception('Failed to cancel order');
             }
 
+            $this->timelineService->logOrderCanceled($order, $cancellationReason);
+
             // Update additional fields
             $order->update([
                 'rejected_at' => now(),

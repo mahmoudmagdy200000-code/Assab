@@ -6,13 +6,15 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Modules\Purchase\Http\Requests\FilterPurchaseHistoryRequest;
 use Modules\Purchase\Services\PurchaseOrderService;
+use Modules\Purchase\Services\TimelineService;
 use Modules\Purchase\Transformers\PurchaseOrderResource;
 use Modules\Purchase\Transformers\PurchaseHistoryDetailsResource;
 
 class PurchaseHistoryController extends BaseController
 {
     public function __construct(
-        private readonly PurchaseOrderService $orderService
+        private readonly PurchaseOrderService $orderService,
+        private readonly TimelineService $timelineService
     ) {}
 
     /**
@@ -46,12 +48,15 @@ class PurchaseHistoryController extends BaseController
     {
         try {
             // Security: Pass branch_id to service for authorization check
-            $userBranchId = auth()->user()->branch_id;
+            $user = auth()->user();
+            $userBranchId = $user->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
             }
+
+            $this->timelineService->logOrderViewed($order, $user->id);
 
             return $this->successResponse(
                 new PurchaseHistoryDetailsResource($order),

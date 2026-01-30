@@ -5,6 +5,7 @@ namespace Modules\Supplier\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Services\TimelineService;
 use Modules\Purchase\Models\SupplierItem;
 use Modules\Supplier\Http\Requests\Orders\AcceptOrderRequest;
 use Modules\Supplier\Http\Requests\Orders\RejectOrderRequest;
@@ -15,7 +16,8 @@ use Modules\Supplier\Transformers\OrderResource;
 class OrderController extends BaseController
 {
     public function __construct(
-        private readonly OrderService $orderService
+        private readonly OrderService $orderService,
+        private readonly TimelineService $timelineService
     ) {}
 
     /**
@@ -51,6 +53,8 @@ class OrderController extends BaseController
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
             }
+
+            $this->timelineService->logOrderViewed($order, $supplier->id);
 
             return $this->successResponse(
                 new OrderResource($order),
