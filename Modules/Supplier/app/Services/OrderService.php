@@ -11,12 +11,14 @@ use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
+use Modules\Purchase\Services\TimelineService;
 use Modules\Supplier\Models\Supplier;
 
 class OrderService
 {
     public function __construct(
-        private readonly NotificationService $notificationService
+        private readonly NotificationService $notificationService,
+        private readonly TimelineService $timelineService
     ) {}
 
     /**
@@ -194,6 +196,11 @@ class OrderService
 
             // Check and transition to CONFIRMED (auto-check)
             $order->checkAndTransitionToConfirmed();
+
+            // Log timeline when supplier confirms the order
+            if ($order->fresh()->status === OrderStatus::CONFIRMED) {
+                $this->timelineService->logOrderConfirmed($order);
+            }
 
             // Send notification to branch manager
             $this->notificationService->notifyOrderAccepted($order);
