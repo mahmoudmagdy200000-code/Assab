@@ -2,6 +2,7 @@
 
 namespace Modules\Custody\Services;
 
+use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Modules\Custody\Models\CustodyRequest;
@@ -67,15 +68,7 @@ class CustodyRequestService
         $request = CustodyRequest::with(['attachments', 'timeline', 'approvedBy', 'rejectedBy'])
             ->findOrFail($requestId);
 
-        $timeline = $request->timeline->map(function ($entry) {
-            return [
-                'stage' => $entry->stage,
-                'branchManagerName' => $entry->actor_name,
-                'profileImage' => $entry->actor_profile_image ? asset('storage/' . $entry->actor_profile_image) : null,
-                'dateTime' => $entry->action_date->toIso8601String(),
-                'status' => $entry->status,
-            ];
-        })->values();
+        $timeline = UnifiedTimelineResource::collection($request->timeline)->resolve();
 
         $approval = null;
         if ($request->status === 'Approved' && $request->approvedBy) {

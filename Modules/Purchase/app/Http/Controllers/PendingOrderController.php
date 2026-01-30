@@ -19,7 +19,7 @@ use Modules\Purchase\Transformers\ModificationDetailResource;
 use Modules\Purchase\Transformers\PendingOrderListResource;
 use Modules\Purchase\Transformers\PurchaseOrderListResource;
 use Modules\Purchase\Transformers\PurchaseOrderResource;
-use Modules\Purchase\Transformers\TimelineResource;
+use App\Http\Resources\UnifiedTimelineResource;
 use Modules\Purchase\Transformers\ViaPurchasingOfficerOrderResource;
 use Modules\Purchase\Models\PurchaseOrderItem;
 
@@ -341,7 +341,7 @@ class PendingOrderController extends BaseController
             $timeline = $this->orderService->getOrderTimeline($id);
 
             return $this->successResponse(
-                TimelineResource::collection($timeline),
+                UnifiedTimelineResource::collection($timeline),
                 'Order timeline retrieved successfully'
             );
         } catch (\Exception $e) {

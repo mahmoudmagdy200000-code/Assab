@@ -9,7 +9,8 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Validator;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Services\ExpenseApprovalService;
-use Modules\Expense\Transformers\{ExpenseResource, ExpenseDetailResource, ExpenseTimelineResource};
+use App\Http\Resources\UnifiedTimelineResource;
+use Modules\Expense\Transformers\{ExpenseResource, ExpenseDetailResource};
 
 /**
  * Expense Approval Controller
@@ -66,7 +67,7 @@ class ExpenseApprovalController extends BaseController
             'attachments',
             'supplier',
             'branchManager',
-            'timelines' => fn ($q) => $q->orderBy('created_at', 'desc'),
+            'timelines' => fn($q) => $q->orderBy('created_at', 'desc'),
         ])->findOrFail($expense);
 
         return $this->successResponse(
@@ -187,7 +188,7 @@ class ExpenseApprovalController extends BaseController
             ->get();
 
         return $this->successResponse(
-            ExpenseTimelineResource::collection($timeline),
+            UnifiedTimelineResource::collection($timeline),
             'Expense timeline retrieved successfully'
         );
     }

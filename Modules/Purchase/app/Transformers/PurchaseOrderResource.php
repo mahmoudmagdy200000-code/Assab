@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Transformers;
 
+use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Branch\Transformers\BranchResource;
 use Modules\BranchManagers\Transformers\BranchManagerResource;
@@ -88,7 +89,7 @@ class PurchaseOrderResource extends JsonResource
                 $this->order_type?->isTransfer(),
                 function () {
                     $statusValue = $this->status?->value;
-                    $statusDate = match($statusValue) {
+                    $statusDate = match ($statusValue) {
                         'confirmed' => $this->confirmed_at?->format('Y-m-d H:i:s'),
                         'partial_confirmation' => $this->confirmed_at?->format('Y-m-d H:i:s'),
                         'rejected' => $this->rejected_at?->format('Y-m-d H:i:s'),
@@ -111,8 +112,7 @@ class PurchaseOrderResource extends JsonResource
 
             // Related data
             'items' => PurchaseOrderItemResource::collection($this->whenLoaded('items')),
-            'timelines' => TimelineResource::collection($this->whenLoaded('timelines')),
+            'timelines' => UnifiedTimelineResource::collection($this->whenLoaded('timelines')),
         ];
     }
 }
-

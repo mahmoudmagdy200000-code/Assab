@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Transformers;
 
+use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Enums\OrderType;
@@ -213,7 +214,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 });
             }) ?? [],
             'supplier' => $this->supplierFragment(),
-            'timelines' => $this->whenLoaded('timelines', fn() => TimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
         ];
     }
 
@@ -265,7 +266,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 });
             }) ?? [],
             'supplier' => null,
-            'timelines' => $this->whenLoaded('timelines', fn() => TimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
         ];
     }
 
@@ -368,7 +369,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 });
             }) ?? [],
             'supplier' => null,
-            'timelines' => $this->whenLoaded('timelines', fn() => TimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
         ];
     }
 

@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Transformers;
 
+use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
@@ -64,7 +65,7 @@ class DirectSupplierOrderResource extends JsonResource
             }),
 
             // Timelines
-            'timelines' => $this->whenLoaded('timelines', fn () => TimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
 
             // Status-specific details
             'status_details' => $this->getStatusDetails(),
@@ -300,7 +301,7 @@ class DirectSupplierOrderResource extends JsonResource
     private function getCancellationDetails(): array
     {
         $status = $this->status?->value;
-        
+
         // Only return cancellation_reason for branch/supplier cancellations
         $cancellationReason = null;
         if (in_array($status, ['cancelled_by_branch', 'cancelled_by_supplier'])) {

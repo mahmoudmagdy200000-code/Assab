@@ -12,7 +12,7 @@ use Modules\Purchase\Models\ReturnOrder;
 use Modules\Purchase\Services\ReturnManagementService;
 use Modules\Purchase\Transformers\ReturnOrderListResource;
 use Modules\Purchase\Transformers\ReturnOrderResource;
-use Modules\Purchase\Transformers\TimelineResource;
+use App\Http\Resources\UnifiedTimelineResource;
 
 class ReturnManagementController extends BaseController
 {
@@ -226,7 +226,7 @@ class ReturnManagementController extends BaseController
             // Get brand owner ID from request, config, or use default
             // Priority: request > config > default
             $escalatedTo = $request->input('escalated_to');
-            
+
             if (empty($escalatedTo)) {
                 $escalatedTo = config('purchase.brand_owner_id') ?? 'brand-owner-uuid';
             }
@@ -355,7 +355,7 @@ class ReturnManagementController extends BaseController
             $timeline = $this->returnService->getReturnTimeline($id);
 
             return $this->successResponse(
-                TimelineResource::collection($timeline),
+                UnifiedTimelineResource::collection($timeline),
                 'Return timeline retrieved successfully'
             );
         } catch (\Exception $e) {
@@ -363,4 +363,3 @@ class ReturnManagementController extends BaseController
         }
     }
 }
-

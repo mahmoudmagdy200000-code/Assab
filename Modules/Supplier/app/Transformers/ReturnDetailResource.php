@@ -7,7 +7,7 @@ use Modules\Branch\Transformers\BranchResource;
 use Modules\BranchManagers\Transformers\BranchManagerResource;
 use Modules\Purchase\Support\PurchaseFileHelper;
 use Modules\Purchase\Transformers\ReturnOrderItemResource;
-use Modules\Purchase\Transformers\TimelineResource;
+use App\Http\Resources\UnifiedTimelineResource;
 
 /**
  * Return details for Supplier app: branch + timelines (same style as Purchase details).
@@ -18,7 +18,7 @@ class ReturnDetailResource extends JsonResource
     {
         $responseFiles = $this->response_files ?? [];
         $responseFilesList = is_array($responseFiles)
-            ? array_map(fn ($f) => PurchaseFileHelper::toApiShape($f), $responseFiles)
+            ? array_map(fn($f) => PurchaseFileHelper::toApiShape($f), $responseFiles)
             : [];
 
         return [
@@ -85,7 +85,7 @@ class ReturnDetailResource extends JsonResource
             }),
 
             'items' => ReturnOrderItemResource::collection($this->whenLoaded('items')),
-            'timelines' => $this->whenLoaded('timelines', fn () => TimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
         ];
     }
 

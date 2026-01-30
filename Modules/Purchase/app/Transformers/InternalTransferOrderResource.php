@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Transformers;
 
+use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Branch\Transformers\BranchResource;
 use Modules\BranchManagers\Transformers\BranchManagerResource;
@@ -68,7 +69,7 @@ class InternalTransferOrderResource extends JsonResource
         ];
 
         $data['supplier'] = null;
-        $data['timelines'] = $this->whenLoaded('timelines', fn () => TimelineResource::collection($this->timelines));
+        $data['timelines'] = $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines));
 
         return $data;
     }

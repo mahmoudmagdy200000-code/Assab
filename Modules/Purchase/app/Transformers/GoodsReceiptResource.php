@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Transformers;
 
+use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class GoodsReceiptResource extends JsonResource
@@ -13,10 +14,10 @@ class GoodsReceiptResource extends JsonResource
             'receipt_number' => $this->receipt_number,
             'status' => $this->status,
             'document_type' => $this->document_type?->value,
-            
+
             // Purchase Order
             'purchase_order' => $this->whenLoaded('purchaseOrder', fn() => new PurchaseOrderResource($this->purchaseOrder)),
-            
+
             // Delivery details
             'delivery_details' => [
                 'driver_name' => $this->driver_name,
@@ -27,7 +28,7 @@ class GoodsReceiptResource extends JsonResource
                 'delivery_address' => $this->delivery_address,
                 'delivery_notes' => $this->delivery_notes,
             ],
-            
+
             // Inspection summary
             'inspection_summary' => [
                 'total_items_expected' => $this->total_items_expected,
@@ -36,7 +37,7 @@ class GoodsReceiptResource extends JsonResource
                 'quality_variances' => $this->quality_variances,
                 'has_variances' => $this->has_variances,
             ],
-            
+
             // Financial summary (basic amounts from receipt)
             'financial_summary' => array_merge(
                 [
@@ -54,21 +55,21 @@ class GoodsReceiptResource extends JsonResource
                     ]
                     : []
             ),
-            
+
             // Timestamps
             'inspection_started_at' => $this->inspection_started_at?->format('Y-m-d H:i:s'),
             'inspection_completed_at' => $this->inspection_completed_at?->format('Y-m-d H:i:s'),
             'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
-            
+
             // Flags
             'is_draft' => $this->is_draft,
             'is_completed' => $this->is_completed,
-            
+
             // Related data
             'items' => GoodsReceiptItemResource::collection($this->whenLoaded('items')),
             'invoice' => $this->whenLoaded('invoice', fn() => new InvoiceResource($this->invoice)),
             'variances' => VarianceResource::collection($this->whenLoaded('variances')),
-            
+
             // Document summary
             'document_summary' => [
                 'document_type' => $this->document_type?->value,
@@ -96,7 +97,7 @@ class GoodsReceiptResource extends JsonResource
                     }
                 ),
             ],
-            
+
             // Variance summary with actions
             'variance_summary' => $this->whenLoaded('variances', function () {
                 return $this->variances->map(function ($variance) {
@@ -136,8 +137,7 @@ class GoodsReceiptResource extends JsonResource
             }),
 
             // Timelines
-            'timelines' => $this->whenLoaded('timelines', fn () => TimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
         ];
     }
 }
-

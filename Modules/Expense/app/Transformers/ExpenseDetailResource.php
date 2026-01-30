@@ -36,7 +36,7 @@ class ExpenseDetailResource extends JsonResource
             'created_at' => $this->created_at->format('Y-m-d H:i:s'),
             'submitted_at' => $this->submitted_at?->format('Y-m-d H:i:s'),
             'approval' => $this->getApprovalFragment(),
-            'timelines' => $this->whenLoaded('timelines', fn () => ExpenseTimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn() => \App\Http\Resources\UnifiedTimelineResource::collection($this->timelines)),
         ];
 
         // Add type-specific details

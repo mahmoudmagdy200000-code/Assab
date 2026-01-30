@@ -9,7 +9,7 @@ use Modules\Purchase\Enums\DocumentType;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\TimelineEventType;
 use Modules\Purchase\Transformers\FileResource as PurchaseFileResource;
-use Modules\Purchase\Transformers\TimelineResource;
+use App\Http\Resources\UnifiedTimelineResource;
 use Carbon\Carbon;
 
 class OrderResource extends JsonResource
@@ -183,7 +183,7 @@ class OrderResource extends JsonResource
             'rejected_at' => $this->rejected_at?->toDateTimeString(),
 
             // Timelines
-            'timelines' => $this->whenLoaded('timelines', fn() => TimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
         ];
     }
 

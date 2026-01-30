@@ -8,7 +8,8 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Services\{ExpenseApprovalService, ExpenseHelperService};
-use Modules\Expense\Transformers\{ExpenseResource, ExpenseDetailResource, ExpenseTimelineResource};
+use App\Http\Resources\UnifiedTimelineResource;
+use Modules\Expense\Transformers\{ExpenseResource, ExpenseDetailResource};
 
 /**
  * Main Expense Controller
@@ -124,7 +125,7 @@ class ExpenseController extends BaseController
             'expenseLines.category',
             'attachments',
             'supplier',
-            'timelines' => fn ($q) => $q->orderBy('created_at', 'desc'),
+            'timelines' => fn($q) => $q->orderBy('created_at', 'desc'),
         ])->findOrFail($expense);
 
         // Check authorization
@@ -155,7 +156,7 @@ class ExpenseController extends BaseController
             ->get();
 
         return $this->successResponse(
-            ExpenseTimelineResource::collection($timeline),
+            UnifiedTimelineResource::collection($timeline),
             'Expense timeline retrieved successfully'
         );
     }
@@ -393,7 +394,7 @@ class ExpenseController extends BaseController
                 'preApprovalRequest',
                 'supplier'
             ]);
-      $total = $query->count();
+        $total = $query->count();
 
 
         if ($search = $request->input('search')) {
