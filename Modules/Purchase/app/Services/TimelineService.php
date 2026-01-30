@@ -40,13 +40,27 @@ class TimelineService
         );
     }
 
+    /**
+     * Log order viewed. Only one event per viewer per order (first view only).
+     */
     public function logOrderViewed(PurchaseOrder $order, string $viewedBy): OrderTimeline
     {
+        $existing = OrderTimeline::query()
+            ->where('timelineable_type', PurchaseOrder::class)
+            ->where('timelineable_id', $order->id)
+            ->where('event_type', TimelineEventType::ORDER_VIEWED)
+            ->where('metadata->viewed_by', $viewedBy)
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
         return $this->log(
             $order,
             TimelineEventType::ORDER_VIEWED,
             'Order Viewed',
-            "Order was viewed",
+            'Order was viewed',
             null,
             null,
             ['viewed_by' => $viewedBy]
@@ -289,6 +303,21 @@ class TimelineService
             "Order was closed successfully",
             $order->status->value,
             'closed'
+        );
+    }
+
+    /**
+     * Log receiving started on the order (so it appears in order timeline).
+     */
+    public function logReceivingStarted(PurchaseOrder $order): OrderTimeline
+    {
+        return $this->log(
+            $order,
+            TimelineEventType::INSPECTION_STARTED,
+            'Receiving Started',
+            "Goods receiving started for order {$order->order_number}",
+            null,
+            null
         );
     }
 
@@ -641,7 +670,7 @@ class TimelineService
         ];
 
         $channelLabel = $channelLabels[$channel] ?? $channel;
-        
+
         return $this->log(
             $order,
             TimelineEventType::ORDER_VIEWED,
@@ -720,4 +749,3 @@ class TimelineService
         );
     }
 }
-

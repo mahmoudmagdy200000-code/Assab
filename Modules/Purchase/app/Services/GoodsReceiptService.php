@@ -461,6 +461,7 @@ class GoodsReceiptService
             }
 
             $this->timelineService->logInspectionStarted($receipt);
+            $this->timelineService->logReceivingStarted($order);
 
             // Save delivered stage if invoice was created
             $receipt->refresh();
