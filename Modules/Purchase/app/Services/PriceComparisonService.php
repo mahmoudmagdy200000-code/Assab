@@ -39,23 +39,35 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         // Use default quantity from constants
         $quantity = $quantity ?? PurchaseConstants::DEFAULT_QUANTITY;
 
-        // Get item details - itemId is Item.id (not BranchItem.id)
-        // Try to find BranchItem first if we have branch context, otherwise use Item directly
+        // Get item details - itemId can be either Item.id or BranchItem.id
+        // Try to find Item directly first, then try BranchItem if not found
         $item = null;
         $branchItem = null;
         $itemPrice = null;
+        $actualItemId = $itemId;
 
         // Try to find Item directly (itemId is Item.id)
         $item = Item::select('id', 'name', 'code', 'unit', 'logo')->find($itemId);
 
-        // If we have excludeBranchId (which is the current branch_id), try to get BranchItem for price
-        if ($item && $excludeBranchId) {
-            $branchItem = BranchItem::where('branch_id', $excludeBranchId)
-                ->where('item_id', $item->id)
-                ->first();
+        // If Item not found, try to find BranchItem (itemId might be BranchItem.id)
+        if (!$item) {
+            $branchItem = BranchItem::with('item:id,name,code,unit,logo')->find($itemId);
             
-            if ($branchItem) {
+            if ($branchItem && $branchItem->item) {
+                $item = $branchItem->item;
                 $itemPrice = $branchItem->price ? (float) $branchItem->price : null;
+                $actualItemId = $item->id;
+            }
+        } else {
+            // Item found, try to get BranchItem for price if we have branch context
+            if ($excludeBranchId) {
+                $branchItem = BranchItem::where('branch_id', $excludeBranchId)
+                    ->where('item_id', $item->id)
+                    ->first();
+                
+                if ($branchItem) {
+                    $itemPrice = $branchItem->price ? (float) $branchItem->price : null;
+                }
             }
         }
 
@@ -63,7 +75,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         $itemLogo = $this->getItemLogoUrl($item?->logo);
 
         $comparison = [
-            'item_id' => $item ? $item->id : $itemId,
+            'item_id' => $actualItemId,
             'item_name' => $item ? $item->name : null,
             'item_code' => $item ? $item->code : null,
             'item_unit' => $item ? $item->unit : null,
@@ -81,7 +93,6 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
 
         // Direct Supplier prices (with actual order history from all branches)
         // Use actual Item.id for comparison (resolve from BranchItem if needed)
-        $actualItemId = $item ? $item->id : $itemId;
         $supplierPrices = $this->getSupplierPrices($actualItemId, $quantity);
         if ($supplierPrices->isNotEmpty()) {
             $comparison['sources']['direct_supplier'] = $supplierPrices->toArray();
