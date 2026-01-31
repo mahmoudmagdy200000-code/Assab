@@ -15,6 +15,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('personal-balance-only', [LedgerController::class, 'getPersonalBalanceOnly']);
         Route::get('transactions', [LedgerController::class, 'getTransactions']);
         Route::post('export-pdf', [LedgerController::class, 'exportPdf']);
+        Route::get('branch-custody-balance', [LedgerController::class, 'getBranchCustodyBalance']);
     });
 
     // Custody Management (3.1.2.3)

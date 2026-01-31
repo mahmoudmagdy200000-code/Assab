@@ -8,12 +8,14 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Response;
 use Modules\Custody\Services\PersonalLedgerService;
 use Modules\Custody\Services\PdfExportService;
+use Modules\Custody\Services\CustodyBalanceService;
 
 class LedgerController extends BaseController
 {
     public function __construct(
         private PersonalLedgerService $ledgerService,
-        private PdfExportService $pdfService
+        private PdfExportService $pdfService,
+        private CustodyBalanceService $balanceService
     ) {}
 
     /**
@@ -104,6 +106,66 @@ class LedgerController extends BaseController
                 'success' => false,
                 'message' => 'Failed to export PDF: ' . $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Get branch custody balance with requests and transactions
+     * GET /api/branch-manager/ledger/branch-custody-balance
+     * 
+     * Query Parameters:
+     * - status (optional): Request status filter (All, Cash Handover, Bank Transfer, Custody Requests)
+     * - timePeriod (optional): Time period filter (last_24_hours, last_7_days, last_30_days, custom)
+     * - startDate (optional): Start date for custom period (YYYY-MM-DD format, required if timePeriod is custom)
+     * - endDate (optional): End date for custom period (YYYY-MM-DD format, required if timePeriod is custom)
+     */
+    public function getBranchCustodyBalance(Request $request): JsonResponse
+    {
+        try {
+            $filters = [
+                'status' => $request->input('status'), // Request status filter (All, Cash Handover, Bank Transfer, Custody Requests)
+                'timePeriod' => $request->input('timePeriod'), // Time period: last_24_hours, last_7_days, last_30_days, custom
+                'startDate' => $request->input('startDate'), // Start date for custom period
+                'endDate' => $request->input('endDate'), // End date for custom period
+            ];
+
+            // Validate timePeriod if provided
+            $validTimePeriods = ['last_24_hours', 'last_7_days', 'last_30_days', 'custom'];
+            if (!empty($filters['timePeriod']) && !in_array($filters['timePeriod'], $validTimePeriods)) {
+                return $this->errorResponse(
+                    'Invalid timePeriod. Must be: last_24_hours, last_7_days, last_30_days, or custom',
+                    400
+                );
+            }
+
+            // Validate custom period requires both dates
+            if ($filters['timePeriod'] === 'custom') {
+                if (empty($filters['startDate']) || empty($filters['endDate'])) {
+                    return $this->errorResponse(
+                        'Both startDate and endDate are required when timePeriod is custom',
+                        400
+                    );
+                }
+
+                // Validate date format
+                try {
+                    \Carbon\Carbon::parse($filters['startDate']);
+                    \Carbon\Carbon::parse($filters['endDate']);
+                } catch (\Exception $e) {
+                    return $this->errorResponse('Invalid date format. Use YYYY-MM-DD format', 400);
+                }
+
+                // Validate startDate is before endDate
+                if ($filters['startDate'] > $filters['endDate']) {
+                    return $this->errorResponse('startDate must be before or equal to endDate', 400);
+                }
+            }
+
+            $balance = $this->balanceService->getBranchCustodyBalance(auth()->id(), $filters);
+
+            return $this->successResponse($balance, 'Branch custody balance retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
         }
     }
 }

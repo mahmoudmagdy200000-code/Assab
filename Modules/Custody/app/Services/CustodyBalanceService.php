@@ -4,6 +4,7 @@ namespace Modules\Custody\Services;
 
 use Illuminate\Support\Facades\DB;
 use Modules\Custody\Models\CustodyTransaction;
+use Modules\Custody\Models\CustodyRequest;
 
 class CustodyBalanceService
 {
@@ -229,5 +230,198 @@ class CustodyBalanceService
         $sign = $change >= 0 ? '+' : '';
 
         return $sign . round($change, 0) . '%';
+    }
+
+    /**
+     * Get branch custody balance with requests and transactions
+     * Similar to personal-custody-balance but for branch custody
+     */
+    public function getBranchCustodyBalance(string $branchManagerId, array $filters = []): array
+    {
+        $branchId = auth()->user()->branch_id;
+
+        // Get all transactions for this branch manager
+        $transactionsQuery = CustodyTransaction::where('branch_manager_id', $branchManagerId)
+            ->where('branch_id', $branchId);
+
+        // Apply transaction type filter
+        if (!empty($filters['type'])) {
+            $transactionsQuery->where('type', $filters['type']);
+        }
+
+        // Apply time period filter (last 24 hours, last 7 days, last 30 days, or custom)
+        $timePeriod = $filters['timePeriod'] ?? null;
+        if ($timePeriod === 'custom') {
+            // Custom date range
+            if (!empty($filters['startDate'])) {
+                $transactionsQuery->whereDate('transaction_date', '>=', $filters['startDate']);
+            }
+            if (!empty($filters['endDate'])) {
+                $transactionsQuery->whereDate('transaction_date', '<=', $filters['endDate']);
+            }
+        } elseif ($timePeriod) {
+            $startDate = match($timePeriod) {
+                'last_24_hours' => now()->subHours(24),
+                'last_7_days' => now()->subDays(7),
+                'last_30_days' => now()->subDays(30),
+                default => null,
+            };
+
+            if ($startDate) {
+                $transactionsQuery->where('transaction_date', '>=', $startDate);
+            }
+        }
+
+        // Get status filter for requests
+        $requestStatusFilter = $filters['status'] ?? null;
+
+        // Get all requests for this branch manager
+        $requestsQuery = CustodyRequest::where('branch_manager_id', $branchManagerId)
+            ->where('branch_id', $branchId);
+
+        // Apply status filter for requests
+        if ($requestStatusFilter && $requestStatusFilter !== 'All') {
+            if ($requestStatusFilter === 'Cash Handover' || $requestStatusFilter === 'Bank Transfer') {
+                // Filter by preferred_receipt_method
+                $requestsQuery->where('preferred_receipt_method', $requestStatusFilter);
+            } elseif ($requestStatusFilter === 'Custody Requests') {
+                // Show all requests regardless of status
+                // No additional filter needed
+            } else {
+                // Filter by status
+                $requestsQuery->where('status', $requestStatusFilter);
+            }
+        }
+
+        // Apply time period filter to requests
+        if ($timePeriod === 'custom') {
+            // Custom date range
+            if (!empty($filters['startDate'])) {
+                $requestsQuery->whereDate('created_at', '>=', $filters['startDate']);
+            }
+            if (!empty($filters['endDate'])) {
+                $requestsQuery->whereDate('created_at', '<=', $filters['endDate']);
+            }
+        } elseif ($timePeriod) {
+            $startDate = match($timePeriod) {
+                'last_24_hours' => now()->subHours(24),
+                'last_7_days' => now()->subDays(7),
+                'last_30_days' => now()->subDays(30),
+                default => null,
+            };
+
+            if ($startDate) {
+                $requestsQuery->where('created_at', '>=', $startDate);
+            }
+        }
+
+        $transactions = $transactionsQuery->orderBy('transaction_date', 'desc')->get();
+        $requests = $requestsQuery->orderBy('created_at', 'desc')->get();
+
+        // Calculate balance
+        $totalCashIn = $transactions->where('is_cash_in', true)->sum('amount');
+        $totalCashOut = $transactions->where('is_cash_in', false)->sum('amount');
+        $currentBalance = $totalCashIn - $totalCashOut;
+
+        // Format transactions
+        $formattedTransactions = $transactions->map(function ($transaction) {
+            return $this->formatTransactionForBalance($transaction);
+        })->values();
+
+        // Format requests
+        $formattedRequests = $requests->map(function ($request) {
+            return $this->formatRequestForBalance($request);
+        })->values();
+
+        // Get recent activity (last 5 transactions)
+        $recentActivity = $transactions->take(5)->map(function ($transaction) {
+            return $this->formatTransactionForActivity($transaction);
+        })->values();
+
+        return [
+            'totalCashIn' => round($totalCashIn, 2),
+            'totalCashOut' => round($totalCashOut, 2),
+            'currentBalance' => round($currentBalance, 2),
+            'recentActivity' => $recentActivity,
+            'requests' => $formattedRequests,
+            'transactions' => $formattedTransactions,
+            'filters' => [
+                'type' => $filters['type'] ?? null,
+                'status' => $filters['status'] ?? null,
+                'timePeriod' => $filters['timePeriod'] ?? null,
+                'startDate' => $filters['startDate'] ?? null,
+                'endDate' => $filters['endDate'] ?? null,
+            ],
+        ];
+    }
+
+    /**
+     * Format transaction for balance view
+     */
+    private function formatTransactionForBalance(CustodyTransaction $transaction): array
+    {
+        $amount = $transaction->is_cash_in
+            ? '+' . number_format($transaction->amount, 2, '.', '')
+            : '-' . number_format($transaction->amount, 2, '.', '');
+
+        $data = [
+            'id' => $transaction->id,
+            'type' => $transaction->type,
+            'amount' => $amount,
+            'dateTime' => $transaction->transaction_date->toIso8601String(),
+            'isCashIn' => $transaction->is_cash_in,
+        ];
+
+        if ($transaction->type === 'Expenses Deduction' && $transaction->related_expense_id) {
+            $data['linkedExpenseId'] = $transaction->related_expense_id;
+        }
+
+        if ($transaction->type === 'Cash Handover' || $transaction->type === 'Bank Transfer') {
+            if ($transaction->related_custody_request_id) {
+                $data['linkedRequestId'] = $transaction->related_custody_request_id;
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Format request for balance view
+     */
+    private function formatRequestForBalance(CustodyRequest $request): array
+    {
+        return [
+            'id' => $request->id,
+            'type' => 'Custody Request',
+            'submittedBy' => 'Me (Branch Manager)',
+            'dateTime' => $request->created_at->toIso8601String(),
+            'status' => $request->status,
+            'amount' => (float) $request->requested_amount,
+            'preferredReceiptMethod' => $request->preferred_receipt_method,
+            'purpose' => $request->purpose,
+        ];
+    }
+
+    /**
+     * Format transaction for activity list
+     */
+    private function formatTransactionForActivity(CustodyTransaction $transaction): array
+    {
+        $amount = $transaction->is_cash_in
+            ? '+' . number_format($transaction->amount, 2, '.', '')
+            : '-' . number_format($transaction->amount, 2, '.', '');
+
+        $data = [
+            'transactionType' => $transaction->type,
+            'amount' => $amount,
+            'dateTime' => $transaction->transaction_date->toIso8601String(),
+            'isCashIn' => $transaction->is_cash_in,
+        ];
+
+        if ($transaction->type === 'Expenses Deduction' && $transaction->related_expense_id) {
+            $data['linkedExpenseId'] = $transaction->related_expense_id;
+        }
+
+        return $data;
     }
 }
