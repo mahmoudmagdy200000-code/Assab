@@ -23,6 +23,9 @@ php artisan db:seed --class="Modules\Custody\Database\Seeders\CustodyRequestSeed
 
 # Custody Transactions
 php artisan db:seed --class="Modules\Custody\Database\Seeders\CustodyTransactionSeeder"
+
+# Fix Personal Ledger Balances (make all balances positive)
+php artisan db:seed --class="Modules\Custody\Database\Seeders\FixPersonalLedgerBalanceSeeder"
 ```
 
 ## 📊 البيانات المُنشأة
@@ -57,6 +60,14 @@ php artisan db:seed --class="Modules\Custody\Database\Seeders\CustodyTransaction
     -   Expenses Deduction (سحب)
 -   ربط تلقائي مع الطلبات المعتمدة والمصروفات
 -   تواريخ عشوائية خلال آخر 30 يوم
+
+### FixPersonalLedgerBalanceSeeder
+
+-   **إصلاح الأرصدة السالبة** لجميع Branch Managers
+-   يضيف معاملات "Total Sales" (إيداع) تلقائياً إذا كان الرصيد سالب أو صفر
+-   يجعل الرصيد موجب على الأقل بقيمة 10000
+-   يقسم المبلغ المطلوب على 2-3 معاملات ليكون أكثر واقعية
+-   تواريخ عشوائية خلال آخر 5 أيام
 
 ## ⚠️ متطلبات
 

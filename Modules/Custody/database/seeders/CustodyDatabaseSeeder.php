@@ -15,6 +15,7 @@ class CustodyDatabaseSeeder extends Seeder
             PersonalLedgerTransactionSeeder::class,
             CustodyRequestSeeder::class,
             CustodyTransactionSeeder::class,
+            FixPersonalLedgerBalanceSeeder::class, // Fix negative balances
         ]);
     }
 }
