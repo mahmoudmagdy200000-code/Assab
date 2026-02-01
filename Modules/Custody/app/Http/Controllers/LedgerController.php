@@ -25,7 +25,7 @@ class LedgerController extends BaseController
      * Query Parameters:
      * - month (optional): Month number (1-12)
      * - year (optional): Year (e.g., 2024)
-     *   Note: If both month and year are provided, returns only totalCashIn and totalCashOut for that month
+     *   Note: If both month and year are provided, filters transactions by that month/year
      */
     public function getPersonalCustodyBalance(Request $request): JsonResponse
     {
@@ -33,31 +33,30 @@ class LedgerController extends BaseController
             $month = $request->input('month');
             $year = $request->input('year');
 
-            // If month and year are provided, return only totals for that month
+            $monthValue = null;
+            $yearValue = null;
+
+            // Validate month and year if provided
             if (!empty($month) && !empty($year)) {
-                $month = (int) $month;
-                $year = (int) $year;
+                $monthValue = (int) $month;
+                $yearValue = (int) $year;
 
                 // Validate month and year
-                if ($month < 1 || $month > 12) {
+                if ($monthValue < 1 || $monthValue > 12) {
                     return $this->errorResponse('Month must be between 1 and 12', 400);
                 }
 
-                if ($year < 2000 || $year > 2100) {
+                if ($yearValue < 2000 || $yearValue > 2100) {
                     return $this->errorResponse('Year must be between 2000 and 2100', 400);
                 }
-
-                $balance = $this->ledgerService->getPersonalCustodyBalanceByMonth(
-                    auth()->id(),
-                    $month,
-                    $year
-                );
-
-                return $this->successResponse($balance, 'Personal custody balance retrieved successfully');
             }
 
-            // Default behavior: return full balance with recent activity
-            $balance = $this->ledgerService->getPersonalCustodyBalance(auth()->id());
+            // Get balance with optional month/year filter
+            $balance = $this->ledgerService->getPersonalCustodyBalance(
+                auth()->id(),
+                $monthValue,
+                $yearValue
+            );
 
             return $this->successResponse($balance, 'Personal custody balance retrieved successfully');
         } catch (\Exception $e) {
