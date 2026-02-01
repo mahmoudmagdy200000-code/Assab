@@ -17,7 +17,9 @@ class CustodyTransactionService
 
         // Type filter
         if (!empty($filters['type'])) {
-            $query->where('type', $filters['type']);
+            // Normalize the value to match database values exactly
+            $type = trim($filters['type']);
+            $query->where('type', '=', $type);
         }
 
         // Time period filter
