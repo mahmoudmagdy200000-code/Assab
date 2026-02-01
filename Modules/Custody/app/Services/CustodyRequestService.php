@@ -118,7 +118,10 @@ class CustodyRequestService
 
         // Preferred receipt method filter
         if (!empty($preferredReceiptMethod)) {
-            $query->where('preferred_receipt_method', $preferredReceiptMethod);
+            // Normalize the value to match database values exactly
+            $preferredReceiptMethod = trim($preferredReceiptMethod);
+            // Use exact match to ensure we get the right records
+            $query->where('preferred_receipt_method', '=', $preferredReceiptMethod);
         }
 
         // Time period filter
@@ -126,6 +129,16 @@ class CustodyRequestService
             $startDate = $this->getTimePeriodStartDate($timePeriod);
             $query->where('created_at', '>=', $startDate);
         }
+
+        // Debug: Log the query for troubleshooting
+        // \Log::info('CustodyRequest Query', [
+        //     'branch_manager_id' => $branchManagerId,
+        //     'status' => $status,
+        //     'preferred_receipt_method' => $preferredReceiptMethod,
+        //     'timePeriod' => $timePeriod,
+        //     'sql' => $query->toSql(),
+        //     'bindings' => $query->getBindings(),
+        // ]);
 
         $requests = $query->orderBy('created_at', 'desc')->get();
 

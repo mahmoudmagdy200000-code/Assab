@@ -44,7 +44,8 @@ class CustodyRequestController extends BaseController
             $preferredReceiptMethod = null;
             
             if (!empty($status)) {
-                $status = str_replace(['+', '_'], ' ', $status);
+                // Normalize: replace + and _ with spaces, then trim
+                $status = trim(str_replace(['+', '_'], ' ', $status));
                 $validStatuses = ['Pending', 'Approved', 'Rejected', 'Completed', 'Cancelled'];
                 $validMethods = ['Cash Handover', 'Bank Transfer'];
                 
@@ -66,10 +67,15 @@ class CustodyRequestController extends BaseController
             }
 
             // Get and normalize preferredReceiptMethod if not already set from status parameter
+            // Also check for case variations of the parameter name
             if (empty($preferredReceiptMethod)) {
-                $preferredReceiptMethod = $request->input('preferredReceiptMethod');
+                $preferredReceiptMethod = $request->input('preferredReceiptMethod') 
+                    ?? $request->input('preferred_receipt_method')
+                    ?? $request->input('preferredReceipt');
+                
                 if (!empty($preferredReceiptMethod)) {
-                    $preferredReceiptMethod = str_replace(['+', '_'], ' ', $preferredReceiptMethod);
+                    // Normalize: replace + and _ with spaces, then trim
+                    $preferredReceiptMethod = trim(str_replace(['+', '_'], ' ', $preferredReceiptMethod));
                     $validMethods = ['Cash Handover', 'Bank Transfer'];
                     if (!in_array($preferredReceiptMethod, $validMethods)) {
                         return $this->errorResponse(
@@ -79,6 +85,14 @@ class CustodyRequestController extends BaseController
                     }
                 }
             }
+
+            // Debug: Log the parameters being sent to the service
+            // \Log::info('CustodyRequestController::index', [
+            //     'status' => $status,
+            //     'preferredReceiptMethod' => $preferredReceiptMethod,
+            //     'timePeriod' => $timePeriod,
+            //     'all_inputs' => $request->all(),
+            // ]);
 
             $requests = $this->requestService->listRequests(
                 auth()->id(), 
