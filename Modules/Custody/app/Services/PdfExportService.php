@@ -3,6 +3,7 @@
 namespace Modules\Custody\Services;
 
 use Illuminate\Support\Facades\View;
+use Illuminate\Support\Facades\Storage;
 use Modules\Custody\Services\PersonalLedgerService;
 
 class PdfExportService
@@ -12,9 +13,10 @@ class PdfExportService
     ) {}
 
     /**
-     * Export transactions as PDF
+     * Export transactions as PDF and save to storage
+     * Returns the file path and URL
      */
-    public function exportTransactionsToPdf(string $branchManagerId, array $filters = []): string
+    public function exportTransactionsToPdf(string $branchManagerId, array $filters = []): array
     {
         $transactionsData = $this->ledgerService->getTransactionHistory($branchManagerId, $filters);
         $branchManager = \Modules\BranchManagers\Models\BranchManager::find($branchManagerId);
@@ -29,13 +31,36 @@ class PdfExportService
             'generatedAt' => now()->format('Y-m-d H:i:s'),
         ];
 
+        // Generate filename
+        $filename = 'transaction_history_' . $branchManagerId . '_' . now()->format('Y-m-d_His') . '.pdf';
+        $filePath = 'custody/reports/' . $filename;
+
         // Check if dompdf is available
         if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class) || class_exists('Barryvdh\DomPDF\Facade\Pdf')) {
-            return $this->exportWithDompdf($data);
+            $pdfContent = $this->exportWithDompdf($data);
+            
+            // Save PDF to storage
+            Storage::disk('public')->put($filePath, $pdfContent);
+            
+            return [
+                'file_path' => $filePath,
+                'file_url' => asset('storage/' . $filePath),
+                'filename' => $filename,
+            ];
         }
 
-        // Fallback: return HTML that can be printed
-        return $this->exportAsHtml($data);
+        // Fallback: save HTML
+        $htmlContent = $this->exportAsHtml($data);
+        $htmlFilename = str_replace('.pdf', '.html', $filename);
+        $htmlFilePath = 'custody/reports/' . $htmlFilename;
+        
+        Storage::disk('public')->put($htmlFilePath, $htmlContent);
+        
+        return [
+            'file_path' => $htmlFilePath,
+            'file_url' => asset('storage/' . $htmlFilePath),
+            'filename' => $htmlFilename,
+        ];
     }
 
     /**

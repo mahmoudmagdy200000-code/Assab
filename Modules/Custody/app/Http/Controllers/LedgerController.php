@@ -144,19 +144,26 @@ class LedgerController extends BaseController
      * - view (optional): View type (detailed, daily) - default: detailed
      * - timePeriod (optional): Time period filter (last_24_hours, last_7_days, last_30_days, last_90_days, last_365_days)
      * - transactionType (optional): Transaction type filter
+     *
+     * Returns JSON response with PDF file URL
      */
-    public function exportPdf(Request $request): \Symfony\Component\HttpFoundation\Response
+    public function exportPdf(Request $request): JsonResponse
     {
         try {
             $timePeriod = $request->input('timePeriod');
 
+            // Normalize empty string to null
+            if ($timePeriod === '') {
+                $timePeriod = null;
+            }
+
             // Validate timePeriod if provided
             $validTimePeriods = ['last_24_hours', 'last_7_days', 'last_30_days', 'last_90_days', 'last_365_days'];
             if (!empty($timePeriod) && !in_array($timePeriod, $validTimePeriods)) {
-                return Response::json([
-                    'success' => false,
-                    'message' => 'Invalid timePeriod. Must be: last_24_hours, last_7_days, last_30_days, last_90_days, or last_365_days'
-                ], 400);
+                return $this->errorResponse(
+                    'Invalid timePeriod. Must be: last_24_hours, last_7_days, last_30_days, last_90_days, or last_365_days',
+                    400
+                );
             }
 
             $filters = [
@@ -165,26 +172,15 @@ class LedgerController extends BaseController
                 'transactionType' => $request->input('transactionType'),
             ];
 
-            $pdfContent = $this->pdfService->exportTransactionsToPdf(auth()->id(), $filters);
+            $result = $this->pdfService->exportTransactionsToPdf(auth()->id(), $filters);
 
-            // Check if dompdf was used (returns binary) or HTML (returns string)
-            if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class) || class_exists('Barryvdh\DomPDF\Facade\Pdf')) {
-                $filename = 'transaction_history_' . now()->format('Y-m-d_His') . '.pdf';
-                return Response::make($pdfContent, 200, [
-                    'Content-Type' => 'application/pdf',
-                    'Content-Disposition' => 'attachment; filename="' . $filename . '"',
-                ]);
-            }
-
-            // Fallback: return HTML
-            return Response::make($pdfContent, 200, [
-                'Content-Type' => 'text/html',
-            ]);
+            return $this->successResponse([
+                'file_url' => $result['file_url'],
+                'file_path' => $result['file_path'],
+                'filename' => $result['filename'],
+            ], 'PDF exported successfully');
         } catch (\Exception $e) {
-            return Response::json([
-                'success' => false,
-                'message' => 'Failed to export PDF: ' . $e->getMessage()
-            ], 500);
+            return $this->errorResponse('Failed to export PDF: ' . $e->getMessage(), 500);
         }
     }
 
