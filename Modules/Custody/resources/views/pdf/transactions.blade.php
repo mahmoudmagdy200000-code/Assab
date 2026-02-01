@@ -78,10 +78,45 @@
             font-size: 10px;
             color: #666;
         }
+
+        .download-btn-container {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .download-pdf-btn {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .download-pdf-btn:hover {
+            background-color: #0056b3;
+        }
+
+        .download-pdf-btn:active {
+            background-color: #004085;
+        }
+
+        @media print {
+            .download-btn-container {
+                display: none;
+            }
+        }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 
 <body>
+    <div class="download-btn-container">
+        <button class="download-pdf-btn" onclick="downloadAsPDF()">Download as PDF</button>
+    </div>
+
     <div class="header">
         <h1>Personal Custody Balance - Transaction History</h1>
     </div>
@@ -166,6 +201,39 @@
         <p>This report was generated on {{ $generatedAt }}</p>
         <p>© {{ date('Y') }} - All rights reserved</p>
     </div>
+
+    <script>
+        function downloadAsPDF() {
+            const button = document.querySelector('.download-pdf-btn');
+            const originalText = button.textContent;
+            
+            // Disable button and show loading
+            button.disabled = true;
+            button.textContent = 'Generating PDF...';
+            
+            // Get the element to convert (everything except the button)
+            const element = document.body;
+            const opt = {
+                margin: [10, 10, 10, 10],
+                filename: 'transaction_history_{{ $branchManager->id ?? "report" }}_{{ now()->format("Y-m-d_His") }}.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            // Generate PDF
+            html2pdf().set(opt).from(element).save().then(function() {
+                // Re-enable button
+                button.disabled = false;
+                button.textContent = originalText;
+            }).catch(function(error) {
+                console.error('Error generating PDF:', error);
+                button.disabled = false;
+                button.textContent = originalText;
+                alert('Failed to generate PDF. Please try again or use the browser print function (Ctrl+P).');
+            });
+        }
+    </script>
 </body>
 
 </html>
