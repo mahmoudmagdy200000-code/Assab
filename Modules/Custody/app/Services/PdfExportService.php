@@ -35,18 +35,24 @@ class PdfExportService
         $filename = 'transaction_history_' . $branchManagerId . '_' . now()->format('Y-m-d_His') . '.pdf';
         $filePath = 'custody/reports/' . $filename;
 
-        // Check if dompdf is available
-        if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class) || class_exists('Barryvdh\DomPDF\Facade\Pdf')) {
+        // Try to generate PDF using DomPDF
+        try {
             $pdfContent = $this->exportWithDompdf($data);
             
-            // Save PDF to storage
-            Storage::disk('public')->put($filePath, $pdfContent);
-            
-            return [
-                'file_path' => $filePath,
-                'file_url' => asset('storage/' . $filePath),
-                'filename' => $filename,
-            ];
+            // Verify it's actually PDF content (starts with %PDF)
+            if (substr($pdfContent, 0, 4) === '%PDF') {
+                // Save PDF to storage
+                Storage::disk('public')->put($filePath, $pdfContent);
+                
+                return [
+                    'file_path' => $filePath,
+                    'file_url' => asset('storage/' . $filePath),
+                    'filename' => $filename,
+                ];
+            }
+        } catch (\Exception $e) {
+            // If PDF generation fails, fall back to HTML
+            \Log::warning('PDF generation failed, falling back to HTML: ' . $e->getMessage());
         }
 
         // Fallback: save HTML
@@ -70,11 +76,42 @@ class PdfExportService
     {
         $html = View::make('custody::pdf.transactions', $data)->render();
 
-        // Use the facade if available, otherwise use the service directly
+        // Try multiple methods to get DomPDF instance
+        $pdf = null;
+
+        // Method 1: Try facade
         if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
-            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($html);
-        } else {
-            $pdf = app('dompdf.wrapper')->loadHTML($html);
+            try {
+                $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($html);
+            } catch (\Exception $e) {
+                // Continue to next method
+            }
+        }
+
+        // Method 2: Try service container
+        if (!$pdf && app()->bound('dompdf.wrapper')) {
+            try {
+                $pdf = app('dompdf.wrapper')->loadHTML($html);
+            } catch (\Exception $e) {
+                // Continue to next method
+            }
+        }
+
+        // Method 3: Try direct instantiation
+        if (!$pdf && class_exists('Dompdf\Dompdf')) {
+            try {
+                $dompdf = new \Dompdf\Dompdf();
+                $dompdf->loadHtml($html);
+                $dompdf->setPaper('A4', 'portrait');
+                $dompdf->render();
+                return $dompdf->output();
+            } catch (\Exception $e) {
+                // Continue to throw error
+            }
+        }
+
+        if (!$pdf) {
+            throw new \Exception('DomPDF is not available. Please ensure barryvdh/laravel-dompdf is installed and configured.');
         }
 
         $pdf->setPaper('A4', 'portrait');
