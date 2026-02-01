@@ -48,6 +48,28 @@ class PersonalLedgerService
     }
 
     /**
+     * Get personal custody balance by month and year (only totals)
+     */
+    public function getPersonalCustodyBalanceByMonth(
+        string $branchManagerId, 
+        int $month, 
+        int $year
+    ): array {
+        $transactions = PersonalLedgerTransaction::where('branch_manager_id', $branchManagerId)
+            ->whereYear('transaction_date', $year)
+            ->whereMonth('transaction_date', $month)
+            ->get();
+
+        $totalCashIn = $transactions->where('is_cash_in', true)->sum('amount');
+        $totalCashOut = $transactions->where('is_cash_in', false)->sum('amount');
+
+        return [
+            'totalCashIn' => round($totalCashIn, 2),
+            'totalCashOut' => round($totalCashOut, 2),
+        ];
+    }
+
+    /**
      * Get transaction history with filters
      */
     public function getTransactionHistory(string $branchManagerId, array $filters = []): array

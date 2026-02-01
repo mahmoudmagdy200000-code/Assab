@@ -21,10 +21,42 @@ class LedgerController extends BaseController
     /**
      * Get personal custody balance dashboard
      * GET /api/branch-manager/ledger/personal-custody-balance
+     *
+     * Query Parameters:
+     * - month (optional): Month number (1-12)
+     * - year (optional): Year (e.g., 2024)
+     *   Note: If both month and year are provided, returns only totalCashIn and totalCashOut for that month
      */
-    public function getPersonalCustodyBalance(): JsonResponse
+    public function getPersonalCustodyBalance(Request $request): JsonResponse
     {
         try {
+            $month = $request->input('month');
+            $year = $request->input('year');
+
+            // If month and year are provided, return only totals for that month
+            if (!empty($month) && !empty($year)) {
+                $month = (int) $month;
+                $year = (int) $year;
+
+                // Validate month and year
+                if ($month < 1 || $month > 12) {
+                    return $this->errorResponse('Month must be between 1 and 12', 400);
+                }
+
+                if ($year < 2000 || $year > 2100) {
+                    return $this->errorResponse('Year must be between 2000 and 2100', 400);
+                }
+
+                $balance = $this->ledgerService->getPersonalCustodyBalanceByMonth(
+                    auth()->id(),
+                    $month,
+                    $year
+                );
+
+                return $this->successResponse($balance, 'Personal custody balance retrieved successfully');
+            }
+
+            // Default behavior: return full balance with recent activity
             $balance = $this->ledgerService->getPersonalCustodyBalance(auth()->id());
 
             return $this->successResponse($balance, 'Personal custody balance retrieved successfully');
@@ -53,7 +85,7 @@ class LedgerController extends BaseController
     /**
      * Get transaction history
      * GET /api/branch-manager/ledger/transactions
-     * 
+     *
      * Query Parameters:
      * - view (optional): View type (detailed, daily) - default: detailed
      * - month (optional): Month number (1-12)
@@ -108,7 +140,7 @@ class LedgerController extends BaseController
     /**
      * Export transactions as PDF
      * POST /api/branch-manager/ledger/export-pdf
-     * 
+     *
      * Query Parameters:
      * - view (optional): View type (detailed, daily) - default: detailed
      * - timePeriod (optional): Time period filter (last_24_hours, last_7_days, last_30_days, last_90_days, last_365_days)
@@ -118,7 +150,7 @@ class LedgerController extends BaseController
     {
         try {
             $timePeriod = $request->input('timePeriod');
-            
+
             // Validate timePeriod if provided
             $validTimePeriods = ['last_24_hours', 'last_7_days', 'last_30_days', 'last_90_days', 'last_365_days'];
             if (!empty($timePeriod) && !in_array($timePeriod, $validTimePeriods)) {
