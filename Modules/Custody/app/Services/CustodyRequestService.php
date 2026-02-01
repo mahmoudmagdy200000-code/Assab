@@ -103,9 +103,23 @@ class CustodyRequestService
     /**
      * List all requests for branch manager
      */
-    public function listRequests(string $branchManagerId, ?string $timePeriod = null): array
-    {
+    public function listRequests(
+        string $branchManagerId, 
+        ?string $timePeriod = null, 
+        ?string $status = null,
+        ?string $preferredReceiptMethod = null
+    ): array {
         $query = CustodyRequest::where('branch_manager_id', $branchManagerId);
+
+        // Status filter
+        if (!empty($status)) {
+            $query->where('status', $status);
+        }
+
+        // Preferred receipt method filter
+        if (!empty($preferredReceiptMethod)) {
+            $query->where('preferred_receipt_method', $preferredReceiptMethod);
+        }
 
         // Time period filter
         if (!empty($timePeriod)) {

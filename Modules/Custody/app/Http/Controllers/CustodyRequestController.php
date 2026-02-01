@@ -19,6 +19,10 @@ class CustodyRequestController extends BaseController
      * GET /api/custody/requests
      * 
      * Query Parameters:
+     * - status (optional): Status filter (Pending, Approved, Rejected, Completed, Cancelled)
+     *   Note: Spaces in status values can be sent as + or _ in URL (e.g., "Bank Transfer" as "Bank+Transfer" or "Bank_Transfer")
+     * - preferredReceiptMethod (optional): Preferred receipt method filter (Cash Handover, Bank Transfer)
+     *   Note: Spaces can be sent as + or _ in URL
      * - timePeriod (optional): Time period filter (last_24_hours, last_7_days, last_30_days, last_90_days, last_365_days)
      */
     public function index(Request $request): JsonResponse
@@ -35,7 +39,53 @@ class CustodyRequestController extends BaseController
                 );
             }
 
-            $requests = $this->requestService->listRequests(auth()->id(), $timePeriod);
+            // Get and normalize status (handle + and _ as spaces)
+            $status = $request->input('status');
+            $preferredReceiptMethod = null;
+            
+            if (!empty($status)) {
+                $status = str_replace(['+', '_'], ' ', $status);
+                $validStatuses = ['Pending', 'Approved', 'Rejected', 'Completed', 'Cancelled'];
+                $validMethods = ['Cash Handover', 'Bank Transfer'];
+                
+                // Check if it's a status value
+                if (in_array($status, $validStatuses)) {
+                    // It's a status, keep it as is
+                } 
+                // Check if it's a preferred receipt method value
+                elseif (in_array($status, $validMethods)) {
+                    // It's a preferred receipt method, use it for that filter
+                    $preferredReceiptMethod = $status;
+                    $status = null;
+                } else {
+                    return $this->errorResponse(
+                        'Invalid status. Must be one of: ' . implode(', ', array_merge($validStatuses, $validMethods)),
+                        400
+                    );
+                }
+            }
+
+            // Get and normalize preferredReceiptMethod if not already set from status parameter
+            if (empty($preferredReceiptMethod)) {
+                $preferredReceiptMethod = $request->input('preferredReceiptMethod');
+                if (!empty($preferredReceiptMethod)) {
+                    $preferredReceiptMethod = str_replace(['+', '_'], ' ', $preferredReceiptMethod);
+                    $validMethods = ['Cash Handover', 'Bank Transfer'];
+                    if (!in_array($preferredReceiptMethod, $validMethods)) {
+                        return $this->errorResponse(
+                            'Invalid preferredReceiptMethod. Must be one of: ' . implode(', ', $validMethods),
+                            400
+                        );
+                    }
+                }
+            }
+
+            $requests = $this->requestService->listRequests(
+                auth()->id(), 
+                $timePeriod, 
+                $status, 
+                $preferredReceiptMethod
+            );
 
             return $this->successResponse([
                 'requests' => $requests

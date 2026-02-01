@@ -56,8 +56,8 @@ class LedgerController extends BaseController
      * 
      * Query Parameters:
      * - view (optional): View type (detailed, daily) - default: detailed
-     * - month (required): Month number (1-12)
-     * - year (required): Year (e.g., 2024)
+     * - month (optional): Month number (1-12)
+     * - year (optional): Year (e.g., 2024)
      * - transactionType (optional): Transaction type filter
      */
     public function getTransactions(Request $request): JsonResponse
@@ -66,28 +66,36 @@ class LedgerController extends BaseController
             $month = $request->input('month');
             $year = $request->input('year');
 
-            // Validate month and year
-            if (empty($month) || empty($year)) {
-                return $this->errorResponse('Both month and year are required', 400);
+            // Validate month and year if provided
+            if (!empty($month)) {
+                $month = (int) $month;
+                if ($month < 1 || $month > 12) {
+                    return $this->errorResponse('Month must be between 1 and 12', 400);
+                }
             }
 
-            $month = (int) $month;
-            $year = (int) $year;
-
-            if ($month < 1 || $month > 12) {
-                return $this->errorResponse('Month must be between 1 and 12', 400);
+            if (!empty($year)) {
+                $year = (int) $year;
+                if ($year < 2000 || $year > 2100) {
+                    return $this->errorResponse('Year must be between 2000 and 2100', 400);
+                }
             }
 
-            if ($year < 2000 || $year > 2100) {
-                return $this->errorResponse('Year must be between 2000 and 2100', 400);
+            // If one is provided, both must be provided
+            if ((!empty($month) && empty($year)) || (empty($month) && !empty($year))) {
+                return $this->errorResponse('Both month and year must be provided together, or both omitted', 400);
             }
 
             $filters = [
                 'view' => $request->input('view', 'detailed'),
-                'month' => $month,
-                'year' => $year,
                 'transactionType' => $request->input('transactionType'),
             ];
+
+            // Only add month and year if both are provided
+            if (!empty($month) && !empty($year)) {
+                $filters['month'] = $month;
+                $filters['year'] = $year;
+            }
 
             $transactions = $this->ledgerService->getTransactionHistory(auth()->id(), $filters);
 
