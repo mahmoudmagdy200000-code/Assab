@@ -20,12 +20,10 @@ class CustodyTransactionService
             $query->where('type', $filters['type']);
         }
 
-        // Date range filter
-        if (!empty($filters['startDate'])) {
-            $query->whereDate('transaction_date', '>=', $filters['startDate']);
-        }
-        if (!empty($filters['endDate'])) {
-            $query->whereDate('transaction_date', '<=', $filters['endDate']);
+        // Time period filter
+        if (!empty($filters['timePeriod'])) {
+            $startDate = $this->getTimePeriodStartDate($filters['timePeriod']);
+            $query->where('transaction_date', '>=', $startDate);
         }
 
         $transactions = $query->orderBy('transaction_date', 'desc')->get();
@@ -35,6 +33,21 @@ class CustodyTransactionService
                 return $this->formatTransaction($transaction);
             })->values(),
         ];
+    }
+
+    /**
+     * Get start date based on time period
+     */
+    private function getTimePeriodStartDate(string $timePeriod): \Carbon\Carbon
+    {
+        return match ($timePeriod) {
+            'last_24_hours' => now()->subHours(24),
+            'last_7_days' => now()->subDays(7),
+            'last_30_days' => now()->subDays(30),
+            'last_90_days' => now()->subDays(90),
+            'last_365_days' => now()->subDays(365),
+            default => now()->subDays(30), // Default to last 30 days
+        };
     }
 
     /**

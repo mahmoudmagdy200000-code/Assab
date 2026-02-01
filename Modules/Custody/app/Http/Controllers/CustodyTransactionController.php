@@ -16,14 +16,28 @@ class CustodyTransactionController extends BaseController
     /**
      * List custody transactions
      * GET /api/custody/transactions
+     * 
+     * Query Parameters:
+     * - type (optional): Transaction type filter
+     * - timePeriod (optional): Time period filter (last_24_hours, last_7_days, last_30_days, last_90_days, last_365_days)
      */
     public function index(Request $request): JsonResponse
     {
         try {
+            $timePeriod = $request->input('timePeriod');
+            
+            // Validate timePeriod if provided
+            $validTimePeriods = ['last_24_hours', 'last_7_days', 'last_30_days', 'last_90_days', 'last_365_days'];
+            if (!empty($timePeriod) && !in_array($timePeriod, $validTimePeriods)) {
+                return $this->errorResponse(
+                    'Invalid timePeriod. Must be: last_24_hours, last_7_days, last_30_days, last_90_days, or last_365_days',
+                    400
+                );
+            }
+
             $filters = [
                 'type' => $request->input('type'),
-                'startDate' => $request->input('startDate'),
-                'endDate' => $request->input('endDate'),
+                'timePeriod' => $timePeriod,
             ];
 
             $transactions = $this->transactionService->listTransactions(auth()->id(), $filters);

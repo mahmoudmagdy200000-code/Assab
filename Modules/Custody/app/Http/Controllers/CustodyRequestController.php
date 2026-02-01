@@ -17,11 +17,25 @@ class CustodyRequestController extends BaseController
     /**
      * List all custody requests
      * GET /api/custody/requests
+     * 
+     * Query Parameters:
+     * - timePeriod (optional): Time period filter (last_24_hours, last_7_days, last_30_days, last_90_days, last_365_days)
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         try {
-            $requests = $this->requestService->listRequests(auth()->id());
+            $timePeriod = $request->input('timePeriod');
+            
+            // Validate timePeriod if provided
+            $validTimePeriods = ['last_24_hours', 'last_7_days', 'last_30_days', 'last_90_days', 'last_365_days'];
+            if (!empty($timePeriod) && !in_array($timePeriod, $validTimePeriods)) {
+                return $this->errorResponse(
+                    'Invalid timePeriod. Must be: last_24_hours, last_7_days, last_30_days, last_90_days, or last_365_days',
+                    400
+                );
+            }
+
+            $requests = $this->requestService->listRequests(auth()->id(), $timePeriod);
 
             return $this->successResponse([
                 'requests' => $requests

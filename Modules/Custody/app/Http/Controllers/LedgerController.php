@@ -53,14 +53,39 @@ class LedgerController extends BaseController
     /**
      * Get transaction history
      * GET /api/branch-manager/ledger/transactions
+     * 
+     * Query Parameters:
+     * - view (optional): View type (detailed, daily) - default: detailed
+     * - month (required): Month number (1-12)
+     * - year (required): Year (e.g., 2024)
+     * - transactionType (optional): Transaction type filter
      */
     public function getTransactions(Request $request): JsonResponse
     {
         try {
+            $month = $request->input('month');
+            $year = $request->input('year');
+
+            // Validate month and year
+            if (empty($month) || empty($year)) {
+                return $this->errorResponse('Both month and year are required', 400);
+            }
+
+            $month = (int) $month;
+            $year = (int) $year;
+
+            if ($month < 1 || $month > 12) {
+                return $this->errorResponse('Month must be between 1 and 12', 400);
+            }
+
+            if ($year < 2000 || $year > 2100) {
+                return $this->errorResponse('Year must be between 2000 and 2100', 400);
+            }
+
             $filters = [
                 'view' => $request->input('view', 'detailed'),
-                'startDate' => $request->input('startDate'),
-                'endDate' => $request->input('endDate'),
+                'month' => $month,
+                'year' => $year,
                 'transactionType' => $request->input('transactionType'),
             ];
 
@@ -75,14 +100,29 @@ class LedgerController extends BaseController
     /**
      * Export transactions as PDF
      * POST /api/branch-manager/ledger/export-pdf
+     * 
+     * Query Parameters:
+     * - view (optional): View type (detailed, daily) - default: detailed
+     * - timePeriod (optional): Time period filter (last_24_hours, last_7_days, last_30_days, last_90_days, last_365_days)
+     * - transactionType (optional): Transaction type filter
      */
     public function exportPdf(Request $request): \Symfony\Component\HttpFoundation\Response
     {
         try {
+            $timePeriod = $request->input('timePeriod');
+            
+            // Validate timePeriod if provided
+            $validTimePeriods = ['last_24_hours', 'last_7_days', 'last_30_days', 'last_90_days', 'last_365_days'];
+            if (!empty($timePeriod) && !in_array($timePeriod, $validTimePeriods)) {
+                return Response::json([
+                    'success' => false,
+                    'message' => 'Invalid timePeriod. Must be: last_24_hours, last_7_days, last_30_days, last_90_days, or last_365_days'
+                ], 400);
+            }
+
             $filters = [
                 'view' => $request->input('view', 'detailed'),
-                'startDate' => $request->input('startDate'),
-                'endDate' => $request->input('endDate'),
+                'timePeriod' => $timePeriod,
                 'transactionType' => $request->input('transactionType'),
             ];
 
@@ -112,7 +152,7 @@ class LedgerController extends BaseController
     /**
      * Get branch custody balance with requests and transactions
      * GET /api/branch-manager/ledger/branch-custody-balance
-     * 
+     *
      * Query Parameters:
      * - status (optional): Request status filter (All, Cash Handover, Bank Transfer, Custody Requests)
      * - timePeriod (optional): Time period filter (last_24_hours, last_7_days, last_30_days, custom)

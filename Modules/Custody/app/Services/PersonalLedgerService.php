@@ -60,12 +60,18 @@ class PersonalLedgerService
             $query->whereDate('transaction_date', today());
         }
 
-        // Date range filter
-        if (!empty($filters['startDate'])) {
-            $query->whereDate('transaction_date', '>=', $filters['startDate']);
+        // Month and Year filter (for Personal Ledger Transactions)
+        if (!empty($filters['month']) && !empty($filters['year'])) {
+            $month = (int) $filters['month'];
+            $year = (int) $filters['year'];
+            $query->whereYear('transaction_date', $year)
+                  ->whereMonth('transaction_date', $month);
         }
-        if (!empty($filters['endDate'])) {
-            $query->whereDate('transaction_date', '<=', $filters['endDate']);
+
+        // Time period filter (for PDF export)
+        if (!empty($filters['timePeriod'])) {
+            $startDate = $this->getTimePeriodStartDate($filters['timePeriod']);
+            $query->where('transaction_date', '>=', $startDate);
         }
 
         // Transaction type filter
@@ -82,6 +88,21 @@ class PersonalLedgerService
                 return $this->formatTransactionForList($transaction);
             })->values(),
         ];
+    }
+
+    /**
+     * Get start date based on time period
+     */
+    private function getTimePeriodStartDate(string $timePeriod): \Carbon\Carbon
+    {
+        return match ($timePeriod) {
+            'last_24_hours' => now()->subHours(24),
+            'last_7_days' => now()->subDays(7),
+            'last_30_days' => now()->subDays(30),
+            'last_90_days' => now()->subDays(90),
+            'last_365_days' => now()->subDays(365),
+            default => now()->subDays(30), // Default to last 30 days
+        };
     }
 
     /**
