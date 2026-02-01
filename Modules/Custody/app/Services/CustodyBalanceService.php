@@ -318,10 +318,34 @@ class CustodyBalanceService
         $transactions = $transactionsQuery->orderBy('transaction_date', 'desc')->get();
         $requests = $requestsQuery->orderBy('created_at', 'desc')->get();
 
-        // Calculate balance
-        $totalCashIn = $transactions->where('is_cash_in', true)->sum('amount');
-        $totalCashOut = $transactions->where('is_cash_in', false)->sum('amount');
-        $currentBalance = $totalCashIn - $totalCashOut;
+        // Calculate branch balance (all branch managers in the branch)
+        $branchTransactionsQuery = CustodyTransaction::where('branch_id', $branchId);
+        
+        // Apply time period filter to branch balance calculation
+        if ($timePeriod === 'custom') {
+            if (!empty($filters['startDate'])) {
+                $branchTransactionsQuery->whereDate('transaction_date', '>=', $filters['startDate']);
+            }
+            if (!empty($filters['endDate'])) {
+                $branchTransactionsQuery->whereDate('transaction_date', '<=', $filters['endDate']);
+            }
+        } elseif ($timePeriod) {
+            $startDate = match($timePeriod) {
+                'last_24_hours' => now()->subHours(24),
+                'last_7_days' => now()->subDays(7),
+                'last_30_days' => now()->subDays(30),
+                default => null,
+            };
+
+            if ($startDate) {
+                $branchTransactionsQuery->where('transaction_date', '>=', $startDate);
+            }
+        }
+        
+        $branchTransactions = $branchTransactionsQuery->get();
+        $branchTotalCashIn = $branchTransactions->where('is_cash_in', true)->sum('amount');
+        $branchTotalCashOut = $branchTransactions->where('is_cash_in', false)->sum('amount');
+        $currentBalance = $branchTotalCashIn - $branchTotalCashOut;
 
         // Format transactions
         $formattedTransactions = $transactions->map(function ($transaction) {
@@ -339,19 +363,10 @@ class CustodyBalanceService
         })->values();
 
         return [
-            'totalCashIn' => round($totalCashIn, 2),
-            'totalCashOut' => round($totalCashOut, 2),
             'currentBalance' => round($currentBalance, 2),
             'recentActivity' => $recentActivity,
             'requests' => $formattedRequests,
             'transactions' => $formattedTransactions,
-            'filters' => [
-                'type' => $filters['type'] ?? null,
-                'status' => $filters['status'] ?? null,
-                'timePeriod' => $filters['timePeriod'] ?? null,
-                'startDate' => $filters['startDate'] ?? null,
-                'endDate' => $filters['endDate'] ?? null,
-            ],
         ];
     }
 
