@@ -61,9 +61,10 @@ class InventorySessionService
      */
     public function getAvailableCashiers(string $branchId): Collection
     {
-        return Cashier::where('branch_id', $branchId)
-            ->where('status', 'active')
+        return Cashier::byBranch($branchId)
+            ->active()
             ->select(['id', 'name', 'email', 'phone', 'image'])
+            ->orderBy('name')
             ->get();
     }
 
