@@ -569,6 +569,11 @@ class PendingOrderController extends BaseController
     /**
      * Get Internal Transfer Order details
      *
+     * According to requirements 3.1.2.4.3.4.1:
+     * - View Details with all order information
+     * - Timeline Tracking
+     * - Store Information
+     *
      * @group Pending Orders - Internal Transfer
      */
     public function internalTransferOrderDetails(string $id): JsonResponse
@@ -587,8 +592,17 @@ class PendingOrderController extends BaseController
                 return $this->errorResponse('This endpoint is only for Internal Transfer Orders', 400);
             }
 
-            // Log view event
+            // Log view event (for Timeline Tracking)
             $this->timelineService->logOrderViewed($order, auth()->id());
+
+            // Ensure all required relationships are loaded
+            $order->loadMissing([
+                'items',
+                'fromBranch',
+                'requestedBy',
+                'timelines',
+                'branch',
+            ]);
 
             return $this->successResponse(
                 new InternalTransferOrderResource($order),

@@ -39,15 +39,55 @@ class InternalTransferOrderResource extends JsonResource
             'time' => $this->submitted_at?->format('H:i:s')
                 ?? $this->created_at?->format('H:i:s'),
 
+            // Type: Internal Transfer from Another Branch
+            'type' => 'internal_transfer',
+            'type_label' => 'Internal Transfer from Another Branch',
+
             // Status Information
             'status' => $this->status?->value,
             'status_label' => $this->status_label,
             'status_color' => $this->status_color,
 
-            // Source Branch Information (from_branch)
+            // From: Branch Location and Name
+            'from' => $this->whenLoaded('fromBranch', function () {
+                if (!$this->fromBranch) {
+                    return null;
+                }
+                return [
+                    'id' => $this->fromBranch->id,
+                    'name' => $this->fromBranch->name,
+                    'location' => $this->fromBranch->location ?? null,
+                    'lat' => $this->fromBranch->lat ? (float) $this->fromBranch->lat : null,
+                    'lng' => $this->fromBranch->lng ? (float) $this->fromBranch->lng : null,
+                ];
+            }),
+
+            // Source Branch Information (from_branch) - Full resource
             'from_branch' => $this->whenLoaded('fromBranch', function () {
                 return $this->fromBranch ? new BranchResource($this->fromBranch) : null;
             }),
+
+            // Requested BY: Branch Manager Name (Me)
+            'requested_by' => $this->whenLoaded('requestedBy', function () {
+                if (!$this->requestedBy) {
+                    return [
+                        'name' => 'Me',
+                        'image' => null,
+                    ];
+                }
+                return [
+                    'id' => $this->requestedBy->id,
+                    'name' => $this->requestedBy->name,
+                    'image' => $this->requestedBy->image_url ?? null,
+                ];
+            }) ?? [
+                'name' => 'Me',
+                'image' => null,
+            ],
+
+            // Priority
+            'priority' => $this->priority ?? 'normal',
+            'priority_label' => $this->priority ? ucfirst($this->priority) : 'Normal',
 
             // Current Branch Information
             'branch' => $this->whenLoaded('branch', function () {
@@ -60,8 +100,10 @@ class InternalTransferOrderResource extends JsonResource
             // Available Actions
             'available_actions' => $this->getAvailableActions(),
 
-            // Items
-            'items' => PurchaseOrderItemResource::collection($this->whenLoaded('items')),
+            // Items with all required fields
+            'items' => PurchaseOrderItemResource::collection($this->whenLoaded('items'))->additional([
+                'branch_id' => $this->branch_id,
+            ]),
 
             // Timestamps
             'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
@@ -76,6 +118,10 @@ class InternalTransferOrderResource extends JsonResource
 
     /**
      * Get status-specific details based on order status
+     * According to requirements 3.1.2.4.3.4.1.1:
+     * - Full Approved with date and time arrival
+     * - Partial Approval with date and time arrival
+     * - Rejected (with branch manager name, image, reason, date and time)
      */
     private function getStatusDetails(): array
     {
@@ -91,15 +137,19 @@ class InternalTransferOrderResource extends JsonResource
                     return $this->requestedBy ? new BranchManagerResource($this->requestedBy) : null;
                 }),
             ],
-            'partial_confirmation' => [
+            'partial_confirmation', 'partial_approved' => [
                 'confirmed_items_count' => $this->relationLoaded('items')
                     ? $this->items->whereNotNull('quantity_confirmed')->count()
                     : 0,
                 'total_items_count' => $this->total_items,
                 'partial_confirmed_at' => $this->confirmed_at?->format('Y-m-d H:i:s'),
+                'arrival_date_time' => $this->expected_delivery_at?->format('Y-m-d H:i:s')
+                    ?? $this->confirmed_at?->format('Y-m-d H:i:s'),
             ],
-            'confirmed' => [
+            'confirmed', 'fully_approved' => [
                 'confirmed_at' => $this->confirmed_at?->format('Y-m-d H:i:s'),
+                'arrival_date_time' => $this->expected_delivery_at?->format('Y-m-d H:i:s')
+                    ?? $this->confirmed_at?->format('Y-m-d H:i:s'),
                 'all_items_confirmed' => $this->relationLoaded('items')
                     ? $this->items->every(fn($item) => $item->quantity_confirmed !== null)
                     : false,
