@@ -355,7 +355,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
         if (!empty($filters['branch_id'])) {
             $branchId = $filters['branch_id'];
-            
+
             if ($orderType === OrderType::INTERNAL_TRANSFER) {
                 // For Internal Transfer: filter by to_branch_id (the receiving branch)
                 // This is the branch that will receive the order
@@ -397,7 +397,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         $groupedOrders = $orders->groupBy(function ($order) use ($orderType) {
             // Check if this is an internal transfer order (even if orderType filter is null)
             $isInternalTransfer = $order->order_type === OrderType::INTERNAL_TRANSFER;
-            
+
             if ($isInternalTransfer) {
                 // For internal transfer: use confirmed_at or created_at
                 return $order->confirmed_at?->format('Y-m-d')
@@ -455,7 +455,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             if ($date !== 'no-date') {
                 // Check if this is an internal transfer order (even if orderType filter is null)
                 $isInternalTransfer = $firstOrder->order_type === OrderType::INTERNAL_TRANSFER;
-                
+
                 if ($isInternalTransfer) {
                     // For internal transfer: use confirmed_at or created_at
                     $dateField = $firstOrder->confirmed_at ?? $firstOrder->created_at;
@@ -475,7 +475,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             }
 
             return [
-                'expected_delivery_date' => $expectedDeliveryDate,
+                // 'expected_delivery_date' => $expectedDeliveryDate,
                 'orders' => $ordersArray,
             ];
         })->values();
