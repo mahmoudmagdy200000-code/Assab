@@ -39,12 +39,8 @@ class GoodsReceiptService
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
 
-        // Use Resource class instead of transform
-        $paginator->setCollection(
-            GoodsReceiptListResource::collection($paginator->getCollection())
-        );
-
-        return $paginator;
+        // Use Resource class through paginator
+        return $paginator->through(fn($receipt) => new GoodsReceiptListResource($receipt));
     }
 
     /**
@@ -65,12 +61,8 @@ class GoodsReceiptService
 
         $paginator = $query->orderBy('updated_at', 'desc')->paginate($perPage);
 
-        // Use Resource class instead of transform
-        $paginator->setCollection(
-            GoodsReceiptListResource::collection($paginator->getCollection())
-        );
-
-        return $paginator;
+        // Use Resource class through paginator
+        return $paginator->through(fn($receipt) => new GoodsReceiptListResource($receipt));
     }
 
     /**
@@ -91,12 +83,8 @@ class GoodsReceiptService
 
         $paginator = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
-        // Use Resource class instead of transform
-        $paginator->setCollection(
-            GoodsReceiptListResource::collection($paginator->getCollection())
-        );
-
-        return $paginator;
+        // Use Resource class through paginator
+        return $paginator->through(fn($receipt) => new GoodsReceiptListResource($receipt));
     }
 
     /**
@@ -117,12 +105,8 @@ class GoodsReceiptService
 
         $paginator = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
-        // Use Resource class instead of transform
-        $paginator->setCollection(
-            GoodsReceiptListResource::collection($paginator->getCollection())
-        );
-
-        return $paginator;
+        // Use Resource class through paginator
+        return $paginator->through(fn($receipt) => new GoodsReceiptListResource($receipt));
     }
 
     /**
