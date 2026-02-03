@@ -339,12 +339,12 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                             OrderStatus::PARTIAL_CONFIRMATION,
                         ]);
                 })
-                // Other order types with DELIVERED status
-                ->orWhere(function ($otherOrdersQuery) {
-                    $otherOrdersQuery->where('order_type', '!=', OrderType::INTERNAL_TRANSFER)
-                        ->where('status', OrderStatus::DELIVERED)
-                        ->whereNotNull('expected_delivery_at');
-                });
+                    // Other order types with DELIVERED status
+                    ->orWhere(function ($otherOrdersQuery) {
+                        $otherOrdersQuery->where('order_type', '!=', OrderType::INTERNAL_TRANSFER)
+                            ->where('status', OrderStatus::DELIVERED)
+                            ->whereNotNull('expected_delivery_at');
+                    });
             });
         }
 
@@ -367,10 +367,10 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                         $internalTransferQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
                             ->where('to_branch_id', $branchId);
                     })
-                    ->orWhere(function ($otherOrdersQuery) use ($branchId) {
-                        $otherOrdersQuery->where('order_type', '!=', OrderType::INTERNAL_TRANSFER)
-                            ->where('branch_id', $branchId);
-                    });
+                        ->orWhere(function ($otherOrdersQuery) use ($branchId) {
+                            $otherOrdersQuery->where('order_type', '!=', OrderType::INTERNAL_TRANSFER)
+                                ->where('branch_id', $branchId);
+                        });
                 });
             } else {
                 // For other order types: filter by branch_id (the requesting branch)
@@ -392,97 +392,48 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
         $orders = $query->get();
 
-        // Group orders by expected_delivery_at date (for non-internal-transfer)
-        // or by confirmed_at/created_at date (for internal-transfer)
-        $groupedOrders = $orders->groupBy(function ($order) use ($orderType) {
-            // Check if this is an internal transfer order (even if orderType filter is null)
-            $isInternalTransfer = $order->order_type === OrderType::INTERNAL_TRANSFER;
-
-            if ($isInternalTransfer) {
-                // For internal transfer: use confirmed_at or created_at
-                return $order->confirmed_at?->format('Y-m-d')
-                    ?? $order->created_at?->format('Y-m-d')
-                    ?? 'no-date';
-            } else {
-                // For other orders: use expected_delivery_at
-                return $order->expected_delivery_at?->format('Y-m-d') ?? 'no-date';
-            }
-        });
-
-        // Transform to the required format
-        $transformedSections = $groupedOrders->map(function ($ordersGroup, $date) {
-            $ordersArray = $ordersGroup->map(function ($order) {
+        // Transform orders to the required format (flattened, not grouped)
+        $transformedOrders = $orders->map(function ($order) {
+            $orderType = null;
+            try {
+                if ($order->order_type) {
+                    $orderTypeValue = $order->order_type;
+                    if ($orderTypeValue instanceof \BackedEnum) {
+                        $orderType = $orderTypeValue->value;
+                    } elseif (is_string($orderTypeValue)) {
+                        $orderType = $orderTypeValue;
+                    }
+                }
+            } catch (\Exception $e) {
                 $orderType = null;
-                try {
-                    if ($order->order_type) {
-                        $orderTypeValue = $order->order_type;
-                        if ($orderTypeValue instanceof \BackedEnum) {
-                            $orderType = $orderTypeValue->value;
-                        } elseif (is_string($orderTypeValue)) {
-                            $orderType = $orderTypeValue;
-                        }
-                    }
-                } catch (\Exception $e) {
-                    $orderType = null;
-                }
+            }
 
+            $status = null;
+            try {
+                if ($order->status) {
+                    $statusValue = $order->status;
+                    if ($statusValue instanceof \BackedEnum) {
+                        $status = $statusValue->value;
+                    } elseif (is_string($statusValue)) {
+                        $status = $statusValue;
+                    }
+                }
+            } catch (\Exception $e) {
                 $status = null;
-                try {
-                    if ($order->status) {
-                        $statusValue = $order->status;
-                        if ($statusValue instanceof \BackedEnum) {
-                            $status = $statusValue->value;
-                        } elseif (is_string($statusValue)) {
-                            $status = $statusValue;
-                        }
-                    }
-                } catch (\Exception $e) {
-                    $status = null;
-                }
-
-                return [
-                    'id' => $order->id,
-                    'items_count' => (int) ($order->items_count ?? 0),
-                    'type' => $orderType,
-                    'status' => $status ?? 'draft',
-                    'date' => $order->created_at?->format('Y-m-d H:i:s') ?? null,
-                ];
-            })->values()->toArray();
-
-            $firstOrder = $ordersGroup->first();
-            $expectedDeliveryDate = null;
-
-            if ($date !== 'no-date') {
-                // Check if this is an internal transfer order (even if orderType filter is null)
-                $isInternalTransfer = $firstOrder->order_type === OrderType::INTERNAL_TRANSFER;
-
-                if ($isInternalTransfer) {
-                    // For internal transfer: use confirmed_at or created_at
-                    $dateField = $firstOrder->confirmed_at ?? $firstOrder->created_at;
-                    if ($dateField) {
-                        $expectedDeliveryDate = $dateField
-                            ->setTimezone('UTC')
-                            ->format('Y-m-d\TH:i:s\Z');
-                    }
-                } else {
-                    // For other orders: use expected_delivery_at
-                    if ($firstOrder->expected_delivery_at) {
-                        $expectedDeliveryDate = $firstOrder->expected_delivery_at
-                            ->setTimezone('UTC')
-                            ->format('Y-m-d\TH:i:s\Z');
-                    }
-                }
             }
 
             return [
-                // 'expected_delivery_date' => $expectedDeliveryDate,
-                 $ordersArray
+                'id' => $order->id,
+                'items_count' => (int) ($order->items_count ?? 0),
+                'type' => $orderType,
+                'status' => $status ?? 'draft',
+                'date' => $order->created_at?->format('Y-m-d H:i:s') ?? null,
             ];
         })->values();
 
-        // Create paginator manually for the grouped sections
-        $total = $transformedSections->count();
-        $items = $transformedSections->slice(($currentPage - 1) * $perPage, $perPage)->values();
+        // Create paginator for the flattened orders
+        $total = $transformedOrders->count();
+        $items = $transformedOrders->slice(($currentPage - 1) * $perPage, $perPage)->values();
 
         return new LengthAwarePaginator(
             $items,
