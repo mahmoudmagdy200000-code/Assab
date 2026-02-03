@@ -1202,7 +1202,8 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         })->filter(); // Remove null values from filters
 
         // Merge inventory branches (from Daily Inventory) with BranchInventory branches (fallback)
-        return $inventoryBranches->merge($branchInventoryBranches)->values();
+        // Use concat() instead of merge() because we're working with arrays, not models
+        return $inventoryBranches->concat($branchInventoryBranches)->values();
     }
 
     /**
