@@ -277,6 +277,11 @@ class PendingOrderController extends BaseController
     /**
      * Approve transfer request (for received transfers)
      *
+     * According to requirements 3.1.2.4.3.6.1.2.1 - Available Actions (Manage Order):
+     * - approve_all → fully_approved status
+     * - partial_approve → partial_approved status
+     * - reject_all → rejected status
+     *
      * @group Pending Orders
      */
     public function approveTransfer(ApproveTransferRequest $request, string $id): JsonResponse
@@ -292,10 +297,11 @@ class PendingOrderController extends BaseController
 
             $action = $request->action;
 
+            // Process the action and update order status directly based on action
             $success = match ($action) {
-                'approve_all' => $this->orderService->confirmOrder($order, null, $request->ready_time),
-                'partial_approve' => $this->orderService->partialConfirmOrder($order, $request->get('items'), $request->ready_time),
-                'reject_all' => $this->orderService->rejectOrder($order, $request->reason),
+                'approve_all' => $this->processApproveAll($order, $request->ready_time),
+                'partial_approve' => $this->processPartialApprove($order, $request->get('items'), $request->ready_time),
+                'reject_all' => $this->processRejectAll($order, $request->reason),
                 default => false,
             };
 
@@ -303,31 +309,71 @@ class PendingOrderController extends BaseController
                 return $this->errorResponse('Cannot process transfer request', 400);
             }
 
-            // Refresh order to get latest status
+            // Refresh order to get latest status and relationships
             $order->refresh();
-
-            // If order was approved/partially approved, check if we need to transition to confirmed/partial_confirmed
-            // This happens when the receiving branch accepts the order
-            if ($action !== 'reject_all') {
-                $currentStatus = $order->status;
-
-                // If fully approved, transition to confirmed when received
-                if ($currentStatus === OrderStatus::FULLY_APPROVED) {
-                    $order->transitionTo(OrderStatus::CONFIRMED);
-                }
-                // If partially approved, transition to partial_confirmed when received
-                elseif ($currentStatus === OrderStatus::PARTIAL_APPROVED) {
-                    $order->transitionTo(OrderStatus::PARTIAL_CONFIRMED);
-                }
-            }
+            $order->load(['items', 'fromBranch', 'requestedBy']);
 
             return $this->successResponse(
-                new PurchaseOrderResource($order->fresh(['items'])),
+                new PurchaseOrderResource($order),
                 'Transfer request processed successfully'
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'processing transfer request');
         }
+    }
+
+    /**
+     * Process approve all action - sets status to fully_approved
+     */
+    private function processApproveAll(PurchaseOrder $order, ?string $readyTime): bool
+    {
+        // Confirm all items
+        $success = $this->orderService->confirmOrder($order, null, $readyTime);
+
+        if ($success) {
+            // Update order status to fully_approved directly
+            $order->refresh();
+            // Force update to fully_approved status regardless of transition rules
+            $order->update(['status' => OrderStatus::FULLY_APPROVED]);
+        }
+
+        return $success;
+    }
+
+    /**
+     * Process partial approve action - sets status to partial_approved
+     */
+    private function processPartialApprove(PurchaseOrder $order, array $items, ?string $readyTime): bool
+    {
+        // Confirm specified items
+        $success = $this->orderService->partialConfirmOrder($order, $items, $readyTime);
+
+        if ($success) {
+            // Update order status to partial_approved directly
+            $order->refresh();
+            // Force update to partial_approved status regardless of transition rules
+            $order->update(['status' => OrderStatus::PARTIAL_APPROVED]);
+        }
+
+        return $success;
+    }
+
+    /**
+     * Process reject all action - sets status to rejected
+     */
+    private function processRejectAll(PurchaseOrder $order, string $reason): bool
+    {
+        // Reject order (this already sets status to rejected)
+        $success = $this->orderService->rejectOrder($order, $reason);
+
+        if ($success) {
+            // Ensure status is rejected
+            $order->refresh();
+            // Force update to rejected status
+            $order->update(['status' => OrderStatus::REJECTED]);
+        }
+
+        return $success;
     }
 
     /**

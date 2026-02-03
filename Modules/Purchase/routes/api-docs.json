@@ -715,6 +715,221 @@
         "security": [{"bearerAuth": []}]
       }
     },
+    "/pending/internal-transfer": {
+      "get": {
+        "tags": ["Pending Orders"],
+        "summary": "Get internal transfer orders list",
+        "description": "Retrieve list of internal transfer orders from another branch with filtering options. According to requirements 3.1.2.4.3.4.",
+        "operationId": "getInternalTransferOrders",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Status filter",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["draft", "pending", "pending_confirmation", "pending_approval", "partial_confirmation", "confirmed", "preparing", "on_the_way", "delayed"]
+            }
+          },
+          {
+            "name": "date_range",
+            "in": "query",
+            "description": "Date range filter",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["last_24h", "last_7d", "last_30d", "custom"]
+            }
+          },
+          {
+            "name": "date_from",
+            "in": "query",
+            "description": "Start date for custom date range",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "description": "End date for custom date range",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 15,
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Internal transfer orders retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedPurchaseOrders"
+                }
+              }
+            }
+          }
+        },
+        "security": [{"bearerAuth": []}]
+      }
+    },
+    "/pending/internal-transfer/{id}": {
+      "get": {
+        "tags": ["Pending Orders"],
+        "summary": "Get internal transfer order details",
+        "description": "Retrieve detailed information about an internal transfer order. According to requirements 3.1.2.4.3.4.1 - View Details, Timeline Tracking, Store Information.",
+        "operationId": "getInternalTransferOrderDetails",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Order ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Internal transfer order details retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Order not found"
+          },
+          "400": {
+            "description": "This endpoint is only for Internal Transfer Orders"
+          }
+        },
+        "security": [{"bearerAuth": []}]
+      }
+    },
+    "/pending/{id}/approve-transfer": {
+      "post": {
+        "tags": ["Pending Orders"],
+        "summary": "Approve or reject transfer request",
+        "description": "Approve all, partially approve, or reject an internal transfer order. According to requirements 3.1.2.4.3.6.1.2.1 - Available Actions (Manage Order).",
+        "operationId": "approveTransfer",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Order ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveTransferRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transfer request processed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cannot process transfer request or validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Order not found"
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [{"bearerAuth": []}]
+      }
+    },
+    "/pending/{id}/timeline": {
+      "get": {
+        "tags": ["Pending Orders"],
+        "summary": "Get order timeline",
+        "description": "Retrieve real-time timeline of each Internal Transfer from Another Branch process. According to requirements 3.1.2.4.3.4.1.2 - Timeline Tracking.",
+        "operationId": "getPendingOrderTimeline",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Order ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Order timeline retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Order not found"
+          }
+        },
+        "security": [{"bearerAuth": []}]
+      }
+    },
     "/receiving/in-progress": {
       "get": {
         "tags": ["Goods Receiving"],
@@ -756,6 +971,89 @@
         "responses": {
           "201": {
             "description": "Receiving started successfully"
+          }
+        },
+        "security": [{"bearerAuth": []}]
+      }
+    },
+    "/receiving/orders/{orderId}/receive-internal-transfer": {
+      "post": {
+        "tags": ["Goods Receiving"],
+        "summary": "Receive internal transfer order",
+        "description": "Receive an internal transfer order from another branch. After receiving, the order is automatically moved to Purchase History page and complete order page. According to requirements 3.1.2.4.4.1.2.3.",
+        "operationId": "receiveInternalTransfer",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Order ID"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "driver_name": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "nullable": true
+                  },
+                  "driver_contact": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "nullable": true
+                  },
+                  "vehicle_number": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "nullable": true
+                  },
+                  "arrival_time": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": true
+                  },
+                  "delivery_address": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Internal transfer received successfully. Order moved to Purchase History.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This endpoint is only for internal transfer orders or order must be confirmed/partially confirmed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Order not found"
           }
         },
         "security": [{"bearerAuth": []}]
@@ -1487,6 +1785,49 @@
             "type": "string",
             "maxLength": 1000,
             "nullable": true
+          }
+        }
+      },
+      "ApproveTransferRequest": {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["approve_all", "partial_approve", "reject_all"],
+            "description": "Action to perform: approve_all, partial_approve, or reject_all"
+          },
+          "ready_time": {
+            "type": "string",
+            "enum": ["3_minutes", "1_hour", "2_hours", "3_hours", "more_than_3_hours"],
+            "description": "When the order will be ready (required unless action is reject_all)"
+          },
+          "items": {
+            "type": "array",
+            "description": "Items array (required when action is partial_approve)",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["item_id", "new_quantity"],
+              "properties": {
+                "item_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Purchase order item ID"
+                },
+                "new_quantity": {
+                  "type": "number",
+                  "format": "float",
+                  "minimum": 0,
+                  "description": "New quantity to approve (must be less than or equal to original quantity)"
+                }
+              }
+            }
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Reason for rejection (required when action is reject_all)"
           }
         }
       },
