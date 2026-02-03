@@ -903,9 +903,20 @@ class GoodsReceivingController extends BaseController
                 return $this->errorResponse('This endpoint is only for internal transfer orders', 400);
             }
 
-            // Validate order status - must be Confirmed or Partial Confirmation
-            if (!in_array($order->status?->value, ['confirmed', 'partial_confirmation'])) {
-                return $this->errorResponse('Order must be confirmed or partially confirmed before receiving', 400);
+            // Validate order status - must be in a receivable status
+            // For Internal Transfer: fully_approved, partial_approved, confirmed, partial_confirmation
+            $receivableStatuses = [
+                'fully_approved',
+                'partial_approved',
+                'confirmed',
+                'partial_confirmation',
+            ];
+
+            if (!in_array($order->status?->value, $receivableStatuses)) {
+                return $this->errorResponse(
+                    'Order must be approved (fully or partially) or confirmed before receiving. Current status: ' . ($order->status?->value ?? 'unknown'),
+                    400
+                );
             }
 
             $receipt = $this->receiptService->receiveInternalTransfer(

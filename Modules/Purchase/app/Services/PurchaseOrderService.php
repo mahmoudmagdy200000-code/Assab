@@ -308,25 +308,57 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
         $currentPage = request()->get('page', 1);
 
-        $query = PurchaseOrder::withCount('items as items_count')
-            ->byStatus(OrderStatus::DELIVERED)
-            ->whereNotNull('expected_delivery_at')
-            ->orderBy('expected_delivery_at', 'asc')
-            ->orderBy('created_at', 'desc');
+        $query = PurchaseOrder::withCount('items as items_count');
 
-        if (!empty($filters['type'])) {
-            $query->byType(OrderType::from($filters['type']));
+        // Filter by order type to determine which statuses to include
+        $orderType = !empty($filters['type']) ? OrderType::from($filters['type']) : null;
+
+        if ($orderType === OrderType::INTERNAL_TRANSFER) {
+            // For Internal Transfer: include orders with statuses that can be received
+            // fully_approved, partial_approved, confirmed, partial_confirmation
+            $query->whereIn('status', [
+                OrderStatus::FULLY_APPROVED,
+                OrderStatus::PARTIAL_APPROVED,
+                OrderStatus::CONFIRMED,
+                OrderStatus::PARTIAL_CONFIRMATION,
+            ]);
+        } else {
+            // For other order types: only DELIVERED status
+            $query->byStatus(OrderStatus::DELIVERED)
+                ->whereNotNull('expected_delivery_at');
+        }
+
+        // Apply order type filter if provided
+        if ($orderType) {
+            $query->byType($orderType);
         }
 
         if (!empty($filters['branch_id'])) {
             $query->byBranch($filters['branch_id']);
         }
 
+        // Order by expected_delivery_at for non-internal-transfer, or created_at for internal-transfer
+        if ($orderType === OrderType::INTERNAL_TRANSFER) {
+            $query->orderBy('created_at', 'desc');
+        } else {
+            $query->orderBy('expected_delivery_at', 'asc')
+                ->orderBy('created_at', 'desc');
+        }
+
         $orders = $query->get();
 
-        // Group orders by expected_delivery_at date
-        $groupedOrders = $orders->groupBy(function ($order) {
-            return $order->expected_delivery_at?->format('Y-m-d') ?? 'no-date';
+        // Group orders by expected_delivery_at date (for non-internal-transfer)
+        // or by confirmed_at/created_at date (for internal-transfer)
+        $groupedOrders = $orders->groupBy(function ($order) use ($orderType) {
+            if ($orderType === OrderType::INTERNAL_TRANSFER) {
+                // For internal transfer: use confirmed_at or created_at
+                return $order->confirmed_at?->format('Y-m-d')
+                    ?? $order->created_at?->format('Y-m-d')
+                    ?? 'no-date';
+            } else {
+                // For other orders: use expected_delivery_at
+                return $order->expected_delivery_at?->format('Y-m-d') ?? 'no-date';
+            }
         });
 
         // Transform to the required format
@@ -372,11 +404,23 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             $firstOrder = $ordersGroup->first();
             $expectedDeliveryDate = null;
 
-            if ($date !== 'no-date' && $firstOrder->expected_delivery_at) {
-                // Format as ISO 8601 with Z timezone (UTC)
-                $expectedDeliveryDate = $firstOrder->expected_delivery_at
-                    ->setTimezone('UTC')
-                    ->format('Y-m-d\TH:i:s\Z');
+            if ($date !== 'no-date') {
+                if ($orderType === OrderType::INTERNAL_TRANSFER) {
+                    // For internal transfer: use confirmed_at or created_at
+                    $dateField = $firstOrder->confirmed_at ?? $firstOrder->created_at;
+                    if ($dateField) {
+                        $expectedDeliveryDate = $dateField
+                            ->setTimezone('UTC')
+                            ->format('Y-m-d\TH:i:s\Z');
+                    }
+                } else {
+                    // For other orders: use expected_delivery_at
+                    if ($firstOrder->expected_delivery_at) {
+                        $expectedDeliveryDate = $firstOrder->expected_delivery_at
+                            ->setTimezone('UTC')
+                            ->format('Y-m-d\TH:i:s\Z');
+                    }
+                }
             }
 
             return [
