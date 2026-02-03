@@ -441,9 +441,9 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 }
 
                 return [
+                    'id' => $order->id,
                     'items_count' => (int) ($order->items_count ?? 0),
-                    'order_id' => $order->id,
-                    'order_type' => $orderType,
+                    'type' => $orderType,
                     'status' => $status ?? 'draft',
                     'date' => $order->created_at?->format('Y-m-d H:i:s') ?? null,
                 ];
