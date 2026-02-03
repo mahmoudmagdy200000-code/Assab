@@ -322,10 +322,30 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 OrderStatus::CONFIRMED,
                 OrderStatus::PARTIAL_CONFIRMATION,
             ]);
-        } else {
-            // For other order types: only DELIVERED status
+        } elseif ($orderType !== null) {
+            // For other specific order types: only DELIVERED status
             $query->byStatus(OrderStatus::DELIVERED)
                 ->whereNotNull('expected_delivery_at');
+        } else {
+            // If no type filter: include both internal_transfer and other orders
+            $query->where(function ($q) {
+                // Internal Transfer orders with receivable statuses
+                $q->where(function ($internalTransferQuery) {
+                    $internalTransferQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
+                        ->whereIn('status', [
+                            OrderStatus::FULLY_APPROVED,
+                            OrderStatus::PARTIAL_APPROVED,
+                            OrderStatus::CONFIRMED,
+                            OrderStatus::PARTIAL_CONFIRMATION,
+                        ]);
+                })
+                // Other order types with DELIVERED status
+                ->orWhere(function ($otherOrdersQuery) {
+                    $otherOrdersQuery->where('order_type', '!=', OrderType::INTERNAL_TRANSFER)
+                        ->where('status', OrderStatus::DELIVERED)
+                        ->whereNotNull('expected_delivery_at');
+                });
+            });
         }
 
         // Apply order type filter if provided
@@ -334,11 +354,36 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         }
 
         if (!empty($filters['branch_id'])) {
-            $query->byBranch($filters['branch_id']);
+            $branchId = $filters['branch_id'];
+            
+            if ($orderType === OrderType::INTERNAL_TRANSFER) {
+                // For Internal Transfer: filter by to_branch_id (the receiving branch)
+                // This is the branch that will receive the order
+                $query->where('to_branch_id', $branchId);
+            } elseif ($orderType === null) {
+                // If no type filter: check both internal_transfer (to_branch_id) and others (branch_id)
+                $query->where(function ($q) use ($branchId) {
+                    $q->where(function ($internalTransferQuery) use ($branchId) {
+                        $internalTransferQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
+                            ->where('to_branch_id', $branchId);
+                    })
+                    ->orWhere(function ($otherOrdersQuery) use ($branchId) {
+                        $otherOrdersQuery->where('order_type', '!=', OrderType::INTERNAL_TRANSFER)
+                            ->where('branch_id', $branchId);
+                    });
+                });
+            } else {
+                // For other order types: filter by branch_id (the requesting branch)
+                $query->byBranch($branchId);
+            }
         }
 
         // Order by expected_delivery_at for non-internal-transfer, or created_at for internal-transfer
         if ($orderType === OrderType::INTERNAL_TRANSFER) {
+            $query->orderBy('created_at', 'desc');
+        } elseif ($orderType === null) {
+            // If no type filter: order internal_transfer by created_at, others by expected_delivery_at
+            // This is handled in the grouping logic, so just order by created_at for all
             $query->orderBy('created_at', 'desc');
         } else {
             $query->orderBy('expected_delivery_at', 'asc')
@@ -350,7 +395,10 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         // Group orders by expected_delivery_at date (for non-internal-transfer)
         // or by confirmed_at/created_at date (for internal-transfer)
         $groupedOrders = $orders->groupBy(function ($order) use ($orderType) {
-            if ($orderType === OrderType::INTERNAL_TRANSFER) {
+            // Check if this is an internal transfer order (even if orderType filter is null)
+            $isInternalTransfer = $order->order_type === OrderType::INTERNAL_TRANSFER;
+            
+            if ($isInternalTransfer) {
                 // For internal transfer: use confirmed_at or created_at
                 return $order->confirmed_at?->format('Y-m-d')
                     ?? $order->created_at?->format('Y-m-d')
@@ -405,7 +453,10 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             $expectedDeliveryDate = null;
 
             if ($date !== 'no-date') {
-                if ($orderType === OrderType::INTERNAL_TRANSFER) {
+                // Check if this is an internal transfer order (even if orderType filter is null)
+                $isInternalTransfer = $firstOrder->order_type === OrderType::INTERNAL_TRANSFER;
+                
+                if ($isInternalTransfer) {
                     // For internal transfer: use confirmed_at or created_at
                     $dateField = $firstOrder->confirmed_at ?? $firstOrder->created_at;
                     if ($dateField) {
