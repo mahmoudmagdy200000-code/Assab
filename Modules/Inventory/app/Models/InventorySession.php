@@ -61,7 +61,8 @@ class InventorySession extends Model
                 $session->status = InventorySessionStatus::DRAFT;
             }
 
-            if (empty($session->start_time)) {
+            // Only set start_time automatically for personal assignments
+            if (empty($session->start_time) && $session->assigned_to_type === 'personal') {
                 $session->start_time = now();
             }
         });

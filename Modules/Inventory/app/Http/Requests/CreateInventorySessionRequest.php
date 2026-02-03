@@ -24,12 +24,13 @@ class CreateInventorySessionRequest extends FormRequest
         return [
             'assigned_to_type' => ['required', 'string', 'in:personal,staff'],
             'assigned_to_id' => ['required_if:assigned_to_type,staff', 'uuid', 'exists:cashiers,id'],
-            'inventory_date' => ['required', 'date'],
-            'start_time' => ['required', 'date_format:Y-m-d H:i:s'],
+            'inventory_date' => ['required_if:assigned_to_type,personal', 'nullable', 'date'],
+            'start_time' => ['required_if:assigned_to_type,personal', 'nullable', 'date_format:Y-m-d H:i:s'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'items' => ['nullable', 'array'],
             'items.*.item_id' => ['required_with:items', 'uuid', 'exists:purchase_order_items,id'],
             'items.*.quantity' => ['required_with:items', 'numeric', 'min:0'],
+            'items.*.notes' => ['nullable', 'string', 'max:1000'],
         ];
     }
 
@@ -45,9 +46,9 @@ class CreateInventorySessionRequest extends FormRequest
             'assigned_to_type.in' => 'The assignment type must be either personal or staff.',
             'assigned_to_id.required_if' => 'Employee ID is required when assignment type is staff.',
             'assigned_to_id.exists' => 'The selected employee does not exist.',
-            'inventory_date.required' => 'The inventory date is required.',
+            'inventory_date.required_if' => 'The inventory date is required when assignment type is personal.',
             'inventory_date.date' => 'The inventory date must be a valid date.',
-            'start_time.required' => 'The start time is required.',
+            'start_time.required_if' => 'The start time is required when assignment type is personal.',
             'start_time.date_format' => 'The start time must be in the format Y-m-d H:i:s.',
             'notes.max' => 'The notes may not be greater than 1000 characters.',
             'items.array' => 'Items must be an array.',
@@ -56,6 +57,7 @@ class CreateInventorySessionRequest extends FormRequest
             'items.*.quantity.required_with' => 'Quantity is required for each item.',
             'items.*.quantity.numeric' => 'Quantity must be a number.',
             'items.*.quantity.min' => 'Quantity must be at least 0.',
+            'items.*.notes.max' => 'Item notes may not be greater than 1000 characters.',
         ];
     }
 }

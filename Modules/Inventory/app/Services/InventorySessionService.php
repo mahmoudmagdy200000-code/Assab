@@ -83,8 +83,8 @@ class InventorySessionService
                 'created_by' => $manager->id,
                 'assigned_to_type' => $data['assigned_to_type'],
                 'assigned_to_id' => $data['assigned_to_type'] === 'staff' ? $data['assigned_to_id'] : null,
-                'inventory_date' => $data['inventory_date'],
-                'start_time' => $data['start_time'],
+                'inventory_date' => $data['inventory_date'] ?? null,
+                'start_time' => $data['start_time'] ?? null,
                 'notes' => $data['notes'] ?? null,
                 'status' => InventorySessionStatus::DRAFT,
             ];
@@ -106,7 +106,8 @@ class InventorySessionService
                         $session->id,
                         $itemData['item_id'],
                         $manager,
-                        $itemData['quantity'] ?? 0
+                        $itemData['quantity'] ?? 0,
+                        $itemData['notes'] ?? null
                     );
                 }
             }
@@ -122,9 +123,10 @@ class InventorySessionService
      * @param string $purchaseOrderItemId
      * @param BranchManager $manager
      * @param float $quantity
+     * @param string|null $notes
      * @return InventoryItem
      */
-    private function addItemToSession(string $sessionId, string $purchaseOrderItemId, BranchManager $manager, float $quantity = 0): InventoryItem
+    private function addItemToSession(string $sessionId, string $purchaseOrderItemId, BranchManager $manager, float $quantity = 0, ?string $notes = null): InventoryItem
     {
         // Get purchase order item
         $purchaseOrderItem = PurchaseOrderItem::with('purchaseOrder')
@@ -151,7 +153,7 @@ class InventorySessionService
             'item_id' => $purchaseOrderItem->item_id,
             'item_name' => $purchaseOrderItem->item_name,
             'quantity_inventory' => $quantity,
-            'notes' => null,
+            'notes' => $notes,
             'branch_id' => $manager->branch_id,
         ]);
     }
