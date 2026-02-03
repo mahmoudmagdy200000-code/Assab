@@ -15,6 +15,7 @@ use Modules\Purchase\Models\PurchaseInvoice;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseVariance;
 use Modules\Purchase\Transformers\FileResource;
+use Modules\Purchase\Transformers\GoodsReceiptListResource;
 
 class GoodsReceiptService
 {
@@ -38,30 +39,10 @@ class GoodsReceiptService
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
 
-        // Transform results to return only requested fields
-        $paginator->getCollection()->transform(function ($receipt) {
-            $orderType = null;
-            try {
-                if ($receipt->purchaseOrder && $receipt->purchaseOrder->order_type) {
-                    $orderTypeValue = $receipt->purchaseOrder->order_type;
-                    if ($orderTypeValue instanceof \BackedEnum) {
-                        $orderType = $orderTypeValue->value;
-                    } elseif (is_string($orderTypeValue)) {
-                        $orderType = $orderTypeValue;
-                    }
-                }
-            } catch (\Exception $e) {
-                // If enum access fails, set to null
-                $orderType = null;
-            }
-
-            return [
-                'items_count' => (int) ($receipt->items_count ?? 0),
-                'order_type' => $orderType,
-                'status' => $receipt->status ?? 'draft',
-                'date' => $receipt->created_at?->format('Y-m-d H:i:s') ?? null,
-            ];
-        });
+        // Use Resource class instead of transform
+        $paginator->setCollection(
+            GoodsReceiptListResource::collection($paginator->getCollection())
+        );
 
         return $paginator;
     }
@@ -84,30 +65,10 @@ class GoodsReceiptService
 
         $paginator = $query->orderBy('updated_at', 'desc')->paginate($perPage);
 
-        // Transform results
-        $paginator->getCollection()->transform(function ($receipt) {
-            $orderType = null;
-            try {
-                if ($receipt->purchaseOrder && $receipt->purchaseOrder->order_type) {
-                    $orderTypeValue = $receipt->purchaseOrder->order_type;
-                    if ($orderTypeValue instanceof \BackedEnum) {
-                        $orderType = $orderTypeValue->value;
-                    } elseif (is_string($orderTypeValue)) {
-                        $orderType = $orderTypeValue;
-                    }
-                }
-            } catch (\Exception $e) {
-                $orderType = null;
-            }
-
-            return [
-                'id' => $receipt->id,
-                'items_count' => (int) ($receipt->items_count ?? 0),
-                'type' => $orderType,
-                'status' => 'draft',
-                'date' => $receipt->updated_at?->format('Y-m-d H:i:s') ?? $receipt->created_at?->format('Y-m-d H:i:s'),
-            ];
-        });
+        // Use Resource class instead of transform
+        $paginator->setCollection(
+            GoodsReceiptListResource::collection($paginator->getCollection())
+        );
 
         return $paginator;
     }
@@ -130,30 +91,10 @@ class GoodsReceiptService
 
         $paginator = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
-        // Transform results
-        $paginator->getCollection()->transform(function ($receipt) {
-            $orderType = null;
-            try {
-                if ($receipt->purchaseOrder && $receipt->purchaseOrder->order_type) {
-                    $orderTypeValue = $receipt->purchaseOrder->order_type;
-                    if ($orderTypeValue instanceof \BackedEnum) {
-                        $orderType = $orderTypeValue->value;
-                    } elseif (is_string($orderTypeValue)) {
-                        $orderType = $orderTypeValue;
-                    }
-                }
-            } catch (\Exception $e) {
-                $orderType = null;
-            }
-
-            return [
-                'id' => $receipt->id,
-                'items_count' => (int) ($receipt->items_count ?? 0),
-                'type' => $orderType,
-                'status' => $receipt->status,
-                'date' => $receipt->created_at?->format('Y-m-d H:i:s'),
-            ];
-        });
+        // Use Resource class instead of transform
+        $paginator->setCollection(
+            GoodsReceiptListResource::collection($paginator->getCollection())
+        );
 
         return $paginator;
     }
@@ -176,43 +117,10 @@ class GoodsReceiptService
 
         $paginator = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
-        // Transform results
-        $paginator->getCollection()->transform(function ($receipt) {
-            $orderType = null;
-            $status = 'closed';
-
-            try {
-                if ($receipt->purchaseOrder) {
-                    if ($receipt->purchaseOrder->order_type) {
-                        $orderTypeValue = $receipt->purchaseOrder->order_type;
-                        if ($orderTypeValue instanceof \BackedEnum) {
-                            $orderType = $orderTypeValue->value;
-                        } elseif (is_string($orderTypeValue)) {
-                            $orderType = $orderTypeValue;
-                        }
-                    }
-
-                    // Determine status
-                    if (
-                        $receipt->purchaseOrder->status === \Modules\Purchase\Enums\OrderStatus::CANCELED ||
-                        $receipt->purchaseOrder->status === \Modules\Purchase\Enums\OrderStatus::CANCELLED_BY_BRANCH ||
-                        $receipt->purchaseOrder->status === \Modules\Purchase\Enums\OrderStatus::CANCELLED_BY_SUPPLIER
-                    ) {
-                        $status = 'canceled';
-                    }
-                }
-            } catch (\Exception $e) {
-                $orderType = null;
-            }
-
-            return [
-                'id' => $receipt->id,
-                'items_count' => (int) ($receipt->items_count ?? 0),
-                'type' => $orderType,
-                'status' => $status,
-                'date' => $receipt->created_at?->format('Y-m-d H:i:s'),
-            ];
-        });
+        // Use Resource class instead of transform
+        $paginator->setCollection(
+            GoodsReceiptListResource::collection($paginator->getCollection())
+        );
 
         return $paginator;
     }
