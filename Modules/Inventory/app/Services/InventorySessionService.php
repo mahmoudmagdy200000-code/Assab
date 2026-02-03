@@ -348,8 +348,8 @@ class InventorySessionService
 
         return [
             'session_summary' => [
-                'inventory_date' => $session->inventory_date->format('Y-m-d'),
-                'start_time' => $session->start_time->format('Y-m-d H:i:s'),
+                'inventory_date' => $session->inventory_date?->format('Y-m-d'),
+                'start_time' => $session->start_time?->format('Y-m-d H:i:s'),
                 'end_time' => $session->end_time?->format('Y-m-d H:i:s'),
                 'time_taken' => $session->time_taken_formatted,
             ],
