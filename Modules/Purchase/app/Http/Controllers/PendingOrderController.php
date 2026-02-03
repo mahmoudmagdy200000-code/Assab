@@ -140,6 +140,9 @@ class PendingOrderController extends BaseController
     /**
      * Approve order
      *
+     * For Internal Transfer orders: sets status to fully_approved
+     * For other order types: works as before
+     *
      * @group Pending Orders
      */
     public function approve(ApproveOrderRequest $request, string $id): JsonResponse
@@ -153,6 +156,11 @@ class PendingOrderController extends BaseController
                 return $this->notFoundResponse('Order not found');
             }
 
+            // Only work on Internal Transfer orders
+            if ($order->order_type !== OrderType::INTERNAL_TRANSFER) {
+                return $this->errorResponse('This endpoint is only for Internal Transfer orders', 400);
+            }
+
             $readyTime = $request->validated()['ready_time'] ?? null;
 
             try {
@@ -160,6 +168,12 @@ class PendingOrderController extends BaseController
 
                 if (!$success) {
                     return $this->errorResponse('Cannot approve order in current status', 400);
+                }
+
+                // For Internal Transfer: update status to fully_approved
+                if ($order->order_type === OrderType::INTERNAL_TRANSFER) {
+                    $order->refresh();
+                    $order->update(['status' => OrderStatus::FULLY_APPROVED]);
                 }
             } catch (\InvalidArgumentException $e) {
                 return $this->errorResponse($e->getMessage(), 400);
@@ -177,6 +191,9 @@ class PendingOrderController extends BaseController
     /**
      * Partially approve order
      *
+     * For Internal Transfer orders: sets status to partial_approved
+     * For other order types: works as before
+     *
      * @group Pending Orders
      */
     public function partialApprove(ApproveOrderRequest $request, string $id): JsonResponse
@@ -190,6 +207,11 @@ class PendingOrderController extends BaseController
                 return $this->notFoundResponse('Order not found');
             }
 
+            // Only work on Internal Transfer orders
+            if ($order->order_type !== OrderType::INTERNAL_TRANSFER) {
+                return $this->errorResponse('This endpoint is only for Internal Transfer orders', 400);
+            }
+
             $readyTime = $request->validated()['ready_time'] ?? null;
 
             try {
@@ -197,6 +219,12 @@ class PendingOrderController extends BaseController
 
                 if (!$success) {
                     return $this->errorResponse('Cannot partially approve order', 400);
+                }
+
+                // For Internal Transfer: update status to partial_approved
+                if ($order->order_type === OrderType::INTERNAL_TRANSFER) {
+                    $order->refresh();
+                    $order->update(['status' => OrderStatus::PARTIAL_APPROVED]);
                 }
             } catch (\InvalidArgumentException $e) {
                 return $this->errorResponse($e->getMessage(), 400);
@@ -214,6 +242,9 @@ class PendingOrderController extends BaseController
     /**
      * Reject order
      *
+     * For Internal Transfer orders: sets status to rejected
+     * For other order types: works as before
+     *
      * @group Pending Orders
      */
     public function reject(RejectOrderRequest $request, string $id): JsonResponse
@@ -227,10 +258,21 @@ class PendingOrderController extends BaseController
                 return $this->notFoundResponse('Order not found');
             }
 
+            // Only work on Internal Transfer orders
+            if ($order->order_type !== OrderType::INTERNAL_TRANSFER) {
+                return $this->errorResponse('This endpoint is only for Internal Transfer orders', 400);
+            }
+
             $success = $this->orderService->rejectOrder($order, $request->reason);
 
             if (!$success) {
                 return $this->errorResponse('Cannot reject order in current status', 400);
+            }
+
+            // For Internal Transfer: ensure status is rejected
+            if ($order->order_type === OrderType::INTERNAL_TRANSFER) {
+                $order->refresh();
+                $order->update(['status' => OrderStatus::REJECTED]);
             }
 
             return $this->successResponse(
