@@ -476,7 +476,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
             return [
                 // 'expected_delivery_date' => $expectedDeliveryDate,
-                'orders' => $ordersArray,
+                 $ordersArray
             ];
         })->values();
 
