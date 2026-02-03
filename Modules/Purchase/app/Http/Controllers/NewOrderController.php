@@ -169,8 +169,14 @@ class NewOrderController extends BaseController
     /**
      * Get branches with stock for internal transfer
      *
+     * Returns branches with available stock from daily inventory including:
+     * - Branch Name, Image, Manager Name
+     * - Available Quantity (from daily inventory, e.g., "10 KG Available")
+     * - Item Details (Title, Logo, Quantity, Total Amount)
+     * - Store Details (Distance, Response Rate, Last Update, Rating)
+     *
      * Filters:
-     * - min_availability: Minimum availability percentage (0-100)
+     * - availability: Minimum availability percentage (All, 60%, 70%, 80%, 90%, 100%)
      * - search: Search by branch name
      * - response_time: Filter by response time (fast, normal, slow)
      *   - fast: response_rate >= 80%
@@ -190,8 +196,27 @@ class NewOrderController extends BaseController
             $branchId = auth()->user()->branch_id;
 
             // Validate and prepare filters
+            // Support both 'availability' (new) and 'min_availability' (legacy) for backward compatibility
+            $availability = $request->get('availability') ?? $request->get('min_availability');
+
+            // Convert availability filter to min_availability
+            // If "All" or empty, no filter. Otherwise use the percentage value
+            $minAvailability = null;
+            if (!empty($availability) && $availability !== 'All' && $availability !== 'all') {
+                // Remove % sign if present and convert to float
+                $availabilityValue = is_numeric($availability)
+                    ? (float) $availability
+                    : (float) str_replace('%', '', $availability);
+
+                // Validate availability values (60, 70, 80, 90, 100)
+                $allowedValues = [60, 70, 80, 90, 100];
+                if (in_array($availabilityValue, $allowedValues)) {
+                    $minAvailability = $availabilityValue;
+                }
+            }
+
             $filters = [
-                'min_availability' => $request->get('min_availability') ? (float) $request->get('min_availability') : null,
+                'min_availability' => $minAvailability,
                 'search' => $request->get('search'),
                 'response_time' => $request->get('response_time'), // fast, normal, slow
                 'max_distance_km' => $request->get('max_distance_km') ? (float) $request->get('max_distance_km') : null,
@@ -205,6 +230,11 @@ class NewOrderController extends BaseController
             // Validate max_distance_km
             if (!empty($filters['max_distance_km']) && $filters['max_distance_km'] < 0) {
                 return $this->errorResponse('max_distance_km must be a positive number', 400);
+            }
+
+            // Validate availability filter
+            if ($minAvailability !== null && !in_array($minAvailability, [60, 70, 80, 90, 100])) {
+                return $this->errorResponse('Invalid availability filter. Must be: All, 60, 70, 80, 90, or 100', 400);
             }
 
             // Get branches with filters applied
@@ -550,7 +580,7 @@ class NewOrderController extends BaseController
     }
 
 
-    
+
 
     /**
      * Get Purchasing Officer Items with price comparison

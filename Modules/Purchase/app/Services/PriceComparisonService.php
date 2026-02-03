@@ -19,6 +19,9 @@ use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Supplier\Models\Supplier;
 use Modules\Purchase\Models\SupplierItem;
 use Modules\Purchase\Traits\ItemHelperTrait;
+use Modules\Inventory\Models\InventoryItem;
+use Modules\Inventory\Models\InventorySession;
+use Modules\Inventory\Enums\InventorySessionStatus;
 
 class PriceComparisonService implements \Modules\Purchase\Services\Contracts\PriceComparisonServiceInterface
 {
@@ -52,7 +55,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         // If Item not found, try to find BranchItem (itemId might be BranchItem.id)
         if (!$item) {
             $branchItem = BranchItem::with('item:id,name,code,unit,logo')->find($itemId);
-            
+
             if ($branchItem && $branchItem->item) {
                 $item = $branchItem->item;
                 $itemPrice = $branchItem->price ? (float) $branchItem->price : null;
@@ -64,7 +67,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                 $branchItem = BranchItem::where('branch_id', $excludeBranchId)
                     ->where('item_id', $item->id)
                     ->first();
-                
+
                 if ($branchItem) {
                     $itemPrice = $branchItem->price ? (float) $branchItem->price : null;
                 }
@@ -803,13 +806,13 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
      *
      * Returns branches with available stock including:
      * - Branch Name, Image, Manager Name
-     * - Available Quantity
+     * - Available Quantity (from daily inventory)
      * - Distance (with estimated travel time)
      * - Response Rate (speed of fulfilling requests)
      * - Rating
-     * - Last Update
+     * - Last Update (from daily inventory)
      *
-     * @param string $itemId BranchItem.id
+     * @param string $itemId BranchItem.id or Item.id
      * @param float $quantity Required quantity
      * @param string $excludeBranchId Branch to exclude (current branch)
      * @param array $filters Additional filters
@@ -852,30 +855,166 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         // Get average unit price for total amount calculation
         $avgUnitPrice = $this->getAverageUnitPriceForInternalTransfer($item->id);
 
-        // Find BranchInventory records where item_id matches Item.id (new structure)
-        // Security: Use whereColumn instead of whereRaw to prevent SQL injection
+        // Get branches with inventory data from Daily Quick Inventory
+        // Performance: Use optimized query to get latest inventory data for all branches
+        $branchesWithInventory = InventoryItem::where('item_id', $item->id)
+            ->whereHas('inventorySession', function ($query) {
+                $query->where('status', InventorySessionStatus::COMPLETED);
+            })
+            ->whereHas('branch', function ($query) use ($excludeBranchId) {
+                $query->where('id', '!=', $excludeBranchId);
+            })
+            ->with(['branch.branchManager', 'inventorySession' => function ($query) {
+                $query->orderBy('submitted_at', 'desc')
+                    ->orderBy('end_time', 'desc');
+            }])
+            ->get()
+            ->groupBy('branch_id')
+            ->map(function ($items) {
+                // Get the latest inventory item for this branch
+                return $items->sortByDesc(function ($item) {
+                    $session = $item->inventorySession;
+                    return $session ? ($session->submitted_at ?? $session->end_time ?? $session->created_at) : null;
+                })->first();
+            })
+            ->filter(function ($item) use ($quantity, $filters) {
+                // Filter by minimum availability percentage if specified
+                if (!empty($filters['min_availability'])) {
+                    $minQuantity = $quantity * ($filters['min_availability'] / 100);
+                    return (float) $item->quantity_inventory >= $minQuantity;
+                }
+                return (float) $item->quantity_inventory > 0;
+            });
+
+        // Search by branch name
+        if (!empty($filters['search'])) {
+            $branchesWithInventory = $branchesWithInventory->filter(function ($item) use ($filters) {
+                $branchName = $item->branch->name ?? '';
+                return stripos($branchName, $filters['search']) !== false;
+            });
+        }
+
+        // Also get BranchInventory as fallback for branches without daily inventory
         $query = BranchInventory::with(['branch.branchManager', 'item'])
             ->where('item_id', $item->id)
             ->where('branch_id', '!=', $excludeBranchId)
             ->whereColumn('available_quantity', '>', 'reserved_quantity');
 
+        // Exclude branches that already have inventory data
+        if ($branchesWithInventory->isNotEmpty()) {
+            $branchIdsWithInventory = $branchesWithInventory->pluck('branch_id')->toArray();
+            $query->whereNotIn('branch_id', $branchIdsWithInventory);
+        }
+
         // Filter by minimum availability percentage
-        // Security: Use DB::raw() with where() and parameter binding to prevent SQL injection
         if (!empty($filters['min_availability'])) {
             $minQuantity = $quantity * ($filters['min_availability'] / 100);
-            // Use DB::raw() with where() instead of whereRaw() for better security
             $query->where(DB::raw('(available_quantity - reserved_quantity)'), '>=', $minQuantity);
         }
 
         // Search by branch name
         if (!empty($filters['search'])) {
             $query->whereHas('branch', fn($q) => $q->where('name', 'like', "%{$filters['search']}%"));
+
+            // Also filter inventory items by search
+            $branchesWithInventory = $branchesWithInventory->filter(function ($item) use ($filters) {
+                $branchName = $item->branch->name ?? '';
+                return stripos($branchName, $filters['search']) !== false;
+            });
         }
 
         $inventories = $query->get();
 
+        // Map branches with daily inventory data
+        $inventoryBranches = $branchesWithInventory->map(function ($inventoryItem) use ($quantity, $currentCoordinates, $branchStats, $item, $avgUnitPrice, $filters) {
+            $branch = $inventoryItem->branch;
+            $branchId = $inventoryItem->branch_id;
+            $session = $inventoryItem->inventorySession;
+
+            // Get available quantity from daily inventory
+            $availableQty = (float) $inventoryItem->quantity_inventory;
+
+            // Get last update from inventory session
+            $lastUpdate = $session
+                ? ($session->submitted_at ?? $session->end_time ?? $session->updated_at)
+                : null;
+
+            // Calculate distance
+            $targetCoordinates = $this->parseCoordinates($branch->map_coordinates ?? null);
+            $distance = $this->calculateDistance($currentCoordinates, $targetCoordinates);
+
+            // If distance is null (coordinates missing), use default values
+            if (!$distance) {
+                $distance = [
+                    'distance_km' => PurchaseConstants::DEFAULT_DISTANCE_KM,
+                    'estimated_hours' => (PurchaseConstants::DEFAULT_DISTANCE_KM / PurchaseConstants::AVERAGE_SPEED_KMH)
+                        + PurchaseConstants::LOADING_UNLOADING_HOURS,
+                ];
+            }
+
+            // Get branch manager info
+            $manager = $branch->branchManager ?? $branch->managers()->active()->first();
+
+            // Calculate total amount
+            $totalAmount = $avgUnitPrice * $quantity;
+
+            // Get response rate with default value
+            $responseRate = $branchStats[$branchId]['response_rate']
+                ?? PurchaseConstants::DEFAULT_RESPONSE_RATE;
+
+            // Get rating with default value
+            $rating = $branchStats[$branchId]['rating']
+                ?? PurchaseConstants::DEFAULT_RATING;
+
+            // Apply filters
+            if ($this->shouldFilterByResponseTime($responseRate, $filters)) {
+                return null;
+            }
+
+            if ($this->shouldFilterByDistance($distance, $filters)) {
+                return null;
+            }
+
+            return [
+                'branch_id' => $branchId,
+                'branch' => $branch ? [
+                    'id' => $branch->id,
+                    'name' => $branch->name,
+                    'location' => $branch->location ?? null,
+                    'lat' => $branch->lat ? (float) $branch->lat : null,
+                    'lng' => $branch->lng ? (float) $branch->lng : null,
+                    'image' => $branch->image ? asset('storage/' . $branch->image) : null,
+                ] : null,
+                'branch_manager' => $manager ? [
+                    'id' => $manager->id,
+                    'name' => $manager->name,
+                    'image' => $manager->image_url ?? null,
+                ] : null,
+                // Item Details
+                'item_id' => $item->id,
+                'item_title' => $item->name,
+                'item_code' => $item->code,
+                'item_logo' => $item->logo_url,
+                'quantity' => $quantity,
+                'total_amount' => round($totalAmount, 2),
+                // Available Quantity (from daily inventory)
+                'available_quantity' => $availableQty,
+                'available_quantity_label' => number_format($availableQty, 2) . ' ' . ($item->unit ?? 'kg'),
+                'availability_percentage' => min(100, round(($availableQty / $quantity) * 100, 1)),
+                'quality' => null, // Quality not available in daily inventory
+                'expiry_date' => null, // Expiry date not available in daily inventory
+                'cooling_status' => null, // Cooling status not available in daily inventory
+                // Last Update (from daily inventory)
+                'last_update' => $lastUpdate ? $lastUpdate->format('Y-m-d H:i:s') : null,
+                // Store Details
+                'distance' => $distance,
+                'response_rate' => $responseRate,
+                'rating' => $rating,
+            ];
+        })->filter(); // Remove null values from filters
+
         // If no results found by item_id, return branches that have this item in their BranchItem list
-        if ($inventories->isEmpty()) {
+        if ($inventories->isEmpty() && $inventoryBranches->isEmpty()) {
             // Get all branches that have this item (by Item.id)
             $otherBranchesItems = BranchItem::with(['branch.branchManager', 'item'])
                 ->where('item_id', $item->id)
@@ -983,7 +1122,8 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             })->filter(); // Remove null values from filters
         }
 
-        return $inventories->map(function ($inventory) use ($quantity, $currentCoordinates, $branchStats, $item, $avgUnitPrice, $filters) {
+        // Map BranchInventory records (fallback for branches without daily inventory)
+        $branchInventoryBranches = $inventories->map(function ($inventory) use ($quantity, $currentCoordinates, $branchStats, $item, $avgUnitPrice, $filters) {
             $branch = $inventory->branch;
             $branchId = $inventory->branch_id;
             $inventoryItem = $inventory->item ?? $item; // Use Item from inventory or fallback to $item
@@ -1056,12 +1196,13 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                 'last_update' => $inventory->last_inventory_update?->format('Y-m-d H:i:s'),
                 // Store Details
                 'distance' => $distance,
-                // 'distance_km' => $distance ? round($distance['distance_km'], 2) : null,
-                // 'estimated_hours' => $distance ? round($distance['estimated_hours'], 1) : null,
                 'response_rate' => $responseRate,
                 'rating' => $rating,
             ];
         })->filter(); // Remove null values from filters
+
+        // Merge inventory branches (from Daily Inventory) with BranchInventory branches (fallback)
+        return $inventoryBranches->merge($branchInventoryBranches)->values();
     }
 
     /**
