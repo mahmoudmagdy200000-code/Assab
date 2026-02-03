@@ -37,6 +37,13 @@ class Branch extends Model
         return $this->hasMany(BranchManager::class);
     }
 
+    public function branchManager()
+    {
+        return $this->hasOne(BranchManager::class)
+            ->where('status', 'active')
+            ->orderBy('created_at', 'desc');
+    }
+
     public function cashiers()
     {
         return $this->hasMany(Cashier::class);
