@@ -441,6 +441,10 @@ class GoodsReceivingController extends BaseController
     /**
      * Get draft details
      *
+     * According to requirements 3.1.2.4.4.2.1.3:
+     * - View Goods Draft Via Internal Transfer from Another Branch
+     * - Displays order details, items, and available actions (Continue Editing, Delete Draft)
+     *
      * @group Goods Receiving
      */
     public function getDraftDetails(string $id): JsonResponse
@@ -450,6 +454,11 @@ class GoodsReceivingController extends BaseController
 
             if (!$receipt) {
                 return $this->notFoundResponse('Draft receipt not found');
+            }
+
+            // Ensure all required relationships are loaded for Internal Transfer
+            if ($receipt->purchaseOrder && $receipt->purchaseOrder->order_type === OrderType::INTERNAL_TRANSFER) {
+                $receipt->purchaseOrder->loadMissing(['fromBranch', 'requestedBy', 'items']);
             }
 
             return $this->successResponse(
@@ -874,6 +883,10 @@ class GoodsReceivingController extends BaseController
     /**
      * Receive internal transfer order
      *
+     * According to requirements 3.1.2.4.4.1.2.3:
+     * - Receive order via Internal Transfer from Another Branch
+     * - After receiving, the order is automatically moved to Purchase History page and complete order page
+     *
      * @group Goods Receiving
      */
     public function receiveInternalTransfer(Request $request, string $orderId): JsonResponse
@@ -890,15 +903,23 @@ class GoodsReceivingController extends BaseController
                 return $this->errorResponse('This endpoint is only for internal transfer orders', 400);
             }
 
+            // Validate order status - must be Confirmed or Partial Confirmation
+            if (!in_array($order->status?->value, ['confirmed', 'partial_confirmation'])) {
+                return $this->errorResponse('Order must be confirmed or partially confirmed before receiving', 400);
+            }
+
             $receipt = $this->receiptService->receiveInternalTransfer(
                 $order,
                 auth()->id(),
                 $request->only(['driver_name', 'driver_contact', 'vehicle_number', 'arrival_time', 'delivery_address'])
             );
 
+            // Order status is automatically updated to CLOSED in service
+            // This moves the order to Purchase History and Complete Order pages
+
             return $this->createdResponse(
-                new GoodsReceiptResource($receipt),
-                'Internal transfer received successfully'
+                new GoodsReceiptResource($receipt->load(['purchaseOrder.fromBranch', 'purchaseOrder.requestedBy'])),
+                'Internal transfer received successfully. Order moved to Purchase History.'
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'receiving internal transfer');

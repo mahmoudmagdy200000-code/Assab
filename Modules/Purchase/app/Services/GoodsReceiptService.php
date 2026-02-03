@@ -990,6 +990,8 @@ class GoodsReceiptService
         return GoodsReceipt::with([
             'items',
             'purchaseOrder.supplier',
+            'purchaseOrder.fromBranch',
+            'purchaseOrder.requestedBy',
             'purchaseOrder.items',
             'invoice',
             'variances',
