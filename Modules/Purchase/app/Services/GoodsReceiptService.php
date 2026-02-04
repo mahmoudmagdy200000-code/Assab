@@ -973,7 +973,12 @@ class GoodsReceiptService
 
             // Auto-complete and move to history
             $receipt->completeInspection();
-            $order->transitionTo(OrderStatus::CLOSED);
+
+            // For internal transfer, directly update status to CLOSED (bypass transition rules)
+            $order->update([
+                'status' => OrderStatus::CLOSED->value,
+                'closed_at' => now(),
+            ]);
 
             $this->timelineService->logInspectionCompleted($receipt);
             $this->timelineService->logOrderClosed($order);
