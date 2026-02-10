@@ -7,6 +7,9 @@ use Modules\RecurringOrder\Http\Controllers\RecurringOrderController;
 |--------------------------------------------------------------------------
 | Recurring Orders Management (3.1.2.6) - Branch Manager
 |--------------------------------------------------------------------------
+| Base path: api/v1/recurring-orders (prefix 'api' from RouteServiceProvider)
+| Example: GET api/v1/recurring-orders/in-progress (not api/v1/in-progress)
+|--------------------------------------------------------------------------
 */
 
 Route::middleware(['auth:sanctum'])->prefix('v1/recurring-orders')->group(function () {

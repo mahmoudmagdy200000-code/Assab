@@ -1,10 +1,20 @@
 # Recurring Orders API (3.1.2.6)
 
+## Base URL (required)
+
+All Recurring Order endpoints are under:
+
+- **Base path:** `api/v1/recurring-orders`
+- **Correct example:** `GET https://your-domain.com/api/v1/recurring-orders/in-progress`
+- **Wrong (404):** `GET https://your-domain.com/api/v1/in-progress` — missing `recurring-orders` segment.
+
+Use the full path in production and in ApiDog.
+
 ## OpenAPI for ApiDog / Postman
 
 - **File:** `recurring-orders-openapi.json` (OpenAPI 3.0)
 - **Import in ApiDog:** Project → Import → OpenAPI → Upload `recurring-orders-openapi.json`
-- **Base URL:** Set in ApiDog to your API root (e.g. `https://your-domain.com/api/v1/recurring-orders` or use server variable).
+- **Base URL in ApiDog:** Set server to `https://your-domain.com/api/v1/recurring-orders` (must include `/recurring-orders`).
 - **Auth:** Bearer token (Branch Manager Sanctum). Add in ApiDog as Bearer Token auth.
 
 ## Requirements Coverage
