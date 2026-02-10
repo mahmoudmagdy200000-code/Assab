@@ -61,6 +61,11 @@ return Application::configure(basePath: dirname(__DIR__))
             ->sundays()
             ->at('00:05')
             ->timezone('Asia/Riyadh');
+
+        // Process recurring orders: create purchase orders from due recurring schedules
+        $schedule->job(new \Modules\RecurringOrder\Jobs\ProcessRecurringOrdersJob())
+            ->everyFiveMinutes()
+            ->withoutOverlapping(5);
     })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([

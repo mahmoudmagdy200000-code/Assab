@@ -72,6 +72,7 @@ class PurchaseOrder extends Model
         'cooling_status',
         'ready_time',
         'parent_order_id',
+        'recurring_order_id',
         'submitted_at',
         'confirmed_at',
         'preparation_started_at',
@@ -181,6 +182,11 @@ class PurchaseOrder extends Model
     public function childOrders(): HasMany
     {
         return $this->hasMany(PurchaseOrder::class, 'parent_order_id');
+    }
+
+    public function recurringOrder(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\RecurringOrder\Models\RecurringOrder::class, 'recurring_order_id');
     }
 
     public function items(): HasMany
@@ -414,6 +420,9 @@ class PurchaseOrder extends Model
 
         // Update in single query
         $this->update($updateData);
+
+        // Dispatch event for listeners (e.g. RecurringOrder module)
+        \Modules\Purchase\Events\OrderStatusChanged::dispatch($this, $oldStatus, $newStatus);
 
         // Auto-check if order should transition to CONFIRMED after item status changes
         if ($this->status === OrderStatus::PENDING) {

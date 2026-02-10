@@ -3,6 +3,8 @@
 namespace Modules\RecurringOrder\Providers;
 
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
+use Modules\Purchase\Events\OrderStatusChanged;
+use Modules\RecurringOrder\Listeners\UpdateRecurringOrderWhenPurchaseOrderEnded;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -11,7 +13,11 @@ class EventServiceProvider extends ServiceProvider
      *
      * @var array<string, array<int, string>>
      */
-    protected $listen = [];
+    protected $listen = [
+        OrderStatusChanged::class => [
+            UpdateRecurringOrderWhenPurchaseOrderEnded::class,
+        ],
+    ];
 
     /**
      * Indicates if events should be discovered.

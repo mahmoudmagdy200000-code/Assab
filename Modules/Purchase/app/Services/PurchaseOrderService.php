@@ -461,18 +461,22 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 ? OrderType::from($data['order_type'])
                 : $data['order_type'];
 
-            if ($orderType === OrderType::DIRECT_SUPPLIER) {
+            // Allow explicit sourceable (e.g. from recurring order where officer != requested_by)
+            if (!empty($data['sourceable_type']) && !empty($data['sourceable_id'])) {
+                $sourceableType = $data['sourceable_type'];
+                $sourceableId = $data['sourceable_id'];
+            } elseif ($orderType === OrderType::DIRECT_SUPPLIER) {
                 $sourceableType = \Modules\Supplier\Models\Supplier::class;
                 $sourceableId = $data['supplier_id'] ?? null;
                 if (!$sourceableId) {
                     throw new \InvalidArgumentException('Supplier ID is required for direct supplier orders');
                 }
             } elseif ($orderType === OrderType::VIA_PURCHASING_OFFICER) {
-                // For purchasing officer orders, use the branch manager as source
+                // For purchasing officer orders, use the branch manager as source (or explicit sourceable from recurring)
                 $sourceableType = \Modules\BranchManagers\Models\BranchManager::class;
-                $sourceableId = $data['requested_by'] ?? null;
+                $sourceableId = $data['sourceable_id'] ?? $data['requested_by'] ?? null;
                 if (!$sourceableId) {
-                    throw new \InvalidArgumentException('Requested by (Branch Manager ID) is required');
+                    throw new \InvalidArgumentException('Requested by (Branch Manager ID) or sourceable is required');
                 }
             } elseif ($orderType === OrderType::INTERNAL_TRANSFER) {
                 $sourceableType = \Modules\Branch\Models\Branch::class;
@@ -501,6 +505,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 'message' => $data['message'] ?? null,
                 'special_instructions' => $data['special_instructions'] ?? null,
                 'tax_rate' => $data['tax_rate'] ?? PurchaseConstants::DEFAULT_TAX_RATE,
+                'recurring_order_id' => $data['recurring_order_id'] ?? null,
             ]);
 
             // Create order items
