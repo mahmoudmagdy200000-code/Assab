@@ -76,6 +76,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'localeCookieRedirect'  => \Mcamara\LaravelLocalization\Middleware\LocaleCookieRedirect::class,
             'localeViewPath'        => \Mcamara\LaravelLocalization\Middleware\LaravelLocalizationViewPath::class,
             'branch.manager' => \Modules\BranchManagers\Http\Middleware\BranchManagerMiddleware::class,
+            'branch.manager.or.cashier' => \App\Http\Middleware\BranchManagerOrCashierMiddleware::class,
             'cashier' => \Modules\Cashier\Http\Middleware\CashierMiddleware::class,
             'brand.owner' => \Modules\BrandOwner\Http\Middleware\BrandOwnerMiddleware::class,
             'supplier' => \Modules\Supplier\Http\Middleware\SupplierMiddleware::class,

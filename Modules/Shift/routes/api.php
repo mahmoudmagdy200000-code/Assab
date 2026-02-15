@@ -22,7 +22,7 @@ use Modules\Shift\Http\Controllers\{
 */
 
 Route::prefix('branch-manager')
-    ->middleware(['auth:sanctum', 'branch.manager','cashier'])
+    ->middleware(['auth:sanctum', 'branch.manager.or.cashier'])
     ->group(function () {
 
 
