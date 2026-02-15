@@ -78,9 +78,6 @@ class ProfileController extends BaseController
 
         $stats = $this->profileService->getCashierStatistics($cashier->id);
 
-        return  $this->paginatedResponse(
-            new CashierDetailResource($stats),
-            'Statistics retrieved successfully'
-        );
+        return $this->successResponse($stats, 'Statistics retrieved successfully');
     }
 }

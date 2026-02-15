@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Modules\Cashier\Http\Controllers\{
     CashierController,
     CashierManagementController,
+    CashierSettingsController,
     ProfileController
 };
 use Modules\Cashier\Http\Controllers\Auth\{
@@ -79,9 +80,15 @@ Route::prefix('cashier')
         // Authentication
         Route::post('/logout', [LoginController::class, 'logout']);
 
-        // Profile Management
+        // Profile Management (3.2.1.3 Profile Settings)
         Route::get('/profile', [ProfileController::class, 'show']);
         Route::put('/profile', [ProfileController::class, 'update']);
         Route::post('/profile/image', [ProfileController::class, 'uploadImage']);
         Route::get('/profile/statistics', [ProfileController::class, 'statistics']);
+
+        // Settings (3.2.1.3 Account, Notifications, System)
+        Route::get('/settings', [CashierSettingsController::class, 'index']);
+        Route::get('/settings/account', [CashierSettingsController::class, 'account']);
+        Route::put('/settings/notifications', [CashierSettingsController::class, 'updateNotifications']);
+        Route::put('/settings/system', [CashierSettingsController::class, 'updateSystem']);
     });

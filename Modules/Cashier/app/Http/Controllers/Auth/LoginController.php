@@ -16,24 +16,30 @@ use Modules\Cashier\Transformers\CashierResource;
 class LoginController extends BaseController
 {
     /**
-     * Handle cashier login
+     * Handle cashier login (3.2.1.1)
+     * Email/Phone and password. "Remember Me" extends token expiry.
+     * Pending accounts must activate first with default password.
      */
-    public function login(LoginRequest $request)
+    public function login(LoginRequest $request): JsonResponse
     {
         $identifier = $request->identifier;
         $password = $request->password;
+        $rememberMe = $request->boolean('remember_me');
 
-        // Check if identifier is email or phone
         $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
-        
-        // Find cashier
         $cashier = Cashier::where($field, $identifier)->first();
 
-        if (!$cashier || !Hash::check($password, $cashier->password)) {
-            return $this->errorResponse('Invalid credentials', 401);
+        if (!$cashier) {
+            return $this->errorResponse('Invalid credentials or inactive account.', 401);
         }
 
-        // Check if account is active
+        if ($cashier->isPending()) {
+            return $this->errorResponse(
+                'Please activate your account using the default password provided by your branch manager.',
+                403
+            );
+        }
+
         if (!$cashier->isActive()) {
             return $this->errorResponse(
                 'Your account is not active. Please contact your manager.',
@@ -41,8 +47,14 @@ class LoginController extends BaseController
             );
         }
 
-        // Create token
-        $token = $cashier->createToken('cashier-token')->plainTextToken;
+        if (!Hash::check($password, $cashier->password)) {
+            return $this->errorResponse('Invalid credentials or inactive account.', 401);
+        }
+
+        $expiresAt = $rememberMe ? now()->addDays(30) : null;
+        $token = $expiresAt
+            ? $cashier->createToken('cashier-token', ['*'], $expiresAt)->plainTextToken
+            : $cashier->createToken('cashier-token')->plainTextToken;
 
         return $this->successResponse([
             'user' => [
@@ -58,12 +70,11 @@ class LoginController extends BaseController
     }
 
     /**
-     * Handle cashier logout
+     * Handle cashier logout (3.2.1.4)
      */
-    public function logout(Request $request)
+    public function logout(Request $request): JsonResponse
     {
         $request->user()->currentAccessToken()->delete();
-
-        return $this->successResponse('Logged out successfully');
+        return $this->successResponse(null, 'Logged out successfully');
     }
 }

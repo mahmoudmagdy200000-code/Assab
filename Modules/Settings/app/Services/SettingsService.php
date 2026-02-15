@@ -13,14 +13,20 @@ use Modules\Cashier\Models\Cashier;
 class SettingsService
 {
     /**
-     * Get user settings
+     * Get user settings (userType must be morph class: BranchManager::class or Cashier::class)
      */
     public function getUserSettings(string $userId, string $userType): UserSetting
     {
+        $morphType = match ($userType) {
+            'branch_manager' => BranchManager::class,
+            'cashier' => Cashier::class,
+            default => $userType,
+        };
+
         return UserSetting::firstOrCreate(
             [
                 'userable_id' => $userId,
-                'userable_type' => $userType,
+                'userable_type' => $morphType,
             ],
             [
                 'language' => 'ar',
@@ -32,6 +38,51 @@ class SettingsService
                 'notification_split_shift_handover' => true,
             ]
         );
+    }
+
+    /**
+     * Get or create settings for a Cashier (3.2.1.3)
+     */
+    public function getSettingsForCashier(string $cashierId): UserSetting
+    {
+        return $this->getUserSettings($cashierId, Cashier::class);
+    }
+
+    /**
+     * Account details + branch details for Cashier (3.2.1.3 Account & Password Settings)
+     */
+    public function getAccountDetailsForCashier(string $cashierId): array
+    {
+        $cashier = Cashier::with(['branch', 'creator'])->findOrFail($cashierId);
+        $branch = $cashier->branch;
+        $openingFormatted = 'Mon–Fri / 9:00 AM – 8:00 PM';
+        if ($branch && $branch->opening_hours instanceof \Carbon\Carbon && $branch->closing_hours instanceof \Carbon\Carbon) {
+            $openingFormatted = 'Mon–Fri / ' . $branch->opening_hours->format('g:i A') . ' – ' . $branch->closing_hours->format('g:i A');
+        }
+        $googleMapsUrl = $branch && $branch->lat && $branch->lng
+            ? 'https://www.google.com/maps?q=' . (float) $branch->lat . ',' . (float) $branch->lng
+            : null;
+
+        return [
+            'account' => [
+                'id' => $cashier->id,
+                'name' => $cashier->name,
+                'email' => $cashier->email,
+                'phone' => $cashier->phone,
+                'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
+                'position' => 'Cashier',
+                'created_at' => $cashier->created_at->format('Y-m-d H:i:s'),
+                'created_by' => $cashier->creator ? ['id' => $cashier->creator->id, 'name' => $cashier->creator->name] : null,
+            ],
+            'branch' => $branch ? [
+                'id' => $branch->id,
+                'name' => $branch->name,
+                'image' => $branch->image ? asset('storage/' . $branch->image) : null,
+                'opening_hours' => $openingFormatted,
+                'google_maps_url' => $googleMapsUrl,
+                'location' => $branch->location ?? null,
+            ] : null,
+        ];
     }
 
     /**

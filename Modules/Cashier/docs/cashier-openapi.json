@@ -1,0 +1,710 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Cashier API",
+    "description": "Section 3.2 - Cashier: Auth (Login, Activate, Forgot/Reset Password), Profile, Settings (Account & Branch, Notifications, System).",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Assab API Support"
+    }
+  },
+  "servers": [
+    {
+      "url": "/api",
+      "description": "API base (adjust if your app uses api/v1 or other prefix)"
+    }
+  ],
+  "tags": [
+    { "name": "Auth (Public)", "description": "Login, Activate, Forgot Password, Verify OTP, Reset Password" },
+    { "name": "Profile", "description": "3.2.1.3 Profile Settings" },
+    { "name": "Settings", "description": "3.2.1.3 Account, Notifications, System" }
+  ],
+  "paths": {
+    "/cashier/auth/login": {
+      "post": {
+        "tags": ["Auth (Public)"],
+        "summary": "Login",
+        "description": "Cashier login with Email/Phone and password. Use 'Remember Me' to extend token expiry (30 days). Pending accounts must activate first.",
+        "operationId": "cashierLogin",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["identifier", "password"],
+                "properties": {
+                  "identifier": { "type": "string", "description": "Email or phone" },
+                  "password": { "type": "string", "minLength": 8 },
+                  "remember_me": { "type": "boolean", "default": false }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LoginSuccess" }
+              }
+            }
+          },
+          "401": { "description": "Invalid credentials or inactive account", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "403": { "description": "Account pending (activate first) or not active", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/cashier/auth/activate": {
+      "post": {
+        "tags": ["Auth (Public)"],
+        "summary": "Activate account",
+        "description": "First-time activation: Email/Phone + default password (from branch manager) + new password. Password: 8+ chars, 1 uppercase, 1 digit. After success, redirect to login (no token).",
+        "operationId": "cashierActivate",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["identifier", "default_password", "password", "password_confirmation"],
+                "properties": {
+                  "identifier": { "type": "string" },
+                  "default_password": { "type": "string" },
+                  "password": { "type": "string", "minLength": 8 },
+                  "password_confirmation": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Account activated; redirect to login",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "message": { "type": "string" },
+                        "redirect_to_login": { "type": "boolean", "example": true }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Already activated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "401": { "description": "Invalid default password", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "Cashier not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/cashier/auth/forgot-password": {
+      "post": {
+        "tags": ["Auth (Public)"],
+        "summary": "Send OTP (Forgot Password)",
+        "description": "Send OTP to email or phone for password reset.",
+        "operationId": "cashierForgotPassword",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["identifier", "type"],
+                "properties": {
+                  "identifier": { "type": "string", "description": "Email or phone" },
+                  "type": { "type": "string", "enum": ["email", "phone"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OTP sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": { "expires_at": { "type": "string", "format": "date-time" } }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": { "description": "Account not active", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "Cashier not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/cashier/auth/verify-otp": {
+      "post": {
+        "tags": ["Auth (Public)"],
+        "summary": "Verify OTP",
+        "description": "Verify OTP and receive reset_token for reset-password step.",
+        "operationId": "cashierVerifyOTP",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["identifier", "otp"],
+                "properties": {
+                  "identifier": { "type": "string" },
+                  "otp": { "type": "string", "minLength": 6, "maxLength": 6 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OTP verified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": { "reset_token": { "type": "string" } }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid or expired OTP", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/cashier/auth/reset-password": {
+      "post": {
+        "tags": ["Auth (Public)"],
+        "summary": "Reset password",
+        "description": "Set new password after OTP verification. Password: 8+ chars, 1 uppercase, 1 digit.",
+        "operationId": "cashierResetPassword",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["identifier", "reset_token", "password", "password_confirmation"],
+                "properties": {
+                  "identifier": { "type": "string" },
+                  "reset_token": { "type": "string" },
+                  "password": { "type": "string", "minLength": 8 },
+                  "password_confirmation": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password reset; log in with new password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": { "type": "object", "nullable": true }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid or expired reset token", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "Cashier not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/cashier/logout": {
+      "post": {
+        "tags": ["Auth (Public)"],
+        "summary": "Logout",
+        "description": "Revoke current access token (3.2.1.4).",
+        "operationId": "cashierLogout",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Logged out successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": { "type": "object", "nullable": true }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthenticated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/cashier/profile": {
+      "get": {
+        "tags": ["Profile"],
+        "summary": "Get profile",
+        "description": "Profile: image, name, position, account_created_at, branch, shifts, statistics.",
+        "operationId": "cashierGetProfile",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Profile retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": { "$ref": "#/components/schemas/CashierProfile" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthenticated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      },
+      "put": {
+        "tags": ["Profile"],
+        "summary": "Update profile",
+        "description": "Update name, phone; optionally current_password + new_password.",
+        "operationId": "cashierUpdateProfile",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "minLength": 3, "maxLength": 255 },
+                  "phone": { "type": "string", "nullable": true },
+                  "current_password": { "type": "string" },
+                  "new_password": { "type": "string", "minLength": 8 },
+                  "new_password_confirmation": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Profile updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": { "$ref": "#/components/schemas/CashierProfile" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthenticated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "Validation failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" } } } }
+        }
+      }
+    },
+    "/cashier/profile/image": {
+      "post": {
+        "tags": ["Profile"],
+        "summary": "Upload profile image",
+        "description": "Upload or replace profile image (editable).",
+        "operationId": "cashierUploadProfileImage",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["image"],
+                "properties": {
+                  "image": { "type": "string", "format": "binary", "description": "Image file (e.g. jpg, png)" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Image uploaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": { "image_url": { "type": "string", "format": "uri" } }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthenticated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "Validation failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" } } } }
+        }
+      }
+    },
+    "/cashier/profile/statistics": {
+      "get": {
+        "tags": ["Profile"],
+        "summary": "Get statistics",
+        "description": "Cashier statistics: total_shifts, completed_shifts, total_sales, total_variance, etc.",
+        "operationId": "cashierGetStatistics",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Statistics retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "total_shifts": { "type": "integer" },
+                        "completed_shifts": { "type": "integer" },
+                        "total_sales": { "type": "number" },
+                        "total_variance": { "type": "number" },
+                        "average_sales_per_shift": { "type": "number" },
+                        "shifts_this_month": { "type": "integer" },
+                        "current_shift": { "type": "object", "nullable": true }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthenticated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/cashier/settings": {
+      "get": {
+        "tags": ["Settings"],
+        "summary": "Get all settings",
+        "description": "Profile summary, account, branch, notifications, system (language, theme).",
+        "operationId": "cashierGetSettings",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Settings retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "profile": { "$ref": "#/components/schemas/ProfileSummary" },
+                        "account": { "$ref": "#/components/schemas/AccountDetails" },
+                        "branch": { "$ref": "#/components/schemas/BranchDetails" },
+                        "notifications": { "$ref": "#/components/schemas/NotificationSettings" },
+                        "system": { "$ref": "#/components/schemas/SystemSettings" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthenticated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/cashier/settings/account": {
+      "get": {
+        "tags": ["Settings"],
+        "summary": "Get account & branch details",
+        "description": "Account details + branch details (image, name, opening hours, Google Maps URL).",
+        "operationId": "cashierGetAccount",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Account and branch details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "account": { "$ref": "#/components/schemas/AccountDetails" },
+                        "branch": { "$ref": "#/components/schemas/BranchDetails" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthenticated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/cashier/settings/notifications": {
+      "put": {
+        "tags": ["Settings"],
+        "summary": "Update notification preferences",
+        "description": "Shift Variance Alerts, Daily Inventory Reminders, Asset Transfers only, Allow Split Shift Handover.",
+        "operationId": "cashierUpdateNotifications",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "shift_variance_alerts": { "type": "boolean" },
+                  "daily_inventory_reminders": { "type": "boolean" },
+                  "asset_transfers_only": { "type": "boolean" },
+                  "allow_split_shift_handover": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Notification settings updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": { "$ref": "#/components/schemas/NotificationSettings" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthenticated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "Validation failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" } } } }
+        }
+      }
+    },
+    "/cashier/settings/system": {
+      "put": {
+        "tags": ["Settings"],
+        "summary": "Update system settings",
+        "description": "Language (ar/en), theme (light/dark).",
+        "operationId": "cashierUpdateSystem",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "language": { "type": "string", "enum": ["ar", "en"] },
+                  "theme": { "type": "string", "enum": ["light", "dark"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "System settings updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": { "$ref": "#/components/schemas/SystemSettings" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthenticated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "422": { "description": "Validation failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" } } } }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Sanctum"
+      }
+    },
+    "schemas": {
+      "LoginSuccess": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string" },
+          "data": {
+            "type": "object",
+            "properties": {
+              "user": {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string", "format": "uuid" },
+                  "name": { "type": "string" },
+                  "email": { "type": "string" },
+                  "phone": { "type": "string", "nullable": true },
+                  "image": { "type": "string", "format": "uri", "nullable": true },
+                  "created_at": { "type": "string", "format": "date-time" }
+                }
+              },
+              "token": { "type": "string" }
+            }
+          }
+        }
+      },
+      "CashierProfile": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "email": { "type": "string" },
+          "phone": { "type": "string", "nullable": true },
+          "image": { "type": "string", "nullable": true },
+          "position": { "type": "string", "example": "Cashier" },
+          "account_created_at": { "type": "string", "format": "date-time" },
+          "created_by_branch_manager": { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" } } },
+          "branch": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "location": { "type": "string", "nullable": true },
+              "lat": { "type": "number", "nullable": true },
+              "lng": { "type": "number", "nullable": true },
+              "image": { "type": "string", "nullable": true },
+              "opening_hours": { "type": "string", "nullable": true },
+              "google_maps_url": { "type": "string", "format": "uri", "nullable": true }
+            }
+          },
+          "status": { "type": "object" },
+          "created_by": { "type": "object" },
+          "shifts": { "type": "object" },
+          "statistics": { "type": "object" },
+          "timestamps": { "type": "object" }
+        }
+      },
+      "ProfileSummary": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "email": { "type": "string" },
+          "phone": { "type": "string", "nullable": true },
+          "image": { "type": "string", "nullable": true },
+          "position": { "type": "string", "example": "Cashier" },
+          "account_created_at": { "type": "string", "format": "date-time" },
+          "created_by": { "type": "object", "nullable": true }
+        }
+      },
+      "AccountDetails": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "email": { "type": "string" },
+          "phone": { "type": "string", "nullable": true },
+          "image": { "type": "string", "nullable": true },
+          "position": { "type": "string", "example": "Cashier" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "created_by": { "type": "object", "nullable": true }
+        }
+      },
+      "BranchDetails": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "image": { "type": "string", "nullable": true },
+          "opening_hours": { "type": "string", "description": "e.g. Mon–Fri / 9:00 AM – 8:00 PM" },
+          "google_maps_url": { "type": "string", "format": "uri", "nullable": true },
+          "location": { "type": "string", "nullable": true }
+        }
+      },
+      "NotificationSettings": {
+        "type": "object",
+        "properties": {
+          "shift_variance_alerts": { "type": "boolean" },
+          "daily_inventory_reminders": { "type": "boolean" },
+          "asset_transfers_only": { "type": "boolean" },
+          "allow_split_shift_handover": { "type": "boolean" }
+        }
+      },
+      "SystemSettings": {
+        "type": "object",
+        "properties": {
+          "language": { "type": "string", "enum": ["ar", "en"] },
+          "theme": { "type": "string", "enum": ["light", "dark"] }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": false },
+          "message": { "type": "string" }
+        }
+      },
+      "ValidationErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": false },
+          "message": { "type": "string" },
+          "errors": { "type": "object" }
+        }
+      }
+    }
+  }
+}

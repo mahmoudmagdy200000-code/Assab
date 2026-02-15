@@ -15,9 +15,8 @@ class ActivationRequest extends FormRequest
     {
         return [
             'identifier' => 'required|string', // email or phone
-            'activation_token' => 'required|string',
+            'default_password' => 'required|string', // provided by branch manager
             'password' => 'required|string|min:8|confirmed',
-            'password_confirmation' => 'required|string|min:8',
         ];
     }
 
@@ -26,7 +25,7 @@ class ActivationRequest extends FormRequest
         return [
             'password.min' => 'Password must be at least 8 characters',
             'password.confirmed' => 'Password confirmation does not match',
-            'activation_token.required' => 'Activation token is required',
+            'default_password.required' => 'Default password provided by your branch manager is required',
             'identifier.required' => 'Email or phone is required',
         ];
     }

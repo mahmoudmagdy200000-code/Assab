@@ -16,6 +16,7 @@ class ProfileService
     {
         return Cashier::with([
             'branch',
+            'creator',
             'shifts' => function ($query) {
                 $query->whereDate('shift_date', '>=', now()->subDays(7))
                     ->orderBy('shift_date', 'desc');

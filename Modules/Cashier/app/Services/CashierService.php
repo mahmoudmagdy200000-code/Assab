@@ -17,6 +17,9 @@ use Modules\Shift\Models\Shift;
 
 class CashierService
 {
+    /** Default password for new cashiers (8+ chars, 1 upper, 1 digit, 1 special). Cashier must change on first login. */
+    public const DEFAULT_PASSWORD = 'ploploK@0';
+
     public function __construct(
         private CashierRepositoryInterface $cashierRepository,
         private CashierActivationService $activationService
@@ -62,7 +65,7 @@ class CashierService
     {
         DB::beginTransaction();
         try {
-            $defaultPassword = Str::random(12);
+            $defaultPassword = self::DEFAULT_PASSWORD;
 
             $cashier = Cashier::create([
                 'name' => $data['name'],
