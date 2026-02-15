@@ -20,7 +20,7 @@ class CashierController extends BaseController
     public function __construct(
         private CashierService $cashierService
     ) {
-        $this->middleware('branch.manager');
+        $this->middleware('branch.manager.or.cashier');
     }
 
     /**
