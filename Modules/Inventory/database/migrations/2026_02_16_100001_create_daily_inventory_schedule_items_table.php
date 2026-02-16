@@ -18,7 +18,7 @@ return new class extends Migration
             $table->unsignedSmallInteger('sort_order')->default(0);
             $table->timestamps();
 
-            $table->unique(['daily_inventory_schedule_id', 'item_id']);
+            $table->unique(['daily_inventory_schedule_id', 'item_id'], 'di_sched_items_sched_item_unique');
             $table->foreign('daily_inventory_schedule_id')->references('id')->on('daily_inventory_schedules')->cascadeOnDelete();
             $table->foreign('item_id')->references('id')->on('items')->cascadeOnDelete();
         });
