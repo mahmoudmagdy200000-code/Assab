@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -28,24 +29,20 @@ return new class extends Migration
             return;
         }
 
-        // Table exists from a previous failed run (e.g. long index name); add missing constraints
-        Schema::table('daily_inventory_schedule_items', function (Blueprint $table) {
-            $indexes = collect(Schema::getIndexListing('daily_inventory_schedule_items')))
-                ->pluck('name')
-                ->all();
-            if (! in_array(self::UNIQUE_INDEX, $indexes, true)) {
+        // Table exists from a previous failed run; add missing unique and foreign keys
+        $hasUnique = collect(DB::select("SHOW INDEX FROM daily_inventory_schedule_items WHERE Key_name = ?", [self::UNIQUE_INDEX]))->isNotEmpty();
+        if (! $hasUnique) {
+            Schema::table('daily_inventory_schedule_items', function (Blueprint $table) {
                 $table->unique(['daily_inventory_schedule_id', 'item_id'], self::UNIQUE_INDEX);
-            }
-        });
+            });
+        }
 
-        $foreignKeys = collect(Schema::getForeignKeyListing('daily_inventory_schedule_items')))
-            ->pluck('name')
-            ->all();
-        Schema::table('daily_inventory_schedule_items', function (Blueprint $table) use ($foreignKeys) {
-            if (! in_array('daily_inventory_schedule_items_daily_inventory_schedule_id_foreign', $foreignKeys, true)) {
+        $fkNames = collect(DB::select("SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'daily_inventory_schedule_items' AND REFERENCED_TABLE_NAME IS NOT NULL"))->pluck('CONSTRAINT_NAME')->all();
+        Schema::table('daily_inventory_schedule_items', function (Blueprint $table) use ($fkNames) {
+            if (! in_array('daily_inventory_schedule_items_daily_inventory_schedule_id_foreign', $fkNames, true)) {
                 $table->foreign('daily_inventory_schedule_id')->references('id')->on('daily_inventory_schedules')->cascadeOnDelete();
             }
-            if (! in_array('daily_inventory_schedule_items_item_id_foreign', $foreignKeys, true)) {
+            if (! in_array('daily_inventory_schedule_items_item_id_foreign', $fkNames, true)) {
                 $table->foreign('item_id')->references('id')->on('items')->cascadeOnDelete();
             }
         });
