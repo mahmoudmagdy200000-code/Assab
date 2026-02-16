@@ -9,6 +9,10 @@ return new class extends Migration
 {
     private const UNIQUE_INDEX = 'di_sched_items_sched_item_unique';
 
+    private const FK_SCHEDULE = 'di_sched_items_schedule_id_fk';
+
+    private const FK_ITEM = 'di_sched_items_item_id_fk';
+
     /**
      * Run the migrations.
      */
@@ -23,8 +27,8 @@ return new class extends Migration
                 $table->timestamps();
 
                 $table->unique(['daily_inventory_schedule_id', 'item_id'], self::UNIQUE_INDEX);
-                $table->foreign('daily_inventory_schedule_id')->references('id')->on('daily_inventory_schedules')->cascadeOnDelete();
-                $table->foreign('item_id')->references('id')->on('items')->cascadeOnDelete();
+                $table->foreign('daily_inventory_schedule_id', self::FK_SCHEDULE)->references('id')->on('daily_inventory_schedules')->cascadeOnDelete();
+                $table->foreign('item_id', self::FK_ITEM)->references('id')->on('items')->cascadeOnDelete();
             });
             return;
         }
@@ -39,11 +43,11 @@ return new class extends Migration
 
         $fkNames = collect(DB::select("SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'daily_inventory_schedule_items' AND REFERENCED_TABLE_NAME IS NOT NULL"))->pluck('CONSTRAINT_NAME')->all();
         Schema::table('daily_inventory_schedule_items', function (Blueprint $table) use ($fkNames) {
-            if (! in_array('daily_inventory_schedule_items_daily_inventory_schedule_id_foreign', $fkNames, true)) {
-                $table->foreign('daily_inventory_schedule_id')->references('id')->on('daily_inventory_schedules')->cascadeOnDelete();
+            if (! in_array(self::FK_SCHEDULE, $fkNames, true)) {
+                $table->foreign('daily_inventory_schedule_id', self::FK_SCHEDULE)->references('id')->on('daily_inventory_schedules')->cascadeOnDelete();
             }
-            if (! in_array('daily_inventory_schedule_items_item_id_foreign', $fkNames, true)) {
-                $table->foreign('item_id')->references('id')->on('items')->cascadeOnDelete();
+            if (! in_array(self::FK_ITEM, $fkNames, true)) {
+                $table->foreign('item_id', self::FK_ITEM)->references('id')->on('items')->cascadeOnDelete();
             }
         });
     }
