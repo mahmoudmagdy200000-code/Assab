@@ -541,21 +541,21 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      * @throws \InvalidArgumentException
      * @throws \Exception
      */
-    public function createMultipleOrders(array $data, string $branchId, string $requestedBy, bool $isDraft = false): Collection
+    public function createMultipleOrders(array $data, string $branchId, string $requestedBy, bool $isDraft = false, bool $isEmergency = false): Collection
     {
         $this->validateCreateMultipleOrdersInputs($branchId, $requestedBy);
 
-        return DB::transaction(function () use ($data, $branchId, $requestedBy, $isDraft) {
+        return DB::transaction(function () use ($data, $branchId, $requestedBy, $isDraft, $isEmergency) {
             $orders = collect();
 
             // Process internal transfers
-            $orders = $orders->merge($this->createInternalTransferOrders($data, $branchId, $requestedBy, $isDraft));
+            $orders = $orders->merge($this->createInternalTransferOrders($data, $branchId, $requestedBy, $isDraft, $isEmergency));
 
             // Process direct supplier orders
-            $orders = $orders->merge($this->createDirectSupplierOrders($data, $branchId, $requestedBy, $isDraft));
+            $orders = $orders->merge($this->createDirectSupplierOrders($data, $branchId, $requestedBy, $isDraft, $isEmergency));
 
             // Process purchasing officer orders
-            $orders = $orders->merge($this->createPurchasingOfficerOrders($data, $branchId, $requestedBy, $isDraft));
+            $orders = $orders->merge($this->createPurchasingOfficerOrders($data, $branchId, $requestedBy, $isDraft, $isEmergency));
 
             if ($orders->isEmpty()) {
                 throw new \InvalidArgumentException('No orders were created. Please provide at least one valid order (branches, direct_supplier, or purchase_officer).');
@@ -582,7 +582,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     /**
      * Create internal transfer orders
      */
-    private function createInternalTransferOrders(array $data, string $branchId, string $requestedBy, bool $isDraft): Collection
+    private function createInternalTransferOrders(array $data, string $branchId, string $requestedBy, bool $isDraft, bool $isEmergency = false): Collection
     {
         $orders = collect();
 
@@ -597,7 +597,8 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                     $branchId,
                     $requestedBy,
                     $isDraft,
-                    $index
+                    $index,
+                    $isEmergency
                 );
                 $order = $this->createOrder($orderData);
                 $orders->push($order);
@@ -616,7 +617,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     /**
      * Create direct supplier orders
      */
-    private function createDirectSupplierOrders(array $data, string $branchId, string $requestedBy, bool $isDraft): Collection
+    private function createDirectSupplierOrders(array $data, string $branchId, string $requestedBy, bool $isDraft, bool $isEmergency = false): Collection
     {
         $orders = collect();
 
@@ -631,7 +632,8 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                     $branchId,
                     $requestedBy,
                     $isDraft,
-                    $index
+                    $index,
+                    $isEmergency
                 );
                 $order = $this->createOrder($orderData);
                 $orders->push($order);
@@ -650,7 +652,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     /**
      * Create purchasing officer orders
      */
-    private function createPurchasingOfficerOrders(array $data, string $branchId, string $requestedBy, bool $isDraft): Collection
+    private function createPurchasingOfficerOrders(array $data, string $branchId, string $requestedBy, bool $isDraft, bool $isEmergency = false): Collection
     {
         $orders = collect();
 
@@ -665,7 +667,8 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                     $branchId,
                     $requestedBy,
                     $isDraft,
-                    $index
+                    $index,
+                    $isEmergency
                 );
                 $order = $this->createOrder($orderData);
                 $orders->push($order);

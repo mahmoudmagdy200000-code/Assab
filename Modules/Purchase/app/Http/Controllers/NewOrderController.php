@@ -298,6 +298,7 @@ class NewOrderController extends BaseController
                 }
 
                 $isDraft = $data['is_draft'] ?? false;
+                $isEmergency = ($data['is_emergency'] ?? false) === true;
 
                 // Log request details for debugging
                 Log::info('Creating multiple orders', [
@@ -310,8 +311,9 @@ class NewOrderController extends BaseController
                     'branches_count' => !empty($data['branches']) ? count($data['branches']) : 0,
                     'direct_supplier_count' => !empty($data['direct_supplier']) ? count($data['direct_supplier']) : 0,
                     'purchase_officer_count' => !empty($data['purchase_officer']) ? count($data['purchase_officer']) : 0,
+                    'is_emergency' => $isEmergency,
                 ]);
-                $orders = $this->orderService->createMultipleOrders($data, $branchId, $requestedBy, $isDraft);
+                $orders = $this->orderService->createMultipleOrders($data, $branchId, $requestedBy, $isDraft, $isEmergency);
 
                 if ($orders->isEmpty()) {
                     return $this->errorResponse(

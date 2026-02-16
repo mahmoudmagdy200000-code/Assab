@@ -7,6 +7,7 @@ enum OrderStatus: string
     // Decision Phase Statuses
     case DRAFT = 'draft';
     case PENDING = 'pending';
+    case EMERGENCY = 'emergency';
     case CONFIRMED = 'confirmed';
     case REJECTED = 'rejected';
     case CANCELED = 'cancelled';
@@ -40,6 +41,7 @@ enum OrderStatus: string
             // Decision Phase
             self::DRAFT => 'Draft',
             self::PENDING => 'Pending',
+            self::EMERGENCY => 'Emergency',
             self::CONFIRMED => 'Confirmed',
             self::REJECTED => 'Rejected',
             self::CANCELED => 'Canceled',
@@ -77,6 +79,7 @@ enum OrderStatus: string
             // Decision Phase
             self::DRAFT => '#6B7280',
             self::PENDING => '#F59E0B',
+            self::EMERGENCY => '#DC2626',
             self::CONFIRMED => '#10B981',
             self::REJECTED => '#DC2626',
             self::CANCELED => '#EF4444',
@@ -113,8 +116,9 @@ enum OrderStatus: string
     {
         $allowedTransitions = match ($this) {
             // Decision Phase Transitions
-            self::DRAFT => [self::PENDING, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
-            self::PENDING => [self::CONFIRMED, self::REJECTED, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
+            self::DRAFT => [self::PENDING, self::EMERGENCY, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
+            self::PENDING => [self::CONFIRMED, self::REJECTED, self::EMERGENCY, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
+            self::EMERGENCY => [self::CONFIRMED, self::REJECTED, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
             self::CONFIRMED => [self::PREPARING, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
             self::REJECTED => [],
             self::CANCELED => [],
@@ -226,6 +230,7 @@ enum OrderStatus: string
         return [
             self::DRAFT,
             self::PENDING,
+            self::EMERGENCY,
             self::CONFIRMED,
             self::PREPARING,
             self::ON_THE_WAY,
@@ -270,6 +275,7 @@ enum OrderStatus: string
         return in_array($this, [
             self::DRAFT,
             self::PENDING,
+            self::EMERGENCY,
             self::CONFIRMED,
             self::REJECTED,
             self::CANCELED,

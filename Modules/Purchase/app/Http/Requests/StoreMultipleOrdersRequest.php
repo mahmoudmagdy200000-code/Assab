@@ -67,6 +67,8 @@ class StoreMultipleOrdersRequest extends FormRequest
 
             // Draft flag
             'is_draft' => ['sometimes', 'boolean'],
+            // Emergency flag: when true, order status is set to emergency
+            'is_emergency' => ['sometimes', 'boolean'],
         ];
     }
 

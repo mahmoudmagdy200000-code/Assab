@@ -48,7 +48,7 @@ interface PurchaseOrderServiceInterface
     /**
      * Create multiple orders from different sources
      */
-    public function createMultipleOrders(array $data, string $branchId, string $requestedBy, bool $isDraft = false): Collection;
+    public function createMultipleOrders(array $data, string $branchId, string $requestedBy, bool $isDraft = false, bool $isEmergency = false): Collection;
 
     /**
      * Add item to order

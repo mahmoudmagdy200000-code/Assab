@@ -24,13 +24,16 @@ class OrderCreationService
         string $branchId,
         string $requestedBy,
         bool $isDraft,
-        int $index
+        int $index,
+        bool $isEmergency = false
     ): array {
         $this->validateBranchData($branchData, $index);
 
+        $status = $this->resolveOrderStatus($isDraft, $isEmergency);
+
         return [
             'order_type' => OrderType::INTERNAL_TRANSFER,
-            'status' => $isDraft ? OrderStatus::DRAFT : OrderStatus::PENDING,
+            'status' => $status,
             'branch_id' => $branchId,
             'requested_by' => $requestedBy,
             'from_branch_id' => $branchData['branch_id'],
@@ -49,15 +52,17 @@ class OrderCreationService
         string $branchId,
         string $requestedBy,
         bool $isDraft,
-        int $index
+        int $index,
+        bool $isEmergency = false
     ): array {
         $this->validateSupplierData($supplierData, $index);
 
         $qualityLevel = $this->normalizeQualityLevel($supplierData['quality_level'] ?? null);
+        $status = $this->resolveOrderStatus($isDraft, $isEmergency);
 
         return [
             'order_type' => OrderType::DIRECT_SUPPLIER,
-            'status' => $isDraft ? OrderStatus::DRAFT : OrderStatus::PENDING,
+            'status' => $status,
             'branch_id' => $branchId,
             'requested_by' => $requestedBy,
             'supplier_id' => $supplierData['supplier_id'],
@@ -76,7 +81,8 @@ class OrderCreationService
         string $branchId,
         string $requestedBy,
         bool $isDraft,
-        int $index
+        int $index,
+        bool $isEmergency = false
     ): array {
         $this->validateOfficerData($officerData, $index);
 
@@ -85,10 +91,11 @@ class OrderCreationService
 
         $qualityLevelRaw = $firstItem['quality'] ?? $officerData['quality_level'] ?? 'standard';
         $qualityLevel = $this->normalizeQualityLevel($qualityLevelRaw);
+        $status = $this->resolveOrderStatus($isDraft, $isEmergency);
 
         return [
             'order_type' => OrderType::VIA_PURCHASING_OFFICER,
-            'status' => $isDraft ? OrderStatus::DRAFT : OrderStatus::PENDING,
+            'status' => $status,
             'branch_id' => $branchId,
             'requested_by' => $requestedBy,
             'quality_level' => $qualityLevel,
@@ -99,6 +106,20 @@ class OrderCreationService
             'message' => $officerData['message'] ?? null,
             'items' => $items,
         ];
+    }
+
+    /**
+     * Resolve order status based on draft and emergency flags.
+     */
+    private function resolveOrderStatus(bool $isDraft, bool $isEmergency): OrderStatus
+    {
+        if ($isDraft) {
+            return OrderStatus::DRAFT;
+        }
+        if ($isEmergency) {
+            return OrderStatus::EMERGENCY;
+        }
+        return OrderStatus::PENDING;
     }
 
     /**
