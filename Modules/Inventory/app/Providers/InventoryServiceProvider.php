@@ -2,10 +2,14 @@
 
 namespace Modules\Inventory\Providers;
 
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
+use Modules\Inventory\Console\GenerateDailyInventorySessionsCommand;
+use Modules\Inventory\Models\DailyInventorySchedule;
 use Modules\Inventory\Models\MonthlyInventory;
+use Modules\Inventory\Policies\DailyInventorySchedulePolicy;
 use Modules\Inventory\Policies\MonthlyInventoryPolicy;
 use Nwidart\Modules\Traits\PathNamespace;
 use RecursiveDirectoryIterator;
@@ -23,6 +27,7 @@ class InventoryServiceProvider extends ServiceProvider
      * @var array<class-string, class-string>
      */
     protected array $policies = [
+        DailyInventorySchedule::class => DailyInventorySchedulePolicy::class,
         MonthlyInventory::class => MonthlyInventoryPolicy::class,
     ];
 
@@ -61,7 +66,9 @@ class InventoryServiceProvider extends ServiceProvider
      */
     protected function registerCommands(): void
     {
-        // $this->commands([]);
+        $this->commands([
+            GenerateDailyInventorySessionsCommand::class,
+        ]);
     }
 
     /**
@@ -69,10 +76,10 @@ class InventoryServiceProvider extends ServiceProvider
      */
     protected function registerCommandSchedules(): void
     {
-        // $this->app->booted(function () {
-        //     $schedule = $this->app->make(Schedule::class);
-        //     $schedule->command('inspire')->hourly();
-        // });
+        $this->app->booted(function () {
+            $schedule = $this->app->make(Schedule::class);
+            $schedule->command('inventory:generate-daily-sessions')->dailyAt('00:05');
+        });
     }
 
     /**

@@ -1,0 +1,575 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "Daily Inventory API",
+        "description": "API documentation for Daily Quick Inventory and Daily Inventory Schedule endpoints (Inventory module). All endpoints require Bearer token (Laravel Sanctum). Base path: /api/v1.",
+        "version": "1.0.0"
+    },
+    "servers": [
+        {
+            "url": "https://your-api-host.com/api/v1",
+            "description": "API base (replace with your host)"
+        },
+        {
+            "url": "/api/v1",
+            "description": "Relative path"
+        }
+    ],
+    "security": [{ "bearerAuth": [] }],
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": "Laravel Sanctum token"
+            }
+        },
+        "schemas": {
+            "DailyInventoryDashboard": {
+                "type": "object",
+                "properties": {
+                    "total_items_added": { "type": "integer", "description": "Total items in today's session or schedule count" },
+                    "daily_items_count": { "type": "integer", "description": "Number of items in daily schedule" },
+                    "daily_items_managed_by_account_manager": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "item_id": { "type": "string", "format": "uuid" },
+                                "item_name": { "type": "string" },
+                                "unit": { "type": "string" },
+                                "logo": { "type": "object", "nullable": true }
+                            }
+                        }
+                    }
+                }
+            },
+            "CreateDailyInventorySessionBody": {
+                "type": "object",
+                "required": ["assigned_to_type"],
+                "properties": {
+                    "assigned_to_type": { "type": "string", "enum": ["personal", "staff"], "description": "personal = Start Myself, staff = Assign Staff" },
+                    "assigned_to_id": { "type": "string", "format": "uuid", "description": "Required when assigned_to_type is staff (cashier ID)" },
+                    "inventory_date": { "type": "string", "format": "date", "description": "Required when personal" },
+                    "start_time": { "type": "string", "format": "date-time", "description": "Required when personal (Y-m-d H:i:s)" },
+                    "notes": { "type": "string", "maxLength": 1000 },
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "item_id": { "type": "string", "format": "uuid", "description": "purchase_order_items.id" },
+                                "quantity": { "type": "number", "minimum": 0 },
+                                "notes": { "type": "string", "maxLength": 1000 }
+                            }
+                        }
+                    }
+                }
+            },
+            "UpdateDailyInventorySessionBody": {
+                "type": "object",
+                "properties": {
+                    "inventory_date": { "type": "string", "format": "date" },
+                    "start_time": { "type": "string", "format": "date-time" },
+                    "end_time": { "type": "string", "format": "date-time" },
+                    "notes": { "type": "string", "maxLength": 1000 }
+                }
+            },
+            "AddInventoryItemBody": {
+                "type": "object",
+                "required": ["purchase_order_item_id", "quantity_inventory"],
+                "properties": {
+                    "purchase_order_item_id": { "type": "string", "format": "uuid" },
+                    "quantity_inventory": { "type": "number", "minimum": 0 },
+                    "notes": { "type": "string", "maxLength": 1000 }
+                }
+            },
+            "UpdateInventoryItemBody": {
+                "type": "object",
+                "properties": {
+                    "quantity_inventory": { "type": "number", "minimum": 0 },
+                    "notes": { "type": "string", "maxLength": 1000 }
+                }
+            },
+            "RejectInventorySessionBody": {
+                "type": "object",
+                "required": ["comment"],
+                "properties": {
+                    "comment": { "type": "string", "maxLength": 2000, "description": "Rejection reason" }
+                }
+            },
+            "ApproveInventorySessionBody": {
+                "type": "object",
+                "properties": {
+                    "sales": {
+                        "type": "object",
+                        "additionalProperties": { "type": "number", "minimum": 0 },
+                        "description": "Map of inventory_item_id or item_id to sales quantity"
+                    },
+                    "recorded_waste": {
+                        "type": "object",
+                        "additionalProperties": { "type": "number", "minimum": 0 },
+                        "description": "Map of inventory_item_id or item_id to recorded waste"
+                    }
+                }
+            },
+            "StoreDailyInventoryScheduleBody": {
+                "type": "object",
+                "required": ["branch_id", "start_date", "start_time", "item_ids"],
+                "properties": {
+                    "branch_id": { "type": "string", "format": "uuid" },
+                    "start_date": { "type": "string", "format": "date", "description": "First date to generate tasks (YYYY-MM-DD)" },
+                    "start_time": { "type": "string", "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$", "description": "Time of day (HH:MM or HH:MM:SS)" },
+                    "is_active": { "type": "boolean", "default": true },
+                    "item_ids": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": { "type": "string", "format": "uuid" },
+                        "description": "Item UUIDs from branch item list only"
+                    }
+                }
+            },
+            "UpdateDailyInventoryScheduleBody": {
+                "type": "object",
+                "properties": {
+                    "start_date": { "type": "string", "format": "date" },
+                    "start_time": { "type": "string", "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]" },
+                    "is_active": { "type": "boolean" },
+                    "item_ids": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": { "type": "string", "format": "uuid" }
+                    }
+                }
+            },
+            "InventorySessionStatus": {
+                "type": "string",
+                "enum": ["draft", "pending", "approved", "rejected", "pending_your_action", "completed"]
+            },
+            "SuccessResponse": {
+                "type": "object",
+                "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string" },
+                    "data": { "type": "object", "description": "Response payload" }
+                }
+            },
+            "PaginatedResponse": {
+                "type": "object",
+                "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": { "type": "array", "items": { "type": "object" } },
+                    "links": { "type": "object" },
+                    "meta": { "type": "object" }
+                }
+            }
+        }
+    },
+    "paths": {
+        "/inventory/daily-quick/dashboard": {
+            "get": {
+                "summary": "Daily inventory dashboard",
+                "description": "Branch Manager dashboard: total items added, daily items count, and list of items managed by Account Manager (from schedule).",
+                "operationId": "inventory.daily-quick.dashboard",
+                "tags": ["Daily Quick Inventory"],
+                "responses": {
+                    "200": { "description": "Dashboard data", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SuccessResponse" } } } },
+                    "400": { "description": "Branch manager not assigned to branch" }
+                }
+            }
+        },
+        "/inventory/daily-quick/branch-items": {
+            "get": {
+                "summary": "Get branch items",
+                "description": "Items from branch purchase configuration (branch_item). Only these items can be used for daily inventory. Used by Account Manager for schedule and Branch Manager for daily items.",
+                "operationId": "inventory.daily-quick.branch-items",
+                "tags": ["Daily Quick Inventory"],
+                "responses": {
+                    "200": { "description": "Branch items list" },
+                    "400": { "description": "Branch manager not assigned to branch" }
+                }
+            }
+        },
+        "/inventory/daily-quick/closed-items": {
+            "get": {
+                "summary": "Get closed order items (legacy)",
+                "description": "Items from closed purchase orders. Prefer branch-items for daily inventory.",
+                "operationId": "inventory.daily-quick.closed-items",
+                "tags": ["Daily Quick Inventory"],
+                "responses": {
+                    "200": { "description": "Closed order items" },
+                    "400": { "description": "Branch manager not assigned to branch" }
+                }
+            }
+        },
+        "/inventory/daily-quick/employees": {
+            "get": {
+                "summary": "Get employees (cashiers)",
+                "description": "Available cashiers for Assign Staff.",
+                "operationId": "inventory.daily-quick.employees",
+                "tags": ["Daily Quick Inventory"],
+                "responses": {
+                    "200": { "description": "Employees list" },
+                    "400": { "description": "Branch manager not assigned to branch" }
+                }
+            }
+        },
+        "/inventory/daily-quick/schedules/branch/{branchId}": {
+            "get": {
+                "summary": "Get daily inventory schedule for branch",
+                "description": "Account Manager: get schedule config for a branch (items, start_date, start_time).",
+                "operationId": "inventory.daily-quick.schedules.show",
+                "tags": ["Daily Inventory Schedule"],
+                "parameters": [
+                    { "name": "branchId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "responses": {
+                    "200": { "description": "Schedule with items" },
+                    "404": { "description": "No schedule for branch" }
+                }
+            },
+            "delete": {
+                "summary": "Delete daily inventory config for branch",
+                "description": "Account Manager: delete all daily inventory config for branch. Stops new task generation; historical records retained.",
+                "operationId": "inventory.daily-quick.schedules.destroy",
+                "tags": ["Daily Inventory Schedule"],
+                "parameters": [
+                    { "name": "branchId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "responses": {
+                    "200": { "description": "Config deleted" }
+                }
+            }
+        },
+        "/inventory/daily-quick/schedules": {
+            "post": {
+                "summary": "Create or replace daily inventory schedule",
+                "description": "Account Manager: set branch, items (from branch item list), start_date, start_time. One active schedule per branch.",
+                "operationId": "inventory.daily-quick.schedules.store",
+                "tags": ["Daily Inventory Schedule"],
+                "requestBody": {
+                    "required": true,
+                    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StoreDailyInventoryScheduleBody" } } }
+                },
+                "responses": {
+                    "201": { "description": "Schedule saved" },
+                    "400": { "description": "Validation error (e.g. items not in branch)" }
+                }
+            }
+        },
+        "/inventory/daily-quick/schedules/{id}": {
+            "put": {
+                "summary": "Update daily inventory schedule",
+                "description": "Account Manager: add/remove items, update start_date, start_time. Affects only future generated tasks.",
+                "operationId": "inventory.daily-quick.schedules.update",
+                "tags": ["Daily Inventory Schedule"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "requestBody": {
+                    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateDailyInventoryScheduleBody" } } }
+                },
+                "responses": {
+                    "200": { "description": "Schedule updated" },
+                    "400": { "description": "Validation error" },
+                    "404": { "description": "Schedule not found" }
+                }
+            }
+        },
+        "/inventory/daily-quick/sessions": {
+            "post": {
+                "summary": "Create inventory session (draft)",
+                "description": "Branch Manager: create a draft session (personal or staff).",
+                "operationId": "inventory.daily-quick.sessions.create",
+                "tags": ["Daily Quick Inventory - Sessions"],
+                "requestBody": {
+                    "required": true,
+                    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateDailyInventorySessionBody" } } }
+                },
+                "responses": {
+                    "200": { "description": "Session created" },
+                    "400": { "description": "Validation or business error" }
+                }
+            },
+            "get": {
+                "summary": "List inventory sessions",
+                "description": "All sessions for the branch (all records for Branch Manager).",
+                "operationId": "inventory.daily-quick.sessions.index",
+                "tags": ["Daily Quick Inventory - Sessions"],
+                "parameters": [
+                    { "name": "per_page", "in": "query", "schema": { "type": "integer", "default": 15 } }
+                ],
+                "responses": {
+                    "200": { "description": "Paginated sessions", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaginatedResponse" } } } },
+                    "400": { "description": "Branch manager not assigned" }
+                }
+            }
+        },
+        "/inventory/daily-quick/sessions/{id}": {
+            "get": {
+                "summary": "Get session details",
+                "description": "Single session with items, assignedTo, createdBy.",
+                "operationId": "inventory.daily-quick.sessions.show",
+                "tags": ["Daily Quick Inventory - Sessions"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "responses": {
+                    "200": { "description": "Session details" },
+                    "404": { "description": "Not found" }
+                }
+            },
+            "put": {
+                "summary": "Update session (draft only)",
+                "description": "Update inventory_date, start_time, notes. Allowed only when status is draft.",
+                "operationId": "inventory.daily-quick.sessions.update",
+                "tags": ["Daily Quick Inventory - Sessions"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "requestBody": {
+                    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateDailyInventorySessionBody" } } }
+                },
+                "responses": {
+                    "200": { "description": "Session updated" },
+                    "404": { "description": "Not found or not draft" }
+                }
+            },
+            "delete": {
+                "summary": "Delete session (draft only)",
+                "operationId": "inventory.daily-quick.sessions.delete",
+                "tags": ["Daily Quick Inventory - Sessions"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "responses": {
+                    "200": { "description": "Session deleted" },
+                    "404": { "description": "Not found or not draft" }
+                }
+            }
+        },
+        "/inventory/daily-quick/sessions/{id}/start": {
+            "post": {
+                "summary": "Start session (Start Myself)",
+                "description": "Sets start_time and inventory_date if not set; sets performed_by (created_by) for Pending sessions.",
+                "operationId": "inventory.daily-quick.sessions.start",
+                "tags": ["Daily Quick Inventory - Sessions"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "responses": {
+                    "200": { "description": "Session started" },
+                    "404": { "description": "Not found" }
+                }
+            }
+        },
+        "/inventory/daily-quick/sessions/{id}/submit": {
+            "post": {
+                "summary": "Submit session",
+                "description": "Submit for review. Status becomes Pending. Account Manager is notified.",
+                "operationId": "inventory.daily-quick.sessions.submit",
+                "tags": ["Daily Quick Inventory - Sessions"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "responses": {
+                    "200": { "description": "Submitted" },
+                    "400": { "description": "No items or not draft" },
+                    "404": { "description": "Not found" }
+                }
+            }
+        },
+        "/inventory/daily-quick/sessions/{id}/approve": {
+            "post": {
+                "summary": "Approve session (Account Manager)",
+                "description": "Approve and optionally set sales/recorded_waste per item. Runs discrepancy calculation; status becomes Completed or Pending Your Action.",
+                "operationId": "inventory.daily-quick.sessions.approve",
+                "tags": ["Daily Quick Inventory - Sessions"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "requestBody": {
+                    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApproveInventorySessionBody" } } }
+                },
+                "responses": {
+                    "200": { "description": "Approved" },
+                    "400": { "description": "Not pending" },
+                    "404": { "description": "Not found" }
+                }
+            }
+        },
+        "/inventory/daily-quick/sessions/{id}/reject": {
+            "post": {
+                "summary": "Reject session (Account Manager)",
+                "description": "Reject with comment. Branch Manager can edit and resubmit.",
+                "operationId": "inventory.daily-quick.sessions.reject",
+                "tags": ["Daily Quick Inventory - Sessions"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RejectInventorySessionBody" } } }
+                },
+                "responses": {
+                    "200": { "description": "Rejected" },
+                    "400": { "description": "Only pending can be rejected" },
+                    "404": { "description": "Not found" }
+                }
+            }
+        },
+        "/inventory/daily-quick/sessions/{id}/resubmit": {
+            "post": {
+                "summary": "Resubmit session (Branch Manager)",
+                "description": "After rejection: edit quantities/notes then resubmit. Status becomes Pending.",
+                "operationId": "inventory.daily-quick.sessions.resubmit",
+                "tags": ["Daily Quick Inventory - Sessions"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "responses": {
+                    "200": { "description": "Resubmitted" },
+                    "400": { "description": "Only rejected can be resubmitted" },
+                    "404": { "description": "Not found" }
+                }
+            }
+        },
+        "/inventory/daily-quick/sessions/{id}/summary": {
+            "get": {
+                "summary": "Get session summary",
+                "description": "Session summary (performed_by, completed_products, status) and all inventoried products (name, recorded_quantity, unit, notes).",
+                "operationId": "inventory.daily-quick.sessions.summary",
+                "tags": ["Daily Quick Inventory - Sessions"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "responses": {
+                    "200": { "description": "Summary" },
+                    "404": { "description": "Not found" }
+                }
+            }
+        },
+        "/inventory/daily-quick/sessions/{id}/timelines": {
+            "get": {
+                "summary": "Get session timelines",
+                "description": "Chronological events: Submitted, Viewed by Account Manager, Rejected, Approved, Resubmitted, Request Received, Reviewed.",
+                "operationId": "inventory.daily-quick.sessions.timelines",
+                "tags": ["Daily Quick Inventory - Sessions"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "responses": {
+                    "200": { "description": "Timeline list" },
+                    "404": { "description": "Not found" }
+                }
+            }
+        },
+        "/inventory/daily-quick/sessions/{id}/discrepancy-report": {
+            "get": {
+                "summary": "Get discrepancy report",
+                "description": "When status is Pending Your Action: summary (products with discrepancies, matching, total value SAR, shortage/over) and products requiring clarification.",
+                "operationId": "inventory.daily-quick.sessions.discrepancy-report",
+                "tags": ["Daily Quick Inventory - Sessions"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "responses": {
+                    "200": { "description": "Discrepancy report" },
+                    "404": { "description": "Not found" }
+                }
+            }
+        },
+        "/inventory/daily-quick/sessions/{id}/discrepancy-reviewed": {
+            "post": {
+                "summary": "Mark discrepancy as reviewed",
+                "description": "Branch Manager: log Reviewed event on timeline.",
+                "operationId": "inventory.daily-quick.sessions.discrepancy-reviewed",
+                "tags": ["Daily Quick Inventory - Sessions"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "responses": {
+                    "200": { "description": "Marked as reviewed" },
+                    "404": { "description": "Not found" }
+                }
+            }
+        },
+        "/inventory/daily-quick/sessions/{id}/items": {
+            "post": {
+                "summary": "Add item to session",
+                "description": "Add item (draft or rejected sessions only). Requires purchase_order_item_id from closed orders.",
+                "operationId": "inventory.daily-quick.sessions.items.create",
+                "tags": ["Daily Quick Inventory - Items"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AddInventoryItemBody" } } }
+                },
+                "responses": {
+                    "200": { "description": "Item added" },
+                    "400": { "description": "Item already in session or validation error" },
+                    "404": { "description": "Session not found or not draft" }
+                }
+            }
+        },
+        "/inventory/daily-quick/sessions/{sessionId}/items/{itemId}": {
+            "put": {
+                "summary": "Update session item",
+                "description": "Update quantity or notes. Allowed when session status is draft or rejected.",
+                "operationId": "inventory.daily-quick.sessions.items.update",
+                "tags": ["Daily Quick Inventory - Items"],
+                "parameters": [
+                    { "name": "sessionId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+                    { "name": "itemId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "requestBody": {
+                    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateInventoryItemBody" } } }
+                },
+                "responses": {
+                    "200": { "description": "Item updated" },
+                    "403": { "description": "Session not editable (pending/approved)" },
+                    "404": { "description": "Not found" }
+                }
+            },
+            "delete": {
+                "summary": "Remove item from session",
+                "description": "Remove item. Allowed only when session is draft.",
+                "operationId": "inventory.daily-quick.sessions.items.delete",
+                "tags": ["Daily Quick Inventory - Items"],
+                "parameters": [
+                    { "name": "sessionId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+                    { "name": "itemId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "responses": {
+                    "200": { "description": "Item removed" },
+                    "404": { "description": "Not found" }
+                }
+            }
+        },
+        "/inventory/daily-quick/products/{itemId}/last-quantities": {
+            "get": {
+                "summary": "Get last quantities for product (quick suggestions)",
+                "description": "Last 5 recorded quantities for this product in the branch (from approved/completed sessions).",
+                "operationId": "inventory.daily-quick.products.last-quantities",
+                "tags": ["Daily Quick Inventory"],
+                "parameters": [
+                    { "name": "itemId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "responses": {
+                    "200": { "description": "Object with quantities array" },
+                    "400": { "description": "Branch manager not assigned" }
+                }
+            }
+        }
+    },
+    "tags": [
+        { "name": "Daily Quick Inventory", "description": "Branch Manager: dashboard, branch items, employees, sessions, items" },
+        { "name": "Daily Quick Inventory - Sessions", "description": "Session lifecycle: create, start, submit, approve, reject, resubmit, summary, timelines, discrepancy" },
+        { "name": "Daily Quick Inventory - Items", "description": "Add, update, remove items in a session" },
+        { "name": "Daily Inventory Schedule", "description": "Account Manager: configure daily inventory per branch (items, start date/time)" }
+    ]
+}

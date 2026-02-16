@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Modules\Inventory\Http\Controllers\InventoryController;
 use Modules\Inventory\Http\Controllers\DailyQuickInventoryController;
+use Modules\Inventory\Http\Controllers\DailyInventoryScheduleController;
 use Modules\Inventory\Http\Controllers\MonthlyInventoryController;
 
 Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
@@ -44,9 +45,21 @@ Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('inventory/daily-quick')->group(function () {
-        // Helper endpoints
+        // Dashboard
+        Route::get('/dashboard', [DailyQuickInventoryController::class, 'dashboard'])->name('inventory.daily-quick.dashboard');
+
+        // Helper endpoints (branch items = source for daily inventory; closed-items = legacy)
+        Route::get('/branch-items', [DailyQuickInventoryController::class, 'getBranchItems'])->name('inventory.daily-quick.branch-items');
         Route::get('/closed-items', [DailyQuickInventoryController::class, 'getClosedOrderItems'])->name('inventory.daily-quick.closed-items');
         Route::get('/employees', [DailyQuickInventoryController::class, 'getEmployees'])->name('inventory.daily-quick.employees');
+
+        // Daily inventory schedule (Account Manager): configure items, start date/time per branch
+        Route::prefix('schedules')->group(function () {
+            Route::get('/branch/{branchId}', [DailyInventoryScheduleController::class, 'show'])->name('inventory.daily-quick.schedules.show');
+            Route::post('/', [DailyInventoryScheduleController::class, 'store'])->name('inventory.daily-quick.schedules.store');
+            Route::put('/{id}', [DailyInventoryScheduleController::class, 'update'])->name('inventory.daily-quick.schedules.update');
+            Route::delete('/branch/{branchId}', [DailyInventoryScheduleController::class, 'destroy'])->name('inventory.daily-quick.schedules.destroy');
+        });
 
         // Session management
         Route::post('/sessions', [DailyQuickInventoryController::class, 'createSession'])->name('inventory.daily-quick.sessions.create');
@@ -55,7 +68,15 @@ Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
         Route::put('/sessions/{id}', [DailyQuickInventoryController::class, 'updateSession'])->name('inventory.daily-quick.sessions.update');
         Route::delete('/sessions/{id}', [DailyQuickInventoryController::class, 'deleteSession'])->name('inventory.daily-quick.sessions.delete');
         Route::post('/sessions/{id}/submit', [DailyQuickInventoryController::class, 'submitSession'])->name('inventory.daily-quick.sessions.submit');
+        Route::post('/sessions/{id}/approve', [DailyQuickInventoryController::class, 'approveSession'])->name('inventory.daily-quick.sessions.approve');
+        Route::post('/sessions/{id}/reject', [DailyQuickInventoryController::class, 'rejectSession'])->name('inventory.daily-quick.sessions.reject');
+        Route::post('/sessions/{id}/resubmit', [DailyQuickInventoryController::class, 'resubmitSession'])->name('inventory.daily-quick.sessions.resubmit');
+        Route::get('/sessions/{id}/discrepancy-report', [DailyQuickInventoryController::class, 'getDiscrepancyReport'])->name('inventory.daily-quick.sessions.discrepancy-report');
+        Route::post('/sessions/{id}/discrepancy-reviewed', [DailyQuickInventoryController::class, 'markDiscrepancyReviewed'])->name('inventory.daily-quick.sessions.discrepancy-reviewed');
+        Route::get('/sessions/{id}/timelines', [DailyQuickInventoryController::class, 'getTimelines'])->name('inventory.daily-quick.sessions.timelines');
         Route::get('/sessions/{id}/summary', [DailyQuickInventoryController::class, 'getSessionSummary'])->name('inventory.daily-quick.sessions.summary');
+        Route::post('/sessions/{id}/start', [DailyQuickInventoryController::class, 'startSession'])->name('inventory.daily-quick.sessions.start');
+        Route::get('/products/{itemId}/last-quantities', [DailyQuickInventoryController::class, 'getLastQuantities'])->name('inventory.daily-quick.products.last-quantities');
 
         // Item management
         Route::post('/sessions/{id}/items', [DailyQuickInventoryController::class, 'addItem'])->name('inventory.daily-quick.sessions.items.create');

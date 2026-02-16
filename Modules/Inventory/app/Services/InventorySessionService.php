@@ -6,15 +6,50 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
+use Modules\Inventory\Enums\DailyInventoryTimelineEventType;
 use Modules\Inventory\Enums\InventorySessionStatus;
 use Modules\Inventory\Models\InventoryItem;
 use Modules\Inventory\Models\InventorySession;
+use Modules\Inventory\Models\InventorySessionTimeline;
+use Modules\Inventory\Services\DailyInventoryDiscrepancyService;
 use Modules\Purchase\Enums\OrderStatus;
+use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
 
 class InventorySessionService
 {
+    /**
+     * Get branch items (from branch purchase configuration) for daily inventory.
+     * Items are only from those assigned to the branch (branch_item).
+     *
+     * @param string $branchId
+     * @return Collection
+     */
+    public function getBranchItems(string $branchId): Collection
+    {
+        return BranchItem::with(['item:id,name,code,logo,unit,category,subcategory'])
+            ->where('branch_id', $branchId)
+            ->get()
+            ->sortBy(fn ($bi) => $bi->item?->name ?? '')
+            ->values()
+            ->map(function ($branchItem) {
+                return [
+                    'id' => $branchItem->id,
+                    'branch_item_id' => $branchItem->id,
+                    'item_id' => $branchItem->item_id,
+                    'item_name' => $branchItem->item?->name ?? $branchItem->item_name,
+                    'item_code' => $branchItem->item?->code ?? $branchItem->item_code,
+                    'item_logo' => $branchItem->item?->logo ?? $branchItem->item_logo,
+                    'item_unit' => $branchItem->item?->unit ?? $branchItem->item_unit,
+                    'category' => $branchItem->item?->category ?? $branchItem->category,
+                    'subcategory' => $branchItem->item?->subcategory ?? $branchItem->subcategory,
+                    'price' => $branchItem->price,
+                    'quantity' => $branchItem->quantity,
+                ];
+            });
+    }
+
     /**
      * Get all purchase order items from closed orders for a branch
      *
@@ -171,8 +206,10 @@ class InventorySessionService
         return DB::transaction(function () use ($sessionId, $data, $manager) {
             $session = InventorySession::where('id', $sessionId)
                 ->where('branch_id', $manager->branch_id)
-                ->where('created_by', $manager->id)
                 ->where('status', InventorySessionStatus::DRAFT)
+                ->where(function ($q) use ($manager) {
+                    $q->whereNull('created_by')->orWhere('created_by', $manager->id);
+                })
                 ->firstOrFail();
 
             $updateData = [];
@@ -196,7 +233,7 @@ class InventorySessionService
     }
 
     /**
-     * Submit inventory session (calculate time and complete)
+     * Submit inventory session. Sets status to Pending (awaiting Account Manager approval).
      *
      * @param string $sessionId
      * @param BranchManager $manager
@@ -207,19 +244,178 @@ class InventorySessionService
         return DB::transaction(function () use ($sessionId, $manager) {
             $session = InventorySession::where('id', $sessionId)
                 ->where('branch_id', $manager->branch_id)
-                ->where('created_by', $manager->id)
                 ->where('status', InventorySessionStatus::DRAFT)
+                ->where(function ($q) use ($manager) {
+                    $q->whereNull('created_by')->orWhere('created_by', $manager->id);
+                })
                 ->firstOrFail();
 
-            // Ensure session has items
             if ($session->items()->count() === 0) {
                 throw new \InvalidArgumentException('Cannot submit session without items');
             }
 
-            $session->complete();
+            $session->end_time = now();
+            $session->calculateTimeTaken();
+            $session->status = InventorySessionStatus::PENDING;
+            $session->submitted_at = now();
+            $session->save();
+
+            InventorySessionTimeline::log(
+                $session,
+                DailyInventoryTimelineEventType::SUBMITTED,
+                'Submitted',
+                'You submitted this daily inventory for review and approval.',
+                InventorySessionStatus::DRAFT->value,
+                InventorySessionStatus::PENDING->value
+            );
 
             return $session->fresh(['items.item', 'items.purchaseOrderItem.purchaseOrder']);
         });
+    }
+
+    /**
+     * Reject session (Account Manager). Status → Rejected; Branch Manager can edit and resubmit.
+     */
+    public function rejectSession(string $sessionId, string $comment): InventorySession
+    {
+        return DB::transaction(function () use ($sessionId, $comment) {
+            $session = InventorySession::where('id', $sessionId)->firstOrFail();
+            if ($session->status !== InventorySessionStatus::PENDING) {
+                throw new \InvalidArgumentException('Only pending sessions can be rejected.');
+            }
+
+            $actor = auth()->user();
+            $session->status = InventorySessionStatus::REJECTED;
+            $session->rejected_at = now();
+            $session->rejected_by = $actor?->getKey();
+            $session->rejection_comment = $comment;
+            $session->save();
+
+            InventorySessionTimeline::log(
+                $session,
+                DailyInventoryTimelineEventType::REJECTED,
+                'Rejected by Account Manager',
+                $comment,
+                InventorySessionStatus::PENDING->value,
+                InventorySessionStatus::REJECTED->value
+            );
+
+            return $session->fresh();
+        });
+    }
+
+    /**
+     * Resubmit session after rejection (Branch Manager). Status → Pending.
+     */
+    public function resubmitSession(string $sessionId, BranchManager $manager): InventorySession
+    {
+        return DB::transaction(function () use ($sessionId, $manager) {
+            $session = InventorySession::where('id', $sessionId)
+                ->where('branch_id', $manager->branch_id)
+                ->where('status', InventorySessionStatus::REJECTED)
+                ->firstOrFail();
+
+            $session->status = InventorySessionStatus::PENDING;
+            $session->rejected_at = null;
+            $session->rejected_by = null;
+            $session->rejection_comment = null;
+            $session->submitted_at = now();
+            $session->save();
+
+            InventorySessionTimeline::log(
+                $session,
+                DailyInventoryTimelineEventType::RESUBMITTED,
+                'Resubmitted by Branch Manager',
+                'You resubmitted this daily inventory for review and approval.',
+                InventorySessionStatus::REJECTED->value,
+                InventorySessionStatus::PENDING->value
+            );
+
+            return $session->fresh(['items.item', 'items.purchaseOrderItem.purchaseOrder']);
+        });
+    }
+
+    /**
+     * Approve session (Account Manager). Optionally accept sales per item. Runs discrepancy calculation.
+     *
+     * @param string $sessionId
+     * @param array $sales Map of inventory_item_id or item_id => sales_quantity
+     * @param array $recordedWaste Optional map of inventory_item_id or item_id => recorded_waste
+     */
+    public function approveSession(string $sessionId, array $sales = [], array $recordedWaste = []): InventorySession
+    {
+        return DB::transaction(function () use ($sessionId, $sales, $recordedWaste) {
+            $session = InventorySession::where('id', $sessionId)
+                ->where('status', InventorySessionStatus::PENDING)
+                ->with('items')
+                ->firstOrFail();
+
+            foreach ($session->items as $item) {
+                $qty = $sales[$item->id] ?? $sales[$item->item_id] ?? 0;
+                $waste = $recordedWaste[$item->id] ?? $recordedWaste[$item->item_id] ?? null;
+                $item->sales_quantity = $qty;
+                if ($waste !== null) {
+                    $item->recorded_waste = $waste;
+                }
+                $item->save();
+            }
+
+            $session->status = InventorySessionStatus::APPROVED;
+            $session->approved_at = now();
+            $session->approved_by = auth()->id();
+            $session->save();
+
+            $discrepancyService = app(DailyInventoryDiscrepancyService::class);
+            $hasDiscrepancy = $discrepancyService->calculateAndStore($session);
+
+            if ($hasDiscrepancy) {
+                $session->status = InventorySessionStatus::PENDING_YOUR_ACTION;
+                $session->save();
+                InventorySessionTimeline::log(
+                    $session,
+                    DailyInventoryTimelineEventType::DISCREPANCY_REPORT_SHARED,
+                    'Request Received',
+                    'Accountant shared discrepancy report.',
+                    InventorySessionStatus::APPROVED->value,
+                    InventorySessionStatus::PENDING_YOUR_ACTION->value
+                );
+            } else {
+                $session->status = InventorySessionStatus::COMPLETED;
+                $session->save();
+                InventorySessionTimeline::log(
+                    $session,
+                    DailyInventoryTimelineEventType::APPROVED,
+                    'Approved by Account Manager',
+                    null,
+                    InventorySessionStatus::PENDING->value,
+                    InventorySessionStatus::COMPLETED->value
+                );
+            }
+
+            return $session->fresh(['items.item', 'discrepancies']);
+        });
+    }
+
+    /**
+     * Mark discrepancy report as reviewed by Branch Manager (logs timeline).
+     */
+    public function markDiscrepancyReviewed(string $sessionId, BranchManager $manager): InventorySession
+    {
+        $session = InventorySession::where('id', $sessionId)
+            ->where('branch_id', $manager->branch_id)
+            ->where('status', InventorySessionStatus::PENDING_YOUR_ACTION)
+            ->firstOrFail();
+
+        InventorySessionTimeline::log(
+            $session,
+            DailyInventoryTimelineEventType::DISCREPANCY_REVIEWED,
+            'Reviewed',
+            'Branch Manager reviewed the report.',
+            null,
+            null
+        );
+
+        return $session->fresh();
     }
 
     /**
@@ -282,8 +478,7 @@ class InventorySessionService
         return DB::transaction(function () use ($itemId, $data, $manager) {
             $item = InventoryItem::whereHas('inventorySession', function ($query) use ($manager) {
                 $query->where('branch_id', $manager->branch_id)
-                    ->where('created_by', $manager->id)
-                    ->where('status', InventorySessionStatus::DRAFT);
+                    ->whereIn('status', [InventorySessionStatus::DRAFT, InventorySessionStatus::REJECTED]);
             })
                 ->where('id', $itemId)
                 ->firstOrFail();
@@ -316,7 +511,6 @@ class InventorySessionService
         return DB::transaction(function () use ($itemId, $manager) {
             $item = InventoryItem::whereHas('inventorySession', function ($query) use ($manager) {
                 $query->where('branch_id', $manager->branch_id)
-                    ->where('created_by', $manager->id)
                     ->where('status', InventorySessionStatus::DRAFT);
             })
                 ->where('id', $itemId)
@@ -324,6 +518,54 @@ class InventorySessionService
 
             return $item->delete();
         });
+    }
+
+    /**
+     * Last 5 recorded quantities for a product in the branch (for quick suggestions when entering quantity).
+     *
+     * @return array<int, float>
+     */
+    public function getLastQuantitiesForProduct(string $branchId, string $itemId): array
+    {
+        return InventoryItem::query()
+            ->where('branch_id', $branchId)
+            ->where('item_id', $itemId)
+            ->whereHas('inventorySession', function ($q) {
+                $q->whereIn('status', [
+                    InventorySessionStatus::APPROVED,
+                    InventorySessionStatus::COMPLETED,
+                ]);
+            })
+            ->orderByDesc('updated_at')
+            ->limit(5)
+            ->pluck('quantity_inventory')
+            ->map(fn ($q) => (float) $q)
+            ->values()
+            ->toArray();
+    }
+
+    /**
+     * Start a daily inventory session (Branch Manager). Sets start_time and optionally performed_by (created_by).
+     */
+    public function startSession(string $sessionId, BranchManager $manager): InventorySession
+    {
+        $session = InventorySession::where('id', $sessionId)
+            ->where('branch_id', $manager->branch_id)
+            ->whereIn('status', [InventorySessionStatus::PENDING, InventorySessionStatus::DRAFT])
+            ->firstOrFail();
+
+        if (!$session->start_time) {
+            $session->start_time = now();
+        }
+        if (!$session->inventory_date) {
+            $session->inventory_date = now()->toDateString();
+        }
+        if (!$session->created_by && $session->status === InventorySessionStatus::PENDING) {
+            $session->created_by = $manager->id;
+        }
+        $session->save();
+
+        return $session->fresh(['items.item', 'assignedTo', 'createdBy']);
     }
 
     /**
@@ -338,13 +580,20 @@ class InventorySessionService
         $session = InventorySession::with([
             'items.item',
             'items.purchaseOrderItem.purchaseOrder',
+            'assignedTo',
+            'createdBy',
         ])
             ->where('id', $sessionId)
             ->where('branch_id', $manager->branch_id)
-            ->where('created_by', $manager->id)
             ->firstOrFail();
 
         $items = $session->items()->with(['item', 'purchaseOrderItem.purchaseOrder'])->get();
+        $totalItems = $items->count();
+        $completedCount = $items->filter(fn ($i) => (float) $i->quantity_inventory > 0)->count();
+
+        $performedBy = ($session->assigned_to_type === 'staff' && $session->assigned_to_id && $session->assignedTo)
+            ? ['id' => $session->assigned_to_id, 'name' => $session->assignedTo->name]
+            : ['id' => $session->created_by, 'name' => $session->createdBy?->name];
 
         return [
             'session_summary' => [
@@ -352,11 +601,19 @@ class InventorySessionService
                 'start_time' => $session->start_time?->format('Y-m-d H:i:s'),
                 'end_time' => $session->end_time?->format('Y-m-d H:i:s'),
                 'time_taken' => $session->time_taken_formatted,
+                'performed_by' => $performedBy,
+                'completed_products' => $totalItems > 0 ? "{$completedCount}/{$totalItems} (" . round($completedCount / $totalItems * 100) . '%)' : '0/0 (0%)',
+                'completed_count' => $completedCount,
+                'total_count' => $totalItems,
+                'status' => $session->status->value,
+                'status_label' => $session->status_label,
             ],
             'all_inventoried_products' => $items->map(function ($item) {
                 return [
                     'item_name' => $item->item_name,
+                    'recorded_quantity' => (float) $item->quantity_inventory,
                     'quantity' => (float) $item->quantity_inventory,
+                    'unit' => $item->item?->unit ?? null,
                     'notes' => $item->notes,
                 ];
             })->toArray(),

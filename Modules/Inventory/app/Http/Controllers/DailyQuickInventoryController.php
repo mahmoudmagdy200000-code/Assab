@@ -6,7 +6,9 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Inventory\Http\Requests\AddInventoryItemRequest;
+use Modules\Inventory\Http\Requests\ApproveInventorySessionRequest;
 use Modules\Inventory\Http\Requests\CreateInventorySessionRequest;
+use Modules\Inventory\Http\Requests\RejectInventorySessionRequest;
 use Modules\Inventory\Http\Requests\UpdateInventoryItemRequest;
 use Modules\Inventory\Http\Requests\UpdateInventorySessionRequest;
 use Modules\Inventory\Models\InventorySession;
@@ -14,15 +16,90 @@ use Modules\Inventory\Services\InventorySessionService;
 use Modules\Inventory\Transformers\InventoryItemResource;
 use Modules\Inventory\Transformers\InventorySessionResource;
 use Modules\Inventory\Transformers\InventorySessionSummaryResource;
+use Modules\Inventory\Transformers\InventorySessionTimelineResource;
 
 class DailyQuickInventoryController extends BaseController
 {
+    private const BRANCH_NOT_ASSIGNED_MESSAGE = 'Branch manager is not assigned to any branch';
+
     public function __construct(
         private readonly InventorySessionService $sessionService
     ) {}
 
     /**
-     * Get closed order items for inventory
+     * Daily inventory dashboard for Branch Manager.
+     * Returns total number of items (from schedule) and daily items managed by account manager.
+     */
+    public function dashboard(): JsonResponse
+    {
+        try {
+            /** @var BranchManager $manager */
+            $manager = auth()->user();
+
+            if (!$manager->branch_id) {
+                return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
+            }
+
+            $schedule = app(\Modules\Inventory\Services\DailyInventoryScheduleService::class)
+                ->getForBranch($manager->branch_id);
+
+            $dailyItemsCount = 0;
+            $dailyItems = [];
+            if ($schedule) {
+                $schedule->load('scheduleItems.item');
+                $dailyItems = $schedule->scheduleItems->map(fn ($si) => [
+                    'item_id' => $si->item_id,
+                    'item_name' => $si->item?->name,
+                    'unit' => $si->item?->unit,
+                    'logo' => $si->item?->logo,
+                ])->values()->toArray();
+                $dailyItemsCount = $schedule->scheduleItems->count();
+            }
+
+            $todaySession = InventorySession::where('branch_id', $manager->branch_id)
+                ->whereDate('inventory_date', now()->toDateString())
+                ->first();
+            $totalItemsAdded = $todaySession ? $todaySession->items()->count() : $dailyItemsCount;
+
+            return $this->successResponse([
+                'total_items_added' => $totalItemsAdded,
+                'daily_items_count' => $dailyItemsCount,
+                'daily_items_managed_by_account_manager' => $dailyItems,
+            ], 'Dashboard retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching dashboard');
+        }
+    }
+
+    /**
+     * Get branch items for daily inventory (from branch purchase configuration).
+     * Only items assigned to the branch can be used. Used by Account Manager for schedule and Branch Manager for daily items.
+     *
+     * @group Daily Quick Inventory
+     */
+    public function getBranchItems(): JsonResponse
+    {
+        try {
+            /** @var BranchManager $manager */
+            $manager = auth()->user();
+
+            if (!$manager->branch_id) {
+                return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
+            }
+
+            $items = $this->sessionService->getBranchItems($manager->branch_id);
+
+            return $this->successResponse(
+                $items,
+                'Branch items retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching branch items');
+        }
+    }
+
+    /**
+     * Get closed order items for inventory (legacy; prefer getBranchItems for daily inventory).
      *
      * @group Daily Quick Inventory
      */
@@ -33,7 +110,7 @@ class DailyQuickInventoryController extends BaseController
             $manager = auth()->user();
 
             if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
+                return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
             $items = $this->sessionService->getClosedOrderItems($manager->branch_id);
@@ -59,7 +136,7 @@ class DailyQuickInventoryController extends BaseController
             $manager = auth()->user();
 
             if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
+                return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
             $cashiers = $this->sessionService->getAvailableCashiers($manager->branch_id);
@@ -85,7 +162,7 @@ class DailyQuickInventoryController extends BaseController
             $manager = auth()->user();
 
             if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
+                return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
             $session = $this->sessionService->createDraft($request->validated(), $manager);
@@ -249,12 +326,11 @@ class DailyQuickInventoryController extends BaseController
             $manager = auth()->user();
 
             if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
+                return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
             $sessions = InventorySession::where('branch_id', $manager->branch_id)
-                ->where('created_by', $manager->id)
-                ->with(['items', 'assignedTo'])
+                ->with(['items', 'assignedTo', 'createdBy'])
                 ->withCount('items')
                 ->orderBy('created_at', 'desc')
                 ->paginate(request()->get('per_page', 15));
@@ -281,8 +357,7 @@ class DailyQuickInventoryController extends BaseController
 
             $session = InventorySession::where('id', $id)
                 ->where('branch_id', $manager->branch_id)
-                ->where('created_by', $manager->id)
-                ->with(['items.item', 'items.purchaseOrderItem.purchaseOrder', 'assignedTo'])
+                ->with(['items.item', 'items.purchaseOrderItem.purchaseOrder', 'assignedTo', 'createdBy'])
                 ->withCount('items')
                 ->firstOrFail();
 
@@ -292,6 +367,205 @@ class DailyQuickInventoryController extends BaseController
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'fetching inventory session');
+        }
+    }
+
+    /**
+     * Reject inventory session (Account Manager). Branch Manager can then edit and resubmit.
+     */
+    public function rejectSession(RejectInventorySessionRequest $request, string $id): JsonResponse
+    {
+        try {
+            $session = $this->sessionService->rejectSession($id, $request->validated('comment'));
+
+            return $this->successResponse(
+                new InventorySessionResource($session->load(['items', 'assignedTo', 'createdBy'])),
+                'Inventory session rejected successfully'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'rejecting inventory session');
+        }
+    }
+
+    /**
+     * Resubmit inventory session after rejection (Branch Manager).
+     */
+    public function resubmitSession(string $id): JsonResponse
+    {
+        try {
+            /** @var BranchManager $manager */
+            $manager = auth()->user();
+            $session = $this->sessionService->resubmitSession($id, $manager);
+
+            return $this->successResponse(
+                new InventorySessionResource($session),
+                'Inventory session resubmitted successfully'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'resubmitting inventory session');
+        }
+    }
+
+    /**
+     * Approve inventory session (Account Manager). Optionally pass sales per item; runs discrepancy calculation.
+     */
+    public function approveSession(ApproveInventorySessionRequest $request, string $id): JsonResponse
+    {
+        try {
+            $session = $this->sessionService->approveSession(
+                $id,
+                $request->validated('sales', []),
+                $request->validated('recorded_waste', [])
+            );
+
+            return $this->successResponse(
+                new InventorySessionResource($session),
+                'Inventory session approved successfully'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'approving inventory session');
+        }
+    }
+
+    /**
+     * Get discrepancy report for a session (when status is Pending Your Action).
+     */
+    public function getDiscrepancyReport(string $id): JsonResponse
+    {
+        try {
+            /** @var BranchManager $manager */
+            $manager = auth()->user();
+            $session = InventorySession::where('id', $id)
+                ->where('branch_id', $manager->branch_id)
+                ->with(['discrepancies.inventoryItem.item', 'items.item'])
+                ->firstOrFail();
+
+            $allDiscrepancies = $session->discrepancies;
+            $discrepancies = $allDiscrepancies->whereNotNull('discrepancy_type');
+            $matchingCount = $allDiscrepancies->whereNull('discrepancy_type')->count();
+            $totalValue = $discrepancies->sum('difference_value_sar');
+            $shortageCount = $discrepancies->where('discrepancy_type', 'shortage')->count();
+            $overCount = $discrepancies->where('discrepancy_type', 'over')->count();
+
+            $productsRequiringClarification = $discrepancies->map(function ($d) {
+                return [
+                    'product_name' => $d->inventoryItem->item_name ?? $d->inventoryItem->item?->name,
+                    'opening_balance' => (float) $d->opening_balance,
+                    'purchases' => (float) $d->purchases,
+                    'sales' => (float) $d->sales,
+                    'recorded_waste' => (float) $d->recorded_waste,
+                    'net_transfer_in' => (float) $d->net_transfer_in,
+                    'net_transfer_out' => (float) $d->net_transfer_out,
+                    'theoretically_expected' => (float) $d->theoretically_expected,
+                    'actual_from_inventory' => (float) $d->actual,
+                    'difference_quantity' => (float) $d->difference_quantity,
+                    'difference_value_sar' => (float) ($d->difference_value_sar ?? 0),
+                    'discrepancy_type' => $d->discrepancy_type,
+                ];
+            });
+
+            return $this->successResponse([
+                'session_id' => $session->id,
+                'status' => $session->status->value,
+                'status_label' => $session->status_label,
+                'summary' => [
+                    'products_with_discrepancies' => $discrepancies->count(),
+                    'matching_products' => $matchingCount,
+                    'total_products' => $allDiscrepancies->count(),
+                    'total_discrepancy_value_sar' => round($totalValue, 2),
+                    'discrepancy_types' => [
+                        'shortage' => $shortageCount,
+                        'over' => $overCount,
+                    ],
+                ],
+                'products_requiring_clarification' => $productsRequiringClarification,
+            ], 'Discrepancy report retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching discrepancy report');
+        }
+    }
+
+    /**
+     * Mark discrepancy report as reviewed (Branch Manager). Logs timeline event.
+     */
+    public function markDiscrepancyReviewed(string $id): JsonResponse
+    {
+        try {
+            /** @var BranchManager $manager */
+            $manager = auth()->user();
+            $session = $this->sessionService->markDiscrepancyReviewed($id, $manager);
+
+            return $this->successResponse(
+                new InventorySessionResource($session),
+                'Discrepancy report marked as reviewed'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'marking discrepancy as reviewed');
+        }
+    }
+
+    /**
+     * Last 5 recorded quantities for a product in this branch (quick suggestions when entering quantity).
+     */
+    public function getLastQuantities(string $itemId): JsonResponse
+    {
+        try {
+            /** @var BranchManager $manager */
+            $manager = auth()->user();
+            if (!$manager->branch_id) {
+                return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
+            }
+            $quantities = $this->sessionService->getLastQuantitiesForProduct($manager->branch_id, $itemId);
+            return $this->successResponse(['quantities' => $quantities], 'Last quantities retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching last quantities');
+        }
+    }
+
+    /**
+     * Start a daily inventory session (Start Myself). Sets start_time and performed_by.
+     */
+    public function startSession(string $id): JsonResponse
+    {
+        try {
+            /** @var BranchManager $manager */
+            $manager = auth()->user();
+            $session = $this->sessionService->startSession($id, $manager);
+            return $this->successResponse(
+                new InventorySessionResource($session),
+                'Session started successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'starting session');
+        }
+    }
+
+    /**
+     * Get timeline for an inventory session (Details tab - Timelines).
+     */
+    public function getTimelines(string $id): JsonResponse
+    {
+        try {
+            /** @var BranchManager $manager */
+            $manager = auth()->user();
+            $session = InventorySession::where('id', $id)
+                ->where('branch_id', $manager->branch_id)
+                ->firstOrFail();
+
+            $timelines = $session->timelines()->orderBy('occurred_at', 'asc')->get();
+
+            return $this->successResponse(
+                InventorySessionTimelineResource::collection($timelines),
+                'Timelines retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching timelines');
         }
     }
 
@@ -308,8 +582,10 @@ class DailyQuickInventoryController extends BaseController
 
             $session = InventorySession::where('id', $id)
                 ->where('branch_id', $manager->branch_id)
-                ->where('created_by', $manager->id)
                 ->where('status', \Modules\Inventory\Enums\InventorySessionStatus::DRAFT)
+                ->where(function ($q) use ($manager) {
+                    $q->whereNull('created_by')->orWhere('created_by', $manager->id);
+                })
                 ->firstOrFail();
 
             $session->delete();

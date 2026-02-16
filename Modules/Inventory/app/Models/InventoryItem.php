@@ -24,12 +24,16 @@ class InventoryItem extends Model
         'item_id',
         'item_name',
         'quantity_inventory',
+        'sales_quantity',
+        'recorded_waste',
         'notes',
         'branch_id',
     ];
 
     protected $casts = [
         'quantity_inventory' => 'decimal:3',
+        'sales_quantity' => 'decimal:3',
+        'recorded_waste' => 'decimal:3',
     ];
 
     // Relationships

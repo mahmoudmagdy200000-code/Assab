@@ -31,6 +31,11 @@ class InventorySession extends Model
         'status',
         'notes',
         'submitted_at',
+        'rejected_at',
+        'rejected_by',
+        'rejection_comment',
+        'approved_at',
+        'approved_by',
     ];
 
     protected $casts = [
@@ -40,6 +45,8 @@ class InventorySession extends Model
         'time_taken' => 'integer',
         'status' => InventorySessionStatus::class,
         'submitted_at' => 'datetime',
+        'rejected_at' => 'datetime',
+        'approved_at' => 'datetime',
     ];
 
     protected $appends = [
@@ -103,6 +110,16 @@ class InventorySession extends Model
     public function items(): HasMany
     {
         return $this->hasMany(InventoryItem::class);
+    }
+
+    public function timelines(): HasMany
+    {
+        return $this->hasMany(InventorySessionTimeline::class);
+    }
+
+    public function discrepancies(): HasMany
+    {
+        return $this->hasMany(DailyInventoryDiscrepancy::class);
     }
 
     // Accessors
