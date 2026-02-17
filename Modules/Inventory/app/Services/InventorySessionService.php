@@ -134,10 +134,10 @@ class InventorySessionService
 
             $session = InventorySession::create($sessionData);
 
-            // Add items if provided
+            // Add items if provided (item_id can be purchase_order_item id or item id from getBranchItems)
             if (!empty($data['items']) && is_array($data['items'])) {
                 foreach ($data['items'] as $itemData) {
-                    $this->addItemToSession(
+                    $this->addItemToSessionByIdentifier(
                         $session->id,
                         $itemData['item_id'],
                         $manager,
@@ -152,33 +152,71 @@ class InventorySessionService
     }
 
     /**
-     * Add item to session (internal helper method)
+     * Add item to session by identifier (purchase_order_item id or item id from getBranchItems).
      *
      * @param string $sessionId
-     * @param string $purchaseOrderItemId
+     * @param string $identifier Either purchase_order_items.id or items.id (from branch_items)
      * @param BranchManager $manager
      * @param float $quantity
      * @param string|null $notes
      * @return InventoryItem
      */
-    private function addItemToSession(string $sessionId, string $purchaseOrderItemId, BranchManager $manager, float $quantity = 0, ?string $notes = null): InventoryItem
+    private function addItemToSessionByIdentifier(string $sessionId, string $identifier, BranchManager $manager, float $quantity = 0, ?string $notes = null): InventoryItem
     {
-        // Get purchase order item
         $purchaseOrderItem = PurchaseOrderItem::with('purchaseOrder')
-            ->where('id', $purchaseOrderItemId)
-            ->whereHas('purchaseOrder', function ($query) use ($manager) {
+            ->where('id', $identifier)
+            ->whereHas('purchaseOrder', function ($query) use ($manager): void {
                 $query->where('branch_id', $manager->branch_id)
                     ->where('status', OrderStatus::CLOSED);
             })
+            ->first();
+
+        if ($purchaseOrderItem) {
+            return $this->addItemToSession($sessionId, $purchaseOrderItem, $manager, $quantity, $notes);
+        }
+
+        $branchItem = BranchItem::with('item')
+            ->where('branch_id', $manager->branch_id)
+            ->where('item_id', $identifier)
             ->firstOrFail();
 
-        // Check if item already exists in session
         $existingItem = InventoryItem::where('inventory_session_id', $sessionId)
-            ->where('purchase_order_item_id', $purchaseOrderItemId)
+            ->where('item_id', $identifier)
+            ->whereNull('purchase_order_item_id')
             ->first();
 
         if ($existingItem) {
-            // Item already exists, skip
+            return $existingItem;
+        }
+
+        return InventoryItem::create([
+            'inventory_session_id' => $sessionId,
+            'purchase_order_item_id' => null,
+            'item_id' => $branchItem->item_id,
+            'item_name' => $branchItem->item_name ?? $branchItem->item?->name ?? '',
+            'quantity_inventory' => $quantity,
+            'notes' => $notes,
+            'branch_id' => $manager->branch_id,
+        ]);
+    }
+
+    /**
+     * Add item to session from a purchase order item (internal helper).
+     *
+     * @param string $sessionId
+     * @param PurchaseOrderItem $purchaseOrderItem
+     * @param BranchManager $manager
+     * @param float $quantity
+     * @param string|null $notes
+     * @return InventoryItem
+     */
+    private function addItemToSession(string $sessionId, PurchaseOrderItem $purchaseOrderItem, BranchManager $manager, float $quantity = 0, ?string $notes = null): InventoryItem
+    {
+        $existingItem = InventoryItem::where('inventory_session_id', $sessionId)
+            ->where('purchase_order_item_id', $purchaseOrderItem->id)
+            ->first();
+
+        if ($existingItem) {
             return $existingItem;
         }
 

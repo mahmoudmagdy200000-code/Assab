@@ -3,6 +3,9 @@
 namespace Modules\Inventory\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Modules\Purchase\Enums\OrderStatus;
+use Modules\Purchase\Models\BranchItem;
+use Modules\Purchase\Models\PurchaseOrderItem;
 
 class CreateInventorySessionRequest extends FormRequest
 {
@@ -16,6 +19,7 @@ class CreateInventorySessionRequest extends FormRequest
 
     /**
      * Get the validation rules that apply to the request.
+     * item_id is accepted as either: purchase_order_items.id (from getClosedOrderItems) or items.id (from getBranchItems).
      *
      * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
      */
@@ -28,7 +32,38 @@ class CreateInventorySessionRequest extends FormRequest
             'start_time' => ['required_if:assigned_to_type,personal', 'nullable', 'date_format:Y-m-d H:i:s'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'items' => ['nullable', 'array'],
-            'items.*.item_id' => ['required_with:items', 'uuid', 'exists:purchase_order_items,id'],
+            'items.*.item_id' => [
+                'required_with:items',
+                'uuid',
+                function (string $_attribute, mixed $value, \Closure $fail): void {
+                    $manager = auth()->user();
+                    if (!$manager || !$manager->branch_id) {
+                        $fail(__('Branch is required.'));
+                        return;
+                    }
+                    $branchId = $manager->branch_id;
+
+                    $existsAsPurchaseOrderItem = PurchaseOrderItem::where('id', $value)
+                        ->whereHas('purchaseOrder', function ($q) use ($branchId): void {
+                            $q->where('branch_id', $branchId)->where('status', OrderStatus::CLOSED);
+                        })
+                        ->exists();
+
+                    if ($existsAsPurchaseOrderItem) {
+                        return;
+                    }
+
+                    $existsAsBranchItem = BranchItem::where('branch_id', $branchId)
+                        ->where('item_id', $value)
+                        ->exists();
+
+                    if ($existsAsBranchItem) {
+                        return;
+                    }
+
+                    $fail(__('One or more selected items do not exist.'));
+                },
+            ],
             'items.*.quantity' => ['required_with:items', 'numeric', 'min:0'],
             'items.*.notes' => ['nullable', 'string', 'max:1000'],
         ];
