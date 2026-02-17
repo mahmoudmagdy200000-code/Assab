@@ -25,12 +25,8 @@ class InventoryItemResource extends JsonResource
             ],
             'purchase_order_item' => [
                 'id' => $this->purchase_order_item_id,
-                'order_number' => $this->whenLoaded('purchaseOrderItem') && $this->purchaseOrderItem->purchaseOrder 
-                    ? $this->purchaseOrderItem->purchaseOrder->order_number 
-                    : null,
-                'quantity_ordered' => $this->whenLoaded('purchaseOrderItem') 
-                    ? (float) $this->purchaseOrderItem->quantity_ordered 
-                    : null,
+                'order_number' => $this->whenLoaded('purchaseOrderItem', fn () => $this->purchaseOrderItem?->purchaseOrder?->order_number),
+                'quantity_ordered' => $this->whenLoaded('purchaseOrderItem', fn () => $this->purchaseOrderItem !== null ? (float) $this->purchaseOrderItem->quantity_ordered : null),
             ],
             'quantity_inventory' => (float) $this->quantity_inventory,
             'notes' => $this->notes,
