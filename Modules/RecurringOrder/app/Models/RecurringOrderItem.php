@@ -21,11 +21,16 @@ class RecurringOrderItem extends Model
         'quantity',
         'quality',
         'unit_price',
+        'preferred_delivery_date',
+        'latest_delivery_date',
+        'special_instructions',
     ];
 
     protected $casts = [
         'quantity' => 'decimal:3',
         'unit_price' => 'decimal:2',
+        'preferred_delivery_date' => 'date',
+        'latest_delivery_date' => 'date',
     ];
 
     protected $appends = ['item_logo_url'];

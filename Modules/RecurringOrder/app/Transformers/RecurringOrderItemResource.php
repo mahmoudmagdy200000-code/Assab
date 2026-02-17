@@ -18,6 +18,9 @@ class RecurringOrderItemResource extends JsonResource
             'quantity' => (float) $this->quantity,
             'quality' => $this->quality ?? 'standard',
             'unit_price' => (float) $this->unit_price,
+            'preferred_delivery_date' => $this->preferred_delivery_date?->format('Y-m-d'),
+            'latest_delivery_date' => $this->latest_delivery_date?->format('Y-m-d'),
+            'special_instructions' => $this->special_instructions,
         ];
     }
 }

@@ -46,6 +46,8 @@ class RecurringOrderDetailResource extends JsonResource
                 'scheduling_time' => $schedulingTimeStr,
                 'end_date' => $this->end_date?->format('Y-m-d'),
             ],
+            'message' => $this->message,
+            'notification_channels' => $this->notification_channels ?? [],
             'items_summary' => RecurringOrderItemResource::collection($this->whenLoaded('items')),
             'scheduling_settings' => $this->buildSchedulingSettings(),
         ];

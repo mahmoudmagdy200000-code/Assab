@@ -46,42 +46,105 @@ class RecurringOrderService
 
     /**
      * Create a new recurring order and activate it.
+     * Accepts body with either direct_supplier or purchase_officer (normalized inside).
      */
     public function create(BranchManager $branchManager, array $data): RecurringOrder
     {
         return DB::transaction(function () use ($branchManager, $data) {
-            $sourceableType = $data['order_source_type'] === OrderSourceType::DIRECT_SUPPLIER->value
-                ? \Modules\Supplier\Models\Supplier::class
-                : BranchManager::class;
-            $sourceableId = $data['order_source_type'] === OrderSourceType::DIRECT_SUPPLIER->value
-                ? $data['supplier_id']
-                : $data['purchasing_officer_id'];
-
-            $schedulingTime = $this->resolveSchedulingTime($data);
+            $normalized = $this->normalizeCreatePayload($data);
 
             $order = $this->repository->create([
                 'branch_id' => $branchManager->branch_id,
                 'created_by' => $branchManager->id,
-                'order_name' => $data['order_name'],
-                'order_source_type' => $data['order_source_type'],
+                'order_name' => $normalized['order_name'],
+                'order_source_type' => $normalized['order_source_type'],
                 'status' => RecurringOrderStatus::PENDING,
-                'sourceable_type' => $sourceableType,
-                'sourceable_id' => $sourceableId,
+                'sourceable_type' => $normalized['sourceable_type'],
+                'sourceable_id' => $normalized['sourceable_id'],
+                'message' => $normalized['message'] ?? null,
+                'notification_channels' => $normalized['notification_channels'] ?? null,
                 'repeat_frequency' => $data['repeat_frequency'],
                 'repeat_config' => $data['repeat_config'] ?? null,
-                'scheduling_time_am' => $data['scheduling_time_am'] ?? null,
-                'scheduling_time_pm' => $data['scheduling_time_pm'] ?? null,
+                'scheduling_time_am' => $this->normalizeTime($data['scheduling_time_am'] ?? null),
+                'scheduling_time_pm' => $this->normalizeTime($data['scheduling_time_pm'] ?? null),
                 'notification_options' => $data['notification_options'] ?? [],
                 'smart_settings' => $data['smart_settings'] ?? [],
                 'start_date' => $data['start_date'],
                 'end_date' => $data['end_date'] ?? null,
                 'end_type' => $data['end_type'] ?? 'repeat',
-                'next_run_at' => $this->computeNextRunAt($data),
+                'next_run_at' => $this->computeNextRunAt(array_merge($data, [
+                    'scheduling_time_am' => $this->normalizeTime($data['scheduling_time_am'] ?? null),
+                    'scheduling_time_pm' => $this->normalizeTime($data['scheduling_time_pm'] ?? null),
+                ])),
             ]);
 
-            $this->syncItems($order, $data['items'] ?? []);
+            $this->syncItems($order, $normalized['items']);
             return $order->fresh(['items.item', 'sourceable']);
         });
+    }
+
+    /**
+     * Normalize request body: direct_supplier | purchase_officer -> order_source_type, sourceable, items, order_name, message, notification_channels.
+     */
+    private function normalizeCreatePayload(array $data): array
+    {
+        if (!empty($data['direct_supplier'])) {
+            $ds = $data['direct_supplier'];
+            $supplier = \Modules\Supplier\Models\Supplier::find($ds['supplier_id']);
+            $orderName = $data['order_name'] ?? ($supplier
+                ? 'Recurring - ' . ($supplier->name ?? $supplier->company_name ?? 'Supplier') . ' - ' . ($data['start_date'] ?? '')
+                : 'Recurring order');
+            return [
+                'order_name' => $orderName,
+                'order_source_type' => OrderSourceType::DIRECT_SUPPLIER->value,
+                'sourceable_type' => \Modules\Supplier\Models\Supplier::class,
+                'sourceable_id' => $ds['supplier_id'],
+                'message' => $ds['message'] ?? null,
+                'notification_channels' => $ds['notification_channels'] ?? null,
+                'items' => $ds['items'] ?? [],
+            ];
+        }
+
+        if (!empty($data['purchase_officer'])) {
+            $po = $data['purchase_officer'];
+            $officer = BranchManager::find($po['purchasing_officer_id'] ?? null);
+            $orderName = $data['order_name'] ?? ($officer
+                ? 'Recurring - ' . $officer->name . ' - ' . ($data['start_date'] ?? '')
+                : 'Recurring order');
+            return [
+                'order_name' => $orderName,
+                'order_source_type' => OrderSourceType::VIA_PURCHASING_OFFICER->value,
+                'sourceable_type' => BranchManager::class,
+                'sourceable_id' => $po['purchasing_officer_id'],
+                'message' => null,
+                'notification_channels' => null,
+                'items' => $po['items'] ?? [],
+            ];
+        }
+
+        throw new \InvalidArgumentException('Either direct_supplier or purchase_officer must be provided.');
+    }
+
+    /**
+     * Normalize time: accept H:i or full ISO datetime, return H:i for DB.
+     */
+    private function normalizeTime(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_object($value)) {
+            return null;
+        }
+        $str = (string) $value;
+        if (preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $str)) {
+            return substr($str, 0, 5);
+        }
+        try {
+            return Carbon::parse($str)->format('H:i');
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -161,8 +224,8 @@ class RecurringOrderService
             $update = array_filter([
                 'order_name' => $data['order_name'] ?? null,
                 'repeat_config' => $data['repeat_config'] ?? null,
-                'scheduling_time_am' => $data['scheduling_time_am'] ?? null,
-                'scheduling_time_pm' => $data['scheduling_time_pm'] ?? null,
+                'scheduling_time_am' => $this->normalizeTime($data['scheduling_time_am'] ?? null),
+                'scheduling_time_pm' => $this->normalizeTime($data['scheduling_time_pm'] ?? null),
                 'notification_options' => $data['notification_options'] ?? null,
                 'smart_settings' => $data['smart_settings'] ?? null,
                 'end_date' => $data['end_date'] ?? null,
@@ -259,11 +322,6 @@ class RecurringOrderService
         }
 
         return "Your next order will be automatically generated on {$recurringOrder->next_run_at->format('F j, Y')} at {$timeStr}.";
-    }
-
-    private function resolveSchedulingTime(array $data): void
-    {
-        // Used only for validation; storage is per-field.
     }
 
     private function computeNextRunAt(array $data, $after = null): ?Carbon
@@ -368,6 +426,9 @@ class RecurringOrderService
                 'quantity' => $row['quantity'],
                 'quality' => $row['quality'] ?? 'standard',
                 'unit_price' => $row['unit_price'] ?? 0,
+                'preferred_delivery_date' => isset($row['preferred_delivery_date']) ? $row['preferred_delivery_date'] : null,
+                'latest_delivery_date' => isset($row['latest_delivery_date']) ? $row['latest_delivery_date'] : null,
+                'special_instructions' => $row['special_instructions'] ?? null,
             ]);
         }
     }
