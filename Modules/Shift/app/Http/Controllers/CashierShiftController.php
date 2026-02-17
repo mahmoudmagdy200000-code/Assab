@@ -376,7 +376,9 @@ class CashierShiftController extends BaseController
                 'nextCashier:id,name',
                 'assignedBy:id,name',
                 'salesBreakdown:id,cashier_shift_id,aggregator_id,amount',
-                'salesBreakdown.aggregator:id,name'
+                'salesBreakdown.aggregator:id,name',
+                'handover.handoverTo',
+                'handoverStatus.reviewedBy',
             ])
                 ->where('cashier_id', $cashier->id)
                 ->where('status', ShiftStatus::COMPLETED)
@@ -404,12 +406,32 @@ class CashierShiftController extends BaseController
 
             $shifts = $query->paginate($request->input('per_page', 15));
 
-            $shifts->getCollection()->loadMissing(['handoverStatus.reviewedBy', 'handover.handoverTo', 'nextCashier']);
-
             $transformedShifts = $shifts->getCollection()->map(function ($shift) {
                 $deliveryApps = $shift->salesBreakdown->sum('amount');
                 $handoverTo = $shift->handover?->handoverTo;
                 $handoverToName = $handoverTo?->name ?? $shift->nextCashier?->name ?? null;
+                $handoverToType = $shift->handover?->handover_to_type ?? 'cashier';
+
+                $handoverStatus = $shift->handoverStatus
+                    ? [
+                        'status' => $shift->handoverStatus->manager_approval_status ?? 'pending',
+                        'reviewed_by' => $shift->handoverStatus->reviewedBy?->name,
+                    ]
+                    : ['status' => 'no_handover', 'reviewed_by' => null];
+
+                $handoverToPayload = $handoverToName
+                    ? ['id' => $shift->handover?->handover_to_id ?? $shift->next_cashier_id, 'name' => $handoverToName, 'type' => $handoverToType]
+                    : null;
+
+                $handoverApprovedOrRejectedBy = null;
+                if ($shift->handoverStatus?->reviewedBy) {
+                    $handoverApprovedOrRejectedBy = [
+                        'id' => $shift->handoverStatus->reviewed_by_id,
+                        'name' => $shift->handoverStatus->reviewedBy->name,
+                        'user_type' => $shift->handoverStatus->reviewer_type ?? null,
+                        'action' => $shift->handoverStatus->manager_approval_status ?? 'pending',
+                    ];
+                }
 
                 return [
                     'id' => $shift->id,
@@ -424,17 +446,9 @@ class CashierShiftController extends BaseController
                     'variance_type' => $shift->variance > 0 ? 'Over' : ($shift->variance < 0 ? 'Short' : 'None'),
                     'next_cashier' => $shift->nextCashier ? ['id' => $shift->nextCashier->id, 'name' => $shift->nextCashier->name] : null,
                     'assigned_to' => $shift->cashier ? ['id' => $shift->cashier->id, 'name' => $shift->cashier->name] : null,
-                    'handover_status' => $shift->handoverStatus ? [
-                        'status' => $shift->handoverStatus->manager_approval_status ?? 'pending',
-                        'reviewed_by' => $shift->handoverStatus->reviewedBy?->name,
-                    ] : null,
-                    'handover_to' => $handoverToName ? ['name' => $handoverToName, 'type' => $shift->handover?->handover_to_type ?? 'cashier'] : null,
-                    'handover_approved_or_rejected_by' => $shift->handoverStatus?->reviewedBy ? [
-                        'id' => $shift->handoverStatus->reviewed_by_id,
-                        'name' => $shift->handoverStatus->reviewedBy->name,
-                        'user_type' => $shift->handoverStatus->reviewer_type ?? null,
-                        'action' => $shift->handoverStatus->manager_approval_status ?? 'pending',
-                    ] : null,
+                    'handover_status' => $handoverStatus,
+                    'handover_to' => $handoverToPayload,
+                    'handover_approved_or_rejected_by' => $handoverApprovedOrRejectedBy,
                     'branch_name' => $shift->shift->branch->name ?? 'N/A',
                     'branch_id' => $shift->shift->branch_id,
                     'performance_metrics' => [
