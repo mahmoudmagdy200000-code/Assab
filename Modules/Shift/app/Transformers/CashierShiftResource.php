@@ -5,18 +5,22 @@ namespace Modules\Shift\Transformers;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\Log;
+use Modules\Shift\Enums\ShiftStatus;
 
 class CashierShiftResource extends JsonResource
 {
     /**
      * Transform the resource into an array.
+     * Status-aware: in_progress, completed, reassigned, not_started each get their required fields.
      */
     public function toArray($request)
     {
+        $status = $this->status?->value ?? $this->status;
+
         return [
             'id' => $this->id,
             'shift_date' => $this->shift_date?->format('Y-m-d'),
-            'status' => $this->status?->value ?? $this->status,
+            'status' => $status,
 
             // Cashier Info
             'cashier' => [
@@ -40,11 +44,11 @@ class CashierShiftResource extends JsonResource
                 ],
             ],
 
-            // Financials
+            // Financials (always include; for in_progress closing_balance may be 0)
             'opening_balance' => $this->opening_balance,
-            'closing_balance' => $this->closing_balance,
+            'closing_balance' => (float) ($this->closing_balance ?? 0),
             'expected_balance' => $this->expected_balance,
-            'variance' => $this->variance,
+            'variance' => $this->getVarianceValue(),
             'total_sales' => $this->total_sales,
             'net_sales' => $this->net_sales,
             'vat_amount' => $this->vat_amount,
@@ -64,16 +68,7 @@ class CashierShiftResource extends JsonResource
                 fn() => (float) ($this->handover->handover_amount ?? 0),
                 fn() => $this->handover_amount ? (float) $this->handover_amount : null
             ),
-            'handover_status' => $this->when(
-                $this->relationLoaded('handoverStatus') && $this->handoverStatus,
-                function () {
-                    return [
-                        'id' => $this->handoverStatus->id,
-                        'status' => $this->handoverStatus->status ?? null,
-                        'reviewed_by' => $this->handoverStatus->reviewedBy?->name ?? null,
-                    ];
-                }
-            ),
+            'handover_status' => $this->getHandoverStatusArray(),
             // Detailed Handover Info
             'handover_details' => $this->when(
                 $this->relationLoaded('handover') && $this->handover,
@@ -100,40 +95,29 @@ class CashierShiftResource extends JsonResource
             // Next Cashier (computed from next shift when available, else stored)
             'next_cashier' => $this->formatNextCashier($this->computed_next_cashier ?? $this->nextCashier ?? null),
 
-            // Handover To (who received the handover - cashier or branch manager)
+            // Assigned to (who the shift is assigned to)
+            'assigned_to' => $this->cashier ? [
+                'id' => $this->cashier->id,
+                'name' => $this->cashier->name,
+            ] : null,
+
+            // Handover To (who received / will receive the handover - cashier or branch manager)
             'handover_to' => $this->getHandoverTo(),
 
-            // Reassignment Info (Only show if shift was reassigned)
-            'reassignment' => $this->when(
-                $this->status?->value === 'reassigned' || $this->original_cashier_id || $this->reassigned_by,
-                function () {
-                    // Load relationships if not already loaded
-                    if (!$this->relationLoaded('originalCashier') && $this->original_cashier_id) {
-                        $this->loadMissing('originalCashier');
-                    }
-                    if (!$this->relationLoaded('reassignedBy') && $this->reassigned_by) {
-                        $this->loadMissing('reassignedBy');
-                    }
+            // handover_approved_or_rejected_by (for completed)
+            'handover_approved_or_rejected_by' => $this->getHandoverApprovedOrRejectedBy(),
 
-                    return [
-                        'reassigned_from' => [
-                            'id' => $this->originalCashier?->id ?? $this->original_cashier_id,
-                            'name' => $this->originalCashier?->name ?? null,
-                        ],
-                        'reassigned_to' => [
-                            'id' => $this->cashier?->id ?? $this->cashier_id,
-                            'name' => $this->cashier?->name ?? null,
-                        ],
-                        'reassigned_by' => [
-                            'id' => $this->reassignedBy?->id ?? $this->reassigned_by,
-                            'name' => $this->reassignedBy?->name ?? null,
-                            'user_type' => $this->reassigned_by ? 'branch_manager' : null,
-                        ],
-                        'reassigned_at' => $this->reassigned_at?->format('Y-m-d H:i:s'),
-                        'reason' => $this->reassignment_reason,
-                    ];
-                }
+            // ---------- Reassignment (reassigned only) ----------
+            'reassignment' => $this->when(
+                $status === 'reassigned' || $this->original_cashier_id || $this->reassigned_by,
+                fn() => $this->getReassignmentArray()
             ),
+            'is_mid_reassign' => $this->when($status === 'reassigned', fn() => $this->isMidReassign()),
+            'can_be_accepted' => $this->when($status === 'reassigned', fn() => $this->canBeAccepted()),
+
+            // ---------- Pending (not_started): cash_from, cash_given ----------
+            'cash_from' => $this->when($status === 'not_started', $this->getCashFrom()),
+            'cash_given' => $this->when($status === 'not_started', (float) ($this->opening_balance ?? 0)),
 
             // Relations
             'sales_breakdown' => $this->whenLoaded('salesBreakdown', function () {
@@ -146,7 +130,8 @@ class CashierShiftResource extends JsonResource
                 });
             }),
 
-            'variance' => $this->when(
+            // Detailed variance (when loaded and has variance)
+            'variance_details' => $this->when(
                 $this->hasVariance() && $this->relationLoaded('varianceDetails'),
                 function () {
                     try {
@@ -162,6 +147,150 @@ class CashierShiftResource extends JsonResource
                 }
             ),
         ];
+    }
+
+    /**
+     * Variance: numeric value for list/cards; detailed object only in variance_details when loaded.
+     */
+    private function getVarianceValue()
+    {
+        $v = (float) ($this->variance ?? 0);
+        if ($this->hasVariance() && $this->relationLoaded('varianceDetails')) {
+            try {
+                $formatted = app(\Modules\Shift\Services\VarianceCalculationService::class)
+                    ->getVarianceFormatted($this->resource);
+                return $formatted ?? $v;
+            } catch (\Throwable $e) {
+                return $v;
+            }
+        }
+        return $v;
+    }
+
+    /**
+     * Handover status for completed/list: id, status, reviewed_by, approved/rejected by.
+     */
+    private function getHandoverStatusArray(): ?array
+    {
+        if (!$this->relationLoaded('handoverStatus') || !$this->handoverStatus) {
+            return null;
+        }
+        $hs = $this->handoverStatus;
+        return [
+            'id' => $hs->id,
+            'status' => $hs->status?->value ?? $hs->manager_approval_status ?? null,
+            'manager_approval_status' => $hs->manager_approval_status ?? null,
+            'reviewed_by' => $hs->reviewedBy?->name ?? null,
+            'reviewed_by_type' => $hs->reviewer_type ?? null,
+        ];
+    }
+
+    /**
+     * Who approved or rejected the handover (for completed shifts).
+     */
+    private function getHandoverApprovedOrRejectedBy(): ?array
+    {
+        if (!$this->relationLoaded('handoverStatus') || !$this->handoverStatus) {
+            return null;
+        }
+        $hs = $this->handoverStatus;
+        if (!$hs->reviewed_by_id && !$hs->reviewedBy) {
+            return null;
+        }
+        return [
+            'id' => $hs->reviewed_by_id,
+            'name' => $hs->reviewedBy?->name ?? null,
+            'user_type' => $hs->reviewer_type ?? null,
+            'action' => $hs->manager_approval_status === 'approved' ? 'approved' : ($hs->isManagerRejected() ? 'rejected' : 'pending'),
+            'reviewed_at' => $hs->reviewed_at?->format('Y-m-d H:i:s'),
+        ];
+    }
+
+    /**
+     * Reassignment block: reassigned_from, reassigned_to, reassigned_by (name + user_type), cash_given, next_cashier.
+     */
+    private function getReassignmentArray(): array
+    {
+        if (!$this->relationLoaded('originalCashier') && $this->original_cashier_id) {
+            $this->loadMissing('originalCashier');
+        }
+        if (!$this->relationLoaded('reassignedBy') && $this->reassigned_by) {
+            $this->loadMissing('reassignedBy');
+        }
+
+        $cashGiven = (float) ($this->opening_balance ?? 0);
+        if ($this->relationLoaded('handover') && $this->handover && $this->handover->handover_amount !== null) {
+            $cashGiven = (float) $this->handover->handover_amount;
+        }
+
+        return [
+            'reassigned_from' => [
+                'id' => $this->originalCashier?->id ?? $this->original_cashier_id,
+                'name' => $this->originalCashier?->name ?? null,
+            ],
+            'reassigned_to' => [
+                'id' => $this->cashier?->id ?? $this->cashier_id,
+                'name' => $this->cashier?->name ?? null,
+            ],
+            'reassigned_by' => [
+                'id' => $this->reassignedBy?->id ?? $this->reassigned_by,
+                'name' => $this->reassignedBy?->name ?? null,
+                'user_type' => $this->reassigned_by ? 'branch_manager' : 'cashier',
+            ],
+            'reassigned_at' => $this->reassigned_at?->format('Y-m-d H:i:s'),
+            'reason' => $this->reassignment_reason,
+            'cash_given' => $cashGiven,
+            'next_cashier' => $this->formatNextCashier($this->computed_next_cashier ?? $this->nextCashier ?? null),
+        ];
+    }
+
+    /**
+     * True when status is reassigned and handover is pending (mid-shift reassign, not yet accepted).
+     */
+    private function isMidReassign(): bool
+    {
+        if (($this->status?->value ?? '') !== 'reassigned') {
+            return false;
+        }
+        if (!$this->relationLoaded('handoverStatus')) {
+            $this->loadMissing('handoverStatus');
+        }
+        return $this->handoverStatus
+            && ($this->handoverStatus->manager_approval_status ?? '') === 'pending';
+    }
+
+    /**
+     * True when this reassigned shift can be accepted by the assigned cashier (pending acceptance).
+     */
+    private function canBeAccepted(): bool
+    {
+        if (!$this->isMidReassign()) {
+            return false;
+        }
+        $user = auth()->user();
+        if (!$user) {
+            return true; // let frontend decide by cashier_id
+        }
+        $cashierId = $user->getKey();
+        if ($user->getMorphClass() === \Modules\Cashier\Models\Cashier::class) {
+            return $this->cashier_id === $cashierId;
+        }
+        return false;
+    }
+
+    /**
+     * For pending (not_started): who the cash is from (e.g. "Me" / branch manager / previous cashier).
+     */
+    private function getCashFrom(): ?array
+    {
+        if ($this->assignedBy) {
+            return [
+                'id' => $this->assignedBy->id,
+                'name' => $this->assignedBy->name,
+                'user_type' => 'branch_manager',
+            ];
+        }
+        return null;
     }
 
     /**

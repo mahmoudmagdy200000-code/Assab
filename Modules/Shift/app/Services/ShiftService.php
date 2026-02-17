@@ -123,7 +123,7 @@ class ShiftService
                 'cashier',
                 'shift',
                 'nextCashier',
-                'handoverStatus',
+                'handoverStatus.reviewedBy',
                 'handover.handoverTo',
                 'handover.approvedBy',
                 'varianceDetails'
@@ -165,6 +165,7 @@ class ShiftService
                 'reassignedBy:id,name,email,phone',
                 'nextCashier:id,name,email,phone',
                 'handoverStatus',
+                'handover',
                 'varianceDetails'
             ]);
 

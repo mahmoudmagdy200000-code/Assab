@@ -9,7 +9,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Modules\Shift\Services\{ShiftService, ShiftNotificationService};
-use Modules\Shift\Transformers\{ShiftResource, ShiftDetailResource};
+use Modules\Shift\Transformers\{ShiftResource, ShiftDetailResource, CashierShiftResource};
 use Modules\Shift\Models\CashierShift;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
