@@ -337,16 +337,17 @@ class DailyQuickInventoryController extends BaseController
                 ->orderBy('created_at', 'desc')
                 ->get();
 
-            $grouped = collect(InventorySessionStatus::cases())->mapWithKeys(function (InventorySessionStatus $status) {
-                return [$status->value => []];
-            });
+            $grouped = [];
+            foreach (InventorySessionStatus::cases() as $status) {
+                $grouped[$status->value] = [];
+            }
 
             foreach ($sessions as $session) {
                 $statusKey = $session->status->value;
                 $grouped[$statusKey][] = (new InventorySessionResource($session))->resolve(request());
             }
 
-            $data = $grouped->map(fn ($items) => array_values($items))->all();
+            $data = array_map('array_values', $grouped);
 
             return $this->successResponse(
                 $data,
