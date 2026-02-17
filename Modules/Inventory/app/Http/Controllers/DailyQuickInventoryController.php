@@ -11,6 +11,7 @@ use Modules\Inventory\Http\Requests\CreateInventorySessionRequest;
 use Modules\Inventory\Http\Requests\RejectInventorySessionRequest;
 use Modules\Inventory\Http\Requests\UpdateInventoryItemRequest;
 use Modules\Inventory\Http\Requests\UpdateInventorySessionRequest;
+use Modules\Inventory\Enums\InventorySessionStatus;
 use Modules\Inventory\Models\InventorySession;
 use Modules\Inventory\Services\InventorySessionService;
 use Modules\Inventory\Transformers\InventoryItemResource;
@@ -315,7 +316,8 @@ class DailyQuickInventoryController extends BaseController
     }
 
     /**
-     * Get all inventory sessions
+     * Get all inventory sessions grouped by status.
+     * Each status key (draft, pending, approved, etc.) contains an array of sessions.
      *
      * @group Daily Quick Inventory
      */
@@ -330,13 +332,24 @@ class DailyQuickInventoryController extends BaseController
             }
 
             $sessions = InventorySession::where('branch_id', $manager->branch_id)
-                ->with(['items', 'assignedTo', 'createdBy'])
+                ->with(['items.item', 'items.purchaseOrderItem.purchaseOrder', 'assignedTo', 'createdBy', 'branch'])
                 ->withCount('items')
                 ->orderBy('created_at', 'desc')
-                ->paginate(request()->get('per_page', 15));
+                ->get();
 
-            return $this->paginatedResponse(
-                InventorySessionResource::collection($sessions),
+            $grouped = collect(InventorySessionStatus::cases())->mapWithKeys(function (InventorySessionStatus $status) {
+                return [$status->value => []];
+            });
+
+            foreach ($sessions as $session) {
+                $statusKey = $session->status->value;
+                $grouped[$statusKey][] = (new InventorySessionResource($session))->resolve(request());
+            }
+
+            $data = $grouped->map(fn ($items) => array_values($items))->all();
+
+            return $this->successResponse(
+                $data,
                 'Inventory sessions retrieved successfully'
             );
         } catch (\Exception $e) {
