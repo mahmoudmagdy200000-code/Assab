@@ -545,6 +545,146 @@ class HandoverService
     }
 
     /**
+     * Accept a reassigned shift (by the cashier the shift was reassigned to).
+     * Used when manager reassigns a shift and the new cashier accepts.
+     *
+     * @param CashierShift $shift
+     * @param string $cashierId
+     * @return CashierShift
+     */
+    public function acceptReassignedShift(CashierShift $shift, string $cashierId): CashierShift
+    {
+        DB::beginTransaction();
+        try {
+            if ($shift->status !== ShiftStatus::REASSIGNED) {
+                throw new \InvalidArgumentException('Shift is not in reassigned status.');
+            }
+            if ($shift->cashier_id !== $cashierId) {
+                throw new \Exception('You are not authorized to accept this reassigned shift.');
+            }
+            if (!$shift->handoverStatus) {
+                throw new \Exception('No handover record found for this reassigned shift.');
+            }
+            if (($shift->handoverStatus->manager_approval_status ?? '') !== 'pending') {
+                throw new \Exception('This reassigned shift is no longer pending acceptance.');
+            }
+
+            $shift->handoverStatus->approve(
+                $cashierId,
+                \Modules\Cashier\Models\Cashier::class,
+                null
+            );
+
+            $shift->recordHistory(
+                'reassigned_shift_accepted',
+                ['manager_approval_status' => 'pending'],
+                [
+                    'manager_approval_status' => 'approved',
+                    'reviewed_by_id' => $cashierId,
+                    'reviewed_by_type' => 'cashier',
+                ]
+            );
+
+            DB::commit();
+            return $shift->fresh(['handoverStatus.reviewedBy', 'cashier', 'shift', 'originalCashier', 'reassignedBy']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to accept reassigned shift', [
+                'shift_id' => $shift->id,
+                'cashier_id' => $cashierId,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Reject a reassigned shift (by the cashier the shift was reassigned to).
+     * Reverts the shift back to the original cashier with status in_progress.
+     *
+     * @param CashierShift $shift
+     * @param string $cashierId
+     * @param string $reason
+     * @param array $files
+     * @return CashierShift
+     */
+    public function rejectReassignedShift(
+        CashierShift $shift,
+        string $cashierId,
+        string $reason,
+        array $files = []
+    ): CashierShift {
+        DB::beginTransaction();
+        try {
+            if ($shift->status !== ShiftStatus::REASSIGNED) {
+                throw new \InvalidArgumentException('Shift is not in reassigned status.');
+            }
+            if ($shift->cashier_id !== $cashierId) {
+                throw new \Exception('You are not authorized to reject this reassigned shift.');
+            }
+            if (!$shift->handoverStatus) {
+                throw new \Exception('No handover record found for this reassigned shift.');
+            }
+            if (($shift->handoverStatus->manager_approval_status ?? '') !== 'pending') {
+                throw new \Exception('This reassigned shift is no longer pending acceptance.');
+            }
+            if (!$shift->original_cashier_id) {
+                throw new \Exception('Cannot revert: original cashier is unknown.');
+            }
+
+            $uploadedFiles = [];
+            foreach ($files as $file) {
+                $path = $file->storeAs(
+                    'handover_rejections/reassign',
+                    'reassign_reject_' . $shift->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension(),
+                    'public'
+                );
+                $uploadedFiles[] = $path;
+            }
+
+            $shift->handoverStatus->update([
+                'status' => HandoverStatus::REJECTED,
+                'manager_approval_status' => 'rejected',
+                'reviewed_by_id' => $cashierId,
+                'reviewed_by_type' => \Modules\Cashier\Models\Cashier::class,
+                'rejection_reason' => $reason,
+                'rejection_files' => !empty($uploadedFiles) ? array_merge($shift->handoverStatus->rejection_files ?? [], $uploadedFiles) : ($shift->handoverStatus->rejection_files ?? null),
+                'reviewed_at' => now(),
+            ]);
+
+            $shift->update([
+                'cashier_id' => $shift->original_cashier_id,
+                'status' => ShiftStatus::IN_PROGRESS,
+            ]);
+
+            $shift->recordHistory(
+                'reassigned_shift_rejected',
+                [
+                    'cashier_id' => $cashierId,
+                    'status' => ShiftStatus::REASSIGNED->value,
+                ],
+                [
+                    'cashier_id' => $shift->original_cashier_id,
+                    'status' => ShiftStatus::IN_PROGRESS->value,
+                    'reviewed_by_id' => $cashierId,
+                    'rejection_reason' => $reason,
+                ]
+            );
+
+            DB::commit();
+            return $shift->fresh(['handoverStatus.reviewedBy', 'cashier', 'shift', 'originalCashier', 'reassignedBy']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to reject reassigned shift', [
+                'shift_id' => $shift->id,
+                'cashier_id' => $cashierId,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
      * Automatically hand over to the next scheduled shift
      *
      * Business Rule: System automatically ensures handover from Cashier 1 to Cashier 2

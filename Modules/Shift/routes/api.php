@@ -298,6 +298,16 @@ Route::prefix('cashier')
 
         /*
         |----------------------------------------------------------------------
+        | Reassigned Shift: Accept / Reject (when manager reassigns to this cashier)
+        |----------------------------------------------------------------------
+        */
+        Route::post('shifts/{shift}/reassign/accept', [CashierShiftController::class, 'acceptReassignedShift'])
+            ->name('cashier.shifts.reassign.accept');
+        Route::post('shifts/{shift}/reassign/reject', [CashierShiftController::class, 'rejectReassignedShift'])
+            ->name('cashier.shifts.reassign.reject');
+
+        /*
+        |----------------------------------------------------------------------
         | Section 3.2.2.1.1.1: End Shift (Options 1-4)
         |----------------------------------------------------------------------
         */

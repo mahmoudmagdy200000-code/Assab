@@ -6,6 +6,7 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Transformers\ShiftDetailResource;
 use Modules\Shift\Enums\ShiftStatus;
@@ -23,7 +24,8 @@ use Modules\Cashier\Transformers\CashierResource;
 class CashierShiftController extends BaseController
 {
     public function __construct(
-        private ShiftService $shiftService
+        private ShiftService $shiftService,
+        private HandoverService $handoverService
     ) {}
 
     /**
@@ -355,6 +357,76 @@ class CashierShiftController extends BaseController
             return $this->successResponse([
                 'shift' => new ShiftDetailResource($shiftModel),
             ], 'Shift details retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Accept a shift that was reassigned to the current cashier by a manager.
+     * POST /cashier/shifts/{shift}/reassign/accept
+     */
+    public function acceptReassignedShift(string $shift): JsonResponse
+    {
+        try {
+            $cashier = auth()->user();
+
+            $shiftModel = CashierShift::with(['handoverStatus', 'shift', 'cashier', 'originalCashier', 'reassignedBy'])
+                ->where('cashier_id', $cashier->id)
+                ->findOrFail($shift);
+
+            $this->handoverService->acceptReassignedShift($shiftModel, $cashier->id);
+
+            $shiftModel->loadFullRelationships();
+
+            return $this->successResponse([
+                'shift' => new ShiftDetailResource($shiftModel->fresh()),
+            ], 'Shift accepted successfully. You can start it when scheduled.');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Shift not found or not assigned to you.', 404);
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Reject a shift that was reassigned to the current cashier by a manager.
+     * The shift is reverted to the original cashier.
+     * POST /cashier/shifts/{shift}/reassign/reject
+     */
+    public function rejectReassignedShift(Request $request, string $shift): JsonResponse
+    {
+        $request->validate([
+            'reason' => 'required|string|max:500',
+            'rejection_files' => 'sometimes|array',
+            'rejection_files.*' => 'file|mimes:pdf,png,jpeg,jpg|max:5120',
+        ]);
+
+        try {
+            $cashier = auth()->user();
+
+            $shiftModel = CashierShift::with(['handoverStatus', 'shift', 'cashier', 'originalCashier', 'reassignedBy'])
+                ->where('cashier_id', $cashier->id)
+                ->findOrFail($shift);
+
+            $files = $request->hasFile('rejection_files') ? $request->file('rejection_files') : [];
+
+            $this->handoverService->rejectReassignedShift(
+                $shiftModel,
+                $cashier->id,
+                $request->input('reason'),
+                $files
+            );
+
+            return $this->successResponse([
+                'message' => 'Shift rejected. It has been reverted to the original cashier.',
+            ], 'Reassigned shift rejected successfully');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Shift not found or not assigned to you.', 404);
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
