@@ -2,9 +2,9 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Controller;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Services\ShiftRequestsService;
 use Modules\Shift\Transformers\CashierShiftResource;
@@ -19,7 +19,7 @@ use Modules\Shift\Transformers\VarianceSummaryResource;
  * - Handovers & Variances: available to both Cashier and Branch Manager.
  * - Reassigned shifts: only for Cashiers (shifts reassigned TO the current cashier).
  */
-class ShiftRequestsController extends Controller
+class ShiftRequestsController extends BaseController
 {
     public function __construct(
         private ShiftRequestsService $requestsService
