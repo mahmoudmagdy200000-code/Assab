@@ -10,6 +10,7 @@ use Modules\Shift\Http\Controllers\{
     ShiftEndController,
     ShiftHandoverController,
     ShiftVarianceController,
+    ShiftRequestsController,
     BranchManagerShiftController,
     CashierShiftController,
     CashierManagementController
@@ -112,6 +113,14 @@ Route::prefix('branch-manager')
         Route::prefix('shifts/reassigned')->group(function () {
             Route::get('/', [ReassignmentShiftController::class, 'index'])->name('shifts.reassigned.index');
             Route::get('/{shift}', [ReassignmentShiftController::class, 'show'])->name('shifts.reassigned.show');
+        });
+
+        // Requests: handovers & variances (both cashier and branch manager, data by auth token)
+        Route::prefix('requests')->group(function () {
+            Route::get('handovers', [ShiftRequestsController::class, 'handovers'])
+                ->name('requests.handovers');
+            Route::get('variances', [ShiftRequestsController::class, 'variances'])
+                ->name('requests.variances');
         });
 
         // Handover Summary
@@ -283,6 +292,16 @@ Route::prefix('cashier')
             ->name('cashier.shifts.completed');
         Route::get('my-shifts/reassigned', [CashierShiftController::class, 'reassignedShifts'])
             ->name('cashier.shifts.reassigned');
+
+        // Requests: handovers, variances, reassigned shifts (data by auth token)
+        Route::prefix('requests')->group(function () {
+            Route::get('handovers', [ShiftRequestsController::class, 'handovers'])
+                ->name('cashier.requests.handovers');
+            Route::get('variances', [ShiftRequestsController::class, 'variances'])
+                ->name('cashier.requests.variances');
+            Route::get('reassigned-shifts', [ShiftRequestsController::class, 'reassignedShifts'])
+                ->name('cashier.requests.reassigned-shifts');
+        });
 
         // View shift details
         Route::get('my-shifts/{shift}', [CashierShiftController::class, 'show'])
