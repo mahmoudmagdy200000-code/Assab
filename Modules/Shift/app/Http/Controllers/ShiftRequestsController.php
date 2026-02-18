@@ -52,9 +52,9 @@ class ShiftRequestsController extends BaseController
             $resource = HandoverSummaryResource::collection($paginator);
             $resolved = $resource->toArray($request);
 
-            return response()->json(array_merge(
-                ['success' => true, 'message' => 'Handovers retrieved successfully'],
-                $resolved
+            return response()->json($this->paginatedPayload(
+                $resolved,
+                'Handovers retrieved successfully'
             ));
         } catch (\Exception $e) {
             return $this->handleException($e, 'Failed to retrieve handovers');
@@ -87,9 +87,9 @@ class ShiftRequestsController extends BaseController
             $resource = VarianceSummaryResource::collection($paginator);
             $resolved = $resource->toArray($request);
 
-            return response()->json(array_merge(
-                ['success' => true, 'message' => 'Variances retrieved successfully'],
-                $resolved
+            return response()->json($this->paginatedPayload(
+                $resolved,
+                'Variances retrieved successfully'
             ));
         } catch (\Exception $e) {
             return $this->handleException($e, 'Failed to retrieve variances');
@@ -127,12 +127,31 @@ class ShiftRequestsController extends BaseController
             $resource = CashierShiftResource::collection($paginator);
             $resolved = $resource->toArray($request);
 
-            return response()->json(array_merge(
-                ['success' => true, 'message' => 'Reassigned shifts retrieved successfully'],
-                $resolved
+            return response()->json($this->paginatedPayload(
+                $resolved,
+                'Reassigned shifts retrieved successfully'
             ));
         } catch (\Exception $e) {
             return $this->handleException($e, 'Failed to retrieve reassigned shifts');
         }
+    }
+
+    /**
+     * Build response with success, message, data (array), links, meta.
+     * Handles both ResourceCollection format (data/links/meta) and plain numeric-key array.
+     */
+    private function paginatedPayload(array $resolved, string $message): array
+    {
+        $data = isset($resolved['data']) ? $resolved['data'] : array_values($resolved);
+        $links = $resolved['links'] ?? [];
+        $meta = $resolved['meta'] ?? [];
+
+        return [
+            'success' => true,
+            'message' => $message,
+            'data' => $data,
+            'links' => $links,
+            'meta' => $meta,
+        ];
     }
 }
