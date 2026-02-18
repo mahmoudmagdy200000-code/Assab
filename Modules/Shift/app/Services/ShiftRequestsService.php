@@ -69,7 +69,7 @@ class ShiftRequestsService
     {
         $user = auth()->user();
         if (!$user) {
-            return $perPage ? \Illuminate\Pagination\LengthAwarePaginator::empty() : collect();
+            return $perPage ? new LengthAwarePaginatorConcrete([], 0, $perPage, 1, ['path' => request()->url()]) : collect();
         }
 
         $query = CashierShift::query()
@@ -109,7 +109,7 @@ class ShiftRequestsService
     {
         $user = auth()->user();
         if (!$user instanceof Cashier) {
-            return $perPage ? \Illuminate\Pagination\LengthAwarePaginator::empty() : collect();
+            return $perPage ? new LengthAwarePaginatorConcrete([], 0, $perPage, 1, ['path' => request()->url()]) : collect();
         }
 
         $query = CashierShift::query()
