@@ -8,6 +8,7 @@ use Illuminate\Routing\Controller;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Services\ShiftRequestsService;
 use Modules\Shift\Transformers\CashierShiftResource;
+use Modules\Shift\Transformers\HandoverSummaryResource;
 use Modules\Shift\Transformers\VarianceSummaryResource;
 
 /**
@@ -50,7 +51,7 @@ class ShiftRequestsController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Handovers retrieved successfully',
-                'data' => CashierShiftResource::collection($handovers),
+                'data' => HandoverSummaryResource::collection($handovers),
                 'meta' => [
                     'total' => $handovers->count(),
                 ],

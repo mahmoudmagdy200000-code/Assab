@@ -1,0 +1,88 @@
+<?php
+
+namespace Modules\Shift\Transformers;
+
+use Carbon\Carbon;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+/**
+ * HandoverSummaryResource
+ *
+ * Simplified handover item for the Requests screen (Opening Balance card).
+ * Cash Given, Variance, Cash From, acceptance message, and shift id for "Go To Shift Details".
+ */
+class HandoverSummaryResource extends JsonResource
+{
+    public function toArray($request): array
+    {
+        $cashGiven = (float) ($this->handover_amount ?? $this->closing_balance ?? 0);
+        $varianceAmount = (float) ($this->variance ?? 0);
+        $varianceDisplay = $this->getVarianceDisplay($varianceAmount);
+        $cashFrom = $this->cashier?->name ?? null;
+        $status = $this->getStatusLabel();
+        $acceptanceMessage = $this->getAcceptanceMessage();
+
+        return [
+            'id' => $this->id,
+            'shift_date' => $this->shift_date?->format('M j, Y'),
+            'shift_date_iso' => $this->shift_date?->format('Y-m-d'),
+            'status' => $status,
+            'cash_given' => $cashGiven,
+            'variance' => $varianceDisplay,
+            'variance_amount' => $varianceAmount,
+            'cash_from' => $cashFrom,
+            'acceptance_message' => $acceptanceMessage,
+        ];
+    }
+
+    /**
+     * Variance display: "None" when zero, otherwise the numeric value for display.
+     */
+    private function getVarianceDisplay(float $amount): string
+    {
+        if (abs($amount) < 0.01) {
+            return 'None';
+        }
+        return (string) round($amount, 2);
+    }
+
+    private function getStatusLabel(): string
+    {
+        $status = $this->handoverStatus?->manager_approval_status ?? null;
+        if (!$status) {
+            return 'Pending';
+        }
+        return match ($status) {
+            'approved' => 'Approved',
+            'rejected', 'rejected_final' => 'Rejected',
+            default => 'Pending',
+        };
+    }
+
+    /**
+     * "You accepted this handover on: May 27th, 2025 - 10:16 AM"
+     */
+    private function getAcceptanceMessage(): ?string
+    {
+        $status = $this->handoverStatus?->manager_approval_status ?? null;
+        if ($status !== 'approved') {
+            return null;
+        }
+        $reviewedAt = $this->handoverStatus?->reviewed_at ?? $this->handover?->approved_at ?? null;
+        if (!$reviewedAt) {
+            return null;
+        }
+        $dt = $reviewedAt instanceof Carbon ? $reviewedAt : Carbon::parse($reviewedAt);
+        $day = (int) $dt->format('j');
+        $suffix = match ($day) {
+            1, 21, 31 => 'st',
+            2, 22 => 'nd',
+            3, 23 => 'rd',
+            default => 'th',
+        };
+        $datePart = $dt->format('F') . ' ' . $day . $suffix . ', ' . $dt->format('Y');
+        $timePart = $dt->format('g:i A');
+
+        return "You accepted this handover on: {$datePart} - {$timePart}";
+    }
+}
