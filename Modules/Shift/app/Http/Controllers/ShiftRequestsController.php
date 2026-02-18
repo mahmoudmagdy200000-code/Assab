@@ -8,6 +8,7 @@ use Illuminate\Routing\Controller;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Services\ShiftRequestsService;
 use Modules\Shift\Transformers\CashierShiftResource;
+use Modules\Shift\Transformers\VarianceSummaryResource;
 
 /**
  * ShiftRequestsController
@@ -88,7 +89,7 @@ class ShiftRequestsController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Variances retrieved successfully',
-                'data' => CashierShiftResource::collection($variances),
+                'data' => VarianceSummaryResource::collection($variances),
                 'meta' => [
                     'total' => $variances->count(),
                 ],
