@@ -3,6 +3,7 @@
 namespace Modules\Shift\Services;
 
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Pagination\LengthAwarePaginator as LengthAwarePaginatorConcrete;
 use Illuminate\Support\Collection;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
@@ -30,7 +31,7 @@ class ShiftRequestsService
     {
         $user = auth()->user();
         if (!$user) {
-            return $perPage ? \Illuminate\Pagination\LengthAwarePaginator::empty() : collect();
+            return $perPage ? new LengthAwarePaginatorConcrete([], 0, $perPage, 1, ['path' => request()->url()]) : collect();
         }
 
         $query = CashierShift::query()
