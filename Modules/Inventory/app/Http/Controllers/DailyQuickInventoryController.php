@@ -4,7 +4,6 @@ namespace Modules\Inventory\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Inventory\Http\Requests\AddInventoryItemRequest;
 use Modules\Inventory\Http\Requests\ApproveInventorySessionRequest;
@@ -317,12 +316,12 @@ class DailyQuickInventoryController extends BaseController
     }
 
     /**
-     * Get all inventory sessions grouped by status, with pagination.
-     * Each status key (draft, pending, approved, etc.) contains an array of sessions for the current page.
+     * Get all inventory sessions grouped by status.
+     * Each status key (draft, pending, approved, etc.) contains an array of sessions.
      *
      * @group Daily Quick Inventory
      */
-    public function getSessions(Request $request): JsonResponse
+    public function getSessions(): JsonResponse
     {
         try {
             /** @var BranchManager $manager */
@@ -332,61 +331,28 @@ class DailyQuickInventoryController extends BaseController
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
-            $perPage = (int) $request->input('per_page', 15);
-            $perPage = $perPage >= 1 && $perPage <= 100 ? $perPage : 15;
-
-            $paginator = InventorySession::where('branch_id', $manager->branch_id)
+            $sessions = InventorySession::where('branch_id', $manager->branch_id)
                 ->with(['items.item', 'items.purchaseOrderItem.purchaseOrder', 'assignedTo', 'createdBy', 'branch'])
                 ->withCount('items')
                 ->orderBy('created_at', 'desc')
-                ->paginate($perPage);
+                ->get();
 
             $grouped = [];
             foreach (InventorySessionStatus::cases() as $status) {
                 $grouped[$status->value] = [];
             }
 
-            foreach ($paginator->items() as $session) {
+            foreach ($sessions as $session) {
                 $statusKey = $session->status->value;
-                $grouped[$statusKey][] = (new InventorySessionResource($session))->resolve($request);
+                $grouped[$statusKey][] = (new InventorySessionResource($session))->resolve(request());
             }
 
             $data = array_map('array_values', $grouped);
 
-            $currentPage = $paginator->currentPage();
-            $lastPage = $paginator->lastPage();
-            $pageLinks = [];
-            for ($i = 1; $i <= $lastPage; $i++) {
-                $pageLinks[] = [
-                    'url' => $paginator->url($i),
-                    'label' => (string) $i,
-                    'active' => $i === $currentPage,
-                ];
-            }
-
-            $response = [
-                'success' => true,
-                'message' => 'Inventory sessions retrieved successfully',
-                'data' => $data,
-                'links' => [
-                    'first' => $paginator->url(1),
-                    'last' => $paginator->url($lastPage),
-                    'prev' => $paginator->previousPageUrl(),
-                    'next' => $paginator->nextPageUrl(),
-                ],
-                'meta' => [
-                    'current_page' => $currentPage,
-                    'from' => $paginator->firstItem(),
-                    'last_page' => $lastPage,
-                    'links' => $pageLinks,
-                    'path' => $paginator->path(),
-                    'per_page' => $paginator->perPage(),
-                    'to' => $paginator->lastItem(),
-                    'total' => $paginator->total(),
-                ],
-            ];
-
-            return response()->json($response, 200);
+            return $this->successResponse(
+                $data,
+                'Inventory sessions retrieved successfully'
+            );
         } catch (\Exception $e) {
             return $this->handleException($e, 'fetching inventory sessions');
         }
