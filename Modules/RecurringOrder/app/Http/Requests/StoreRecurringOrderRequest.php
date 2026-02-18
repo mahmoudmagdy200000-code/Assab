@@ -33,7 +33,7 @@ class StoreRecurringOrderRequest extends FormRequest
             'purchase_officer.items.*.quantity' => ['required', 'numeric', 'min:0.001'],
             'purchase_officer.items.*.quality' => ['nullable', 'string', 'max:50'],
             'purchase_officer.items.*.preferred_delivery_date' => ['nullable', 'date'],
-            'purchase_officer.items.*.latest_delivery_date' => ['nullable', 'date', 'after_or_equal:purchase_officer.items.*.preferred_delivery_date'],
+            'purchase_officer.items.*.latest_delivery_date' => ['nullable', 'date'],
             'purchase_officer.items.*.special_instructions' => ['nullable', 'string', 'max:1000'],
 
             'repeat_frequency' => ['required', 'string', 'in:weekly,monthly,based_on_inventory'],
@@ -65,6 +65,7 @@ class StoreRecurringOrderRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        $this->normalizePurchaseOfficerId();
         $time = $this->input('scheduling_time');
         $meridiem = $this->input('meridiem');
         if ($time && in_array($meridiem, ['am', 'pm'], true)) {
@@ -117,6 +118,41 @@ class StoreRecurringOrderRequest extends FormRequest
             if ($this->input('end_type') === 'date' && !$this->filled('end_date')) {
                 $validator->errors()->add('end_date', 'End date is required when end type is date.');
             }
+            $this->validateLatestDeliveryDates($validator);
         });
+    }
+
+    /**
+     * Allow branch_manager_id or officer_id as alias for purchasing_officer_id.
+     */
+    private function normalizePurchaseOfficerId(): void
+    {
+        $po = $this->input('purchase_officer');
+        if (!is_array($po)) {
+            return;
+        }
+        $id = $po['purchasing_officer_id'] ?? $po['branch_manager_id'] ?? $po['officer_id'] ?? null;
+        if ($id !== null) {
+            $po['purchasing_officer_id'] = $id;
+            $this->merge(['purchase_officer' => $po]);
+        }
+    }
+
+    /**
+     * Ensure latest_delivery_date >= preferred_delivery_date per item when both are present.
+     */
+    private function validateLatestDeliveryDates(Validator $validator): void
+    {
+        $items = $this->input('purchase_officer.items', []);
+        foreach ($items as $i => $item) {
+            $preferred = $item['preferred_delivery_date'] ?? null;
+            $latest = $item['latest_delivery_date'] ?? null;
+            if ($preferred && $latest && strtotime($latest) < strtotime($preferred)) {
+                $validator->errors()->add(
+                    "purchase_officer.items.{$i}.latest_delivery_date",
+                    'latest_delivery_date must be on or after preferred_delivery_date for this item.'
+                );
+            }
+        }
     }
 }
