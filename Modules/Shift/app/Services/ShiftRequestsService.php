@@ -23,13 +23,14 @@ class ShiftRequestsService
      * Branch Manager: handovers for shifts in their branch.
      *
      * @param string|null $status pending|approved|rejected|rejected_final
-     * @return Collection
+     * @param int|null $perPage when set, returns LengthAwarePaginator; otherwise Collection
+     * @return Collection|LengthAwarePaginator
      */
-    public function getHandoversForAuthUser(?string $status = null): Collection
+    public function getHandoversForAuthUser(?string $status = null, ?int $perPage = null)
     {
         $user = auth()->user();
         if (!$user) {
-            return collect();
+            return $perPage ? \Illuminate\Pagination\LengthAwarePaginator::empty() : collect();
         }
 
         $query = CashierShift::query()
@@ -49,7 +50,9 @@ class ShiftRequestsService
             $query->whereHas('handoverStatus', fn($q) => $q->where('manager_approval_status', $status));
         }
 
-        return $query->orderByDesc('handed_over_at')->orderByDesc('shift_date')->get();
+        $query->orderByDesc('handed_over_at')->orderByDesc('shift_date');
+
+        return $perPage ? $query->paginate($perPage) : $query->get();
     }
 
     /**
@@ -58,13 +61,14 @@ class ShiftRequestsService
      * Branch Manager: shifts in their branch that have variance.
      *
      * @param string|null $status optional filter by handover status
-     * @return Collection
+     * @param int|null $perPage when set, returns LengthAwarePaginator; otherwise Collection
+     * @return Collection|LengthAwarePaginator
      */
-    public function getVariancesForAuthUser(?string $status = null): Collection
+    public function getVariancesForAuthUser(?string $status = null, ?int $perPage = null)
     {
         $user = auth()->user();
         if (!$user) {
-            return collect();
+            return $perPage ? \Illuminate\Pagination\LengthAwarePaginator::empty() : collect();
         }
 
         $query = CashierShift::query()
@@ -88,23 +92,26 @@ class ShiftRequestsService
             $query->whereHas('handoverStatus', fn($q) => $q->where('manager_approval_status', $status));
         }
 
-        return $query->orderByDesc('shift_date')->orderByDesc('handed_over_at')->get();
+        $query->orderByDesc('shift_date')->orderByDesc('handed_over_at');
+
+        return $perPage ? $query->paginate($perPage) : $query->get();
     }
 
     /**
      * Get all reassigned shifts for the authenticated cashier (shifts reassigned TO them).
      * Only for cashiers; returns empty if user is not a cashier.
      *
-     * @return Collection
+     * @param int|null $perPage when set, returns LengthAwarePaginator; otherwise Collection
+     * @return Collection|LengthAwarePaginator
      */
-    public function getReassignedShiftsForCashier(): Collection
+    public function getReassignedShiftsForCashier(?int $perPage = null)
     {
         $user = auth()->user();
         if (!$user instanceof Cashier) {
-            return collect();
+            return $perPage ? \Illuminate\Pagination\LengthAwarePaginator::empty() : collect();
         }
 
-        return CashierShift::query()
+        $query = CashierShift::query()
             ->with([
                 'cashier:id,name,branch_id',
                 'shift:id,name,start_time,end_time,branch_id',
@@ -118,8 +125,9 @@ class ShiftRequestsService
             ])
             ->where('status', ShiftStatus::REASSIGNED)
             ->where('cashier_id', $user->id)
-            ->orderByDesc('reassigned_at')
-            ->get();
+            ->orderByDesc('reassigned_at');
+
+        return $perPage ? $query->paginate($perPage) : $query->get();
     }
 
     /**
