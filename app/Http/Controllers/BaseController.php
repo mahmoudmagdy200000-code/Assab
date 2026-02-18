@@ -146,31 +146,6 @@ abstract class BaseController extends Controller
         $data,
         string $message = 'Data retrieved successfully'
     ): JsonResponse {
-        // When plain array is passed (e.g. grouped data), return same structure as paginated without pagination
-        if (is_array($data)) {
-            return response()->json([
-                'success' => true,
-                'message' => $message,
-                'data' => $data,
-                'links' => [
-                    'first' => null,
-                    'last' => null,
-                    'prev' => null,
-                    'next' => null,
-                ],
-                'meta' => [
-                    'current_page' => 1,
-                    'from' => 1,
-                    'last_page' => 1,
-                    'links' => [],
-                    'path' => request()->path(),
-                    'per_page' => is_countable($data) ? count($data) : 0,
-                    'to' => is_countable($data) ? count($data) : 0,
-                    'total' => is_countable($data) ? count($data) : 0,
-                ],
-            ], 200);
-        }
-
         // Support passing a ResourceCollection or a Paginator directly
         $paginator = method_exists($data, 'currentPage') ? $data : ($data->resource ?? null);
 
