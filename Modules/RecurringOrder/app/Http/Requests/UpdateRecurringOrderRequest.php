@@ -25,8 +25,10 @@ class UpdateRecurringOrderRequest extends FormRequest
             'items.*.latest_delivery_date' => ['nullable', 'date'],
             'items.*.special_instructions' => ['nullable', 'string', 'max:1000'],
             'repeat_config' => ['nullable', 'array'],
-            'scheduling_time_am' => ['nullable'],
-            'scheduling_time_pm' => ['nullable'],
+            'scheduling_time' => ['nullable', 'string', 'regex:/^\d{1,2}:\d{2}:\d{2}$/'],
+            'meridiem' => ['required_with:scheduling_time', 'string', 'in:am,pm'],
+            'scheduling_time_am' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}$/'],
+            'scheduling_time_pm' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}$/'],
             'notification_options' => ['nullable', 'array'],
             'notification_options.*' => ['string', 'in:alert_24_hours_before,review_before_sending,send_automatically_without_review'],
             'smart_settings' => ['nullable', 'array'],
@@ -34,6 +36,29 @@ class UpdateRecurringOrderRequest extends FormRequest
             'end_date' => ['nullable', 'date'],
             'end_type' => ['sometimes', 'string', 'in:repeat,date'],
         ];
+    }
+
+    protected function prepareForValidation(): void
+    {
+        $time = $this->input('scheduling_time');
+        $meridiem = $this->input('meridiem');
+        if ($time && in_array($meridiem, ['am', 'pm'], true)) {
+            $parts = explode(':', $time);
+            $hour = isset($parts[0]) ? (int) $parts[0] : 0;
+            $min = isset($parts[1]) ? (int) $parts[1] : 0;
+            if ($meridiem === 'pm' && $hour !== 12) {
+                $hour += 12;
+            } elseif ($meridiem === 'am' && $hour === 12) {
+                $hour = 0;
+            }
+            $hour = $hour % 24;
+            $time24 = sprintf('%02d:%02d', $hour, $min);
+            if ($meridiem === 'am') {
+                $this->merge(['scheduling_time_am' => $time24, 'scheduling_time_pm' => null]);
+            } else {
+                $this->merge(['scheduling_time_pm' => $time24, 'scheduling_time_am' => null]);
+            }
+        }
     }
 
     public function withValidator(Validator $validator): void

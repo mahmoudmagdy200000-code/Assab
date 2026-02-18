@@ -27,23 +27,23 @@ class RecurringOrderDetailResource extends JsonResource
             ? 'Direct Supplier'
             : 'Purchasing Officer';
 
-        $schedulingTime = $this->scheduling_time_am ?? $this->scheduling_time_pm;
-        $schedulingTimeStr = $schedulingTime ? \Carbon\Carbon::parse($schedulingTime)->format('g:i A') : null;
-
+        [$schedulingTimeStr, $schedulingTimeValue, $meridiem] = $this->buildSchedulingTimeAndMeridiem();
         $statusSection = $this->buildStatusSection($schedulingTimeStr);
         $inspectionSummary = [
             'order_name' => $this->order_name,
             'direct_supplier_or_purchasing_officer_name' => $sourceName,
             'repeat_frequency' => $this->buildRepeatFrequencyDisplay(),
             'next_order_scheduling' => $this->next_run_at?->format('Y-m-d'),
-            'scheduling_time' => $schedulingTimeStr,
+            'scheduling_time' => $schedulingTimeValue,
+            'meridiem' => $meridiem,
         ];
         $detailsSection = [
             'inspection_summary' => [
                 'order_name' => $this->order_name,
                 'direct_supplier_or_purchasing_officer_name' => $sourceName,
                 'start_date' => $this->start_date?->format('Y-m-d'),
-                'scheduling_time' => $schedulingTimeStr,
+                'scheduling_time' => $schedulingTimeValue,
+                'meridiem' => $meridiem,
                 'end_date' => $this->end_date?->format('Y-m-d'),
             ],
             'message' => $this->message,
@@ -68,6 +68,23 @@ class RecurringOrderDetailResource extends JsonResource
             'history' => $this->resource->getAttribute('history_data') ?? [],
             'available_actions' => $availableActions,
         ];
+    }
+
+    /**
+     * @return array{0: ?string, 1: ?string, 2: ?string} [display e.g. "2:33 AM", scheduling_time "HH:mm:ss", meridiem "am"|"pm"]
+     */
+    private function buildSchedulingTimeAndMeridiem(): array
+    {
+        $time = $this->scheduling_time_am ?? $this->scheduling_time_pm;
+        if (!$time) {
+            return [null, null, null];
+        }
+        $carbon = \Carbon\Carbon::parse($time);
+        $h = (int) $carbon->format('G');
+        $meridiem = $h < 12 ? 'am' : 'pm';
+        $schedulingTimeValue = $carbon->format('H:i:s');
+        $displayStr = $carbon->format('g:i A');
+        return [$displayStr, $schedulingTimeValue, $meridiem];
     }
 
     private function buildStatusSection(?string $schedulingTimeStr): array
