@@ -349,7 +349,7 @@ class DailyQuickInventoryController extends BaseController
 
             $data = array_map('array_values', $grouped);
 
-            return $this->successResponse(
+            return $this->paginatedResponse(
                 $data,
                 'Inventory sessions retrieved successfully'
             );
