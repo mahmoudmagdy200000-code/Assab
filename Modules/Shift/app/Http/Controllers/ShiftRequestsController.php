@@ -48,20 +48,12 @@ class ShiftRequestsController extends Controller
             $status = $request->query('status');
             $handovers = $this->requestsService->getHandoversForAuthUser($status);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Handovers retrieved successfully',
-                'data' => HandoverSummaryResource::collection($handovers),
-                'meta' => [
-                    'total' => $handovers->count(),
-                ],
-            ]);
+            return $this->paginatedResponse(
+                HandoverSummaryResource::collection($handovers),
+                'Handovers retrieved successfully'
+            );
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve handovers',
-                'error' => $e->getMessage(),
-            ], 500);
+            return $this->handleException($e, 'Failed to retrieve handovers');
         }
     }
 
@@ -87,20 +79,12 @@ class ShiftRequestsController extends Controller
             $status = $request->query('status');
             $variances = $this->requestsService->getVariancesForAuthUser($status);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Variances retrieved successfully',
-                'data' => VarianceSummaryResource::collection($variances),
-                'meta' => [
-                    'total' => $variances->count(),
-                ],
-            ]);
+            return $this->paginatedResponse(
+                VarianceSummaryResource::collection($variances),
+                'Variances retrieved successfully'
+            );
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve variances',
-                'error' => $e->getMessage(),
-            ], 500);
+            return $this->handleException($e, 'Failed to retrieve variances');
         }
     }
 
@@ -131,20 +115,12 @@ class ShiftRequestsController extends Controller
 
             $shifts = $this->requestsService->getReassignedShiftsForCashier();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Reassigned shifts retrieved successfully',
-                'data' => CashierShiftResource::collection($shifts),
-                'meta' => [
-                    'total' => $shifts->count(),
-                ],
-            ]);
+                return $this->paginatedResponse(
+                CashierShiftResource::collection($shifts),
+                'Reassigned shifts retrieved successfully'
+            );
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve reassigned shifts',
-                'error' => $e->getMessage(),
-            ], 500);
+            return $this->handleException($e, 'Failed to retrieve reassigned shifts');
         }
     }
 }

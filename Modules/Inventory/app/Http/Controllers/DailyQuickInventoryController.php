@@ -48,7 +48,7 @@ class DailyQuickInventoryController extends BaseController
             $dailyItems = [];
             if ($schedule) {
                 $schedule->load('scheduleItems.item');
-                $dailyItems = $schedule->scheduleItems->map(fn ($si) => [
+                $dailyItems = $schedule->scheduleItems->map(fn($si) => [
                     'item_id' => $si->item_id,
                     'item_name' => $si->item?->name,
                     'unit' => $si->item?->unit,
