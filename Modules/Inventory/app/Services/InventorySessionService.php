@@ -128,7 +128,7 @@ class InventorySessionService
                 'inventory_date' => $data['inventory_date'] ?? null,
                 'start_time' => $data['start_time'] ?? null,
                 'notes' => $data['notes'] ?? null,
-                'status' => InventorySessionStatus::DRAFT,
+                'status' => InventorySessionStatus::PENDING,
             ];
 
             // Validate assigned cashier belongs to same branch
