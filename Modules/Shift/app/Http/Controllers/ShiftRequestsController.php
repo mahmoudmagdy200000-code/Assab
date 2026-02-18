@@ -49,13 +49,10 @@ class ShiftRequestsController extends BaseController
             $perPage = (int) $request->input('per_page', 15);
             $paginator = $this->requestsService->getHandoversForAuthUser($status, $perPage);
 
-            $resource = HandoverSummaryResource::collection($paginator);
-            $resolved = $resource->toArray($request);
-
-            return response()->json($this->paginatedPayload(
-                $resolved,
+            return $this->paginatedResponse(
+                HandoverSummaryResource::collection($paginator),
                 'Handovers retrieved successfully'
-            ));
+            );
         } catch (\Exception $e) {
             return $this->handleException($e, 'Failed to retrieve handovers');
         }
@@ -84,13 +81,10 @@ class ShiftRequestsController extends BaseController
             $perPage = (int) $request->input('per_page', 15);
             $paginator = $this->requestsService->getVariancesForAuthUser($status, $perPage);
 
-            $resource = VarianceSummaryResource::collection($paginator);
-            $resolved = $resource->toArray($request);
-
-            return response()->json($this->paginatedPayload(
-                $resolved,
+            return $this->paginatedResponse(
+                VarianceSummaryResource::collection($paginator),
                 'Variances retrieved successfully'
-            ));
+            );
         } catch (\Exception $e) {
             return $this->handleException($e, 'Failed to retrieve variances');
         }
@@ -124,34 +118,12 @@ class ShiftRequestsController extends BaseController
             $perPage = (int) $request->input('per_page', 15);
             $paginator = $this->requestsService->getReassignedShiftsForCashier($perPage);
 
-            $resource = CashierShiftResource::collection($paginator);
-            $resolved = $resource->toArray($request);
-
-            return response()->json($this->paginatedPayload(
-                $resolved,
+            return $this->paginatedResponse(
+                CashierShiftResource::collection($paginator),
                 'Reassigned shifts retrieved successfully'
-            ));
+            );
         } catch (\Exception $e) {
             return $this->handleException($e, 'Failed to retrieve reassigned shifts');
         }
-    }
-
-    /**
-     * Build response with success, message, data (array), links, meta.
-     * Handles both ResourceCollection format (data/links/meta) and plain numeric-key array.
-     */
-    private function paginatedPayload(array $resolved, string $message): array
-    {
-        $data = isset($resolved['data']) ? $resolved['data'] : array_values($resolved);
-        $links = $resolved['links'] ?? [];
-        $meta = $resolved['meta'] ?? [];
-
-        return [
-            'success' => true,
-            'message' => $message,
-            'data' => $data,
-            'links' => $links,
-            'meta' => $meta,
-        ];
     }
 }

@@ -185,8 +185,13 @@ abstract class BaseController extends Controller
             'total' => $paginator->total(),
         ];
 
-        // When a ResourceCollection is passed, it already contains transformed items
-        $items = method_exists($data, 'collection') ? $data->collection : $paginator->items();
+        // When a ResourceCollection is passed, resolve it to get transformed data
+        if (method_exists($data, 'collection') && method_exists($data, 'toArray')) {
+            $resolved = $data->toArray(request());
+            $items = isset($resolved['data']) ? $resolved['data'] : array_values($resolved);
+        } else {
+            $items = $paginator->items();
+        }
 
         $response = [
             'success' => true,
