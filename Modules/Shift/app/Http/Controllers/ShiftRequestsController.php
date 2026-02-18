@@ -46,12 +46,16 @@ class ShiftRequestsController extends BaseController
             }
 
             $status = $request->query('status');
-            $handovers = $this->requestsService->getHandoversForAuthUser($status);
+            $perPage = (int) $request->input('per_page', 15);
+            $paginator = $this->requestsService->getHandoversForAuthUser($status, $perPage);
 
-            return $this->paginatedResponse(
-                HandoverSummaryResource::collection($handovers),
-                'Handovers retrieved successfully'
-            );
+            $resource = HandoverSummaryResource::collection($paginator);
+            $resolved = $resource->toArray($request);
+
+            return response()->json(array_merge(
+                ['success' => true, 'message' => 'Handovers retrieved successfully'],
+                $resolved
+            ));
         } catch (\Exception $e) {
             return $this->handleException($e, 'Failed to retrieve handovers');
         }
@@ -77,12 +81,16 @@ class ShiftRequestsController extends BaseController
             }
 
             $status = $request->query('status');
-            $variances = $this->requestsService->getVariancesForAuthUser($status);
+            $perPage = (int) $request->input('per_page', 15);
+            $paginator = $this->requestsService->getVariancesForAuthUser($status, $perPage);
 
-            return $this->paginatedResponse(
-                VarianceSummaryResource::collection($variances),
-                'Variances retrieved successfully'
-            );
+            $resource = VarianceSummaryResource::collection($paginator);
+            $resolved = $resource->toArray($request);
+
+            return response()->json(array_merge(
+                ['success' => true, 'message' => 'Variances retrieved successfully'],
+                $resolved
+            ));
         } catch (\Exception $e) {
             return $this->handleException($e, 'Failed to retrieve variances');
         }
@@ -95,7 +103,7 @@ class ShiftRequestsController extends BaseController
      *
      * @return JsonResponse
      */
-    public function reassignedShifts(): JsonResponse
+    public function reassignedShifts(Request $request): JsonResponse
     {
         try {
             $user = auth()->user();
@@ -113,12 +121,16 @@ class ShiftRequestsController extends BaseController
                 ], 403);
             }
 
-            $shifts = $this->requestsService->getReassignedShiftsForCashier();
+            $perPage = (int) $request->input('per_page', 15);
+            $paginator = $this->requestsService->getReassignedShiftsForCashier($perPage);
 
-                return $this->paginatedResponse(
-                CashierShiftResource::collection($shifts),
-                'Reassigned shifts retrieved successfully'
-            );
+            $resource = CashierShiftResource::collection($paginator);
+            $resolved = $resource->toArray($request);
+
+            return response()->json(array_merge(
+                ['success' => true, 'message' => 'Reassigned shifts retrieved successfully'],
+                $resolved
+            ));
         } catch (\Exception $e) {
             return $this->handleException($e, 'Failed to retrieve reassigned shifts');
         }
