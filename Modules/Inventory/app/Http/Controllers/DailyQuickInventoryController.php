@@ -316,8 +316,8 @@ class DailyQuickInventoryController extends BaseController
     }
 
     /**
-     * Get all inventory sessions grouped by status.
-     * Each status key (draft, pending, approved, etc.) contains an array of sessions.
+     * Get all inventory sessions. Optional filter by status (e.g. ?status=draft).
+     * Valid status values: draft, pending, approved, rejected, pending_your_action, completed.
      *
      * @group Daily Quick Inventory
      */
@@ -331,23 +331,25 @@ class DailyQuickInventoryController extends BaseController
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
+            $statusFilter = request()->query('status');
+            $validStatuses = array_map(fn (InventorySessionStatus $s) => $s->value, InventorySessionStatus::cases());
+            $hasStatusFilter = $statusFilter !== null && $statusFilter !== '';
+
+            if ($hasStatusFilter && !in_array($statusFilter, $validStatuses, true)) {
+                return $this->errorResponse(
+                    'Invalid status. Valid values: ' . implode(', ', $validStatuses),
+                    422
+                );
+            }
+
             $sessions = InventorySession::where('branch_id', $manager->branch_id)
+                ->when($hasStatusFilter, fn ($q) => $q->where('status', $statusFilter))
                 ->with(['items.item', 'items.purchaseOrderItem.purchaseOrder', 'assignedTo', 'createdBy', 'branch'])
                 ->withCount('items')
                 ->orderBy('created_at', 'desc')
                 ->get();
 
-            $grouped = [];
-            foreach (InventorySessionStatus::cases() as $status) {
-                $grouped[$status->value] = [];
-            }
-
-            foreach ($sessions as $session) {
-                $statusKey = $session->status->value;
-                $grouped[$statusKey][] = (new InventorySessionResource($session))->resolve(request());
-            }
-
-            $data = array_map('array_values', $grouped);
+            $data = $sessions->map(fn ($session) => (new InventorySessionResource($session))->resolve(request()))->values()->all();
 
             return $this->successResponse(
                 $data,
