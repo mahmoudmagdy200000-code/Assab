@@ -266,12 +266,41 @@ class RecurringOrderService
         $data = [
             'repeat_frequency' => $model->repeat_frequency->value,
             'repeat_config' => $model->repeat_config,
-            'scheduling_time_am' => $model->scheduling_time_am?->format('H:i'),
-            'scheduling_time_pm' => $model->scheduling_time_pm?->format('H:i'),
-            'start_date' => $model->start_date?->format('Y-m-d'),
-            'end_date' => $model->end_date?->format('Y-m-d'),
+            'scheduling_time_am' => $this->formatTimeForCompute($model->scheduling_time_am),
+            'scheduling_time_pm' => $this->formatTimeForCompute($model->scheduling_time_pm),
+            'start_date' => $this->formatDateForCompute($model->start_date),
+            'end_date' => $this->formatDateForCompute($model->end_date),
         ];
-        return $this->computeNextRunAt($data, $model->next_run_at ?? $model->start_date?->startOfDay());
+        $after = $model->next_run_at ?? ($model->start_date ? Carbon::parse($model->start_date)->startOfDay() : null);
+        return $this->computeNextRunAt($data, $after);
+    }
+
+    /**
+     * Normalize time value (string or DateTime) to H:i string for computeNextRunAt.
+     */
+    private function formatTimeForCompute(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_string($value)) {
+            return substr($value, 0, 5);
+        }
+        return $value->format('H:i');
+    }
+
+    /**
+     * Normalize date value (string or DateTime) to Y-m-d string for computeNextRunAt.
+     */
+    private function formatDateForCompute(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_string($value)) {
+            return $value;
+        }
+        return $value->format('Y-m-d');
     }
 
     /**
