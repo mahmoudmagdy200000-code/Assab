@@ -347,12 +347,10 @@ class DailyQuickInventoryController extends BaseController
                 ->with(['items.item', 'items.purchaseOrderItem.purchaseOrder', 'assignedTo', 'createdBy', 'branch'])
                 ->withCount('items')
                 ->orderBy('created_at', 'desc')
-                ->get();
+                ->paginate();
 
-            $data = $sessions->map(fn ($session) => (new InventorySessionResource($session))->resolve(request()))->values()->all();
-
-            return $this->successResponse(
-                $data,
+            return $this->paginatedResponse(
+                InventorySessionResource::collection($sessions),
                 'Inventory sessions retrieved successfully'
             );
         } catch (\Exception $e) {
