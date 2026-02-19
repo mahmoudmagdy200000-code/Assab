@@ -25,6 +25,9 @@ class UpdateRecurringOrderRequest extends FormRequest
             'items.*.latest_delivery_date' => ['nullable', 'date'],
             'items.*.special_instructions' => ['nullable', 'string', 'max:1000'],
             'repeat_config' => ['nullable', 'array'],
+            'repeat_config.repeat_days' => ['sometimes', 'array'],
+            'repeat_config.repeat_days.*' => ['integer', 'min:1', 'max:7'], // API: 1=Sunday .. 7=Saturday
+            'repeat_config.day_of_week' => ['sometimes', 'integer', 'min:1', 'max:7'], // API: 1=Sunday .. 7=Saturday
             'scheduling_time' => ['nullable', 'string', 'regex:/^\d{1,2}:\d{2}:\d{2}$/'],
             'meridiem' => ['required_with:scheduling_time', 'string', 'in:am,pm'],
             'scheduling_time_am' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}$/'],
@@ -72,5 +75,33 @@ class UpdateRecurringOrderRequest extends FormRequest
                 );
             }
         });
+    }
+
+    /**
+     * Convert API day numbers (1-7) to internal storage (0-6). Sunday=1 -> 0, Saturday=7 -> 6.
+     */
+    public function passedValidation(): void
+    {
+        $this->normalizeRepeatConfigDaysToZeroBased();
+    }
+
+    private function normalizeRepeatConfigDaysToZeroBased(): void
+    {
+        $config = $this->input('repeat_config');
+        if (! is_array($config)) {
+            return;
+        }
+        $updated = false;
+        if (isset($config['repeat_days']) && is_array($config['repeat_days'])) {
+            $config['repeat_days'] = array_values(array_map(fn ($d) => max(0, min(6, (int) $d - 1)), $config['repeat_days']));
+            $updated = true;
+        }
+        if (isset($config['day_of_week']) && is_numeric($config['day_of_week'])) {
+            $config['day_of_week'] = max(0, min(6, (int) $config['day_of_week'] - 1));
+            $updated = true;
+        }
+        if ($updated) {
+            $this->merge(['repeat_config' => $config]);
+        }
     }
 }
