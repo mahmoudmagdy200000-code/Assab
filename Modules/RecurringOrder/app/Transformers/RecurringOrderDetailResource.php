@@ -58,16 +58,68 @@ class RecurringOrderDetailResource extends JsonResource
         );
 
         $availableActions = $this->getAvailableActions();
+        $frequencySettings = $this->buildFrequencySettings();
 
         return [
             'id' => $this->id,
             'status_section' => $statusSection,
             'inspection_summary' => $inspectionSummary,
+            'frequency_settings' => $frequencySettings,
             'item_count_and_availability' => $itemCountAndAvailability,
             'details' => $detailsSection,
             'history' => $this->resource->getAttribute('history_data') ?? [],
             'available_actions' => $availableActions,
         ];
+    }
+
+    /**
+     * Build structured frequency settings for API consumers.
+     * - frequency: weekly | monthly | based_on_inventory
+     * - end_type: repeat | date
+     * - weekly: repeat_days as numbers (Sunday=1 .. Saturday=7)
+     * - monthly by_date: repeat_type=by_date, dates as day-of-month numbers
+     * - monthly by_pattern: repeat_type=by_pattern, every=occurrence (1-5), day_of_week (1-7)
+     */
+    private function buildFrequencySettings(): array
+    {
+        $freq = $this->repeat_frequency?->value ?? '';
+        $config = $this->repeat_config ?? [];
+        $base = [
+            'frequency' => $freq ?: null,
+            'end_type' => $this->end_type ?? 'repeat',
+        ];
+
+        if ($freq === RepeatFrequency::WEEKLY->value) {
+            $days = $config['repeat_days'] ?? [];
+            // Store is 0-6 (Sunday=0). API exposes Sunday=1 .. Saturday=7.
+            $base['repeat_days'] = array_values(array_map(fn ($d) => (int) $d + 1, $days));
+            return $base;
+        }
+
+        if ($freq === RepeatFrequency::MONTHLY->value) {
+            $type = $config['repeat_type'] ?? 'by_date';
+            $base['repeat_type'] = $type;
+
+            if ($type === 'by_date') {
+                $base['dates'] = array_map('intval', $config['dates'] ?? []);
+                return $base;
+            }
+
+            // by_pattern: every = occurrence (1-5), day_of_week as 1-7 (Sunday=1)
+            $base['repeat_type'] = 'by_pattern';
+            $base['every'] = (int) ($config['occurrence'] ?? 1);
+            $dow = (int) ($config['day_of_week'] ?? 0);
+            $base['day_of_week'] = $dow + 1; // 0-6 -> 1-7
+            return $base;
+        }
+
+        if ($freq === RepeatFrequency::BASED_ON_INVENTORY->value) {
+            $base['level_ratio'] = $config['level_ratio'] ?? null;
+            $base['custom_threshold'] = isset($config['custom_threshold']) ? (int) $config['custom_threshold'] : null;
+            return $base;
+        }
+
+        return $base;
     }
 
     /**
