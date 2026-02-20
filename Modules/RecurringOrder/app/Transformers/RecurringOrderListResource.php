@@ -35,6 +35,7 @@ class RecurringOrderListResource extends JsonResource
             'type_value' => $typeValue,
             'status' => $statusLabel,
             'status_value' => $this->status?->value,
+            'next_schedule_date' => $this->next_run_at?->format('Y-m-d'),
         ];
     }
 }
