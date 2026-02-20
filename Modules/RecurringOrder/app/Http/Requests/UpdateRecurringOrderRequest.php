@@ -15,19 +15,38 @@ class UpdateRecurringOrderRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'order_name' => ['sometimes', 'string', 'max:255'],
-            'items' => ['sometimes', 'array', 'min:1'],
-            'items.*.item_id' => ['required_with:items', 'string', 'exists:items,id'],
-            'items.*.quantity' => ['required_with:items', 'numeric', 'min:0.001'],
-            'items.*.quality' => ['nullable', 'string', 'max:50'],
-            'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
-            'items.*.preferred_delivery_date' => ['nullable', 'date'],
-            'items.*.latest_delivery_date' => ['nullable', 'date'],
-            'items.*.special_instructions' => ['nullable', 'string', 'max:1000'],
+            'order_name' => ['nullable', 'string', 'max:255'],
+            'direct_supplier' => ['nullable', 'array'],
+            'direct_supplier.supplier_id' => ['required_with:direct_supplier', 'string', 'exists:suppliers,id'],
+            'direct_supplier.notification_channels' => ['nullable', 'array'],
+            'direct_supplier.notification_channels.*' => ['string', 'in:email,whatsapp,sms'],
+            'direct_supplier.message' => ['nullable', 'string', 'max:2000'],
+            'direct_supplier.items' => ['required_with:direct_supplier', 'array', 'min:1'],
+            'direct_supplier.items.*.item_id' => ['required', 'string', 'exists:items,id'],
+            'direct_supplier.items.*.quantity' => ['required', 'numeric', 'min:0.001'],
+            'direct_supplier.items.*.quality' => ['nullable', 'string', 'max:50'],
+
+            'purchase_officer' => ['nullable', 'array'],
+            'purchase_officer.purchasing_officer_id' => ['required_with:purchase_officer', 'string', 'exists:branch_managers,id'],
+            'purchase_officer.items' => ['required_with:purchase_officer', 'array', 'min:1'],
+            'purchase_officer.items.*.item_id' => ['required', 'string', 'exists:items,id'],
+            'purchase_officer.items.*.quantity' => ['required', 'numeric', 'min:0.001'],
+            'purchase_officer.items.*.quality' => ['nullable', 'string', 'max:50'],
+            'purchase_officer.items.*.preferred_delivery_date' => ['nullable', 'date'],
+            'purchase_officer.items.*.latest_delivery_date' => ['nullable', 'date'],
+            'purchase_officer.items.*.special_instructions' => ['nullable', 'string', 'max:1000'],
+
+            'repeat_frequency' => ['sometimes', 'string', 'in:weekly,monthly,based_on_inventory'],
             'repeat_config' => ['nullable', 'array'],
-            'repeat_config.repeat_days' => ['sometimes', 'array'],
+            'repeat_config.repeat_days' => ['required_if:repeat_frequency,weekly', 'array'],
             'repeat_config.repeat_days.*' => ['integer', 'min:1', 'max:7'], // API: 1=Sunday .. 7=Saturday
-            'repeat_config.day_of_week' => ['sometimes', 'integer', 'min:1', 'max:7'], // API: 1=Sunday .. 7=Saturday
+            'repeat_config.repeat_type' => ['required_if:repeat_frequency,monthly', 'nullable', 'string', 'in:by_date,by_pattern'],
+            'repeat_config.dates' => ['required_if:repeat_config.repeat_type,by_date', 'array'],
+            'repeat_config.dates.*' => ['integer', 'min:1', 'max:31'],
+            'repeat_config.occurrence' => ['required_if:repeat_config.repeat_type,by_pattern', 'nullable', 'integer', 'min:1', 'max:5'],
+            'repeat_config.day_of_week' => ['required_if:repeat_config.repeat_type,by_pattern', 'nullable', 'integer', 'min:1', 'max:7'], // API: 1=Sunday .. 7=Saturday
+            'repeat_config.level_ratio' => ['required_if:repeat_frequency,based_on_inventory', 'nullable', 'string', 'in:10,20,40,custom'],
+            'repeat_config.custom_threshold' => ['nullable', 'integer', 'min:1', 'max:100'],
             'scheduling_time' => ['nullable', 'string', 'regex:/^\d{1,2}:\d{2}:\d{2}$/'],
             'meridiem' => ['required_with:scheduling_time', 'string', 'in:am,pm'],
             'scheduling_time_am' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}$/'],
@@ -36,6 +55,7 @@ class UpdateRecurringOrderRequest extends FormRequest
             'notification_options.*' => ['string', 'in:alert_24_hours_before,review_before_sending,send_automatically_without_review'],
             'smart_settings' => ['nullable', 'array'],
             'smart_settings.*' => ['string', 'in:auto_adjust_quantities_based_on_consumption,freeze_during_holidays_and_events,notify_when_prices_change'],
+            'start_date' => ['sometimes', 'date', 'after_or_equal:today'],
             'end_date' => ['nullable', 'date'],
             'end_type' => ['sometimes', 'string', 'in:repeat,date'],
         ];
@@ -43,6 +63,7 @@ class UpdateRecurringOrderRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        $this->normalizePurchaseOfficerId();
         $time = $this->input('scheduling_time');
         $meridiem = $this->input('meridiem');
         if ($time && in_array($meridiem, ['am', 'pm'], true)) {
@@ -67,6 +88,14 @@ class UpdateRecurringOrderRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator) {
+            $hasDirect = $this->filled('direct_supplier');
+            $hasOfficer = $this->filled('purchase_officer');
+            if ($hasDirect && $hasOfficer) {
+                $validator->errors()->add(
+                    'direct_supplier',
+                    'Provide only one of direct_supplier or purchase_officer per request.'
+                );
+            }
             $opts = $this->input('notification_options', []);
             if (is_array($opts) && in_array('review_before_sending', $opts) && in_array('send_automatically_without_review', $opts)) {
                 $validator->errors()->add(
@@ -74,6 +103,13 @@ class UpdateRecurringOrderRequest extends FormRequest
                     'Cannot select both "Review before sending" and "Send automatically without review".'
                 );
             }
+            if ($this->input('end_type') === 'date' && !$this->filled('end_date')) {
+                $validator->errors()->add('end_date', 'End date is required when end type is date.');
+            }
+            if ($this->filled('start_date') && $this->filled('end_date') && strtotime($this->input('end_date')) <= strtotime($this->input('start_date'))) {
+                $validator->errors()->add('end_date', 'End date must be after start date.');
+            }
+            $this->validateLatestDeliveryDates($validator);
         });
     }
 
@@ -102,6 +138,40 @@ class UpdateRecurringOrderRequest extends FormRequest
         }
         if ($updated) {
             $this->merge(['repeat_config' => $config]);
+        }
+    }
+
+    /**
+     * Allow branch_manager_id or officer_id as alias for purchasing_officer_id.
+     */
+    private function normalizePurchaseOfficerId(): void
+    {
+        $po = $this->input('purchase_officer');
+        if (!is_array($po)) {
+            return;
+        }
+        $id = $po['purchasing_officer_id'] ?? $po['branch_manager_id'] ?? $po['officer_id'] ?? null;
+        if ($id !== null) {
+            $po['purchasing_officer_id'] = $id;
+            $this->merge(['purchase_officer' => $po]);
+        }
+    }
+
+    /**
+     * Ensure latest_delivery_date >= preferred_delivery_date per item when both are present.
+     */
+    private function validateLatestDeliveryDates(Validator $validator): void
+    {
+        $items = $this->input('purchase_officer.items', []);
+        foreach ($items as $i => $item) {
+            $preferred = $item['preferred_delivery_date'] ?? null;
+            $latest = $item['latest_delivery_date'] ?? null;
+            if ($preferred && $latest && strtotime($latest) < strtotime($preferred)) {
+                $validator->errors()->add(
+                    "purchase_officer.items.{$i}.latest_delivery_date",
+                    'latest_delivery_date must be on or after preferred_delivery_date for this item.'
+                );
+            }
         }
     }
 }
