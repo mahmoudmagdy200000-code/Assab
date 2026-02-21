@@ -223,17 +223,23 @@ class RecurringOrderService
         return DB::transaction(function () use ($recurringOrder, $data) {
             $update = array_filter([
                 'order_name' => $data['order_name'] ?? null,
+                'repeat_frequency' => $data['repeat_frequency'] ?? null,
                 'repeat_config' => $data['repeat_config'] ?? null,
                 'scheduling_time_am' => $this->normalizeTime($data['scheduling_time_am'] ?? null),
                 'scheduling_time_pm' => $this->normalizeTime($data['scheduling_time_pm'] ?? null),
                 'notification_options' => $data['notification_options'] ?? null,
                 'smart_settings' => $data['smart_settings'] ?? null,
+                'start_date' => $data['start_date'] ?? null,
                 'end_date' => $data['end_date'] ?? null,
                 'end_type' => $data['end_type'] ?? null,
             ], fn ($v) => $v !== null);
 
-            if (!empty($data['items'])) {
-                $this->syncItems($recurringOrder, $data['items']);
+            $itemsToSync = $data['items']
+                ?? $data['direct_supplier']['items']
+                ?? $data['purchase_officer']['items']
+                ?? null;
+            if (!empty($itemsToSync)) {
+                $this->syncItems($recurringOrder, $itemsToSync);
             }
 
             if (!empty($update)) {
