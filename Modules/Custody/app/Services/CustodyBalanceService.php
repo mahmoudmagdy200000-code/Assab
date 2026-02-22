@@ -2,12 +2,18 @@
 
 namespace Modules\Custody\Services;
 
-use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
+use Illuminate\Support\Collection;
 use Modules\Custody\Models\CustodyTransaction;
 use Modules\Custody\Models\CustodyRequest;
+use Modules\Custody\Models\PersonalLedgerTransaction;
 
 class CustodyBalanceService
 {
+    private const CUSTODY_TYPES = ['branch', 'personal'];
+
+    private const BRANCH_CUSTODY_REQUEST_TYPES = ['Cash Transfer', 'Cash Handover', 'Bank Transfer'];
+
     /**
      * Get custody balance for branch manager
      */
@@ -28,193 +34,207 @@ class CustodyBalanceService
     }
 
     /**
-     * Get balance trends data
+     * Get balance trends data for UI (Balance Trend Stats screen).
+     * Filters: custodyType (branch|personal), month, year, granularity (daily|weekly|monthly).
+     * Returns structure matching the UI 100%.
      */
     public function getBalanceTrends(string $branchManagerId, array $filters = []): array
     {
-        $period = $filters['period'] ?? 'today';
-        $granularity = $filters['granularity'] ?? ($period === 'today' ? 'hourly' : 'daily');
-
-        $query = CustodyTransaction::where('branch_manager_id', $branchManagerId);
-
-        // Apply date filter based on period
-        if ($period === 'today') {
-            $query->whereDate('transaction_date', today());
-        } elseif ($period === 'week') {
-            $query->where('transaction_date', '>=', now()->subWeek());
-        } elseif ($period === 'month') {
-            $query->where('transaction_date', '>=', now()->subMonth());
+        $custodyType = $filters['custodyType'] ?? 'branch';
+        if (!in_array($custodyType, self::CUSTODY_TYPES, true)) {
+            $custodyType = 'branch';
         }
 
-        $transactions = $query->get();
+        $month = isset($filters['month']) ? (int) $filters['month'] : (int) now()->month;
+        $year = isset($filters['year']) ? (int) $filters['year'] : (int) now()->year;
+        $granularity = $filters['granularity'] ?? 'daily';
+        if (!in_array($granularity, ['daily', 'weekly', 'monthly'], true)) {
+            $granularity = 'daily';
+        }
 
-        $dataPoints = $this->aggregateDataPoints($transactions, $granularity);
+        $startDate = Carbon::createFromDate($year, $month, 1)->startOfDay();
+        $endDate = $startDate->copy()->endOfMonth();
 
-        // Get current and previous period comparison
-        $current = $this->getCurrentPeriodData($transactions, $granularity);
-        $previous = $this->getPreviousPeriodData($branchManagerId, $period, $granularity);
+        $currentTransactions = $this->getTrendsTransactions($branchManagerId, $custodyType, $startDate, $endDate);
+        $previousStart = $startDate->copy()->subMonth()->startOfMonth();
+        $previousEnd = $previousStart->copy()->endOfMonth();
+        $previousTransactions = $this->getTrendsTransactions($branchManagerId, $custodyType, $previousStart, $previousEnd);
 
-        $comparison = $this->calculateComparison($current, $previous);
+        $currentTotals = $this->sumCustodyAndExpenses($currentTransactions, $custodyType);
+        $previousTotals = $this->sumCustodyAndExpenses($previousTransactions, $custodyType);
+
+        $custodyChange = round($currentTotals['custodyRequests'] - $previousTotals['custodyRequests'], 2);
+        $expenseChange = round($currentTotals['expenses'] - $previousTotals['expenses'], 2);
+        $custodyPercentage = $this->calculatePercentage($currentTotals['custodyRequests'], $previousTotals['custodyRequests']);
+        $expensePercentage = $this->calculatePercentage($currentTotals['expenses'], $previousTotals['expenses']);
+
+        $dataPoints = $this->aggregateDataPointsForTrends($currentTransactions, $granularity, $startDate, $endDate, $custodyType);
+
+        $periodLabel = $this->getPeriodLabel($granularity);
 
         return [
-            'period' => $period,
+            'custodyType' => $custodyType,
+            'month' => $month,
+            'year' => $year,
             'granularity' => $granularity,
-            'currentHour' => $current['hourly'] ?? null,
-            'previousHour' => $previous['hourly'] ?? null,
-            'comparison' => $comparison,
+            'showingDataFrom' => $startDate->toIso8601String(),
+            'timelineLabel' => $startDate->format('F Y'),
+            'totalCustodyRequests' => [
+                'value' => round($currentTotals['custodyRequests'], 2),
+                'changeAmount' => $custodyChange,
+                'changePercentage' => $custodyPercentage,
+                'description' => $this->getComparisonDescription($custodyChange, $custodyPercentage, true, $periodLabel),
+            ],
+            'totalExpense' => [
+                'value' => round($currentTotals['expenses'], 2),
+                'changeAmount' => $expenseChange,
+                'changePercentage' => $expensePercentage,
+                'description' => $this->getComparisonDescription($expenseChange, $expensePercentage, false, $periodLabel),
+            ],
             'dataPoints' => $dataPoints,
         ];
     }
 
     /**
-     * Aggregate data points by granularity
+     * Load transactions for trends (branch or personal) in date range
      */
-    private function aggregateDataPoints($transactions, string $granularity): array
+    private function getTrendsTransactions(string $branchManagerId, string $custodyType, Carbon $start, Carbon $end): Collection
+    {
+        if ($custodyType === 'personal') {
+            return PersonalLedgerTransaction::where('branch_manager_id', $branchManagerId)
+                ->whereBetween('transaction_date', [$start, $end])
+                ->orderBy('transaction_date')
+                ->get();
+        }
+
+        $branchId = auth()->user()->branch_id ?? null;
+        $query = CustodyTransaction::where('branch_manager_id', $branchManagerId)
+            ->whereBetween('transaction_date', [$start, $end]);
+
+        if ($branchId !== null) {
+            $query->where('branch_id', $branchId);
+        }
+
+        return $query->orderBy('transaction_date')->get();
+    }
+
+    /**
+     * Sum custody requests (money in) and expenses (money out) from collection
+     */
+    private function sumCustodyAndExpenses(Collection $transactions, string $custodyType): array
+    {
+        if ($custodyType === 'personal') {
+            $custodyRequests = $transactions->where('is_cash_in', true)->sum('amount');
+            $expenses = $transactions->where('is_cash_in', false)->sum('amount');
+            return [
+                'custodyRequests' => (float) $custodyRequests,
+                'expenses' => (float) $expenses,
+            ];
+        }
+
+        $custodyRequests = $transactions
+            ->filter(fn($t) => in_array($t->type, self::BRANCH_CUSTODY_REQUEST_TYPES, true) && $t->is_cash_in)
+            ->sum('amount');
+        $expenses = $transactions
+            ->filter(fn($t) => $t->type === 'Expenses Deduction' && !$t->is_cash_in)
+            ->sum('amount');
+
+        return [
+            'custodyRequests' => (float) $custodyRequests,
+            'expenses' => (float) $expenses,
+        ];
+    }
+
+    /**
+     * Aggregate data points by daily/weekly/monthly for the given range
+     */
+    private function aggregateDataPointsForTrends(Collection $transactions, string $granularity, Carbon $start, Carbon $end, string $custodyType): array
     {
         $dataPoints = [];
+        $getCustodyAndExpenses = function (Collection $subset) use ($custodyType) {
+            return $this->sumCustodyAndExpenses($subset, $custodyType);
+        };
 
-        if ($granularity === 'hourly') {
-            for ($hour = 0; $hour < 24; $hour++) {
-                $hourTransactions = $transactions->filter(function ($txn) use ($hour) {
-                    return $txn->transaction_date->hour === $hour;
+        if ($granularity === 'monthly') {
+            $totals = $getCustodyAndExpenses($transactions);
+            $dataPoints[] = [
+                'timestamp' => $start->toIso8601String(),
+                'label' => $start->format('F Y'),
+                'custodyRequests' => round($totals['custodyRequests'], 2),
+                'expenses' => round($totals['expenses'], 2),
+            ];
+            return $dataPoints;
+        }
+
+        if ($granularity === 'weekly') {
+            $cursor = $start->copy();
+            while ($cursor->lte($end)) {
+                $weekEnd = $cursor->copy()->endOfWeek();
+                if ($weekEnd->gt($end)) {
+                    $weekEnd = $end->copy();
+                }
+                $subset = $transactions->filter(function ($t) use ($cursor, $weekEnd) {
+                    $d = $t->transaction_date;
+                    return $d->gte($cursor) && $d->lte($weekEnd);
                 });
-
-                $custodyRequests = $hourTransactions
-                    ->filter(fn($t) => in_array($t->type, ['Cash Transfer', 'Cash Handover', 'Bank Transfer']) && $t->is_cash_in)
-                    ->sum('amount');
-
-                $expenses = $hourTransactions
-                    ->filter(fn($t) => $t->type === 'Expenses Deduction' && !$t->is_cash_in)
-                    ->sum('amount');
-
+                $totals = $getCustodyAndExpenses($subset);
                 $dataPoints[] = [
-                    'timestamp' => now()->setHour($hour)->setMinute(0)->setSecond(0)->toIso8601String(),
-                    'hour' => str_pad($hour, 2, '0', STR_PAD_LEFT) . ':00',
-                    'custodyRequests' => round($custodyRequests, 2),
-                    'expenses' => round($expenses, 2),
+                    'timestamp' => $cursor->toIso8601String(),
+                    'label' => 'Week of ' . $cursor->format('M j'),
+                    'custodyRequests' => round($totals['custodyRequests'], 2),
+                    'expenses' => round($totals['expenses'], 2),
                 ];
+                $cursor->addWeek()->startOfWeek();
             }
-        } else {
-            // Daily aggregation
-            $grouped = $transactions->groupBy(function ($txn) {
-                return $txn->transaction_date->format('Y-m-d');
-            });
+            return $dataPoints;
+        }
 
-            foreach ($grouped as $date => $dayTransactions) {
-                $custodyRequests = $dayTransactions
-                    ->filter(fn($t) => in_array($t->type, ['Cash Transfer', 'Cash Handover', 'Bank Transfer']) && $t->is_cash_in)
-                    ->sum('amount');
-
-                $expenses = $dayTransactions
-                    ->filter(fn($t) => $t->type === 'Expenses Deduction' && !$t->is_cash_in)
-                    ->sum('amount');
-
-                $dataPoints[] = [
-                    'timestamp' => $dayTransactions->first()->transaction_date->toIso8601String(),
-                    'date' => $date,
-                    'custodyRequests' => round($custodyRequests, 2),
-                    'expenses' => round($expenses, 2),
-                ];
-            }
+        // daily
+        $cursor = $start->copy();
+        while ($cursor->lte($end)) {
+            $subset = $transactions->filter(fn($t) => $t->transaction_date->isSameDay($cursor));
+            $totals = $getCustodyAndExpenses($subset);
+            $dataPoints[] = [
+                'timestamp' => $cursor->toIso8601String(),
+                'date' => $cursor->format('Y-m-d'),
+                'custodyRequests' => round($totals['custodyRequests'], 2),
+                'expenses' => round($totals['expenses'], 2),
+            ];
+            $cursor->addDay();
         }
 
         return $dataPoints;
     }
 
-    /**
-     * Get current period data
-     */
-    private function getCurrentPeriodData($transactions, string $granularity): array
+    private function getPeriodLabel(string $granularity): string
     {
-        $now = now();
-
-        if ($granularity === 'hourly') {
-            $currentHour = $transactions->filter(fn($t) => $t->transaction_date->hour === $now->hour);
-
-            return [
-                'hourly' => [
-                    'hour' => $now->format('H:i'),
-                    'custodyRequests' => [
-                        'count' => $currentHour->filter(fn($t) => in_array($t->type, ['Cash Transfer', 'Cash Handover', 'Bank Transfer']) && $t->is_cash_in)->count(),
-                        'total' => round($currentHour->filter(fn($t) => in_array($t->type, ['Cash Transfer', 'Cash Handover', 'Bank Transfer']) && $t->is_cash_in)->sum('amount'), 2),
-                    ],
-                    'expenses' => [
-                        'count' => $currentHour->filter(fn($t) => $t->type === 'Expenses Deduction' && !$t->is_cash_in)->count(),
-                        'total' => round($currentHour->filter(fn($t) => $t->type === 'Expenses Deduction' && !$t->is_cash_in)->sum('amount'), 2),
-                    ],
-                ],
-            ];
-        }
-
-        return [];
+        return match ($granularity) {
+            'daily' => 'LAST DAY',
+            'weekly' => 'LAST WEEK',
+            'monthly' => 'LAST MONTH',
+            default => 'LAST PERIOD',
+        };
     }
 
-    /**
-     * Get previous period data
-     */
-    private function getPreviousPeriodData(string $branchManagerId, string $period, string $granularity): array
+    private function getComparisonDescription(float $changeAmount, string $changePercentage, bool $isCustodyRequests, string $periodLabel): string
     {
-        $query = CustodyTransaction::where('branch_manager_id', $branchManagerId);
-
-        if ($granularity === 'hourly') {
-            $previousHour = now()->subHour();
-            $query->where('transaction_date', '>=', $previousHour->copy()->startOfHour())
-                ->where('transaction_date', '<', $previousHour->copy()->endOfHour());
-        } else {
-            // For daily, get previous day
-            $query->whereDate('transaction_date', now()->subDay());
+        if ($isCustodyRequests) {
+            if ($changeAmount > 0) {
+                return 'INCREASE FROM ' . $periodLabel;
+            }
+            if ($changeAmount < 0) {
+                return 'DECREASE FROM ' . $periodLabel;
+            }
+            return 'NO INCREASE FROM ' . $periodLabel;
         }
 
-        $transactions = $query->get();
-
-        if ($granularity === 'hourly') {
-            return [
-                'hourly' => [
-                    'hour' => $previousHour->format('H:i'),
-                    'custodyRequests' => [
-                        'count' => $transactions->filter(fn($t) => in_array($t->type, ['Cash Transfer', 'Cash Handover', 'Bank Transfer']) && $t->is_cash_in)->count(),
-                        'total' => round($transactions->filter(fn($t) => in_array($t->type, ['Cash Transfer', 'Cash Handover', 'Bank Transfer']) && $t->is_cash_in)->sum('amount'), 2),
-                    ],
-                    'expenses' => [
-                        'count' => $transactions->filter(fn($t) => $t->type === 'Expenses Deduction' && !$t->is_cash_in)->count(),
-                        'total' => round($transactions->filter(fn($t) => $t->type === 'Expenses Deduction' && !$t->is_cash_in)->sum('amount'), 2),
-                    ],
-                ],
-            ];
+        if ($changeAmount > 0) {
+            return 'HIGHER THAN ' . $periodLabel;
         }
-
-        return [];
-    }
-
-    /**
-     * Calculate comparison between periods
-     */
-    private function calculateComparison(array $current, array $previous): array
-    {
-        $currentHour = $current['hourly'] ?? null;
-        $previousHour = $previous['hourly'] ?? null;
-
-        if (!$currentHour || !$previousHour) {
-            return [
-                'custodyRequestsChange' => 0.00,
-                'custodyRequestsPercentage' => '0%',
-                'expensesChange' => 0.00,
-                'expensesPercentage' => '0%',
-            ];
+        if ($changeAmount < 0) {
+            return 'LOWER THAN ' . $periodLabel;
         }
-
-        $custodyRequestsChange = $currentHour['custodyRequests']['total'] - $previousHour['custodyRequests']['total'];
-        $expensesChange = $currentHour['expenses']['total'] - $previousHour['expenses']['total'];
-
-        $custodyRequestsPercentage = $this->calculatePercentage($currentHour['custodyRequests']['total'], $previousHour['custodyRequests']['total']);
-        $expensesPercentage = $this->calculatePercentage($currentHour['expenses']['total'], $previousHour['expenses']['total']);
-
-        return [
-            'custodyRequestsChange' => round($custodyRequestsChange, 2),
-            'custodyRequestsPercentage' => $custodyRequestsPercentage,
-            'expensesChange' => round($expensesChange, 2),
-            'expensesPercentage' => $expensesPercentage,
-        ];
+        return 'SAME AS ' . $periodLabel;
     }
 
     /**
