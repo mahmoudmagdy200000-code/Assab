@@ -7,6 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Custody\Services\CustodyTransactionService;
 use Modules\Custody\Services\PersonalLedgerService;
 use Modules\Custody\Services\CustodyBalanceService;
@@ -172,16 +173,52 @@ class CustodyHandoverController extends BaseController
     }
 
     /**
-     * Get list of available recipients
+     * Get list of available recipients for handover.
      * GET /api/custody/recipients
+     * Returns: Custody option + Branch Managers (same branch, excluding current user) + Brand Owners (if any).
      */
     public function getRecipients(): JsonResponse
     {
         try {
-            // TODO: Implement fetching actual branch managers and brand owners
-            // For now, return empty array
+            $user = auth()->user();
+            $branchId = $user->branch_id ?? null;
+
+            $recipients = [];
+
+            // 1. Custody option (transfer to branch custody balance)
+            $recipients[] = [
+                'id' => 'custody',
+                'type' => 'Custody',
+                'name' => 'Transfer to Custody',
+            ];
+
+            // 2. Other Branch Managers in the same branch (active, exclude current user)
+            if ($branchId) {
+                $branchManagers = BranchManager::query()
+                    ->byBranch($branchId)
+                    ->active()
+                    ->where('id', '!=', $user->id)
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'email']);
+
+                foreach ($branchManagers as $bm) {
+                    $recipients[] = [
+                        'id' => $bm->id,
+                        'type' => 'Branch Manager',
+                        'name' => $bm->name,
+                        'email' => $bm->email,
+                    ];
+                }
+            }
+
+            // 3. Brand Owners (no BrandOwner model in codebase yet; extend when available)
+            $brandOwners = $this->getBrandOwnerRecipients();
+            foreach ($brandOwners as $bo) {
+                $recipients[] = $bo;
+            }
+
             return $this->successResponse([
-                'recipients' => []
+                'recipients' => $recipients,
             ], 'Recipients retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
@@ -189,11 +226,29 @@ class CustodyHandoverController extends BaseController
     }
 
     /**
-     * Get recipient name (helper method)
+     * Brand owner recipients (override or extend when BrandOwner model exists).
+     */
+    protected function getBrandOwnerRecipients(): array
+    {
+        return [];
+    }
+
+    /**
+     * Get recipient name for ledger display (Branch Manager or Brand Owner).
      */
     private function getRecipientName(string $recipientId, string $recipientType): ?string
     {
-        // TODO: Implement actual lookup
+        if ($recipientType === 'Branch Manager') {
+            $bm = BranchManager::query()->find($recipientId);
+
+            return $bm?->name;
+        }
+
+        if ($recipientType === 'Brand Owner') {
+            // Extend when BrandOwner model exists
+            return null;
+        }
+
         return null;
     }
 }
