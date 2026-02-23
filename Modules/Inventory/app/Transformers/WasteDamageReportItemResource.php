@@ -15,10 +15,11 @@ class WasteDamageReportItemResource extends JsonResource
         $item = $this->resource;
         $problemType = $item->problem_type;
         $causeOfDamage = $item->cause_of_damage;
+        $reason = $item->reason;
 
         $productName = $this->whenLoaded('item', fn () => $this->item?->name)
             ?? $this->whenLoaded('purchaseOrderItem', fn () => $this->purchaseOrderItem?->item_name);
-        $requiresPhoto = $item->requiresPhoto();
+        $requiresPhoto = $problemType && $item->requiresPhoto();
         $hasPhoto = !empty($this->photo_path);
 
         return [
@@ -28,15 +29,15 @@ class WasteDamageReportItemResource extends JsonResource
             'item_id' => $this->item_id,
             'purchase_order_item_id' => $this->purchase_order_item_id,
             'product_name' => $productName,
-            'problem_type' => $problemType->value,
-            'problem_type_label' => $problemType->label(),
+            'problem_type' => $problemType?->value,
+            'problem_type_label' => $problemType?->label(),
             'cause_of_damage' => $causeOfDamage?->value,
             'cause_of_damage_label' => $causeOfDamage?->label(),
             'responsibility' => $causeOfDamage?->label() ?? null,
             'quantity' => (float) $this->quantity,
             'quantity_wasted' => (float) $this->quantity,
-            'reason' => $this->reason->value,
-            'reason_label' => $this->reason->label(),
+            'reason' => $reason?->value,
+            'reason_label' => $reason?->label(),
             'unit' => $this->unit,
             'total_value' => (float) $this->total_value,
             'price_per_unit' => $this->price_per_unit ? (float) $this->price_per_unit : null,
