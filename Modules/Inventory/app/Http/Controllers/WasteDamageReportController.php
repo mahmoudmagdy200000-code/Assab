@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Inventory\Http\Requests\WasteDamage\StoreWasteDamageReportItemRequest;
+use Modules\Inventory\Http\Requests\WasteDamage\StoreWasteDamageReportRequest;
 use Modules\Inventory\Http\Requests\WasteDamage\UpdateWasteDamageReportItemRequest;
 use Modules\Inventory\Services\InventorySessionService;
 use Modules\Inventory\Services\WasteDamageProductService;
@@ -111,9 +112,9 @@ class WasteDamageReportController extends BaseController
     }
 
     /**
-     * Create draft report.
+     * Create draft report (optionally with multiple items in one request, like daily inventory).
      */
-    public function store(): JsonResponse
+    public function store(StoreWasteDamageReportRequest $request): JsonResponse
     {
         try {
             /** @var BranchManager $manager */
@@ -122,12 +123,17 @@ class WasteDamageReportController extends BaseController
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
-            $report = $this->reportService->createReport($manager->branch_id, $manager->id);
+            $items = $request->validated('items', []);
+            $report = !empty($items)
+                ? $this->reportService->createReportWithItems($manager->branch_id, $manager->id, $items)
+                : $this->reportService->createReport($manager->branch_id, $manager->id);
 
             return $this->createdResponse(
                 new WasteDamageReportResource($report),
                 'Waste & damage report created successfully'
             );
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e->errors(), $e->getMessage());
         } catch (\Exception $e) {
             return $this->handleException($e, 'creating waste & damage report');
         }

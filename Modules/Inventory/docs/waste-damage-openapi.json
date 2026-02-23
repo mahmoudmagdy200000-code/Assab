@@ -82,6 +82,17 @@
                     "quantity_accountable": { "type": "number", "minimum": 0 }
                 }
             },
+            "StoreWasteDamageReportBody": {
+                "type": "object",
+                "description": "Create draft report. Optionally include items array to add multiple product lines in one request (like daily inventory createSession).",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": { "$ref": "#/components/schemas/StoreWasteDamageReportItemBody" },
+                        "description": "Optional. Multiple report items; each has same fields as single add-item (item_id, problem_type, cause_of_damage, quantity, reason, justification_text, photo_path, responsible_employees, etc.)."
+                    }
+                }
+            },
             "StoreWasteDamageReportItemBody": {
                 "type": "object",
                 "description": "Add a product line to a waste/damage report. Use multipart/form-data when uploading photo.",
@@ -328,13 +339,19 @@
         },
         "/inventory/waste-damage/reports": {
             "post": {
-                "summary": "Create draft report",
-                "description": "Create a new waste & damage report in draft status. No request body required.",
+                "summary": "Create draft report (with optional items)",
+                "description": "Create a new waste & damage report in draft status. Optionally send an `items` array to add multiple product lines in one request (like daily inventory). Each item has: item_id, problem_type, cause_of_damage (required if damage), quantity, reason, justification_text, photo_path, responsible_employees, etc. Submit later via POST reports/{id}/submit.",
                 "operationId": "inventory.waste-damage.reports.store",
                 "tags": ["Waste & Damage - Reports"],
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": { "schema": { "$ref": "#/components/schemas/StoreWasteDamageReportBody" } }
+                    }
+                },
                 "responses": {
                     "201": {
-                        "description": "Report created",
+                        "description": "Report created (with items if provided)",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -348,6 +365,7 @@
                             }
                         }
                     },
+                    "422": { "description": "Validation error (e.g. items.*.cause_of_damage required when damage)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
                     "400": { "description": "Branch manager not assigned to branch" }
                 }
             },
