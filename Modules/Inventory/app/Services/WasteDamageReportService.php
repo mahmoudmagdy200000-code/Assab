@@ -1,0 +1,277 @@
+<?php
+
+namespace Modules\Inventory\Services;
+
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use Modules\Inventory\Enums\CauseOfDamage;
+use Modules\Inventory\Enums\ProblemType;
+use Modules\Inventory\Enums\WasteDamageReportStatus;
+use Modules\Inventory\Models\WasteDamageReport;
+use Modules\Inventory\Models\WasteDamageReportItem;
+use Modules\Inventory\Models\WasteDamageReportItemEmployee;
+use Modules\Inventory\Repositories\WasteDamageReportItemRepository;
+use Modules\Inventory\Repositories\WasteDamageReportRepository;
+use Modules\Purchase\Models\BranchItem;
+use Modules\Purchase\Models\Item;
+
+class WasteDamageReportService
+{
+    private const PHOTO_REQUIRED_THRESHOLD_SAR = 20;
+
+    private const REPORT_NOT_EDITABLE_MESSAGE = 'Report not found or not editable.';
+
+    public function __construct(
+        private readonly WasteDamageReportRepository $reportRepository,
+        private readonly WasteDamageReportItemRepository $itemRepository
+    ) {}
+
+    /**
+     * List reports for branch (paginated).
+     */
+    public function listReportsByBranch(string $branchId, int $perPage = 15): LengthAwarePaginator
+    {
+        return $this->reportRepository->getPaginated(['branch_id' => $branchId], $perPage);
+    }
+
+    /**
+     * Find report by id and branch (for show).
+     *
+     * @param array<int, string> $relations
+     */
+    public function findReportForBranch(string $reportId, string $branchId, array $relations = []): ?WasteDamageReport
+    {
+        return $this->reportRepository->findByBranch($reportId, $branchId, $relations);
+    }
+
+    /**
+     * Create a draft waste & damage report.
+     */
+    public function createReport(string $branchId, string $createdBy): WasteDamageReport
+    {
+        return $this->reportRepository->create([
+            'branch_id' => $branchId,
+            'created_by' => $createdBy,
+            'status' => WasteDamageReportStatus::DRAFT,
+        ]);
+    }
+
+    /**
+     * Add a product line to the report.
+     *
+     * @param array{item_id: string, purchase_order_item_id?: string|null, problem_type: string, cause_of_damage?: string|null, quantity: float, reason: string, unit?: string|null, justification_text?: string|null, photo_path?: string|null, price_per_unit?: float|null, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>} $data
+     */
+    public function addItem(string $reportId, string $branchId, array $data): WasteDamageReportItem
+    {
+        $report = $this->reportRepository->findByBranch($reportId, $branchId);
+        if (!$report || !$report->status->isEditable()) {
+            throw ValidationException::withMessages(['report' => [self::REPORT_NOT_EDITABLE_MESSAGE]]);
+        }
+
+        $pricePerUnit = $data['price_per_unit'] ?? $this->resolvePricePerUnit($data['item_id'], $branchId);
+        $unit = $data['unit'] ?? $this->resolveUnit($data['item_id']);
+        $quantity = (float) $data['quantity'];
+        $totalValue = -1 * $quantity * (float) $pricePerUnit;
+
+        $this->validateItemData($data, $quantity, $totalValue);
+
+        return DB::transaction(function () use ($report, $branchId, $data, $pricePerUnit, $unit, $quantity, $totalValue) {
+            $item = $this->itemRepository->create([
+                'waste_damage_report_id' => $report->id,
+                'branch_id' => $branchId,
+                'item_id' => $data['item_id'],
+                'purchase_order_item_id' => $data['purchase_order_item_id'] ?? null,
+                'problem_type' => $data['problem_type'],
+                'cause_of_damage' => $data['cause_of_damage'] ?? null,
+                'quantity' => $quantity,
+                'reason' => $data['reason'],
+                'unit' => $unit,
+                'total_value' => $totalValue,
+                'justification_text' => $data['justification_text'] ?? null,
+                'photo_path' => $data['photo_path'] ?? null,
+                'price_per_unit' => $pricePerUnit,
+            ]);
+
+            $this->syncResponsibleEmployees($item, $data['responsible_employees'] ?? []);
+
+            return $item->load('responsibleEmployees.cashier.branch');
+        });
+    }
+
+    /**
+     * Update a report item.
+     *
+     * @param array{problem_type?: string, cause_of_damage?: string|null, quantity?: float, reason?: string, justification_text?: string|null, photo_path?: string|null, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>} $data
+     */
+    public function updateItem(string $reportId, string $itemId, string $branchId, array $data): WasteDamageReportItem
+    {
+        $report = $this->reportRepository->findByBranch($reportId, $branchId);
+        if (!$report || !$report->status->isEditable()) {
+            throw ValidationException::withMessages(['report' => [self::REPORT_NOT_EDITABLE_MESSAGE]]);
+        }
+
+        $item = $this->itemRepository->findByIdAndReport($itemId, $reportId);
+        if (!$item) {
+            throw ValidationException::withMessages(['item' => ['Report item not found.']]);
+        }
+
+        $pricePerUnit = (float) ($item->price_per_unit ?? 0);
+        $quantity = isset($data['quantity']) ? (float) $data['quantity'] : (float) $item->quantity;
+        $totalValue = -1 * $quantity * $pricePerUnit;
+
+        $payload = array_merge([
+            'problem_type' => $item->problem_type->value,
+            'cause_of_damage' => $item->cause_of_damage?->value,
+            'quantity' => $item->quantity,
+            'reason' => $item->reason->value,
+            'responsible_employees' => $item->responsibleEmployees->map(fn ($e) => [
+                'cashier_id' => $e->cashier_id,
+                'quantity_accountable' => (float) $e->quantity_accountable,
+            ])->toArray(),
+        ], $data);
+
+        $this->validateItemData($payload, $quantity, $totalValue);
+
+        return DB::transaction(function () use ($item, $payload, $quantity, $totalValue) {
+            $this->itemRepository->update($item, [
+                'problem_type' => $payload['problem_type'],
+                'cause_of_damage' => $payload['cause_of_damage'] ?? null,
+                'quantity' => $quantity,
+                'reason' => $payload['reason'],
+                'total_value' => $totalValue,
+                'justification_text' => $payload['justification_text'] ?? null,
+                'photo_path' => $payload['photo_path'] ?? $item->photo_path,
+            ]);
+
+            $this->syncResponsibleEmployees($item, $payload['responsible_employees'] ?? []);
+
+            return $item->fresh(['responsibleEmployees.cashier.branch']);
+        });
+    }
+
+    /**
+     * Remove a report item.
+     */
+    public function deleteItem(string $reportId, string $itemId, string $branchId): void
+    {
+        $report = $this->reportRepository->findByBranch($reportId, $branchId);
+        if (!$report || !$report->status->isEditable()) {
+            throw ValidationException::withMessages(['report' => [self::REPORT_NOT_EDITABLE_MESSAGE]]);
+        }
+
+        $item = $this->itemRepository->findByIdAndReport($itemId, $reportId);
+        if (!$item) {
+            throw ValidationException::withMessages(['item' => ['Report item not found.']]);
+        }
+
+        $item->responsibleEmployees()->delete();
+        $this->itemRepository->delete($item);
+    }
+
+    /**
+     * Submit the report (validate all items then set status to submitted).
+     */
+    public function submitReport(string $reportId, string $branchId): WasteDamageReport
+    {
+        $report = $this->reportRepository->findByBranch($reportId, $branchId, ['items']);
+        if (!$report) {
+            throw ValidationException::withMessages(['report' => ['Report not found.']]);
+        }
+
+        if (!$report->status->isEditable()) {
+            throw ValidationException::withMessages(['report' => ['Report is already submitted.']]);
+        }
+
+        $items = $report->items;
+        if ($items->isEmpty()) {
+            throw ValidationException::withMessages(['report' => ['Report must have at least one item.']]);
+        }
+
+        foreach ($items as $reportItem) {
+            if ($reportItem->requiresPhoto() && empty($reportItem->photo_path)) {
+                throw ValidationException::withMessages([
+                    'items' => ['Explanatory photo is required for damage items with value greater than 20 SAR.'],
+                ]);
+            }
+        }
+
+        $this->reportRepository->update($report, [
+            'status' => WasteDamageReportStatus::SUBMITTED,
+            'submitted_at' => now(),
+        ]);
+
+        return $report->fresh();
+    }
+
+    private function resolvePricePerUnit(string $itemId, string $branchId): float
+    {
+        $branchItem = BranchItem::where('branch_id', $branchId)
+            ->where('item_id', $itemId)
+            ->first();
+
+        return $branchItem ? (float) $branchItem->price : 0;
+    }
+
+    private function resolveUnit(string $itemId): string
+    {
+        $item = Item::find($itemId);
+
+        return $item?->unit ?? 'unit';
+    }
+
+    /**
+     * @param array{problem_type: string, cause_of_damage?: string|null, quantity: float, total_value: float, photo_path?: string|null, responsible_employees?: array} $data
+     */
+    private function validateItemData(array $data, float $quantity, float $totalValue): void
+    {
+        $problemType = $data['problem_type'] instanceof ProblemType
+            ? $data['problem_type']
+            : ProblemType::tryFrom($data['problem_type']);
+
+        if (!$problemType) {
+            throw ValidationException::withMessages(['problem_type' => ['Invalid problem type.']]);
+        }
+
+        if ($problemType->isDamage()) {
+            $cause = $data['cause_of_damage'] ?? null;
+            $causeEnum = is_string($cause) ? CauseOfDamage::tryFrom($cause) : $cause;
+            if ($causeEnum && $causeEnum->requiresResponsibleEmployees()) {
+                $employees = $data['responsible_employees'] ?? [];
+                if (empty($employees)) {
+                    throw ValidationException::withMessages([
+                        'responsible_employees' => ['At least one responsible employee is required.'],
+                    ]);
+                }
+                $sum = array_sum(array_column($employees, 'quantity_accountable'));
+                if (abs($sum - $quantity) > 0.001) {
+                    throw ValidationException::withMessages([
+                        'responsible_employees' => ['Sum of accountable quantities must equal the item quantity.'],
+                    ]);
+                }
+            }
+
+            if (abs($totalValue) > self::PHOTO_REQUIRED_THRESHOLD_SAR && empty($data['photo_path'] ?? null)) {
+                throw ValidationException::withMessages([
+                    'photo' => ['Explanatory photo is required for damage value greater than 20 SAR.'],
+                ]);
+            }
+        }
+    }
+
+    /**
+     * @param array<int, array{cashier_id: string, quantity_accountable: float}> $employees
+     */
+    private function syncResponsibleEmployees(WasteDamageReportItem $item, array $employees): void
+    {
+        $item->responsibleEmployees()->delete();
+
+        foreach ($employees as $row) {
+            WasteDamageReportItemEmployee::create([
+                'waste_damage_report_item_id' => $item->id,
+                'cashier_id' => $row['cashier_id'],
+                'quantity_accountable' => (float) $row['quantity_accountable'],
+            ]);
+        }
+    }
+}

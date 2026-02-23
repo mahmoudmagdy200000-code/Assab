@@ -5,6 +5,7 @@ use Modules\Inventory\Http\Controllers\InventoryController;
 use Modules\Inventory\Http\Controllers\DailyQuickInventoryController;
 use Modules\Inventory\Http\Controllers\DailyInventoryScheduleController;
 use Modules\Inventory\Http\Controllers\MonthlyInventoryController;
+use Modules\Inventory\Http\Controllers\WasteDamageReportController;
 
 Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
     Route::apiResource('inventories', InventoryController::class)->names('inventory');
@@ -82,5 +83,23 @@ Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
         Route::post('/sessions/{id}/items', [DailyQuickInventoryController::class, 'addItem'])->name('inventory.daily-quick.sessions.items.create');
         Route::put('/sessions/{sessionId}/items/{itemId}', [DailyQuickInventoryController::class, 'updateItem'])->name('inventory.daily-quick.sessions.items.update');
         Route::delete('/sessions/{sessionId}/items/{itemId}', [DailyQuickInventoryController::class, 'removeItem'])->name('inventory.daily-quick.sessions.items.delete');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Waste & Damage Inventory Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('inventory/waste-damage')->group(function () {
+        Route::get('/assignment-info', [WasteDamageReportController::class, 'assignmentInfo'])->name('inventory.waste-damage.assignment-info');
+        Route::get('/products-from-closed-orders', [WasteDamageReportController::class, 'productsFromClosedOrders'])->name('inventory.waste-damage.products');
+        Route::get('/employees', [WasteDamageReportController::class, 'employees'])->name('inventory.waste-damage.employees');
+        Route::post('/reports', [WasteDamageReportController::class, 'store'])->name('inventory.waste-damage.reports.store');
+        Route::get('/reports', [WasteDamageReportController::class, 'index'])->name('inventory.waste-damage.reports.index');
+        Route::get('/reports/{id}', [WasteDamageReportController::class, 'show'])->name('inventory.waste-damage.reports.show');
+        Route::post('/reports/{id}/items', [WasteDamageReportController::class, 'storeItem'])->name('inventory.waste-damage.reports.items.store');
+        Route::put('/reports/{id}/items/{itemId}', [WasteDamageReportController::class, 'updateItem'])->name('inventory.waste-damage.reports.items.update');
+        Route::delete('/reports/{id}/items/{itemId}', [WasteDamageReportController::class, 'deleteItem'])->name('inventory.waste-damage.reports.items.delete');
+        Route::post('/reports/{id}/submit', [WasteDamageReportController::class, 'submit'])->name('inventory.waste-damage.reports.submit');
     });
 });
