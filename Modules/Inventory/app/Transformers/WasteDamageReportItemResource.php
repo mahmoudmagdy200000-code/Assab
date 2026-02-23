@@ -55,8 +55,8 @@ class WasteDamageReportItemResource extends JsonResource
                 'name' => $this->item->name,
                 'unit' => $this->item->unit ?? null,
             ]),
-            'created_at' => $this->created_at->format('Y-m-d H:i:s'),
-            'updated_at' => $this->updated_at->format('Y-m-d H:i:s'),
+            'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
+            'updated_at' => $this->updated_at?->format('Y-m-d H:i:s'),
         ];
     }
 }
