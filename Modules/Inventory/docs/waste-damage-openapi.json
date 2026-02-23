@@ -1,0 +1,597 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "Waste & Damage Inventory API",
+        "description": "API documentation for Waste & Damage Inventory endpoints (Inventory module). Products are sourced from closed orders (Purchase module). All endpoints require Bearer token (Laravel Sanctum). Base path: /api/v1.",
+        "version": "1.0.0"
+    },
+    "servers": [
+        {
+            "url": "https://your-api-host.com/api/v1",
+            "description": "API base (replace with your host)"
+        },
+        {
+            "url": "/api/v1",
+            "description": "Relative path"
+        }
+    ],
+    "security": [{ "bearerAuth": [] }],
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": "Laravel Sanctum token (Branch Manager)"
+            }
+        },
+        "schemas": {
+            "AssignmentInfo": {
+                "type": "object",
+                "description": "Assignment context for collapsible UI section (branch metadata)",
+                "properties": {
+                    "branch_id": { "type": "string", "format": "uuid" },
+                    "branch_name": { "type": "string" },
+                    "branch_location": { "type": "string", "nullable": true },
+                    "creator_name": { "type": "string", "nullable": true }
+                }
+            },
+            "ProductFromClosedOrder": {
+                "type": "object",
+                "description": "Product from closed orders with Product Information (read-only fields)",
+                "properties": {
+                    "id": { "type": "string", "format": "uuid", "description": "purchase_order_item_id" },
+                    "purchase_order_item_id": { "type": "string", "format": "uuid" },
+                    "purchase_order_id": { "type": "string", "format": "uuid" },
+                    "order_number": { "type": "string", "nullable": true },
+                    "item_id": { "type": "string", "format": "uuid" },
+                    "item_name": { "type": "string" },
+                    "item_code": { "type": "string", "nullable": true },
+                    "item_logo": { "type": "string", "nullable": true },
+                    "item_unit": { "type": "string" },
+                    "category": { "type": "string", "nullable": true },
+                    "subcategory": { "type": "string", "nullable": true },
+                    "quantity_ordered": { "type": "number" },
+                    "quantity_received": { "type": "number", "nullable": true },
+                    "unit_price": { "type": "number" },
+                    "closed_at": { "type": "string", "format": "date-time", "nullable": true },
+                    "available_in_stock": { "type": "number", "description": "From BranchInventory (available - reserved)" },
+                    "price_per_unit": { "type": "number", "description": "From BranchItem or order item" },
+                    "expiration_date": { "type": "string", "description": "e.g. June 19, 2025", "nullable": true },
+                    "storage_location": { "type": "string", "description": "Branch name or location", "nullable": true }
+                }
+            },
+            "WasteDamageEmployee": {
+                "type": "object",
+                "description": "Branch employee (cashier) for responsible-employee assignment",
+                "properties": {
+                    "id": { "type": "string", "format": "uuid" },
+                    "name": { "type": "string" },
+                    "email": { "type": "string", "nullable": true },
+                    "phone": { "type": "string", "nullable": true },
+                    "image": { "type": "string", "nullable": true },
+                    "branch_id": { "type": "string", "format": "uuid" },
+                    "branch_name": { "type": "string", "nullable": true }
+                }
+            },
+            "ResponsibleEmployeeEntry": {
+                "type": "object",
+                "required": ["cashier_id", "quantity_accountable"],
+                "properties": {
+                    "cashier_id": { "type": "string", "format": "uuid" },
+                    "quantity_accountable": { "type": "number", "minimum": 0 }
+                }
+            },
+            "StoreWasteDamageReportItemBody": {
+                "type": "object",
+                "description": "Add a product line to a waste/damage report. Use multipart/form-data when uploading photo.",
+                "required": ["item_id", "problem_type", "quantity", "reason"],
+                "properties": {
+                    "item_id": { "type": "string", "format": "uuid", "description": "items.id" },
+                    "purchase_order_item_id": { "type": "string", "format": "uuid", "nullable": true },
+                    "problem_type": { "type": "string", "enum": ["waste", "damage"] },
+                    "cause_of_damage": {
+                        "type": "string",
+                        "enum": ["i_was_responsible", "me_and_or_other_employees", "other_factor", "mixed_factors"],
+                        "description": "Required when problem_type is damage"
+                    },
+                    "quantity": { "type": "number", "minimum": 0.001 },
+                    "reason": { "type": "string", "enum": ["expired", "damaged", "contaminated", "other"] },
+                    "justification_text": { "type": "string", "maxLength": 2000, "nullable": true },
+                    "photo": { "type": "string", "format": "binary", "description": "Image file (multipart). Required when damage and total value > 20 SAR." },
+                    "photo_path": { "type": "string", "maxLength": 500, "nullable": true, "description": "Alternative: pre-uploaded path" },
+                    "price_per_unit": { "type": "number", "minimum": 0, "nullable": true },
+                    "unit": { "type": "string", "maxLength": 20, "nullable": true },
+                    "responsible_employees": {
+                        "type": "array",
+                        "items": { "$ref": "#/components/schemas/ResponsibleEmployeeEntry" },
+                        "description": "Required when cause_of_damage is i_was_responsible or me_and_or_other_employees. Sum of quantity_accountable must equal quantity."
+                    }
+                }
+            },
+            "UpdateWasteDamageReportItemBody": {
+                "type": "object",
+                "description": "Update a report item. Use multipart/form-data when uploading photo.",
+                "properties": {
+                    "problem_type": { "type": "string", "enum": ["waste", "damage"] },
+                    "cause_of_damage": {
+                        "type": "string",
+                        "enum": ["i_was_responsible", "me_and_or_other_employees", "other_factor", "mixed_factors"],
+                        "nullable": true
+                    },
+                    "quantity": { "type": "number", "minimum": 0.001 },
+                    "reason": { "type": "string", "enum": ["expired", "damaged", "contaminated", "other"] },
+                    "justification_text": { "type": "string", "maxLength": 2000, "nullable": true },
+                    "photo": { "type": "string", "format": "binary" },
+                    "photo_path": { "type": "string", "maxLength": 500, "nullable": true },
+                    "responsible_employees": {
+                        "type": "array",
+                        "items": { "$ref": "#/components/schemas/ResponsibleEmployeeEntry" }
+                    }
+                }
+            },
+            "WasteDamageReportItemEmployee": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "format": "uuid" },
+                    "waste_damage_report_item_id": { "type": "string", "format": "uuid" },
+                    "cashier_id": { "type": "string", "format": "uuid" },
+                    "quantity_accountable": { "type": "number" },
+                    "employee_name": { "type": "string", "nullable": true },
+                    "branch_name": { "type": "string", "nullable": true }
+                }
+            },
+            "WasteDamageReportItem": {
+                "type": "object",
+                "description": "Single product line in a report (summary card)",
+                "properties": {
+                    "id": { "type": "string", "format": "uuid" },
+                    "waste_damage_report_id": { "type": "string", "format": "uuid" },
+                    "branch_id": { "type": "string", "format": "uuid" },
+                    "item_id": { "type": "string", "format": "uuid" },
+                    "purchase_order_item_id": { "type": "string", "format": "uuid", "nullable": true },
+                    "product_name": { "type": "string", "nullable": true },
+                    "problem_type": { "type": "string", "enum": ["waste", "damage"] },
+                    "problem_type_label": { "type": "string" },
+                    "cause_of_damage": { "type": "string", "enum": ["i_was_responsible", "me_and_or_other_employees", "other_factor", "mixed_factors"], "nullable": true },
+                    "cause_of_damage_label": { "type": "string", "nullable": true },
+                    "quantity": { "type": "number" },
+                    "reason": { "type": "string" },
+                    "reason_label": { "type": "string" },
+                    "unit": { "type": "string", "nullable": true },
+                    "total_value": { "type": "number", "description": "Negative SAR (auto-calculated)" },
+                    "price_per_unit": { "type": "number", "nullable": true },
+                    "justification_text": { "type": "string", "nullable": true },
+                    "photo_path": { "type": "string", "nullable": true },
+                    "photo_url": { "type": "string", "format": "uri", "nullable": true },
+                    "responsible_employees": {
+                        "type": "array",
+                        "items": { "$ref": "#/components/schemas/WasteDamageReportItemEmployee" }
+                    },
+                    "item": {
+                        "type": "object",
+                        "nullable": true,
+                        "properties": {
+                            "id": { "type": "string", "format": "uuid" },
+                            "name": { "type": "string" },
+                            "unit": { "type": "string", "nullable": true }
+                        }
+                    },
+                    "created_at": { "type": "string", "format": "date-time" },
+                    "updated_at": { "type": "string", "format": "date-time" }
+                }
+            },
+            "WasteDamageReport": {
+                "type": "object",
+                "description": "Waste & Damage report (header with optional items)",
+                "properties": {
+                    "id": { "type": "string", "format": "uuid" },
+                    "branch_id": { "type": "string", "format": "uuid" },
+                    "branch": {
+                        "type": "object",
+                        "nullable": true,
+                        "properties": {
+                            "id": { "type": "string", "format": "uuid" },
+                            "name": { "type": "string" },
+                            "location": { "type": "string", "nullable": true }
+                        }
+                    },
+                    "created_by": { "type": "string", "format": "uuid" },
+                    "creator": {
+                        "type": "object",
+                        "nullable": true,
+                        "properties": {
+                            "id": { "type": "string", "format": "uuid" },
+                            "name": { "type": "string", "nullable": true }
+                        }
+                    },
+                    "status": { "type": "string", "enum": ["draft", "submitted"] },
+                    "status_label": { "type": "string" },
+                    "submitted_at": { "type": "string", "format": "date-time", "nullable": true },
+                    "items": {
+                        "type": "array",
+                        "items": { "$ref": "#/components/schemas/WasteDamageReportItem" }
+                    },
+                    "items_count": { "type": "integer", "description": "Present when listing reports" },
+                    "created_at": { "type": "string", "format": "date-time" },
+                    "updated_at": { "type": "string", "format": "date-time" }
+                }
+            },
+            "SuccessResponse": {
+                "type": "object",
+                "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string" },
+                    "data": {}
+                }
+            },
+            "ErrorResponse": {
+                "type": "object",
+                "properties": {
+                    "success": { "type": "boolean", "example": false },
+                    "message": { "type": "string" },
+                    "errors": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } } }
+                }
+            }
+        }
+    },
+    "paths": {
+        "/inventory/waste-damage/assignment-info": {
+            "get": {
+                "summary": "Assignment information",
+                "description": "Assignment context for the collapsible \"Assignment Information\" section. Returns branch metadata (branch_id, branch_name, branch_location, creator_name) for the authenticated Branch Manager.",
+                "operationId": "inventory.waste-damage.assignment-info",
+                "tags": ["Waste & Damage - Context"],
+                "responses": {
+                    "200": {
+                        "description": "Assignment info",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "success": { "type": "boolean" },
+                                        "message": { "type": "string" },
+                                        "data": { "$ref": "#/components/schemas/AssignmentInfo" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": { "description": "Branch manager not assigned to any branch" }
+                }
+            }
+        },
+        "/inventory/waste-damage/products-from-closed-orders": {
+            "get": {
+                "summary": "Products from closed orders",
+                "description": "List products from closed purchase orders for the branch, with Product Information (available_in_stock, price_per_unit, expiration_date, storage_location). Used for \"Search For Products And Add\" and product selection. Optional filters: search, category, subcategory, per_page.",
+                "operationId": "inventory.waste-damage.products",
+                "tags": ["Waste & Damage - Products"],
+                "parameters": [
+                    { "name": "search", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Search by item name or code" },
+                    { "name": "category", "in": "query", "required": false, "schema": { "type": "string" } },
+                    { "name": "subcategory", "in": "query", "required": false, "schema": { "type": "string" } },
+                    { "name": "per_page", "in": "query", "required": false, "schema": { "type": "integer", "default": 50 } }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Products with Product Information",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "success": { "type": "boolean" },
+                                        "message": { "type": "string" },
+                                        "data": {
+                                            "type": "array",
+                                            "items": { "$ref": "#/components/schemas/ProductFromClosedOrder" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": { "description": "Branch manager not assigned to branch" }
+                }
+            }
+        },
+        "/inventory/waste-damage/employees": {
+            "get": {
+                "summary": "Employees (branch cashiers)",
+                "description": "Branch employees (cashiers) for \"Responsible Employees\" assignment. Response includes id, name, email, phone, image, branch_id, branch_name (Store Branch Name in UI).",
+                "operationId": "inventory.waste-damage.employees",
+                "tags": ["Waste & Damage - Context"],
+                "responses": {
+                    "200": {
+                        "description": "Employees list",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "success": { "type": "boolean" },
+                                        "message": { "type": "string" },
+                                        "data": {
+                                            "type": "array",
+                                            "items": { "$ref": "#/components/schemas/WasteDamageEmployee" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": { "description": "Branch manager not assigned to branch" }
+                }
+            }
+        },
+        "/inventory/waste-damage/reports": {
+            "post": {
+                "summary": "Create draft report",
+                "description": "Create a new waste & damage report in draft status. No request body required.",
+                "operationId": "inventory.waste-damage.reports.store",
+                "tags": ["Waste & Damage - Reports"],
+                "responses": {
+                    "201": {
+                        "description": "Report created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "success": { "type": "boolean" },
+                                        "message": { "type": "string" },
+                                        "data": { "$ref": "#/components/schemas/WasteDamageReport" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": { "description": "Branch manager not assigned to branch" }
+                }
+            },
+            "get": {
+                "summary": "List reports",
+                "description": "List waste & damage reports for the branch (paginated).",
+                "operationId": "inventory.waste-damage.reports.index",
+                "tags": ["Waste & Damage - Reports"],
+                "parameters": [
+                    { "name": "per_page", "in": "query", "required": false, "schema": { "type": "integer", "default": 15 } }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Paginated reports",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "success": { "type": "boolean" },
+                                        "message": { "type": "string" },
+                                        "data": {
+                                            "type": "array",
+                                            "items": { "$ref": "#/components/schemas/WasteDamageReport" }
+                                        },
+                                        "meta": {
+                                            "type": "object",
+                                            "properties": {
+                                                "current_page": { "type": "integer" },
+                                                "last_page": { "type": "integer" },
+                                                "per_page": { "type": "integer" },
+                                                "total": { "type": "integer" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": { "description": "Branch manager not assigned to branch" }
+                }
+            }
+        },
+        "/inventory/waste-damage/reports/{id}": {
+            "get": {
+                "summary": "Get report (summary / review)",
+                "description": "Report detail with items and responsible_employees. Used for Summary/Review screen: product name & brand, problem type, responsibility label, quantity, reason, total value, responsible employees breakdown, justification, photo_url.",
+                "operationId": "inventory.waste-damage.reports.show",
+                "tags": ["Waste & Damage - Reports"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Report with items",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "success": { "type": "boolean" },
+                                        "message": { "type": "string" },
+                                        "data": { "$ref": "#/components/schemas/WasteDamageReport" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": { "description": "Branch manager not assigned to branch" },
+                    "404": { "description": "Report not found" }
+                }
+            }
+        },
+        "/inventory/waste-damage/reports/{id}/items": {
+            "post": {
+                "summary": "Add product line",
+                "description": "Add a product (report item) to the report. Send JSON or multipart/form-data when uploading photo. Validations: cause_of_damage required when problem_type is damage; responsible_employees required when cause is i_was_responsible or me_and_or_other_employees (sum of quantity_accountable must equal quantity); photo required when damage and total value > 20 SAR.",
+                "operationId": "inventory.waste-damage.reports.items.store",
+                "tags": ["Waste & Damage - Report Items"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" }, "description": "Report ID" }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": { "schema": { "$ref": "#/components/schemas/StoreWasteDamageReportItemBody" } },
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["item_id", "problem_type", "quantity", "reason"],
+                                "properties": {
+                                    "item_id": { "type": "string", "format": "uuid" },
+                                    "purchase_order_item_id": { "type": "string", "format": "uuid" },
+                                    "problem_type": { "type": "string", "enum": ["waste", "damage"] },
+                                    "cause_of_damage": { "type": "string", "enum": ["i_was_responsible", "me_and_or_other_employees", "other_factor", "mixed_factors"] },
+                                    "quantity": { "type": "number", "minimum": 0.001 },
+                                    "reason": { "type": "string", "enum": ["expired", "damaged", "contaminated", "other"] },
+                                    "justification_text": { "type": "string", "maxLength": 2000 },
+                                    "photo": { "type": "string", "format": "binary", "description": "Image file" },
+                                    "price_per_unit": { "type": "number" },
+                                    "unit": { "type": "string" },
+                                    "responsible_employees": {
+                                        "type": "array",
+                                        "items": { "$ref": "#/components/schemas/ResponsibleEmployeeEntry" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Item added",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "success": { "type": "boolean" },
+                                        "message": { "type": "string" },
+                                        "data": { "$ref": "#/components/schemas/WasteDamageReportItem" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": { "description": "Validation error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+                    "400": { "description": "Report not found or not editable" }
+                }
+            }
+        },
+        "/inventory/waste-damage/reports/{id}/items/{itemId}": {
+            "put": {
+                "summary": "Update product line",
+                "description": "Update a report item (edit product entry). Allowed only when report status is draft. Use multipart/form-data when uploading photo.",
+                "operationId": "inventory.waste-damage.reports.items.update",
+                "tags": ["Waste & Damage - Report Items"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" }, "description": "Report ID" },
+                    { "name": "itemId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" }, "description": "Report item ID" }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": { "schema": { "$ref": "#/components/schemas/UpdateWasteDamageReportItemBody" } },
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "problem_type": { "type": "string", "enum": ["waste", "damage"] },
+                                    "cause_of_damage": { "type": "string", "enum": ["i_was_responsible", "me_and_or_other_employees", "other_factor", "mixed_factors"] },
+                                    "quantity": { "type": "number", "minimum": 0.001 },
+                                    "reason": { "type": "string", "enum": ["expired", "damaged", "contaminated", "other"] },
+                                    "justification_text": { "type": "string", "maxLength": 2000 },
+                                    "photo": { "type": "string", "format": "binary" },
+                                    "responsible_employees": {
+                                        "type": "array",
+                                        "items": { "$ref": "#/components/schemas/ResponsibleEmployeeEntry" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Item updated",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "success": { "type": "boolean" },
+                                        "message": { "type": "string" },
+                                        "data": { "$ref": "#/components/schemas/WasteDamageReportItem" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": { "description": "Validation error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+                    "400": { "description": "Report not found or not editable" }
+                }
+            },
+            "delete": {
+                "summary": "Remove product line",
+                "description": "Delete a report item (Remove item from list / Delete product entry). Allowed only when report status is draft.",
+                "operationId": "inventory.waste-damage.reports.items.delete",
+                "tags": ["Waste & Damage - Report Items"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" }, "description": "Report ID" },
+                    { "name": "itemId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" }, "description": "Report item ID" }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Item removed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "success": { "type": "boolean" },
+                                        "message": { "type": "string" },
+                                        "data": { "type": "object", "nullable": true }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": { "description": "Report not found or not editable" }
+                }
+            }
+        },
+        "/inventory/waste-damage/reports/{id}/submit": {
+            "post": {
+                "summary": "Submit report",
+                "description": "Submit / finalize the report. Validates: at least one item; for each item with problem_type damage and |total_value| > 20 SAR, photo is required. Sets status to submitted and submitted_at. No request body.",
+                "operationId": "inventory.waste-damage.reports.submit",
+                "tags": ["Waste & Damage - Reports"],
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Report submitted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "success": { "type": "boolean" },
+                                        "message": { "type": "string" },
+                                        "data": { "$ref": "#/components/schemas/WasteDamageReport" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation error (e.g. no items, or photo required for damage > 20 SAR)",
+                        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+                    },
+                    "400": { "description": "Report not found or already submitted" }
+                }
+            }
+        }
+    }
+}

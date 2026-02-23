@@ -22,15 +22,15 @@ return new class extends Migration
             $table->decimal('quantity_accountable', 12, 3);
             $table->timestamps();
 
-            $table->index('waste_damage_report_item_id');
-            $table->index('cashier_id');
+            $table->index('waste_damage_report_item_id', 'wd_rie_report_item_id_idx');
+            $table->index('cashier_id', 'wd_rie_cashier_id_idx');
 
-            $table->foreign('waste_damage_report_item_id')
+            $table->foreign('waste_damage_report_item_id', 'wd_rie_report_item_id_fk')
                 ->references('id')
                 ->on('waste_damage_report_items')
                 ->cascadeOnDelete();
 
-            $table->foreign('cashier_id')
+            $table->foreign('cashier_id', 'wd_rie_cashier_id_fk')
                 ->references('id')
                 ->on('cashiers')
                 ->cascadeOnDelete();
