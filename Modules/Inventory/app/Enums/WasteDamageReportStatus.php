@@ -15,6 +15,24 @@ enum WasteDamageReportStatus: string
         };
     }
 
+    /** Badge label for list UI: Draft | Pending */
+    public function listLabel(): string
+    {
+        return match ($this) {
+            self::DRAFT => 'Draft',
+            self::SUBMITTED => 'Pending',
+        };
+    }
+
+    /** Status text for detail "Report Submitted" card */
+    public function detailStatusLabel(): string
+    {
+        return match ($this) {
+            self::DRAFT => 'Draft',
+            self::SUBMITTED => 'Pending Review',
+        };
+    }
+
     public function isDraft(): bool
     {
         return $this === self::DRAFT;

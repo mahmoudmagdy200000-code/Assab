@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Cashier\Models\Cashier;
 use Modules\Inventory\Enums\WasteDamageReportStatus;
 
 class WasteDamageReport extends Model
@@ -26,6 +27,8 @@ class WasteDamageReport extends Model
     protected $fillable = [
         'branch_id',
         'created_by',
+        'assigned_to_type',
+        'assigned_to_id',
         'status',
         'submitted_at',
     ];
@@ -43,6 +46,11 @@ class WasteDamageReport extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(BranchManager::class, 'created_by');
+    }
+
+    public function assignedTo(): BelongsTo
+    {
+        return $this->belongsTo(Cashier::class, 'assigned_to_id');
     }
 
     public function items(): HasMany

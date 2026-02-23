@@ -36,6 +36,16 @@ class WasteDamageReportService
     }
 
     /**
+     * Counts by status for filter tabs (In Progress, Draft, Completed).
+     *
+     * @return array{in_progress: int, draft: int, completed: int}
+     */
+    public function getFilterCountsByBranch(string $branchId): array
+    {
+        return $this->reportRepository->getFilterCountsByBranch($branchId);
+    }
+
+    /**
      * Find report by id and branch (for show).
      *
      * @param array<int, string> $relations
@@ -47,12 +57,16 @@ class WasteDamageReportService
 
     /**
      * Create a draft waste & damage report.
+     *
+     * @param 'personal'|'staff' $assignedToType
      */
-    public function createReport(string $branchId, string $createdBy): WasteDamageReport
+    public function createReport(string $branchId, string $createdBy, string $assignedToType = 'personal', ?string $assignedToId = null): WasteDamageReport
     {
         return $this->reportRepository->create([
             'branch_id' => $branchId,
             'created_by' => $createdBy,
+            'assigned_to_type' => $assignedToType,
+            'assigned_to_id' => $assignedToType === 'staff' ? $assignedToId : null,
             'status' => WasteDamageReportStatus::DRAFT,
         ]);
     }
@@ -60,12 +74,13 @@ class WasteDamageReportService
     /**
      * Create a draft report and add multiple items in one go (single transaction).
      *
+     * @param 'personal'|'staff' $assignedToType
      * @param array<int, array{item_id: string, purchase_order_item_id?: string|null, problem_type: string, cause_of_damage?: string|null, quantity: float, reason: string, unit?: string|null, justification_text?: string|null, photo_path?: string|null, price_per_unit?: float|null, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>}> $items
      */
-    public function createReportWithItems(string $branchId, string $createdBy, array $items = []): WasteDamageReport
+    public function createReportWithItems(string $branchId, string $createdBy, string $assignedToType = 'personal', ?string $assignedToId = null, array $items = []): WasteDamageReport
     {
-        return DB::transaction(function () use ($branchId, $createdBy, $items) {
-            $report = $this->createReport($branchId, $createdBy);
+        return DB::transaction(function () use ($branchId, $createdBy, $assignedToType, $assignedToId, $items) {
+            $report = $this->createReport($branchId, $createdBy, $assignedToType, $assignedToId);
 
             foreach ($items as $itemData) {
                 $pricePerUnit = $itemData['price_per_unit'] ?? $this->resolvePricePerUnit($itemData['item_id'], $branchId);

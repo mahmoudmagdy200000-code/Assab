@@ -84,8 +84,20 @@
             },
             "StoreWasteDamageReportBody": {
                 "type": "object",
-                "description": "Create draft report. Optionally include items array to add multiple product lines in one request (like daily inventory createSession).",
+                "description": "Create draft report. Registration method: personal (Start Myself) or staff (Assign Staff). Optionally include items array to add multiple product lines in one request (like daily inventory createSession).",
+                "required": ["assigned_to_type"],
                 "properties": {
+                    "assigned_to_type": {
+                        "type": "string",
+                        "enum": ["personal", "staff"],
+                        "description": "Registration method: personal = Start Myself (branch manager); staff = Assign Staff (choose employee to register)"
+                    },
+                    "assigned_to_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Required when assigned_to_type is staff. cashiers.id of the assigned employee."
+                    },
                     "items": {
                         "type": "array",
                         "items": { "$ref": "#/components/schemas/StoreWasteDamageReportItemBody" },
@@ -211,6 +223,17 @@
                     "creator": {
                         "type": "object",
                         "nullable": true,
+                        "properties": {
+                            "id": { "type": "string", "format": "uuid" },
+                            "name": { "type": "string", "nullable": true }
+                        }
+                    },
+                    "assigned_to_type": { "type": "string", "enum": ["personal", "staff"], "description": "Registration method" },
+                    "assigned_to_id": { "type": "string", "format": "uuid", "nullable": true },
+                    "assigned_to": {
+                        "type": "object",
+                        "nullable": true,
+                        "description": "Present when assigned_to_type is staff and relation loaded",
                         "properties": {
                             "id": { "type": "string", "format": "uuid" },
                             "name": { "type": "string", "nullable": true }

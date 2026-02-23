@@ -16,27 +16,36 @@ class WasteDamageReportItemResource extends JsonResource
         $problemType = $item->problem_type;
         $causeOfDamage = $item->cause_of_damage;
 
+        $productName = $this->whenLoaded('item', fn () => $this->item?->name)
+            ?? $this->whenLoaded('purchaseOrderItem', fn () => $this->purchaseOrderItem?->item_name);
+        $requiresPhoto = $item->requiresPhoto();
+        $hasPhoto = !empty($this->photo_path);
+
         return [
             'id' => $this->id,
             'waste_damage_report_id' => $this->waste_damage_report_id,
             'branch_id' => $this->branch_id,
             'item_id' => $this->item_id,
             'purchase_order_item_id' => $this->purchase_order_item_id,
-            'product_name' => $this->whenLoaded('item', fn () => $this->item?->name)
-                ?? $this->whenLoaded('purchaseOrderItem', fn () => $this->purchaseOrderItem?->item_name),
+            'product_name' => $productName,
             'problem_type' => $problemType->value,
             'problem_type_label' => $problemType->label(),
             'cause_of_damage' => $causeOfDamage?->value,
             'cause_of_damage_label' => $causeOfDamage?->label(),
+            'responsibility' => $causeOfDamage?->label() ?? null,
             'quantity' => (float) $this->quantity,
+            'quantity_wasted' => (float) $this->quantity,
             'reason' => $this->reason->value,
             'reason_label' => $this->reason->label(),
             'unit' => $this->unit,
             'total_value' => (float) $this->total_value,
             'price_per_unit' => $this->price_per_unit ? (float) $this->price_per_unit : null,
             'justification_text' => $this->justification_text,
+            'justification_note' => $this->justification_text,
             'photo_path' => $this->photo_path,
             'photo_url' => $this->photo_path ? asset('storage/' . ltrim($this->photo_path, '/')) : null,
+            'explanatory_photo_url' => $this->photo_path ? asset('storage/' . ltrim($this->photo_path, '/')) : null,
+            'explanatory_photo_warning' => $requiresPhoto && !$hasPhoto ? 'Required For Damage >20 SAR' : null,
             'responsible_employees' => WasteDamageReportItemEmployeeResource::collection(
                 $this->whenLoaded('responsibleEmployees')
             ),

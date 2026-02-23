@@ -123,10 +123,14 @@ class WasteDamageReportController extends BaseController
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
+            $assignedToType = $request->validated('assigned_to_type', 'personal');
+            $assignedToId = $request->validated('assigned_to_id');
             $items = $request->validated('items', []);
             $report = !empty($items)
-                ? $this->reportService->createReportWithItems($manager->branch_id, $manager->id, $items)
-                : $this->reportService->createReport($manager->branch_id, $manager->id);
+                ? $this->reportService->createReportWithItems($manager->branch_id, $manager->id, $assignedToType, $assignedToId, $items)
+                : $this->reportService->createReport($manager->branch_id, $manager->id, $assignedToType, $assignedToId);
+
+            $report->loadMissing('assignedTo');
 
             return $this->createdResponse(
                 new WasteDamageReportResource($report),
@@ -157,6 +161,9 @@ class WasteDamageReportController extends BaseController
                 $perPage > 0 ? $perPage : 15
             );
             $reports->loadCount('items');
+            $reports->load(['items:id,waste_damage_report_id,problem_type']);
+
+            $filterCounts = $this->reportService->getFilterCountsByBranch($manager->branch_id);
 
             return $this->successResponse(
                 WasteDamageReportResource::collection($reports)->response()->getData(true)['data'],
@@ -167,6 +174,7 @@ class WasteDamageReportController extends BaseController
                     'last_page' => $reports->lastPage(),
                     'per_page' => $reports->perPage(),
                     'total' => $reports->total(),
+                    'filter_counts' => $filterCounts,
                 ]
             );
         } catch (\Exception $e) {
@@ -187,6 +195,8 @@ class WasteDamageReportController extends BaseController
             }
 
             $report = $this->reportService->findReportForBranch($id, $manager->branch_id, [
+                'createdBy',
+                'assignedTo',
                 'items.item',
                 'items.purchaseOrderItem',
                 'items.responsibleEmployees.cashier.branch',

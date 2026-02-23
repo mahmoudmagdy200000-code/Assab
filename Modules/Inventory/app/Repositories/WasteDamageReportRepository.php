@@ -61,4 +61,25 @@ class WasteDamageReportRepository
 
         return $query->paginate($perPage);
     }
+
+    /**
+     * Counts by status for filter tabs: In Progress (submitted), Draft, Completed.
+     *
+     * @return array{in_progress: int, draft: int, completed: int}
+     */
+    public function getFilterCountsByBranch(string $branchId): array
+    {
+        $counts = WasteDamageReport::query()
+            ->where('branch_id', $branchId)
+            ->selectRaw('status, count(*) as cnt')
+            ->groupBy('status')
+            ->pluck('cnt', 'status')
+            ->all();
+
+        return [
+            'in_progress' => (int) ($counts['submitted'] ?? 0),
+            'draft' => (int) ($counts['draft'] ?? 0),
+            'completed' => (int) ($counts['completed'] ?? 0),
+        ];
+    }
 }

@@ -21,6 +21,13 @@ class StoreWasteDamageReportRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'assigned_to_type' => ['required', 'string', Rule::in(['personal', 'staff'])],
+            'assigned_to_id' => [
+                'required_if:assigned_to_type,staff',
+                'nullable',
+                'uuid',
+                'exists:cashiers,id',
+            ],
             'items' => ['nullable', 'array'],
             'items.*.item_id' => ['required', 'uuid', 'exists:items,id'],
             'items.*.purchase_order_item_id' => ['nullable', 'uuid', 'exists:purchase_order_items,id'],
