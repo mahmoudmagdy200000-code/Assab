@@ -14,6 +14,7 @@ use Modules\Inventory\Services\InventorySessionService;
 use Modules\Inventory\Services\WasteDamageProductService;
 use Modules\Inventory\Services\WasteDamageReportService;
 use Modules\Inventory\Transformers\WasteDamageReportItemResource;
+use Modules\Inventory\Transformers\WasteDamageReportListResource;
 use Modules\Inventory\Transformers\WasteDamageReportResource;
 
 class WasteDamageReportController extends BaseController
@@ -166,7 +167,7 @@ class WasteDamageReportController extends BaseController
             $filterCounts = $this->reportService->getFilterCountsByBranch($manager->branch_id);
 
             return $this->successResponse(
-                WasteDamageReportResource::collection($reports)->response()->getData(true)['data'],
+                WasteDamageReportListResource::collection($reports)->response()->getData(true)['data'],
                 'Reports retrieved successfully',
                 200,
                 [
