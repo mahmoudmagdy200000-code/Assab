@@ -134,7 +134,7 @@ class WasteDamageReportController extends BaseController
             } else {
                 $report = $this->reportService->createReport($manager->branch_id, $manager->id, $assignedToType, $assignedToId);
                 $items = $this->storeItemPhotosForReport($request, $report->id, $items);
-                $this->reportService->addItemsToReport($report, $items);
+                $this->reportService->addItemsToReport($report, $items, $manager->id);
             }
 
             $report->loadMissing('assignedTo');
@@ -229,6 +229,7 @@ class WasteDamageReportController extends BaseController
                 'items.item',
                 'items.purchaseOrderItem',
                 'items.responsibleEmployees.cashier.branch',
+                'items.responsibleEmployees.branchManager',
             ]);
 
             if (!$report) {
@@ -262,7 +263,7 @@ class WasteDamageReportController extends BaseController
                 $data['photo_path'] = $photoPath;
             }
 
-            $item = $this->reportService->addItem($id, $manager->branch_id, $data);
+            $item = $this->reportService->addItem($id, $manager->branch_id, $data, $manager->id);
 
             return $this->createdResponse(
                 new WasteDamageReportItemResource($item),
@@ -293,7 +294,7 @@ class WasteDamageReportController extends BaseController
                 $data['photo_path'] = $photoPath;
             }
 
-            $item = $this->reportService->updateItem($id, $itemId, $manager->branch_id, $data);
+            $item = $this->reportService->updateItem($id, $itemId, $manager->branch_id, $data, $manager->id);
 
             return $this->successResponse(
                 new WasteDamageReportItemResource($item),
