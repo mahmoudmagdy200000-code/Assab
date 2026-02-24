@@ -20,12 +20,6 @@ class StoreWasteDamageReportItemRequest extends FormRequest
      */
     public function rules(): array
     {
-        $problemType = $this->input('problem_type');
-        $causeRequiresEmployees = in_array($problemType, [
-            CauseOfDamage::I_WAS_RESPONSIBLE->value,
-            CauseOfDamage::ME_AND_OR_OTHER_EMPLOYEES->value,
-        ], true);
-
         return [
             'item_id' => ['required', 'uuid', 'exists:items,id'],
             'purchase_order_item_id' => ['nullable', 'uuid', 'exists:purchase_order_items,id'],
@@ -44,11 +38,7 @@ class StoreWasteDamageReportItemRequest extends FormRequest
             'price_per_unit' => ['nullable', 'numeric', 'min:0'],
             'unit' => ['nullable', 'string', 'max:20'],
             'my_quantity_accountable' => ['nullable', 'numeric', 'min:0'],
-            'responsible_employees' => [
-                Rule::requiredIf($causeRequiresEmployees),
-                'nullable',
-                'array',
-            ],
+            'responsible_employees' => ['nullable', 'array'],
             'responsible_employees.*.cashier_id' => ['required', 'uuid', 'exists:cashiers,id'],
             'responsible_employees.*.quantity_accountable' => ['required', 'numeric', 'min:0'],
         ];

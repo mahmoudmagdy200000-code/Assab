@@ -20,12 +20,6 @@ class UpdateWasteDamageReportItemRequest extends FormRequest
      */
     public function rules(): array
     {
-        $problemType = $this->input('problem_type');
-        $causeRequiresEmployees = $problemType && in_array($problemType, [
-            CauseOfDamage::I_WAS_RESPONSIBLE->value,
-            CauseOfDamage::ME_AND_OR_OTHER_EMPLOYEES->value,
-        ], true);
-
         return [
             'problem_type' => ['sometimes', 'string', Rule::in(array_map(fn ($c) => $c->value, ProblemType::cases()))],
             'cause_of_damage' => [
@@ -39,11 +33,7 @@ class UpdateWasteDamageReportItemRequest extends FormRequest
             'photo' => ['nullable', 'image', 'max:5120'],
             'photo_path' => ['nullable', 'string', 'max:500'],
             'my_quantity_accountable' => ['nullable', 'numeric', 'min:0'],
-            'responsible_employees' => [
-                Rule::requiredIf($causeRequiresEmployees),
-                'nullable',
-                'array',
-            ],
+            'responsible_employees' => ['nullable', 'array'],
             'responsible_employees.*.cashier_id' => ['required', 'uuid', 'exists:cashiers,id'],
             'responsible_employees.*.quantity_accountable' => ['required', 'numeric', 'min:0'],
         ];
