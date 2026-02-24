@@ -19,6 +19,8 @@ return new class extends Migration
             $table->uuid('id')->primary();
             $table->uuid('branch_id');
             $table->uuid('created_by');
+            $table->string('assigned_to_type', 20)->default('personal');
+            $table->uuid('assigned_to_id')->nullable();
             $table->string('status', 20)->default('draft');
             $table->timestamp('submitted_at')->nullable();
             $table->timestamps();
@@ -26,6 +28,7 @@ return new class extends Migration
 
             $table->index('branch_id');
             $table->index('created_by');
+            $table->index('assigned_to_id');
             $table->index('status');
 
             $table->foreign('branch_id')
@@ -37,6 +40,11 @@ return new class extends Migration
                 ->references('id')
                 ->on('branch_managers')
                 ->cascadeOnDelete();
+
+            $table->foreign('assigned_to_id')
+                ->references('id')
+                ->on('cashiers')
+                ->nullOnDelete();
         });
     }
 

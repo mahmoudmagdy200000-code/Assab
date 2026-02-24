@@ -12,6 +12,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (Schema::hasColumn('waste_damage_reports', 'assigned_to_type')) {
+            return;
+        }
+
         Schema::table('waste_damage_reports', function (Blueprint $table) {
             $table->string('assigned_to_type', 20)->default('personal')->after('created_by');
             $table->uuid('assigned_to_id')->nullable()->after('assigned_to_type');
