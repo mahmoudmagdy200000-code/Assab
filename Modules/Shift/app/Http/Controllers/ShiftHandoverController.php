@@ -519,6 +519,68 @@ class ShiftHandoverController extends Controller
     }
 
     /**
+     * Get responsibility details for a shift (variance approval context).
+     * Returns: cashier name, branch name, variance amount they are responsible to approve/reject.
+     * Branch Manager: any shift in their branch. Cashier: own shift only.
+     */
+    public function getResponsibilityDetails(string $shift): JsonResponse
+    {
+        try {
+            $user = auth()->user();
+            $shiftModel = CashierShift::with(['cashier:id,name', 'shift:id,name,branch_id', 'shift.branch:id,name'])
+                ->findOrFail($shift);
+
+            if ($user instanceof Cashier) {
+                if ($shiftModel->cashier_id !== $user->id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Unauthorized: This shift does not belong to you',
+                    ], 403);
+                }
+            } elseif ($user instanceof \Modules\BranchManagers\Models\BranchManager) {
+                if ($shiftModel->shift->branch_id !== $user->branch_id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Unauthorized: This shift is not in your branch',
+                    ], 403);
+                }
+            } else {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized',
+                ], 403);
+            }
+
+            $variance = (float) ($shiftModel->variance ?? 0);
+            $varianceType = $variance > 0 ? 'Over' : ($variance < 0 ? 'Short' : 'None');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Responsibility details retrieved successfully',
+                'data' => [
+                    'cashier_name' => $shiftModel->cashier?->name ?? null,
+                    'branch_name' => $shiftModel->shift?->branch?->name ?? null,
+                    'variance_amount' => $variance,
+                    'variance_type' => $varianceType,
+                    'shift_date' => $shiftModel->shift_date?->format('Y-m-d'),
+                    'shift_id' => $shiftModel->id,
+                ],
+            ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Shift not found',
+            ], 404);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve responsibility details',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Get correction details (request corrections information)
      * Returns details about who requested corrections, when, and the comment
      *

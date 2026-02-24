@@ -40,11 +40,8 @@ class ShiftDetailResource extends JsonResource
             // Variance Information
             'variance_info' => $this->getVarianceInfo(),
 
-            // Reassignment Information (only for reassigned shifts)
-            'reassignment_info' => $this->when(
-                $this->status?->value === 'reassigned' || $this->original_cashier_id,
-                fn() => $this->getReassignmentInfo()
-            ),
+            // Reassignment Information (same structure for all statuses; nulls when not reassigned)
+            'reassignment_info' => $this->getReassignmentInfo(),
 
             // Available Actions
             'available_actions' => $this->getAvailableActions(),
@@ -181,10 +178,26 @@ class ShiftDetailResource extends JsonResource
     {
         // Check if handover exists
         if (!$this->handed_over_at && !$this->handoverStatus) {
+            $handover = $this->relationLoaded('handover') ? $this->handover : null;
             return [
                 'status' => 'not_submitted',
                 'status_label' => 'Not Submitted',
                 'given_cash' => 'Not Recorded Yet',
+                'cash_given' => $handover ? (float) $handover->handover_amount : null,
+                'previous_cashier' => $this->original_cashier_id ? ($this->originalCashier?->name ?? null) : null,
+                'cash_from' => null,
+                'handover_amount' => null,
+                'handover_from' => null,
+                'handover_to' => null,
+                'handover_date' => null,
+                'handover_time' => null,
+                'handover_notes' => null,
+                'approval_details' => null,
+                'rejection_details' => null,
+                'was_edited_after_rejection' => false,
+                'edited_at' => null,
+                'can_approve' => false,
+                'can_reject' => false,
             ];
         }
 
@@ -210,6 +223,9 @@ class ShiftDetailResource extends JsonResource
 
         return [
             'handover_amount' => (float) ($handover?->handover_amount ?? $this->handover_amount ?? $this->closing_balance ?? 0),
+            'cash_given' => (float) ($handover?->handover_amount ?? $this->handover_amount ?? $this->closing_balance ?? 0),
+            'previous_cashier' => $this->original_cashier_id ? ($this->originalCashier?->name ?? null) : null,
+            'cash_from' => $this->cashier?->name ?? null,
             'status' => $handoverStatus?->manager_approval_status ?? 'pending',
             'status_label' => $handoverStatus?->status_label ?? 'Pending',
             'handover_from' => $this->cashier?->name ?? 'N/A',
@@ -253,46 +269,74 @@ class ShiftDetailResource extends JsonResource
     /**
      * Get variance information
      * Required for: Variance display with expandable details
+     * - variance: numeric value (same for all statuses)
+     * - variance_details: formatted object when has variance
+     * - variance_reason: actual user input only (null when not provided)
      */
     private function getVarianceInfo(): array
     {
         $variance = (float) ($this->variance ?? 0);
         $hasVariance = abs($variance) > 0.01;
 
+        $handover = $this->relationLoaded('handover') ? $this->handover : null;
+        $varianceReason = $this->getActualVarianceReason($handover);
+
         $result = [
             'has_variance' => $hasVariance,
+            'variance' => $variance,
             'variance_amount' => $variance,
             'variance_type' => $variance > 0 ? 'Over' : ($variance < 0 ? 'Short' : 'None'),
             'variance_type_label' => $variance > 0 ? 'Over (زيادة)' : ($variance < 0 ? 'Short (نقص)' : 'No Variance'),
+            'variance_reason' => $varianceReason,
         ];
 
-        // Add formatted variance if exists
+        // Add formatted variance details object when exists
         if ($hasVariance && $this->relationLoaded('varianceDetails') && $this->varianceDetails->isNotEmpty()) {
             $varianceService = app(\Modules\Shift\Services\VarianceCalculationService::class);
-            $result['variance'] = $varianceService->getVarianceFormatted($this->resource);
+            $result['variance_details'] = $varianceService->getVarianceFormatted($this->resource);
+        } else {
+            $result['variance_details'] = null;
         }
 
         return $result;
     }
 
     /**
+     * Get actual variance reason from handover or variance details (no default placeholder)
+     */
+    private function getActualVarianceReason($handover): ?string
+    {
+        if ($handover && !empty(trim((string) $handover->variance_reason))) {
+            return $handover->variance_reason;
+        }
+        if ($this->relationLoaded('varianceDetails') && $this->varianceDetails->isNotEmpty()) {
+            $reason = $this->varianceDetails->first()->reason ?? null;
+            return !empty(trim((string) $reason)) ? $reason : null;
+        }
+        return null;
+    }
+
+    /**
      * Get reassignment information
-     * Required for: Reassigned shifts display
+     * Same structure for all statuses; nulls when not reassigned
      */
     private function getReassignmentInfo(): array
     {
+        $isReassigned = $this->status?->value === 'reassigned' || $this->original_cashier_id;
+
         return [
-            'date' => $this->shift_date?->format('Y-m-d'),
-            'status' => 'Reassignment',
-            'reassigned_from' => $this->originalCashier?->name ?? 'N/A',
+            'date' => $isReassigned ? ($this->shift_date?->format('Y-m-d')) : null,
+            'status' => $isReassigned ? 'Reassignment' : null,
+            'reassigned_from' => $isReassigned ? ($this->originalCashier?->name ?? null) : null,
             'reassigned_from_id' => $this->original_cashier_id,
-            'reassigned_to' => $this->cashier?->name ?? 'N/A',
+            'reassigned_to' => $isReassigned ? ($this->cashier?->name ?? null) : null,
             'reassigned_to_id' => $this->cashier_id,
-            'reassigned_by' => $this->reassignedBy?->name ?? 'N/A',
+            'reassigned_by' => $isReassigned ? ($this->reassignedBy?->name ?? null) : null,
             'reassigned_by_id' => $this->reassigned_by,
             'reassigned_by_user_type' => $this->reassigned_by ? 'branch_manager' : null,
             'reassigned_at' => $this->reassigned_at?->format('Y-m-d H:i:s'),
             'reassignment_reason' => $this->reassignment_reason,
+            'reassign_reason' => $this->reassignment_reason,
         ];
     }
 

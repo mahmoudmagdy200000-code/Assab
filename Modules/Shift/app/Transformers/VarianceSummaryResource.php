@@ -29,6 +29,7 @@ class VarianceSummaryResource extends JsonResource
             'shift_date' => $this->shift_date?->format('M j, Y'), // e.g. "Jan 6, 2025"
             'shift_date_iso' => $this->shift_date?->format('Y-m-d'),
             'status' => $status,
+            'responsibility_status' => $this->getResponsibilityStatus(),
             'hand_over_from' => $handoverFrom,
             'hand_over_to' => $handoverTo,
             'cash_handover_amount' => $cashHandoverAmount,
@@ -91,6 +92,21 @@ class VarianceSummaryResource extends JsonResource
             'rejected', 'rejected_final' => 'Rejected',
             default => 'Pending',
         };
+    }
+
+    /**
+     * Responsibility status for variance: Approved | rejected | not_submitted
+     */
+    private function getResponsibilityStatus(): string
+    {
+        $status = $this->handoverStatus?->manager_approval_status ?? null;
+        if ($status === 'approved') {
+            return 'Approved';
+        }
+        if (in_array($status, ['rejected', 'rejected_final'], true)) {
+            return 'rejected';
+        }
+        return 'not_submitted';
     }
 
     private function getReasonForVariance(): ?string

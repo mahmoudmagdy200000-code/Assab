@@ -184,11 +184,14 @@ class ShiftService
         $shift = CashierShift::with([
             'cashier',
             'shift',
+            'shift.branch',
             'nextCashier',
             'originalCashier',
             'reassignedBy',
+            'assignedBy',
             'salesBreakdown.aggregator',
             'handoverStatus.reviewedBy',
+            'handover.handoverTo',
             'varianceDetails.responsibleCashier',
             'varianceAlerts',
             'history'

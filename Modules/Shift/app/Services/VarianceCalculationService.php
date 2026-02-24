@@ -38,7 +38,7 @@ class VarianceCalculationService
             switch ($varianceData['responsibility_type']) {
                 case ResponsibilityType::I_WAS_RESPONSIBLE->value:
                 case 'self': // ✅ Support string values too
-                    $this->recordSingleResponsibility($shift, $varianceAmount, $varianceType);
+                    $this->recordSingleResponsibility($shift, $varianceAmount, $varianceType, $varianceData);
                     break;
 
                 case ResponsibilityType::ME_AND_OTHER_FACTORS->value:
@@ -82,8 +82,10 @@ class VarianceCalculationService
     private function recordSingleResponsibility(
         CashierShift $shift,
         float $amount,
-        VarianceType $type
+        VarianceType $type,
+        array $data = []
     ): void {
+        $reason = $data['reason'] ?? $data['notes'] ?? null;
         ShiftVarianceDetail::create([
             'cashier_shift_id' => $shift->id,
             'variance_amount' => $amount,
@@ -91,7 +93,7 @@ class VarianceCalculationService
             'responsibility_type' => ResponsibilityType::I_WAS_RESPONSIBLE,
             'responsible_cashier_id' => $shift->cashier_id,
             'assigned_amount' => $amount,
-            'reason' => 'Cashier accepted full responsibility',
+            'reason' => $reason,
             'supporting_files' => null,
         ]);
     }
@@ -105,8 +107,8 @@ class VarianceCalculationService
         // Record for current cashier
         $currentCashierAmount = $data['current_cashier_amount'] ?? 0;
 
-        // Use reason if provided, otherwise use notes, otherwise default
-        $reason = $data['reason'] ?? $data['notes'] ?? 'Shared responsibility';
+        // Use reason if provided, otherwise null (no default string)
+        $reason = $data['reason'] ?? $data['notes'] ?? null;
 
         // Handle supporting files if provided
         $supportingFiles = null;
@@ -138,7 +140,7 @@ class VarianceCalculationService
                     'responsibility_type' => ResponsibilityType::ME_AND_OTHER_FACTORS,
                     'responsible_cashier_id' => $otherCashier['cashier_id'],
                     'assigned_amount' => $otherCashier['amount'],
-                    'reason' => $otherCashier['notes'] ?? 'Shared responsibility',
+                    'reason' => $otherCashier['notes'] ?? null,
                     'supporting_files' => null,
                 ]);
             }
@@ -163,7 +165,7 @@ class VarianceCalculationService
             'responsibility_type' => ResponsibilityType::OTHER_FACTORS,
             'responsible_cashier_id' => null,
             'assigned_amount' => $amount,
-            'reason' => $data['reason'] ?? 'External factors',
+            'reason' => $data['reason'] ?? null,
             'supporting_files' => $supportingFiles,
         ]);
     }
@@ -199,7 +201,7 @@ class VarianceCalculationService
                     'responsibility_type' => ResponsibilityType::MIXED_FACTORS,
                     'responsible_cashier_id' => $cashier['cashier_id'],
                     'assigned_amount' => $cashier['amount'],
-                    'reason' => $cashier['notes'] ?? 'Mixed factors',
+                    'reason' => $cashier['notes'] ?? null,
                     'supporting_files' => null,
                 ]);
             }
@@ -217,7 +219,7 @@ class VarianceCalculationService
                 'responsibility_type' => ResponsibilityType::MIXED_FACTORS,
                 'responsible_cashier_id' => null,
                 'assigned_amount' => $externalAmount,
-                'reason' => $data['external_reason'] ?? $data['reason'] ?? 'External factors',
+                'reason' => $data['external_reason'] ?? $data['reason'] ?? null,
                 'supporting_files' => $supportingFiles,
             ]);
         }
@@ -384,10 +386,10 @@ class VarianceCalculationService
             }
         }
 
-        // If no reason found, use main detail's reason or default
-        if (empty($result['reason']) || $result['reason'] === 'Shared responsibility') {
-            // Try to get reason from main detail
-            $result['reason'] = $mainDetail->reason ?? 'No reason provided';
+        // Only return actual user input; null when empty or a default placeholder
+        $defaultReasons = ['Shared responsibility', 'Cashier accepted full responsibility', 'No reason provided', 'External factors', 'Mixed factors'];
+        if (empty(trim((string) ($result['reason'] ?? ''))) || in_array($result['reason'], $defaultReasons, true)) {
+            $result['reason'] = null;
         }
 
         // Calculate total variance amount

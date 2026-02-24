@@ -53,6 +53,7 @@ class ReassignmentShiftController extends Controller
 
     /**
      * Display the specified reassigned shift
+     * Returns unified shift payload (ShiftDetailResource) with shift_progress and reassignment_info inside.
      *
      * @param string $shift
      * @return JsonResponse
@@ -62,24 +63,10 @@ class ReassignmentShiftController extends Controller
         try {
             $shiftDetails = $this->shiftService->getShiftDetails($shift);
 
-            // Get shift progress
-            $progress = $this->shiftService->getShiftProgress($shift);
-
             return response()->json([
                 'success' => true,
                 'message' => 'Reassigned shift details retrieved successfully',
-                'data' => [
-                    'shift' => new ShiftDetailResource($shiftDetails),
-                    'progress' => $progress,
-                    'reassignment_info' => [
-                        'date' => $shiftDetails->reassigned_at?->format('Y-m-d H:i:s'),
-                        'reassigned_from' => $shiftDetails->originalCashier?->name,
-                        'reassigned_to' => $shiftDetails->cashier->name,
-                        'reassigned_by' => $shiftDetails->reassignedBy?->name,
-                        'reassigned_by_user_type' => $shiftDetails->reassigned_by ? 'branch_manager' : null,
-                        'reason' => $shiftDetails->reassignment_reason,
-                    ]
-                ]
+                'data' => new ShiftDetailResource($shiftDetails),
             ]);
         } catch (\Exception $e) {
             return response()->json([

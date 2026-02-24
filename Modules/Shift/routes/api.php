@@ -206,6 +206,10 @@ Route::prefix('branch-manager')
                     Route::get('/', [ShiftVarianceController::class, 'getVarianceDetails'])
                         ->name('shifts.variance.details');
                 });
+
+                // Responsibility details (variance approval context)
+                Route::get('responsibility/details', [ShiftHandoverController::class, 'getResponsibilityDetails'])
+                    ->name('shifts.responsibility.details');
             });
         });
     });
@@ -302,6 +306,10 @@ Route::prefix('cashier')
             Route::get('reassigned-shifts', [ShiftRequestsController::class, 'reassignedShifts'])
                 ->name('cashier.requests.reassigned-shifts');
         });
+
+        // Responsibility details (variance approval context, cashier own shift) - must be before my-shifts/{shift}
+        Route::get('my-shifts/{shift}/responsibility/details', [ShiftHandoverController::class, 'getResponsibilityDetails'])
+            ->name('cashier.responsibility.details');
 
         // View shift details
         Route::get('my-shifts/{shift}', [CashierShiftController::class, 'show'])
