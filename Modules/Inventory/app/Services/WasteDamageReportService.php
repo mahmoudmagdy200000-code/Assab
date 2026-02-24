@@ -366,13 +366,23 @@ class WasteDamageReportService
     /**
      * @param array<int, array{cashier_id: string, quantity_accountable: float}> $employees
      */
-    private function syncResponsibleEmployees(WasteDamageReportItem $item, array $employees): void
+    private function syncResponsibleEmployees(WasteDamageReportItem $item, array $employees, ?string $branchManagerId = null, float $myQuantityAccountable = 0): void
     {
         $item->responsibleEmployees()->delete();
+
+        if ($branchManagerId && $myQuantityAccountable > 0) {
+            WasteDamageReportItemEmployee::create([
+                'waste_damage_report_item_id' => $item->id,
+                'branch_manager_id' => $branchManagerId,
+                'cashier_id' => null,
+                'quantity_accountable' => $myQuantityAccountable,
+            ]);
+        }
 
         foreach ($employees as $row) {
             WasteDamageReportItemEmployee::create([
                 'waste_damage_report_item_id' => $item->id,
+                'branch_manager_id' => null,
                 'cashier_id' => $row['cashier_id'],
                 'quantity_accountable' => (float) $row['quantity_accountable'],
             ]);
