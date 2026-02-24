@@ -73,6 +73,15 @@ class CustodyBalanceService
         $expenseChart = array_map(fn (array $p): float => (float) ($p['expenses'] ?? 0), $dataPoints);
         $custodyRequestChart = array_map(fn (array $p): float => (float) ($p['custodyRequests'] ?? 0), $dataPoints);
 
+        if ($this->arrayIsAllZeros($expenseChart)) {
+            $expenseChart = [];
+        }
+        if ($this->arrayIsAllZeros($custodyRequestChart)) {
+            $custodyRequestChart = [];
+        }
+
+        $dataPoints = $this->filterDataPointsZeros($dataPoints);
+
         $currentBalance = $this->getCurrentBalance($branchManagerId, $custodyType);
 
         $periodLabel = $this->getPeriodLabel($granularity);
@@ -241,6 +250,51 @@ class CustodyBalanceService
         }
 
         return $dataPoints;
+    }
+
+    /**
+     * True if array has only zero (or empty).
+     */
+    private function arrayIsAllZeros(array $arr): bool
+    {
+        foreach ($arr as $v) {
+            if ((float) $v != 0.0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Remove zero values from dataPoints: omit key when value is 0; drop points that have no non-zero data.
+     */
+    private function filterDataPointsZeros(array $dataPoints): array
+    {
+        $out = [];
+        foreach ($dataPoints as $p) {
+            $point = [];
+            if (isset($p['timestamp'])) {
+                $point['timestamp'] = $p['timestamp'];
+            }
+            if (isset($p['date'])) {
+                $point['date'] = $p['date'];
+            }
+            if (isset($p['label'])) {
+                $point['label'] = $p['label'];
+            }
+            $cr = (float) ($p['custodyRequests'] ?? 0);
+            $ex = (float) ($p['expenses'] ?? 0);
+            if ($cr != 0.0) {
+                $point['custodyRequests'] = $cr;
+            }
+            if ($ex != 0.0) {
+                $point['expenses'] = $ex;
+            }
+            if (isset($point['custodyRequests']) || isset($point['expenses'])) {
+                $out[] = $point;
+            }
+        }
+        return $out;
     }
 
     private function getPeriodLabel(string $granularity): string
