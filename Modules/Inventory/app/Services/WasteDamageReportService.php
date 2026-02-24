@@ -75,7 +75,7 @@ class WasteDamageReportService
      * Create a draft report and add multiple items in one go (single transaction).
      *
      * @param 'personal'|'staff' $assignedToType
-     * @param array<int, array{item_id: string, purchase_order_item_id?: string|null, problem_type: string, cause_of_damage?: string|null, quantity: float, reason: string, unit?: string|null, justification_text?: string|null, photo_path?: string|null, price_per_unit?: float|null, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>}> $items
+     * @param array<int, array{item_id: string, purchase_order_item_id?: string|null, problem_type: string, cause_of_damage?: string|null, quantity: float, reason: string, unit?: string|null, justification_text?: string|null, photo_path?: string|null, price_per_unit?: float|null, my_quantity_accountable?: float, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>}> $items
      */
     public function createReportWithItems(string $branchId, string $createdBy, string $assignedToType = 'personal', ?string $assignedToId = null, array $items = []): WasteDamageReport
     {

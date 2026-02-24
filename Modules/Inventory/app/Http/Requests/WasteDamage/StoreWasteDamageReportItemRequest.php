@@ -28,7 +28,7 @@ class StoreWasteDamageReportItemRequest extends FormRequest
                 'nullable',
                 'string',
                 Rule::in(array_map(fn ($c) => $c->value, CauseOfDamage::cases())),
-                Rule::requiredIf($problemType === ProblemType::DAMAGE->value),
+                Rule::requiredIf($this->input('problem_type') === ProblemType::DAMAGE->value),
             ],
             'quantity' => ['required', 'numeric', 'min:0.001'],
             'reason' => ['required', 'string', Rule::in(WasteDamageReason::values())],
