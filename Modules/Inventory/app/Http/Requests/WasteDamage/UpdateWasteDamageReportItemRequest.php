@@ -38,8 +38,10 @@ class UpdateWasteDamageReportItemRequest extends FormRequest
             'justification_text' => ['nullable', 'string', 'max:2000'],
             'photo' => ['nullable', 'image', 'max:5120'],
             'photo_path' => ['nullable', 'string', 'max:500'],
+            'my_quantity_accountable' => ['nullable', 'numeric', 'min:0'],
             'responsible_employees' => [
                 Rule::requiredIf($causeRequiresEmployees),
+                'nullable',
                 'array',
             ],
             'responsible_employees.*.cashier_id' => ['required', 'uuid', 'exists:cashiers,id'],

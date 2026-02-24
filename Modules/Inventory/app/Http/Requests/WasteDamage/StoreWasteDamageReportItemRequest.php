@@ -43,8 +43,10 @@ class StoreWasteDamageReportItemRequest extends FormRequest
             'photo_path' => ['nullable', 'string', 'max:500'],
             'price_per_unit' => ['nullable', 'numeric', 'min:0'],
             'unit' => ['nullable', 'string', 'max:20'],
+            'my_quantity_accountable' => ['nullable', 'numeric', 'min:0'],
             'responsible_employees' => [
                 Rule::requiredIf($causeRequiresEmployees),
+                'nullable',
                 'array',
             ],
             'responsible_employees.*.cashier_id' => ['required', 'uuid', 'exists:cashiers,id'],

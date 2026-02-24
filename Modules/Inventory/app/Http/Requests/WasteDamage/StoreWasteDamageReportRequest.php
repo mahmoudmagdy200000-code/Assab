@@ -43,6 +43,7 @@ class StoreWasteDamageReportRequest extends FormRequest
             'items.*.photo' => ['nullable', 'image', 'max:5120'],
             'items.*.price_per_unit' => ['nullable', 'numeric', 'min:0'],
             'items.*.unit' => ['nullable', 'string', 'max:20'],
+            'items.*.my_quantity_accountable' => ['nullable', 'numeric', 'min:0'],
             'items.*.responsible_employees' => ['nullable', 'array'],
             'items.*.responsible_employees.*.cashier_id' => ['required', 'uuid', 'exists:cashiers,id'],
             'items.*.responsible_employees.*.quantity_accountable' => ['required', 'numeric', 'min:0'],
