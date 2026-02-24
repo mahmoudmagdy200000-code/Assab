@@ -114,6 +114,7 @@ class WasteDamageReportController extends BaseController
 
     /**
      * Create draft report (optionally with multiple items in one request, like daily inventory).
+     * Send items[].photo as image file (multipart); photo is stored and path saved.
      */
     public function store(StoreWasteDamageReportRequest $request): JsonResponse
     {
@@ -127,9 +128,14 @@ class WasteDamageReportController extends BaseController
             $assignedToType = $request->validated('assigned_to_type', 'personal');
             $assignedToId = $request->validated('assigned_to_id');
             $items = $request->validated('items', []);
-            $report = !empty($items)
-                ? $this->reportService->createReportWithItems($manager->branch_id, $manager->id, $assignedToType, $assignedToId, $items)
-                : $this->reportService->createReport($manager->branch_id, $manager->id, $assignedToType, $assignedToId);
+
+            if (empty($items)) {
+                $report = $this->reportService->createReport($manager->branch_id, $manager->id, $assignedToType, $assignedToId);
+            } else {
+                $report = $this->reportService->createReport($manager->branch_id, $manager->id, $assignedToType, $assignedToId);
+                $items = $this->storeItemPhotosForReport($request, $report->id, $items);
+                $this->reportService->addItemsToReport($report, $items);
+            }
 
             $report->loadMissing('assignedTo');
 
@@ -142,6 +148,28 @@ class WasteDamageReportController extends BaseController
         } catch (\Exception $e) {
             return $this->handleException($e, 'creating waste & damage report');
         }
+    }
+
+    /**
+     * Store uploaded photos for items (items.0.photo, items.1.photo, ...) and return items with photo_path set.
+     *
+     * @param  array<int, array<string, mixed>>  $items
+     * @return array<int, array<string, mixed>>
+     */
+    private function storeItemPhotosForReport(Request $request, string $reportId, array $items): array
+    {
+        $basePath = sprintf('waste-damage/reports/%s', $reportId);
+
+        foreach (array_keys($items) as $index) {
+            $key = "items.{$index}.photo";
+            if (!$request->hasFile($key)) {
+                continue;
+            }
+            $path = $request->file($key)->store($basePath, 'public');
+            $items[$index]['photo_path'] = $path;
+        }
+
+        return $items;
     }
 
     /**

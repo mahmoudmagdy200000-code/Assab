@@ -40,7 +40,7 @@ class StoreWasteDamageReportRequest extends FormRequest
             'items.*.quantity' => ['required', 'numeric', 'min:0.001'],
             'items.*.reason' => ['required', 'string', Rule::in(WasteDamageReason::values())],
             'items.*.justification_text' => ['nullable', 'string', 'max:2000'],
-            'items.*.photo_path' => ['nullable', 'string', 'max:500'],
+            'items.*.photo' => ['nullable', 'image', 'max:5120'],
             'items.*.price_per_unit' => ['nullable', 'numeric', 'min:0'],
             'items.*.unit' => ['nullable', 'string', 'max:20'],
             'items.*.responsible_employees' => ['nullable', 'array'],

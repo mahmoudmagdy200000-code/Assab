@@ -114,6 +114,47 @@ class WasteDamageReportService
     }
 
     /**
+     * Add multiple items to an existing report (e.g. after storing photos under report id).
+     *
+     * @param array<int, array{item_id: string, purchase_order_item_id?: string|null, problem_type: string, cause_of_damage?: string|null, quantity: float, reason: string, unit?: string|null, justification_text?: string|null, photo_path?: string|null, price_per_unit?: float|null, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>}> $items
+     */
+    public function addItemsToReport(WasteDamageReport $report, array $items): WasteDamageReport
+    {
+        $branchId = $report->branch_id;
+
+        return DB::transaction(function () use ($report, $branchId, $items) {
+            foreach ($items as $itemData) {
+                $pricePerUnit = $itemData['price_per_unit'] ?? $this->resolvePricePerUnit($itemData['item_id'], $branchId);
+                $unit = $itemData['unit'] ?? $this->resolveUnit($itemData['item_id']);
+                $quantity = (float) $itemData['quantity'];
+                $totalValue = -1 * $quantity * (float) $pricePerUnit;
+
+                $this->validateItemData($itemData, $quantity, $totalValue);
+
+                $item = $this->itemRepository->create([
+                    'waste_damage_report_id' => $report->id,
+                    'branch_id' => $branchId,
+                    'item_id' => $itemData['item_id'],
+                    'purchase_order_item_id' => $itemData['purchase_order_item_id'] ?? null,
+                    'problem_type' => $itemData['problem_type'],
+                    'cause_of_damage' => $itemData['cause_of_damage'] ?? null,
+                    'quantity' => $quantity,
+                    'reason' => $itemData['reason'],
+                    'unit' => $unit,
+                    'total_value' => $totalValue,
+                    'justification_text' => $itemData['justification_text'] ?? null,
+                    'photo_path' => $itemData['photo_path'] ?? null,
+                    'price_per_unit' => $pricePerUnit,
+                ]);
+
+                $this->syncResponsibleEmployees($item, $itemData['responsible_employees'] ?? []);
+            }
+
+            return $report->load(['items.responsibleEmployees.cashier.branch', 'items.item']);
+        });
+    }
+
+    /**
      * Add a product line to the report.
      *
      * @param array{item_id: string, purchase_order_item_id?: string|null, problem_type: string, cause_of_damage?: string|null, quantity: float, reason: string, unit?: string|null, justification_text?: string|null, photo_path?: string|null, price_per_unit?: float|null, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>} $data
