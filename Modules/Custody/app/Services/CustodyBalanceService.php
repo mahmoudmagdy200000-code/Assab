@@ -70,9 +70,15 @@ class CustodyBalanceService
 
         $dataPoints = $this->aggregateDataPointsForTrends($currentTransactions, $granularity, $startDate, $endDate, $custodyType);
 
+        $expenseChart = array_map(fn (array $p): float => (float) ($p['expenses'] ?? 0), $dataPoints);
+        $custodyRequestChart = array_map(fn (array $p): float => (float) ($p['custodyRequests'] ?? 0), $dataPoints);
+
+        $currentBalance = $this->getCurrentBalance($branchManagerId, $custodyType);
+
         $periodLabel = $this->getPeriodLabel($granularity);
 
         return [
+            'currentBalance' => round($currentBalance, 2),
             'custodyType' => $custodyType,
             'month' => $month,
             'year' => $year,
@@ -91,8 +97,39 @@ class CustodyBalanceService
                 'changePercentage' => $expensePercentage,
                 'description' => $this->getComparisonDescription($expenseChange, $expensePercentage, false, $periodLabel),
             ],
-            'dataPoints' => $dataPoints,
+            'expenseChart' => $expenseChart,
+            'custodyRequestChart' => $custodyRequestChart,
+            // 'dataPoints' => $dataPoints,
         ];
+    }
+
+    /**
+     * Get current custody balance for branch or personal (as of all transactions to date).
+     */
+    private function getCurrentBalance(string $branchManagerId, string $custodyType): float
+    {
+        if ($custodyType === 'personal') {
+            $transactions = PersonalLedgerTransaction::where('branch_manager_id', $branchManagerId)->get();
+            $cashIn = $transactions->where('is_cash_in', true)->sum('amount');
+            $cashOut = $transactions->where('is_cash_in', false)->sum('amount');
+            return (float) ($cashIn - $cashOut);
+        }
+
+        $query = CustodyTransaction::where('branch_manager_id', $branchManagerId);
+        $branchId = auth()->user()->branch_id ?? null;
+        if ($branchId !== null) {
+            $query->where('branch_id', $branchId);
+        }
+        $transactions = $query->get();
+        $balance = 0.0;
+        foreach ($transactions as $transaction) {
+            if ($transaction->is_cash_in) {
+                $balance += (float) $transaction->amount;
+            } else {
+                $balance -= (float) $transaction->amount;
+            }
+        }
+        return $balance;
     }
 
     /**
@@ -160,8 +197,8 @@ class CustodyBalanceService
             $dataPoints[] = [
                 'timestamp' => $start->toIso8601String(),
                 'label' => $start->format('F Y'),
-                'custodyRequests' => round($totals['custodyRequests'], 2),
-                'expenses' => round($totals['expenses'], 2),
+                'custodyRequests' => (float) round($totals['custodyRequests'], 2),
+                'expenses' => (float) round($totals['expenses'], 2),
             ];
             return $dataPoints;
         }
@@ -181,8 +218,8 @@ class CustodyBalanceService
                 $dataPoints[] = [
                     'timestamp' => $cursor->toIso8601String(),
                     'label' => 'Week of ' . $cursor->format('M j'),
-                    'custodyRequests' => round($totals['custodyRequests'], 2),
-                    'expenses' => round($totals['expenses'], 2),
+                    'custodyRequests' => (float) round($totals['custodyRequests'], 2),
+                    'expenses' => (float) round($totals['expenses'], 2),
                 ];
                 $cursor->addWeek()->startOfWeek();
             }
@@ -197,8 +234,8 @@ class CustodyBalanceService
             $dataPoints[] = [
                 'timestamp' => $cursor->toIso8601String(),
                 'date' => $cursor->format('Y-m-d'),
-                'custodyRequests' => round($totals['custodyRequests'], 2),
-                'expenses' => round($totals['expenses'], 2),
+                'custodyRequests' => (float) round($totals['custodyRequests'], 2),
+                'expenses' => (float) round($totals['expenses'], 2),
             ];
             $cursor->addDay();
         }
@@ -340,7 +377,7 @@ class CustodyBalanceService
 
         // Calculate branch balance (all branch managers in the branch)
         $branchTransactionsQuery = CustodyTransaction::where('branch_id', $branchId);
-        
+
         // Apply time period filter to branch balance calculation
         if ($timePeriod === 'custom') {
             if (!empty($filters['startDate'])) {
@@ -361,7 +398,7 @@ class CustodyBalanceService
                 $branchTransactionsQuery->where('transaction_date', '>=', $startDate);
             }
         }
-        
+
         $branchTransactions = $branchTransactionsQuery->get();
         $branchTotalCashIn = $branchTransactions->where('is_cash_in', true)->sum('amount');
         $branchTotalCashOut = $branchTransactions->where('is_cash_in', false)->sum('amount');
