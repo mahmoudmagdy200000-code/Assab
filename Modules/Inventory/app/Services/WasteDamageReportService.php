@@ -87,6 +87,7 @@ class WasteDamageReportService
                 $unit = $itemData['unit'] ?? $this->resolveUnit($itemData['item_id']);
                 $quantity = (float) $itemData['quantity'];
                 $totalValue = -1 * $quantity * (float) $pricePerUnit;
+                $itemData = $this->normalizeResponsibleForIWasResponsible($itemData, $quantity);
 
                 $this->validateItemData($itemData, $quantity, $totalValue);
 
@@ -128,6 +129,7 @@ class WasteDamageReportService
                 $unit = $itemData['unit'] ?? $this->resolveUnit($itemData['item_id']);
                 $quantity = (float) $itemData['quantity'];
                 $totalValue = -1 * $quantity * (float) $pricePerUnit;
+                $itemData = $this->normalizeResponsibleForIWasResponsible($itemData, $quantity);
 
                 $this->validateItemData($itemData, $quantity, $totalValue);
 
@@ -170,6 +172,7 @@ class WasteDamageReportService
         $unit = $data['unit'] ?? $this->resolveUnit($data['item_id']);
         $quantity = (float) $data['quantity'];
         $totalValue = -1 * $quantity * (float) $pricePerUnit;
+        $data = $this->normalizeResponsibleForIWasResponsible($data, $quantity);
 
         $this->validateItemData($data, $quantity, $totalValue);
 
@@ -194,6 +197,27 @@ class WasteDamageReportService
 
             return $item->load('responsibleEmployees.cashier.branch', 'responsibleEmployees.branchManager');
         });
+    }
+
+    /**
+     * When cause is i_was_responsible and no responsible party was sent, default my_quantity_accountable to full quantity.
+     *
+     * @param array<string, mixed> $itemData
+     * @return array<string, mixed>
+     */
+    private function normalizeResponsibleForIWasResponsible(array $itemData, float $quantity): array
+    {
+        $cause = $itemData['cause_of_damage'] ?? null;
+        if ($cause !== CauseOfDamage::I_WAS_RESPONSIBLE->value) {
+            return $itemData;
+        }
+        $myQty = (float) ($itemData['my_quantity_accountable'] ?? 0);
+        $employees = $itemData['responsible_employees'] ?? [];
+        if ($myQty <= 0 && empty($employees)) {
+            $itemData['my_quantity_accountable'] = $quantity;
+        }
+
+        return $itemData;
     }
 
     /**
