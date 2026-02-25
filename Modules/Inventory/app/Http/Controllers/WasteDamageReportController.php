@@ -190,21 +190,18 @@ class WasteDamageReportController extends BaseController
                 $perPage > 0 ? $perPage : 15
             );
             $reports->loadCount('items');
-            $reports->load(['items:id,waste_damage_report_id,problem_type']);
+            $reports->load([
+                'createdBy',
+                'assignedTo',
+                'items.item',
+                'items.purchaseOrderItem',
+                'items.responsibleEmployees.cashier.branch',
+                'items.responsibleEmployees.branchManager',
+            ]);
 
-            $filterCounts = $this->reportService->getFilterCountsByBranch($manager->branch_id);
-
-            return $this->successResponse(
-                WasteDamageReportListResource::collection($reports)->response()->getData(true)['data'],
-                'Reports retrieved successfully',
-                200,
-                [
-                    'current_page' => $reports->currentPage(),
-                    'last_page' => $reports->lastPage(),
-                    'per_page' => $reports->perPage(),
-                    'total' => $reports->total(),
-                    'filter_counts' => $filterCounts,
-                ]
+            return $this->paginatedResponse(
+                WasteDamageReportListResource::collection($reports),
+                'Reports retrieved successfully'
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'listing waste & damage reports');
