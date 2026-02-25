@@ -28,7 +28,7 @@ class WasteDamageReportService
     ) {}
 
     /**
-     * List reports for branch (paginated). Optionally filter by status (draft, submitted).
+     * List reports for branch (paginated). Optionally filter by status (draft, pending, completed).
      */
     public function listReportsByBranch(string $branchId, int $perPage = 15, ?string $status = null): LengthAwarePaginator
     {
@@ -302,7 +302,7 @@ class WasteDamageReportService
     }
 
     /**
-     * Submit the report (validate all items then set status to submitted).
+     * Submit the report (validate all items then set status to pending — pending your confirmation).
      */
     public function submitReport(string $reportId, string $branchId): WasteDamageReport
     {
@@ -329,7 +329,7 @@ class WasteDamageReportService
         }
 
         $this->reportRepository->update($report, [
-            'status' => WasteDamageReportStatus::SUBMITTED,
+            'status' => WasteDamageReportStatus::PENDING,
             'submitted_at' => now(),
         ]);
 

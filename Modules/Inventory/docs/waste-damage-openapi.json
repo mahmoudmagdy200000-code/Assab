@@ -239,7 +239,7 @@
                             "name": { "type": "string", "nullable": true }
                         }
                     },
-                    "status": { "type": "string", "enum": ["draft", "submitted"] },
+                    "status": { "type": "string", "enum": ["draft", "pending", "completed"] },
                     "status_label": { "type": "string" },
                     "submitted_at": { "type": "string", "format": "date-time", "nullable": true },
                     "items": {
@@ -604,7 +604,7 @@
         "/inventory/waste-damage/reports/{id}/submit": {
             "post": {
                 "summary": "Submit report",
-                "description": "Submit / finalize the report. Validates: at least one item; for each item with problem_type damage and |total_value| > 20 SAR, photo is required. Sets status to submitted and submitted_at. No request body.",
+                "description": "Submit / finalize the report. Validates: at least one item; for each item with problem_type damage and |total_value| > 20 SAR, photo is required. Sets status to pending (pending your confirmation) and submitted_at. No request body.",
                 "operationId": "inventory.waste-damage.reports.submit",
                 "tags": ["Waste & Damage - Reports"],
                 "parameters": [

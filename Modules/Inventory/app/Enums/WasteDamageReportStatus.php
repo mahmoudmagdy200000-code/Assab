@@ -5,22 +5,26 @@ namespace Modules\Inventory\Enums;
 enum WasteDamageReportStatus: string
 {
     case DRAFT = 'draft';
-    case SUBMITTED = 'submitted';
+    /** When staff submitted — pending manager confirmation */
+    case PENDING = 'pending';
+    case COMPLETED = 'completed';
 
     public function label(): string
     {
         return match ($this) {
             self::DRAFT => 'Draft',
-            self::SUBMITTED => 'Submitted',
+            self::PENDING => 'Pending',
+            self::COMPLETED => 'Completed',
         };
     }
 
-    /** Badge label for list UI: Draft | Pending */
+    /** Badge label for list UI */
     public function listLabel(): string
     {
         return match ($this) {
             self::DRAFT => 'Draft',
-            self::SUBMITTED => 'Pending',
+            self::PENDING => 'Pending your confirmation',
+            self::COMPLETED => 'Completed',
         };
     }
 
@@ -29,7 +33,8 @@ enum WasteDamageReportStatus: string
     {
         return match ($this) {
             self::DRAFT => 'Draft',
-            self::SUBMITTED => 'Pending Review',
+            self::PENDING => 'Pending your confirmation',
+            self::COMPLETED => 'Completed',
         };
     }
 
@@ -38,13 +43,25 @@ enum WasteDamageReportStatus: string
         return $this === self::DRAFT;
     }
 
+    /** When staff has submitted, awaiting confirmation */
+    public function isPending(): bool
+    {
+        return $this === self::PENDING;
+    }
+
+    public function isCompleted(): bool
+    {
+        return $this === self::COMPLETED;
+    }
+
+    /** Alias: submitted = pending (staff submitted) */
     public function isSubmitted(): bool
     {
-        return $this === self::SUBMITTED;
+        return $this->isPending();
     }
 
     public function isEditable(): bool
     {
-        return $this === self::DRAFT;
+        return $this->isDraft();
     }
 }

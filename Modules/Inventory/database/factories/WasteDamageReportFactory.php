@@ -25,10 +25,18 @@ class WasteDamageReportFactory extends Factory
         ];
     }
 
-    public function submitted(): static
+    public function pending(): static
     {
         return $this->state(fn (array $attributes) => [
-            'status' => WasteDamageReportStatus::SUBMITTED,
+            'status' => WasteDamageReportStatus::PENDING,
+            'submitted_at' => now(),
+        ]);
+    }
+
+    public function completed(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => WasteDamageReportStatus::COMPLETED,
             'submitted_at' => now(),
         ]);
     }

@@ -63,7 +63,7 @@ class WasteDamageReportRepository
     }
 
     /**
-     * Counts by status for filter tabs: In Progress (submitted), Draft, Completed.
+     * Counts by status for filter tabs: Pending your confirmation, Draft, Completed.
      *
      * @return array{in_progress: int, draft: int, completed: int}
      */
@@ -77,7 +77,7 @@ class WasteDamageReportRepository
             ->all();
 
         return [
-            'in_progress' => (int) ($counts['submitted'] ?? 0),
+            'in_progress' => (int) ($counts['pending'] ?? 0),
             'draft' => (int) ($counts['draft'] ?? 0),
             'completed' => (int) ($counts['completed'] ?? 0),
         ];
