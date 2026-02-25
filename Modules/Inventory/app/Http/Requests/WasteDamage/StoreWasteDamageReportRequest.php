@@ -50,4 +50,31 @@ class StoreWasteDamageReportRequest extends FormRequest
             'items.*.responsible_employees.*.quantity_accountable' => ['required', 'numeric', 'min:0'],
         ];
     }
+
+    /**
+     * Configure the validator. Require responsible_employees when cause_of_damage is me_and_or_other_employees or mixed_factors.
+     */
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator) {
+            $items = $this->input('items', []);
+            $requiredCauses = [
+                CauseOfDamage::ME_AND_OR_OTHER_EMPLOYEES->value,
+                CauseOfDamage::MIXED_FACTORS->value,
+            ];
+            foreach ($items as $index => $item) {
+                $cause = $item['cause_of_damage'] ?? null;
+                if (! in_array($cause, $requiredCauses, true)) {
+                    continue;
+                }
+                $employees = $item['responsible_employees'] ?? null;
+                if (! is_array($employees) || count($employees) === 0) {
+                    $validator->errors()->add(
+                        "items.{$index}.responsible_employees",
+                        __('validation.required', ['attribute' => 'responsible employees'])
+                    );
+                }
+            }
+        });
+    }
 }

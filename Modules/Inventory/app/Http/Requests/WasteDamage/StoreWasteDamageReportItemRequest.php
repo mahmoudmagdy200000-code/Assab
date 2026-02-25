@@ -38,7 +38,15 @@ class StoreWasteDamageReportItemRequest extends FormRequest
             'price_per_unit' => ['nullable', 'numeric', 'min:0'],
             'unit' => ['nullable', 'string', 'max:20'],
             'my_quantity_accountable' => ['nullable', 'numeric', 'min:0'],
-            'responsible_employees' => ['nullable', 'array'],
+            'responsible_employees' => [
+                Rule::requiredIf(fn () => in_array(
+                    $this->input('cause_of_damage'),
+                    [CauseOfDamage::ME_AND_OR_OTHER_EMPLOYEES->value, CauseOfDamage::MIXED_FACTORS->value],
+                    true
+                )),
+                'nullable',
+                'array',
+            ],
             'responsible_employees.*.cashier_id' => ['required', 'uuid', 'exists:cashiers,id'],
             'responsible_employees.*.quantity_accountable' => ['required', 'numeric', 'min:0'],
         ];
