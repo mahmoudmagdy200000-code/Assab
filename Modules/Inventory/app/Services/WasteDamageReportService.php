@@ -67,16 +67,12 @@ class WasteDamageReportService
      */
     public function createReport(string $branchId, string $createdBy, string $assignedToType = 'personal', ?string $assignedToId = null): WasteDamageReport
     {
-        $status = $assignedToType === 'staff'
-            ? WasteDamageReportStatus::PENDING
-            : WasteDamageReportStatus::DRAFT;
-
         return $this->reportRepository->create([
             'branch_id' => $branchId,
             'created_by' => $createdBy,
             'assigned_to_type' => $assignedToType,
             'assigned_to_id' => $assignedToType === 'staff' ? $assignedToId : null,
-            'status' => $status,
+            'status' => WasteDamageReportStatus::PENDING,
         ]);
     }
 
