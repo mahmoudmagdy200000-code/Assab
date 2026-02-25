@@ -13,6 +13,7 @@ use Modules\Inventory\Http\Requests\WasteDamage\UpdateWasteDamageReportItemReque
 use Modules\Inventory\Services\InventorySessionService;
 use Modules\Inventory\Services\WasteDamageProductService;
 use Modules\Inventory\Services\WasteDamageReportService;
+use Modules\Inventory\Enums\WasteDamageReportStatus;
 use Modules\Inventory\Transformers\WasteDamageReportItemResource;
 use Modules\Inventory\Transformers\WasteDamageReportListResource;
 use Modules\Inventory\Transformers\WasteDamageReportResource;
@@ -185,9 +186,14 @@ class WasteDamageReportController extends BaseController
             }
 
             $perPage = (int) $request->get('per_page', 15);
+            $status = $request->get('status');
+            if ($status !== null && $status !== '' && WasteDamageReportStatus::tryFrom($status) === null) {
+                return $this->errorResponse('Invalid status. Allowed: draft, submitted.', 422);
+            }
             $reports = $this->reportService->listReportsByBranch(
                 $manager->branch_id,
-                $perPage > 0 ? $perPage : 15
+                $perPage > 0 ? $perPage : 15,
+                $status ? (string) $status : null
             );
             $reports->loadCount('items');
             $reports->load([

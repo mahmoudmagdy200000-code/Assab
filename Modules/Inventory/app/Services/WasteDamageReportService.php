@@ -28,11 +28,16 @@ class WasteDamageReportService
     ) {}
 
     /**
-     * List reports for branch (paginated).
+     * List reports for branch (paginated). Optionally filter by status (draft, submitted).
      */
-    public function listReportsByBranch(string $branchId, int $perPage = 15): LengthAwarePaginator
+    public function listReportsByBranch(string $branchId, int $perPage = 15, ?string $status = null): LengthAwarePaginator
     {
-        return $this->reportRepository->getPaginated(['branch_id' => $branchId], $perPage);
+        $filters = ['branch_id' => $branchId];
+        if ($status !== null && $status !== '') {
+            $filters['status'] = $status;
+        }
+
+        return $this->reportRepository->getPaginated($filters, $perPage);
     }
 
     /**
