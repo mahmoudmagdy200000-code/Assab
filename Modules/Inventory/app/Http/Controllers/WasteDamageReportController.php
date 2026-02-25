@@ -191,6 +191,7 @@ class WasteDamageReportController extends BaseController
             );
             $reports->loadCount('items');
             $reports->load([
+                'branch',
                 'createdBy',
                 'assignedTo',
                 'items.item',
