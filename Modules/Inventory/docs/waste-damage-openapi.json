@@ -239,7 +239,7 @@
                             "name": { "type": "string", "nullable": true }
                         }
                     },
-                    "status": { "type": "string", "enum": ["draft", "pending", "completed"] },
+                    "status": { "type": "string", "enum": ["draft", "pending", "pending_your_confirmation", "completed"] },
                     "status_label": { "type": "string" },
                     "submitted_at": { "type": "string", "format": "date-time", "nullable": true },
                     "items": {

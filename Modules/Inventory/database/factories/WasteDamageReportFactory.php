@@ -29,6 +29,14 @@ class WasteDamageReportFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'status' => WasteDamageReportStatus::PENDING,
+            'submitted_at' => null,
+        ]);
+    }
+
+    public function pendingYourConfirmation(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION,
             'submitted_at' => now(),
         ]);
     }

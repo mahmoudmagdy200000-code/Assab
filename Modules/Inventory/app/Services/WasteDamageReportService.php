@@ -28,7 +28,7 @@ class WasteDamageReportService
     ) {}
 
     /**
-     * List reports for branch (paginated). Optionally filter by status (draft, pending, completed).
+     * List reports for branch (paginated). Optionally filter by status (draft, pending, pending_your_confirmation, completed).
      */
     public function listReportsByBranch(string $branchId, int $perPage = 15, ?string $status = null): LengthAwarePaginator
     {
@@ -41,9 +41,9 @@ class WasteDamageReportService
     }
 
     /**
-     * Counts by status for filter tabs (In Progress, Draft, Completed).
+     * Counts by status for filter tabs (Draft, Pending, Pending your confirmation, Completed).
      *
-     * @return array{in_progress: int, draft: int, completed: int}
+     * @return array{draft: int, pending: int, pending_your_confirmation: int, completed: int}
      */
     public function getFilterCountsByBranch(string $branchId): array
     {
@@ -67,12 +67,16 @@ class WasteDamageReportService
      */
     public function createReport(string $branchId, string $createdBy, string $assignedToType = 'personal', ?string $assignedToId = null): WasteDamageReport
     {
+        $status = $assignedToType === 'staff'
+            ? WasteDamageReportStatus::PENDING
+            : WasteDamageReportStatus::DRAFT;
+
         return $this->reportRepository->create([
             'branch_id' => $branchId,
             'created_by' => $createdBy,
             'assigned_to_type' => $assignedToType,
             'assigned_to_id' => $assignedToType === 'staff' ? $assignedToId : null,
-            'status' => WasteDamageReportStatus::DRAFT,
+            'status' => $status,
         ]);
     }
 
@@ -329,7 +333,7 @@ class WasteDamageReportService
         }
 
         $this->reportRepository->update($report, [
-            'status' => WasteDamageReportStatus::PENDING,
+            'status' => WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION,
             'submitted_at' => now(),
         ]);
 

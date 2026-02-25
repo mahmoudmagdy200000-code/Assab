@@ -63,9 +63,9 @@ class WasteDamageReportRepository
     }
 
     /**
-     * Counts by status for filter tabs: Pending your confirmation, Draft, Completed.
+     * Counts by status for filter tabs: Draft, Pending (staff), Pending your confirmation, Completed.
      *
-     * @return array{in_progress: int, draft: int, completed: int}
+     * @return array{draft: int, pending: int, pending_your_confirmation: int, completed: int}
      */
     public function getFilterCountsByBranch(string $branchId): array
     {
@@ -77,8 +77,9 @@ class WasteDamageReportRepository
             ->all();
 
         return [
-            'in_progress' => (int) ($counts['pending'] ?? 0),
             'draft' => (int) ($counts['draft'] ?? 0),
+            'pending' => (int) ($counts['pending'] ?? 0),
+            'pending_your_confirmation' => (int) ($counts['pending_your_confirmation'] ?? 0),
             'completed' => (int) ($counts['completed'] ?? 0),
         ];
     }

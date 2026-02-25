@@ -188,7 +188,7 @@ class WasteDamageReportController extends BaseController
             $perPage = (int) $request->get('per_page', 15);
             $status = $request->get('status');
             if ($status !== null && $status !== '' && WasteDamageReportStatus::tryFrom($status) === null) {
-                return $this->errorResponse('Invalid status. Allowed: draft, pending, completed.', 422);
+                return $this->errorResponse('Invalid status. Allowed: draft, pending, pending_your_confirmation, completed.', 422);
             }
             $reports = $this->reportService->listReportsByBranch(
                 $manager->branch_id,

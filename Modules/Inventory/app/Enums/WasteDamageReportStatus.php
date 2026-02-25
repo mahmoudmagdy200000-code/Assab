@@ -5,15 +5,20 @@ namespace Modules\Inventory\Enums;
 enum WasteDamageReportStatus: string
 {
     case DRAFT = 'draft';
-    /** When staff submitted — pending manager confirmation */
+    /** Assigned to staff; staff has not submitted yet */
     case PENDING = 'pending';
+    /** Staff submitted; waiting manager approval */
+    case PENDING_YOUR_CONFIRMATION = 'pending_your_confirmation';
     case COMPLETED = 'completed';
+
+    private const PENDING_YOUR_CONFIRMATION_LABEL = 'Pending your confirmation';
 
     public function label(): string
     {
         return match ($this) {
             self::DRAFT => 'Draft',
             self::PENDING => 'Pending',
+            self::PENDING_YOUR_CONFIRMATION => self::PENDING_YOUR_CONFIRMATION_LABEL,
             self::COMPLETED => 'Completed',
         };
     }
@@ -23,7 +28,8 @@ enum WasteDamageReportStatus: string
     {
         return match ($this) {
             self::DRAFT => 'Draft',
-            self::PENDING => 'Pending your confirmation',
+            self::PENDING => 'Pending',
+            self::PENDING_YOUR_CONFIRMATION => self::PENDING_YOUR_CONFIRMATION_LABEL,
             self::COMPLETED => 'Completed',
         };
     }
@@ -33,7 +39,8 @@ enum WasteDamageReportStatus: string
     {
         return match ($this) {
             self::DRAFT => 'Draft',
-            self::PENDING => 'Pending your confirmation',
+            self::PENDING => 'Pending',
+            self::PENDING_YOUR_CONFIRMATION => self::PENDING_YOUR_CONFIRMATION_LABEL,
             self::COMPLETED => 'Completed',
         };
     }
@@ -43,10 +50,16 @@ enum WasteDamageReportStatus: string
         return $this === self::DRAFT;
     }
 
-    /** When staff has submitted, awaiting confirmation */
+    /** Assigned to staff, they have not submitted yet */
     public function isPending(): bool
     {
         return $this === self::PENDING;
+    }
+
+    /** Staff submitted, awaiting manager confirmation */
+    public function isPendingYourConfirmation(): bool
+    {
+        return $this === self::PENDING_YOUR_CONFIRMATION;
     }
 
     public function isCompleted(): bool
@@ -54,14 +67,15 @@ enum WasteDamageReportStatus: string
         return $this === self::COMPLETED;
     }
 
-    /** Alias: submitted = pending (staff submitted) */
+    /** Report has been submitted (waiting confirmation or completed) */
     public function isSubmitted(): bool
     {
-        return $this->isPending();
+        return $this->isPendingYourConfirmation() || $this->isCompleted();
     }
 
+    /** Editable by assignee: draft (manager) or pending (staff still working) */
     public function isEditable(): bool
     {
-        return $this->isDraft();
+        return $this === self::DRAFT || $this === self::PENDING;
     }
 }
