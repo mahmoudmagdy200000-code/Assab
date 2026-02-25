@@ -7,11 +7,20 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
-     * Split: existing 'pending' with submitted_at set = waiting approval → pending_your_confirmation.
+     * Widen status column (pending_your_confirmation = 24 chars), then split pending → pending_your_confirmation where submitted.
      */
     public function up(): void
     {
-        DB::table('waste_damage_reports')
+        $driver = DB::getDriverName();
+        $table = 'waste_damage_reports';
+
+        if ($driver === 'mysql') {
+            DB::statement("ALTER TABLE `{$table}` MODIFY COLUMN `status` VARCHAR(32) NOT NULL DEFAULT 'draft'");
+        } else {
+            DB::statement("ALTER TABLE \"{$table}\" ALTER COLUMN status TYPE VARCHAR(32), ALTER COLUMN status SET DEFAULT 'draft'");
+        }
+
+        DB::table($table)
             ->where('status', 'pending')
             ->whereNotNull('submitted_at')
             ->update(['status' => 'pending_your_confirmation']);
@@ -25,5 +34,13 @@ return new class extends Migration
         DB::table('waste_damage_reports')
             ->where('status', 'pending_your_confirmation')
             ->update(['status' => 'pending']);
+
+        $driver = DB::getDriverName();
+        $table = 'waste_damage_reports';
+        if ($driver === 'mysql') {
+            DB::statement("ALTER TABLE `{$table}` MODIFY COLUMN `status` VARCHAR(20) NOT NULL DEFAULT 'draft'");
+        } else {
+            DB::statement("ALTER TABLE \"{$table}\" ALTER COLUMN status TYPE VARCHAR(20), ALTER COLUMN status SET DEFAULT 'draft'");
+        }
     }
 };
