@@ -6,14 +6,16 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Inventory\Http\Controllers\Concerns\ResolvesInventoryActor;
 use Modules\Inventory\Http\Requests\Monthly\AddFeedbackRequest;
 use Modules\Inventory\Http\Requests\Monthly\CreateMonthlyInventoryRequest;
 use Modules\Inventory\Http\Requests\Monthly\ExportMonthlyInventoryRequest;
 use Modules\Inventory\Http\Requests\Monthly\ReturnToDraftRequest;
 use Modules\Inventory\Http\Requests\Monthly\UpdateMonthlyInventoryProductRequest;
+use Modules\Inventory\Models\MonthlyInventory;
 use Modules\Inventory\Services\MonthlyInventoryExportService;
 use Modules\Inventory\Services\MonthlyInventoryService;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Modules\Inventory\Support\InventoryActor;
 use Modules\Inventory\Transformers\MonthlyInventoryComparisonResource;
 use Modules\Inventory\Transformers\MonthlyInventoryFeedbackResource;
 use Modules\Inventory\Transformers\MonthlyInventoryListResource;
@@ -23,10 +25,12 @@ use Modules\Inventory\Transformers\MonthlyInventoryReportResource;
 use Modules\Inventory\Transformers\MonthlyInventoryResource;
 use Modules\Inventory\Transformers\MonthlyInventorySetupInfoResource;
 use Modules\Inventory\Transformers\MonthlyInventoryTimelineResource;
-use Modules\Inventory\Models\MonthlyInventory;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class MonthlyInventoryController extends BaseController
 {
+    use ResolvesInventoryActor;
+
     public function __construct(
         private readonly MonthlyInventoryService $service,
         private readonly MonthlyInventoryExportService $exportService
@@ -34,11 +38,19 @@ class MonthlyInventoryController extends BaseController
 
     private function manager(): BranchManager
     {
-        $user = auth()->user();
-        if (!$user instanceof BranchManager) {
-            throw new \Illuminate\Auth\Access\AuthorizationException('Branch manager required.');
+        return $this->resolveInventoryActor()->requireManager();
+    }
+
+    /** Resolve inventory for current actor (manager or cashier). */
+    private function findInventoryForActor(string $id, InventoryActor $actor, array $relations = []): ?MonthlyInventory
+    {
+        $branchId = $actor->getBranchId();
+        if (!$branchId) {
+            return null;
         }
-        return $user;
+        $createdBy = $actor->isManager() ? $actor->getActorId() : null;
+        $staffCashierId = $actor->isCashier() ? $actor->getActorId() : null;
+        return $this->service->findForBranchOrStaff($id, $branchId, $createdBy, $staffCashierId, $relations);
     }
 
     public function setupInfo(): JsonResponse
@@ -109,18 +121,23 @@ class MonthlyInventoryController extends BaseController
     public function index(Request $request): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (!$branchId) {
+                return $this->errorResponse('Not assigned to any branch', 400);
             }
             $status = $request->query('status');
             $filters = [
-                'created_by' => $manager->id,
                 'date_from' => $request->query('date_from'),
                 'date_to' => $request->query('date_to'),
             ];
             $perPage = (int) $request->query('per_page', 15);
-            $paginator = $this->service->listByStatus($manager->branch_id, $status, $filters, $perPage);
+            if ($actor->isManager()) {
+                $filters['created_by'] = $actor->getActorId();
+                $paginator = $this->service->listByStatus($branchId, $status, $filters, $perPage);
+            } else {
+                $paginator = $this->service->listByStatusForStaff($branchId, $actor->getActorId(), $status, $filters, $perPage);
+            }
             return $this->paginatedResponse(
                 MonthlyInventoryListResource::collection($paginator),
                 'Monthly inventories retrieved successfully'
@@ -133,14 +150,14 @@ class MonthlyInventoryController extends BaseController
     public function statusCounts(): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (!$branchId) {
+                return $this->errorResponse('Not assigned to any branch', 400);
             }
-            $counts = $this->service->getStatusCounts([
-                'branch_id' => $manager->branch_id,
-                'created_by' => $manager->id,
-            ]);
+            $counts = $actor->isManager()
+                ? $this->service->getStatusCounts(['branch_id' => $branchId, 'created_by' => $actor->getActorId()])
+                : $this->service->getStatusCountsForStaff($branchId, $actor->getActorId());
             return $this->successResponse($counts, 'Status counts retrieved successfully');
         } catch (\Throwable $e) {
             return $this->handleException($e, 'fetching status counts');
@@ -150,13 +167,8 @@ class MonthlyInventoryController extends BaseController
     public function show(string $id): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
-            }
-            $inventory = $this->service->findForBranch($id, $manager->branch_id, $manager->id, [
-                'branch', 'createdBy', 'staff.user', 'products',
-            ]);
+            $actor = $this->resolveInventoryActor();
+            $inventory = $this->findInventoryForActor($id, $actor, ['branch', 'createdBy', 'staff.user', 'products']);
             if (!$inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
@@ -173,11 +185,8 @@ class MonthlyInventoryController extends BaseController
     public function products(string $id, Request $request): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
-            }
-            $inventory = $this->service->findForBranch($id, $manager->branch_id, $manager->id);
+            $actor = $this->resolveInventoryActor();
+            $inventory = $this->findInventoryForActor($id, $actor);
             if (!$inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
@@ -196,11 +205,8 @@ class MonthlyInventoryController extends BaseController
     public function updateProduct(UpdateMonthlyInventoryProductRequest $request, string $id, string $productId): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
-            }
-            $inventory = $this->service->findForBranch($id, $manager->branch_id, $manager->id);
+            $actor = $this->resolveInventoryActor();
+            $inventory = $this->findInventoryForActor($id, $actor);
             if (!$inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
@@ -220,15 +226,12 @@ class MonthlyInventoryController extends BaseController
     public function claimProduct(string $id, string $productId): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
-            }
-            $inventory = $this->service->findForBranch($id, $manager->branch_id, $manager->id);
+            $actor = $this->resolveInventoryActor();
+            $inventory = $this->findInventoryForActor($id, $actor);
             if (!$inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
-            $product = $this->service->claimProduct($id, $productId, $manager);
+            $product = $this->service->claimProduct($id, $productId, $actor->getActor());
             return $this->successResponse(new MonthlyInventoryProductResource($product), 'Product claimed successfully');
         } catch (\Throwable $e) {
             return $this->handleException($e, 'claiming product');
@@ -238,11 +241,8 @@ class MonthlyInventoryController extends BaseController
     public function releaseProduct(string $id, string $productId): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
-            }
-            $inventory = $this->service->findForBranch($id, $manager->branch_id, $manager->id);
+            $actor = $this->resolveInventoryActor();
+            $inventory = $this->findInventoryForActor($id, $actor);
             if (!$inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
@@ -256,11 +256,8 @@ class MonthlyInventoryController extends BaseController
     public function progress(string $id, Request $request): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
-            }
-            $inventory = $this->service->findForBranch($id, $manager->branch_id, $manager->id);
+            $actor = $this->resolveInventoryActor();
+            $inventory = $this->findInventoryForActor($id, $actor);
             if (!$inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
@@ -278,11 +275,8 @@ class MonthlyInventoryController extends BaseController
     public function saveProgress(Request $request, string $id): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
-            }
-            $inventory = $this->service->findForBranch($id, $manager->branch_id, $manager->id);
+            $actor = $this->resolveInventoryActor();
+            $inventory = $this->findInventoryForActor($id, $actor);
             if (!$inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
@@ -302,11 +296,8 @@ class MonthlyInventoryController extends BaseController
     public function review(string $id): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
-            }
-            $inventory = $this->service->findForBranch($id, $manager->branch_id, $manager->id);
+            $actor = $this->resolveInventoryActor();
+            $inventory = $this->findInventoryForActor($id, $actor);
             if (!$inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
@@ -325,16 +316,13 @@ class MonthlyInventoryController extends BaseController
     public function submit(string $id): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
-            }
-            $inventory = $this->service->findForBranch($id, $manager->branch_id, $manager->id);
+            $actor = $this->resolveInventoryActor();
+            $inventory = $this->findInventoryForActor($id, $actor);
             if (!$inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $this->authorize('submit', $inventory);
-            $updated = $this->service->submitForApproval($id, $manager);
+            $updated = $this->service->submitForApproval($id, $actor->getActor());
             return $this->successResponse(
                 new MonthlyInventoryResource($updated),
                 'Inventory submitted for approval successfully'
@@ -392,11 +380,8 @@ class MonthlyInventoryController extends BaseController
     public function report(string $id): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
-            }
-            $inventory = $this->service->findForBranch($id, $manager->branch_id);
+            $actor = $this->resolveInventoryActor();
+            $inventory = $this->findInventoryForActor($id, $actor);
             if (!$inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
@@ -450,11 +435,12 @@ class MonthlyInventoryController extends BaseController
     public function comparison(Request $request): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (!$branchId) {
+                return $this->errorResponse('Not assigned to any branch', 400);
             }
-            $branchId = $request->query('branch_id', $manager->branch_id);
+            $branchId = $request->query('branch_id', $branchId);
             $year = (int) $request->query('year', now()->year);
             $month = (int) $request->query('month', now()->month);
             $data = $this->service->getMonthlyComparison($branchId, $year, $month);
@@ -470,11 +456,8 @@ class MonthlyInventoryController extends BaseController
     public function timelines(string $id): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
-            }
-            $inventory = $this->service->findForBranch($id, $manager->branch_id);
+            $actor = $this->resolveInventoryActor();
+            $inventory = $this->findInventoryForActor($id, $actor);
             if (!$inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
@@ -491,11 +474,8 @@ class MonthlyInventoryController extends BaseController
     public function getFeedback(string $id): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
-            }
-            $inventory = $this->service->findForBranch($id, $manager->branch_id);
+            $actor = $this->resolveInventoryActor();
+            $inventory = $this->findInventoryForActor($id, $actor);
             if (!$inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
@@ -512,15 +492,12 @@ class MonthlyInventoryController extends BaseController
     public function addFeedback(AddFeedbackRequest $request, string $id): JsonResponse
     {
         try {
-            $manager = $this->manager();
-            if (!$manager->branch_id) {
-                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
-            }
-            $inventory = $this->service->findForBranch($id, $manager->branch_id);
+            $actor = $this->resolveInventoryActor();
+            $inventory = $this->findInventoryForActor($id, $actor);
             if (!$inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
-            $feedback = $this->service->addFeedback($id, $request->validated()['message'], $manager);
+            $feedback = $this->service->addFeedback($id, $request->validated()['message'], $actor->getActor());
             return $this->createdResponse(
                 new MonthlyInventoryFeedbackResource($feedback),
                 'Feedback added successfully'

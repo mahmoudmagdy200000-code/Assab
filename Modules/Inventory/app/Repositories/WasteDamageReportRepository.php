@@ -31,10 +31,12 @@ class WasteDamageReportRepository
         return $query->find($id);
     }
 
-    public function findByBranch(string $id, string $branchId, array $relations = []): ?WasteDamageReport
+    public function findByBranch(string $id, string $branchId, array $relations = [], ?string $assignedToId = null): ?WasteDamageReport
     {
         $query = WasteDamageReport::where('id', $id)->where('branch_id', $branchId);
-
+        if ($assignedToId !== null && $assignedToId !== '') {
+            $query->where('assigned_to_id', $assignedToId);
+        }
         if (!empty($relations)) {
             $query->with($relations);
         }
@@ -43,7 +45,7 @@ class WasteDamageReportRepository
     }
 
     /**
-     * @param array{branch_id?: string, status?: string} $filters
+     * @param array{branch_id?: string, status?: string, assigned_to_id?: string} $filters
      */
     public function getPaginated(array $filters, int $perPage = 15): LengthAwarePaginator
     {
@@ -51,6 +53,10 @@ class WasteDamageReportRepository
 
         if (!empty($filters['branch_id'])) {
             $query->where('branch_id', $filters['branch_id']);
+        }
+
+        if (!empty($filters['assigned_to_id'])) {
+            $query->where('assigned_to_id', $filters['assigned_to_id']);
         }
 
         if (!empty($filters['status'])) {

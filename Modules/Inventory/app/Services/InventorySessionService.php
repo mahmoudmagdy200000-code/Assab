@@ -279,21 +279,28 @@ class InventorySessionService
 
     /**
      * Submit inventory session. Sets status to Pending (awaiting Account Manager approval).
+     * Allowed for Branch Manager (creator) or Cashier (assigned to session).
      *
      * @param string $sessionId
-     * @param BranchManager $manager
+     * @param BranchManager|Cashier $actor
      * @return InventorySession
      */
-    public function submitSession(string $sessionId, BranchManager $manager): InventorySession
+    public function submitSession(string $sessionId, BranchManager|Cashier $actor): InventorySession
     {
-        return DB::transaction(function () use ($sessionId, $manager) {
-            $session = InventorySession::where('id', $sessionId)
-                ->where('branch_id', $manager->branch_id)
-                ->where('status', InventorySessionStatus::DRAFT)
-                ->where(function ($q) use ($manager) {
-                    $q->whereNull('created_by')->orWhere('created_by', $manager->id);
-                })
-                ->firstOrFail();
+        return DB::transaction(function () use ($sessionId, $actor) {
+            $query = InventorySession::where('id', $sessionId)
+                ->where('branch_id', $actor->branch_id)
+                ->where('status', InventorySessionStatus::DRAFT);
+
+            if ($actor instanceof Cashier) {
+                $query->where('assigned_to_type', 'staff')->where('assigned_to_id', $actor->id);
+            } else {
+                $query->where(function ($q) use ($actor) {
+                    $q->whereNull('created_by')->orWhere('created_by', $actor->id);
+                });
+            }
+
+            $session = $query->firstOrFail();
 
             if ($session->items()->count() === 0) {
                 throw new \InvalidArgumentException('Cannot submit session without items');
@@ -511,19 +518,26 @@ class InventorySessionService
     }
 
     /**
-     * Update inventory item
+     * Update inventory item. Allowed for Branch Manager or Cashier (when session assigned to them).
      *
      * @param string $itemId
      * @param array $data
-     * @param BranchManager $manager
+     * @param BranchManager|Cashier $actor
      * @return InventoryItem
      */
-    public function updateItem(string $itemId, array $data, BranchManager $manager): InventoryItem
+    public function updateItem(string $itemId, array $data, BranchManager|Cashier $actor): InventoryItem
     {
-        return DB::transaction(function () use ($itemId, $data, $manager) {
-            $item = InventoryItem::whereHas('inventorySession', function ($query) use ($manager) {
-                $query->where('branch_id', $manager->branch_id)
+        return DB::transaction(function () use ($itemId, $data, $actor) {
+            $item = InventoryItem::whereHas('inventorySession', function ($query) use ($actor) {
+                $query->where('branch_id', $actor->branch_id)
                     ->whereIn('status', [InventorySessionStatus::DRAFT, InventorySessionStatus::REJECTED]);
+                if ($actor instanceof Cashier) {
+                    $query->where('assigned_to_type', 'staff')->where('assigned_to_id', $actor->id);
+                } else {
+                    $query->where(function ($q) use ($actor) {
+                        $q->whereNull('created_by')->orWhere('created_by', $actor->id);
+                    });
+                }
             })
                 ->where('id', $itemId)
                 ->firstOrFail();
@@ -590,14 +604,24 @@ class InventorySessionService
     }
 
     /**
-     * Start a daily inventory session (Branch Manager). Sets start_time and optionally performed_by (created_by).
+     * Start a daily inventory session. Sets start_time and optionally inventory_date.
+     * Allowed for Branch Manager (any session in branch) or Cashier (session assigned to them).
      */
-    public function startSession(string $sessionId, BranchManager $manager): InventorySession
+    public function startSession(string $sessionId, BranchManager|Cashier $actor): InventorySession
     {
-        $session = InventorySession::where('id', $sessionId)
-            ->where('branch_id', $manager->branch_id)
-            ->whereIn('status', [InventorySessionStatus::PENDING, InventorySessionStatus::DRAFT])
-            ->firstOrFail();
+        $query = InventorySession::where('id', $sessionId)
+            ->where('branch_id', $actor->branch_id)
+            ->whereIn('status', [InventorySessionStatus::PENDING, InventorySessionStatus::DRAFT]);
+
+        if ($actor instanceof Cashier) {
+            $query->where('assigned_to_type', 'staff')->where('assigned_to_id', $actor->id);
+        } else {
+            $query->where(function ($q) use ($actor) {
+                $q->whereNull('created_by')->orWhere('created_by', $actor->id);
+            });
+        }
+
+        $session = $query->firstOrFail();
 
         if (!$session->start_time) {
             $session->start_time = now();
@@ -605,8 +629,8 @@ class InventorySessionService
         if (!$session->inventory_date) {
             $session->inventory_date = now()->toDateString();
         }
-        if (!$session->created_by && $session->status === InventorySessionStatus::PENDING) {
-            $session->created_by = $manager->id;
+        if (!$session->created_by && $session->status === InventorySessionStatus::PENDING && $actor instanceof BranchManager) {
+            $session->created_by = $actor->id;
         }
         $session->save();
 
@@ -614,23 +638,30 @@ class InventorySessionService
     }
 
     /**
-     * Get session summary
+     * Get session summary. Allowed for Branch Manager or Cashier (when session assigned to them).
      *
      * @param string $sessionId
-     * @param BranchManager $manager
+     * @param BranchManager|Cashier $actor
      * @return array
      */
-    public function getSessionSummary(string $sessionId, BranchManager $manager): array
+    public function getSessionSummary(string $sessionId, BranchManager|Cashier $actor): array
     {
-        $session = InventorySession::with([
+        $query = InventorySession::with([
             'items.item',
             'items.purchaseOrderItem.purchaseOrder',
             'assignedTo',
             'createdBy',
-        ])
-            ->where('id', $sessionId)
-            ->where('branch_id', $manager->branch_id)
-            ->firstOrFail();
+        ])->where('id', $sessionId)->where('branch_id', $actor->branch_id);
+
+        if ($actor instanceof Cashier) {
+            $query->where('assigned_to_type', 'staff')->where('assigned_to_id', $actor->id);
+        } else {
+            $query->where(function ($q) use ($actor) {
+                $q->whereNull('created_by')->orWhere('created_by', $actor->id);
+            });
+        }
+
+        $session = $query->firstOrFail();
 
         $items = $session->items()->with(['item', 'purchaseOrderItem.purchaseOrder'])->get();
         $totalItems = $items->count();

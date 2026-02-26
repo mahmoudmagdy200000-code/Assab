@@ -28,13 +28,16 @@ class WasteDamageReportService
     ) {}
 
     /**
-     * List reports for branch (paginated). Optionally filter by status (draft, pending, pending_your_confirmation, completed).
+     * List reports for branch (paginated). Optionally filter by status and by assignee (for cashier scope).
      */
-    public function listReportsByBranch(string $branchId, int $perPage = 15, ?string $status = null): LengthAwarePaginator
+    public function listReportsByBranch(string $branchId, int $perPage = 15, ?string $status = null, ?string $assignedToId = null): LengthAwarePaginator
     {
         $filters = ['branch_id' => $branchId];
         if ($status !== null && $status !== '') {
             $filters['status'] = $status;
+        }
+        if ($assignedToId !== null && $assignedToId !== '') {
+            $filters['assigned_to_id'] = $assignedToId;
         }
 
         return $this->reportRepository->getPaginated($filters, $perPage);
@@ -51,13 +54,13 @@ class WasteDamageReportService
     }
 
     /**
-     * Find report by id and branch (for show).
+     * Find report by id and branch (for show). Optionally scope by assignee for cashier.
      *
      * @param array<int, string> $relations
      */
-    public function findReportForBranch(string $reportId, string $branchId, array $relations = []): ?WasteDamageReport
+    public function findReportForBranch(string $reportId, string $branchId, array $relations = [], ?string $assignedToId = null): ?WasteDamageReport
     {
-        return $this->reportRepository->findByBranch($reportId, $branchId, $relations);
+        return $this->reportRepository->findByBranch($reportId, $branchId, $relations, $assignedToId);
     }
 
     /**
@@ -166,9 +169,9 @@ class WasteDamageReportService
      *
      * @param array{item_id: string, purchase_order_item_id?: string|null, problem_type: string, cause_of_damage?: string|null, quantity: float, reason: string, unit?: string|null, justification_text?: string|null, photo_path?: string|null, price_per_unit?: float|null, my_quantity_accountable?: float, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>} $data
      */
-    public function addItem(string $reportId, string $branchId, array $data, string $branchManagerId): WasteDamageReportItem
+    public function addItem(string $reportId, string $branchId, array $data, string $branchManagerId, ?string $assignedToId = null): WasteDamageReportItem
     {
-        $report = $this->reportRepository->findByBranch($reportId, $branchId);
+        $report = $this->reportRepository->findByBranch($reportId, $branchId, [], $assignedToId);
         if (!$report || !$report->status->isEditable()) {
             throw ValidationException::withMessages(['report' => [self::REPORT_NOT_EDITABLE_MESSAGE]]);
         }
@@ -230,9 +233,9 @@ class WasteDamageReportService
      *
      * @param array{problem_type?: string, cause_of_damage?: string|null, quantity?: float, reason?: string, justification_text?: string|null, photo_path?: string|null, my_quantity_accountable?: float, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>} $data
      */
-    public function updateItem(string $reportId, string $itemId, string $branchId, array $data, string $branchManagerId): WasteDamageReportItem
+    public function updateItem(string $reportId, string $itemId, string $branchId, array $data, string $branchManagerId, ?string $assignedToId = null): WasteDamageReportItem
     {
-        $report = $this->reportRepository->findByBranch($reportId, $branchId);
+        $report = $this->reportRepository->findByBranch($reportId, $branchId, [], $assignedToId);
         if (!$report || !$report->status->isEditable()) {
             throw ValidationException::withMessages(['report' => [self::REPORT_NOT_EDITABLE_MESSAGE]]);
         }
@@ -285,9 +288,9 @@ class WasteDamageReportService
     /**
      * Remove a report item.
      */
-    public function deleteItem(string $reportId, string $itemId, string $branchId): void
+    public function deleteItem(string $reportId, string $itemId, string $branchId, ?string $assignedToId = null): void
     {
-        $report = $this->reportRepository->findByBranch($reportId, $branchId);
+        $report = $this->reportRepository->findByBranch($reportId, $branchId, [], $assignedToId);
         if (!$report || !$report->status->isEditable()) {
             throw ValidationException::withMessages(['report' => [self::REPORT_NOT_EDITABLE_MESSAGE]]);
         }
@@ -304,9 +307,9 @@ class WasteDamageReportService
     /**
      * Submit the report (validate all items then set status to pending — pending your confirmation).
      */
-    public function submitReport(string $reportId, string $branchId): WasteDamageReport
+    public function submitReport(string $reportId, string $branchId, ?string $assignedToId = null): WasteDamageReport
     {
-        $report = $this->reportRepository->findByBranch($reportId, $branchId, ['items']);
+        $report = $this->reportRepository->findByBranch($reportId, $branchId, ['items'], $assignedToId);
         if (!$report) {
             throw ValidationException::withMessages(['report' => ['Report not found.']]);
         }

@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Modules\Inventory\Http\Controllers\InventoryController;
+use Modules\Inventory\Http\Controllers\InventoryTaskController;
 use Modules\Inventory\Http\Controllers\DailyQuickInventoryController;
 use Modules\Inventory\Http\Controllers\DailyInventoryScheduleController;
 use Modules\Inventory\Http\Controllers\MonthlyInventoryController;
@@ -9,6 +10,13 @@ use Modules\Inventory\Http\Controllers\WasteDamageReportController;
 
 Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
     Route::apiResource('inventories', InventoryController::class)->names('inventory');
+
+    /*
+    |--------------------------------------------------------------------------
+    | My Tasks (assignments for cashier / branch manager)
+    |--------------------------------------------------------------------------
+    */
+    Route::get('inventory/tasks', [InventoryTaskController::class, 'index'])->name('inventory.tasks.index');
 
     /*
     |--------------------------------------------------------------------------

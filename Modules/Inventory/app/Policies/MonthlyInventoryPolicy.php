@@ -11,56 +11,75 @@ class MonthlyInventoryPolicy
 {
     use HandlesAuthorization;
 
-    public function viewAny(BranchManager $user): bool
+    public function viewAny(BranchManager|Cashier $user): bool
     {
-        return (bool) $user->branch_id;
+        return (bool) ($user->branch_id ?? null);
     }
 
-    public function view(BranchManager $user, MonthlyInventory $inventory): bool
+    public function view(BranchManager|Cashier $user, MonthlyInventory $inventory): bool
     {
-        return $user->branch_id === $inventory->branch_id;
+        if (($user->branch_id ?? null) !== $inventory->branch_id) {
+            return false;
+        }
+        if ($user instanceof Cashier) {
+            return $inventory->staff()->where('user_id', $user->id)->where('user_type', Cashier::class)->exists();
+        }
+        return true;
     }
 
-    public function create(BranchManager $user): bool
+    public function create(BranchManager|Cashier $user): bool
     {
-        return (bool) $user->branch_id;
+        return $user instanceof BranchManager && (bool) $user->branch_id;
     }
 
-    public function update(BranchManager $user, MonthlyInventory $inventory): bool
+    public function update(BranchManager|Cashier $user, MonthlyInventory $inventory): bool
     {
+        if ($user instanceof Cashier) {
+            return $user->branch_id === $inventory->branch_id
+                && $inventory->staff()->where('user_id', $user->id)->where('user_type', Cashier::class)->exists()
+                && $inventory->status->isEditable();
+        }
         return $user->branch_id === $inventory->branch_id
             && $user->id === $inventory->created_by
             && $inventory->status->isEditable();
     }
 
-    public function delete(BranchManager $user, MonthlyInventory $inventory): bool
+    public function delete(BranchManager|Cashier $user, MonthlyInventory $inventory): bool
     {
-        return $user->branch_id === $inventory->branch_id
+        return $user instanceof BranchManager
+            && $user->branch_id === $inventory->branch_id
             && $user->id === $inventory->created_by
             && $inventory->status->isEditable();
     }
 
-    public function submit(BranchManager $user, MonthlyInventory $inventory): bool
+    public function submit(BranchManager|Cashier $user, MonthlyInventory $inventory): bool
     {
-        return $user->branch_id === $inventory->branch_id
-            && $user->id === $inventory->created_by
-            && $inventory->status->canSubmit();
+        if (($user->branch_id ?? null) !== $inventory->branch_id) {
+            return false;
+        }
+        if ($user instanceof Cashier) {
+            return $inventory->staff()->where('user_id', $user->id)->where('user_type', Cashier::class)->exists()
+                && $inventory->status->canSubmit();
+        }
+        return $user->id === $inventory->created_by && $inventory->status->canSubmit();
     }
 
-    public function approve(BranchManager $user, MonthlyInventory $inventory): bool
+    public function approve(BranchManager|Cashier $user, MonthlyInventory $inventory): bool
     {
-        return $user->branch_id === $inventory->branch_id
+        return $user instanceof BranchManager
+            && $user->branch_id === $inventory->branch_id
             && in_array($inventory->status->value, ['submitted', 'pending_finance_review'], true);
     }
 
-    public function returnToDraft(BranchManager $user, MonthlyInventory $inventory): bool
+    public function returnToDraft(BranchManager|Cashier $user, MonthlyInventory $inventory): bool
     {
-        return $user->branch_id === $inventory->branch_id
+        return $user instanceof BranchManager
+            && $user->branch_id === $inventory->branch_id
             && in_array($inventory->status->value, ['submitted', 'pending_finance_review'], true);
     }
 
-    public function export(BranchManager $user, MonthlyInventory $inventory): bool
+    public function export(BranchManager|Cashier $user, MonthlyInventory $inventory): bool
     {
-        return $user->branch_id === $inventory->branch_id;
+        return $user instanceof BranchManager && $user->branch_id === $inventory->branch_id;
     }
 }

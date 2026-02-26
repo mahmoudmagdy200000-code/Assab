@@ -6,7 +6,7 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
-use Modules\BranchManagers\Models\BranchManager;
+use Modules\Inventory\Http\Controllers\Concerns\ResolvesInventoryActor;
 use Modules\Inventory\Http\Requests\WasteDamage\StoreWasteDamageReportItemRequest;
 use Modules\Inventory\Http\Requests\WasteDamage\StoreWasteDamageReportRequest;
 use Modules\Inventory\Http\Requests\WasteDamage\UpdateWasteDamageReportItemRequest;
@@ -20,6 +20,8 @@ use Modules\Inventory\Transformers\WasteDamageReportResource;
 
 class WasteDamageReportController extends BaseController
 {
+    use ResolvesInventoryActor;
+
     private const BRANCH_NOT_ASSIGNED_MESSAGE = 'Branch manager is not assigned to any branch';
 
     public function __construct(
@@ -34,8 +36,7 @@ class WasteDamageReportController extends BaseController
     public function assignmentInfo(): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
+            $manager = $this->resolveInventoryActor()->requireManager();
             if (!$manager->branch_id) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
@@ -57,8 +58,7 @@ class WasteDamageReportController extends BaseController
     public function productsFromClosedOrders(Request $request): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
+            $manager = $this->resolveInventoryActor()->requireManager();
             if (!$manager->branch_id) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
@@ -88,8 +88,7 @@ class WasteDamageReportController extends BaseController
     public function employees(): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
+            $manager = $this->resolveInventoryActor()->requireManager();
             if (!$manager->branch_id) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
@@ -120,8 +119,7 @@ class WasteDamageReportController extends BaseController
     public function store(StoreWasteDamageReportRequest $request): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
+            $manager = $this->resolveInventoryActor()->requireManager();
             if (!$manager->branch_id) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
@@ -174,14 +172,14 @@ class WasteDamageReportController extends BaseController
     }
 
     /**
-     * List reports (branch-scoped).
+     * List reports (branch-scoped; cashier sees only reports assigned to them).
      */
     public function index(Request $request): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-            if (!$manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (!$branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -190,10 +188,12 @@ class WasteDamageReportController extends BaseController
             if ($status !== null && $status !== '' && WasteDamageReportStatus::tryFrom($status) === null) {
                 return $this->errorResponse('Invalid status. Allowed: draft, pending, pending_your_confirmation, completed.', 422);
             }
+            $assignedToId = $actor->isCashier() ? $actor->getActorId() : null;
             $reports = $this->reportService->listReportsByBranch(
-                $manager->branch_id,
+                $branchId,
                 $perPage > 0 ? $perPage : 15,
-                $status ? (string) $status : null
+                $status ? (string) $status : null,
+                $assignedToId
             );
             $reports->loadCount('items');
             $reports->load([
@@ -216,25 +216,26 @@ class WasteDamageReportController extends BaseController
     }
 
     /**
-     * Report detail + items (summary).
+     * Report detail + items (summary). Cashier sees only reports assigned to them.
      */
     public function show(string $id): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-            if (!$manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (!$branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
-            $report = $this->reportService->findReportForBranch($id, $manager->branch_id, [
+            $assignedToId = $actor->isCashier() ? $actor->getActorId() : null;
+            $report = $this->reportService->findReportForBranch($id, $branchId, [
                 'createdBy',
                 'assignedTo',
                 'items.item',
                 'items.purchaseOrderItem',
                 'items.responsibleEmployees.cashier.branch',
                 'items.responsibleEmployees.branchManager',
-            ]);
+            ], $assignedToId);
 
             if (!$report) {
                 return $this->notFoundResponse('Report not found');
@@ -250,14 +251,14 @@ class WasteDamageReportController extends BaseController
     }
 
     /**
-     * Add product line to report.
+     * Add product line to report. Cashier may add to reports assigned to them.
      */
     public function storeItem(StoreWasteDamageReportItemRequest $request, string $id): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-            if (!$manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (!$branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -267,7 +268,8 @@ class WasteDamageReportController extends BaseController
                 $data['photo_path'] = $photoPath;
             }
 
-            $item = $this->reportService->addItem($id, $manager->branch_id, $data, $manager->id);
+            $assignedToId = $actor->isCashier() ? $actor->getActorId() : null;
+            $item = $this->reportService->addItem($id, $branchId, $data, $actor->getActorId(), $assignedToId);
 
             return $this->createdResponse(
                 new WasteDamageReportItemResource($item),
@@ -281,14 +283,14 @@ class WasteDamageReportController extends BaseController
     }
 
     /**
-     * Update report item.
+     * Update report item. Cashier may update reports assigned to them.
      */
     public function updateItem(UpdateWasteDamageReportItemRequest $request, string $id, string $itemId): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-            if (!$manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (!$branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -298,7 +300,8 @@ class WasteDamageReportController extends BaseController
                 $data['photo_path'] = $photoPath;
             }
 
-            $item = $this->reportService->updateItem($id, $itemId, $manager->branch_id, $data, $manager->id);
+            $assignedToId = $actor->isCashier() ? $actor->getActorId() : null;
+            $item = $this->reportService->updateItem($id, $itemId, $branchId, $data, $actor->getActorId(), $assignedToId);
 
             return $this->successResponse(
                 new WasteDamageReportItemResource($item),
@@ -312,18 +315,19 @@ class WasteDamageReportController extends BaseController
     }
 
     /**
-     * Remove report item.
+     * Remove report item. Cashier may remove from reports assigned to them.
      */
     public function deleteItem(string $id, string $itemId): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-            if (!$manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (!$branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
-            $this->reportService->deleteItem($id, $itemId, $manager->branch_id);
+            $assignedToId = $actor->isCashier() ? $actor->getActorId() : null;
+            $this->reportService->deleteItem($id, $itemId, $branchId, $assignedToId);
 
             return $this->successResponse(null, 'Report item removed successfully');
         } catch (ValidationException $e) {
@@ -334,18 +338,19 @@ class WasteDamageReportController extends BaseController
     }
 
     /**
-     * Submit report.
+     * Submit report. Cashier may submit reports assigned to them.
      */
     public function submit(string $id): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-            if (!$manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (!$branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
-            $report = $this->reportService->submitReport($id, $manager->branch_id);
+            $assignedToId = $actor->isCashier() ? $actor->getActorId() : null;
+            $report = $this->reportService->submitReport($id, $branchId, $assignedToId);
             $report->load(['items.item', 'items.responsibleEmployees.cashier.branch']);
 
             return $this->successResponse(

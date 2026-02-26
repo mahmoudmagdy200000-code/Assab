@@ -3,8 +3,11 @@
 namespace Modules\Inventory\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Cashier\Models\Cashier;
+use Modules\Inventory\Http\Controllers\Concerns\ResolvesInventoryActor;
 use Modules\Inventory\Http\Requests\AddInventoryItemRequest;
 use Modules\Inventory\Http\Requests\ApproveInventorySessionRequest;
 use Modules\Inventory\Http\Requests\CreateInventorySessionRequest;
@@ -21,11 +24,23 @@ use Modules\Inventory\Transformers\InventorySessionTimelineResource;
 
 class DailyQuickInventoryController extends BaseController
 {
+    use ResolvesInventoryActor;
+
     private const BRANCH_NOT_ASSIGNED_MESSAGE = 'Branch manager is not assigned to any branch';
 
     public function __construct(
         private readonly InventorySessionService $sessionService
     ) {}
+
+    /** Scope session query by current actor (manager: branch; cashier: assigned to them). */
+    private function sessionsQueryForActor(BranchManager|Cashier $actor): Builder
+    {
+        $query = InventorySession::where('branch_id', $actor->branch_id);
+        if ($actor instanceof Cashier) {
+            $query->where('assigned_to_type', 'staff')->where('assigned_to_id', $actor->id);
+        }
+        return $query;
+    }
 
     /**
      * Daily inventory dashboard for Branch Manager.
@@ -34,9 +49,7 @@ class DailyQuickInventoryController extends BaseController
     public function dashboard(): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-
+            $manager = $this->resolveInventoryActor()->requireManager();
             if (!$manager->branch_id) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
@@ -81,9 +94,7 @@ class DailyQuickInventoryController extends BaseController
     public function getBranchItems(): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-
+            $manager = $this->resolveInventoryActor()->requireManager();
             if (!$manager->branch_id) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
@@ -107,9 +118,7 @@ class DailyQuickInventoryController extends BaseController
     public function getClosedOrderItems(): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-
+            $manager = $this->resolveInventoryActor()->requireManager();
             if (!$manager->branch_id) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
@@ -133,9 +142,7 @@ class DailyQuickInventoryController extends BaseController
     public function getEmployees(): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-
+            $manager = $this->resolveInventoryActor()->requireManager();
             if (!$manager->branch_id) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
@@ -159,9 +166,7 @@ class DailyQuickInventoryController extends BaseController
     public function createSession(CreateInventorySessionRequest $request): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-
+            $manager = $this->resolveInventoryActor()->requireManager();
             if (!$manager->branch_id) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
@@ -187,9 +192,7 @@ class DailyQuickInventoryController extends BaseController
     public function updateSession(UpdateInventorySessionRequest $request, string $id): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-
+            $manager = $this->resolveInventoryActor()->requireManager();
             $session = $this->sessionService->updateDraft($id, $request->validated(), $manager);
 
             return $this->successResponse(
@@ -209,9 +212,7 @@ class DailyQuickInventoryController extends BaseController
     public function addItem(AddInventoryItemRequest $request, string $id): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-
+            $manager = $this->resolveInventoryActor()->requireManager();
             $item = $this->sessionService->addItem($id, $request->validated(), $manager);
 
             return $this->successResponse(
@@ -233,10 +234,8 @@ class DailyQuickInventoryController extends BaseController
     public function updateItem(UpdateInventoryItemRequest $request, string $sessionId, string $itemId): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-
-            $item = $this->sessionService->updateItem($itemId, $request->validated(), $manager);
+            $actor = $this->resolveInventoryActor();
+            $item = $this->sessionService->updateItem($itemId, $request->validated(), $actor->getActor());
 
             return $this->successResponse(
                 new InventoryItemResource($item),
@@ -255,9 +254,7 @@ class DailyQuickInventoryController extends BaseController
     public function removeItem(string $sessionId, string $itemId): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-
+            $manager = $this->resolveInventoryActor()->requireManager();
             $this->sessionService->removeItem($itemId, $manager);
 
             return $this->successResponse(
@@ -277,10 +274,8 @@ class DailyQuickInventoryController extends BaseController
     public function submitSession(string $id): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-
-            $session = $this->sessionService->submitSession($id, $manager);
+            $actor = $this->resolveInventoryActor();
+            $session = $this->sessionService->submitSession($id, $actor->getActor());
 
             return $this->successResponse(
                 new InventorySessionResource($session),
@@ -301,10 +296,8 @@ class DailyQuickInventoryController extends BaseController
     public function getSessionSummary(string $id): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-
-            $summary = $this->sessionService->getSessionSummary($id, $manager);
+            $actor = $this->resolveInventoryActor();
+            $summary = $this->sessionService->getSessionSummary($id, $actor->getActor());
 
             return $this->successResponse(
                 new InventorySessionSummaryResource($summary),
@@ -324,10 +317,8 @@ class DailyQuickInventoryController extends BaseController
     public function getSessions(): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-
-            if (!$manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            if (!$actor->getBranchId()) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -342,7 +333,7 @@ class DailyQuickInventoryController extends BaseController
                 );
             }
 
-            $sessions = InventorySession::where('branch_id', $manager->branch_id)
+            $sessions = $this->sessionsQueryForActor($actor->getActor())
                 ->when($hasStatusFilter, fn ($q) => $q->where('status', $statusFilter))
                 ->with(['items.item', 'items.purchaseOrderItem.purchaseOrder', 'assignedTo', 'createdBy', 'branch'])
                 ->withCount('items')
@@ -366,11 +357,9 @@ class DailyQuickInventoryController extends BaseController
     public function getSession(string $id): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-
-            $session = InventorySession::where('id', $id)
-                ->where('branch_id', $manager->branch_id)
+            $actor = $this->resolveInventoryActor();
+            $session = $this->sessionsQueryForActor($actor->getActor())
+                ->where('id', $id)
                 ->with(['items.item', 'items.purchaseOrderItem.purchaseOrder', 'assignedTo', 'createdBy'])
                 ->withCount('items')
                 ->firstOrFail();
@@ -409,8 +398,7 @@ class DailyQuickInventoryController extends BaseController
     public function resubmitSession(string $id): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
+            $manager = $this->resolveInventoryActor()->requireManager();
             $session = $this->sessionService->resubmitSession($id, $manager);
 
             return $this->successResponse(
@@ -453,10 +441,9 @@ class DailyQuickInventoryController extends BaseController
     public function getDiscrepancyReport(string $id): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-            $session = InventorySession::where('id', $id)
-                ->where('branch_id', $manager->branch_id)
+            $actor = $this->resolveInventoryActor();
+            $session = $this->sessionsQueryForActor($actor->getActor())
+                ->where('id', $id)
                 ->with(['discrepancies.inventoryItem.item', 'items.item'])
                 ->firstOrFail();
 
@@ -511,8 +498,7 @@ class DailyQuickInventoryController extends BaseController
     public function markDiscrepancyReviewed(string $id): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
+            $manager = $this->resolveInventoryActor()->requireManager();
             $session = $this->sessionService->markDiscrepancyReviewed($id, $manager);
 
             return $this->successResponse(
@@ -530,12 +516,12 @@ class DailyQuickInventoryController extends BaseController
     public function getLastQuantities(string $itemId): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-            if (!$manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (!$branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
-            $quantities = $this->sessionService->getLastQuantitiesForProduct($manager->branch_id, $itemId);
+            $quantities = $this->sessionService->getLastQuantitiesForProduct($branchId, $itemId);
             return $this->successResponse(['quantities' => $quantities], 'Last quantities retrieved successfully');
         } catch (\Exception $e) {
             return $this->handleException($e, 'fetching last quantities');
@@ -543,14 +529,13 @@ class DailyQuickInventoryController extends BaseController
     }
 
     /**
-     * Start a daily inventory session (Start Myself). Sets start_time and performed_by.
+     * Start a daily inventory session (Start Myself or Approve Assignment). Sets start_time and inventory_date.
      */
     public function startSession(string $id): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-            $session = $this->sessionService->startSession($id, $manager);
+            $actor = $this->resolveInventoryActor();
+            $session = $this->sessionService->startSession($id, $actor->getActor());
             return $this->successResponse(
                 new InventorySessionResource($session),
                 'Session started successfully'
@@ -566,11 +551,8 @@ class DailyQuickInventoryController extends BaseController
     public function getTimelines(string $id): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
-            $session = InventorySession::where('id', $id)
-                ->where('branch_id', $manager->branch_id)
-                ->firstOrFail();
+            $actor = $this->resolveInventoryActor();
+            $session = $this->sessionsQueryForActor($actor->getActor())->where('id', $id)->firstOrFail();
 
             $timelines = $session->timelines()->orderBy('occurred_at', 'asc')->get();
 
@@ -584,15 +566,14 @@ class DailyQuickInventoryController extends BaseController
     }
 
     /**
-     * Delete inventory session (draft only)
+     * Delete inventory session (draft only). Branch Manager only.
      *
      * @group Daily Quick Inventory
      */
     public function deleteSession(string $id): JsonResponse
     {
         try {
-            /** @var BranchManager $manager */
-            $manager = auth()->user();
+            $manager = $this->resolveInventoryActor()->requireManager();
 
             $session = InventorySession::where('id', $id)
                 ->where('branch_id', $manager->branch_id)

@@ -91,6 +91,16 @@ class MonthlyInventoryService
     }
 
     /**
+     * Get status counts for a cashier (inventories where they are in staff).
+     *
+     * @return array<string, int>
+     */
+    public function getStatusCountsForStaff(string $branchId, string $cashierId): array
+    {
+        return $this->repository->getStatusCountsForStaff($branchId, $cashierId);
+    }
+
+    /**
      * Create and start a monthly inventory.
      *
      * @param array{inventory_date: string, staff: array<string>} $data
@@ -206,6 +216,20 @@ class MonthlyInventoryService
         return $this->repository->getPaginated($filters, $perPage);
     }
 
+    /**
+     * List monthly inventories for a cashier (where they are in staff).
+     *
+     * @param array{date_from?: string, date_to?: string} $filters
+     */
+    public function listByStatusForStaff(string $branchId, string $cashierId, ?string $status, array $filters, int $perPage = 15): LengthAwarePaginator
+    {
+        if ($status) {
+            $filters['status'] = $status;
+        }
+
+        return $this->repository->getPaginatedForStaff($branchId, $cashierId, $filters, $perPage);
+    }
+
     public function findForBranch(string $id, string $branchId, ?string $createdBy = null, array $relations = []): ?MonthlyInventory
     {
         if ($createdBy) {
@@ -213,6 +237,14 @@ class MonthlyInventoryService
         }
 
         return $this->repository->findByBranch($id, $branchId, $relations);
+    }
+
+    /**
+     * Find inventory by branch and either creator (manager) or staff membership (cashier).
+     */
+    public function findForBranchOrStaff(string $id, string $branchId, ?string $createdBy, ?string $staffCashierId, array $relations = []): ?MonthlyInventory
+    {
+        return $this->repository->findByBranchOrStaff($id, $branchId, $createdBy, $staffCashierId, $relations);
     }
 
     /**
@@ -420,12 +452,15 @@ class MonthlyInventoryService
     }
 
     /**
-     * Submit for approval.
+     * Submit for approval. Allowed for Branch Manager (creator) or Cashier (staff member).
      */
-    public function submitForApproval(string $inventoryId, BranchManager $manager): MonthlyInventory
+    public function submitForApproval(string $inventoryId, BranchManager|Cashier $actor): MonthlyInventory
     {
-        return DB::transaction(function () use ($inventoryId, $manager) {
-            $inventory = $this->findForBranch($inventoryId, $manager->branch_id, $manager->id);
+        return DB::transaction(function () use ($inventoryId, $actor) {
+            $branchId = $actor->branch_id;
+            $createdBy = $actor instanceof BranchManager ? $actor->id : null;
+            $staffCashierId = $actor instanceof Cashier ? $actor->id : null;
+            $inventory = $this->findForBranchOrStaff($inventoryId, $branchId, $createdBy, $staffCashierId);
             if (!$inventory) {
                 throw new \InvalidArgumentException('Inventory not found.');
             }
