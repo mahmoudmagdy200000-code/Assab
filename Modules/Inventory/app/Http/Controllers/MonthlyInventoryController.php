@@ -130,6 +130,23 @@ class MonthlyInventoryController extends BaseController
         }
     }
 
+    public function statusCounts(): JsonResponse
+    {
+        try {
+            $manager = $this->manager();
+            if (!$manager->branch_id) {
+                return $this->errorResponse('Branch manager is not assigned to any branch', 400);
+            }
+            $counts = $this->service->getStatusCounts([
+                'branch_id' => $manager->branch_id,
+                'created_by' => $manager->id,
+            ]);
+            return $this->successResponse($counts, 'Status counts retrieved successfully');
+        } catch (\Throwable $e) {
+            return $this->handleException($e, 'fetching status counts');
+        }
+    }
+
     public function show(string $id): JsonResponse
     {
         try {

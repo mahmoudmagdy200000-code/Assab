@@ -80,6 +80,17 @@ class MonthlyInventoryService
     }
 
     /**
+     * Get status counts for list tabs (in_progress, draft, completed, etc.).
+     *
+     * @param array{branch_id: string, created_by?: string} $filters
+     * @return array<string, int>
+     */
+    public function getStatusCounts(array $filters): array
+    {
+        return $this->repository->getStatusCounts($filters);
+    }
+
+    /**
      * Create and start a monthly inventory.
      *
      * @param array{inventory_date: string, staff: array<string>} $data
@@ -255,9 +266,14 @@ class MonthlyInventoryService
                 throw new \InvalidArgumentException('Inventory is not editable in current status.');
             }
 
+            $user = auth()->user();
             $update = [
                 'quantity_inventory' => $data['quantity_inventory'] ?? $product->quantity_inventory,
             ];
+            if ($user) {
+                $update['counted_by_id'] = $user->getKey();
+                $update['counted_by_type'] = $user->getMorphClass();
+            }
             if (isset($data['count_method'])) {
                 $update['count_method'] = $data['count_method'];
             }
@@ -521,25 +537,36 @@ class MonthlyInventoryService
 
         $byCategory = $products->filter(fn ($p) => (string) $p->category !== '')
             ->groupBy('category')
-            ->map(function ($items, $cat) {
+            ->map(function ($items, $cat) use ($totalValue) {
                 $value = $items->sum(fn (MonthlyInventoryProduct $p) => $p->line_value);
-                return ['category' => $cat, 'value' => round($value, 2), 'items' => $items->count()];
+                $percentage = $totalValue > 0 ? round((float) $value / (float) $totalValue * 100, 0) : 0;
+                return ['category' => $cat, 'value' => round($value, 2), 'percentage' => (int) $percentage, 'items' => $items->count()];
             })
             ->values()
             ->all();
 
+        $countedByCounts = $products->filter(fn (MonthlyInventoryProduct $p) => $p->counted_by_id !== null)
+            ->groupBy(fn (MonthlyInventoryProduct $p) => $p->counted_by_type . ':' . $p->counted_by_id)
+            ->map->count()
+            ->all();
+
         $teamContributions = [];
         foreach ($inventory->staff as $s) {
-            $user = $s->user;
+            $key = $s->user_type . ':' . $s->user_id;
             $teamContributions[] = [
                 'user_id' => $s->user_id,
                 'user_type' => $s->user_type,
-                'name' => $user?->name ?? 'Unknown',
+                'name' => $s->user?->name ?? 'Unknown',
                 'role' => $s->role,
-                'products_count' => 0,
+                'products_count' => (int) ($countedByCounts[$key] ?? 0),
                 'performance' => 'Good',
             ];
         }
+        $this->assignPerformanceLabels($teamContributions);
+
+        $comparisonToLastMonth = $this->getComparisonToLastMonthForReport($inventory->branch_id, $inventory->inventory_date, round($totalValue, 2));
+        $overallAssessment = $this->deriveOverallAssessment($inventory, $completed, $total, $totalValue);
+        $recommendations = $this->deriveRecommendations($inventory, $completed, $total, $teamContributions);
 
         return [
             'inventory' => $inventory,
@@ -552,10 +579,124 @@ class MonthlyInventoryService
                 'total_value' => round($totalValue, 2),
                 'status' => $inventory->status->value,
             ],
+            'overall_assessment' => $overallAssessment,
+            'recommendations' => $recommendations,
+            'comparison_to_last_month' => $comparisonToLastMonth,
             'team_contributions' => $teamContributions,
             'value_by_category' => $byCategory,
             'products' => $products,
         ];
+    }
+
+    /**
+     * Compare total value to previous month's inventory for report.
+     *
+     * @return array{total_value_previous: float, change_percent: float, direction: string}
+     */
+    private function getComparisonToLastMonthForReport(string $branchId, $inventoryDate, float $currentTotalValue): array
+    {
+        $date = $inventoryDate instanceof \Carbon\Carbon ? $inventoryDate : \Carbon\Carbon::parse($inventoryDate);
+        $prevMonth = $date->copy()->subMonth();
+        $previous = MonthlyInventory::where('branch_id', $branchId)
+            ->whereYear('inventory_date', $prevMonth->year)
+            ->whereMonth('inventory_date', $prevMonth->month)
+            ->whereIn('status', [MonthlyInventoryStatus::COMPLETED, MonthlyInventoryStatus::SUBMITTED, MonthlyInventoryStatus::APPROVED])
+            ->with('products')
+            ->orderBy('inventory_date', 'desc')
+            ->first();
+
+        $previousTotal = $previous ? $previous->products->sum(fn (MonthlyInventoryProduct $p) => $p->line_value) : 0.0;
+        $previousTotal = round((float) $previousTotal, 2);
+        if ($previousTotal <= 0) {
+            return [
+                'total_value_previous' => $previousTotal,
+                'change_percent' => $currentTotalValue > 0 ? 100.0 : 0.0,
+                'direction' => $currentTotalValue > 0 ? 'higher' : 'same',
+            ];
+        }
+        $changePercent = (($currentTotalValue - $previousTotal) / $previousTotal) * 100;
+        $direction = $changePercent > 0 ? 'higher' : ($changePercent < 0 ? 'lower' : 'same');
+        return [
+            'total_value_previous' => $previousTotal,
+            'change_percent' => round($changePercent, 2),
+            'direction' => $direction,
+        ];
+    }
+
+    private function deriveOverallAssessment(MonthlyInventory $inventory, int $completed, int $total, float $totalValue): string
+    {
+        $completionPct = $total > 0 ? ($completed / $total) * 100 : 0;
+        $expectedMinutes = $inventory->expected_time_minutes ?? 60;
+        $timeTakenSeconds = $inventory->time_taken ?? 0;
+        $timeTakenMinutes = $timeTakenSeconds / 60;
+        $withinTime = $timeTakenMinutes <= ($expectedMinutes + 15);
+
+        if ($completionPct >= 100 && $withinTime && $totalValue > 0) {
+            return 'Excellent';
+        }
+        if ($completionPct >= 90 && $withinTime) {
+            return 'Very Good';
+        }
+        return 'Good';
+    }
+
+    /**
+     * Rule-based recommendations for next month.
+     *
+     * @param array<int, array{products_count: int, performance: string}> $teamContributions
+     * @return array<int, string>
+     */
+    private function deriveRecommendations(MonthlyInventory $inventory, int $completed, int $total, array $teamContributions): array
+    {
+        $recommendations = [];
+        $completionPct = $total > 0 ? ($completed / $total) * 100 : 0;
+        $expectedMinutes = $inventory->expected_time_minutes ?? 60;
+        $timeTakenSeconds = $inventory->time_taken ?? 0;
+        $timeTakenMinutes = $timeTakenSeconds / 60;
+
+        if ($completionPct >= 100 && $timeTakenMinutes <= $expectedMinutes + 15) {
+            $recommendations[] = 'Maintain current performance level';
+        }
+        if ($timeTakenMinutes > $expectedMinutes + 15 || ($total > 0 && $completionPct < 100)) {
+            $recommendations[] = 'Improve inventory timing';
+        }
+        $excellentCount = count(array_filter($teamContributions, fn ($t) => ($t['performance'] ?? '') === 'Excellent'));
+        if ($excellentCount < count($teamContributions) && count($teamContributions) > 0) {
+            $recommendations[] = 'Increase team training';
+        }
+        if ($recommendations === []) {
+            $recommendations[] = 'Maintain current performance level';
+        }
+        return array_values(array_unique($recommendations));
+    }
+
+    /**
+     * Assign performance labels (Excellent, Very Good, Good) by products_count rank.
+     *
+     * @param array<int, array{products_count: int, performance: string}> $teamContributions
+     */
+    private function assignPerformanceLabels(array &$teamContributions): void
+    {
+        $sorted = $teamContributions;
+        usort($sorted, fn ($a, $b) => ($b['products_count'] ?? 0) <=> ($a['products_count'] ?? 0));
+        $rank = 0;
+        foreach ($sorted as &$row) {
+            $row['performance'] = match ($rank) {
+                0 => 'Excellent',
+                1 => 'Very Good',
+                default => 'Good',
+            };
+            $rank++;
+        }
+        unset($row);
+        $byKey = collect($sorted)->keyBy(fn ($r) => $r['user_type'] . ':' . $r['user_id'])->all();
+        foreach ($teamContributions as &$row) {
+            $key = $row['user_type'] . ':' . $row['user_id'];
+            if (isset($byKey[$key])) {
+                $row['performance'] = $byKey[$key]['performance'];
+            }
+        }
+        unset($row);
     }
 
     /**

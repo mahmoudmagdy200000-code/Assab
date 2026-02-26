@@ -25,6 +25,7 @@ class MonthlyInventoryProductResource extends JsonResource
             'category' => $this->category,
             'subcategory' => $this->subcategory,
             'count_method' => $this->count_method,
+            'preferred_count_method' => $this->preferred_count_method,
             'count_metadata' => $this->count_metadata,
             'handled_by' => $this->when($this->handled_by_id, [
                 'id' => $this->handled_by_id,

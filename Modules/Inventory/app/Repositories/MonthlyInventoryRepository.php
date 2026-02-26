@@ -69,12 +69,7 @@ class MonthlyInventoryRepository
         }
 
         if (isset($filters['status'])) {
-            $status = $filters['status'];
-            if ($status instanceof MonthlyInventoryStatus) {
-                $query->where('status', $status);
-            } else {
-                $query->where('status', $status);
-            }
+            $query->where('status', $filters['status']);
         }
 
         if (!empty($filters['date_from'])) {
@@ -89,6 +84,44 @@ class MonthlyInventoryRepository
             ->withCount('products')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
+    }
+
+    /**
+     * Get counts per status for list tabs (branch + optional created_by).
+     *
+     * @param array{branch_id: string, created_by?: string} $filters
+     * @return array<string, int>
+     */
+    public function getStatusCounts(array $filters): array
+    {
+        $query = MonthlyInventory::query()
+            ->where('branch_id', $filters['branch_id']);
+
+        if (!empty($filters['created_by'])) {
+            $query->where('created_by', $filters['created_by']);
+        }
+
+        $counts = (clone $query)
+            ->selectRaw('status, count(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status')
+            ->all();
+
+        $statuses = [
+            MonthlyInventoryStatus::IN_PROGRESS->value,
+            MonthlyInventoryStatus::DRAFT->value,
+            MonthlyInventoryStatus::COMPLETED->value,
+            MonthlyInventoryStatus::SUBMITTED->value,
+            MonthlyInventoryStatus::APPROVED->value,
+            MonthlyInventoryStatus::RETURNED_TO_DRAFT->value,
+        ];
+
+        $result = [];
+        foreach ($statuses as $status) {
+            $result[$status] = (int) ($counts[$status] ?? 0);
+        }
+
+        return $result;
     }
 
     /**

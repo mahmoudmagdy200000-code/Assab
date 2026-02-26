@@ -33,6 +33,8 @@ class MonthlyInventoryProduct extends Model
         'handled_by_id',
         'handled_by_type',
         'locked_at',
+        'counted_by_id',
+        'counted_by_type',
         'branch_id',
         'notes',
     ];
@@ -67,6 +69,11 @@ class MonthlyInventoryProduct extends Model
         return $this->morphTo(__FUNCTION__, 'handled_by_type', 'handled_by_id');
     }
 
+    public function countedBy(): MorphTo
+    {
+        return $this->morphTo(__FUNCTION__, 'counted_by_type', 'counted_by_id');
+    }
+
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);
@@ -80,5 +87,23 @@ class MonthlyInventoryProduct extends Model
     public function getLineValueAttribute(): float
     {
         return (float) $this->quantity_inventory * (float) $this->unit_price;
+    }
+
+    /**
+     * Hint for UI: prefer slider for volume/container-based units when count_method not yet set.
+     */
+    public function getPreferredCountMethodAttribute(): string
+    {
+        if ($this->count_method !== null && $this->count_method !== '') {
+            return $this->count_method;
+        }
+        $u = strtolower(trim((string) $this->unit));
+        $volumeUnits = ['l', 'liter', 'liters', 'ltr', 'ltrs', 'litre', 'litres', 'ml', 'gal', 'gallon'];
+        foreach ($volumeUnits as $v) {
+            if ($u === $v || str_starts_with($u, $v)) {
+                return self::COUNT_METHOD_SLIDER;
+            }
+        }
+        return self::COUNT_METHOD_SIMPLE;
     }
 }

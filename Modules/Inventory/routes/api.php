@@ -21,6 +21,7 @@ Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
         Route::get('/last-team', [MonthlyInventoryController::class, 'lastTeam'])->name('inventory.monthly.last-team');
         Route::post('/', [MonthlyInventoryController::class, 'store'])->name('inventory.monthly.store');
         Route::get('/', [MonthlyInventoryController::class, 'index'])->name('inventory.monthly.index');
+        Route::get('/status-counts', [MonthlyInventoryController::class, 'statusCounts'])->name('inventory.monthly.status-counts');
         Route::get('/comparison', [MonthlyInventoryController::class, 'comparison'])->name('inventory.monthly.comparison');
         Route::get('/{id}', [MonthlyInventoryController::class, 'show'])->name('inventory.monthly.show');
         Route::get('/{id}/products', [MonthlyInventoryController::class, 'products'])->name('inventory.monthly.products');
