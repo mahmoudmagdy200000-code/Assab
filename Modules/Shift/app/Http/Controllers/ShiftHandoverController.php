@@ -520,15 +520,26 @@ class ShiftHandoverController extends Controller
 
     /**
      * Get responsibility details for a shift (variance approval context).
-     * Returns: cashier name, branch name, variance amount they are responsible to approve/reject.
+     * Returns: cashier name, branch name, variance amount, and the current responsibility_status.
+     *
+     * responsibility_status:
+     *   - not_submitted : cashier has not recorded variance details yet
+     *   - pending       : details submitted, waiting for manager review
+     *   - approved      : manager approved the responsibility
+     *   - rejected      : manager rejected the responsibility
+     *
      * Branch Manager: any shift in their branch. Cashier: own shift only.
      */
     public function getResponsibilityDetails(string $shift): JsonResponse
     {
         try {
             $user = auth()->user();
-            $shiftModel = CashierShift::with(['cashier:id,name', 'shift:id,name,branch_id', 'shift.branch:id,name'])
-                ->findOrFail($shift);
+            $shiftModel = CashierShift::with([
+                'cashier:id,name',
+                'shift:id,name,branch_id',
+                'shift.branch:id,name',
+                'varianceDetails',
+            ])->findOrFail($shift);
 
             if ($user instanceof Cashier) {
                 if ($shiftModel->cashier_id !== $user->id) {
@@ -554,17 +565,80 @@ class ShiftHandoverController extends Controller
             $variance = (float) ($shiftModel->variance ?? 0);
             $varianceType = $variance > 0 ? 'Over' : ($variance < 0 ? 'Short' : 'None');
 
+            $isCashierUser = $user instanceof Cashier;
+
+            if ($isCashierUser && $shiftModel->cashier_id !== $user->id) {
+                // This cashier is not the shift owner — they may be a responsible_cashier_id
+                $myDetail = $shiftModel->varianceDetails->firstWhere('responsible_cashier_id', $user->id);
+
+                if (!$myDetail) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No responsibility record assigned to you on this shift',
+                    ], 404);
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Responsibility details retrieved successfully',
+                    'data' => [
+                        'shift_id'              => $shiftModel->id,
+                        'cashier_name'          => $user->name,
+                        'branch_name'           => $shiftModel->shift?->branch?->name ?? null,
+                        'variance_amount'       => $variance,
+                        'variance_type'         => $varianceType,
+                        'shift_date'            => $shiftModel->shift_date?->format('Y-m-d'),
+                        'assigned_amount'       => (float) $myDetail->assigned_amount,
+                        'responsibility_status' => $myDetail->responsibility_status,
+                        'rejection_reason'      => $myDetail->rejection_reason,
+                        'reviewed_at'           => $myDetail->reviewed_at?->format('Y-m-d H:i:s'),
+                    ],
+                ]);
+            }
+
+            // Shift owner (cashier) or branch manager — show overall shift responsibility status
+            $varianceDetail = $shiftModel->varianceDetails->first();
+            if (!$varianceDetail) {
+                $responsibilityStatus = 'not_submitted';
+                $rejectionReason      = null;
+                $reviewedAt           = null;
+            } else {
+                $responsibilityStatus = $varianceDetail->responsibility_status;
+                $rejectionReason      = $varianceDetail->rejection_reason;
+                $reviewedAt           = $varianceDetail->reviewed_at?->format('Y-m-d H:i:s');
+            }
+
+            // For manager: also include per-cashier breakdown when multiple cashiers are responsible
+            $responsibleCashiers = null;
+            if (!$isCashierUser && $shiftModel->varianceDetails->isNotEmpty()) {
+                $responsibleCashiers = $shiftModel->varianceDetails
+                    ->whereNotNull('responsible_cashier_id')
+                    ->map(fn($d) => [
+                        'cashier_id'            => $d->responsible_cashier_id,
+                        'cashier_name'          => $d->responsibleCashier?->name ?? null,
+                        'assigned_amount'       => (float) $d->assigned_amount,
+                        'responsibility_status' => $d->responsibility_status,
+                        'rejection_reason'      => $d->rejection_reason,
+                        'reviewed_at'           => $d->reviewed_at?->format('Y-m-d H:i:s'),
+                    ])
+                    ->values();
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Responsibility details retrieved successfully',
-                'data' => [
-                    'cashier_name' => $shiftModel->cashier?->name ?? null,
-                    'branch_name' => $shiftModel->shift?->branch?->name ?? null,
-                    'variance_amount' => $variance,
-                    'variance_type' => $varianceType,
-                    'shift_date' => $shiftModel->shift_date?->format('Y-m-d'),
-                    'shift_id' => $shiftModel->id,
-                ],
+                'data' => array_filter([
+                    'shift_id'               => $shiftModel->id,
+                    'cashier_name'           => $shiftModel->cashier?->name ?? null,
+                    'branch_name'            => $shiftModel->shift?->branch?->name ?? null,
+                    'variance_amount'        => $variance,
+                    'variance_type'          => $varianceType,
+                    'shift_date'             => $shiftModel->shift_date?->format('Y-m-d'),
+                    'responsibility_status'  => $responsibilityStatus,
+                    'rejection_reason'       => $rejectionReason,
+                    'reviewed_at'            => $reviewedAt,
+                    'responsible_cashiers'   => $responsibleCashiers,
+                ], fn($v) => $v !== null),
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([

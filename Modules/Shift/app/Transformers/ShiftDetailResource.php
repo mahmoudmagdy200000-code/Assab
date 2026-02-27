@@ -302,17 +302,35 @@ class ShiftDetailResource extends JsonResource
     }
 
     /**
-     * Get actual variance reason from handover or variance details (no default placeholder)
+     * Get actual variance reason from handover or variance details.
+     * Returns null when nothing was entered (no default placeholders returned).
      */
     private function getActualVarianceReason($handover): ?string
     {
-        if ($handover && !empty(trim((string) $handover->variance_reason))) {
-            return $handover->variance_reason;
+        $defaultPlaceholders = [
+            'Shared responsibility',
+            'Cashier accepted full responsibility',
+            'No reason provided',
+            'External factors',
+            'Mixed factors',
+            'N/A',
+        ];
+
+        $sanitize = function (?string $value) use ($defaultPlaceholders): ?string {
+            if ($value === null || trim($value) === '') {
+                return null;
+            }
+            return in_array(trim($value), $defaultPlaceholders, true) ? null : trim($value);
+        };
+
+        if ($handover && ($reason = $sanitize($handover->variance_reason)) !== null) {
+            return $reason;
         }
+
         if ($this->relationLoaded('varianceDetails') && $this->varianceDetails->isNotEmpty()) {
-            $reason = $this->varianceDetails->first()->reason ?? null;
-            return !empty(trim((string) $reason)) ? $reason : null;
+            return $sanitize($this->varianceDetails->first()->reason ?? null);
         }
+
         return null;
     }
 

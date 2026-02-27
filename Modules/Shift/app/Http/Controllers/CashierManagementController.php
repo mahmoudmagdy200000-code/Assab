@@ -599,6 +599,41 @@ class CashierManagementController extends BaseController
     }
 
     /**
+     * Return all active cashiers in the branch as a flat list (no pagination).
+     * Accessible by both branch managers and cashiers.
+     */
+    public function all(Request $request): JsonResponse
+    {
+        try {
+            $user = auth()->user();
+            $branchId = $user->branch_id;
+
+            if (!$branchId) {
+                return $this->errorResponse('User is not assigned to any branch', 400);
+            }
+
+            $cashiers = Cashier::where('branch_id', $branchId)
+                ->where('status', 'active')
+                ->select(['id', 'name', 'email', 'image', 'status'])
+                ->orderBy('name')
+                ->get()
+                ->map(fn($c) => [
+                    'id'    => $c->id,
+                    'name'  => $c->name,
+                    'email' => $c->email,
+                    'image' => $c->image ? asset('storage/' . $c->image) : null,
+                ]);
+
+            return $this->successResponse([
+                'cashiers' => $cashiers,
+                'total'    => $cashiers->count(),
+            ], 'Cashiers retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
      * Helper: Get cashier shifts by status
      */
     private function getCashierShiftsByStatus(string $cashierId, ShiftStatus $status, int $limit = 10): array

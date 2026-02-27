@@ -13,7 +13,7 @@ use Modules\Shift\Http\Controllers\{
     ShiftRequestsController,
     BranchManagerShiftController,
     CashierShiftController,
-    CashierManagementController
+    CashierManagementController,
 };
 
 /*
@@ -36,6 +36,10 @@ Route::prefix('branch-manager')
             // Section 3.1.2.1.1: Cashiers Listing
             Route::get('/', [CashierManagementController::class, 'index'])
                 ->name('cashiers.index');
+
+            // All active cashiers in branch (no pagination) - accessible by cashier token too
+            Route::get('/all', [CashierManagementController::class, 'all'])
+                ->name('cashiers.all');
 
             // Section 3.1.2.1.1.1: Manage Cashiers (Create)
             Route::post('/', [CashierManagementController::class, 'store'])
@@ -207,9 +211,15 @@ Route::prefix('branch-manager')
                         ->name('shifts.variance.details');
                 });
 
-                // Responsibility details (variance approval context)
-                Route::get('responsibility/details', [ShiftHandoverController::class, 'getResponsibilityDetails'])
-                    ->name('shifts.responsibility.details');
+                // Responsibility management (variance approval context)
+                Route::prefix('responsibility')->group(function () {
+                    Route::get('details', [ShiftHandoverController::class, 'getResponsibilityDetails'])
+                        ->name('shifts.responsibility.details');
+                    Route::post('approve', [ShiftVarianceController::class, 'approveResponsibility'])
+                        ->name('shifts.responsibility.approve');
+                    Route::post('reject', [ShiftVarianceController::class, 'rejectResponsibility'])
+                        ->name('shifts.responsibility.reject');
+                });
             });
         });
     });
@@ -307,9 +317,15 @@ Route::prefix('cashier')
                 ->name('cashier.requests.reassigned-shifts');
         });
 
-        // Responsibility details (variance approval context, cashier own shift) - must be before my-shifts/{shift}
-        Route::get('my-shifts/{shift}/responsibility/details', [ShiftHandoverController::class, 'getResponsibilityDetails'])
-            ->name('cashier.responsibility.details');
+        // Responsibility management - must be before my-shifts/{shift}
+        Route::prefix('my-shifts/{shift}/responsibility')->group(function () {
+            Route::get('details', [ShiftHandoverController::class, 'getResponsibilityDetails'])
+                ->name('cashier.responsibility.details');
+            Route::post('approve', [ShiftVarianceController::class, 'cashierApproveResponsibility'])
+                ->name('cashier.responsibility.approve');
+            Route::post('reject', [ShiftVarianceController::class, 'cashierRejectResponsibility'])
+                ->name('cashier.responsibility.reject');
+        });
 
         // View shift details
         Route::get('my-shifts/{shift}', [CashierShiftController::class, 'show'])

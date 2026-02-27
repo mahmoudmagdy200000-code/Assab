@@ -5,10 +5,12 @@ namespace Modules\Shift\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Modules\Shift\Services\VarianceCalculationService;
 use Modules\Shift\Models\{CashierShift, ShiftVarianceAlert};
 use Modules\Shift\Transformers\ShiftDetailResource;
+use Modules\Cashier\Models\Cashier;
 
 class ShiftVarianceController extends Controller
 {
@@ -284,6 +286,311 @@ class ShiftVarianceController extends Controller
                 'success' => false,
                 'message' => 'Failed to acknowledge alert',
                 'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Cashier accepts the responsibility assigned to them on a shift (self_and_others / mixed).
+     * The shift may belong to another cashier; this cashier must appear as responsible_cashier_id.
+     */
+    public function cashierApproveResponsibility(Request $request, string $shift): JsonResponse
+    {
+        try {
+            $cashier = auth()->user();
+
+            $detail = \Modules\Shift\Models\ShiftVarianceDetail::where('cashier_shift_id', $shift)
+                ->where('responsible_cashier_id', $cashier->id)
+                ->first();
+
+            if (!$detail) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No responsibility record found for you on this shift',
+                ], 404);
+            }
+
+            if ($detail->responsibility_status !== 'pending') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Responsibility has already been reviewed',
+                    'current_status' => $detail->responsibility_status,
+                ], 400);
+            }
+
+            $detail->update([
+                'responsibility_status' => 'approved',
+                'rejection_reason'      => null,
+                'reviewed_by_id'        => $cashier->id,
+                'reviewed_by_type'      => get_class($cashier),
+                'reviewed_at'           => now(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'You have accepted the assigned responsibility',
+                'data' => [
+                    'shift_id'              => $shift,
+                    'cashier_name'          => $cashier->name,
+                    'assigned_amount'       => (float) $detail->assigned_amount,
+                    'responsibility_status' => 'approved',
+                    'reviewed_at'           => now()->format('Y-m-d H:i:s'),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Cashier failed to approve responsibility', [
+                'shift_id' => $shift,
+                'error'    => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to accept responsibility',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Cashier rejects the responsibility assigned to them on a shift (self_and_others / mixed).
+     * Requires a rejection reason.
+     */
+    public function cashierRejectResponsibility(Request $request, string $shift): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'reason' => 'required|string|max:1000',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+            $cashier = auth()->user();
+
+            $detail = \Modules\Shift\Models\ShiftVarianceDetail::where('cashier_shift_id', $shift)
+                ->where('responsible_cashier_id', $cashier->id)
+                ->first();
+
+            if (!$detail) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No responsibility record found for you on this shift',
+                ], 404);
+            }
+
+            if ($detail->responsibility_status !== 'pending') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Responsibility has already been reviewed',
+                    'current_status' => $detail->responsibility_status,
+                ], 400);
+            }
+
+            $detail->update([
+                'responsibility_status' => 'rejected',
+                'rejection_reason'      => $request->reason,
+                'reviewed_by_id'        => $cashier->id,
+                'reviewed_by_type'      => get_class($cashier),
+                'reviewed_at'           => now(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'You have rejected the assigned responsibility',
+                'data' => [
+                    'shift_id'              => $shift,
+                    'cashier_name'          => $cashier->name,
+                    'assigned_amount'       => (float) $detail->assigned_amount,
+                    'responsibility_status' => 'rejected',
+                    'rejection_reason'      => $request->reason,
+                    'reviewed_at'           => now()->format('Y-m-d H:i:s'),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Cashier failed to reject responsibility', [
+                'shift_id' => $shift,
+                'error'    => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to reject responsibility',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Approve the cashier's responsibility for a variance (Branch Manager only).
+     */
+    public function approveResponsibility(Request $request, string $shift): JsonResponse
+    {
+        try {
+            $manager = auth()->user();
+
+            $shiftModel = CashierShift::with([
+                'varianceDetails.responsibleCashier',
+                'cashier:id,name',
+                'shift:id,branch_id',
+            ])->findOrFail($shift);
+
+            if (!$manager->branch_id || $shiftModel->shift->branch_id !== $manager->branch_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized: This shift is not in your branch',
+                ], 403);
+            }
+
+            if ($shiftModel->varianceDetails->isEmpty()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No responsibility details submitted yet for this shift',
+                ], 404);
+            }
+
+            $alreadyReviewed = $shiftModel->varianceDetails->first()->responsibility_status !== 'pending';
+            if ($alreadyReviewed) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Responsibility has already been reviewed',
+                    'current_status' => $shiftModel->varianceDetails->first()->responsibility_status,
+                ], 400);
+            }
+
+            $shiftModel->varianceDetails()->update([
+                'responsibility_status' => 'approved',
+                'rejection_reason'      => null,
+                'reviewed_by_id'        => $manager->id,
+                'reviewed_by_type'      => get_class($manager),
+                'reviewed_at'           => now(),
+            ]);
+
+            $shiftModel->recordHistory(
+                'responsibility_approved',
+                ['responsibility_status' => 'pending'],
+                ['responsibility_status' => 'approved', 'reviewed_by_id' => $manager->id]
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Responsibility approved successfully',
+                'data' => [
+                    'shift_id'              => $shiftModel->id,
+                    'cashier_name'          => $shiftModel->cashier?->name,
+                    'responsibility_status' => 'approved',
+                    'approved_by'           => $manager->name,
+                    'approved_at'           => now()->format('Y-m-d H:i:s'),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to approve responsibility', [
+                'shift_id' => $shift,
+                'error'    => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to approve responsibility',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Reject the cashier's responsibility for a variance (Branch Manager only).
+     * Requires a rejection reason.
+     */
+    public function rejectResponsibility(Request $request, string $shift): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'reason' => 'required|string|max:1000',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+            $manager = auth()->user();
+
+            $shiftModel = CashierShift::with([
+                'varianceDetails.responsibleCashier',
+                'cashier:id,name',
+                'shift:id,branch_id',
+            ])->findOrFail($shift);
+
+            if (!$manager->branch_id || $shiftModel->shift->branch_id !== $manager->branch_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized: This shift is not in your branch',
+                ], 403);
+            }
+
+            if ($shiftModel->varianceDetails->isEmpty()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No responsibility details submitted yet for this shift',
+                ], 404);
+            }
+
+            $alreadyReviewed = $shiftModel->varianceDetails->first()->responsibility_status !== 'pending';
+            if ($alreadyReviewed) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Responsibility has already been reviewed',
+                    'current_status' => $shiftModel->varianceDetails->first()->responsibility_status,
+                ], 400);
+            }
+
+            $shiftModel->varianceDetails()->update([
+                'responsibility_status' => 'rejected',
+                'rejection_reason'      => $request->reason,
+                'reviewed_by_id'        => $manager->id,
+                'reviewed_by_type'      => get_class($manager),
+                'reviewed_at'           => now(),
+            ]);
+
+            $shiftModel->recordHistory(
+                'responsibility_rejected',
+                ['responsibility_status' => 'pending'],
+                [
+                    'responsibility_status' => 'rejected',
+                    'rejection_reason'      => $request->reason,
+                    'reviewed_by_id'        => $manager->id,
+                ]
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Responsibility rejected successfully',
+                'data' => [
+                    'shift_id'              => $shiftModel->id,
+                    'cashier_name'          => $shiftModel->cashier?->name,
+                    'responsibility_status' => 'rejected',
+                    'rejection_reason'      => $request->reason,
+                    'rejected_by'           => $manager->name,
+                    'rejected_at'           => now()->format('Y-m-d H:i:s'),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to reject responsibility', [
+                'shift_id' => $shift,
+                'error'    => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to reject responsibility',
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }

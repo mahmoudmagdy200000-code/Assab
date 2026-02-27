@@ -24,6 +24,11 @@ class ShiftVarianceDetail extends Model
         'assigned_amount',
         'reason',
         'supporting_files',
+        'responsibility_status',
+        'rejection_reason',
+        'reviewed_by_id',
+        'reviewed_by_type',
+        'reviewed_at',
     ];
 
     protected $casts = [
@@ -32,6 +37,7 @@ class ShiftVarianceDetail extends Model
         'variance_type' => VarianceType::class,
         'responsibility_type' => ResponsibilityType::class,
         'supporting_files' => 'array',
+        'reviewed_at' => 'datetime',
     ];
 
     // Relationships
@@ -93,6 +99,21 @@ class ShiftVarianceDetail extends Model
     public function isExternalFactors(): bool
     {
         return $this->responsibility_type === ResponsibilityType::OTHER_FACTORS;
+    }
+
+    public function isPending(): bool
+    {
+        return $this->responsibility_status === 'pending';
+    }
+
+    public function isApproved(): bool
+    {
+        return $this->responsibility_status === 'approved';
+    }
+
+    public function isRejected(): bool
+    {
+        return $this->responsibility_status === 'rejected';
     }
 
     public function hasSupportingFiles(): bool
