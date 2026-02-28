@@ -32,6 +32,8 @@ class HandoverSummaryResource extends JsonResource
             'variance_amount' => $varianceAmount,
             'cash_from' => $cashFrom,
             'acceptance_message' => $acceptanceMessage,
+            'responsibility_status'      => $this->getResponsibilityStatus(),
+            'responsibility_reviewed_at' => $this->getResponsibilityReviewedAt(),
         ];
     }
 
@@ -57,6 +59,29 @@ class HandoverSummaryResource extends JsonResource
             'rejected', 'rejected_final' => 'Rejected',
             default => 'Pending',
         };
+    }
+
+    /**
+     * Responsibility status from varianceDetails.
+     * Values: not_submitted | pending | approved | rejected
+     */
+    private function getResponsibilityStatus(): string
+    {
+        if ($this->relationLoaded('varianceDetails') && $this->varianceDetails->isNotEmpty()) {
+            return $this->varianceDetails->first()->responsibility_status ?? 'pending';
+        }
+        return 'not_submitted';
+    }
+
+    /**
+     * Timestamp of when the manager reviewed the responsibility (approved or rejected).
+     */
+    private function getResponsibilityReviewedAt(): ?string
+    {
+        if ($this->relationLoaded('varianceDetails') && $this->varianceDetails->isNotEmpty()) {
+            return $this->varianceDetails->first()->reviewed_at?->format('Y-m-d H:i:s');
+        }
+        return null;
     }
 
     /**

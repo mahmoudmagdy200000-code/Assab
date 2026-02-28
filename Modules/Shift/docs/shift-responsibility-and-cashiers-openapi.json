@@ -1,0 +1,427 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Shift Module - Responsibility & Cashiers API",
+    "description": "OpenAPI doc for: Responsibility (approve/reject/details) for Branch Manager and Cashier, and Cashiers All endpoint. Use with ApiDog or any OpenAPI 3.0 client.",
+    "version": "1.0.0",
+    "contact": { "name": "Assab API Support" }
+  },
+  "servers": [
+    { "url": "/api/v1", "description": "API v1 base" }
+  ],
+  "tags": [
+    { "name": "Responsibility (Branch Manager)", "description": "Variance responsibility approve/reject/details by Branch Manager" },
+    { "name": "Responsibility (Cashier)", "description": "Cashier accept/reject assigned responsibility on another cashier's shift" },
+    { "name": "Cashiers", "description": "Cashiers list (all active in branch)" }
+  ],
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/branch-manager/shifts/{shift}/responsibility/details": {
+      "get": {
+        "tags": ["Responsibility (Branch Manager)"],
+        "summary": "Get responsibility details",
+        "description": "Returns cashier name, branch name, variance amount, and responsibility_status (not_submitted | pending | approved | rejected). For manager: can include responsible_cashiers breakdown.",
+        "operationId": "getResponsibilityDetailsManager",
+        "parameters": [
+          {
+            "name": "shift",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" },
+            "description": "Cashier shift UUID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "shift_id": { "type": "string", "format": "uuid" },
+                        "cashier_name": { "type": "string" },
+                        "branch_name": { "type": "string" },
+                        "variance_amount": { "type": "number" },
+                        "variance_type": { "type": "string", "enum": ["Over", "Short", "None"] },
+                        "shift_date": { "type": "string", "format": "date" },
+                        "responsibility_status": { "type": "string", "enum": ["not_submitted", "pending", "approved", "rejected"] },
+                        "rejection_reason": { "type": "string", "nullable": true },
+                        "reviewed_at": { "type": "string", "format": "date-time", "nullable": true },
+                        "responsible_cashiers": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "cashier_id": { "type": "string" },
+                              "cashier_name": { "type": "string" },
+                              "assigned_amount": { "type": "number" },
+                              "responsibility_status": { "type": "string" },
+                              "rejection_reason": { "type": "string", "nullable": true },
+                              "reviewed_at": { "type": "string", "nullable": true }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": { "description": "Unauthorized - shift not in your branch", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "Shift not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/branch-manager/shifts/{shift}/responsibility/approve": {
+      "post": {
+        "tags": ["Responsibility (Branch Manager)"],
+        "summary": "Approve responsibility",
+        "description": "Branch Manager approves the cashier's variance responsibility for this shift.",
+        "operationId": "approveResponsibility",
+        "parameters": [
+          {
+            "name": "shift",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "properties": {} }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Responsibility approved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "shift_id": { "type": "string" },
+                        "cashier_name": { "type": "string" },
+                        "responsibility_status": { "type": "string", "example": "approved" },
+                        "approved_by": { "type": "string" },
+                        "approved_at": { "type": "string", "format": "date-time" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Already reviewed or no responsibility submitted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "403": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "Shift or responsibility not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/branch-manager/shifts/{shift}/responsibility/reject": {
+      "post": {
+        "tags": ["Responsibility (Branch Manager)"],
+        "summary": "Reject responsibility",
+        "description": "Branch Manager rejects the cashier's variance responsibility. Reason is required.",
+        "operationId": "rejectResponsibility",
+        "parameters": [
+          {
+            "name": "shift",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["reason"],
+                "properties": {
+                  "reason": { "type": "string", "maxLength": 1000, "description": "Rejection reason (required)" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Responsibility rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "shift_id": { "type": "string" },
+                        "cashier_name": { "type": "string" },
+                        "responsibility_status": { "type": "string", "example": "rejected" },
+                        "rejection_reason": { "type": "string" },
+                        "rejected_by": { "type": "string" },
+                        "rejected_at": { "type": "string", "format": "date-time" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": { "description": "Validation failed (reason required)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" } } } },
+          "400": { "description": "Already reviewed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "403": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "Shift or responsibility not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/cashier/my-shifts/{shift}/responsibility/details": {
+      "get": {
+        "tags": ["Responsibility (Cashier)"],
+        "summary": "Get responsibility details (Cashier)",
+        "description": "For shift owner: returns overall responsibility status. For another cashier (assigned as responsible): returns their assigned amount and their own responsibility_status.",
+        "operationId": "getResponsibilityDetailsCashier",
+        "parameters": [
+          {
+            "name": "shift",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "shift_id": { "type": "string" },
+                        "cashier_name": { "type": "string" },
+                        "branch_name": { "type": "string" },
+                        "variance_amount": { "type": "number" },
+                        "variance_type": { "type": "string" },
+                        "shift_date": { "type": "string" },
+                        "assigned_amount": { "type": "number" },
+                        "responsibility_status": { "type": "string", "enum": ["not_submitted", "pending", "approved", "rejected"] },
+                        "rejection_reason": { "type": "string", "nullable": true },
+                        "reviewed_at": { "type": "string", "nullable": true }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "Shift not found or no responsibility assigned to you", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/cashier/my-shifts/{shift}/responsibility/approve": {
+      "post": {
+        "tags": ["Responsibility (Cashier)"],
+        "summary": "Accept assigned responsibility",
+        "description": "Cashier accepts the responsibility assigned to them on this shift (e.g. when another cashier set shared responsibility).",
+        "operationId": "cashierApproveResponsibility",
+        "parameters": [
+          {
+            "name": "shift",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "shift_id": { "type": "string" },
+                        "cashier_name": { "type": "string" },
+                        "assigned_amount": { "type": "number" },
+                        "responsibility_status": { "type": "string", "example": "approved" },
+                        "reviewed_at": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Already reviewed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "No responsibility record for you on this shift", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/cashier/my-shifts/{shift}/responsibility/reject": {
+      "post": {
+        "tags": ["Responsibility (Cashier)"],
+        "summary": "Reject assigned responsibility",
+        "description": "Cashier rejects the responsibility assigned to them. Reason is required.",
+        "operationId": "cashierRejectResponsibility",
+        "parameters": [
+          {
+            "name": "shift",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["reason"],
+                "properties": {
+                  "reason": { "type": "string", "maxLength": 1000 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "shift_id": { "type": "string" },
+                        "cashier_name": { "type": "string" },
+                        "assigned_amount": { "type": "number" },
+                        "responsibility_status": { "type": "string", "example": "rejected" },
+                        "rejection_reason": { "type": "string" },
+                        "reviewed_at": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": { "description": "Validation failed (reason required)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" } } } },
+          "400": { "description": "Already reviewed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "No responsibility record for you", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/branch-manager/cashiers/all": {
+      "get": {
+        "tags": ["Cashiers"],
+        "summary": "Get all cashiers in branch",
+        "description": "Returns all active cashiers in the authenticated user's branch (no pagination). Accessible by Branch Manager or Cashier token.",
+        "operationId": "getAllCashiers",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "cashiers": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": { "type": "string", "format": "uuid" },
+                              "name": { "type": "string" },
+                              "email": { "type": "string" },
+                              "image": { "type": "string", "nullable": true }
+                            }
+                          }
+                        },
+                        "total": { "type": "integer" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "User not assigned to branch", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Sanctum token: Bearer {token}"
+      }
+    },
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": false },
+          "message": { "type": "string" },
+          "error": { "type": "string", "nullable": true }
+        }
+      },
+      "ValidationErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": false },
+          "message": { "type": "string" },
+          "errors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

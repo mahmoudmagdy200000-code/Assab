@@ -42,6 +42,7 @@ class ShiftRequestsService
                 'nextCashier:id,name,branch_id',
                 'shift:id,name,start_time,end_time,branch_id',
                 'shift.branch:id,name',
+                'varianceDetails',
             ])
             ->whereHas('handoverStatus');
 

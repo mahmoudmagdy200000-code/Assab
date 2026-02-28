@@ -6,7 +6,10 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Modules\BranchManagers\Models\BranchManager;
+use Modules\BranchManagers\Transformers\BranchManagerResource;
 use Modules\Cashier\Models\Cashier;
+use Modules\Cashier\Transformers\CashierResource;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Enums\ShiftStatus;
@@ -599,8 +602,9 @@ class CashierManagementController extends BaseController
     }
 
     /**
-     * Return all active cashiers in the branch as a flat list (no pagination).
-     * Accessible by both branch managers and cashiers.
+     * Get all cashiers and branch managers in the authenticated user's branch.
+     * Returns the same format as the original endpoint.
+     * Accessible by both branch managers and cashiers (branch.manager.or.cashier middleware).
      */
     public function all(Request $request): JsonResponse
     {
@@ -613,21 +617,31 @@ class CashierManagementController extends BaseController
             }
 
             $cashiers = Cashier::where('branch_id', $branchId)
-                ->where('status', 'active')
-                ->select(['id', 'name', 'email', 'image', 'status'])
-                ->orderBy('name')
-                ->get()
-                ->map(fn($c) => [
-                    'id'    => $c->id,
-                    'name'  => $c->name,
-                    'email' => $c->email,
-                    'image' => $c->image ? asset('storage/' . $c->image) : null,
-                ]);
+                ->with(['branch:id,name,location', 'creator:id,name'])
+                ->withCount('shifts')
+                ->paginate($request->input('per_page', 10));
 
-            return $this->successResponse([
-                'cashiers' => $cashiers,
-                'total'    => $cashiers->count(),
-            ], 'Cashiers retrieved successfully');
+            $managersQuery = BranchManager::where('branch_id', $branchId)
+                ->with('branch:id,name,location')
+                ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'status', 'is_first_login', 'image', 'email_verified_at', 'phone_verified_at', 'created_at', 'updated_at']);
+
+            // Exclude the current user if they are a branch manager
+            if ($user instanceof BranchManager) {
+                $managersQuery->where('id', '!=', $user->id);
+            }
+
+            $branchManagers = $managersQuery->get();
+
+            $cashiersResource = CashierResource::collection($cashiers);
+            $response = $this->paginatedResponse($cashiersResource, 'Cashiers and branch managers retrieved successfully');
+
+            $responseData = $response->getData(true);
+            $responseData['data'] = [
+                'branch_managers' => BranchManagerResource::collection($branchManagers),
+                'cashiers'        => $responseData['data'],
+            ];
+
+            return response()->json($responseData, 200);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }

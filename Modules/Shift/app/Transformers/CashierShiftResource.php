@@ -150,21 +150,12 @@ class CashierShiftResource extends JsonResource
     }
 
     /**
-     * Variance: numeric value for list/cards; detailed object only in variance_details when loaded.
+     * Variance: always a numeric float.
+     * Detailed breakdown lives in variance_details only.
      */
-    private function getVarianceValue()
+    private function getVarianceValue(): float
     {
-        $v = (float) ($this->variance ?? 0);
-        if ($this->hasVariance() && $this->relationLoaded('varianceDetails')) {
-            try {
-                $formatted = app(\Modules\Shift\Services\VarianceCalculationService::class)
-                    ->getVarianceFormatted($this->resource);
-                return $formatted ?? $v;
-            } catch (\Throwable $e) {
-                return $v;
-            }
-        }
-        return $v;
+        return (float) ($this->variance ?? 0);
     }
 
     /**

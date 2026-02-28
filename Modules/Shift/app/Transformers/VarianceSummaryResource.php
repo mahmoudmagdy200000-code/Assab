@@ -26,10 +26,11 @@ class VarianceSummaryResource extends JsonResource
 
         return [
             'id' => $this->id,
-            'shift_date' => $this->shift_date?->format('M j, Y'), // e.g. "Jan 6, 2025"
+            'shift_date' => $this->shift_date?->format('M j, Y'),
             'shift_date_iso' => $this->shift_date?->format('Y-m-d'),
             'status' => $status,
-            'responsibility_status' => $this->getResponsibilityStatus(),
+            'responsibility_status'      => $this->getResponsibilityStatus(),
+            'responsibility_reviewed_at' => $this->getResponsibilityReviewedAt(),
             'hand_over_from' => $handoverFrom,
             'hand_over_to' => $handoverTo,
             'cash_handover_amount' => $cashHandoverAmount,
@@ -95,18 +96,26 @@ class VarianceSummaryResource extends JsonResource
     }
 
     /**
-     * Responsibility status for variance: Approved | rejected | not_submitted
+     * Responsibility status from varianceDetails (not handover status).
+     * Values: not_submitted | pending | approved | rejected
      */
     private function getResponsibilityStatus(): string
     {
-        $status = $this->handoverStatus?->manager_approval_status ?? null;
-        if ($status === 'approved') {
-            return 'Approved';
-        }
-        if (in_array($status, ['rejected', 'rejected_final'], true)) {
-            return 'rejected';
+        if ($this->relationLoaded('varianceDetails') && $this->varianceDetails->isNotEmpty()) {
+            return $this->varianceDetails->first()->responsibility_status ?? 'pending';
         }
         return 'not_submitted';
+    }
+
+    /**
+     * When the manager reviewed (approved/rejected) the responsibility.
+     */
+    private function getResponsibilityReviewedAt(): ?string
+    {
+        if ($this->relationLoaded('varianceDetails') && $this->varianceDetails->isNotEmpty()) {
+            return $this->varianceDetails->first()->reviewed_at?->format('Y-m-d H:i:s');
+        }
+        return null;
     }
 
     private function getReasonForVariance(): ?string
