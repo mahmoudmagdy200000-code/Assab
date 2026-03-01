@@ -9,7 +9,6 @@ use Illuminate\Http\Request;
 use Modules\Shift\Helpers\ShiftHelper;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\ShiftService;
-use Modules\Shift\Transformers\CashierShiftCollection;
 use Modules\Shift\Transformers\ShiftDetailResource;
 
 class PendingShiftController extends BaseController
@@ -35,7 +34,18 @@ class PendingShiftController extends BaseController
             $cashierId = $request->input('cashier_id');
 
             $shifts = CashierShift::upcoming()
-                ->with(['cashier', 'shift', 'nextCashier', 'originalCashier', 'reassignedBy', 'handover', 'handoverStatus'])
+                ->with([
+                    'cashier',
+                    'shift.branch',
+                    'nextCashier',
+                    'assignedBy',
+                    'originalCashier',
+                    'reassignedBy',
+                    'handover.handoverTo',
+                    'salesBreakdown.aggregator',
+                    'handoverStatus.reviewedBy',
+                    'varianceDetails.responsibleCashier',
+                ])
                 ->whereHas('shift', fn($q) => $q->where('branch_id', $managerBranchId))
                 ->whereHas('cashier', fn($q) => $q->where('branch_id', $managerBranchId))
                 ->whereDate('shift_date', '>=', now()->subMonth())
@@ -44,12 +54,8 @@ class PendingShiftController extends BaseController
                 ->orderBy('shift_date')
                 ->paginate(10);
 
-            foreach ($shifts as $cs) {
-                $cs->setAttribute('computed_next_cashier', $this->shiftService->getNextShiftCashier($cs));
-            }
-
             return $this->paginatedResponse(
-                new CashierShiftCollection($shifts),
+                ShiftDetailResource::collection($shifts),
                 'Pending shifts retrieved successfully'
             );
         } catch (\Exception $e) {
@@ -155,22 +161,21 @@ class PendingShiftController extends BaseController
                 ->whereHas('cashier', fn ($q) => $q->where('branch_id', $manager->branch_id))
                 ->with([
                     'cashier',
-                    'shift',
+                    'shift.branch',
                     'nextCashier',
+                    'assignedBy',
                     'originalCashier',
                     'reassignedBy',
-                    'handover',
-                    'handoverStatus',
+                    'handover.handoverTo',
+                    'salesBreakdown.aggregator',
+                    'handoverStatus.reviewedBy',
+                    'varianceDetails.responsibleCashier',
                 ])
                 ->orderBy('shift_date')
                 ->paginate($request->input('per_page', 10));
 
-            foreach ($shifts as $cs) {
-                $cs->setAttribute('computed_next_cashier', $this->shiftService->getNextShiftCashier($cs));
-            }
-
             return $this->paginatedResponse(
-                new CashierShiftCollection($shifts),
+                ShiftDetailResource::collection($shifts),
                 'Pending shifts for cashier retrieved successfully'
             );
         } catch (\Exception $e) {

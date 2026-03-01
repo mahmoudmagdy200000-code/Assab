@@ -2,19 +2,19 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Modules\Shift\Services\{ShiftService, ShiftNotificationService};
-use Modules\Shift\Transformers\{ShiftResource, ShiftDetailResource, CashierShiftResource};
+use Modules\Shift\Transformers\{ShiftResource, ShiftDetailResource};
 use Modules\Shift\Models\CashierShift;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
 
-class ReassignmentShiftController extends Controller
+class ReassignmentShiftController extends BaseController
 {
     public function __construct(
         private ShiftService $shiftService,
@@ -30,18 +30,34 @@ class ReassignmentShiftController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
+            $manager = auth()->user();
             $cashierId = $request->input('cashier_id');
 
-            $shifts = $this->shiftService->getReassignedShifts($cashierId);
+            $shifts = CashierShift::reassigned()
+                ->with([
+                    'cashier',
+                    'shift.branch',
+                    'nextCashier',
+                    'assignedBy',
+                    'originalCashier',
+                    'reassignedBy',
+                    'handover.handoverTo',
+                    'salesBreakdown.aggregator',
+                    'handoverStatus.reviewedBy',
+                    'varianceDetails.responsibleCashier',
+                ])
+                ->whereHas('shift', fn($q) => $q->where('branch_id', $manager->branch_id))
+                ->whereHas('cashier', fn($q) => $q->where('branch_id', $manager->branch_id))
+                ->when($cashierId, fn($q, $id) => $q->where(function ($q) use ($id) {
+                    $q->where('cashier_id', $id)->orWhere('original_cashier_id', $id);
+                }))
+                ->orderBy('reassigned_at', 'desc')
+                ->paginate($request->input('per_page', 10));
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Reassigned shifts retrieved successfully',
-                'data' => CashierShiftResource::collection($shifts),
-                'meta' => [
-                    'total' => $shifts->count(),
-                ]
-            ]);
+            return $this->paginatedResponse(
+                ShiftDetailResource::collection($shifts),
+                'Reassigned shifts retrieved successfully'
+            );
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

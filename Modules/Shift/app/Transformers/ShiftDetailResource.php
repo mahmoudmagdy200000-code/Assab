@@ -183,9 +183,9 @@ class ShiftDetailResource extends JsonResource
                 'status' => 'not_submitted',
                 'status_label' => 'Not Submitted',
                 'given_cash' => 'Not Recorded Yet',
-                'cash_given' => $handover ? (float) $handover->handover_amount : null,
+                'cash_given' => (float) ($this->opening_balance ?? 0),
                 'previous_cashier' => $this->original_cashier_id ? ($this->originalCashier?->name ?? null) : null,
-                'cash_from' => null,
+                'cash_from' => $this->assignedBy?->name ?? $this->originalCashier?->name ?? null,
                 'handover_amount' => null,
                 'handover_from' => null,
                 'handover_to' => null,
@@ -223,9 +223,9 @@ class ShiftDetailResource extends JsonResource
 
         return [
             'handover_amount' => (float) ($handover?->handover_amount ?? $this->handover_amount ?? $this->closing_balance ?? 0),
-            'cash_given' => (float) ($handover?->handover_amount ?? $this->handover_amount ?? $this->closing_balance ?? 0),
+            'cash_given' => (float) ($handover?->handover_amount ?? $this->opening_balance ?? $this->closing_balance ?? 0),
             'previous_cashier' => $this->original_cashier_id ? ($this->originalCashier?->name ?? null) : null,
-            'cash_from' => $this->cashier?->name ?? null,
+            'cash_from' => $this->assignedBy?->name ?? $this->originalCashier?->name ?? null,
             'status' => $handoverStatus?->manager_approval_status ?? 'pending',
             'status_label' => $handoverStatus?->status_label ?? 'Pending',
             'handover_from' => $this->cashier?->name ?? 'N/A',

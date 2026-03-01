@@ -7,7 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\ShiftService;
-use Modules\Shift\Transformers\{CashierShiftResource, ShiftDetailResource};
+use Modules\Shift\Transformers\ShiftDetailResource;
 
 class InProgressShiftController extends BaseController
 {
@@ -32,7 +32,18 @@ class InProgressShiftController extends BaseController
             $cashierId = $request->input('cashier_id');
 
             $inProgressShifts = CashierShift::inProgress()
-                ->with(['cashier', 'shift', 'handover', 'handoverStatus'])
+                ->with([
+                    'cashier',
+                    'shift.branch',
+                    'nextCashier',
+                    'assignedBy',
+                    'originalCashier',
+                    'reassignedBy',
+                    'handover.handoverTo',
+                    'salesBreakdown.aggregator',
+                    'handoverStatus.reviewedBy',
+                    'varianceDetails.responsibleCashier',
+                ])
                 ->whereHas('shift', function ($q) use ($managerBranchId) {
                     $q->where('branch_id', $managerBranchId);
                 })
@@ -46,7 +57,7 @@ class InProgressShiftController extends BaseController
                 ->paginate(10);
 
             return $this->paginatedResponse(
-                CashierShiftResource::collection($inProgressShifts),
+                ShiftDetailResource::collection($inProgressShifts),
                 'In-progress shifts retrieved successfully',
             );
         } catch (\Exception $e) {
