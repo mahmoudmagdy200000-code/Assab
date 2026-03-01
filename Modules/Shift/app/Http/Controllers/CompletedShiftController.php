@@ -7,6 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Services\VarianceCalculationService;
+use Modules\Shift\Transformers\CashierShiftResource;
 use Modules\Shift\Transformers\ShiftDetailResource;
 use Modules\Shift\Models\CashierShift;
 
@@ -40,7 +41,7 @@ class CompletedShiftController extends BaseController
             );
 
             return $this->paginatedResponse(
-                ShiftDetailResource::collection($shifts),
+                CashierShiftResource::collection($shifts),
                 'Completed shifts retrieved successfully'
             );
         } catch (\Exception $e) {

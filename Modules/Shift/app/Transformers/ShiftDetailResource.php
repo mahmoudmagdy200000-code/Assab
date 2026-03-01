@@ -25,9 +25,6 @@ class ShiftDetailResource extends JsonResource
             'status' => $this->status?->value ?? $this->status,
             'status_label' => $this->getStatusLabel(),
 
-            // True when this shift was reassigned and the current user (cashier) is the one it was reassigned to
-            'is_shift_reassigned_to_me' => $this->isShiftReassignedToCurrentUser(),
-
             // Section A: Shift Progress
             'shift_progress' => $this->getShiftProgress(),
 
@@ -58,24 +55,6 @@ class ShiftDetailResource extends JsonResource
                 'updated_at' => $this->updated_at?->format('Y-m-d H:i:s'),
             ],
         ];
-    }
-
-    /**
-     * True when the shift was reassigned and the current authenticated user (cashier) is the one it was reassigned to.
-     * False for branch managers, non-reassigned shifts, or when the user is the original cashier.
-     */
-    private function isShiftReassignedToCurrentUser(): bool
-    {
-        if (!$this->original_cashier_id) {
-            return false;
-        }
-
-        $userId = auth()->id();
-        if ($userId === null) {
-            return false;
-        }
-
-        return (string) $userId === (string) $this->cashier_id;
     }
 
     /**
@@ -204,9 +183,9 @@ class ShiftDetailResource extends JsonResource
                 'status' => 'not_submitted',
                 'status_label' => 'Not Submitted',
                 'given_cash' => 'Not Recorded Yet',
-                'cash_given' => (float) ($this->opening_balance ?? 0),
+                'cash_given' => $handover ? (float) $handover->handover_amount : null,
                 'previous_cashier' => $this->original_cashier_id ? ($this->originalCashier?->name ?? null) : null,
-                'cash_from' => $this->assignedBy?->name ?? $this->originalCashier?->name ?? null,
+                'cash_from' => null,
                 'handover_amount' => null,
                 'handover_from' => null,
                 'handover_to' => null,
@@ -244,9 +223,9 @@ class ShiftDetailResource extends JsonResource
 
         return [
             'handover_amount' => (float) ($handover?->handover_amount ?? $this->handover_amount ?? $this->closing_balance ?? 0),
-            'cash_given' => (float) ($handover?->handover_amount ?? $this->opening_balance ?? $this->closing_balance ?? 0),
+            'cash_given' => (float) ($handover?->handover_amount ?? $this->handover_amount ?? $this->closing_balance ?? 0),
             'previous_cashier' => $this->original_cashier_id ? ($this->originalCashier?->name ?? null) : null,
-            'cash_from' => $this->assignedBy?->name ?? $this->originalCashier?->name ?? null,
+            'cash_from' => $this->cashier?->name ?? null,
             'status' => $handoverStatus?->manager_approval_status ?? 'pending',
             'status_label' => $handoverStatus?->status_label ?? 'Pending',
             'handover_from' => $this->cashier?->name ?? 'N/A',

@@ -153,30 +153,75 @@ class CashierShiftController extends BaseController
         try {
             $cashier = auth()->user();
 
+            // Minimum 1 week, maximum 1 month as per requirements
+            $minDate = now();
+            $maxDate = now()->addMonth();
+
             $shifts = CashierShift::with([
-                'cashier',
-                'shift.branch',
-                'nextCashier',
-                'assignedBy',
-                'originalCashier',
-                'reassignedBy',
-                'handover.handoverTo',
-                'salesBreakdown.aggregator',
-                'handoverStatus.reviewedBy',
-                'varianceDetails.responsibleCashier',
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                },
+                'shift.branch:id,name',
+                'nextCashier:id,name',
+                'assignedBy:id,name',
+                'handover',
+                'originalCashier:id,name',
+                'reassignedBy:id,name',
+                'handoverStatus',
             ])
                 ->where('cashier_id', $cashier->id)
                 ->whereIn('status', [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED])
-                ->whereDate('shift_date', '>=', now())
-                ->whereDate('shift_date', '<=', now()->addMonth())
+                ->whereDate('shift_date', '>=', $minDate)
+                ->whereDate('shift_date', '<=', $maxDate)
                 ->orderBy('shift_date')
                 ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id)')
                 ->paginate($request->input('per_page', 15));
 
-            return $this->paginatedResponse(
-                ShiftDetailResource::collection($shifts),
-                'Pending shifts retrieved successfully'
-            );
+            $transformedShifts = $shifts->getCollection()->map(function ($shift, $index) {
+                $isFirstShift = $index === 0;
+                $handoverTo = $shift->handover?->handoverTo;
+                $handoverToName = $handoverTo?->name ?? $shift->nextCashier?->name ?? 'Auto-assigned';
+                $handoverToId = $shift->handover?->handover_to_id ?? $shift->next_cashier_id;
+                $handoverToType = $shift->handover?->handover_to_type ?? 'cashier';
+
+                return [
+                    'id' => $shift->id,
+                    'date' => $shift->shift_date->format('Y-m-d'),
+                    'status' => $shift->status->value,
+                    'status_label' => $shift->status === ShiftStatus::REASSIGNED
+                        ? 'Reassigned (from another cashier with variance)'
+                        : 'Not Started',
+                    'start_time' => $shift->shift->start_time?->format('H:i') ?? 'N/A',
+                    'end_time' => $shift->shift->end_time?->format('H:i') ?? 'N/A',
+                    'opening_balance' => (float) ($shift->opening_balance ?? 0),
+                    'cash_given' => (float) ($shift->opening_balance ?? 0),
+                    'variance' => (float) ($shift->variance ?? 0),
+                    'cash_from' => $shift->assignedBy ? [
+                        'id' => $shift->assignedBy->id,
+                        'name' => $shift->assignedBy->name,
+                        'user_type' => 'branch_manager',
+                    ] : null,
+                    'handover_to' => [
+                        'id' => $handoverToId,
+                        'name' => $handoverToName,
+                        'type' => $handoverToType,
+                    ],
+                    'assigned_to' => $shift->cashier->name ?? 'N/A',
+                    'next_cashier' => $shift->nextCashier?->name ?? 'Auto-assigned',
+                    'assigned_by' => $shift->assignedBy?->name ?? 'Branch Manager',
+                    'assigned_by_user_type' => $shift->assigned_by ? 'branch_manager' : null,
+                    'is_next_shift' => $isFirstShift,
+                    'can_start' => $shift->shift_date->isToday(),
+                    'actions' => [
+                        'view_details' => true,
+                        'reassign_shift' => true,
+                    ],
+                ];
+            });
+
+            $shifts->setCollection($transformedShifts);
+
+            return $this->paginatedResponse($shifts, 'Pending shifts retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -191,27 +236,49 @@ class CashierShiftController extends BaseController
             $cashier = auth()->user();
 
             $shifts = CashierShift::with([
-                'cashier',
-                'shift.branch',
-                'nextCashier',
-                'assignedBy',
-                'originalCashier',
-                'reassignedBy',
-                'handover.handoverTo',
-                'salesBreakdown.aggregator',
-                'handoverStatus.reviewedBy',
-                'varianceDetails.responsibleCashier',
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                },
+                'shift.branch:id,name',
+                'nextCashier:id,name',
+                'assignedBy:id,name',
+                'handoverStatus'
             ])
                 ->where('cashier_id', $cashier->id)
                 ->where('status', ShiftStatus::IN_PROGRESS)
                 ->whereDate('shift_date', today())
                 ->orderBy('actual_start_time')
-                ->paginate($request->input('per_page', 15));
+                ->get()
+                ->map(function ($shift) {
+                    $progress = $this->calculateProgress($shift);
 
-            return $this->paginatedResponse(
-                ShiftDetailResource::collection($shifts),
-                'In-progress shifts retrieved successfully'
-            );
+                    return [
+                        'id' => $shift->id,
+                        'date' => $shift->shift_date->format('Y-m-d'),
+                        'status' => 'In Progress',
+                        'start_time' => $shift->shift->start_time?->format('H:i') ?? 'N/A',
+                        'end_time' => $shift->shift->end_time?->format('H:i') ?? 'N/A',
+                        'actual_start_time' => $shift->actual_start_time?->format('H:i:s'),
+                        'opening_balance' => $shift->opening_balance > 0
+                            ? (float) $shift->opening_balance
+                            : 'Not yet recorded',
+                        'closing_balance' => (float) ($shift->closing_balance ?? 0),
+                        'assigned_to' => $shift->cashier->name ?? 'N/A',
+                        'next_cashier' => $shift->nextCashier?->name ?? 'Auto-assigned',
+                        'assigned_by' => $shift->assignedBy?->name ?? 'Branch Manager',
+                        'assigned_by_user_type' => $shift->assigned_by ? 'branch_manager' : null,
+                        'progress' => $progress,
+                        'actions' => [
+                            'view_details' => true,
+                            'end_shift' => true,
+                        ],
+                    ];
+                });
+
+            return $this->successResponse([
+                'shifts' => $shifts,
+                'count' => $shifts->count(),
+            ], 'In-progress shifts retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -377,22 +444,23 @@ class CashierShiftController extends BaseController
             $cashier = auth()->user();
 
             $query = CashierShift::with([
-                'cashier',
-                'shift.branch',
-                'nextCashier',
-                'assignedBy',
-                'originalCashier',
-                'reassignedBy',
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                },
+                'shift.branch:id,name',
+                'nextCashier:id,name',
+                'assignedBy:id,name',
+                'salesBreakdown:id,cashier_shift_id,aggregator_id,amount',
+                'salesBreakdown.aggregator:id,name',
                 'handover.handoverTo',
-                'salesBreakdown.aggregator',
                 'handoverStatus.reviewedBy',
-                'varianceDetails.responsibleCashier',
             ])
                 ->where('cashier_id', $cashier->id)
                 ->where('status', ShiftStatus::COMPLETED)
                 ->orderBy('shift_date', 'desc')
                 ->orderBy('actual_end_time', 'desc');
 
+            // Filter by date range
             $dateFilter = $request->input('date_filter', 'last_7_days');
             switch ($dateFilter) {
                 case 'last_7_days':
@@ -413,10 +481,63 @@ class CashierShiftController extends BaseController
 
             $shifts = $query->paginate($request->input('per_page', 15));
 
-            return $this->paginatedResponse(
-                ShiftDetailResource::collection($shifts),
-                'Completed shifts retrieved successfully'
-            );
+            $transformedShifts = $shifts->getCollection()->map(function ($shift) {
+                $deliveryApps = $shift->salesBreakdown->sum('amount');
+                $handoverTo = $shift->handover?->handoverTo;
+                $handoverToName = $handoverTo?->name ?? $shift->nextCashier?->name ?? null;
+                $handoverToType = $shift->handover?->handover_to_type ?? 'cashier';
+
+                $handoverStatus = $shift->handoverStatus
+                    ? [
+                        'status' => $shift->handoverStatus->manager_approval_status ?? 'pending',
+                        'reviewed_by' => $shift->handoverStatus->reviewedBy?->name,
+                    ]
+                    : ['status' => 'no_handover', 'reviewed_by' => null];
+
+                $handoverToPayload = $handoverToName
+                    ? ['id' => $shift->handover?->handover_to_id ?? $shift->next_cashier_id, 'name' => $handoverToName, 'type' => $handoverToType]
+                    : null;
+
+                $handoverApprovedOrRejectedBy = null;
+                if ($shift->handoverStatus?->reviewedBy) {
+                    $handoverApprovedOrRejectedBy = [
+                        'id' => $shift->handoverStatus->reviewed_by_id,
+                        'name' => $shift->handoverStatus->reviewedBy->name,
+                        'user_type' => $shift->handoverStatus->reviewer_type ?? null,
+                        'action' => $shift->handoverStatus->manager_approval_status ?? 'pending',
+                    ];
+                }
+
+                return [
+                    'id' => $shift->id,
+                    'shift_date' => $shift->shift_date->format('Y-m-d'),
+                    'shift_name' => $shift->shift->name ?? 'N/A',
+                    'start_time' => $shift->actual_start_time?->format('H:i') ?? 'N/A',
+                    'end_time' => $shift->actual_end_time?->format('H:i') ?? 'N/A',
+                    'status' => 'Completed',
+                    'closing_balance' => (float) ($shift->closing_balance ?? 0),
+                    'total_sales' => (float) ($shift->total_sales ?? 0),
+                    'variance' => (float) ($shift->variance ?? 0),
+                    'variance_type' => $shift->variance > 0 ? 'Over' : ($shift->variance < 0 ? 'Short' : 'None'),
+                    'next_cashier' => $shift->nextCashier ? ['id' => $shift->nextCashier->id, 'name' => $shift->nextCashier->name] : null,
+                    'assigned_to' => $shift->cashier ? ['id' => $shift->cashier->id, 'name' => $shift->cashier->name] : null,
+                    'handover_status' => $handoverStatus,
+                    'handover_to' => $handoverToPayload,
+                    'handover_approved_or_rejected_by' => $handoverApprovedOrRejectedBy,
+                    'branch_name' => $shift->shift->branch->name ?? 'N/A',
+                    'branch_id' => $shift->shift->branch_id,
+                    'performance_metrics' => [
+                        'total_sales' => (float) ($shift->total_sales ?? 0),
+                        'cash_collected' => (float) ($shift->cash_collected ?? 0),
+                        'card_payments' => (float) ($shift->card_payments ?? 0),
+                        'delivery_apps' => (float) $deliveryApps,
+                    ],
+                ];
+            });
+
+            $shifts->setCollection($transformedShifts);
+
+            return $this->paginatedResponse($shifts, 'Completed shifts retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -431,26 +552,56 @@ class CashierShiftController extends BaseController
             $cashier = auth()->user();
 
             $shifts = CashierShift::with([
-                'cashier',
-                'shift.branch',
-                'nextCashier',
-                'assignedBy',
-                'originalCashier',
-                'reassignedBy',
-                'handover.handoverTo',
-                'salesBreakdown.aggregator',
-                'handoverStatus.reviewedBy',
-                'varianceDetails.responsibleCashier',
+                'shift' => function ($q) {
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                },
+                'shift.branch:id,name',
+                'originalCashier:id,name',
+                'reassignedBy:id,name',
+                'nextCashier:id,name',
+                'handover',
+                'handoverStatus',
             ])
                 ->where('cashier_id', $cashier->id)
                 ->where('status', ShiftStatus::REASSIGNED)
                 ->orderBy('reassigned_at', 'desc')
                 ->paginate($request->input('per_page', 15));
 
-            return $this->paginatedResponse(
-                ShiftDetailResource::collection($shifts),
-                'Reassigned shifts retrieved successfully'
-            );
+            $transformedShifts = $shifts->getCollection()->map(function ($shift) use ($cashier) {
+                $isMidReassign = $shift->handoverStatus && ($shift->handoverStatus->manager_approval_status ?? '') === 'pending';
+                $canBeAccepted = $isMidReassign && $shift->cashier_id === $cashier->id;
+
+                return [
+                    'id' => $shift->id,
+                    'shift_date' => $shift->shift_date->format('Y-m-d'),
+                    'shift_name' => $shift->shift->name ?? 'N/A',
+                    'start_time' => $shift->shift->start_time?->format('H:i') ?? 'N/A',
+                    'end_time' => $shift->shift->end_time?->format('H:i') ?? 'N/A',
+                    'reassigned_at' => $shift->reassigned_at?->format('Y-m-d H:i:s') ?? 'N/A',
+                    'reassignment_reason' => $shift->reassignment_reason ?? 'N/A',
+                    'closing_balance' => (float) ($shift->closing_balance ?? 0),
+                    'variance' => (float) ($shift->variance ?? 0),
+                    'reassigned_to' => $shift->cashier ? ['id' => $shift->cashier->id, 'name' => $shift->cashier->name] : null,
+                    'reassigned_from' => $shift->originalCashier ? ['id' => $shift->originalCashier->id, 'name' => $shift->originalCashier->name] : null,
+                    'reassigned_by' => $shift->reassignedBy ? [
+                        'id' => $shift->reassignedBy->id,
+                        'name' => $shift->reassignedBy->name,
+                        'user_type' => 'branch_manager',
+                    ] : null,
+                    'cash_given' => (float) ($shift->handover?->handover_amount ?? $shift->opening_balance ?? 0),
+                    'next_cashier' => $shift->nextCashier ? ['id' => $shift->nextCashier->id, 'name' => $shift->nextCashier->name] : null,
+                    'is_mid_reassign' => $isMidReassign,
+                    'can_be_accepted' => $canBeAccepted,
+                    'original_cashier' => $shift->originalCashier?->name ?? 'N/A',
+                    'branch_name' => $shift->shift->branch->name ?? 'N/A',
+                    'branch_id' => $shift->shift->branch_id,
+                    'status' => 'Reassigned',
+                ];
+            });
+
+            $shifts->setCollection($transformedShifts);
+
+            return $this->paginatedResponse($shifts, 'Reassigned shifts retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }

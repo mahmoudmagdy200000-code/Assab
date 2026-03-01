@@ -121,15 +121,12 @@ class ShiftService
         $query = CashierShift::completed()
             ->with([
                 'cashier',
-                'shift.branch',
+                'shift',
                 'nextCashier',
-                'assignedBy',
-                'originalCashier',
-                'reassignedBy',
-                'handover.handoverTo',
-                'salesBreakdown.aggregator',
                 'handoverStatus.reviewedBy',
-                'varianceDetails.responsibleCashier',
+                'handover.handoverTo',
+                'handover.approvedBy',
+                'varianceDetails'
             ]);
 
         // ✅ فلتر حسب البرانش (shift و cashier)
