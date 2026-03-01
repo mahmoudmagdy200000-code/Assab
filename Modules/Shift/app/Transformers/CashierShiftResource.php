@@ -57,8 +57,8 @@ class CashierShiftResource extends JsonResource
             'pos_receipt' => $this->pos_receipt,
 
             // Timing Info
-            'actual_start_time' => optional($this->actual_start_time)->format('H:i'),
-            'actual_end_time' => optional($this->actual_end_time)->format('H:i'),
+            'actual_start_time' => optional($this->actual_start_time)->format('Y-m-d H:i:s'),
+            'actual_end_time' => optional($this->actual_end_time)->format('Y-m-d H:i:s'),
             'handed_over_at' => optional($this->handed_over_at)?->format('Y-m-d H:i'),
 
             // Handover Info
