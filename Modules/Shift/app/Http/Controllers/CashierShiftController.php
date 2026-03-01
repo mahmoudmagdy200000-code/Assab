@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Services\ShiftService;
+use Modules\Shift\Transformers\CashierShiftResource;
 use Modules\Shift\Transformers\ShiftDetailResource;
 use Modules\Shift\Enums\ShiftStatus;
 use Carbon\Carbon;
@@ -357,9 +358,10 @@ class CashierShiftController extends BaseController
                 ->where('cashier_id', $cashier->id)
                 ->findOrFail($shift);
 
-            return $this->successResponse([
-                'shift' => new ShiftDetailResource($shiftModel),
-            ], 'Shift details retrieved successfully');
+            return $this->successResponse(
+                new CashierShiftResource($shiftModel),
+                'Cashier shift retrieved successfully'
+            );
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }

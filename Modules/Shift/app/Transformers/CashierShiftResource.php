@@ -107,45 +107,27 @@ class CashierShiftResource extends JsonResource
             // handover_approved_or_rejected_by (for completed)
             'handover_approved_or_rejected_by' => $this->getHandoverApprovedOrRejectedBy(),
 
-            // ---------- Reassignment (reassigned only) ----------
-            'reassignment' => $this->when(
-                $status === 'reassigned' || $this->original_cashier_id || $this->reassigned_by,
-                fn() => $this->getReassignmentArray()
-            ),
-            'is_mid_reassign' => $this->when($status === 'reassigned', fn() => $this->isMidReassign()),
-            'can_be_accepted' => $this->when($status === 'reassigned', fn() => $this->canBeAccepted()),
+            // ---------- Unified for all statuses (same keys, null/empty when N/A) ----------
+            'reassignment'       => $this->getReassignmentOrNull(),
+            'is_mid_reassign'    => $this->isMidReassign(),
+            'can_be_accepted'    => $this->canBeAccepted(),
+            'cash_given'         => $this->getCashGivenValue(),
+            'previous_cashier'   => $this->getPreviousCashierName(),
+            'cash_from'          => $this->getCashFromUnified(),
+            'reassign_reason'    => $this->reassignment_reason,
+            'variance_reason'    => $this->getVarianceReasonValue(),
 
-            // ---------- Pending (not_started): cash_from, cash_given ----------
-            'cash_from' => $this->when($status === 'not_started', $this->getCashFrom()),
-            'cash_given' => $this->when($status === 'not_started', (float) ($this->opening_balance ?? 0)),
+            // Always array (empty when no breakdown)
+            'sales_breakdown' => $this->relationLoaded('salesBreakdown')
+                ? $this->salesBreakdown->map(fn($item) => [
+                    'id' => $item->id,
+                    'aggregator' => $item->aggregator?->name,
+                    'amount' => (float) $item->amount,
+                ])->values()->all()
+                : [],
 
-            // Relations
-            'sales_breakdown' => $this->whenLoaded('salesBreakdown', function () {
-                return $this->salesBreakdown->map(function ($item) {
-                    return [
-                        'id' => $item->id,
-                        'aggregator' => $item->aggregator?->name,
-                        'amount' => $item->amount,
-                    ];
-                });
-            }),
-
-            // Detailed variance (when loaded and has variance)
-            'variance_details' => $this->when(
-                $this->hasVariance() && $this->relationLoaded('varianceDetails'),
-                function () {
-                    try {
-                        $varianceService = app(\Modules\Shift\Services\VarianceCalculationService::class);
-                        return $varianceService->getVarianceFormatted($this->resource);
-                    } catch (\Exception $e) {
-                        Log::error('Error calculating variance in CashierShiftResource', [
-                            'shift_id' => $this->id,
-                            'error' => $e->getMessage()
-                        ]);
-                        return null;
-                    }
-                }
-            ),
+            // Always present: object when has variance details, null otherwise
+            'variance_details' => $this->getVarianceDetailsOrNull(),
         ];
     }
 
@@ -156,6 +138,86 @@ class CashierShiftResource extends JsonResource
     private function getVarianceValue(): float
     {
         return (float) ($this->variance ?? 0);
+    }
+
+    /** Reassignment block for all statuses; null when not reassigned. */
+    private function getReassignmentOrNull(): ?array
+    {
+        $status = $this->status?->value ?? $this->status;
+        if ($status !== 'reassigned' && !$this->original_cashier_id && !$this->reassigned_by) {
+            return null;
+        }
+        return $this->getReassignmentArray();
+    }
+
+    /** Cash given: opening balance or handover amount; always numeric. */
+    private function getCashGivenValue(): float
+    {
+        if ($this->relationLoaded('handover') && $this->handover && $this->handover->handover_amount !== null) {
+            return (float) $this->handover->handover_amount;
+        }
+        return (float) ($this->opening_balance ?? 0);
+    }
+
+    /** Previous cashier name (reassigned_from or who handed over). */
+    private function getPreviousCashierName(): ?string
+    {
+        if ($this->original_cashier_id && $this->relationLoaded('originalCashier')) {
+            return $this->originalCashier?->name ?? null;
+        }
+        if ($this->original_cashier_id) {
+            $this->loadMissing('originalCashier');
+            return $this->originalCashier?->name ?? null;
+        }
+        return null;
+    }
+
+    /** Who the cash is from: assigned_by or reassigned_by; same shape for all statuses. */
+    private function getCashFromUnified(): ?array
+    {
+        $status = $this->status?->value ?? $this->status;
+        if ($status === 'reassigned' && $this->reassigned_by) {
+            if (!$this->relationLoaded('reassignedBy')) {
+                $this->loadMissing('reassignedBy');
+            }
+            return $this->reassignedBy ? [
+                'id' => $this->reassignedBy->id,
+                'name' => $this->reassignedBy->name,
+                'user_type' => 'branch_manager',
+            ] : null;
+        }
+        return $this->getCashFrom();
+    }
+
+    /** Variance reason from varianceDetails or handover; null when empty. */
+    private function getVarianceReasonValue(): ?string
+    {
+        if ($this->relationLoaded('varianceDetails') && $this->varianceDetails->isNotEmpty()) {
+            $reason = $this->varianceDetails->first()->reason ?? null;
+            return $reason && trim((string) $reason) !== '' ? trim($reason) : null;
+        }
+        if ($this->relationLoaded('handover') && $this->handover && !empty(trim((string) ($this->handover->variance_reason ?? '')))) {
+            return trim($this->handover->variance_reason);
+        }
+        return null;
+    }
+
+    /** Variance details object or null; key always present in response. */
+    private function getVarianceDetailsOrNull(): ?array
+    {
+        if (!$this->hasVariance() || !$this->relationLoaded('varianceDetails') || $this->varianceDetails->isEmpty()) {
+            return null;
+        }
+        try {
+            return app(\Modules\Shift\Services\VarianceCalculationService::class)
+                ->getVarianceFormatted($this->resource);
+        } catch (\Exception $e) {
+            Log::error('Error calculating variance in CashierShiftResource', [
+                'shift_id' => $this->id,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
     }
 
     /**
