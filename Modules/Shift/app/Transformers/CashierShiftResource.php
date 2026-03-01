@@ -108,9 +108,10 @@ class CashierShiftResource extends JsonResource
             'handover_approved_or_rejected_by' => $this->getHandoverApprovedOrRejectedBy(),
 
             // ---------- Unified for all statuses (same keys, null/empty when N/A) ----------
-            'reassignment'       => $this->getReassignmentOrNull(),
-            'is_mid_reassign'    => $this->isMidReassign(),
-            'can_be_accepted'    => $this->canBeAccepted(),
+            'reassignment'              => $this->getReassignmentOrNull(),
+            'is_mid_reassign'           => $this->isMidReassign(),
+            'can_be_accepted'           => $this->canBeAccepted(),
+            'is_shift_reassigned_to_me'  => $this->isShiftReassignedToMe(),
             'cash_given'         => $this->getCashGivenValue(),
             'previous_cashier'   => $this->getPreviousCashierName(),
             'cash_from'          => $this->getCashFromUnified(),
@@ -295,6 +296,22 @@ class CashierShiftResource extends JsonResource
             'cash_given' => $cashGiven,
             'next_cashier' => $this->formatNextCashier($this->computed_next_cashier ?? $this->nextCashier ?? null),
         ];
+    }
+
+    /**
+     * True when this shift was reassigned and the current user is the one it was reassigned to.
+     */
+    private function isShiftReassignedToMe(): bool
+    {
+        $status = $this->status?->value ?? $this->status;
+        if ($status !== 'reassigned') {
+            return false;
+        }
+        $user = auth()->user();
+        if (!$user) {
+            return false;
+        }
+        return (string) $this->cashier_id === (string) $user->getKey();
     }
 
     /**
