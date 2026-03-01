@@ -25,6 +25,9 @@ class ShiftDetailResource extends JsonResource
             'status' => $this->status?->value ?? $this->status,
             'status_label' => $this->getStatusLabel(),
 
+            // True when this shift was reassigned and the current user (cashier) is the one it was reassigned to
+            'is_shift_reassigned_to_me' => $this->isShiftReassignedToCurrentUser(),
+
             // Section A: Shift Progress
             'shift_progress' => $this->getShiftProgress(),
 
@@ -55,6 +58,24 @@ class ShiftDetailResource extends JsonResource
                 'updated_at' => $this->updated_at?->format('Y-m-d H:i:s'),
             ],
         ];
+    }
+
+    /**
+     * True when the shift was reassigned and the current authenticated user (cashier) is the one it was reassigned to.
+     * False for branch managers, non-reassigned shifts, or when the user is the original cashier.
+     */
+    private function isShiftReassignedToCurrentUser(): bool
+    {
+        if (!$this->original_cashier_id) {
+            return false;
+        }
+
+        $userId = auth()->id();
+        if ($userId === null) {
+            return false;
+        }
+
+        return (string) $userId === (string) $this->cashier_id;
     }
 
     /**
