@@ -551,19 +551,24 @@ class CashierShiftController extends BaseController
         try {
             $cashier = auth()->user();
 
+            // Reassigned shifts: either taken FROM me (original_cashier_id) or reassigned TO me (cashier_id)
             $shifts = CashierShift::with([
                 'shift' => function ($q) {
                     $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
                 },
                 'shift.branch:id,name',
+                'cashier:id,name',
                 'originalCashier:id,name',
                 'reassignedBy:id,name',
                 'nextCashier:id,name',
                 'handover',
                 'handoverStatus',
             ])
-                ->where('original_cashier_id', $cashier->id)
                 ->where('status', ShiftStatus::REASSIGNED)
+                ->where(function ($q) use ($cashier) {
+                    $q->where('original_cashier_id', $cashier->id)
+                        ->orWhere('cashier_id', $cashier->id);
+                })
                 ->orderBy('reassigned_at', 'desc')
                 ->paginate($request->input('per_page', 15));
 
