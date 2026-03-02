@@ -9,7 +9,11 @@ class ShiftTemplateResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $isActive = (bool) ($this->is_active ?? true);
+        // Shift is considered "taken" if it has an active CashierShift for today
+        $isTaken = ($this->active_assignments_count ?? 0) > 0;
+
+        // is_active = false when the shift is already taken by a cashier today
+        $isActive = !$isTaken && (bool) ($this->is_active ?? true);
 
         return [
             'id' => $this->id,

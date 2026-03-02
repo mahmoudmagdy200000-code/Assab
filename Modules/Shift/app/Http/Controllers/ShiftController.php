@@ -39,9 +39,13 @@ class ShiftController extends BaseController
                 return $this->errorResponse('Unauthorized', 403);
             }
 
-            // OPTIMIZED: Select only required fields
+            // OPTIMIZED: Select only required fields + count active assignments for today
             $shifts = Shift::where('branch_id', $manager->branch_id)
                 ->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active', 'created_at', 'updated_at'])
+                ->withCount(['cashierShifts as active_assignments_count' => function ($q) {
+                    $q->whereDate('shift_date', today())
+                      ->whereIn('status', ['not_started', 'in_progress']);
+                }])
                 ->orderBy('start_time')
                 ->paginate(10);
 
