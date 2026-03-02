@@ -565,10 +565,11 @@ class HandoverService
 
             // Reassign without handover: no handover record; treat as already accepted.
             if (!$shift->handoverStatus) {
+                $shift->update(['status' => ShiftStatus::NOT_STARTED]);
                 $shift->recordHistory(
                     'reassigned_shift_accepted_without_handover',
-                    null,
-                    ['accepted_by_cashier_id' => $cashierId]
+                    ['status' => ShiftStatus::REASSIGNED->value],
+                    ['status' => ShiftStatus::NOT_STARTED->value, 'accepted_by_cashier_id' => $cashierId]
                 );
                 DB::commit();
                 return $shift->fresh(['cashier', 'shift', 'originalCashier', 'reassignedBy']);
@@ -584,11 +585,15 @@ class HandoverService
                 null
             );
 
+            // Transition shift status back to not_started so it appears in pending shifts
+            $shift->update(['status' => ShiftStatus::NOT_STARTED]);
+
             $shift->recordHistory(
                 'reassigned_shift_accepted',
-                ['manager_approval_status' => 'pending'],
+                ['manager_approval_status' => 'pending', 'status' => ShiftStatus::REASSIGNED->value],
                 [
                     'manager_approval_status' => 'approved',
+                    'status' => ShiftStatus::NOT_STARTED->value,
                     'reviewed_by_id' => $cashierId,
                     'reviewed_by_type' => 'cashier',
                 ]
