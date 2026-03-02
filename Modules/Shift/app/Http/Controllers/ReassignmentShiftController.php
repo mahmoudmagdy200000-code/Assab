@@ -112,15 +112,17 @@ class ReassignmentShiftController extends Controller
 
         DB::beginTransaction();
         try {
-            $manager = auth()->user();
+            $authUser = auth()->user();
 
-            // Only branch managers may reassign shifts
-            if (!$manager instanceof \Modules\BranchManagers\Models\BranchManager || !$manager->branch_id) {
+            if (!$authUser || !$authUser->branch_id) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Unauthorized: only branch managers can reassign shifts',
+                    'message' => 'Unauthorized',
                 ], 403);
             }
+
+            $isBranchManager = $authUser instanceof \Modules\BranchManagers\Models\BranchManager;
+            $branchId = $authUser->branch_id;
 
             // البحث مرة واحدة فقط داخل ال transaction
             $shiftModel = CashierShift::with(['cashier', 'shift'])->find($shift);
@@ -133,18 +135,18 @@ class ReassignmentShiftController extends Controller
                     'error' => 'The specified shift does not exist'
                 ], 404);
             }
-            
-            // Verify shift belongs to manager's branch
-            if ($shiftModel->shift->branch_id !== $manager->branch_id) {
+
+            // Verify shift belongs to the same branch as the authenticated user
+            if ($shiftModel->shift->branch_id !== $branchId) {
                 DB::rollBack();
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized: This shift does not belong to your branch',
                 ], 403);
             }
-            
-            // Verify cashier belongs to manager's branch
-            if ($shiftModel->cashier->branch_id !== $manager->branch_id) {
+
+            // Verify cashier belongs to same branch
+            if ($shiftModel->cashier->branch_id !== $branchId) {
                 DB::rollBack();
                 return response()->json([
                     'success' => false,
@@ -207,15 +209,8 @@ class ReassignmentShiftController extends Controller
                 ], 404);
             }
 
-            // Get the user who is reassigning (must be branch manager)
-            $reassignedBy = auth()->id();
-            if (!$reassignedBy) {
-                DB::rollBack();
-                return response()->json([
-                    'success' => false,
-                    'message' => 'User not authenticated',
-                ], 401);
-            }
+            // reassigned_by FK references branch_managers; set only when auth user is a branch manager
+            $reassignedBy = $isBranchManager ? $authUser->id : null;
 
             // Update shift
             $updateData = [
@@ -232,11 +227,13 @@ class ReassignmentShiftController extends Controller
             // Refresh the model to ensure all attributes are loaded
             $shiftModel->refresh();
 
+            $performedByType = $isBranchManager ? 'branch_manager' : 'cashier';
+
             // Record history
             $shiftModel->history()->create([
                 'action' => 'reassigned',
-                'performed_by' => auth()->id(),
-                'performed_by_type' => 'branch_manager',
+                'performed_by' => $authUser->id,
+                'performed_by_type' => $performedByType,
                 'old_value' => json_encode([
                     'cashier_id' => $originalCashierId,
                     'cashier_name' => $originalCashier->name,
@@ -246,7 +243,7 @@ class ReassignmentShiftController extends Controller
                     'cashier_name' => $newCashier->name,
                     'reason' => $request->reason, // ممكن يكون null
                 ]),
-                'notes' => $request->reason ? 'Shift reassigned by branch manager: ' . $request->reason : 'Shift reassigned by branch manager',
+                'notes' => $request->reason ? 'Shift reassigned: ' . $request->reason : 'Shift reassigned',
             ]);
 
             // Send notifications
