@@ -79,13 +79,13 @@ class CashierShiftResource extends JsonResource
                         'handover_from_id' => $this->cashier_id ?? null,
                         'handover_to' => $handover->handoverTo?->name ?? null,
                         'handover_to_id' => $handover->handover_to_id ?? null,
-                        'handover_to_type' => $this->normalizeMorphType($handover->handover_to_type ?? null),
+                        'handover_to_type' => $handover->handover_to_type ?? null,
                         'handover_date' => $handover->handover_date?->format('Y-m-d') ?? null,
                         'handover_time' => $handover->handover_time?->format('H:i:s') ?? null,
                         'actioned_by' => $handover->approvedBy ? [
                             'id' => $handover->approved_by_id,
                             'name' => $handover->approvedBy->name,
-                            'type' => $this->normalizeMorphType($handover->approved_by_type),
+                            'type' => $handover->approved_by_type,
                             'actioned_at' => $handover->approved_at?->format('Y-m-d H:i:s'),
                         ] : null,
                     ];
@@ -235,7 +235,7 @@ class CashierShiftResource extends JsonResource
             'status' => $hs->status?->value ?? $hs->manager_approval_status ?? null,
             'manager_approval_status' => $hs->manager_approval_status ?? null,
             'reviewed_by' => $hs->reviewedBy?->name ?? null,
-            'reviewed_by_type' => $this->normalizeMorphType($hs->reviewer_type ?? null),
+            'reviewed_by_type' => $hs->reviewer_type ?? null,
         ];
     }
 
@@ -254,7 +254,7 @@ class CashierShiftResource extends JsonResource
         return [
             'id' => $hs->reviewed_by_id,
             'name' => $hs->reviewedBy?->name ?? null,
-            'user_type' => $this->normalizeMorphType($hs->reviewer_type ?? null),
+            'user_type' => $hs->reviewer_type ?? null,
             'action' => $hs->manager_approval_status === 'approved' ? 'approved' : ($hs->isManagerRejected() ? 'rejected' : 'pending'),
             'reviewed_at' => $hs->reviewed_at?->format('Y-m-d H:i:s'),
         ];
@@ -392,30 +392,30 @@ class CashierShiftResource extends JsonResource
         // Try to get from handover relationship first (most accurate)
         if ($this->relationLoaded('handover') && $this->handover) {
             $handover = $this->handover;
-            
+
             // Load handoverTo relationship if not loaded
             if (!$handover->relationLoaded('handoverTo')) {
                 $handover->load('handoverTo');
             }
-            
+
             $handoverTo = $handover->handoverTo;
-            
+
             if ($handoverTo) {
                 return [
                     'id' => $handover->handover_to_id,
                     'name' => $handoverTo->name ?? 'N/A',
-                    'type' => $this->normalizeMorphType($handover->handover_to_type),
+                    'type' => $handover->handover_to_type, // 'cashier' or 'branch_manager'
                     'email' => $handoverTo->email ?? null,
                     'phone' => $handoverTo->phone ?? null,
                 ];
             }
         }
-        
+
         // Fallback: if handover relationship is not loaded, try to get from CashierShiftHandover directly
         if ($this->handed_over_at || $this->relationLoaded('handoverStatus')) {
             $handover = \Modules\Shift\Models\CashierShiftHandover::where('cashier_shift_id', $this->id)
                 ->first();
-            
+
             if ($handover) {
                 // Load handoverTo based on type
                 $handoverTo = null;
@@ -424,19 +424,19 @@ class CashierShiftResource extends JsonResource
                 } elseif ($handover->handover_to_type === 'branch_manager') {
                     $handoverTo = \Modules\BranchManagers\Models\BranchManager::find($handover->handover_to_id);
                 }
-                
+
                 if ($handoverTo) {
                     return [
                         'id' => $handover->handover_to_id,
                         'name' => $handoverTo->name ?? 'N/A',
-                        'type' => $this->normalizeMorphType($handover->handover_to_type),
+                        'type' => $handover->handover_to_type,
                         'email' => $handoverTo->email ?? null,
                         'phone' => $handoverTo->phone ?? null,
                     ];
                 }
             }
         }
-        
+
         // Fallback: use nextCashier (stored) or computed_next_cashier (from next shift)
         $cashier = $this->nextCashier ?? $this->computed_next_cashier ?? null;
         if ($cashier) {
@@ -450,21 +450,5 @@ class CashierShiftResource extends JsonResource
         }
 
         return null;
-    }
-
-    /**
-     * Normalize a polymorphic morph-type value to a short human-readable string.
-     * Morph maps are not always configured, so the DB may store the full class name.
-     */
-    private function normalizeMorphType(?string $type): ?string
-    {
-        if ($type === null) {
-            return null;
-        }
-        return match (true) {
-            str_contains($type, 'BranchManager') => 'branch_manager',
-            str_contains($type, 'Cashier')        => 'cashier',
-            default                                => $type,
-        };
     }
 }
