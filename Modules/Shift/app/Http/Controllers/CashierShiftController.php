@@ -171,7 +171,7 @@ class CashierShiftController extends BaseController
                 'handoverStatus',
             ])
                 ->where('cashier_id', $cashier->id)
-                ->whereIn('status', [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED])
+                ->where('status', ShiftStatus::NOT_STARTED)
                 ->whereDate('shift_date', '>=', $minDate)
                 ->whereDate('shift_date', '<=', $maxDate)
                 ->orderBy('shift_date')
@@ -189,9 +189,7 @@ class CashierShiftController extends BaseController
                     'id' => $shift->id,
                     'date' => $shift->shift_date->format('Y-m-d'),
                     'status' => $shift->status->value,
-                    'status_label' => $shift->status === ShiftStatus::REASSIGNED
-                        ? 'Reassigned (from another cashier with variance)'
-                        : 'Not Started',
+                    'status_label' => 'Not Started',
                     'start_time' => $shift->shift->start_time?->format('H:i') ?? 'N/A',
                     'end_time' => $shift->shift->end_time?->format('H:i') ?? 'N/A',
                     'opening_balance' => (float) ($shift->opening_balance ?? 0),
@@ -564,7 +562,7 @@ class CashierShiftController extends BaseController
                 'handover',
                 'handoverStatus',
             ])
-                ->where('cashier_id', $cashier->id)
+                ->where('original_cashier_id', $cashier->id)
                 ->where('status', ShiftStatus::REASSIGNED)
                 ->orderBy('reassigned_at', 'desc')
                 ->paginate($request->input('per_page', 15));

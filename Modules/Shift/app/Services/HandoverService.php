@@ -562,9 +562,18 @@ class HandoverService
             if ($shift->cashier_id !== $cashierId) {
                 throw new \Exception('You are not authorized to accept this reassigned shift.');
             }
+
+            // Reassign without handover: no handover record; treat as already accepted.
             if (!$shift->handoverStatus) {
-                throw new \Exception('No handover record found for this reassigned shift.');
+                $shift->recordHistory(
+                    'reassigned_shift_accepted_without_handover',
+                    null,
+                    ['accepted_by_cashier_id' => $cashierId]
+                );
+                DB::commit();
+                return $shift->fresh(['cashier', 'shift', 'originalCashier', 'reassignedBy']);
             }
+
             if (($shift->handoverStatus->manager_approval_status ?? '') !== 'pending') {
                 throw new \Exception('This reassigned shift is no longer pending acceptance.');
             }
@@ -623,7 +632,7 @@ class HandoverService
                 throw new \Exception('You are not authorized to reject this reassigned shift.');
             }
             if (!$shift->handoverStatus) {
-                throw new \Exception('No handover record found for this reassigned shift.');
+                throw new \Exception('Rejection is only available for shifts reassigned with handover.');
             }
             if (($shift->handoverStatus->manager_approval_status ?? '') !== 'pending') {
                 throw new \Exception('This reassigned shift is no longer pending acceptance.');

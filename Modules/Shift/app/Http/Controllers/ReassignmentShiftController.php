@@ -11,8 +11,11 @@ use Illuminate\Support\Facades\Validator;
 use Modules\Shift\Services\{ShiftService, ShiftNotificationService};
 use Modules\Shift\Transformers\{ShiftResource, ShiftDetailResource, CashierShiftResource};
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\ShiftVarianceDetail;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Enums\VarianceType;
+use Modules\Shift\Enums\ResponsibilityType;
 
 class ReassignmentShiftController extends Controller
 {
@@ -285,6 +288,20 @@ class ReassignmentShiftController extends Controller
     {
         return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $uuid);
     }
+
+    /**
+     * Map request responsibility_type string to ResponsibilityType enum.
+     */
+    private function normalizeResponsibilityType(string $type): ResponsibilityType
+    {
+        return match (strtolower($type)) {
+            'self' => ResponsibilityType::I_WAS_RESPONSIBLE,
+            'self_and_others' => ResponsibilityType::ME_AND_OTHER_FACTORS,
+            'other_factors' => ResponsibilityType::OTHER_FACTORS,
+            'mixed' => ResponsibilityType::MIXED_FACTORS,
+            default => ResponsibilityType::I_WAS_RESPONSIBLE,
+        };
+    }
     /**
      * Reassign shift with handover (for in-progress shifts)
      *
@@ -496,36 +513,106 @@ class ReassignmentShiftController extends Controller
             }
 
             // ------------------------------------------------
-            // ⭐⭐⭐ ADDING FULL VARIANCE STORING HERE ⭐⭐⭐
+            // Variance: align with shift_variance_details schema (variance_amount, variance_type, etc.)
             // ------------------------------------------------
 
             if ($request->has('variance')) {
+                $shiftModel->refresh();
+                $signedVariance = $shiftModel->calculateVariance();
+                $varianceAmount = abs($signedVariance);
+                $varianceType = $signedVariance >= 0 ? VarianceType::OVER : VarianceType::SHORT;
+
+                $shiftModel->update(['variance' => $signedVariance]);
+
                 $varianceInput = $request->variance;
+                $responsibilityType = $this->normalizeResponsibilityType($varianceInput['responsibility_type'] ?? 'self');
 
-                // 1) Create variance record
-                $variance = $shiftModel->varianceDetails()->create([
-                    'responsibility_type' => $varianceInput['responsibility_type'],
-                    'current_cashier_amount' => $varianceInput['current_cashier_amount'] ?? null,
-                    'reason' => $varianceInput['reason'] ?? null,
-                ]);
-
-                // 2) Store other cashiers
-                if (!empty($varianceInput['other_cashiers'])) {
-                    foreach ($varianceInput['other_cashiers'] as $other) {
-                        $variance->otherCashiers()->create([
-                            'cashier_id' => $other['cashier_id'],
-                            'amount' => $other['amount'],
-                            'notes' => $other['notes'] ?? null,
-                        ]);
+                $supportingFiles = null;
+                if (!empty($varianceInput['supporting_files']) && is_array($varianceInput['supporting_files'])) {
+                    $paths = [];
+                    foreach ($varianceInput['supporting_files'] as $file) {
+                        if (is_object($file) && method_exists($file, 'store')) {
+                            $paths[] = $file->storeAs('variance/supporting-files', 'reassign_' . $shiftModel->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension(), 'public');
+                        }
                     }
+                    $supportingFiles = $paths ?: null;
                 }
 
-                // 3) Store supporting files
-                if (!empty($varianceInput['supporting_files'])) {
-                    foreach ($varianceInput['supporting_files'] as $file) {
-                        $path = $file->store('variance/files', 'public');
-                        $variance->files()->create([
-                            'file_path' => $path,
+                $reason = $varianceInput['reason'] ?? $varianceInput['notes'] ?? null;
+
+                if ($responsibilityType === ResponsibilityType::I_WAS_RESPONSIBLE) {
+                    ShiftVarianceDetail::create([
+                        'cashier_shift_id' => $shiftModel->id,
+                        'variance_amount' => $varianceAmount,
+                        'variance_type' => $varianceType,
+                        'responsibility_type' => $responsibilityType,
+                        'responsible_cashier_id' => $originalCashierId,
+                        'assigned_amount' => $varianceAmount,
+                        'reason' => $reason,
+                        'supporting_files' => $supportingFiles,
+                    ]);
+                } elseif ($responsibilityType === ResponsibilityType::ME_AND_OTHER_FACTORS) {
+                    $currentCashierAmount = (float) ($varianceInput['current_cashier_amount'] ?? 0);
+                    ShiftVarianceDetail::create([
+                        'cashier_shift_id' => $shiftModel->id,
+                        'variance_amount' => $varianceAmount,
+                        'variance_type' => $varianceType,
+                        'responsibility_type' => $responsibilityType,
+                        'responsible_cashier_id' => $originalCashierId,
+                        'assigned_amount' => $currentCashierAmount,
+                        'reason' => $reason,
+                        'supporting_files' => $supportingFiles,
+                    ]);
+                    $otherCashiers = $varianceInput['other_cashiers'] ?? [];
+                    foreach ($otherCashiers as $other) {
+                        ShiftVarianceDetail::create([
+                            'cashier_shift_id' => $shiftModel->id,
+                            'variance_amount' => $varianceAmount,
+                            'variance_type' => $varianceType,
+                            'responsibility_type' => $responsibilityType,
+                            'responsible_cashier_id' => $other['cashier_id'] ?? null,
+                            'assigned_amount' => (float) ($other['amount'] ?? 0),
+                            'reason' => $other['notes'] ?? null,
+                            'supporting_files' => null,
+                        ]);
+                    }
+                } elseif ($responsibilityType === ResponsibilityType::OTHER_FACTORS) {
+                    ShiftVarianceDetail::create([
+                        'cashier_shift_id' => $shiftModel->id,
+                        'variance_amount' => $varianceAmount,
+                        'variance_type' => $varianceType,
+                        'responsibility_type' => $responsibilityType,
+                        'responsible_cashier_id' => null,
+                        'assigned_amount' => $varianceAmount,
+                        'reason' => $reason,
+                        'supporting_files' => $supportingFiles,
+                    ]);
+                } elseif ($responsibilityType === ResponsibilityType::MIXED_FACTORS) {
+                    $otherCashiers = $varianceInput['other_cashiers'] ?? $varianceInput['cashiers'] ?? [];
+                    foreach ($otherCashiers as $other) {
+                        ShiftVarianceDetail::create([
+                            'cashier_shift_id' => $shiftModel->id,
+                            'variance_amount' => $varianceAmount,
+                            'variance_type' => $varianceType,
+                            'responsibility_type' => $responsibilityType,
+                            'responsible_cashier_id' => $other['cashier_id'] ?? null,
+                            'assigned_amount' => (float) ($other['amount'] ?? 0),
+                            'reason' => $other['notes'] ?? null,
+                            'supporting_files' => null,
+                        ]);
+                    }
+                    $totalCashierAmount = collect($otherCashiers)->sum(fn ($c) => (float) ($c['amount'] ?? 0));
+                    $externalAmount = $varianceAmount - $totalCashierAmount;
+                    if ($externalAmount > 0) {
+                        ShiftVarianceDetail::create([
+                            'cashier_shift_id' => $shiftModel->id,
+                            'variance_amount' => $varianceAmount,
+                            'variance_type' => $varianceType,
+                            'responsibility_type' => $responsibilityType,
+                            'responsible_cashier_id' => null,
+                            'assigned_amount' => $externalAmount,
+                            'reason' => $varianceInput['external_reason'] ?? $reason,
+                            'supporting_files' => $supportingFiles,
                         ]);
                     }
                 }
@@ -594,8 +681,7 @@ class ReassignmentShiftController extends Controller
                         'reassignedBy',
                         'handoverStatus',
                         'salesBreakdown.aggregator',
-                        'varianceDetails.otherCashiers',
-                        'varianceDetails.files'
+                        'varianceDetails.responsibleCashier',
                     ]))
                 ]
             ]);

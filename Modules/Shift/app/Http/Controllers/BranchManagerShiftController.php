@@ -693,8 +693,8 @@ class BranchManagerShiftController extends BaseController
             'handover_amount' => 'nullable|numeric|min:0',
             'handover_timing' => 'required|in:today,yesterday',
             'handover_notes' => 'nullable|string|max:500',
-            // Financial values (optional - can be manually entered)
-            'total_sales' => 'nullable|numeric|min:0',
+            // Financial values (optional - can be manually entered; total_sales may be negative e.g. refunds)
+            'total_sales' => 'nullable|numeric',
             'cash_collected' => 'nullable|numeric|min:0',
             'card_payments' => 'nullable|numeric|min:0',
             'aggregator_payments' => 'nullable|numeric|min:0',
@@ -705,7 +705,7 @@ class BranchManagerShiftController extends BaseController
             'cashier_breakdown.*.card_payments' => 'nullable|numeric|min:0',
             'cashier_breakdown.*.delivery_app_payments' => 'nullable|numeric|min:0',
             'cashier_breakdown.*.variance' => 'nullable|numeric',
-            'cashier_breakdown.*.sales' => 'nullable|numeric|min:0',
+            'cashier_breakdown.*.sales' => 'nullable|numeric',
         ]);
 
         if ($validator->fails()) {
@@ -953,8 +953,8 @@ class BranchManagerShiftController extends BaseController
             'handover_to' => 'nullable|exists:branch_managers,id',
             'handover_amount' => 'nullable|numeric|min:0',
             'handover_notes' => 'nullable|string|max:500',
-            // Financial values (optional - can be manually entered)
-            'total_sales' => 'nullable|numeric|min:0',
+            // Financial values (optional - can be manually entered; total_sales may be negative)
+            'total_sales' => 'nullable|numeric',
             'cash_collected' => 'nullable|numeric|min:0',
             'card_payments' => 'nullable|numeric|min:0',
             'aggregator_payments' => 'nullable|numeric|min:0',
@@ -965,7 +965,7 @@ class BranchManagerShiftController extends BaseController
             'cashier_breakdown.*.card_payments' => 'nullable|numeric|min:0',
             'cashier_breakdown.*.delivery_app_payments' => 'nullable|numeric|min:0',
             'cashier_breakdown.*.variance' => 'nullable|numeric',
-            'cashier_breakdown.*.sales' => 'nullable|numeric|min:0',
+            'cashier_breakdown.*.sales' => 'nullable|numeric',
         ]);
 
         if ($validator->fails()) {
