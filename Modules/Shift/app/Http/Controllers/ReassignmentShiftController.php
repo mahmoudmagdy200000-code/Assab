@@ -113,15 +113,15 @@ class ReassignmentShiftController extends Controller
         DB::beginTransaction();
         try {
             $manager = auth()->user();
-            
-            // Ensure the user is a branch manager
-            if (!$manager || !$manager->branch_id) {
+
+            // Only branch managers may reassign shifts
+            if (!$manager instanceof \Modules\BranchManagers\Models\BranchManager || !$manager->branch_id) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Unauthorized',
+                    'message' => 'Unauthorized: only branch managers can reassign shifts',
                 ], 403);
             }
-            
+
             // البحث مرة واحدة فقط داخل ال transaction
             $shiftModel = CashierShift::with(['cashier', 'shift'])->find($shift);
 

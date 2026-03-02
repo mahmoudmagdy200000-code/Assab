@@ -210,32 +210,28 @@ class BranchManagerShift extends Model
             return false;
         }
 
-        // الحصول على جميع شيفتات الكاشيرز في نفس اليوم والبرانش
-        $allCashierShifts = $this->getAllCashierShifts();
-        
-        // التحقق من أن جميع شيفتات الكاشيرز المكتملة قد تم handover للبرانش مانجر
-        $completedShifts = $allCashierShifts->where('status', \Modules\Shift\Enums\ShiftStatus::COMPLETED);
-        
-        foreach ($completedShifts as $cashierShift) {
-            // التحقق من وجود handover للبرانش مانجر
-            $handover = \Modules\Shift\Models\CashierShiftHandover::where('cashier_shift_id', $cashierShift->id)
-                ->where('handover_to_type', 'branch_manager')
-                ->where('handover_to_id', $this->branch_manager_id)
-                ->first();
-            
-            if (!$handover || $handover->status !== 'approved') {
-                return false;
-            }
-        }
-
-        // Check if all cashier handovers are approved
+        // Any handover already sent to this manager that is still pending must be resolved first.
+        // Cashiers who ended their shift without a handover (endShiftOnly) create no record here,
+        // so they do not block the manager from ending the workday.
         $pendingHandovers = $this->cashierHandovers()
             ->where('handover_to_type', 'branch_manager')
             ->where('handover_to_id', $this->branch_manager_id)
             ->where('status', 'pending')
             ->count();
-            
-        return $pendingHandovers === 0;
+
+        if ($pendingHandovers > 0) {
+            return false;
+        }
+
+        // Any handover that was sent to this manager must not be in a rejected state
+        // (rejected_final means manager permanently rejected and it was not resolved).
+        $rejectedFinalHandovers = $this->cashierHandovers()
+            ->where('handover_to_type', 'branch_manager')
+            ->where('handover_to_id', $this->branch_manager_id)
+            ->where('status', 'rejected_final')
+            ->count();
+
+        return $rejectedFinalHandovers === 0;
     }
 
     public function getProgressPercentage(): float
