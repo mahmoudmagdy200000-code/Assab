@@ -487,7 +487,7 @@ class ShiftHandoverController extends Controller
                     'actioned_by' => $handover?->approvedBy ? [
                         'id' => $handover->approved_by_id,
                         'name' => $handover->approvedBy->name,
-                        'type' => $handover->approved_by_type,
+                        'type' => $this->normalizeActionedByType($handover->approved_by_type),
                         'actioned_at' => $handover->approved_at?->format('Y-m-d H:i:s'),
                     ] : null,
                     'rejection_details' => [
@@ -714,6 +714,23 @@ class ShiftHandoverController extends Controller
         }
 
         return class_basename($reviewerType);
+    }
+
+    /**
+     * Normalize approved_by_type to branch_manager or cashier for API response.
+     */
+    private function normalizeActionedByType(?string $type): ?string
+    {
+        if ($type === null || $type === '') {
+            return null;
+        }
+        if (str_contains($type, 'BranchManager') || $type === 'branch_manager') {
+            return 'branch_manager';
+        }
+        if (str_contains($type, 'Cashier') || $type === 'cashier') {
+            return 'cashier';
+        }
+        return $type;
     }
 
     /**
