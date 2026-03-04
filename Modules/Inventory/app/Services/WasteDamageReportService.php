@@ -13,8 +13,10 @@ use Modules\Inventory\Models\WasteDamageReportItem;
 use Modules\Inventory\Models\WasteDamageReportItemEmployee;
 use Modules\Inventory\Repositories\WasteDamageReportItemRepository;
 use Modules\Inventory\Repositories\WasteDamageReportRepository;
+use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
+use Modules\Purchase\Models\PurchaseOrderItem;
 
 class WasteDamageReportService
 {
@@ -99,11 +101,13 @@ class WasteDamageReportService
 
                 $this->validateItemData($itemData, $quantity, $totalValue);
 
+                $purchaseOrderItemId = $itemData['purchase_order_item_id'] ?? $this->resolvePurchaseOrderItemId($itemData['item_id'], $branchId);
+
                 $item = $this->itemRepository->create([
                     'waste_damage_report_id' => $report->id,
                     'branch_id' => $branchId,
                     'item_id' => $itemData['item_id'],
-                    'purchase_order_item_id' => $itemData['purchase_order_item_id'] ?? null,
+                    'purchase_order_item_id' => $purchaseOrderItemId,
                     'problem_type' => $itemData['problem_type'],
                     'cause_of_damage' => $itemData['cause_of_damage'] ?? null,
                     'quantity' => $quantity,
@@ -141,11 +145,13 @@ class WasteDamageReportService
 
                 $this->validateItemData($itemData, $quantity, $totalValue);
 
+                $purchaseOrderItemId = $itemData['purchase_order_item_id'] ?? $this->resolvePurchaseOrderItemId($itemData['item_id'], $branchId);
+
                 $item = $this->itemRepository->create([
                     'waste_damage_report_id' => $report->id,
                     'branch_id' => $branchId,
                     'item_id' => $itemData['item_id'],
-                    'purchase_order_item_id' => $itemData['purchase_order_item_id'] ?? null,
+                    'purchase_order_item_id' => $purchaseOrderItemId,
                     'problem_type' => $itemData['problem_type'],
                     'cause_of_damage' => $itemData['cause_of_damage'] ?? null,
                     'quantity' => $quantity,
@@ -184,12 +190,14 @@ class WasteDamageReportService
 
         $this->validateItemData($data, $quantity, $totalValue);
 
-        return DB::transaction(function () use ($report, $branchId, $data, $pricePerUnit, $unit, $quantity, $totalValue, $branchManagerId) {
+        $purchaseOrderItemId = $data['purchase_order_item_id'] ?? $this->resolvePurchaseOrderItemId($data['item_id'], $branchId);
+
+        return DB::transaction(function () use ($report, $branchId, $data, $pricePerUnit, $unit, $quantity, $totalValue, $branchManagerId, $purchaseOrderItemId) {
             $item = $this->itemRepository->create([
                 'waste_damage_report_id' => $report->id,
                 'branch_id' => $branchId,
                 'item_id' => $data['item_id'],
-                'purchase_order_item_id' => $data['purchase_order_item_id'] ?? null,
+                'purchase_order_item_id' => $purchaseOrderItemId,
                 'problem_type' => $data['problem_type'],
                 'cause_of_damage' => $data['cause_of_damage'] ?? null,
                 'quantity' => $quantity,
@@ -353,6 +361,26 @@ class WasteDamageReportService
         $item = Item::find($itemId);
 
         return $item?->unit ?? 'unit';
+    }
+
+    /**
+     * Resolve purchase_order_item_id from closed orders when not provided.
+     * Returns the latest closed PO item for the given item in the branch, or null if none.
+     */
+    private function resolvePurchaseOrderItemId(string $itemId, string $branchId): ?string
+    {
+        $poItem = PurchaseOrderItem::query()
+            ->where('item_id', $itemId)
+            ->whereHas('purchaseOrder', function ($q) use ($branchId) {
+                $q->where('branch_id', $branchId)->where('status', OrderStatus::CLOSED);
+            })
+            ->orderByDesc(
+                PurchaseOrderItem::query()->getRelation('purchaseOrder')->getQualifiedCreatedAtColumn()
+            )
+            ->limit(1)
+            ->value('id');
+
+        return $poItem;
     }
 
     /**
