@@ -172,7 +172,8 @@ class OrderService
             throw new \Exception('Unauthorized access to this order');
         }
 
-        if ($order->status !== OrderStatus::PENDING) {
+        $allowedStatuses = [OrderStatus::PENDING, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
+        if (!in_array($order->status, $allowedStatuses)) {
             throw new \Exception('Order cannot be accepted in current status');
         }
 
