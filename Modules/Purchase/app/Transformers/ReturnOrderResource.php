@@ -101,8 +101,9 @@ class ReturnOrderResource extends JsonResource
                     'response_rate_percentage' => $this->supplier->response_rate_percentage ? (float) $this->supplier->response_rate_percentage : null,
                 ];
             }),
-            'items' => ReturnOrderItemResource::collection($this->whenLoaded('items')),
-            'timelines' => UnifiedTimelineResource::collection($this->whenLoaded('timelines')),
+            // Ensure collection() never receives null to avoid "map on null" error
+            'items' => ReturnOrderItemResource::collection($this->relationLoaded('items') ? ($this->items ?? []) : []),
+            'timelines' => UnifiedTimelineResource::collection($this->relationLoaded('timelines') ? ($this->timelines ?? []) : []),
         ];
     }
 
