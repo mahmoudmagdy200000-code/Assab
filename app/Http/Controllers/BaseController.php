@@ -187,8 +187,17 @@ abstract class BaseController extends Controller
 
         // When a ResourceCollection is passed, resolve it to get transformed data
         if (method_exists($data, 'collection') && method_exists($data, 'toArray')) {
-            $resolved = $data->toArray(request());
-            $items = isset($resolved['data']) ? $resolved['data'] : array_values($resolved);
+            try {
+                $resolved = $data->toArray(request());
+                $items = isset($resolved['data']) ? $resolved['data'] : array_values($resolved);
+            } catch (\Throwable $e) {
+                // Guard against "Attempt to read property 'map' on null" when collection is null
+                if (str_contains($e->getMessage(), 'map') && str_contains($e->getMessage(), 'null')) {
+                    $items = [];
+                } else {
+                    throw $e;
+                }
+            }
         } else {
             $items = $paginator->items();
         }

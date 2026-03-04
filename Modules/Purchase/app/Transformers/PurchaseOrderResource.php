@@ -110,9 +110,9 @@ class PurchaseOrderResource extends JsonResource
             'can_receive' => $this->can_receive,
             'is_active' => $this->is_active,
 
-            // Related data
-            'items' => PurchaseOrderItemResource::collection($this->whenLoaded('items')),
-            'timelines' => UnifiedTimelineResource::collection($this->whenLoaded('timelines')),
+            // Related data (ensure collection() never receives null to avoid "map on null" error)
+            'items' => PurchaseOrderItemResource::collection($this->relationLoaded('items') ? ($this->items ?? []) : []),
+            'timelines' => UnifiedTimelineResource::collection($this->relationLoaded('timelines') ? ($this->timelines ?? []) : []),
         ];
     }
 }
