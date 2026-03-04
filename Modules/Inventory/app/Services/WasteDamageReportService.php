@@ -276,16 +276,24 @@ class WasteDamageReportService
 
         $this->validateItemData($payload, $quantity, $totalValue);
 
-        return DB::transaction(function () use ($item, $payload, $quantity, $totalValue, $branchManagerId) {
-            $this->itemRepository->update($item, [
-                'problem_type' => $payload['problem_type'],
-                'cause_of_damage' => $payload['cause_of_damage'] ?? null,
-                'quantity' => $quantity,
-                'reason' => $payload['reason'],
-                'total_value' => $totalValue,
-                'justification_text' => $payload['justification_text'] ?? null,
-                'photo_path' => $payload['photo_path'] ?? $item->photo_path,
-            ]);
+        $updateData = [
+            'problem_type' => $payload['problem_type'],
+            'cause_of_damage' => $payload['cause_of_damage'] ?? null,
+            'quantity' => $quantity,
+            'reason' => $payload['reason'],
+            'total_value' => $totalValue,
+            'justification_text' => $payload['justification_text'] ?? null,
+            'photo_path' => $payload['photo_path'] ?? $item->photo_path,
+        ];
+        if ($item->purchase_order_item_id === null) {
+            $resolved = $this->resolvePurchaseOrderItemId($item->item_id, $item->branch_id);
+            if ($resolved !== null) {
+                $updateData['purchase_order_item_id'] = $resolved;
+            }
+        }
+
+        return DB::transaction(function () use ($item, $payload, $updateData, $branchManagerId) {
+            $this->itemRepository->update($item, $updateData);
 
             $this->syncResponsibleEmployees($item, $payload['responsible_employees'] ?? [], $branchManagerId, (float) ($payload['my_quantity_accountable'] ?? 0));
 
@@ -369,18 +377,14 @@ class WasteDamageReportService
      */
     private function resolvePurchaseOrderItemId(string $itemId, string $branchId): ?string
     {
-        $poItem = PurchaseOrderItem::query()
-            ->where('item_id', $itemId)
-            ->whereHas('purchaseOrder', function ($q) use ($branchId) {
-                $q->where('branch_id', $branchId)->where('status', OrderStatus::CLOSED);
-            })
-            ->orderByDesc(
-                PurchaseOrderItem::query()->getRelation('purchaseOrder')->getQualifiedCreatedAtColumn()
-            )
+        return PurchaseOrderItem::query()
+            ->where('purchase_order_items.item_id', $itemId)
+            ->join('purchase_orders', 'purchase_orders.id', '=', 'purchase_order_items.purchase_order_id')
+            ->where('purchase_orders.branch_id', $branchId)
+            ->where('purchase_orders.status', OrderStatus::CLOSED)
+            ->orderByDesc('purchase_orders.closed_at')
             ->limit(1)
-            ->value('id');
-
-        return $poItem;
+            ->value('purchase_order_items.id');
     }
 
     /**
