@@ -448,8 +448,9 @@ class OrderService
             throw new \InvalidArgumentException('Unauthorized access to this order');
         }
 
-        if (!in_array($order->status, [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION])) {
-            throw new \InvalidArgumentException('Order must be in pending or partial confirmation status to confirm item');
+        $allowedStatuses = [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
+        if (!in_array($order->status, $allowedStatuses)) {
+            throw new \InvalidArgumentException('Order must be in pending, partial confirmation, emergency or variance status to confirm item');
         }
 
         return DB::transaction(function () use ($order, $itemId, $quantity) {
@@ -492,8 +493,9 @@ class OrderService
             throw new \InvalidArgumentException('Unauthorized access to this order');
         }
 
-        if (!in_array($order->status, [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION])) {
-            throw new \InvalidArgumentException('Order must be in pending or partial confirmation status to reject item');
+        $allowedStatuses = [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
+        if (!in_array($order->status, $allowedStatuses)) {
+            throw new \InvalidArgumentException('Order must be in pending, partial confirmation, emergency or variance status to reject item');
         }
 
         return DB::transaction(function () use ($order, $itemId, $reason, $explanation) {
@@ -545,8 +547,9 @@ class OrderService
             throw new \InvalidArgumentException('Unauthorized access to this order');
         }
 
-        if (!in_array($order->status, [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION])) {
-            throw new \InvalidArgumentException('Order must be in pending or partial confirmation status to cancel item');
+        $allowedStatuses = [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
+        if (!in_array($order->status, $allowedStatuses)) {
+            throw new \InvalidArgumentException('Order must be in pending, partial confirmation, emergency or variance status to cancel item');
         }
 
         return DB::transaction(function () use ($order, $itemId, $reason) {
