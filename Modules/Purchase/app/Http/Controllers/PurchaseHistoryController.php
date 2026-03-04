@@ -4,6 +4,7 @@ namespace Modules\Purchase\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Modules\Purchase\Http\Requests\FilterPurchaseHistoryRequest;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Services\TimelineService;
@@ -28,7 +29,13 @@ class PurchaseHistoryController extends BaseController
             $filters = $request->validated();
             $filters['branch_id'] = auth()->user()->branch_id;
 
-            $orders = $this->orderService->getHistory($filters, $request->get('per_page', 15));
+            $perPage = (int) $request->get('per_page', 15) ?: 15;
+            $orders = $this->orderService->getHistory($filters, $perPage);
+
+            // Ensure ResourceCollection never receives null (prevents "map on null" error)
+            if ($orders === null) {
+                $orders = new LengthAwarePaginator([], 0, $perPage, 1, ['path' => $request->url()]);
+            }
 
             return $this->paginatedResponse(
                 PurchaseOrderResource::collection($orders),

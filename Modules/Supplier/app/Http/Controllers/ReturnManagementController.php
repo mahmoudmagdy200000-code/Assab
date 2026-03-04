@@ -4,6 +4,7 @@ namespace Modules\Supplier\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Modules\Purchase\Models\ReturnOrder;
 use Modules\Supplier\Http\Requests\Returns\ApproveReturnRequest;
 use Modules\Supplier\Http\Requests\Returns\RejectReturnRequest;
@@ -26,9 +27,14 @@ class ReturnManagementController extends BaseController
         try {
             $supplier = auth()->user();
             $filters = request()->only(['status', 'search']);
-            $perPage = request()->get('per_page', 15);
+            $perPage = (int) request()->get('per_page', 15) ?: 15;
 
             $returns = $this->returnService->getReturnRequests($supplier, $filters, $perPage);
+
+            // Ensure ResourceCollection never receives null (prevents "map on null" error)
+            if ($returns === null) {
+                $returns = new LengthAwarePaginator([], 0, $perPage, 1, ['path' => request()->url()]);
+            }
 
             return $this->paginatedResponse(
                 ReturnOrderResource::collection($returns),
