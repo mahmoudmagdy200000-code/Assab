@@ -758,6 +758,10 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         $subcategory = $item->subcategory
             ?? ($branchItem && $branchItem->item ? $branchItem->item->subcategory : null);
 
+        $itemStatus = ($order->status ?? null) === OrderStatus::DRAFT
+            ? OrderItemStatus::DRAFT
+            : OrderItemStatus::PENDING;
+
         try {
             return PurchaseOrderItem::create([
                 'purchase_order_id' => $order->id,
@@ -775,6 +779,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 'total_price' => max(0, $totalPrice), // Ensure total_price is not negative
                 'discount' => $discount,
                 'quality_ordered' => $quality,
+                'status' => $itemStatus,
                 'available_in_source' => $data['available_in_source'] ?? null,
                 'daily_consumption' => $data['daily_consumption'] ?? null,
                 'weekend_forecast' => $data['weekend_forecast'] ?? null,
@@ -829,6 +834,20 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         }
 
         $this->timelineService->logOrderSubmitted($order);
+
+        return true;
+    }
+
+    /**
+     * Delete draft order (soft delete). Only allowed when order status is DRAFT.
+     */
+    public function deleteDraftOrder(PurchaseOrder $order): bool
+    {
+        if ($order->status !== OrderStatus::DRAFT) {
+            return false;
+        }
+
+        $order->delete();
 
         return true;
     }

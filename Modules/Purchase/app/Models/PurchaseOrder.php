@@ -519,7 +519,12 @@ class PurchaseOrder extends Model
             return false;
         }
 
-        return $this->transitionTo(OrderStatus::PENDING);
+        $transitioned = $this->transitionTo(OrderStatus::PENDING);
+        if ($transitioned) {
+            $this->items()->where('status', OrderItemStatus::DRAFT)->update(['status' => OrderItemStatus::PENDING->value]);
+        }
+
+        return $transitioned;
     }
 
     public function cancel(?string $reason = null, bool $byBranch = false, bool $bySupplier = false): bool
@@ -626,7 +631,7 @@ class PurchaseOrder extends Model
     {
         $closed = $this->transitionTo(OrderStatus::CLOSED);
         if ($closed) {
-            $this->items()->update(['status' => OrderItemStatus::CLOSED]);
+            $this->items()->update(['status' => OrderItemStatus::CLOSED->value]);
         }
         return $closed;
     }

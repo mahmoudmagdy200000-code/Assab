@@ -4,6 +4,9 @@ namespace Modules\Purchase\Enums;
 
 enum OrderItemStatus: string
 {
+    // Draft (order not yet submitted)
+    case DRAFT = 'draft';
+
     // Decision Phase Statuses
     case PENDING = 'pending';
     case CONFIRMED = 'confirmed';
@@ -48,6 +51,7 @@ enum OrderItemStatus: string
     public function label(): string
     {
         return match ($this) {
+            self::DRAFT => 'Draft',
             self::PENDING => 'Pending',
             self::CONFIRMED => 'Confirmed',
             self::REJECTED => 'Rejected',
@@ -81,6 +85,7 @@ enum OrderItemStatus: string
     public function color(): string
     {
         return match ($this) {
+            self::DRAFT => '#9CA3AF',
             self::PENDING => '#F59E0B',
             self::CONFIRMED => '#10B981',
             self::REJECTED => '#EF4444',

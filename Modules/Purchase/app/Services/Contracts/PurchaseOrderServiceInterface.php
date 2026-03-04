@@ -66,6 +66,11 @@ interface PurchaseOrderServiceInterface
     public function submitOrder(PurchaseOrder $order): bool;
 
     /**
+     * Delete draft order (only when status is DRAFT)
+     */
+    public function deleteDraftOrder(PurchaseOrder $order): bool;
+
+    /**
      * Get order details
      */
     public function getOrderDetails(string $orderId, ?string $branchId = null): ?PurchaseOrder;

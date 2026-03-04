@@ -68,6 +68,7 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         Route::get('/{id}/supplier-info', [SupplierInfoController::class, 'byOrder'])->name('purchase.orders.supplier-info');
         Route::put('/{id}/items', [NewOrderController::class, 'updateItems'])->name('purchase.orders.update-items');
         Route::post('/{id}/submit', [NewOrderController::class, 'submit'])->name('purchase.orders.submit');
+        Route::delete('/{id}/draft', [NewOrderController::class, 'deleteDraft'])->name('purchase.orders.delete-draft');
     });
 
     /*

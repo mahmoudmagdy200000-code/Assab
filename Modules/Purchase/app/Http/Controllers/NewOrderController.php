@@ -370,19 +370,25 @@ class NewOrderController extends BaseController
     }
 
     /**
-     * Submit order
+     * Submit order (draft → pending).
+     * Accepts optional same body as create/update (e.g. items) to apply changes before submitting.
      *
      * @group New Order
      */
-    public function submit(string $id): JsonResponse
+    public function submit(Request $request, string $id): JsonResponse
     {
         try {
-            // Security: Pass branch_id to service for authorization check
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');
+            }
+
+            $items = $request->input('items', []);
+            if (!empty($items)) {
+                $this->orderService->updateItems($order, $items);
+                $order->refresh();
             }
 
             $success = $this->orderService->submitOrder($order);
@@ -397,6 +403,33 @@ class NewOrderController extends BaseController
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'submitting order');
+        }
+    }
+
+    /**
+     * Delete draft order
+     *
+     * @group New Order
+     */
+    public function deleteDraft(string $id): JsonResponse
+    {
+        try {
+            $userBranchId = auth()->user()->branch_id;
+            $order = $this->orderService->getOrderDetails($id, $userBranchId);
+
+            if (!$order) {
+                return $this->notFoundResponse('Order not found');
+            }
+
+            $success = $this->orderService->deleteDraftOrder($order);
+
+            if (!$success) {
+                return $this->errorResponse('Cannot delete order. Only draft orders can be deleted.', 400);
+            }
+
+            return $this->deletedResponse('Draft order deleted successfully');
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'deleting draft order');
         }
     }
 
