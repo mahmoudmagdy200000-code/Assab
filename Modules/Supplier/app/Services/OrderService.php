@@ -477,8 +477,8 @@ class OrderService
             // Confirm the item
             $item->confirm($quantity);
 
-            // Don't change order status - keep it pending until all items are decided
-            // The order status will be updated when all items are confirmed/rejected
+            // Check and transition order status if all items are decided (confirmed/rejected/cancelled)
+            $order->checkAndTransitionToConfirmed();
 
             return $order->fresh(['items']);
         });

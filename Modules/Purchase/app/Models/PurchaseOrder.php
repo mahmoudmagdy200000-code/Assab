@@ -439,8 +439,9 @@ class PurchaseOrder extends Model
      */
     public function checkAndTransitionToConfirmed(): bool
     {
-        // Only check if order is in PENDING status
-        if ($this->status !== OrderStatus::PENDING) {
+        // Only check if order is in a status that can transition to CONFIRMED when all items are decided
+        $transitionableStatuses = [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
+        if (!in_array($this->status, $transitionableStatuses)) {
             return false;
         }
 
