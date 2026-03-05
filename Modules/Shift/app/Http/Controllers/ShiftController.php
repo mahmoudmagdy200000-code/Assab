@@ -117,10 +117,8 @@ class ShiftController extends BaseController
                     'nextCashier:id,name,email,phone'
                 ]);
 
-            // 👤 Filter by specific cashier
-            if ($cashierId = $request->input('cashier_id')) {
-                $query->where('cashier_id', (int) $cashierId);
-            }
+            // Apply filters: date_filter, status (same keys as filter endpoint)
+            $this->applyCashierShiftFilters($query, $request);
 
             // OPTIMIZED: Ordering logic
             if (Schema::hasColumn('cashier_shifts', 'start_time')) {
@@ -601,6 +599,47 @@ class ShiftController extends BaseController
             $query->where('cashier_id', (int) $cashierId);
         }
 
+        // date_filter: last_24_hours, last_7_days, last_14_days, last_30_days, last_1_year (filter by shift_date)
+        $dateFilter = $request->input('date_filter');
+        $allowedDateFilters = ['last_24_hours', 'last_7_days', 'last_14_days', 'last_30_days', 'last_1_year'];
+        if ($dateFilter && in_array($dateFilter, $allowedDateFilters, true)) {
+            $now = Carbon::now();
+            switch ($dateFilter) {
+                case 'last_24_hours':
+                    $query->where('cashier_shifts.shift_date', '>=', $now->copy()->subDay());
+                    break;
+                case 'last_7_days':
+                    $query->where('cashier_shifts.shift_date', '>=', $now->copy()->subDays(7));
+                    break;
+                case 'last_14_days':
+                    $query->where('cashier_shifts.shift_date', '>=', $now->copy()->subDays(14));
+                    break;
+                case 'last_30_days':
+                    $query->where('cashier_shifts.shift_date', '>=', $now->copy()->subDays(30));
+                    break;
+                case 'last_1_year':
+                    $query->where('cashier_shifts.shift_date', '>=', $now->copy()->subYear());
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        // status: inProgress, pending, completed, all (map to DB: in_progress, not_started, completed; all = no filter)
+        $status = $request->input('status');
+        $allowedStatuses = ['inProgress', 'pending', 'completed', 'all'];
+        if ($status && in_array($status, $allowedStatuses, true) && $status !== 'all') {
+            $dbStatus = match ($status) {
+                'inProgress' => 'in_progress',
+                'pending' => 'not_started',
+                'completed' => 'completed',
+                default => null,
+            };
+            if ($dbStatus !== null) {
+                $query->where('cashier_shifts.status', $dbStatus);
+            }
+        }
+
         // 🔍 البحث العام (بالكاشير أو رقم الشيفت) - SECURITY: Sanitize search input
         if ($search = $request->input('search')) {
             // Sanitize search input to prevent SQL injection
@@ -619,42 +658,36 @@ class ShiftController extends BaseController
             }
         }
 
-        // 🕒 الفلترة حسب الفترة الزمنية
+        // 🕒 Legacy: period (date_filter is preferred)
         if ($period = $request->input('period')) {
             $allowedPeriods = ['today', 'last_7_days', 'last_30_days', 'last_24_hours'];
             if (in_array($period, $allowedPeriods)) {
                 switch ($period) {
                     case 'today':
-                        $query->whereDate('cashier_shifts.created_at', now()->toDateString());
+                        $query->whereDate('cashier_shifts.shift_date', now()->toDateString());
                         break;
                     case 'last_7_days':
-                        $query->where('cashier_shifts.created_at', '>=', now()->subDays(7));
+                        $query->where('cashier_shifts.shift_date', '>=', now()->subDays(7));
                         break;
                     case 'last_30_days':
-                        $query->where('cashier_shifts.created_at', '>=', now()->subDays(30));
+                        $query->where('cashier_shifts.shift_date', '>=', now()->subDays(30));
                         break;
                     case 'last_24_hours':
-                        $query->where('cashier_shifts.created_at', '>=', now()->subDay());
+                        $query->where('cashier_shifts.shift_date', '>=', now()->subDay());
                         break;
                     default:
-                        // Invalid period, ignore
                         break;
                 }
             }
         }
 
-        // 📆 فلترة مخصصة حسب التاريخ
+        // 📆 Custom date range
         if ($from = $request->input('date_from')) {
-            $query->whereDate('cashier_shifts.created_at', '>=', $from);
+            $query->whereDate('cashier_shifts.shift_date', '>=', $from);
         }
 
         if ($to = $request->input('date_to')) {
-            $query->whereDate('cashier_shifts.created_at', '<=', $to);
-        }
-
-        // 📌 فلترة حسب الحالة (مفتوح / مغلق)
-        if ($status = $request->input('status')) {
-            $query->where('cashier_shifts.status', $status);
+            $query->whereDate('cashier_shifts.shift_date', '<=', $to);
         }
 
         // 💰 فلترة حسب المبالغ (اختياري) - SECURITY: Validate numeric inputs
