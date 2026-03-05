@@ -1299,10 +1299,17 @@ class GoodsReceiptService
             return $compensatory;
         }
 
+        // Variances keyed by purchase_order_item_id so we can fallback quality when order item has null
+        $receipt = $variance->goodsReceipt;
+        $receipt?->loadMissing(['variances.goodsReceiptItem']);
+        $variancesByOrderItemId = $receipt
+            ? $receipt->variances->keyBy(fn (PurchaseVariance $v) => $v->goodsReceiptItem?->purchase_order_item_id)
+            : collect();
+
         // Prepare items data for new order
         // Use quantity from variance items, not from original order
-        // Note: addItem expects 'quantity' field, not 'quantity_ordered'
-        $newOrderItems = $orderItems->map(function ($orderItem) use ($varianceItemsMap) {
+        // addItem expects 'quantity' and 'quality' (not quality_ordered) to persist in DB
+        $newOrderItems = $orderItems->map(function ($orderItem) use ($varianceItemsMap, $variancesByOrderItemId) {
             $varianceItem = $varianceItemsMap->get($orderItem->id);
             $quantity = $varianceItem['quantity'] ?? $orderItem->quantity_ordered;
 
@@ -1313,6 +1320,10 @@ class GoodsReceiptService
                 );
             }
 
+            $varianceForItem = $variancesByOrderItemId->get($orderItem->id);
+            $quality = $orderItem->quality_ordered?->value
+                ?? $varianceForItem?->quality_ordered?->value;
+
             return [
                 'item_id' => $orderItem->item_id,
                 'item_name' => $orderItem->item_name,
@@ -1320,10 +1331,10 @@ class GoodsReceiptService
                 'item_sku' => $orderItem->item_sku,
                 'category' => $orderItem->category,
                 'subcategory' => $orderItem->subcategory,
-                'quantity' => $quantity, // addItem expects 'quantity', not 'quantity_ordered'
+                'quantity' => $quantity,
                 'unit_of_measurement' => $orderItem->unit_of_measurement,
                 'unit_price' => $orderItem->unit_price,
-                'quality_ordered' => $orderItem->quality_ordered?->value,
+                'quality' => $quality, // addItem expects 'quality' to save quality_ordered in DB
             ];
         })->toArray();
 
