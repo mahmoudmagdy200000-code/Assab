@@ -188,8 +188,8 @@ class BranchManagerShiftController extends BaseController
             // Get handovers summary
             $handoversSummary = $managerShift->getHandoverSummary();
 
-            // Get handovers using optimized Service method (with caching)
-            $handoversToManager = $this->shiftService->getShiftHandovers($managerShift, 'to_manager');
+            // Get handovers fresh (skip cache) so approve/reject status reflects immediately in workday/current
+            $handoversToManager = $this->shiftService->getShiftHandovers($managerShift, 'to_manager', true);
 
             // Transform handovers using reusable Service method (maintains exact response format)
             $handoffsToManager = $handoversToManager->map(function ($handover) {
