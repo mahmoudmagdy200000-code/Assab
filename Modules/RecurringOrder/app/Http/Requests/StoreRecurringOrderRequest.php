@@ -19,7 +19,7 @@ class StoreRecurringOrderRequest extends FormRequest
             'direct_supplier' => ['nullable', 'array'],
             'direct_supplier.supplier_id' => ['required_with:direct_supplier', 'string', 'exists:suppliers,id'],
             'direct_supplier.notification_channels' => ['nullable', 'array'],
-            'direct_supplier.notification_channels.*' => ['string', 'in:email,whatsapp,sms,app'],
+            'direct_supplier.notification_channels.*' => ['string', 'in:email,whatsapp,sms,app,in_app,in-app,push'],
             'direct_supplier.message' => ['nullable', 'string', 'max:2000'],
             'direct_supplier.items' => ['required_with:direct_supplier', 'array', 'min:1'],
             'direct_supplier.items.*.item_id' => ['required', 'string', 'exists:items,id'],
