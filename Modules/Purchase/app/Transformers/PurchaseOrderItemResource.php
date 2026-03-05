@@ -87,9 +87,9 @@ class PurchaseOrderItemResource extends JsonResource
             'total_price' => (float) $this->total_price,
             'discount' => (float) $this->discount,
 
-            // Quality
+            // Quality (fallback to latest receipt item when order item has variance but quality_received not synced)
             'quality_ordered' => $this->quality_ordered?->value,
-            'quality_received' => $this->quality_received?->value,
+            'quality_received' => $this->quality_received?->value ?? $this->getQualityReceivedFromReceipt(),
 
             // Transfer details (for internal transfers - source branch info)
             'available_in_source' => $this->available_in_source ? (float) $this->available_in_source : null,
@@ -144,5 +144,19 @@ class PurchaseOrderItemResource extends JsonResource
             'is_alternative' => $this->is_alternative,
             'is_gift' => $this->is_gift,
         ];
+    }
+
+    /**
+     * Fallback: get quality_received from latest goods receipt item (for variance orders where sync may not have run).
+     */
+    private function getQualityReceivedFromReceipt(): ?string
+    {
+        if (!$this->relationLoaded('goodsReceiptItems') || $this->goodsReceiptItems->isEmpty()) {
+            return null;
+        }
+
+        $latest = $this->goodsReceiptItems->sortByDesc('created_at')->first();
+
+        return $latest?->quality_received?->value;
     }
 }

@@ -1420,7 +1420,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     {
         // First, try to find the order by ID
         $order = PurchaseOrder::with([
-            'items',
+            'items.goodsReceiptItems',
             'supplier',
             'branch',
             'requestedBy',
