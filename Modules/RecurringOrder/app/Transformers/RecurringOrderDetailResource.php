@@ -248,7 +248,12 @@ class RecurringOrderDetailResource extends JsonResource
         $out = [];
         foreach ($items as $roItem) {
             $itemId = $roItem->item_id ?? $roItem->item?->id;
-            $quantityPurchased = (float) $roItem->quantity;
+            // Use raw attribute so quantity is never lost (cast/accessor can sometimes return 0)
+            $quantityOrdered = $roItem->getRawOriginal('quantity');
+            if ($quantityOrdered === null || $quantityOrdered === '') {
+                $quantityOrdered = $roItem->quantity;
+            }
+            $quantityPurchased = (float) $quantityOrdered;
             $quantityInStock = 0;
             if ($itemId && $branchId) {
                 $inv = \Modules\Purchase\Models\BranchInventory::where('branch_id', $branchId)
