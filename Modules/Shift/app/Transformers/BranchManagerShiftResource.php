@@ -159,6 +159,17 @@ class BranchManagerShiftResource extends JsonResource
         // variance = expected_balance - closing_balance
         $variance = $expectedBalance - $closingBalance;
 
+        // Petty cash & last deposit = final cash collected that the manager received (يُسجّل في الـ custody عند الموافقة على الـ handovers)
+        $finalCashCollected = $closingBalance;
+        $lastDepositDateRaw = $this->handover_date ?? $this->actual_end_time ?? now();
+        $lastDepositDate = $lastDepositDateRaw instanceof \DateTimeInterface
+            ? $lastDepositDateRaw->format('Y-m-d')
+            : (is_string($lastDepositDateRaw) ? $lastDepositDateRaw : now()->format('Y-m-d'));
+        $lastDepositTimeRaw = $this->handover_time ?? $this->actual_end_time ?? now();
+        $lastDepositTime = $lastDepositTimeRaw instanceof \DateTimeInterface
+            ? $lastDepositTimeRaw->format('H:i:s')
+            : now()->format('H:i:s');
+
         return [
             'handover_amount' => (float) ($this->handover_amount ?? 0), // ✅ Handover Amount
             'status' => $status, // ✅ Status: Completed, Not Submitted, or Pending
@@ -176,6 +187,11 @@ class BranchManagerShiftResource extends JsonResource
             'expected_balance' => $expectedBalance, // total_sales
             'variance' => $variance, // expected_balance - closing_balance
             'variance_type' => $variance > 0 ? 'Over' : ($variance < 0 ? 'Short' : 'None'),
+            // Petty cash & last deposit (final cash collected received — عند الموافقة على الـ handovers يُسجّل في الـ custody)
+            'petty_cash' => (float) $finalCashCollected,
+            'last_deposit' => (float) $finalCashCollected,
+            'last_deposit_date' => $lastDepositDate,
+            'last_deposit_time' => $lastDepositTime,
         ];
     }
 
