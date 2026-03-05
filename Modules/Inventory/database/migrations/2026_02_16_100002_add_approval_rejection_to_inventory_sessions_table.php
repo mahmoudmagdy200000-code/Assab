@@ -20,7 +20,7 @@ return new class extends Migration
         });
 
         // Change status enum to include new values (MySQL)
-        \DB::statement("ALTER TABLE inventory_sessions MODIFY COLUMN status ENUM('draft', 'pending', 'approved', 'rejected', 'pending_your_action', 'completed') DEFAULT 'draft'");
+        \DB::statement("ALTER TABLE inventory_sessions MODIFY COLUMN status ENUM('draft', 'pending', 'approved', 'rejected', 'pending_your_action', 'pending_your_confirmation', 'completed') DEFAULT 'draft'");
     }
 
     /**

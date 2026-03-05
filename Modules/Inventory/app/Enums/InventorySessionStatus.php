@@ -8,6 +8,7 @@ enum InventorySessionStatus: string
     case PENDING = 'pending';
     case APPROVED = 'approved';
     case REJECTED = 'rejected';
+    case PENDING_YOUR_ACTION = 'pending_your_action';
     case PENDING_YOUR_CONFIRMATION = 'pending_your_confirmation';
     case COMPLETED = 'completed';
 
@@ -18,6 +19,7 @@ enum InventorySessionStatus: string
             self::PENDING => 'Pending',
             self::APPROVED => 'Approved',
             self::REJECTED => 'Rejected',
+            self::PENDING_YOUR_ACTION => 'Pending Your Action',
             self::PENDING_YOUR_CONFIRMATION => 'Pending Your Confirmation',
             self::COMPLETED => 'Completed',
         };
@@ -30,6 +32,7 @@ enum InventorySessionStatus: string
             self::PENDING => '#6366F1',
             self::APPROVED => '#10B981',
             self::REJECTED => '#EF4444',
+            self::PENDING_YOUR_ACTION => '#F59E0B',
             self::PENDING_YOUR_CONFIRMATION => '#F59E0B',
             self::COMPLETED => '#10B981',
         };

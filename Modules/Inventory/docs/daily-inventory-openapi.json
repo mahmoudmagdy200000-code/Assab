@@ -145,7 +145,7 @@
             },
             "InventorySessionStatus": {
                 "type": "string",
-                "enum": ["draft", "pending", "approved", "rejected", "pending_your_confirmation", "completed"]
+                "enum": ["draft", "pending", "approved", "rejected", "pending_your_action", "pending_your_confirmation", "completed"]
             },
             "SuccessResponse": {
                 "type": "object",
