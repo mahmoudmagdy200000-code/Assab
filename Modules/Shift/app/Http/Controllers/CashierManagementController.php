@@ -625,10 +625,13 @@ class CashierManagementController extends BaseController
                 ->with('branch:id,name,location')
                 ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'status', 'is_first_login', 'image', 'email_verified_at', 'phone_verified_at', 'created_at', 'updated_at']);
 
-            // Exclude the current user so the logged-in manager never sees themselves in the list
-            $managersQuery->where('id', '!=', $user->getKey());
-
             $branchManagers = $managersQuery->get();
+
+            // Exclude the current user so the logged-in manager never sees themselves in the list
+            if ($user instanceof BranchManager) {
+                $currentId = (string) $user->getKey();
+                $branchManagers = $branchManagers->filter(fn (BranchManager $m) => (string) $m->getKey() !== $currentId)->values();
+            }
 
             $cashiersResource = CashierResource::collection($cashiers);
             $response = $this->paginatedResponse($cashiersResource, 'Cashiers and branch managers retrieved successfully');
