@@ -59,10 +59,11 @@ class ShiftRequestsService
 
     /**
      * Get all variances for the authenticated user.
-     * Cashier: shifts where they are the cashier and have variance.
-     * Branch Manager: shifts in their branch that have variance.
+     * Cashier: shifts where they are the primary cashier OR are listed as a responsible party
+     *          in shift_variance_details (self_and_others / mixed).
+     * Branch Manager: all shifts in their branch that have variance.
      *
-     * @param string|null $status optional filter by handover status
+     * @param string|null $status optional filter by responsibility_status (pending|approved|rejected)
      * @param int|null $perPage when set, returns LengthAwarePaginator; otherwise Collection
      * @return Collection|LengthAwarePaginator
      */
@@ -90,7 +91,14 @@ class ShiftRequestsService
 
         $this->applyVarianceScopeByUser($query, $user);
 
-        if ($status !== null && $status !== '') {
+        // For cashiers: filter by responsibility_status on their specific detail record
+        if ($status !== null && $status !== '' && $user instanceof Cashier) {
+            $cashierId = $user->id;
+            $query->whereHas('varianceDetails', fn($q) => $q
+                ->where('responsible_cashier_id', $cashierId)
+                ->where('responsibility_status', $status)
+            );
+        } elseif ($status !== null && $status !== '') {
             $query->whereHas('handoverStatus', fn($q) => $q->where('manager_approval_status', $status));
         }
 
@@ -152,11 +160,19 @@ class ShiftRequestsService
 
     /**
      * Scope variance query by user role.
+     * Cashier: own shifts OR shifts where they are assigned responsibility via variance details.
+     * Branch Manager: all shifts in their branch.
      */
     private function applyVarianceScopeByUser($query, $user): void
     {
         if ($user instanceof Cashier) {
-            $query->where('cashier_id', $user->id);
+            $cashierId = $user->id;
+            $query->where(function ($q) use ($cashierId) {
+                // Primary cashier of the shift
+                $q->where('cashier_id', $cashierId)
+                  // OR assigned as responsible party in variance details (self_and_others / mixed)
+                  ->orWhereHas('varianceDetails', fn($vd) => $vd->where('responsible_cashier_id', $cashierId));
+            });
             return;
         }
 

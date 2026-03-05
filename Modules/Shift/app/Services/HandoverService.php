@@ -229,6 +229,13 @@ class HandoverService
                 if ($handover->handover_to_type === 'branch_manager') {
                     event(new \Modules\Custody\Events\HandoverApproved($handover));
                 }
+
+                // Re-dispatch VarianceRecorded so the branch manager ledger entry is created/updated
+                // (variance may have been recorded before the handover was submitted)
+                $shiftFresh = $shift->fresh(['varianceDetails']);
+                if ($shiftFresh && $shiftFresh->varianceDetails->isNotEmpty()) {
+                    event(new \Modules\Shift\Events\VarianceRecorded($shiftFresh));
+                }
             }
 
             // Try auto handover to next shift

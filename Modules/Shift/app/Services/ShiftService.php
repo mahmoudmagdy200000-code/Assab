@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Services;
 
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
@@ -18,6 +19,8 @@ class ShiftService
 
     /**
      * Resolve next cashier from the chronologically next shift (same day, same branch).
+     * Finds the shift whose start_time is the earliest one after the current shift's end_time,
+     * regardless of its status (not_started or in_progress).
      * Used for display; override only when handing over.
      */
     public function getNextShiftCashier(CashierShift $shift): ?Cashier
@@ -28,18 +31,46 @@ class ShiftService
             return null;
         }
 
-        $next = CashierShift::where('id', '!=', $shift->id)
-            ->where('shift_date', $shift->shift_date)
-            ->whereHas('shift', function ($q) use ($shift) {
-                $q->where('branch_id', $shift->shift->branch_id)
-                    ->where('start_time', '>=', $shift->shift->end_time);
-            })
-            ->where('status', ShiftStatus::NOT_STARTED)
-            ->orderBy('shift_id')
+        $next = CashierShift::where('cashier_shifts.id', '!=', $shift->id)
+            ->where('cashier_shifts.shift_date', $shift->shift_date)
+            ->join('shifts', 'cashier_shifts.shift_id', '=', 'shifts.id')
+            ->where('shifts.branch_id', $shift->shift->branch_id)
+            ->where('shifts.start_time', '>', $shift->shift->end_time)
+            ->whereIn('cashier_shifts.status', [
+                ShiftStatus::NOT_STARTED->value,
+                ShiftStatus::IN_PROGRESS->value,
+            ])
+            ->orderBy('shifts.start_time')
+            ->select('cashier_shifts.*')
             ->with('cashier:id,name,email,phone')
             ->first();
 
         return $next?->cashier;
+    }
+
+    /**
+     * Next recipient for display: next cashier when there is a chronologically next shift,
+     * otherwise branch manager (last shift of the day).
+     *
+     * @return Cashier|BranchManager|null
+     */
+    public function getNextRecipientForDisplay(CashierShift $shift): Cashier|BranchManager|null
+    {
+        $nextCashier = $this->getNextShiftCashier($shift);
+        if ($nextCashier !== null) {
+            return $nextCashier;
+        }
+
+        $shift->loadMissing('shift');
+        if (!$shift->shift || !$shift->shift->branch_id) {
+            return null;
+        }
+
+        return BranchManager::query()
+            ->where('branch_id', $shift->shift->branch_id)
+            ->active()
+            ->select('id', 'name', 'email', 'phone')
+            ->first();
     }
 
     public function getPendingShifts(string $cashierId = null): LengthAwarePaginator

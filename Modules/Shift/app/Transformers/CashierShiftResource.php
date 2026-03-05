@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\Log;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Services\ShiftService;
 
 class CashierShiftResource extends JsonResource
 {
@@ -92,8 +93,8 @@ class CashierShiftResource extends JsonResource
                 }
             ),
 
-            // Next Cashier (computed from next shift when available, else stored)
-            'next_cashier' => $this->formatNextCashier($this->computed_next_cashier ?? $this->nextCashier ?? null),
+            // Next Cashier / Branch Manager (next shift cashier, or branch manager for last shift of day)
+            'next_cashier' => $this->formatNextRecipient($this->getNextRecipientForDisplay()),
 
             // Assigned to (who the shift is assigned to)
             'assigned_to' => $this->cashier ? [
@@ -294,7 +295,7 @@ class CashierShiftResource extends JsonResource
             'reassigned_at' => $this->reassigned_at?->format('Y-m-d H:i:s'),
             'reason' => $this->reassignment_reason,
             'cash_given' => $cashGiven,
-            'next_cashier' => $this->formatNextCashier($this->computed_next_cashier ?? $this->nextCashier ?? null),
+            'next_cashier' => $this->formatNextRecipient($this->getNextRecipientForDisplay()),
         ];
     }
 
@@ -364,21 +365,38 @@ class CashierShiftResource extends JsonResource
     }
 
     /**
-     * @param \Modules\Cashier\Models\Cashier|null $cashier
+     * Next recipient for display: from ShiftService (next cashier or branch manager for last shift).
+     */
+    private function getNextRecipientForDisplay(): \Modules\Cashier\Models\Cashier|\Modules\BranchManagers\Models\BranchManager|null
+    {
+        $recipient = app(ShiftService::class)->getNextRecipientForDisplay($this->resource);
+        if ($recipient !== null) {
+            return $recipient;
+        }
+        return $this->computed_next_cashier ?? $this->nextCashier ?? null;
+    }
+
+    /**
+     * @param \Modules\Cashier\Models\Cashier|\Modules\BranchManagers\Models\BranchManager|null $recipient
      * @return array<string, mixed>|null
      */
-    private function formatNextCashier($cashier): ?array
+    private function formatNextRecipient($recipient): ?array
     {
-        if (!$cashier) {
+        if (!$recipient) {
             return null;
         }
 
-        return [
-            'id' => $cashier->id,
-            'name' => $cashier->name,
-            'email' => $cashier->email ?? null,
-            'phone' => $cashier->phone ?? null,
+        $arr = [
+            'id' => $recipient->id,
+            'name' => $recipient->name,
+            'email' => $recipient->email ?? null,
+            'phone' => $recipient->phone ?? null,
         ];
+        if ($recipient instanceof \Modules\BranchManagers\Models\BranchManager) {
+            $arr['type'] = 'branch_manager';
+            $arr['name'] = $recipient->name . ' (Branch Manager)';
+        }
+        return $arr;
     }
 
     /**
@@ -437,15 +455,20 @@ class CashierShiftResource extends JsonResource
             }
         }
 
-        // Fallback: use nextCashier (stored) or computed_next_cashier (from next shift)
-        $cashier = $this->nextCashier ?? $this->computed_next_cashier ?? null;
-        if ($cashier) {
+        // Fallback: next recipient (next cashier or branch manager for last shift of day)
+        $recipient = $this->getNextRecipientForDisplay();
+        if ($recipient) {
+            $type = $recipient instanceof \Modules\BranchManagers\Models\BranchManager ? 'branch_manager' : 'cashier';
+            $name = $recipient->name;
+            if ($recipient instanceof \Modules\BranchManagers\Models\BranchManager) {
+                $name = $recipient->name . ' (Branch Manager)';
+            }
             return [
-                'id' => $cashier->id,
-                'name' => $cashier->name,
-                'type' => 'cashier',
-                'email' => $cashier->email ?? null,
-                'phone' => $cashier->phone ?? null,
+                'id' => $recipient->id,
+                'name' => $name,
+                'type' => $type,
+                'email' => $recipient->email ?? null,
+                'phone' => $recipient->phone ?? null,
             ];
         }
 

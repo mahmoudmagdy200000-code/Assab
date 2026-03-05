@@ -176,6 +176,7 @@ class BranchManagerShiftController extends BaseController
                 [
                     'branch_id' => $manager->branch_id,
                     'status' => 'not_started',
+                    'opening_balance' => $this->resolveBranchManagerOpeningBalance($manager->branch_id),
                 ]
             );
 
@@ -566,6 +567,27 @@ class BranchManagerShiftController extends BaseController
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
+    }
+
+    /**
+     * Resolve the opening balance for a new branch manager shift.
+     * Uses the most recent previous shift's handover_amount (closing cash handed over),
+     * falling back to 0 if no prior shift exists for this branch.
+     */
+    private function resolveBranchManagerOpeningBalance(string $branchId): float
+    {
+        $previousShift = BranchManagerShift::where('branch_id', $branchId)
+            ->where('shift_date', '<', today())
+            ->where('status', 'completed')
+            ->orderByDesc('shift_date')
+            ->select(['handover_amount', 'closing_balance'])
+            ->first();
+
+        if (!$previousShift) {
+            return 0.0;
+        }
+
+        return (float) ($previousShift->handover_amount ?? $previousShift->closing_balance ?? 0);
     }
 
     /**
@@ -1649,55 +1671,67 @@ class BranchManagerShiftController extends BaseController
     }
 
     /**
-     * Prepare daily close summary from all cashier shifts
-     * إعداد ملخص الإغلاق اليومي من جميع شيفتات الكاشيرز
-     * OPTIMIZED: Use Service method with eager loading and select specific fields to reduce N+1 queries
+     * Prepare daily close summary from all cashier shifts for this branch and date.
+     * Includes every cashier who worked that day, regardless of whether they submitted
+     * a handover to the manager.  Handover data (variance_amount, status) is merged in
+     * where available.
      */
     private function prepareDailyCloseSummary(BranchManagerShift $shift): array
     {
-        // Use optimized Service method instead of direct query
-        $handovers = $this->shiftService->getShiftHandovers($shift, 'to_manager');
+        // 1. All cashier shifts for the branch on this date (regardless of handover status)
+        $cashierShifts = CashierShift::whereDate('shift_date', $shift->shift_date)
+            ->whereHas('shift', fn ($q) => $q->where('branch_id', $shift->branch_id))
+            ->whereIn('status', ['in_progress', 'completed'])
+            ->with([
+                'cashier:id,name',
+                'salesBreakdown',
+                'handover',
+            ])
+            ->select([
+                'id', 'cashier_id', 'shift_id', 'shift_date',
+                'total_sales', 'cash_collected', 'card_payments',
+                'variance', 'status',
+            ])
+            ->get();
 
-        // Use collection methods instead of foreach for better performance
-        $cashierBreakdown = $handovers->map(function ($handover) {
-            $cashierShift = $handover->cashierShift;
+        // 2. Pre-fetch handovers directed to this manager to get variance_amount per shift
+        $handoversByShiftId = \Modules\Shift\Models\CashierShiftHandover::where('handover_to_type', 'branch_manager')
+            ->where('handover_to_id', $shift->branch_manager_id)
+            ->whereIn('cashier_shift_id', $cashierShifts->pluck('id'))
+            ->get()
+            ->keyBy('cashier_shift_id');
 
-            // Calculate delivery app payments from sales breakdown (already loaded via eager loading)
+        $cashierBreakdown = $cashierShifts->map(function ($cashierShift) use ($handoversByShiftId) {
             $deliveryApps = $cashierShift->salesBreakdown->sum('amount');
+            $handover = $handoversByShiftId->get($cashierShift->id);
+            $variance = $handover
+                ? (float) ($handover->variance_amount ?? $cashierShift->variance ?? 0)
+                : (float) ($cashierShift->variance ?? 0);
 
-            // Use variance from handover
-            $variance = $handover->variance_amount ?? 0;
-
-            // Section E: Per-cashier breakdown - Exact field names as per requirements
             return [
-                'cashier_name' => $cashierShift->cashier->name,
-                'cashier_id' => $cashierShift->cashier_id,
-                'cash_collected' => (float) ($cashierShift->cash_collected ?? 0), // ✅ Cash Collected
-                'card_payments' => (float) ($cashierShift->card_payments ?? 0), // ✅ Card Payments
-                'delivery_app_payments' => (float) $deliveryApps, // ✅ Delivery App Payments
-                'variance' => (float) $variance, // ✅ Variance
-                'sales' => (float) ($cashierShift->total_sales ?? 0), // ✅ Sales
+                'cashier_name'         => $cashierShift->cashier->name,
+                'cashier_id'           => $cashierShift->cashier_id,
+                'cash_collected'       => (float) ($cashierShift->cash_collected ?? 0),
+                'card_payments'        => (float) ($cashierShift->card_payments ?? 0),
+                'delivery_app_payments'=> (float) $deliveryApps,
+                'variance'             => $variance,
+                'sales'                => (float) ($cashierShift->total_sales ?? 0),
+                'handover_status'      => $handover?->status ?? 'not_submitted',
             ];
         })->values()->all();
 
-        // Calculate totals using collection aggregate methods (more efficient)
         $totals = [
             'total_cash_collected' => (float) collect($cashierBreakdown)->sum('cash_collected'),
-            'total_card_payments' => (float) collect($cashierBreakdown)->sum('card_payments'),
-            'total_delivery_apps' => (float) collect($cashierBreakdown)->sum('delivery_app_payments'),
-            'total_variance' => (float) collect($cashierBreakdown)->sum('variance'),
-            'total_sales' => (float) collect($cashierBreakdown)->sum('sales'),
+            'total_card_payments'  => (float) collect($cashierBreakdown)->sum('card_payments'),
+            'total_delivery_apps'  => (float) collect($cashierBreakdown)->sum('delivery_app_payments'),
+            'total_variance'       => (float) collect($cashierBreakdown)->sum('variance'),
+            'total_sales'          => (float) collect($cashierBreakdown)->sum('sales'),
         ];
 
-        // Section E: Final Daily Close - Exact format as per requirements
-        // closing_balance = مجموع cash_collected من جميع الكاشيرز
-        $calculatedClosingBalance = $totals['total_cash_collected'];
-        // expected_balance = total_sales
+        $calculatedClosingBalance  = $totals['total_cash_collected'];
         $calculatedExpectedBalance = $totals['total_sales'];
-        // variance = expected_balance - closing_balance
-        $calculatedVariance = $calculatedExpectedBalance - $calculatedClosingBalance;
+        $calculatedVariance        = $calculatedExpectedBalance - $calculatedClosingBalance;
 
-        // OPTIMIZED: Load branch manager and branch only if not already loaded
         if (!$shift->relationLoaded('branchManager')) {
             $shift->load('branchManager:id,name');
         }
@@ -1706,28 +1740,25 @@ class BranchManagerShiftController extends BaseController
         }
 
         return [
-            // Per-cashier breakdown (before submission)
-            'cashier_breakdown' => $cashierBreakdown, // Each item contains: cash_collected, card_payments, delivery_app_payments, variance, sales
-            // Totals (calculated across all cashiers)
+            'cashier_breakdown' => $cashierBreakdown,
             'totals' => [
                 'total_cash_collected' => $totals['total_cash_collected'],
-                'total_card_payments' => $totals['total_card_payments'],
-                'total_delivery_apps' => $totals['total_delivery_apps'],
-                'total_variance' => $totals['total_variance'],
-                'total_sales' => $totals['total_sales'],
+                'total_card_payments'  => $totals['total_card_payments'],
+                'total_delivery_apps'  => $totals['total_delivery_apps'],
+                'total_variance'       => $totals['total_variance'],
+                'total_sales'          => $totals['total_sales'],
             ],
-            // Additional manager summary (optional)
             'manager_summary' => [
-                'opening_balance' => (float) ($shift->opening_balance ?? 0),
-                'closing_balance' => (float) $calculatedClosingBalance, // مجموع cash_collected من جميع الكاشيرز
-                'expected_balance' => (float) $calculatedExpectedBalance, // total_sales
-                'variance' => (float) $calculatedVariance,
-                'variance_type' => $calculatedVariance > 0 ? 'Over' : ($calculatedVariance < 0 ? 'Short' : 'None'),
+                'opening_balance'  => (float) ($shift->opening_balance ?? 0),
+                'closing_balance'  => (float) $calculatedClosingBalance,
+                'expected_balance' => (float) $calculatedExpectedBalance,
+                'variance'         => (float) $calculatedVariance,
+                'variance_type'    => $calculatedVariance > 0 ? 'Over' : ($calculatedVariance < 0 ? 'Short' : 'None'),
             ],
             'shift_info' => [
-                'date' => $shift->shift_date->format('Y-m-d'),
+                'date'    => $shift->shift_date->format('Y-m-d'),
                 'manager' => $shift->branchManager->name,
-                'branch' => $shift->branch->name,
+                'branch'  => $shift->branch->name,
             ],
         ];
     }

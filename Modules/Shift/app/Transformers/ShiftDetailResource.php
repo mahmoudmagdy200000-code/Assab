@@ -113,9 +113,22 @@ class ShiftDetailResource extends JsonResource
      */
     private function getShiftDetails(): array
     {
-        $nextCashier = $this->computed_next_cashier
-            ?? app(ShiftService::class)->getNextShiftCashier($this->resource)
-            ?? $this->nextCashier;
+        $recipient = app(ShiftService::class)->getNextRecipientForDisplay($this->resource);
+        if ($recipient === null) {
+            $recipient = $this->computed_next_cashier ?? $this->nextCashier;
+        }
+
+        $nextName = $recipient?->name ?? 'Not assigned';
+        if ($recipient instanceof \Modules\BranchManagers\Models\BranchManager) {
+            $nextName = $recipient->name . ' (Branch Manager)';
+        }
+        $nextId = $recipient?->id ?? $this->next_cashier_id;
+        $nextRecipientType = null;
+        if ($recipient instanceof \Modules\BranchManagers\Models\BranchManager) {
+            $nextRecipientType = 'branch_manager';
+        } elseif ($recipient !== null) {
+            $nextRecipientType = 'cashier';
+        }
 
         return [
             'assigned_to' => $this->cashier?->name ?? 'N/A',
@@ -129,8 +142,9 @@ class ShiftDetailResource extends JsonResource
             'shift_id' => $this->shift_id,
             'start_time' => $this->shift?->start_time?->format('H:i') ?? 'N/A',
             'end_time' => $this->shift?->end_time?->format('H:i') ?? 'N/A',
-            'next_cashier' => $nextCashier?->name ?? 'Not assigned',
-            'next_cashier_id' => $nextCashier?->id ?? $this->next_cashier_id,
+            'next_cashier' => $nextName,
+            'next_cashier_id' => $nextId,
+            'next_recipient_type' => $nextRecipientType,
         ];
     }
 

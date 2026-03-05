@@ -20,7 +20,7 @@ class CreateCustodyLedgerEntriesForVariance
     {
         $shift = $event->shift->fresh(['handover', 'varianceDetails.responsibleCashier']);
 
-        if (!$shift->handover || $shift->varianceDetails->isEmpty()) {
+        if ($shift->varianceDetails->isEmpty()) {
             return;
         }
 
@@ -39,7 +39,8 @@ class CreateCustodyLedgerEntriesForVariance
                 $this->createCashierVarianceEntry($shift, $detail);
             }
 
-            if ($shift->handover->handover_to_type === 'branch_manager' && $shift->handover->handover_to_id) {
+            // Only create the branch manager entry when the handover to a manager exists
+            if ($shift->handover && $shift->handover->handover_to_type === 'branch_manager' && $shift->handover->handover_to_id) {
                 $this->createBranchManagerVarianceEntry($shift, $detailsWithCashier);
             }
 
@@ -48,6 +49,7 @@ class CreateCustodyLedgerEntriesForVariance
             Log::info('Custody ledger entries created for variance', [
                 'cashier_shift_id' => $shift->id,
                 'details_count' => $detailsWithCashier->count(),
+                'has_handover' => (bool) $shift->handover,
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -77,17 +79,27 @@ class CreateCustodyLedgerEntriesForVariance
             return;
         }
 
+        $counterpartName = null;
+        $handoverId = null;
+        $transactionDate = now();
+
+        if ($shift->handover) {
+            $handoverId = $shift->handover->id;
+            $transactionDate = $shift->handover->handover_time ?? now();
+            if ($shift->handover->handover_to_type === 'branch_manager' && $shift->handover->handover_to_id) {
+                $counterpartName = \Modules\BranchManagers\Models\BranchManager::find($shift->handover->handover_to_id)?->name;
+            }
+        }
+
         CashierCustodyTransaction::create([
-            'cashier_id' => $detail->responsible_cashier_id,
-            'transaction_type' => 'Variance',
-            'amount' => $amount,
-            'is_cash_in' => false,
-            'counterpart_name' => $shift->handover->handover_to_type === 'branch_manager'
-                ? \Modules\BranchManagers\Models\BranchManager::find($shift->handover->handover_to_id)?->name
-                : null,
-            'related_shift_id' => $shift->id,
-            'related_handover_id' => $shift->handover->id,
-            'transaction_date' => $shift->handover->handover_time ?? now(),
+            'cashier_id'          => $detail->responsible_cashier_id,
+            'transaction_type'    => 'Variance',
+            'amount'              => $amount,
+            'is_cash_in'          => false,
+            'counterpart_name'    => $counterpartName,
+            'related_shift_id'    => $shift->id,
+            'related_handover_id' => $handoverId,
+            'transaction_date'    => $transactionDate,
         ]);
     }
 
