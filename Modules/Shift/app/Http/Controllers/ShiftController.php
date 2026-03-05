@@ -270,7 +270,7 @@ class ShiftController extends BaseController
      * Get cashier shift by ID
      * OPTIMIZED: Select only required fields, add authorization check
      */
-    public function getCashierShiftById($id)
+    public function getCashierShiftById(ShiftService $shiftService, $id)
     {
         try {
             $manager = auth()->user();
@@ -344,6 +344,9 @@ class ShiftController extends BaseController
             if ($cashierShift->cashier->branch_id !== $manager->branch_id) {
                 return $this->errorResponse('Unauthorized: This cashier does not belong to your branch', 403);
             }
+
+            // Compute next cashier from chronologically next shift (same day, same branch) for display
+            $cashierShift->setAttribute('computed_next_cashier', $shiftService->getNextShiftCashier($cashierShift));
 
             try {
                 return $this->successResponse(
