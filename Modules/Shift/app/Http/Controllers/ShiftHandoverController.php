@@ -21,25 +21,25 @@ class ShiftHandoverController extends Controller
     ) {}
 
     /**
-     * Accept handover (for cashier)
+     * Accept handover (for cashier - receiving next cashier only)
      */
     public function acceptHandover(Request $request, string $shift): JsonResponse
     {
         try {
             $cashier = auth()->user();
-            $shiftModel = CashierShift::findOrFail($shift);
+            $shiftModel = CashierShift::with('handoverStatus')->findOrFail($shift);
 
-            if ($shiftModel->next_cashier_id !== $cashier->id) {
+            if ((string) $shiftModel->next_cashier_id !== (string) $cashier->id) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized: This handover is not for you'
                 ], 403);
             }
 
-            $this->handoverService->approveHandover(
+            $this->handoverService->acceptHandoverByCashier(
                 $shiftModel,
                 $cashier->id,
-                get_class($cashier)
+                $request->get('comment')
             );
 
             return response()->json([
@@ -251,7 +251,9 @@ class ShiftHandoverController extends Controller
     }
 
     /**
-     * Reject handover - Section C (with 2-rejection rule)
+     * Reject handover
+     * - Cashier path (next cashier): rejects the incoming handover via rejectHandoverByCashier()
+     * - Manager path: rejects with 2-rejection rule via rejectHandover()
      */
     public function rejectHandover(Request $request, string $shift): JsonResponse
     {
@@ -271,9 +273,53 @@ class ShiftHandoverController extends Controller
         }
 
         try {
-            $manager = auth()->user();
+            $user = auth()->user();
+            $isCashier = $user instanceof \Modules\Cashier\Models\Cashier;
 
-            // Ensure the user is a branch manager
+            // ── Cashier path: receiving cashier rejects the incoming handover ──
+            if ($isCashier) {
+                $shiftModel = CashierShift::with(['handoverStatus'])->findOrFail($shift);
+
+                if ((string) $shiftModel->next_cashier_id !== (string) $user->id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Unauthorized: This handover is not for you',
+                    ], 403);
+                }
+
+                if (!$shiftModel->handoverStatus) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No handover found for this shift',
+                    ], 404);
+                }
+
+                $this->handoverService->rejectHandoverByCashier(
+                    $shiftModel,
+                    $user->id,
+                    $request->rejection_reason ?? '',
+                    $request->file('rejection_files', [])
+                );
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Handover rejected successfully',
+                    'data' => [
+                        'shift' => new ShiftDetailResource($shiftModel->fresh()),
+                        'rejection_details' => [
+                            'status' => 'rejected',
+                            'rejected_by' => $user->name,
+                            'rejection_reason' => $request->rejection_reason ?? null,
+                            'rejected_at' => now()->format('Y-m-d H:i:s'),
+                            'is_final_rejection' => false,
+                        ],
+                    ]
+                ]);
+            }
+
+            // ── Manager path: branch manager rejects with 2-rejection rule ──
+            $manager = $user;
+
             if (!$manager || !$manager->branch_id) {
                 return response()->json([
                     'success' => false,
@@ -284,7 +330,6 @@ class ShiftHandoverController extends Controller
             $shiftModel = CashierShift::with(['handoverStatus', 'cashier', 'shift'])
                 ->findOrFail($shift);
 
-            // Verify shift belongs to manager's branch
             if ($shiftModel->shift->branch_id !== $manager->branch_id) {
                 return response()->json([
                     'success' => false,
@@ -299,7 +344,6 @@ class ShiftHandoverController extends Controller
                 ], 404);
             }
 
-            // Check if can be rejected
             if (!$shiftModel->handoverStatus->canBeRejected()) {
                 return response()->json([
                     'success' => false,
@@ -429,6 +473,7 @@ class ShiftHandoverController extends Controller
     public function getHandoverStatus(string $shift): JsonResponse
     {
         try {
+            $user = auth()->user();
             $shiftModel = CashierShift::with([
                 'handoverStatus.reviewedBy',
                 'handover.handoverTo',
@@ -436,6 +481,18 @@ class ShiftHandoverController extends Controller
                 'cashier',
                 'nextCashier'
             ])->findOrFail($shift);
+
+            // Cashier must be the shift owner or the designated receiving cashier
+            if ($user instanceof \Modules\Cashier\Models\Cashier) {
+                $isOwner    = (string) $shiftModel->cashier_id    === (string) $user->id;
+                $isReceiver = (string) $shiftModel->next_cashier_id === (string) $user->id;
+                if (!$isOwner && !$isReceiver) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Unauthorized: You do not have access to this shift handover',
+                    ], 403);
+                }
+            }
 
             if (!$shiftModel->handoverStatus) {
                 return response()->json([
@@ -745,6 +802,16 @@ class ShiftHandoverController extends Controller
                     $q->select(['id', 'name', 'branch_id']);
                 }
             ])->findOrFail($shift);
+
+            // Cashier caller must own this shift
+            $user = auth()->user();
+            if ($user instanceof \Modules\Cashier\Models\Cashier
+                && (string) $shiftModel->cashier_id !== (string) $user->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized: This shift does not belong to you',
+                ], 403);
+            }
 
             // Get all active cashiers for this branch (optimized)
             $allCashiers = Cashier::where('branch_id', $shiftModel->shift->branch_id)

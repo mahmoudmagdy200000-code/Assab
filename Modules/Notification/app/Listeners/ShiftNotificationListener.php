@@ -24,21 +24,33 @@ class ShiftNotificationListener implements ShouldQueue
     {
         $shift = $event->shift;
 
-        // Notify about handover if exists
-        if ($event->hasHandover && $shift->next_cashier_id) {
+        if (!$event->hasHandover) {
+            return;
+        }
+
+        // Resolve the designated receiving cashier from the authoritative handover record first,
+        // then fall back to the next_cashier_id column on the shift.
+        $shift->loadMissing(['handover', 'nextCashier', 'cashier']);
+        $handover    = $shift->handover;
+        $nextCashier = null;
+
+        if ($handover && $handover->handover_to_type === 'cashier' && $handover->handover_to_id) {
+            $nextCashier = \Modules\Cashier\Models\Cashier::find($handover->handover_to_id);
+        } elseif ($shift->next_cashier_id) {
             $nextCashier = $shift->nextCashier;
-            if ($nextCashier) {
-                $this->notificationService->send(
-                    $nextCashier,
-                    NotificationType::SHIFT_HANDOVER_PENDING,
-                    [
-                        'shift_id' => $shift->id,
-                        'shift_date' => $shift->shift_date->toDateString(),
-                        'cashier_name' => $shift->cashier->name ?? 'Cashier',
-                    ],
-                    NotificationPriority::MEDIUM
-                );
-            }
+        }
+
+        if ($nextCashier) {
+            $this->notificationService->send(
+                $nextCashier,
+                NotificationType::SHIFT_HANDOVER_PENDING,
+                [
+                    'shift_id'     => $shift->id,
+                    'shift_date'   => $shift->shift_date->toDateString(),
+                    'cashier_name' => $shift->cashier->name ?? 'Cashier',
+                ],
+                NotificationPriority::MEDIUM
+            );
         }
     }
 }

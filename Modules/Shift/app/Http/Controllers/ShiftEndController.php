@@ -657,6 +657,16 @@ class ShiftEndController extends Controller
                 'shift.branch:id,name'
             ])->findOrFail($shift);
 
+            // Cashier caller must own this shift
+            $user = auth()->user();
+            if ($user instanceof \Modules\Cashier\Models\Cashier
+                && (string) $shiftModel->cashier_id !== (string) $user->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized: This shift does not belong to you',
+                ], 403);
+            }
+
             // Get all active cashiers for this branch except current cashier
             $allCashiers = Cashier::where('branch_id', $shiftModel->shift->branch_id)
                 ->where('status', 'active')
