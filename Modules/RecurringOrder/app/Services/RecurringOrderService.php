@@ -84,6 +84,32 @@ class RecurringOrderService
     }
 
     /**
+     * Normalize notification channels for DB: map in-app variants to 'app', keep only canonical values.
+     * Canonical: email, whatsapp, sms, app.
+     */
+    private function normalizeNotificationChannels(?array $channels): ?array
+    {
+        if ($channels === null || $channels === []) {
+            return null;
+        }
+        $inAppVariants = ['in_app', 'in-app', 'in_app_notification', 'in-app-notification', 'inApp', 'push'];
+        $canonical = [];
+        foreach ($channels as $ch) {
+            $ch = is_string($ch) ? trim($ch) : '';
+            if ($ch === '') {
+                continue;
+            }
+            if (in_array($ch, $inAppVariants, true)) {
+                $canonical['app'] = true;
+            } else {
+                $canonical[$ch] = true;
+            }
+        }
+        $list = array_keys($canonical);
+        return $list !== [] ? array_values($list) : null;
+    }
+
+    /**
      * Normalize request body: direct_supplier | purchase_officer -> order_source_type, sourceable, items, order_name, message, notification_channels.
      */
     private function normalizeCreatePayload(array $data): array
@@ -100,7 +126,7 @@ class RecurringOrderService
                 'sourceable_type' => \Modules\Supplier\Models\Supplier::class,
                 'sourceable_id' => $ds['supplier_id'],
                 'message' => $ds['message'] ?? null,
-                'notification_channels' => $ds['notification_channels'] ?? null,
+                'notification_channels' => $this->normalizeNotificationChannels($ds['notification_channels'] ?? null),
                 'items' => $ds['items'] ?? [],
             ];
         }
@@ -221,8 +247,11 @@ class RecurringOrderService
     public function update(RecurringOrder $recurringOrder, array $data): RecurringOrder
     {
         return DB::transaction(function () use ($recurringOrder, $data) {
+            $dsChannels = $data['direct_supplier']['notification_channels'] ?? null;
             $update = array_filter([
                 'order_name' => $data['order_name'] ?? null,
+                'message' => $data['message'] ?? $data['direct_supplier']['message'] ?? null,
+                'notification_channels' => $dsChannels !== null ? $this->normalizeNotificationChannels($dsChannels) : null,
                 'repeat_frequency' => $data['repeat_frequency'] ?? null,
                 'repeat_config' => $data['repeat_config'] ?? null,
                 'scheduling_time_am' => $this->normalizeTime($data['scheduling_time_am'] ?? null),
