@@ -7,6 +7,7 @@ use Modules\Custody\Http\Controllers\CustodyRequestController;
 use Modules\Custody\Http\Controllers\CustodyTransactionController;
 use Modules\Custody\Http\Controllers\CustodyBalanceController;
 use Modules\Custody\Http\Controllers\CustodyHandoverController;
+use Modules\Custody\Http\Controllers\CashierCustodyController;
 
 Route::middleware(['auth:sanctum'])->group(function () {
     // Personal Ledger Management (3.1.2.2)
@@ -40,4 +41,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Legacy route (keep for backward compatibility)
     Route::apiResource('custodies', CustodyController::class)->names('custody.legacy');
+
+    // Cashier Custody Management
+    Route::prefix('cashier/custody')
+        ->middleware('cashier')
+        ->group(function () {
+            Route::get('balance', [CashierCustodyController::class, 'balance'])
+                ->name('cashier.custody.balance');
+            Route::get('transactions', [CashierCustodyController::class, 'transactions'])
+                ->name('cashier.custody.transactions');
+        });
 });

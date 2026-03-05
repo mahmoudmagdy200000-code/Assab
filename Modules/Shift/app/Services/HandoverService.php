@@ -120,6 +120,19 @@ class HandoverService
 
             DB::commit();
 
+            // Record Cash-OUT custody entry for the outgoing cashier (cashier-to-cashier handovers only)
+            if ($handoverToType === 'cashier' && $shift->cashier) {
+                try {
+                    app(\Modules\Custody\Services\CashierCustodyService::class)
+                        ->recordHandoverSent($handover, $shift->cashier);
+                } catch (\Exception $e) {
+                    Log::warning('Failed to create cashier custody cash-out entry', [
+                        'error' => $e->getMessage(),
+                        'handover_id' => $handover->id,
+                    ]);
+                }
+            }
+
             // Clear cache for branch manager shift so workday/current shows new handover immediately
             if ($handoverToType === 'branch_manager' && $handoverToId) {
                 try {
@@ -514,6 +527,22 @@ class HandoverService
             );
 
             DB::commit();
+
+            // Record Cash-IN custody entry for the receiving cashier
+            try {
+                $shift->loadMissing(['handover', 'handover.cashierShift.cashier']);
+                $receivingCashier = \Modules\Cashier\Models\Cashier::find($cashierId);
+                if ($shift->handover && $receivingCashier) {
+                    app(\Modules\Custody\Services\CashierCustodyService::class)
+                        ->recordHandoverReceived($shift->handover, $receivingCashier);
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to create cashier custody cash-in entry', [
+                    'error'      => $e->getMessage(),
+                    'cashier_id' => $cashierId,
+                    'shift_id'   => $shift->id,
+                ]);
+            }
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;
