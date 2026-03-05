@@ -16,7 +16,7 @@ class ApproveReturnRequest extends FormRequest
         return [
             'notes' => 'nullable|string|max:1000',
             'refund_method' => 'nullable|string|max:100',
-            'resolution_type' => 'required|in:refund,replacement,credit',
+            'resolution_type' => 'nullable|string|in:refund,replacement,credit',
         ];
     }
 }

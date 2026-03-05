@@ -395,6 +395,17 @@ class GoodsReceiptService
 
                 // Close order
                 $order->close();
+            } else {
+                // When there are variances: still sync quantity_received and quality_received to order items
+                // so that "Order via Supplier" / product details show quality for variance items
+                foreach ($receipt->items as $item) {
+                    if ($item->purchase_order_item_id) {
+                        $item->purchaseOrderItem->markAsReceived(
+                            $item->quantity_received,
+                            $item->quality_received?->value
+                        );
+                    }
+                }
             }
 
             return $receipt->fresh(['items', 'purchaseOrder', 'variances', 'invoice']);

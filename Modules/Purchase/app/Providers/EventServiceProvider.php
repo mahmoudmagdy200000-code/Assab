@@ -6,10 +6,12 @@ use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvi
 use Modules\Purchase\Events\GoodsReceived;
 use Modules\Purchase\Events\OrderCreated;
 use Modules\Purchase\Events\OrderStatusChanged;
+use Modules\Purchase\Events\ReturnOrderApproved;
 use Modules\Purchase\Events\ReturnOrderSubmitted;
 use Modules\Purchase\Events\VarianceDetected;
 use Modules\Purchase\Listeners\RecordPriceHistory;
 use Modules\Purchase\Listeners\SendOrderNotification;
+use Modules\Purchase\Listeners\SendReturnApprovedNotification;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -33,6 +35,10 @@ class EventServiceProvider extends ServiceProvider
         
         ReturnOrderSubmitted::class => [
             // Add listeners for return submission
+        ],
+
+        ReturnOrderApproved::class => [
+            SendReturnApprovedNotification::class,
         ],
         
         VarianceDetected::class => [

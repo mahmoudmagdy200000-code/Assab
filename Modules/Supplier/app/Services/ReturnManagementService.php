@@ -5,11 +5,16 @@ namespace Modules\Supplier\Services;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Modules\Purchase\Enums\ReturnStatus;
+use Modules\Purchase\Events\ReturnOrderApproved;
 use Modules\Purchase\Models\ReturnOrder;
+use Modules\Purchase\Services\TimelineService as PurchaseTimelineService;
 use Modules\Supplier\Models\Supplier;
 
 class ReturnManagementService
 {
+    public function __construct(
+        private readonly PurchaseTimelineService $timelineService
+    ) {}
     /**
      * Get return requests for supplier
      */
@@ -73,12 +78,18 @@ class ReturnManagementService
                 'status' => ReturnStatus::APPROVED,
                 'responded_by' => auth()->id(),
                 'responded_at' => now(),
+                'approved_at' => now(),
                 'response_notes' => $data['notes'] ?? null,
                 'refund_method' => $data['refund_method'] ?? null,
                 'resolution_type' => $data['resolution_type'] ?? 'refund',
             ]);
 
-            return $returnOrder->fresh();
+            $returnOrder = $returnOrder->fresh();
+
+            $this->timelineService->logReturnApproved($returnOrder);
+            ReturnOrderApproved::dispatch($returnOrder);
+
+            return $returnOrder;
         });
     }
 
