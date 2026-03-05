@@ -4,6 +4,7 @@ namespace Modules\Shift\Transformers;
 
 use Carbon\Carbon;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\Cashier\Models\Cashier;
 
 /**
  * HandoverSummaryResource
@@ -22,6 +23,15 @@ class HandoverSummaryResource extends JsonResource
         $status = $this->getStatusLabel();
         $acceptanceMessage = $this->getAcceptanceMessage();
 
+        $authUser     = auth()->user();
+        $isIncoming   = $authUser instanceof Cashier
+                        && (string) $this->next_cashier_id === (string) $authUser->id;
+        $isOutgoing   = $authUser instanceof Cashier
+                        && (string) $this->cashier_id === (string) $authUser->id
+                        && (string) $this->next_cashier_id !== (string) $authUser->id;
+        $canBeAccepted = $isIncoming
+                        && ($this->handoverStatus?->manager_approval_status ?? 'pending') === 'pending';
+
         return [
             'id' => $this->id,
             'shift_date' => $this->shift_date?->format('M j, Y'),
@@ -34,6 +44,11 @@ class HandoverSummaryResource extends JsonResource
             'acceptance_message' => $acceptanceMessage,
             'responsibility_status'      => $this->getResponsibilityStatus(),
             'responsibility_reviewed_at' => $this->getResponsibilityReviewedAt(),
+
+            // Role flags — the app uses these to show/hide Accept & Reject buttons
+            'is_incoming'    => $isIncoming,    // true = current user is the designated receiver
+            'is_outgoing'    => $isOutgoing,    // true = current user sent this handover
+            'can_be_accepted' => $canBeAccepted, // true = incoming AND still pending → show Accept/Reject
         ];
     }
 
