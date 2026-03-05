@@ -301,17 +301,26 @@ class ShiftHandoverController extends Controller
                     $request->file('rejection_files', [])
                 );
 
+                $fresh = $shiftModel->fresh(['handoverStatus']);
+
                 return response()->json([
                     'success' => true,
-                    'message' => 'Handover rejected successfully',
+                    'message' => 'Handover rejected. Cashier can edit and resubmit.',
                     'data' => [
-                        'shift' => new ShiftDetailResource($shiftModel->fresh()),
+                        'shift' => new ShiftDetailResource($fresh),
                         'rejection_details' => [
-                            'status' => 'rejected',
-                            'rejected_by' => $user->name,
+                            'status'           => $fresh->handoverStatus?->manager_approval_status ?? 'rejected',
+                            'rejected_by'      => $user->name,
                             'rejection_reason' => $request->rejection_reason ?? null,
-                            'rejected_at' => now()->format('Y-m-d H:i:s'),
+                            'manager_comment'  => null,
+                            'rejected_at'      => now()->format('Y-m-d H:i:s'),
+                            'rejection_count'  => $fresh->handoverStatus?->rejection_count ?? 1,
                             'is_final_rejection' => false,
+                            'cashier_can_edit'   => true,
+                        ],
+                        'next_actions' => [
+                            'cashier_can_resubmit'    => true,
+                            'manager_can_reject_again' => true,
                         ],
                     ]
                 ]);
