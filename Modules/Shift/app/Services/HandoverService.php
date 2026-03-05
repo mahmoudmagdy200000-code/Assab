@@ -6,7 +6,9 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Services\BranchManagerShiftService;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\ShiftHandoverStatus;
 use Modules\Shift\Enums\HandoverStatus;
@@ -118,27 +120,15 @@ class HandoverService
 
             DB::commit();
 
-            // Clear cache for branch manager shift if handover is to branch manager
+            // Clear cache for branch manager shift so workday/current shows new handover immediately
             if ($handoverToType === 'branch_manager' && $handoverToId) {
                 try {
-                    $branchManagerShift = \Modules\Shift\Models\BranchManagerShift::where('branch_manager_id', $handoverToId)
-                        ->whereDate('shift_date', $handover->handover_date)
+                    $branchManagerShift = BranchManagerShift::where('branch_manager_id', $handoverToId)
+                        ->whereDate('shift_date', $handover->handover_date ?? $shift->shift_date)
                         ->first();
 
                     if ($branchManagerShift) {
-                        // Clear cache using cache tags if available
-                        if (config('cache.default') === 'redis') {
-                            $shiftTag = "shift:{$branchManagerShift->id}:{$branchManagerShift->shift_date->format('Y-m-d')}";
-                            try {
-                                \Illuminate\Support\Facades\Cache::tags([$shiftTag])->flush();
-                            } catch (\Exception $e) {
-                                // Fallback: clear specific cache keys
-                                \Illuminate\Support\Facades\Cache::forget("shift:{$branchManagerShift->id}:handovers:to_manager");
-                            }
-                        } else {
-                            // Clear specific cache keys
-                            \Illuminate\Support\Facades\Cache::forget("shift:{$branchManagerShift->id}:handovers:to_manager");
-                        }
+                        app(BranchManagerShiftService::class)->clearShiftCaches($branchManagerShift);
                     }
                 } catch (\Exception $e) {
                     Log::warning('Failed to clear cache after handover', [
@@ -262,6 +252,10 @@ class HandoverService
             ]);
 
             DB::commit();
+
+            // Clear branch manager shift cache so workday/current returns updated status immediately
+            $this->clearBranchManagerShiftCacheForApproval($shift, $reviewerId);
+
             return $shift;
         } catch (\Exception $e) {
             DB::rollBack();
@@ -271,6 +265,28 @@ class HandoverService
                 'trace' => $e->getTraceAsString(),
             ]);
             throw $e;
+        }
+    }
+
+    /**
+     * Clear branch manager shift cache after approval so workday/current returns fresh data immediately.
+     */
+    private function clearBranchManagerShiftCacheForApproval(CashierShift $shift, string $reviewerId): void
+    {
+        try {
+            $branchManagerShift = BranchManagerShift::where('branch_manager_id', $reviewerId)
+                ->whereDate('shift_date', $shift->shift_date)
+                ->first();
+
+            if ($branchManagerShift) {
+                app(BranchManagerShiftService::class)->clearShiftCaches($branchManagerShift);
+            }
+        } catch (\Exception $e) {
+            Log::warning('Failed to clear branch manager shift cache after approval', [
+                'shift_id' => $shift->id,
+                'reviewer_id' => $reviewerId,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 
@@ -341,6 +357,9 @@ class HandoverService
             );
 
             DB::commit();
+
+            // Clear branch manager shift cache so workday/current shows updated status immediately
+            $this->clearBranchManagerShiftCacheForApproval($shift, $reviewerId);
 
             return [
                 'shift_id' => $shift->id,
