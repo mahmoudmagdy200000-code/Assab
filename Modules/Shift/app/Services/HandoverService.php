@@ -270,16 +270,30 @@ class HandoverService
 
     /**
      * Clear branch manager shift cache after approval so workday/current returns fresh data immediately.
+     * workday/current always uses the manager's shift for today(), so we clear that same shift's cache.
      */
     private function clearBranchManagerShiftCacheForApproval(CashierShift $shift, string $reviewerId): void
     {
+        $service = app(BranchManagerShiftService::class);
         try {
-            $branchManagerShift = BranchManagerShift::where('branch_manager_id', $reviewerId)
-                ->whereDate('shift_date', $shift->shift_date)
+            // Clear for today() - same as workday/current (firstOrCreate shift_date => today())
+            $forToday = BranchManagerShift::where('branch_manager_id', $reviewerId)
+                ->whereDate('shift_date', Carbon::today())
                 ->first();
-
-            if ($branchManagerShift) {
-                app(BranchManagerShiftService::class)->clearShiftCaches($branchManagerShift);
+            if ($forToday) {
+                $service->clearShiftCaches($forToday);
+            }
+            // If cashier shift date differs from today, clear that manager shift too (e.g. approval next day)
+            $shiftDate = $shift->shift_date instanceof \Carbon\Carbon
+                ? $shift->shift_date->format('Y-m-d')
+                : \Carbon\Carbon::parse($shift->shift_date)->format('Y-m-d');
+            if ($shiftDate !== Carbon::today()->format('Y-m-d')) {
+                $forShiftDate = BranchManagerShift::where('branch_manager_id', $reviewerId)
+                    ->whereDate('shift_date', $shiftDate)
+                    ->first();
+                if ($forShiftDate) {
+                    $service->clearShiftCaches($forShiftDate);
+                }
             }
         } catch (\Exception $e) {
             Log::warning('Failed to clear branch manager shift cache after approval', [

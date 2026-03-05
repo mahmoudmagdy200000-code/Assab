@@ -148,9 +148,15 @@ class BranchManagerShiftService
     /**
      * Get all handovers for a manager shift (optimized with caching)
      * جلب جميع الـ handovers مرة واحدة فقط مع caching
+     *
+     * @param bool $skipCache When true (e.g. workday/current), always return fresh data so approve/reject reflect immediately
      */
-    public function getShiftHandovers(BranchManagerShift $managerShift, ?string $handoverType = null)
+    public function getShiftHandovers(BranchManagerShift $managerShift, ?string $handoverType = null, bool $skipCache = false)
     {
+        if ($skipCache) {
+            return $this->fetchShiftHandovers($managerShift, $handoverType);
+        }
+
         $cacheKey = $this->getShiftCacheKey($managerShift, "handovers:{$handoverType}");
 
         // Use Cache Tags if available (Redis/Memcached)
