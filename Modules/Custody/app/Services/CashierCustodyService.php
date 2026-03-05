@@ -10,7 +10,7 @@ use Modules\Shift\Models\CashierShiftHandover;
 class CashierCustodyService
 {
     /**
-     * Record a Cash-IN entry when a cashier accepts a handover from another cashier.
+     * Record a Cash-IN entry when a cashier accepts a handover from another cashier (shift handover flow).
      */
     public function recordHandoverReceived(CashierShiftHandover $handover, Cashier $receivingCashier): CashierCustodyTransaction
     {
@@ -29,7 +29,7 @@ class CashierCustodyService
     }
 
     /**
-     * Record a Cash-OUT entry when a cashier sends a handover to the next cashier or branch manager.
+     * Record a Cash-OUT entry when a cashier sends a handover to the next cashier/manager (shift handover flow).
      */
     public function recordHandoverSent(CashierShiftHandover $handover, Cashier $sendingCashier): CashierCustodyTransaction
     {
@@ -53,9 +53,38 @@ class CashierCustodyService
     }
 
     /**
-     * Get custody balance summary for a cashier (with optional month/year filter).
+     * Record a Cash-OUT entry from the custody/handover endpoint (manual handover, not shift-based).
      */
-    public function getBalance(string $cashierId, ?int $month = null, ?int $year = null): array
+    public function recordManualHandoverSent(string $cashierId, float $amount, ?string $recipientName): CashierCustodyTransaction
+    {
+        return CashierCustodyTransaction::create([
+            'cashier_id'       => $cashierId,
+            'transaction_type' => 'Handover Sent',
+            'amount'           => $amount,
+            'is_cash_in'       => false,
+            'counterpart_name' => $recipientName,
+            'transaction_date' => now(),
+        ]);
+    }
+
+    /**
+     * Get current personal balance (cash in - cash out) for a cashier.
+     */
+    public function getPersonalBalanceOnly(string $cashierId): float
+    {
+        $transactions = CashierCustodyTransaction::where('cashier_id', $cashierId)->get();
+
+        return round(
+            (float) $transactions->where('is_cash_in', true)->sum('amount')
+            - (float) $transactions->where('is_cash_in', false)->sum('amount'),
+            2
+        );
+    }
+
+    /**
+     * Get custody balance summary — same response shape as PersonalLedgerService::getPersonalCustodyBalance().
+     */
+    public function getPersonalCustodyBalance(string $cashierId, ?int $month = null, ?int $year = null): array
     {
         $query = CashierCustodyTransaction::where('cashier_id', $cashierId);
 
@@ -66,72 +95,76 @@ class CashierCustodyService
 
         $transactions = $query->orderBy('transaction_date', 'desc')->get();
 
-        $totalCashIn  = (float) $transactions->where('is_cash_in', true)->sum('amount');
-        $totalCashOut = (float) $transactions->where('is_cash_in', false)->sum('amount');
+        $totalCashIn  = round((float) $transactions->where('is_cash_in', true)->sum('amount'), 2);
+        $totalCashOut = round((float) $transactions->where('is_cash_in', false)->sum('amount'), 2);
 
         $recentActivity = $transactions->take(5)->map(fn ($t) => $this->formatForActivity($t))->values();
 
         return [
-            'totalCashIn'     => round($totalCashIn, 2),
-            'totalCashOut'    => round($totalCashOut, 2),
-            'currentBalance'  => round($totalCashIn - $totalCashOut, 2),
-            'recentActivity'  => $recentActivity,
+            'totalCashIn'    => $totalCashIn,
+            'totalCashOut'   => $totalCashOut,
+            'currentBalance' => round($totalCashIn - $totalCashOut, 2),
+            'recentActivity' => $recentActivity,
         ];
     }
 
     /**
-     * Get paginated transaction list for a cashier.
+     * Get transaction history — same response shape as PersonalLedgerService::getTransactionHistory().
      */
-    public function getTransactions(string $cashierId, array $filters = []): array
+    public function getTransactionHistory(string $cashierId, array $filters = []): array
     {
         $query = CashierCustodyTransaction::where('cashier_id', $cashierId);
+
+        $view = $filters['view'] ?? 'detailed';
+        if ($view === 'daily') {
+            $query->whereDate('transaction_date', today());
+        }
 
         if (!empty($filters['month']) && !empty($filters['year'])) {
             $query->whereYear('transaction_date', (int) $filters['year'])
                   ->whereMonth('transaction_date', (int) $filters['month']);
         }
 
-        if (!empty($filters['transaction_type'])) {
-            $query->where('transaction_type', $filters['transaction_type']);
+        if (!empty($filters['transactionType'])) {
+            $query->where('transaction_type', $filters['transactionType']);
         }
 
         $transactions = $query->orderBy('transaction_date', 'desc')->get();
 
         return [
+            'view'              => $view,
             'totalTransactions' => $transactions->count(),
             'transactions'      => $transactions->map(fn ($t) => $this->formatForList($t))->values(),
         ];
     }
 
+    // ── Private formatters (same keys as PersonalLedgerService) ──────────────
+
     private function formatForActivity(CashierCustodyTransaction $t): array
     {
-        $amount = $t->is_cash_in
-            ? '+' . number_format((float) $t->amount, 2, '.', '')
-            : '-' . number_format((float) $t->amount, 2, '.', '');
+        $sign   = $t->is_cash_in ? '+' : '-';
+        $amount = $sign . number_format((float) $t->amount, 2, '.', '');
 
         return [
-            'transactionType'  => $t->transaction_type,
-            'amount'           => $amount,
-            'counterpartName'  => $t->counterpart_name,
-            'dateTime'         => $t->transaction_date->toIso8601String(),
-            'isCashIn'         => $t->is_cash_in,
+            'transactionType' => $t->transaction_type,
+            'amount'          => $amount,
+            'dateTime'        => $t->transaction_date->toIso8601String(),
+            'isCashIn'        => $t->is_cash_in,
+            'cashierName'     => $t->counterpart_name,   // mirrors PersonalLedgerService key
         ];
     }
 
     private function formatForList(CashierCustodyTransaction $t): array
     {
-        $amount = $t->is_cash_in
-            ? '+' . number_format((float) $t->amount, 2, '.', '')
-            : '-' . number_format((float) $t->amount, 2, '.', '');
+        $sign   = $t->is_cash_in ? '+' : '-';
+        $amount = $sign . number_format((float) $t->amount, 2, '.', '');
 
         return [
-            'id'               => $t->id,
-            'transactionType'  => $t->transaction_type,
-            'amount'           => $amount,
-            'counterpartName'  => $t->counterpart_name,
-            'dateTime'         => $t->transaction_date->toIso8601String(),
-            'isCashIn'         => $t->is_cash_in,
-            'relatedShiftId'   => $t->related_shift_id,
+            'id'              => $t->id,
+            'transactionType' => $t->transaction_type,
+            'amount'          => $amount,
+            'dateTime'        => $t->transaction_date->toIso8601String(),
+            'cashierName'     => $t->counterpart_name,   // mirrors PersonalLedgerService key
         ];
     }
 }

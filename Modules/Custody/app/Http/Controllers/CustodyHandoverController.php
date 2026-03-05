@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Cashier\Models\Cashier;
+use Modules\Custody\Services\CashierCustodyService;
 use Modules\Custody\Services\CustodyTransactionService;
 use Modules\Custody\Services\PersonalLedgerService;
 use Modules\Custody\Services\CustodyBalanceService;
@@ -18,7 +20,8 @@ class CustodyHandoverController extends BaseController
     public function __construct(
         private CustodyTransactionService $transactionService,
         private PersonalLedgerService $ledgerService,
-        private CustodyBalanceService $balanceService
+        private CustodyBalanceService $balanceService,
+        private CashierCustodyService $cashierCustodyService
     ) {}
 
     /**
@@ -41,67 +44,103 @@ class CustodyHandoverController extends BaseController
         }
 
         try {
-            $branchManager = auth()->user();
+            $user    = auth()->user();
+            $isCashier = $user instanceof Cashier;
+
+            // ── Cashier path ──────────────────────────────────────────────────
+            if ($isCashier) {
+                $personalBalance = $this->cashierCustodyService->getPersonalBalanceOnly($user->id);
+
+                if ($request->input('handoverAmount') > $personalBalance) {
+                    return $this->errorResponse('Insufficient balance', 400, [
+                        'code'      => 'INSUFFICIENT_BALANCE',
+                        'required'  => $request->input('handoverAmount'),
+                        'available' => $personalBalance,
+                    ]);
+                }
+
+                return DB::transaction(function () use ($request, $user, $personalBalance) {
+                    $amount        = (float) $request->input('handoverAmount');
+                    $recipientType = $request->input('recipientType');
+                    $recipientName = $this->getRecipientName($request->input('recipientId'), $recipientType);
+
+                    // Record Cash-OUT in cashier custody ledger
+                    $this->cashierCustodyService->recordManualHandoverSent($user->id, $amount, $recipientName);
+
+                    // If handing over to a branch manager, credit their personal ledger
+                    if ($recipientType === 'Branch Manager') {
+                        PersonalLedgerTransaction::create([
+                            'branch_manager_id' => $request->input('recipientId'),
+                            'transaction_type'  => 'Total Sales',
+                            'amount'            => $amount,
+                            'is_cash_in'        => true,
+                            'cashier_name'      => $user->name,
+                            'transaction_date'  => now(),
+                        ]);
+                    }
+
+                    return $this->successResponse([
+                        'handoverId' => uniqid('hand_'),
+                        'newBalance' => round($personalBalance - $amount, 2),
+                    ], 'Handover request submitted successfully');
+                });
+            }
+
+            // ── Branch Manager path (unchanged) ──────────────────────────────
+            $branchManager   = $user;
             $personalBalance = $this->ledgerService->getPersonalBalanceOnly($branchManager->id);
 
-            // Validate balance
             if ($request->input('handoverAmount') > $personalBalance) {
                 return $this->errorResponse('Insufficient balance', 400, [
-                    'code' => 'INSUFFICIENT_BALANCE',
-                    'required' => $request->input('handoverAmount'),
+                    'code'      => 'INSUFFICIENT_BALANCE',
+                    'required'  => $request->input('handoverAmount'),
                     'available' => $personalBalance,
                 ]);
             }
 
             return DB::transaction(function () use ($request, $branchManager, $personalBalance) {
-                $amount = $request->input('handoverAmount');
+                $amount        = $request->input('handoverAmount');
                 $recipientType = $request->input('recipientType');
 
                 if ($recipientType === 'Custody') {
-                    // Transfer to Branch Custody Balance
                     $this->transactionService->createCashTransferTransaction([
                         'branch_manager_id' => $branchManager->id,
-                        'branch_id' => $branchManager->branch_id,
-                        'amount' => $amount,
+                        'branch_id'         => $branchManager->branch_id,
+                        'amount'            => $amount,
                     ]);
 
-                    // Create personal ledger transaction (cash out)
                     PersonalLedgerTransaction::create([
                         'branch_manager_id' => $branchManager->id,
-                        'transaction_type' => 'Transfer to Custody',
-                        'amount' => $amount,
-                        'is_cash_in' => false,
-                        'transaction_date' => now(),
+                        'transaction_type'  => 'Transfer to Custody',
+                        'amount'            => $amount,
+                        'is_cash_in'        => false,
+                        'transaction_date'  => now(),
                     ]);
                 } else {
-                    // Handover to Branch Manager or Brand Owner
                     $this->transactionService->createHandoverTransaction([
                         'branch_manager_id' => $branchManager->id,
-                        'branch_id' => $branchManager->branch_id,
-                        'amount' => $amount,
-                        'recipient_type' => $recipientType,
-                        'recipient_id' => $request->input('recipientId'),
-                        'handover_method' => $request->input('handoverMethod'),
-                        'handover_date' => $request->input('handoverDate'),
-                        'additional_notes' => $request->input('additionalNotes'),
+                        'branch_id'         => $branchManager->branch_id,
+                        'amount'            => $amount,
+                        'recipient_type'    => $recipientType,
+                        'recipient_id'      => $request->input('recipientId'),
+                        'handover_method'   => $request->input('handoverMethod'),
+                        'handover_date'     => $request->input('handoverDate'),
+                        'additional_notes'  => $request->input('additionalNotes'),
                     ]);
 
-                    // Create personal ledger transaction
                     PersonalLedgerTransaction::create([
                         'branch_manager_id' => $branchManager->id,
-                        'transaction_type' => 'Handover to Brand Owner',
-                        'amount' => $amount,
-                        'is_cash_in' => false,
-                        'brand_owner_name' => $this->getRecipientName($request->input('recipientId'), $recipientType),
-                        'transaction_date' => now(),
+                        'transaction_type'  => 'Handover to Brand Owner',
+                        'amount'            => $amount,
+                        'is_cash_in'        => false,
+                        'brand_owner_name'  => $this->getRecipientName($request->input('recipientId'), $recipientType),
+                        'transaction_date'  => now(),
                     ]);
                 }
 
-                $newBalance = $personalBalance - $amount;
-
                 return $this->successResponse([
                     'handoverId' => uniqid('hand_'),
-                    'newBalance' => round($newBalance, 2),
+                    'newBalance' => round($personalBalance - $amount, 2),
                 ], 'Handover request submitted successfully');
             });
         } catch (\Exception $e) {

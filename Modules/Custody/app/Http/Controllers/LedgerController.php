@@ -6,6 +6,8 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Response;
+use Modules\Cashier\Models\Cashier;
+use Modules\Custody\Services\CashierCustodyService;
 use Modules\Custody\Services\PersonalLedgerService;
 use Modules\Custody\Services\PdfExportService;
 use Modules\Custody\Services\CustodyBalanceService;
@@ -15,7 +17,8 @@ class LedgerController extends BaseController
     public function __construct(
         private PersonalLedgerService $ledgerService,
         private PdfExportService $pdfService,
-        private CustodyBalanceService $balanceService
+        private CustodyBalanceService $balanceService,
+        private CashierCustodyService $cashierCustodyService
     ) {}
 
     /**
@@ -51,12 +54,12 @@ class LedgerController extends BaseController
                 }
             }
 
-            // Get balance with optional month/year filter
-            $balance = $this->ledgerService->getPersonalCustodyBalance(
-                auth()->id(),
-                $monthValue,
-                $yearValue
-            );
+            $userId = auth()->id();
+
+            // Route to the correct service based on authenticated user type
+            $balance = auth()->user() instanceof Cashier
+                ? $this->cashierCustodyService->getPersonalCustodyBalance($userId, $monthValue, $yearValue)
+                : $this->ledgerService->getPersonalCustodyBalance($userId, $monthValue, $yearValue);
 
             return $this->successResponse($balance, 'Personal custody balance retrieved successfully');
         } catch (\Exception $e) {
@@ -71,7 +74,10 @@ class LedgerController extends BaseController
     public function getPersonalBalanceOnly(): JsonResponse
     {
         try {
-            $balance = $this->ledgerService->getPersonalBalanceOnly(auth()->id());
+            $userId  = auth()->id();
+            $balance = auth()->user() instanceof Cashier
+                ? $this->cashierCustodyService->getPersonalBalanceOnly($userId)
+                : $this->ledgerService->getPersonalBalanceOnly($userId);
 
             return $this->successResponse([
                 'personalCustodyBalance' => $balance
@@ -128,7 +134,10 @@ class LedgerController extends BaseController
                 $filters['year'] = $year;
             }
 
-            $transactions = $this->ledgerService->getTransactionHistory(auth()->id(), $filters);
+            $userId       = auth()->id();
+            $transactions = auth()->user() instanceof Cashier
+                ? $this->cashierCustodyService->getTransactionHistory($userId, $filters)
+                : $this->ledgerService->getTransactionHistory($userId, $filters);
 
             return $this->successResponse($transactions, 'Transactions retrieved successfully');
         } catch (\Exception $e) {
