@@ -10,6 +10,7 @@ enum TransactionType: string
     case TOTAL_SALES = 'Total Sales';
     case HANDOVER_TO_BRAND_OWNER = 'Handover to Brand Owner';
     case TRANSFER_TO_CUSTODY = 'Transfer to Custody';
+    case VARIANCE_FROM_CASHIER = 'Variance from Cashier';
 
     /**
      * Get human-readable label for the transaction type
@@ -20,6 +21,7 @@ enum TransactionType: string
             self::TOTAL_SALES => 'Total Sales',
             self::HANDOVER_TO_BRAND_OWNER => 'Handover to Brand Owner',
             self::TRANSFER_TO_CUSTODY => 'Transfer to Custody',
+            self::VARIANCE_FROM_CASHIER => 'Variance from Cashier',
         };
     }
 
@@ -28,7 +30,7 @@ enum TransactionType: string
      */
     public function isCashIn(): bool
     {
-        return $this === self::TOTAL_SALES;
+        return in_array($this, [self::TOTAL_SALES, self::VARIANCE_FROM_CASHIER], true);
     }
 
     /**
