@@ -421,7 +421,7 @@ class InventorySessionService
             $hasDiscrepancy = $discrepancyService->calculateAndStore($session);
 
             if ($hasDiscrepancy) {
-                $session->status = InventorySessionStatus::PENDING_YOUR_ACTION;
+                $session->status = InventorySessionStatus::PENDING_YOUR_CONFIRMATION;
                 $session->save();
                 InventorySessionTimeline::log(
                     $session,
@@ -429,7 +429,7 @@ class InventorySessionService
                     'Request Received',
                     'Accountant shared discrepancy report.',
                     InventorySessionStatus::APPROVED->value,
-                    InventorySessionStatus::PENDING_YOUR_ACTION->value
+                    InventorySessionStatus::PENDING_YOUR_CONFIRMATION->value
                 );
             } else {
                 $session->status = InventorySessionStatus::COMPLETED;
@@ -455,7 +455,7 @@ class InventorySessionService
     {
         $session = InventorySession::where('id', $sessionId)
             ->where('branch_id', $manager->branch_id)
-            ->where('status', InventorySessionStatus::PENDING_YOUR_ACTION)
+            ->where('status', InventorySessionStatus::PENDING_YOUR_CONFIRMATION)
             ->firstOrFail();
 
         InventorySessionTimeline::log(

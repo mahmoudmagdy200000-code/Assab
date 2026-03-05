@@ -310,7 +310,7 @@ class DailyQuickInventoryController extends BaseController
 
     /**
      * Get all inventory sessions. Optional filter by status (e.g. ?status=draft).
-     * Valid status values: draft, pending, approved, rejected, pending_your_action, completed.
+     * Valid status values: draft, pending, approved, rejected, pending_your_confirmation, completed.
      *
      * @group Daily Quick Inventory
      */
