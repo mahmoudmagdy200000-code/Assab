@@ -675,10 +675,10 @@ class ShiftEndController extends Controller
 
             $suggestedCashierId = $nextShift?->cashier_id;
 
-            // Get branch manager as an option for final handover
-            $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
+            // Get all active branch managers so the current user (if branch manager) appears in the list
+            $branchManagers = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
                 ->where('is_active', true)
-                ->first();
+                ->get();
 
             $availableCashiers = $allCashiers->map(function ($cashier) use ($suggestedCashierId) {
                 return [
@@ -697,7 +697,7 @@ class ShiftEndController extends Controller
             });
 
             $recipients = $availableCashiers->toArray();
-            if ($branchManager) {
+            foreach ($branchManagers as $branchManager) {
                 $recipients[] = [
                     'id' => $branchManager->id,
                     'name' => $branchManager->name . ' (Branch Manager)',
@@ -717,7 +717,7 @@ class ShiftEndController extends Controller
                 'data' => [
                     'recipients' => $recipients,
                     'auto_handover_enabled' => !is_null($suggestedCashierId),
-                    'has_branch_manager' => !is_null($branchManager),
+                    'has_branch_manager' => $branchManagers->isNotEmpty(),
                 ]
             ]);
         } catch (\Exception $e) {
