@@ -78,9 +78,10 @@ class CashierService
             ]);
 
             if (!empty($data['shift_ids'])) {
+                // New cashier: assign for the next work week, not the current week (avoid creating 1/3–5/3 when today is 6/3)
                 $refDate = isset($data['shift_date'])
                     ? Carbon::parse($data['shift_date'])
-                    : Carbon::today();
+                    : ShiftHelper::nextWorkWeekDates(Carbon::today())[0];
                 $this->assignShiftsToCashier(
                     cashierId: $cashier->id,
                     shiftIds: $data['shift_ids'],
