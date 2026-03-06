@@ -77,7 +77,8 @@ class CashierManagementController extends BaseController
     }
 
     /**
-     * Assign shifts to cashier
+     * Assign shifts to cashier.
+     * When shift_date is omitted, assigns 7 consecutive days starting from today.
      */
     public function assignShifts(Request $request): JsonResponse
     {
@@ -85,13 +86,18 @@ class CashierManagementController extends BaseController
             'cashier_id' => 'required|exists:cashiers,id',
             'shift_ids' => 'required|array|min:1',
             'shift_ids.*' => 'exists:shifts,id',
-            'shift_date' => 'required|date',
+            'shift_date' => 'nullable|date',
         ]);
+
+        $shiftDate = $request->filled('shift_date')
+            ? $request->shift_date
+            : now()->toDateString();
 
         $result = $this->cashierService->assignShiftsToCashier(
             cashierId: $request->cashier_id,
             shiftIds: $request->shift_ids,
-            shiftDate: $request->shift_date
+            shiftDate: $shiftDate,
+            forFullWeek: !$request->filled('shift_date')
         );
 
         return  $this->successResponse($result, 'Shifts assigned successfully');
