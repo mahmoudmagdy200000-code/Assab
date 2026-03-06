@@ -29,6 +29,14 @@ class ShiftHandoverController extends Controller
             $cashier = auth()->user();
             $shiftModel = CashierShift::with('handoverStatus')->findOrFail($shift);
 
+            // Only the recipient may accept. Sender must not change status.
+            if ((string) $shiftModel->cashier_id === (string) $cashier->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Forbidden: Only the recipient can accept this handover',
+                ], 403);
+            }
+
             if ((string) $shiftModel->next_cashier_id !== (string) $cashier->id) {
                 return response()->json([
                     'success' => false,
@@ -279,6 +287,14 @@ class ShiftHandoverController extends Controller
             // ── Cashier path: receiving cashier rejects the incoming handover ──
             if ($isCashier) {
                 $shiftModel = CashierShift::with(['handoverStatus'])->findOrFail($shift);
+
+                // Only the recipient may reject. Sender must not change status.
+                if ((string) $shiftModel->cashier_id === (string) $user->id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Forbidden: Only the recipient can reject this handover',
+                    ], 403);
+                }
 
                 if ((string) $shiftModel->next_cashier_id !== (string) $user->id) {
                     return response()->json([

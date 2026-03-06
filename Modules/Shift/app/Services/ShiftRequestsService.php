@@ -48,6 +48,12 @@ class ShiftRequestsService
 
         $this->applyHandoverScopeByUser($query, $user);
 
+        // Data isolation: Pending requests must only show handovers where current user is the recipient.
+        // Sender must not see their own outgoing requests as "Pending" actions for themselves.
+        if ($status === 'pending' && $user instanceof Cashier) {
+            $query->where('next_cashier_id', $user->id);
+        }
+
         if ($status !== null && $status !== '') {
             $query->whereHas('handoverStatus', fn($q) => $q->where('manager_approval_status', $status));
         }
