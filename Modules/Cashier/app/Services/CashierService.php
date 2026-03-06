@@ -78,13 +78,10 @@ class CashierService
             ]);
 
             if (!empty($data['shift_ids'])) {
-                $refDate = isset($data['shift_date'])
-                    ? Carbon::parse($data['shift_date'])
-                    : Carbon::today();
                 $this->assignShiftsToCashier(
                     cashierId: $cashier->id,
                     shiftIds: $data['shift_ids'],
-                    shiftDate: $refDate->toDateString(),
+                    shiftDate: Carbon::today()->toDateString(),
                     forFullWeek: true
                 );
             }
