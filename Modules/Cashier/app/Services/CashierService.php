@@ -254,6 +254,15 @@ class CashierService
         Cashier::findOrFail($cashierId);
         $assignedShifts = [];
         $refDate = Carbon::parse($shiftDate);
+
+        // When assigning a full week, if the week containing the given date has already ended, use next work week
+        if ($forFullWeek) {
+            [$weekStart, $weekEnd] = ShiftHelper::workWeekDatesFor($refDate);
+            if ($weekEnd->isPast()) {
+                $refDate = ShiftHelper::nextWorkWeekDates(Carbon::today())[0];
+            }
+        }
+
         $assignedBy = auth('branch_manager')->id() ?? auth()->id();
 
         $dates = $forFullWeek
@@ -307,8 +316,8 @@ class CashierService
 
 
     /**
-     * Update cashier shifts: remove pending shifts not in new list (current work week),
-     * then assign for full work week (Sun–Thu, excluding holidays).
+     * Update cashier shifts: remove pending shifts not in new list (target work week),
+     * then assign for full work week. Uses next work week when current week has already ended.
      */
     public function updateCashierShifts(string $cashierId, array $shiftIds): array
     {
@@ -316,6 +325,10 @@ class CashierService
         try {
             Cashier::findOrFail($cashierId);
             [$start, $end] = ShiftHelper::currentWorkWeekDates();
+            // If current work week has ended (e.g. today is 6/3, week was 1/3–5/3), operate on next week
+            if ($end->isPast()) {
+                [$start, $end] = ShiftHelper::nextWorkWeekDates(Carbon::today());
+            }
 
             CashierShift::where('cashier_id', $cashierId)
                 ->where('status', ShiftStatus::NOT_STARTED)
