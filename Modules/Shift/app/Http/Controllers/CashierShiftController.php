@@ -227,7 +227,7 @@ class CashierShiftController extends BaseController
     }
 
     /**
-     * Get in-progress shifts (today only)
+     * Get in-progress shifts (recent window: last 7 days to catch any active shift)
      */
     public function inProgressShifts(Request $request): JsonResponse
     {
@@ -245,7 +245,8 @@ class CashierShiftController extends BaseController
             ])
                 ->where('cashier_id', $cashier->id)
                 ->where('status', ShiftStatus::IN_PROGRESS)
-                ->whereDate('shift_date', today())
+                ->whereDate('shift_date', '>=', now()->subDays(7))
+                ->whereDate('shift_date', '<=', now()->addDay())
                 ->orderBy('actual_start_time')
                 ->get()
                 ->map(function ($shift) {
@@ -460,14 +461,17 @@ class CashierShiftController extends BaseController
                 ->orderBy('shift_date', 'desc')
                 ->orderBy('actual_end_time', 'desc');
 
-            // Filter by date range
-            $dateFilter = $request->input('date_filter', 'last_7_days');
+            // Filter by date range (default last_30_days so cashier sees more completed shifts)
+            $dateFilter = $request->input('date_filter', 'last_30_days');
             switch ($dateFilter) {
                 case 'last_7_days':
                     $query->where('shift_date', '>=', now()->subDays(7));
                     break;
                 case 'last_30_days':
                     $query->where('shift_date', '>=', now()->subDays(30));
+                    break;
+                case 'last_90_days':
+                    $query->where('shift_date', '>=', now()->subDays(90));
                     break;
                 case 'custom':
                     if ($from = $request->input('date_from')) {
