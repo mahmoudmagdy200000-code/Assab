@@ -851,19 +851,41 @@ class ShiftHandoverController extends Controller
                     'name' => $cashier->name,
                     'email' => $cashier->email,
                     'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
+                    'type' => 'cashier',
                     'is_available' => true,
                     'disabled' => false,
                     'reason_disabled' => null,
                 ];
             })->values();
 
+            // Include branch managers as handover recipients (same branch)
+            $branchManagers = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
+                ->where('is_active', true)
+                ->where('status', 'active')
+                ->get(['id', 'name', 'email', 'image']);
+
+            $branchManagerEntries = $branchManagers->map(function ($manager) {
+                return [
+                    'id' => $manager->id,
+                    'name' => $manager->name . ' (Branch Manager)',
+                    'email' => $manager->email ?? null,
+                    'image' => $manager->image ? asset('storage/' . $manager->image) : null,
+                    'type' => 'branch_manager',
+                    'is_available' => true,
+                    'disabled' => false,
+                    'reason_disabled' => null,
+                ];
+            });
+
+            $allRecipients = $availableCashiers->concat($branchManagerEntries->values());
+
             return response()->json([
                 'success' => true,
                 'message' => 'Available cashiers retrieved successfully',
                 'data' => [
-                    'cashiers' => $availableCashiers,
-                    'total_count' => $availableCashiers->count(),
-                    'available_count' => $availableCashiers->where('is_available', true)->count(),
+                    'cashiers' => $allRecipients->values()->all(),
+                    'total_count' => $allRecipients->count(),
+                    'available_count' => $allRecipients->where('is_available', true)->count(),
                 ],
             ], 200);
         } catch (\Exception $e) {
