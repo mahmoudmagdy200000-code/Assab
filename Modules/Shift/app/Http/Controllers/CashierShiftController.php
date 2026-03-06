@@ -154,8 +154,8 @@ class CashierShiftController extends BaseController
         try {
             $cashier = auth()->user();
 
-            // Minimum 1 week, maximum 1 month as per requirements
-            $minDate = now();
+            // Same date range as manager pending: last month to next month (so past not_started shifts are visible)
+            $minDate = now()->subMonth();
             $maxDate = now()->addMonth();
 
             $shifts = CashierShift::with([
