@@ -222,24 +222,24 @@ class BranchManagerShiftService
                 $query->where('handover_to_type', 'branch_manager')
                     ->where('handover_to_id', $managerShift->branch_manager_id)
                     ->where(function ($q) use ($managerShift) {
-                        // Include handovers where either shift_date or handover_date matches manager's shift_date
-                        // This handles cases where shift ends on a different date than it started
-                        // Also include handovers from same branch in the last 7 days (for flexibility)
-                        $sevenDaysAgo = $managerShift->shift_date->copy()->subDays(7);
-                        $q->where(function ($subQ) use ($managerShift) {
-                            $subQ->whereHas('cashierShift', function ($cashierQuery) use ($managerShift) {
-                                $cashierQuery->whereDate('shift_date', $managerShift->shift_date);
-                            });
+                        $shiftDate = $managerShift->shift_date;
+                        $sevenDaysAgo = $shiftDate->copy()->subDays(7);
+
+                        // Today's handovers (by shift_date or handover_date) — any status
+                        $q->where(function ($subQ) use ($shiftDate) {
+                            $subQ->whereHas('cashierShift', function ($cq) use ($shiftDate) {
+                                $cq->whereDate('shift_date', $shiftDate);
+                            })->orWhereDate('handover_date', $shiftDate);
                         })
-                            ->orWhereDate('handover_date', $managerShift->shift_date)
-                            ->orWhere(function ($subQ) use ($managerShift, $sevenDaysAgo) {
-                                // Include handovers from same branch in the last 7 days
-                                $subQ->whereHas('cashierShift.shift', function ($shiftQuery) use ($managerShift) {
-                                    $shiftQuery->where('branch_id', $managerShift->branch_id);
-                                })
-                                    ->whereDate('handover_date', '>=', $sevenDaysAgo)
-                                    ->whereDate('handover_date', '<=', $managerShift->shift_date);
-                            });
+                        // Previous days (up to 7 days back) — only pending/rejected (not yet approved)
+                        ->orWhere(function ($subQ) use ($managerShift, $shiftDate, $sevenDaysAgo) {
+                            $subQ->whereHas('cashierShift.shift', function ($sq) use ($managerShift) {
+                                $sq->where('branch_id', $managerShift->branch_id);
+                            })
+                                ->whereDate('handover_date', '>=', $sevenDaysAgo)
+                                ->whereDate('handover_date', '<', $shiftDate)
+                                ->whereNotIn('status', ['approved', 'rejected_final']);
+                        });
                     });
                 break;
 

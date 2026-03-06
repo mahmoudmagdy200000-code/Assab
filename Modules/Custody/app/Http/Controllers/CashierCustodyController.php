@@ -35,7 +35,7 @@ class CashierCustodyController extends BaseController
                 return $this->errorResponse('Month must be between 1 and 12', 400);
             }
 
-            $balance = $this->custodyService->getBalance(auth()->id(), $month, $year);
+            $balance = $this->custodyService->getPersonalCustodyBalance(auth()->id(), $month, $year);
 
             return $this->successResponse($balance, 'Custody balance retrieved successfully');
         } catch (\Exception $e) {
@@ -62,7 +62,7 @@ class CashierCustodyController extends BaseController
                 return $this->errorResponse('Both month and year must be provided together, or both omitted', 400);
             }
 
-            $validTypes = ['Handover Received', 'Handover Sent'];
+            $validTypes = ['Handover Received', 'Handover Sent', 'Variance'];
             $type = $request->input('transaction_type');
             if ($type && !in_array($type, $validTypes)) {
                 return $this->errorResponse('Invalid transaction_type. Must be: ' . implode(', ', $validTypes), 400);
@@ -71,10 +71,10 @@ class CashierCustodyController extends BaseController
             $filters = array_filter([
                 'month'            => $month,
                 'year'             => $year,
-                'transaction_type' => $type,
+                'transactionType'  => $type,
             ]);
 
-            $result = $this->custodyService->getTransactions(auth()->id(), $filters);
+            $result = $this->custodyService->getTransactionHistory(auth()->id(), $filters);
 
             return $this->successResponse($result, 'Transactions retrieved successfully');
         } catch (\Exception $e) {

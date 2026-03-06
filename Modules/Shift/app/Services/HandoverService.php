@@ -228,6 +228,20 @@ class HandoverService
                 // Fire event for personal ledger transaction creation
                 if ($handover->handover_to_type === 'branch_manager') {
                     event(new \Modules\Custody\Events\HandoverApproved($handover));
+
+                    // Record Cash-OUT custody entry for the sending cashier (handover to BM)
+                    // The entry is deferred to approval because the handover is not final until approved.
+                    if ($shift->cashier) {
+                        try {
+                            app(\Modules\Custody\Services\CashierCustodyService::class)
+                                ->recordHandoverSent($handover, $shift->cashier);
+                        } catch (\Exception $e) {
+                            Log::warning('Failed to create cashier custody cash-out entry on BM approval', [
+                                'error' => $e->getMessage(),
+                                'handover_id' => $handover->id,
+                            ]);
+                        }
+                    }
                 }
 
                 // Re-dispatch VarianceRecorded so the branch manager ledger entry is created/updated

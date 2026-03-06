@@ -48,12 +48,17 @@ class ShiftRequestsService
 
         $this->applyHandoverScopeByUser($query, $user);
 
-        // Data isolation for Cashiers: never show "pending" handovers where current user is the sender.
-        // So: show (I am the recipient) OR (handover status is not pending). App may fetch without ?status=pending.
+        // Data isolation for Cashiers: pending handovers must only be visible to the
+        // designated recipient (via the handover relation), never to the sender.
+        // Non-pending (approved/rejected) handovers remain visible to both parties.
         if ($user instanceof Cashier) {
             $query->where(function ($q) use ($user) {
-                $q->where('next_cashier_id', $user->id)
-                    ->orWhereHas('handoverStatus', fn($q) => $q->where('manager_approval_status', '!=', 'pending'));
+                $q->whereHas('handover', fn($h) =>
+                    $h->where('handover_to_type', 'cashier')
+                      ->where('handover_to_id', $user->id)
+                )->orWhereHas('handoverStatus', fn($s) =>
+                    $s->where('manager_approval_status', '!=', 'pending')
+                );
             });
         }
 

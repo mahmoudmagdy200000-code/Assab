@@ -27,9 +27,9 @@ class ShiftHandoverController extends Controller
     {
         try {
             $cashier = auth()->user();
-            $shiftModel = CashierShift::with('handoverStatus')->findOrFail($shift);
+            $shiftModel = CashierShift::with(['handoverStatus', 'handover'])->findOrFail($shift);
 
-            // Only the recipient may accept. Sender must not change status.
+            // Sender must not change status.
             if ((string) $shiftModel->cashier_id === (string) $cashier->id) {
                 return response()->json([
                     'success' => false,
@@ -37,7 +37,17 @@ class ShiftHandoverController extends Controller
                 ], 403);
             }
 
-            if ((string) $shiftModel->next_cashier_id !== (string) $cashier->id) {
+            // Determine the actual recipient from the handover record
+            $handover = $shiftModel->handover;
+            if ($handover && $handover->handover_to_type === 'branch_manager') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Forbidden: This handover is designated for a branch manager',
+                ], 403);
+            }
+
+            $recipientId = $handover?->handover_to_id ?? $shiftModel->next_cashier_id;
+            if ((string) $recipientId !== (string) $cashier->id) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized: This handover is not for you'
@@ -286,9 +296,9 @@ class ShiftHandoverController extends Controller
 
             // ── Cashier path: receiving cashier rejects the incoming handover ──
             if ($isCashier) {
-                $shiftModel = CashierShift::with(['handoverStatus'])->findOrFail($shift);
+                $shiftModel = CashierShift::with(['handoverStatus', 'handover'])->findOrFail($shift);
 
-                // Only the recipient may reject. Sender must not change status.
+                // Sender must not change status.
                 if ((string) $shiftModel->cashier_id === (string) $user->id) {
                     return response()->json([
                         'success' => false,
@@ -296,7 +306,17 @@ class ShiftHandoverController extends Controller
                     ], 403);
                 }
 
-                if ((string) $shiftModel->next_cashier_id !== (string) $user->id) {
+                // Determine the actual recipient from the handover record
+                $handover = $shiftModel->handover;
+                if ($handover && $handover->handover_to_type === 'branch_manager') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Forbidden: This handover is designated for a branch manager',
+                    ], 403);
+                }
+
+                $recipientId = $handover?->handover_to_id ?? $shiftModel->next_cashier_id;
+                if ((string) $recipientId !== (string) $user->id) {
                     return response()->json([
                         'success' => false,
                         'message' => 'Unauthorized: This handover is not for you',

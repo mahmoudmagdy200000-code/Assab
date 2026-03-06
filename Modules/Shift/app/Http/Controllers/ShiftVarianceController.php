@@ -310,10 +310,10 @@ class ShiftVarianceController extends Controller
                 ], 404);
             }
 
-            if ($detail->responsibility_status !== 'pending') {
+            if ($detail->responsibility_status === 'approved') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Responsibility has already been reviewed',
+                    'message' => 'Responsibility has already been approved',
                     'current_status' => $detail->responsibility_status,
                 ], 400);
             }
@@ -325,6 +325,12 @@ class ShiftVarianceController extends Controller
                 'reviewed_by_type'      => get_class($cashier),
                 'reviewed_at'           => now(),
             ]);
+
+            // Dispatch VarianceRecorded so custody ledger entries are created/updated
+            $shiftModel = CashierShift::with(['varianceDetails', 'handover'])->find($shift);
+            if ($shiftModel) {
+                event(new \Modules\Shift\Events\VarianceRecorded($shiftModel));
+            }
 
             return response()->json([
                 'success' => true,
@@ -383,10 +389,10 @@ class ShiftVarianceController extends Controller
                 ], 404);
             }
 
-            if ($detail->responsibility_status !== 'pending') {
+            if ($detail->responsibility_status === 'rejected') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Responsibility has already been reviewed',
+                    'message' => 'Responsibility has already been rejected',
                     'current_status' => $detail->responsibility_status,
                 ], 400);
             }
@@ -453,12 +459,12 @@ class ShiftVarianceController extends Controller
                 ], 404);
             }
 
-            $alreadyReviewed = $shiftModel->varianceDetails->first()->responsibility_status !== 'pending';
-            if ($alreadyReviewed) {
+            $currentStatus = $shiftModel->varianceDetails->first()->responsibility_status;
+            if ($currentStatus === 'approved') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Responsibility has already been reviewed',
-                    'current_status' => $shiftModel->varianceDetails->first()->responsibility_status,
+                    'message' => 'Responsibility has already been approved',
+                    'current_status' => $currentStatus,
                 ], 400);
             }
 
@@ -472,9 +478,15 @@ class ShiftVarianceController extends Controller
 
             $shiftModel->recordHistory(
                 'responsibility_approved',
-                ['responsibility_status' => 'pending'],
+                ['responsibility_status' => $currentStatus],
                 ['responsibility_status' => 'approved', 'reviewed_by_id' => $manager->id]
             );
+
+            // Dispatch VarianceRecorded so custody ledger entries are created/updated
+            $freshShift = $shiftModel->fresh(['varianceDetails', 'handover']);
+            if ($freshShift) {
+                event(new \Modules\Shift\Events\VarianceRecorded($freshShift));
+            }
 
             return response()->json([
                 'success' => true,
@@ -542,12 +554,12 @@ class ShiftVarianceController extends Controller
                 ], 404);
             }
 
-            $alreadyReviewed = $shiftModel->varianceDetails->first()->responsibility_status !== 'pending';
-            if ($alreadyReviewed) {
+            $currentStatus = $shiftModel->varianceDetails->first()->responsibility_status;
+            if ($currentStatus === 'rejected') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Responsibility has already been reviewed',
-                    'current_status' => $shiftModel->varianceDetails->first()->responsibility_status,
+                    'message' => 'Responsibility has already been rejected',
+                    'current_status' => $currentStatus,
                 ], 400);
             }
 
@@ -561,7 +573,7 @@ class ShiftVarianceController extends Controller
 
             $shiftModel->recordHistory(
                 'responsibility_rejected',
-                ['responsibility_status' => 'pending'],
+                ['responsibility_status' => $currentStatus],
                 [
                     'responsibility_status' => 'rejected',
                     'rejection_reason'      => $request->reason,

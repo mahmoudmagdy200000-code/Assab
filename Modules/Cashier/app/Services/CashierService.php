@@ -78,10 +78,9 @@ class CashierService
             ]);
 
             if (!empty($data['shift_ids'])) {
-                // New cashier: assign for the next work week, not the current week (avoid creating 1/3–5/3 when today is 6/3)
                 $refDate = isset($data['shift_date'])
                     ? Carbon::parse($data['shift_date'])
-                    : ShiftHelper::nextWorkWeekDates(Carbon::today())[0];
+                    : Carbon::today();
                 $this->assignShiftsToCashier(
                     cashierId: $cashier->id,
                     shiftIds: $data['shift_ids'],
@@ -255,19 +254,17 @@ class CashierService
         $assignedShifts = [];
         $refDate = Carbon::parse($shiftDate);
 
-        // When assigning a full week, if the week containing the given date has already ended, use next work week
-        if ($forFullWeek) {
-            [$weekStart, $weekEnd] = ShiftHelper::workWeekDatesFor($refDate);
-            if ($weekEnd->isPast()) {
-                $refDate = ShiftHelper::nextWorkWeekDates(Carbon::today())[0];
-            }
-        }
-
         $assignedBy = auth('branch_manager')->id() ?? auth()->id();
 
-        $dates = $forFullWeek
-            ? ShiftHelper::workWeekDatesExcludingHolidays($refDate)
-            : [$refDate];
+        if ($forFullWeek) {
+            // Generate 7 consecutive days starting from the reference date
+            $dates = [];
+            for ($i = 0; $i < 7; $i++) {
+                $dates[] = $refDate->copy()->addDays($i);
+            }
+        } else {
+            $dates = [$refDate];
+        }
 
         foreach ($dates as $date) {
             $d = $date->format('Y-m-d');
@@ -324,11 +321,8 @@ class CashierService
         DB::beginTransaction();
         try {
             Cashier::findOrFail($cashierId);
-            [$start, $end] = ShiftHelper::currentWorkWeekDates();
-            // If current work week has ended (e.g. today is 6/3, week was 1/3–5/3), operate on next week
-            if ($end->isPast()) {
-                [$start, $end] = ShiftHelper::nextWorkWeekDates(Carbon::today());
-            }
+            $start = Carbon::today();
+            $end   = $start->copy()->addDays(6);
 
             CashierShift::where('cashier_id', $cashierId)
                 ->where('status', ShiftStatus::NOT_STARTED)
