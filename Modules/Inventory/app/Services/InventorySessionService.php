@@ -43,7 +43,7 @@ class InventorySessionService
             ];
 
             $itemIdsInActiveSessions = InventoryItem::where('branch_id', $branchId)
-                ->whereHas('inventorySession', fn ($q) => $q->whereIn('status', $activeStatuses))
+                ->whereHas('inventorySession', fn($q) => $q->whereIn('status', $activeStatuses))
                 ->select('item_id')
                 ->distinct()
                 ->pluck('item_id');
@@ -53,7 +53,7 @@ class InventorySessionService
 
         return $query
             ->get()
-            ->sortBy(fn ($bi) => $bi->item?->name ?? '')
+            ->sortBy(fn($bi) => $bi->item?->name ?? '')
             ->values()
             ->map(function ($branchItem) {
                 return [
@@ -613,7 +613,7 @@ class InventorySessionService
             ->orderByDesc('updated_at')
             ->limit(5)
             ->pluck('quantity_inventory')
-            ->map(fn ($q) => (float) $q)
+            ->map(fn($q) => (float) $q)
             ->values()
             ->toArray();
     }
@@ -680,7 +680,7 @@ class InventorySessionService
 
         $items = $session->items()->with(['item', 'purchaseOrderItem.purchaseOrder'])->get();
         $totalItems = $items->count();
-        $completedCount = $items->filter(fn ($i) => (float) $i->quantity_inventory > 0)->count();
+        $completedCount = $items->filter(fn($i) => (float) $i->quantity_inventory > 0)->count();
 
         $performedBy = ($session->assigned_to_type === 'staff' && $session->assigned_to_id && $session->assignedTo)
             ? ['id' => $session->assigned_to_id, 'name' => $session->assignedTo->name]

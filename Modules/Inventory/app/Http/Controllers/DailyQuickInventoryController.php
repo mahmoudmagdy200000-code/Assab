@@ -115,7 +115,7 @@ class DailyQuickInventoryController extends BaseController
             if ($items->isEmpty()) {
                 $totalBranchItems = \Modules\Purchase\Models\BranchItem::where('branch_id', $branchId)->count();
                 $itemsInActiveSessions = \Modules\Inventory\Models\InventoryItem::where('branch_id', $branchId)
-                    ->whereHas('inventorySession', fn ($q) => $q->whereIn('status', ['draft', 'pending', 'pending_your_action', 'pending_your_confirmation']))
+                    ->whereHas('inventorySession', fn($q) => $q->whereIn('status', ['draft', 'pending', 'pending_your_action', 'pending_your_confirmation']))
                     ->distinct('item_id')
                     ->count('item_id');
                 return $this->successResponse([], 'Branch items retrieved successfully', 200, [
@@ -357,7 +357,7 @@ class DailyQuickInventoryController extends BaseController
             }
 
             $statusFilter = request()->query('status');
-            $validStatuses = array_map(fn (InventorySessionStatus $s) => $s->value, InventorySessionStatus::cases());
+            $validStatuses = array_map(fn(InventorySessionStatus $s) => $s->value, InventorySessionStatus::cases());
             $hasStatusFilter = $statusFilter !== null && $statusFilter !== '';
 
             if ($hasStatusFilter && !in_array($statusFilter, $validStatuses, true)) {
@@ -368,7 +368,7 @@ class DailyQuickInventoryController extends BaseController
             }
 
             $sessions = $this->sessionsQueryForActor($actor->getActor())
-                ->when($hasStatusFilter, fn ($q) => $q->where('status', $statusFilter))
+                ->when($hasStatusFilter, fn($q) => $q->where('status', $statusFilter))
                 ->with(['items.item', 'items.purchaseOrderItem.purchaseOrder', 'assignedTo', 'createdBy', 'branch'])
                 ->withCount('items')
                 ->orderBy('created_at', 'desc')
