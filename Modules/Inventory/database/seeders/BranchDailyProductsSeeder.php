@@ -12,12 +12,39 @@ class BranchDailyProductsSeeder extends Seeder
 {
     private const BRANCH_ID = '019bd5e8-4837-700b-81b5-c9f2080fcbff';
 
+    private const DEFAULT_PRICE = 0;
+
+    private const DEFAULT_QUANTITY = 0;
+
     /**
-     * Seed daily inventory schedule and add all branch items as daily products for the branch.
+     * 1) Seed branch_item for the branch so /inventory/daily-quick/branch-items returns data.
+     * 2) Seed daily inventory schedule and add those items as daily products.
      */
     public function run(): void
     {
         $branchId = self::BRANCH_ID;
+
+        $existingBranchItemIds = BranchItem::query()
+            ->where('branch_id', $branchId)
+            ->pluck('item_id')
+            ->all();
+
+        $activeItems = Item::query()
+            ->where('is_active', true)
+            ->whereNotIn('id', $existingBranchItemIds)
+            ->get(['id']);
+
+        foreach ($activeItems as $item) {
+            BranchItem::create([
+                'branch_id' => $branchId,
+                'item_id' => $item->id,
+                'price' => self::DEFAULT_PRICE,
+                'quantity' => self::DEFAULT_QUANTITY,
+            ]);
+        }
+
+        $branchItemsCount = count($existingBranchItemIds) + $activeItems->count();
+        $this->command?->info("Branch items: {$branchItemsCount} (added " . $activeItems->count() . "). /branch-items API will return these.");
 
         $schedule = DailyInventorySchedule::query()
             ->byBranch($branchId)
@@ -42,15 +69,6 @@ class BranchDailyProductsSeeder extends Seeder
             ->unique()
             ->values()
             ->all();
-
-        if (empty($itemIds)) {
-            $itemIds = Item::query()
-                ->where('is_active', true)
-                ->limit(50)
-                ->pluck('id')
-                ->all();
-            $this->command?->warn('No branch_item found for this branch; using first 50 active items.');
-        }
 
         $existingItemIds = DailyInventoryScheduleItem::query()
             ->where('daily_inventory_schedule_id', $schedule->id)
