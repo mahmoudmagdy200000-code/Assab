@@ -18,6 +18,9 @@ class EventServiceProvider extends ServiceProvider
         \Modules\Shift\Events\VarianceRecorded::class => [
             \Modules\Custody\Listeners\CreateCustodyLedgerEntriesForVariance::class,
         ],
+        \Modules\Expense\Events\ExpenseApprovedEvent::class => [
+            \Modules\Custody\Listeners\CreateCustodyTransactionFromExpenseApproval::class,
+        ],
     ];
 
     /**

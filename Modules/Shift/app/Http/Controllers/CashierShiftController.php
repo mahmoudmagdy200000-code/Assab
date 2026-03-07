@@ -180,10 +180,11 @@ class CashierShiftController extends BaseController
 
             $transformedShifts = $shifts->getCollection()->map(function ($shift, $index) {
                 $isFirstShift = $index === 0;
+                $nextRecipient = $this->shiftService->getNextRecipientForDisplay($shift);
                 $handoverTo = $shift->handover?->handoverTo;
-                $handoverToName = $handoverTo?->name ?? $shift->nextCashier?->name ?? 'Auto-assigned';
-                $handoverToId = $shift->handover?->handover_to_id ?? $shift->next_cashier_id;
-                $handoverToType = $shift->handover?->handover_to_type ?? 'cashier';
+                $handoverToName = $handoverTo?->name ?? $nextRecipient?->name;
+                $handoverToId = $shift->handover?->handover_to_id ?? $nextRecipient?->id ?? $shift->next_cashier_id;
+                $handoverToType = $shift->handover?->handover_to_type ?? ($nextRecipient instanceof \Modules\BranchManagers\Models\BranchManager ? 'branch_manager' : 'cashier');
 
                 return [
                     'id' => $shift->id,
@@ -206,7 +207,7 @@ class CashierShiftController extends BaseController
                         'type' => $handoverToType,
                     ],
                     'assigned_to' => $shift->cashier->name ?? 'N/A',
-                    'next_cashier' => $shift->nextCashier?->name ?? 'Auto-assigned',
+                    'next_cashier' => $nextRecipient?->name,
                     'assigned_by' => $shift->assignedBy?->name ?? 'Branch Manager',
                     'assigned_by_user_type' => $shift->assigned_by ? 'branch_manager' : null,
                     'is_next_shift' => $isFirstShift,
@@ -251,6 +252,7 @@ class CashierShiftController extends BaseController
                 ->get()
                 ->map(function ($shift) {
                     $progress = $this->calculateProgress($shift);
+                    $nextRecipient = $this->shiftService->getNextRecipientForDisplay($shift);
 
                     return [
                         'id' => $shift->id,
@@ -264,7 +266,7 @@ class CashierShiftController extends BaseController
                             : 'Not yet recorded',
                         'closing_balance' => (float) ($shift->closing_balance ?? 0),
                         'assigned_to' => $shift->cashier->name ?? 'N/A',
-                        'next_cashier' => $shift->nextCashier?->name ?? 'Auto-assigned',
+                        'next_cashier' => $this->formatNextRecipientName($nextRecipient),
                         'assigned_by' => $shift->assignedBy?->name ?? 'Branch Manager',
                         'assigned_by_user_type' => $shift->assigned_by ? 'branch_manager' : null,
                         'progress' => $progress,
@@ -487,9 +489,10 @@ class CashierShiftController extends BaseController
 
             $transformedShifts = $shifts->getCollection()->map(function ($shift) {
                 $deliveryApps = $shift->salesBreakdown->sum('amount');
+                $nextRecipient = $this->shiftService->getNextRecipientForDisplay($shift);
                 $handoverTo = $shift->handover?->handoverTo;
-                $handoverToName = $handoverTo?->name ?? $shift->nextCashier?->name ?? null;
-                $handoverToType = $shift->handover?->handover_to_type ?? 'cashier';
+                $handoverToName = $handoverTo?->name ?? $this->formatNextRecipientName($nextRecipient);
+                $handoverToType = $shift->handover?->handover_to_type ?? ($nextRecipient instanceof \Modules\BranchManagers\Models\BranchManager ? 'branch_manager' : 'cashier');
 
                 $handoverStatus = $shift->handoverStatus
                     ? [
@@ -499,7 +502,7 @@ class CashierShiftController extends BaseController
                     : ['status' => 'no_handover', 'reviewed_by' => null];
 
                 $handoverToPayload = $handoverToName
-                    ? ['id' => $shift->handover?->handover_to_id ?? $shift->next_cashier_id, 'name' => $handoverToName, 'type' => $handoverToType]
+                    ? ['id' => $shift->handover?->handover_to_id ?? $nextRecipient?->id ?? $shift->next_cashier_id, 'name' => $handoverToName, 'type' => $handoverToType]
                     : null;
 
                 $handoverApprovedOrRejectedBy = null;
@@ -523,7 +526,7 @@ class CashierShiftController extends BaseController
                     'total_sales' => (float) ($shift->total_sales ?? 0),
                     'variance' => (float) ($shift->variance ?? 0),
                     'variance_type' => $shift->variance > 0 ? 'Over' : ($shift->variance < 0 ? 'Short' : 'None'),
-                    'next_cashier' => $shift->nextCashier ? ['id' => $shift->nextCashier->id, 'name' => $shift->nextCashier->name] : null,
+                    'next_cashier' => $nextRecipient ? ['id' => $nextRecipient->id, 'name' => $this->formatNextRecipientName($nextRecipient)] : null,
                     'assigned_to' => $shift->cashier ? ['id' => $shift->cashier->id, 'name' => $shift->cashier->name] : null,
                     'handover_status' => $handoverStatus,
                     'handover_to' => $handoverToPayload,
@@ -579,6 +582,7 @@ class CashierShiftController extends BaseController
             $transformedShifts = $shifts->getCollection()->map(function ($shift) use ($cashier) {
                 $isMidReassign = $shift->handoverStatus && ($shift->handoverStatus->manager_approval_status ?? '') === 'pending';
                 $canBeAccepted = $isMidReassign && $shift->cashier_id === $cashier->id;
+                $nextRecipient = $this->shiftService->getNextRecipientForDisplay($shift);
 
                 return [
                     'id' => $shift->id,
@@ -598,7 +602,7 @@ class CashierShiftController extends BaseController
                         'user_type' => 'branch_manager',
                     ] : null,
                     'cash_given' => (float) ($shift->handover?->handover_amount ?? $shift->opening_balance ?? 0),
-                    'next_cashier' => $shift->nextCashier ? ['id' => $shift->nextCashier->id, 'name' => $shift->nextCashier->name] : null,
+                    'next_cashier' => $nextRecipient ? ['id' => $nextRecipient->id, 'name' => $this->formatNextRecipientName($nextRecipient)] : null,
                     'is_mid_reassign' => $isMidReassign,
                     'can_be_accepted' => $canBeAccepted,
                     'original_cashier' => $shift->originalCashier?->name ?? 'N/A',
@@ -911,5 +915,21 @@ class CashierShiftController extends BaseController
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
+    }
+
+    /**
+     * Format next recipient (cashier or branch manager) for display.
+     * Next cashier = cashier of the chronologically next shift on the same day/branch.
+     *
+     * @param \Modules\Cashier\Models\Cashier|\Modules\BranchManagers\Models\BranchManager|null $recipient
+     */
+    private function formatNextRecipientName($recipient): ?string
+    {
+        if (!$recipient) {
+            return null;
+        }
+        return $recipient instanceof BranchManager
+            ? $recipient->name . ' (Branch Manager)'
+            : $recipient->name;
     }
 }
