@@ -22,10 +22,11 @@ class InventorySessionService
     /**
      * Get branch items (from branch purchase configuration) for daily inventory.
      * Items are only from those assigned to the branch (branch_item).
-     * By default excludes items that already exist in any inventory session for this branch.
+     * By default excludes items that are in an ACTIVE session (draft/pending/pending_your_action/pending_your_confirmation).
+     * Items from completed, approved, or rejected sessions are always available again.
      *
      * @param string $branchId
-     * @param bool $includeAll When true, return all branch items without excluding those already in inventory sessions.
+     * @param bool $includeAll When true, return all branch items without any exclusion.
      * @return Collection
      */
     public function getBranchItems(string $branchId, bool $includeAll = false): Collection
@@ -34,11 +35,20 @@ class InventorySessionService
             ->where('branch_id', $branchId);
 
         if (! $includeAll) {
-            $itemIdsAlreadyInInventory = InventoryItem::where('branch_id', $branchId)
+            $activeStatuses = [
+                InventorySessionStatus::DRAFT->value,
+                InventorySessionStatus::PENDING->value,
+                InventorySessionStatus::PENDING_YOUR_ACTION->value,
+                InventorySessionStatus::PENDING_YOUR_CONFIRMATION->value,
+            ];
+
+            $itemIdsInActiveSessions = InventoryItem::where('branch_id', $branchId)
+                ->whereHas('inventorySession', fn ($q) => $q->whereIn('status', $activeStatuses))
                 ->select('item_id')
                 ->distinct()
                 ->pluck('item_id');
-            $query->whereNotIn('item_id', $itemIdsAlreadyInInventory);
+
+            $query->whereNotIn('item_id', $itemIdsInActiveSessions);
         }
 
         return $query
