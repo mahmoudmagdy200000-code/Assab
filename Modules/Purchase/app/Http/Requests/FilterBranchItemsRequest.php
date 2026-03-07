@@ -16,14 +16,14 @@ class FilterBranchItemsRequest extends FormRequest
         return [
             // Search by item name
             'search' => ['nullable', 'string', 'max:255'],
-            
+
             // Filter by category
             'category' => ['nullable', 'string', 'max:100'],
             'subcategory' => ['nullable', 'string', 'max:100'],
-            
-            // Filter by supplier (from Expense module)
+
+           
             'supplier_id' => ['nullable', 'uuid', 'exists:suppliers,id'],
-            
+
             // Pagination
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ];

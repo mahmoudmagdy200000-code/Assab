@@ -123,17 +123,27 @@ class BranchItem extends Model
         });
     }
 
+    /**
+     * Filter branch items to those that the given supplier can supply.
+     * Uses supplier_products (Supplier module) and supplier_items (legacy) with item_id match.
+     */
     public function scopeBySupplier($query, string $supplierId)
     {
-        // Filter items that are available from the specified supplier
-        // Through Expense module - items that have been purchased from this supplier
-        return $query->whereHas('item', function ($q) use ($supplierId) {
-            $q->whereExists(function ($subQuery) use ($supplierId) {
-                $subQuery->select(DB::raw(1))
-                    ->from('expenses')
-                    ->join('expense_items', 'expense_items.expense_id', '=', 'expenses.id')
-                    ->whereColumn('expense_items.name', 'items.name')
-                    ->where('expenses.supplier_id', $supplierId);
+        return $query->where(function ($q) use ($supplierId) {
+            // Item is supplied by this supplier via SupplierProduct (new) or SupplierItem (legacy)
+            $q->whereExists(function ($sub) use ($supplierId) {
+                $sub->select(DB::raw(1))
+                    ->from('supplier_products')
+                    ->whereColumn('supplier_products.item_id', 'branch_item.item_id')
+                    ->where('supplier_products.supplier_id', $supplierId)
+                    ->where('supplier_products.is_available', true)
+                    ->whereNull('supplier_products.deleted_at');
+            })->orWhereExists(function ($sub) use ($supplierId) {
+                $sub->select(DB::raw(1))
+                    ->from('supplier_items')
+                    ->whereColumn('supplier_items.item_id', 'branch_item.item_id')
+                    ->where('supplier_items.supplier_id', $supplierId)
+                    ->where('supplier_items.is_available', true);
             });
         });
     }
