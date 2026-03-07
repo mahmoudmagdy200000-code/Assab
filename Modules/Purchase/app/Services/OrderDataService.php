@@ -602,6 +602,9 @@ class OrderDataService
 
     /**
      * Get supplier items
+     *
+     * Uses both SupplierProduct and SupplierItem so the list matches getDirectSupplierItems:
+     * any item that appears for this supplier in "choose source" will appear here.
      */
     public function getSupplierItems(array $validated, string $branchId): array
     {
@@ -614,44 +617,44 @@ class OrderDataService
             throw new \InvalidArgumentException('Supplier not found');
         }
 
-        // Get supplier items from SupplierProduct (new system) or SupplierItem (legacy)
-        // Try SupplierProduct first (new system in Supplier module)
+        // Get items from BOTH SupplierProduct and SupplierItem (same logic as getDirectSupplierItems)
+        // so that items shown when choosing source appear in supplier-items list
+        $itemIdFilter = !empty($validated['item_id']) ? $validated['item_id'] : null;
+
         $supplierProducts = SupplierProduct::where('supplier_id', $supplierId)
             ->available();
-
-        // Filter by specific item_id if provided
-        if (!empty($validated['item_id'])) {
-            $supplierProducts->where('item_id', $validated['item_id']);
+        if ($itemIdFilter) {
+            $supplierProducts->where('item_id', $itemIdFilter);
         }
-
         $supplierProducts = $supplierProducts->get();
 
-        // If no products found, try legacy SupplierItem
-        if ($supplierProducts->isEmpty()) {
-            $query = SupplierItem::where('supplier_id', $supplierId)
-                ->available();
+        $query = SupplierItem::where('supplier_id', $supplierId)
+            ->available();
+        if ($itemIdFilter) {
+            $query->where('item_id', $itemIdFilter);
+        }
+        $legacySupplierItems = $query->get();
 
-            if (!empty($validated['item_id'])) {
-                $query->where('item_id', $validated['item_id']);
-            }
+        // Merge: collect all item_ids from both sources (SupplierProduct takes precedence per item_id)
+        $productsByItemId = $supplierProducts->keyBy('item_id');
+        $legacyByItemId = $legacySupplierItems->keyBy('item_id');
+        $allItemIds = $supplierProducts->pluck('item_id')
+            ->merge($legacySupplierItems->pluck('item_id'))
+            ->unique()
+            ->values()
+            ->toArray();
 
-            $supplierItems = $query->get();
+        if (empty($allItemIds)) {
+            return [
+                'data' => [],
+                'supplier' => (new SupplierResource($supplier))->toArray(request()),
+            ];
+        }
 
-            if ($supplierItems->isEmpty()) {
-                return [
-                    'data' => [],
-                    'supplier' => (new SupplierResource($supplier))->toArray(request()),
-                ];
-            }
-
-            // Use legacy SupplierItem logic
-            $supplierItemIds = $supplierItems->pluck('item_id')->toArray();
-        } else {
-            // Use SupplierProduct (new system)
-            $supplierItemIds = $supplierProducts->pluck('item_id')->toArray();
-
-            // Convert SupplierProduct to SupplierItem-like structure for compatibility
-            $supplierItems = $supplierProducts->map(function ($product) {
+        // Build unified supplier items: prefer SupplierProduct, fallback to SupplierItem (same as getDirectSupplierItems)
+        $supplierItems = collect($allItemIds)->map(function ($itemId) use ($productsByItemId, $legacyByItemId) {
+            $product = $productsByItemId->get($itemId);
+            if ($product) {
                 return (object) [
                     'id' => $product->id,
                     'supplier_id' => $product->supplier_id,
@@ -666,21 +669,17 @@ class OrderDataService
                     'delivery_hours' => $product->delivery_hours,
                     'rating' => $product->rating,
                 ];
-            });
-        }
+            }
+            $legacy = $legacyByItemId->get($itemId);
+            return $legacy ?: null;
+        })->filter()->values();
+
+        $supplierItemIds = $supplierItems->pluck('item_id')->toArray();
 
         // Get branch items in current branch that match the referenced items by item_id
         $branchItemsQuery = BranchItem::where('branch_id', $branchId)
             ->with('item:id,name,code,unit,category,subcategory')
-            ->where(function ($q) use ($supplierItemIds, $validated) {
-                // Match by item_id (both SupplierItem and SupplierProduct use item_id from items table)
-                $q->whereIn('item_id', $supplierItemIds);
-
-                // If specific item_id is requested, also check by id
-                if (!empty($validated['item_id'])) {
-                    $q->orWhere('item_id', $validated['item_id']);
-                }
-            });
+            ->whereIn('item_id', $supplierItemIds);
 
         // Apply filters using scopes (which use whereHas on item relationship)
         if (!empty($validated['search'])) {
