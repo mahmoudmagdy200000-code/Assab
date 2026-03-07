@@ -87,7 +87,7 @@ class DailyQuickInventoryController extends BaseController
 
     /**
      * Get branch items for daily inventory (from branch purchase configuration).
-     * Only items assigned to the branch can be used. Used by Account Manager for schedule and Branch Manager for daily items.
+     * Branch is taken from the authenticated Branch Manager. Optional: ?branch_id=uuid (must match manager's branch), ?include_all=1 (return all items, do not exclude those already in sessions).
      *
      * @group Daily Quick Inventory
      */
@@ -95,11 +95,21 @@ class DailyQuickInventoryController extends BaseController
     {
         try {
             $manager = $this->resolveInventoryActor()->requireManager();
-            if (!$manager->branch_id) {
+            if (! $manager->branch_id) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
-            $items = $this->sessionService->getBranchItems($manager->branch_id);
+            $branchId = request()->query('branch_id');
+            if ($branchId !== null && $branchId !== '') {
+                if ((string) $branchId !== (string) $manager->branch_id) {
+                    return $this->errorResponse('Branch ID does not match your assigned branch.', 403);
+                }
+            } else {
+                $branchId = $manager->branch_id;
+            }
+
+            $includeAll = filter_var(request()->query('include_all'), FILTER_VALIDATE_BOOLEAN);
+            $items = $this->sessionService->getBranchItems($branchId, $includeAll);
 
             return $this->successResponse(
                 $items,

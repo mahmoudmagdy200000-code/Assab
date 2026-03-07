@@ -22,21 +22,26 @@ class InventorySessionService
     /**
      * Get branch items (from branch purchase configuration) for daily inventory.
      * Items are only from those assigned to the branch (branch_item).
-     * Excludes items that already exist in any inventory session for this branch.
+     * By default excludes items that already exist in any inventory session for this branch.
      *
      * @param string $branchId
+     * @param bool $includeAll When true, return all branch items without excluding those already in inventory sessions.
      * @return Collection
      */
-    public function getBranchItems(string $branchId): Collection
+    public function getBranchItems(string $branchId, bool $includeAll = false): Collection
     {
-        $itemIdsAlreadyInInventory = InventoryItem::where('branch_id', $branchId)
-            ->select('item_id')
-            ->distinct()
-            ->pluck('item_id');
+        $query = BranchItem::with(['item:id,name,code,logo,unit,category,subcategory'])
+            ->where('branch_id', $branchId);
 
-        return BranchItem::with(['item:id,name,code,logo,unit,category,subcategory'])
-            ->where('branch_id', $branchId)
-            ->whereNotIn('item_id', $itemIdsAlreadyInInventory)
+        if (! $includeAll) {
+            $itemIdsAlreadyInInventory = InventoryItem::where('branch_id', $branchId)
+                ->select('item_id')
+                ->distinct()
+                ->pluck('item_id');
+            $query->whereNotIn('item_id', $itemIdsAlreadyInInventory);
+        }
+
+        return $query
             ->get()
             ->sortBy(fn ($bi) => $bi->item?->name ?? '')
             ->values()
