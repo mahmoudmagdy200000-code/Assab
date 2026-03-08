@@ -6,6 +6,12 @@ use App\Http\Controllers\BaseController;
 use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Modules\Custody\Services\CustodyBalanceService;
+use Modules\Expense\Enums\ExpenseStatus;
+use Modules\Expense\Enums\ExpenseTimelineAction;
+use Modules\Expense\Enums\ExpenseTimelinePerformedByType;
+use Modules\Expense\Enums\ExpenseTimelineStatus;
+use Modules\Expense\Enums\PaymentMethod;
 use Modules\Expense\Repositories\ExpenseRepository;
 use Modules\Expense\Services\ExpenseApprovalService;
 use Modules\Expense\Services\ExpenseHelperService;
@@ -19,6 +25,7 @@ use Modules\Expense\Transformers\ExpenseResource;
 class ExpenseController extends BaseController
 {
     public function __construct(
+        private CustodyBalanceService $custodyBalanceService,
         private ExpenseApprovalService $approvalService,
         private ExpenseHelperService $helperService,
         private ExpenseRepository $expenseRepository
@@ -52,6 +59,38 @@ class ExpenseController extends BaseController
             $summary,
             'Expense summary retrieved successfully'
         );
+    }
+
+    /**
+     * Get custody balance for the authenticated branch manager.
+     * Used when payment method is "custody" to display available balance.
+     * GET /api/branch-manager/expenses/custody-balance
+     */
+    public function custodyBalance(): JsonResponse
+    {
+        $balance = $this->custodyBalanceService->getCustodyBalance((string) auth()->id());
+
+        return $this->successResponse(
+            ['balance' => $balance],
+            'Custody balance retrieved successfully'
+        );
+    }
+
+    /**
+     * Get expense & timeline enums (statuses, actions, payment methods).
+     * GET /api/branch-manager/expenses/enums
+     */
+    public function enums(): JsonResponse
+    {
+        $data = [
+            'expense_status' => ExpenseStatus::forApi(),
+            'timeline_action' => ExpenseTimelineAction::forApi(),
+            'timeline_status' => ExpenseTimelineStatus::forApi(),
+            'timeline_performed_by_type' => ExpenseTimelinePerformedByType::forApi(),
+            'payment_method' => PaymentMethod::forApi(),
+        ];
+
+        return $this->successResponse($data, 'Enums retrieved successfully');
     }
 
     /**

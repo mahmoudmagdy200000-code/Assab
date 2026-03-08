@@ -116,6 +116,8 @@ Route::prefix('branch-manager/expenses')
         Route::get('/drafts', [ExpenseController::class, 'drafts']);
         Route::get('/filter', [ExpenseController::class, 'filter']);
         Route::get('/search', [ExpenseController::class, 'search']);
+        Route::get('/custody-balance', [ExpenseController::class, 'custodyBalance']);
+        Route::get('/enums', [ExpenseController::class, 'enums']);
 
         // Show / Timeline / Submit
         Route::get('/{expense}', [ExpenseController::class, 'show']);
