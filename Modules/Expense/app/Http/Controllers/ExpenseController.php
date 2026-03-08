@@ -32,6 +32,7 @@ class ExpenseController extends BaseController
         $year = $request->input('year', now()->year);
 
         $expenses = Expense::where('branch_manager_id', auth()->id())
+            ->where('status', 'approved')
             ->whereYear('created_at', $year)
             ->whereMonth('created_at', $month)
             ->get();
