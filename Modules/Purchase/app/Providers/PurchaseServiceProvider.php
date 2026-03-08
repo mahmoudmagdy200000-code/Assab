@@ -21,6 +21,7 @@ use Modules\Purchase\Services\ReturnManagementService;
 use Modules\Purchase\Services\TimelineService;
 use Modules\Purchase\Services\VarianceService;
 use Modules\Purchase\Console\CleanBulkPurchaseOrdersCommand;
+use Modules\Purchase\Console\FixClosedOrderItemsCommand;
 use Nwidart\Modules\Traits\PathNamespace;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -130,6 +131,7 @@ class PurchaseServiceProvider extends ServiceProvider
     {
         $this->commands([
             CleanBulkPurchaseOrdersCommand::class,
+            FixClosedOrderItemsCommand::class,
         ]);
     }
 
