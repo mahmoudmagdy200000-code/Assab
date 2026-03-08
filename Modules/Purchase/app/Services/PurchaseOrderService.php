@@ -157,9 +157,9 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             $query->byDateRange($filters['date_from'] ?? null, $filters['date_to'] ?? null);
         }
 
-        // Filter by branch
+        // Filter by branch: include orders created by this branch OR internal transfers where this branch is the source
         if (!empty($filters['branch_id'])) {
-            $query->byBranch($filters['branch_id']);
+            $query->forBranchHistory($filters['branch_id']);
         }
 
         return $query->paginate($perPage);

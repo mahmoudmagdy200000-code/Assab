@@ -291,6 +291,21 @@ class PurchaseOrder extends Model
         return $query->where('branch_id', $branchId);
     }
 
+    /**
+     * Scope for purchase history: orders relevant to this branch.
+     * Includes: orders created by this branch OR internal transfers where this branch is the source (from_branch).
+     */
+    public function scopeForBranchHistory($query, string $branchId)
+    {
+        return $query->where(function ($q) use ($branchId) {
+            $q->where('branch_id', $branchId)
+                ->orWhere(function ($q2) use ($branchId) {
+                    $q2->where('order_type', OrderType::INTERNAL_TRANSFER)
+                        ->where('from_branch_id', $branchId);
+                });
+        });
+    }
+
     public function scopeBySupplier($query, string $supplierId)
     {
         return $query->where('supplier_id', $supplierId);
