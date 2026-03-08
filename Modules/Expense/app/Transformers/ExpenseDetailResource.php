@@ -168,6 +168,9 @@ class ExpenseDetailResource extends JsonResource
                         'is_tax_invoice' => $invoice->is_tax_invoice,
                         'tax_id' => $invoice->tax_id,
                         'invoice_supplier_name' => $invoice->supplier?->name,
+                        'net_amount' => $invoice->tax_net_amount !== null ? (float) $invoice->tax_net_amount : null,
+                        'vat_amount' => $invoice->tax_vat_amount !== null ? (float) $invoice->tax_vat_amount : null,
+                        'total_amount' => $invoice->tax_total_amount !== null ? (float) $invoice->tax_total_amount : null,
                         'items_count' => $invoice->items->count(),
                         'expenses_count' => $invoice->expenseLines->count(),
                         'items' => $invoice->items->map(function ($item) {

@@ -1,0 +1,35 @@
+---
+description: Project Development Guidelines
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Assab Development Guidelines
+
+Auto-generated from all feature plans. Last updated: 2026-03-07
+
+## Active Technologies
+
+- PHP 8.x (Laravel) + Laravel, Expense module (Modules/Expense) (001-recent-expenses-fix)
+
+## Project Structure
+
+```text
+src/
+tests/
+```
+
+## Commands
+
+# Add commands for PHP 8.x (Laravel)
+
+## Code Style
+
+PHP 8.x (Laravel): Follow standard conventions
+
+## Recent Changes
+
+- 001-recent-expenses-fix: Added PHP 8.x (Laravel) + Laravel, Expense module (Modules/Expense)
+
+<!-- MANUAL ADDITIONS START -->
+<!-- MANUAL ADDITIONS END -->
