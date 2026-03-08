@@ -146,6 +146,16 @@ class PreApprovalRequestController extends BaseController
             return $this->errorResponse('Pre-approval requests must be for amounts >= 500 SAR', 400);
         }
 
+        // When submitting (not draft), at least one attachment is required
+        $isSubmitting = isset($request->is_draft) && $request->is_draft === false;
+        if ($isSubmitting && $expenseModel->attachments->isEmpty()) {
+            return $this->errorResponse(
+                'At least one attachment is required before submission',
+                422,
+                ['attachments' => ['The attachments field is required for submission.']]
+            );
+        }
+
         DB::beginTransaction();
         try {
             $updated = $this->preApprovalService->updatePreApprovalRequest($expenseModel, $request->all());
