@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Services\StreamUploadService;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Schema;
@@ -13,7 +14,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(StreamUploadService::class, fn () => new StreamUploadService);
     }
 
     /**

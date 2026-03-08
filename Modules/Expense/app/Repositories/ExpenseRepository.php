@@ -40,8 +40,9 @@ class ExpenseRepository
 
     /**
      * Summary: approved expenses by branch_manager for month/year.
+     * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
-    public function getSummaryForManager(int $managerId, int $month, int $year): Collection
+    public function getSummaryForManager(string|int $managerId, int $month, int $year): Collection
     {
         return Expense::where('branch_manager_id', $managerId)
             ->where('status', 'approved')
@@ -52,8 +53,9 @@ class ExpenseRepository
 
     /**
      * Recent expenses (non-pending), limit 10.
+     * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
-    public function getRecentForManager(int $managerId, int $limit = 10): Collection
+    public function getRecentForManager(string|int $managerId, int $limit = 10): Collection
     {
         return Expense::where('branch_manager_id', $managerId)
             ->with(['quickCashExpense', 'invoiceDetails', 'groupedInvoice.invoiceDetails', 'preApprovalRequest'])
@@ -65,8 +67,9 @@ class ExpenseRepository
 
     /**
      * Paginated index with optional type, status, date filters.
+     * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
-    public function getPaginatedForManager(int $managerId, Request $request): LengthAwarePaginator
+    public function getPaginatedForManager(string|int $managerId, Request $request): LengthAwarePaginator
     {
         $query = Expense::where('branch_manager_id', $managerId)
             ->with(['quickCashExpense', 'invoiceDetails', 'groupedInvoice.invoiceDetails', 'preApprovalRequest']);
@@ -110,8 +113,9 @@ class ExpenseRepository
 
     /**
      * Drafts paginated.
+     * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
-    public function getDraftsPaginated(int $managerId, int $perPage = 20): LengthAwarePaginator
+    public function getDraftsPaginated(string|int $managerId, int $perPage = 20): LengthAwarePaginator
     {
         return Expense::where('branch_manager_id', $managerId)
             ->where('status', 'draft')
@@ -122,8 +126,9 @@ class ExpenseRepository
 
     /**
      * Quick cash list paginated.
+     * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
-    public function getQuickCashPaginated(int $managerId, int $perPage = 20): LengthAwarePaginator
+    public function getQuickCashPaginated(string|int $managerId, int $perPage = 20): LengthAwarePaginator
     {
         return Expense::where('branch_manager_id', $managerId)
             ->where('expense_type', 'quick_cash')
@@ -134,8 +139,9 @@ class ExpenseRepository
 
     /**
      * Single invoice list paginated.
+     * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
-    public function getSingleInvoicePaginated(int $managerId, int $perPage = 20): LengthAwarePaginator
+    public function getSingleInvoicePaginated(string|int $managerId, int $perPage = 20): LengthAwarePaginator
     {
         return Expense::where('branch_manager_id', $managerId)
             ->where('expense_type', 'single_invoice')
@@ -146,8 +152,9 @@ class ExpenseRepository
 
     /**
      * Pre-approval list paginated.
+     * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
-    public function getPreApprovalPaginated(int $managerId, int $perPage = 20): LengthAwarePaginator
+    public function getPreApprovalPaginated(string|int $managerId, int $perPage = 20): LengthAwarePaginator
     {
         return Expense::where('branch_manager_id', $managerId)
             ->where('expense_type', 'pre_approval')
@@ -158,8 +165,9 @@ class ExpenseRepository
 
     /**
      * Grouped invoice list paginated.
+     * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
-    public function getGroupedInvoicePaginated(int $managerId, int $perPage = 20): LengthAwarePaginator
+    public function getGroupedInvoicePaginated(string|int $managerId, int $perPage = 20): LengthAwarePaginator
     {
         return Expense::where('branch_manager_id', $managerId)
             ->where('expense_type', 'grouped_invoice')
@@ -170,8 +178,9 @@ class ExpenseRepository
 
     /**
      * Search/filter paginated (same logic as controller search).
+     * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
-    public function getSearchPaginated(int $managerId, Request $request): LengthAwarePaginator
+    public function getSearchPaginated(string|int $managerId, Request $request): LengthAwarePaginator
     {
         $query = Expense::where('branch_manager_id', $managerId)
             ->with([
