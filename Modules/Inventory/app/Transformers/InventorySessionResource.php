@@ -54,7 +54,9 @@ class InventorySessionResource extends JsonResource
             'approved_at' => $this->approved_at?->format('Y-m-d H:i:s'),
             'created_at' => $this->created_at->format('Y-m-d H:i:s'),
             'updated_at' => $this->updated_at->format('Y-m-d H:i:s'),
-            'timelines' => $this->whenLoaded('timelines', fn () => UnifiedTimelineResource::collection($this->timelines)->resolve(), []),
+            'timelines' => $this->relationLoaded('timelines')
+                ? UnifiedTimelineResource::collection($this->timelines)->resolve()
+                : [],
         ];
     }
 }
