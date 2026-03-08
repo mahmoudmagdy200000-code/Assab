@@ -7,12 +7,6 @@ use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Models\PurchaseOrder;
 
-/**
- * Fixes existing closed orders whose items were left in non-closed statuses (e.g. variance).
- * This is a one-time data-repair command to complement the code fix in PurchaseOrder::transitionTo().
- *
- * Run: php artisan purchase:fix-closed-order-items [--dry-run]
- */
 class FixClosedOrderItemsCommand extends Command
 {
     protected $signature = 'purchase:fix-closed-order-items
@@ -30,37 +24,34 @@ class FixClosedOrderItemsCommand extends Command
             $this->warn('DRY RUN — no changes will be saved.');
         }
 
-        $terminalItemStatuses = [
-            OrderItemStatus::CLOSED->value,
-        ];
-
+        $closedValue  = OrderItemStatus::CLOSED->value;
         $totalOrders  = 0;
         $totalItems   = 0;
 
         PurchaseOrder::query()
             ->where('status', OrderStatus::CLOSED->value)
-            ->whereHas('items', fn ($q) => $q->whereNotIn('status', $terminalItemStatuses))
+            ->whereHas('items', fn ($q) => $q->where('status', '!=', $closedValue))
             ->select(['id', 'order_number'])
-            ->chunk($chunk, function ($orders) use ($isDryRun, $terminalItemStatuses, &$totalOrders, &$totalItems) {
+            ->chunk($chunk, function ($orders) use ($isDryRun, $closedValue, &$totalOrders, &$totalItems) {
                 foreach ($orders as $order) {
-                    $affectedCount = $order->items()
-                        ->whereNotIn('status', $terminalItemStatuses)
+                    $affected = $order->items()
+                        ->where('status', '!=', $closedValue)
                         ->count();
 
-                    if ($affectedCount === 0) {
+                    if ($affected === 0) {
                         continue;
                     }
 
-                    $this->line("Order [{$order->order_number}] → {$affectedCount} item(s) to fix");
+                    $this->line("Order [{$order->order_number}] → {$affected} item(s) to fix");
 
                     if (!$isDryRun) {
                         $order->items()
-                            ->whereNotIn('status', $terminalItemStatuses)
-                            ->update(['status' => OrderItemStatus::CLOSED->value]);
+                            ->where('status', '!=', $closedValue)
+                            ->update(['status' => $closedValue]);
                     }
 
                     $totalOrders++;
-                    $totalItems += $affectedCount;
+                    $totalItems += $affected;
                 }
             });
 

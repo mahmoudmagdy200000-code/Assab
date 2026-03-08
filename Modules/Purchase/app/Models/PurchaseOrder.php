@@ -421,7 +421,7 @@ class PurchaseOrder extends Model
         // Update in single query
         $this->update($updateData);
 
-        // When order becomes CLOSED, all items must be CLOSED too (single source of truth)
+        // When order becomes CLOSED, all items must be CLOSED too
         if ($newStatus === OrderStatus::CLOSED) {
             $this->items()->update(['status' => OrderItemStatus::CLOSED->value]);
         }
@@ -634,7 +634,6 @@ class PurchaseOrder extends Model
 
     public function close(): bool
     {
-        // transitionTo(CLOSED) already updates all items to CLOSED
         return $this->transitionTo(OrderStatus::CLOSED);
     }
 

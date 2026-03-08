@@ -149,7 +149,7 @@ class PurchaseOrderItem extends Model
             return 0;
         }
         
-        return $this->quantity_ordered - $this->quantity_received;
+        return ($this->quantity_confirmed ?? $this->quantity_ordered) - $this->quantity_received;
     }
 
     public function getHasVarianceAttribute(): bool

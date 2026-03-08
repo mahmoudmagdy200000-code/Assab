@@ -407,6 +407,13 @@ class GoodsReceiptService
                         );
                     }
                 }
+
+                // The controller pre-closed the order before receiving started;
+                // markAsReceived() above overrides item statuses. Re-sync them.
+                $order->refresh();
+                if ($order->status === OrderStatus::CLOSED) {
+                    $order->items()->update(['status' => OrderItemStatus::CLOSED->value]);
+                }
             }
 
             return $receipt->fresh(['items', 'purchaseOrder', 'variances', 'invoice']);
@@ -991,7 +998,6 @@ class GoodsReceiptService
                 'status' => OrderStatus::CLOSED->value,
                 'closed_at' => now(),
             ]);
-            // Keep items in sync: when order is CLOSED, all items must be CLOSED
             $order->items()->update(['status' => OrderItemStatus::CLOSED->value]);
 
             $this->timelineService->logInspectionCompleted($receipt);
