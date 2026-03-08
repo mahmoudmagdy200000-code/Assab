@@ -36,6 +36,10 @@ class UnifiedTimelineResource extends JsonResource
             return $this->formatMonthlyInventoryTimeline();
         }
 
+        if ($this->resource instanceof \Modules\Inventory\Models\WasteDamageReportTimeline) {
+            return $this->formatWasteDamageReportTimeline();
+        }
+
         return [
             'id' => $this->id,
             'event_type' => 'unknown',
@@ -91,6 +95,12 @@ class UnifiedTimelineResource extends JsonResource
      * Unified inventory timeline event types (all inventory types: daily session, monthly).
      * API returns only: inventory_created, inventory_reassigned, inventory_viewed, inventory_rejected, inventory_approved.
      */
+    /** Waste & Damage report event type → unified inventory-style event_type. */
+    private const WASTE_DAMAGE_EVENT_MAP = [
+        'created' => 'inventory_created',
+        'submitted' => 'inventory_approved',
+    ];
+
     private const INVENTORY_EVENT_MAP = [
         // Daily (session)
         'submitted' => 'inventory_created',
@@ -134,6 +144,20 @@ class UnifiedTimelineResource extends JsonResource
             'event_type' => $eventType,
             'name' => $timeline->actor_name ?? '',
             'image' => $timeline->actor_image_url ?? null,
+            'occurred_at' => $timeline->occurred_at?->format(self::DATETIME_FORMAT),
+        ];
+    }
+
+    private function formatWasteDamageReportTimeline(): array
+    {
+        $timeline = $this->resource;
+        $eventType = self::WASTE_DAMAGE_EVENT_MAP[$timeline->event_type?->value ?? ''] ?? 'inventory_created';
+
+        return [
+            'id' => $timeline->id,
+            'event_type' => $eventType,
+            'name' => $timeline->actor_name ?? '',
+            'image' => $timeline->actor_image ? $this->actorImageUrl($timeline->actor_image) : null,
             'occurred_at' => $timeline->occurred_at?->format(self::DATETIME_FORMAT),
         ];
     }

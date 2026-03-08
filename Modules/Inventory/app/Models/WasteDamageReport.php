@@ -57,4 +57,10 @@ class WasteDamageReport extends Model
     {
         return $this->hasMany(WasteDamageReportItem::class, 'waste_damage_report_id');
     }
+
+    public function timelines(): HasMany
+    {
+        return $this->hasMany(WasteDamageReportTimeline::class, 'waste_damage_report_id')
+            ->orderBy('occurred_at', 'asc');
+    }
 }

@@ -235,6 +235,7 @@ class WasteDamageReportController extends BaseController
                 'items.purchaseOrderItem',
                 'items.responsibleEmployees.cashier.branch',
                 'items.responsibleEmployees.branchManager',
+                'timelines',
             ], $assignedToId);
 
             if (!$report) {
