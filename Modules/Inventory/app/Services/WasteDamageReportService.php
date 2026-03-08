@@ -8,7 +8,9 @@ use Illuminate\Validation\ValidationException;
 use Modules\Inventory\Enums\CauseOfDamage;
 use Modules\Inventory\Enums\ProblemType;
 use Modules\Inventory\Enums\WasteDamageReportStatus;
+use Modules\Inventory\Enums\WasteDamageReportTimelineEventType;
 use Modules\Inventory\Models\WasteDamageReport;
+use Modules\Inventory\Models\WasteDamageReportTimeline;
 use Modules\Inventory\Models\WasteDamageReportItem;
 use Modules\Inventory\Models\WasteDamageReportItemEmployee;
 use Modules\Inventory\Repositories\WasteDamageReportItemRepository;
@@ -72,13 +74,21 @@ class WasteDamageReportService
      */
     public function createReport(string $branchId, string $createdBy, string $assignedToType = 'personal', ?string $assignedToId = null): WasteDamageReport
     {
-        return $this->reportRepository->create([
+        $report = $this->reportRepository->create([
             'branch_id' => $branchId,
             'created_by' => $createdBy,
             'assigned_to_type' => $assignedToType,
             'assigned_to_id' => $assignedToType === 'staff' ? $assignedToId : null,
             'status' => WasteDamageReportStatus::PENDING,
         ]);
+
+        WasteDamageReportTimeline::log(
+            $report,
+            WasteDamageReportTimelineEventType::CREATED,
+            WasteDamageReportTimelineEventType::CREATED->label()
+        );
+
+        return $report;
     }
 
     /**
@@ -347,10 +357,21 @@ class WasteDamageReportService
             }
         }
 
+        $oldStatus = $report->status->value;
+
         $this->reportRepository->update($report, [
             'status' => WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION,
             'submitted_at' => now(),
         ]);
+
+        WasteDamageReportTimeline::log(
+            $report->fresh(),
+            WasteDamageReportTimelineEventType::SUBMITTED,
+            WasteDamageReportTimelineEventType::SUBMITTED->label(),
+            null,
+            $oldStatus,
+            WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION->value
+        );
 
         return $report->fresh();
     }

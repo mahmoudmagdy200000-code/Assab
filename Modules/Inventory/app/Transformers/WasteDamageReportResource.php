@@ -2,6 +2,7 @@
 
 namespace Modules\Inventory\Transformers;
 
+use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Inventory\Enums\ProblemType;
@@ -76,6 +77,9 @@ class WasteDamageReportResource extends JsonResource
             'items_count' => (int) (isset($this->items_count) ? $this->items_count : ($this->relationLoaded('items') ? $this->items->count() : 0)),
             'is_editable' => $this->status->isEditable(),
             'items' => WasteDamageReportItemResource::collection($this->whenLoaded('items')),
+            'timelines' => $this->relationLoaded('timelines')
+                ? UnifiedTimelineResource::collection($this->timelines)->resolve()
+                : [],
             'created_at' => $this->created_at->format('Y-m-d H:i:s'),
             'updated_at' => $this->updated_at->format('Y-m-d H:i:s'),
             'report_submitted' => $this->when($this->status->isSubmitted(), fn () => [
