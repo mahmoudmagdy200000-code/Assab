@@ -59,7 +59,6 @@ class ExpenseRepository
     {
         return Expense::where('branch_manager_id', $managerId)
             ->with(['quickCashExpense', 'invoiceDetails', 'groupedInvoice.invoiceDetails', 'preApprovalRequest'])
-            ->where('status', '!=', 'pending')
             ->orderBy('created_at', 'desc')
             ->limit($limit)
             ->get();
