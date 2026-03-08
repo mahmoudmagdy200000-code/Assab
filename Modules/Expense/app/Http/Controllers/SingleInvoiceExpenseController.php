@@ -324,7 +324,7 @@ class SingleInvoiceExpenseController extends BaseController
                 'payment_supplier_id' => $request->input('payment_supplier_id', $invoiceDetails->payment_supplier_id),
                 'paid_amount' => $invoiceDetails->paid_amount,
                 'due_date' => $invoiceDetails->due_date,
-                'is_draft' => $request->input('is_draft', true),
+                'is_draft' => $request->input('is_draft', false),
             ];
 
             if ($invoiceDetails->is_tax_invoice) {
@@ -372,7 +372,7 @@ class SingleInvoiceExpenseController extends BaseController
 
             return $this->createdResponse(
                 new ExpenseDetailResource($newExpense),
-                'Invoice duplicated successfully as a draft'
+                'Invoice duplicated successfully'
             );
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return $this->errorResponse(

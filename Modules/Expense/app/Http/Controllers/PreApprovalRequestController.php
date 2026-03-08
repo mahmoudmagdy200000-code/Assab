@@ -270,7 +270,7 @@ class PreApprovalRequestController extends BaseController
                 'payment_method' => $request->input('payment_method', $originalExpense->payment_method),
                 'supplier_id' => $request->input('supplier_id', $originalExpense->supplier_id),
                 'payment_supplier_id' => $request->input('payment_supplier_id', $preApproval->payment_supplier_id),
-                'is_draft' => $request->input('is_draft', true),
+                'is_draft' => $request->input('is_draft', false),
             ];
 
             if ($duplicateData['estimated_amount'] < 500) {
@@ -317,7 +317,7 @@ class PreApprovalRequestController extends BaseController
 
             return $this->createdResponse(
                 new ExpenseDetailResource($newExpense),
-                'Pre-approval request duplicated successfully as a draft'
+                'Pre-approval request duplicated successfully'
             );
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return $this->errorResponse(
