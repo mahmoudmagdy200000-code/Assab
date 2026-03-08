@@ -687,8 +687,8 @@ class ShiftEndController extends Controller
 
             // Get all active branch managers for this branch (handover can be to manager)
             $branchManagers = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
-                ->where('is_active', true)
-                ->where('status', 'active')
+                // ->where('is_active', true)
+                // ->where('status', 'active')
                 ->get();
 
             $availableCashiers = $allCashiers->map(function ($cashier) use ($suggestedCashierId) {
