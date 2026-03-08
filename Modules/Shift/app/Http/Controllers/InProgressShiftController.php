@@ -5,14 +5,16 @@ namespace Modules\Shift\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Repositories\CashierShiftRepositoryInterface;
 use Modules\Shift\Services\ShiftService;
-use Modules\Shift\Transformers\{CashierShiftResource, ShiftDetailResource};
+use Modules\Shift\Transformers\CashierShiftResource;
+use Modules\Shift\Transformers\ShiftDetailResource;
 
 class InProgressShiftController extends BaseController
 {
     public function __construct(
-        private ShiftService $shiftService
+        private ShiftService $shiftService,
+        private CashierShiftRepositoryInterface $cashierShiftRepository
     ) {}
 
     /**
@@ -31,19 +33,7 @@ class InProgressShiftController extends BaseController
             $managerBranchId = $manager->branch_id;
             $cashierId = $request->input('cashier_id');
 
-            $inProgressShifts = CashierShift::inProgress()
-                ->with(['cashier', 'shift', 'handover', 'handoverStatus'])
-                ->whereHas('shift', function ($q) use ($managerBranchId) {
-                    $q->where('branch_id', $managerBranchId);
-                })
-                ->whereHas('cashier', function ($q) use ($managerBranchId) {
-                    $q->where('branch_id', $managerBranchId);
-                })
-                ->when($cashierId, function ($query, $cashierId) {
-                    $query->where('cashier_id', $cashierId);
-                })
-                ->orderBy('actual_start_time')
-                ->paginate(10);
+            $inProgressShifts = $this->cashierShiftRepository->getInProgressPaginated($managerBranchId, $cashierId, 10);
 
             return $this->paginatedResponse(
                 CashierShiftResource::collection($inProgressShifts),
@@ -73,26 +63,7 @@ class InProgressShiftController extends BaseController
             
             $managerBranchId = $manager->branch_id;
 
-            $shiftDetails = CashierShift::with([
-                'cashier',
-                'shift',
-                'nextCashier',
-                'originalCashier',
-                'reassignedBy',
-                'salesBreakdown.aggregator',
-                'handoverStatus.reviewedBy',
-                'handover',
-                'varianceDetails.responsibleCashier',
-                'varianceAlerts',
-                'history'
-            ])
-                ->whereHas('shift', function ($q) use ($managerBranchId) {
-                    $q->where('branch_id', $managerBranchId);
-                })
-                ->whereHas('cashier', function ($q) use ($managerBranchId) {
-                    $q->where('branch_id', $managerBranchId);
-                })
-                ->findOrFail($shift);
+            $shiftDetails = $this->cashierShiftRepository->findForManagerShow($shift, $managerBranchId);
 
             if ($shiftDetails->status->value !== 'in_progress') {
                 return response()->json([

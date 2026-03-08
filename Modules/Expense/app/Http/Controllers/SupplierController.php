@@ -5,17 +5,19 @@ namespace Modules\Expense\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Controller;
+use Modules\Expense\Repositories\SupplierRepository;
 use Modules\Expense\Services\ExpenseHelperService;
 use Modules\Expense\Transformers\SupplierResource;
 
 /**
  * Supplier Controller
+ * HTTP only: delegates data access to repository/service, returns same response contract.
  */
 class SupplierController extends BaseController
 {
     public function __construct(
-        private ExpenseHelperService $helperService
+        private ExpenseHelperService $helperService,
+        private SupplierRepository $supplierRepository
     ) {}
 
     /**
@@ -38,7 +40,7 @@ class SupplierController extends BaseController
      */
     public function show(string $supplier): JsonResponse
     {
-        $supplierModel = \Modules\Expense\Models\Supplier::findOrFail($supplier);
+        $supplierModel = $this->supplierRepository->findOrFail($supplier);
 
         return $this->successResponse(
             new SupplierResource($supplierModel),

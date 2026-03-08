@@ -5,17 +5,19 @@ namespace Modules\Expense\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Controller;
+use Modules\Expense\Repositories\CategoryRepository;
 use Modules\Expense\Services\ExpenseHelperService;
 use Modules\Expense\Transformers\CategoryResource;
 
 /**
  * Category Controller
+ * HTTP only: delegates to ExpenseHelperService and CategoryRepository.
  */
 class CategoryController extends BaseController
 {
     public function __construct(
-        private ExpenseHelperService $helperService
+        private ExpenseHelperService $helperService,
+        private CategoryRepository $categoryRepository
     ) {}
 
     /**
@@ -80,7 +82,7 @@ class CategoryController extends BaseController
      */
     public function show(string $category): JsonResponse
     {
-        $categoryModel = \Modules\Expense\Models\Category::with('parent', 'children')->findOrFail($category);
+        $categoryModel = $this->categoryRepository->findWithParentAndChildren($category);
 
         return response()->json([
             'success' => true,

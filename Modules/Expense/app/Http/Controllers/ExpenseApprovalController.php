@@ -3,23 +3,24 @@
 namespace Modules\Expense\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Validator;
-use Modules\Expense\Models\Expense;
+use Modules\Expense\Repositories\ExpenseRepository;
 use Modules\Expense\Services\ExpenseApprovalService;
-use App\Http\Resources\UnifiedTimelineResource;
-use Modules\Expense\Transformers\{ExpenseResource, ExpenseDetailResource};
+use Modules\Expense\Transformers\ExpenseDetailResource;
+use Modules\Expense\Transformers\ExpenseResource;
 
 /**
  * Expense Approval Controller
- * For Brand Owner to approve/reject expenses
+ * For Brand Owner to approve/reject expenses. Data access via ExpenseRepository.
  */
 class ExpenseApprovalController extends BaseController
 {
     public function __construct(
-        private ExpenseApprovalService $approvalService
+        private ExpenseApprovalService $approvalService,
+        private ExpenseRepository $expenseRepository
     ) {}
 
     /**
@@ -28,21 +29,7 @@ class ExpenseApprovalController extends BaseController
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Expense::whereIn('status', ['pending', 'approved', 'rejected'])
-            ->with(['quickCashExpense', 'invoiceDetails', 'groupedInvoice', 'preApprovalRequest', 'branchManager']);
-
-        // Filter by status
-        if ($request->has('status')) {
-            $query->where('status', $request->status);
-        }
-
-        // Filter by branch manager
-        if ($request->has('branch_manager_id')) {
-            $query->where('branch_manager_id', $request->branch_manager_id);
-        }
-
-        $expenses = $query->orderBy('submitted_at', 'desc')
-            ->paginate($request->input('per_page', 20));
+        $expenses = $this->expenseRepository->getPaginatedForApproval($request);
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
@@ -56,19 +43,7 @@ class ExpenseApprovalController extends BaseController
      */
     public function show(string $expense): JsonResponse
     {
-        $expenseModel = Expense::with([
-            'quickCashExpense.items',
-            'invoiceDetails',
-            'groupedInvoice.invoiceDetails.items',
-            'groupedInvoice.invoiceDetails.expenseLines',
-            'preApprovalRequest',
-            'items.category',
-            'expenseLines.category',
-            'attachments',
-            'supplier',
-            'branchManager',
-            'timelines' => fn($q) => $q->orderBy('created_at', 'desc'),
-        ])->findOrFail($expense);
+        $expenseModel = $this->expenseRepository->findForShow($expense);
 
         return $this->successResponse(
             new ExpenseDetailResource($expenseModel),
@@ -83,7 +58,7 @@ class ExpenseApprovalController extends BaseController
     public function markAsViewed(string $expense): JsonResponse
     {
         try {
-            $expenseModel = Expense::findOrFail($expense);
+            $expenseModel = $this->expenseRepository->findOrFail($expense);
 
             $this->approvalService->markAsViewed($expenseModel, auth()->id());
 
@@ -103,7 +78,7 @@ class ExpenseApprovalController extends BaseController
     public function approve(string $expense): JsonResponse
     {
         try {
-            $expenseModel = Expense::findOrFail($expense);
+            $expenseModel = $this->expenseRepository->findOrFail($expense);
 
             $this->approvalService->approveExpense($expenseModel, auth()->id());
 
@@ -138,7 +113,7 @@ class ExpenseApprovalController extends BaseController
         }
 
         try {
-            $expenseModel = Expense::findOrFail($expense);
+            $expenseModel = $this->expenseRepository->findOrFail($expense);
 
             $this->approvalService->rejectExpense($expenseModel, auth()->id(), $request->reason);
 
@@ -161,7 +136,7 @@ class ExpenseApprovalController extends BaseController
         // Implementation depends on what fields can be edited
 
         try {
-            $expenseModel = Expense::findOrFail($expense);
+            $expenseModel = $this->expenseRepository->findOrFail($expense);
 
             // Record the edit in timeline
             $this->approvalService->recordEdit($expenseModel, auth()->id(), $request->all());
@@ -181,7 +156,7 @@ class ExpenseApprovalController extends BaseController
      */
     public function timeline(string $expense): JsonResponse
     {
-        $expenseModel = Expense::findOrFail($expense);
+        $expenseModel = $this->expenseRepository->findOrFail($expense);
 
         $timeline = $expenseModel->timelines()
             ->orderBy('created_at', 'desc')

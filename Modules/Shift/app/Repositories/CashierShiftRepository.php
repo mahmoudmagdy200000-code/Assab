@@ -2,13 +2,20 @@
 
 namespace Modules\Shift\Repositories;
 
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Enums\ShiftStatus;
 use Illuminate\Support\Collection;
 use Carbon\Carbon;
 
+/**
+ * Repository for CashierShift data access. Implements CashierShiftRepositoryInterface.
+ */
 class CashierShiftRepository implements CashierShiftRepositoryInterface
 {
+    /**
+     * Find cashier shift by ID with relations, or null.
+     */
     public function findById(string $id): ?CashierShift
     {
         return CashierShift::with([
@@ -21,6 +28,94 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
         ])->find($id);
     }
 
+    /**
+     * Pending list for branch manager: upcoming status, branch/cashier scoped, paginated.
+     */
+    public function getUpcomingPaginated(string $branchId, ?string $cashierId, int $perPage = 10): LengthAwarePaginator
+    {
+        $query = CashierShift::upcoming()
+            ->with(['cashier', 'shift', 'nextCashier', 'originalCashier', 'reassignedBy', 'handover', 'handoverStatus'])
+            ->whereHas('shift', fn ($q) => $q->where('branch_id', $branchId))
+            ->whereHas('cashier', fn ($q) => $q->where('branch_id', $branchId))
+            ->whereDate('shift_date', '>=', now()->subMonth())
+            ->whereDate('shift_date', '<=', now()->addMonth())
+            ->orderBy('shift_date');
+
+        if ($cashierId !== null) {
+            $query->where('cashier_id', $cashierId);
+        }
+
+        return $query->paginate($perPage);
+    }
+
+    /**
+     * In-progress list for branch manager: branch/cashier scoped, paginated.
+     */
+    public function getInProgressPaginated(string $branchId, ?string $cashierId, int $perPage = 10): LengthAwarePaginator
+    {
+        $query = CashierShift::inProgress()
+            ->with(['cashier', 'shift', 'handover', 'handoverStatus'])
+            ->whereHas('shift', fn ($q) => $q->where('branch_id', $branchId))
+            ->whereHas('cashier', fn ($q) => $q->where('branch_id', $branchId))
+            ->orderBy('actual_start_time');
+
+        if ($cashierId !== null) {
+            $query->where('cashier_id', $cashierId);
+        }
+
+        return $query->paginate($perPage);
+    }
+
+    /**
+     * Single shift for manager show (branch-scoped). Throws ModelNotFoundException if not found.
+     */
+    public function findForManagerShow(string $id, string $branchId): CashierShift
+    {
+        return CashierShift::with([
+            'cashier',
+            'shift',
+            'nextCashier',
+            'originalCashier',
+            'reassignedBy',
+            'salesBreakdown.aggregator',
+            'handoverStatus.reviewedBy',
+            'handover',
+            'varianceDetails.responsibleCashier',
+            'varianceAlerts',
+            'history'
+        ])
+            ->whereHas('shift', fn ($q) => $q->where('branch_id', $branchId))
+            ->whereHas('cashier', fn ($q) => $q->where('branch_id', $branchId))
+            ->findOrFail($id);
+    }
+
+    /**
+     * Upcoming shifts for one cashier in a work week (branch-scoped), paginated.
+     */
+    public function getUpcomingByCashierAndWeek(string $cashierId, string $branchId, Carbon $weekStart, Carbon $weekEnd, int $perPage = 10): LengthAwarePaginator
+    {
+        return CashierShift::upcoming()
+            ->where('cashier_id', $cashierId)
+            ->whereDate('shift_date', '>=', $weekStart)
+            ->whereDate('shift_date', '<=', $weekEnd)
+            ->whereHas('shift', fn ($q) => $q->where('branch_id', $branchId))
+            ->whereHas('cashier', fn ($q) => $q->where('branch_id', $branchId))
+            ->with([
+                'cashier',
+                'shift',
+                'nextCashier',
+                'originalCashier',
+                'reassignedBy',
+                'handover',
+                'handoverStatus',
+            ])
+            ->orderBy('shift_date')
+            ->paginate($perPage);
+    }
+
+    /**
+     * Pending (not started) shifts, optionally filtered by cashier and branch.
+     */
     public function getPendingShifts(?string $cashierId = null, ?string $branchId = null): Collection
     {
         $query = CashierShift::query()
@@ -43,6 +138,9 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
         return $query->get();
     }
 
+    /**
+     * In-progress shifts (today), optionally filtered by cashier and branch.
+     */
     public function getInProgressShifts(?string $cashierId = null, ?string $branchId = null): Collection
     {
         $query = CashierShift::query()
@@ -64,6 +162,9 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
         return $query->get();
     }
 
+    /**
+     * Completed shifts in optional date range, optionally filtered by cashier and branch.
+     */
     public function getCompletedShifts(
         ?string $cashierId = null,
         ?string $branchId = null,
@@ -102,6 +203,9 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
         return $query->get();
     }
 
+    /**
+     * Reassigned shifts, optionally filtered by cashier and branch.
+     */
     public function getReassignedShifts(?string $cashierId = null, ?string $branchId = null): Collection
     {
         $query = CashierShift::query()
@@ -133,21 +237,33 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
         return $query->get();
     }
 
+    /**
+     * Create a new cashier shift.
+     */
     public function create(array $data): CashierShift
     {
         return CashierShift::create($data);
     }
 
+    /**
+     * Update cashier shift.
+     */
     public function update(CashierShift $shift, array $data): bool
     {
         return $shift->update($data);
     }
 
+    /**
+     * Delete cashier shift.
+     */
     public function delete(CashierShift $shift): bool
     {
         return $shift->delete();
     }
 
+    /**
+     * Shifts for a cashier on a given date.
+     */
     public function getShiftsByCashierAndDate(string $cashierId, Carbon $date): Collection
     {
         return CashierShift::where('cashier_id', $cashierId)
@@ -157,6 +273,9 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
             ->get();
     }
 
+    /**
+     * Next not-started shift for cashier after given date.
+     */
     public function getNextShift(string $cashierId, Carbon $afterDate): ?CashierShift
     {
         return CashierShift::where('cashier_id', $cashierId)
@@ -166,6 +285,9 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
             ->first();
     }
 
+    /**
+     * Whether the cashier has an overlapping not-started or in-progress shift on the date.
+     */
     public function hasOverlappingShift(string $cashierId, string $shiftId, Carbon $date): bool
     {
         return CashierShift::where('cashier_id', $cashierId)

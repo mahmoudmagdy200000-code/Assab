@@ -19,8 +19,8 @@ use Modules\Purchase\Http\Requests\UpdateDeliveryDetailsRequest;
 use Modules\Purchase\Http\Requests\VarianceActionRequest;
 use Modules\Purchase\Models\GoodsReceipt;
 use Modules\Purchase\Models\GoodsReceiptItem;
-use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseVariance;
+use Modules\Purchase\Repositories\PurchaseOrderRepository;
 use Modules\Purchase\Services\GoodsReceiptService;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Services\SupplierCommunicationService;
@@ -37,7 +37,8 @@ class GoodsReceivingController extends BaseController
         private readonly GoodsReceiptService $receiptService,
         private readonly PurchaseOrderService $orderService,
         private readonly VarianceService $varianceService,
-        private readonly SupplierCommunicationService $communicationService
+        private readonly SupplierCommunicationService $communicationService,
+        private readonly PurchaseOrderRepository $purchaseOrderRepository
     ) {}
 
     /**
@@ -790,7 +791,7 @@ class GoodsReceivingController extends BaseController
     public function getOrderTracking(string $orderId): JsonResponse
     {
         try {
-            $order = PurchaseOrder::find($orderId);
+            $order = $this->purchaseOrderRepository->findWithRelations($orderId, []);
 
             if (!$order) {
                 return $this->notFoundResponse('Order not found');

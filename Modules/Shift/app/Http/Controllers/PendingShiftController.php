@@ -7,7 +7,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Shift\Helpers\ShiftHelper;
-use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Repositories\CashierShiftRepositoryInterface;
 use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Transformers\CashierShiftCollection;
 use Modules\Shift\Transformers\ShiftDetailResource;
@@ -15,7 +15,8 @@ use Modules\Shift\Transformers\ShiftDetailResource;
 class PendingShiftController extends BaseController
 {
     public function __construct(
-        private ShiftService $shiftService
+        private ShiftService $shiftService,
+        private CashierShiftRepositoryInterface $cashierShiftRepository
     ) {}
 
     /**
@@ -34,15 +35,7 @@ class PendingShiftController extends BaseController
             $managerBranchId = $manager->branch_id;
             $cashierId = $request->input('cashier_id');
 
-            $shifts = CashierShift::upcoming()
-                ->with(['cashier', 'shift', 'nextCashier', 'originalCashier', 'reassignedBy', 'handover', 'handoverStatus'])
-                ->whereHas('shift', fn($q) => $q->where('branch_id', $managerBranchId))
-                ->whereHas('cashier', fn($q) => $q->where('branch_id', $managerBranchId))
-                ->whereDate('shift_date', '>=', now()->subMonth())
-                ->whereDate('shift_date', '<=', now()->addMonth())
-                ->when($cashierId, fn($q, $cashierId) => $q->where('cashier_id', $cashierId))
-                ->orderBy('shift_date')
-                ->paginate(10);
+            $shifts = $this->cashierShiftRepository->getUpcomingPaginated($managerBranchId, $cashierId, 10);
 
             foreach ($shifts as $cs) {
                 $cs->setAttribute('computed_next_cashier', $this->shiftService->getNextShiftCashier($cs));
@@ -72,27 +65,7 @@ class PendingShiftController extends BaseController
             
             $managerBranchId = $manager->branch_id;
 
-            // تحقق من أن الشيفت تابع لبرانش المدير
-            $shiftDetails = CashierShift::with([
-                'cashier',
-                'shift',
-                'nextCashier',
-                'originalCashier',
-                'reassignedBy',
-                'salesBreakdown.aggregator',
-                'handoverStatus.reviewedBy',
-                'handover',
-                'varianceDetails.responsibleCashier',
-                'varianceAlerts',
-                'history'
-            ])
-                ->whereHas('shift', function ($q) use ($managerBranchId) {
-                    $q->where('branch_id', $managerBranchId);
-                })
-                ->whereHas('cashier', function ($q) use ($managerBranchId) {
-                    $q->where('branch_id', $managerBranchId);
-                })
-                ->findOrFail($shift);
+            $shiftDetails = $this->cashierShiftRepository->findForManagerShow($shift, $managerBranchId);
 
             if ($shiftDetails->status->value !== 'not_started') {
                 return response()->json([
@@ -147,23 +120,13 @@ class PendingShiftController extends BaseController
             $refDate = $weekStart ? Carbon::parse($weekStart) : Carbon::today();
             [$start, $end] = ShiftHelper::workWeekDatesFor($refDate);
 
-            $shifts = CashierShift::upcoming()
-                ->where('cashier_id', $cashier)
-                ->whereDate('shift_date', '>=', $start)
-                ->whereDate('shift_date', '<=', $end)
-                ->whereHas('shift', fn ($q) => $q->where('branch_id', $manager->branch_id))
-                ->whereHas('cashier', fn ($q) => $q->where('branch_id', $manager->branch_id))
-                ->with([
-                    'cashier',
-                    'shift',
-                    'nextCashier',
-                    'originalCashier',
-                    'reassignedBy',
-                    'handover',
-                    'handoverStatus',
-                ])
-                ->orderBy('shift_date')
-                ->paginate($request->input('per_page', 10));
+            $shifts = $this->cashierShiftRepository->getUpcomingByCashierAndWeek(
+                $cashier,
+                $manager->branch_id,
+                $start,
+                $end,
+                (int) $request->input('per_page', 10)
+            );
 
             foreach ($shifts as $cs) {
                 $cs->setAttribute('computed_next_cashier', $this->shiftService->getNextShiftCashier($cs));

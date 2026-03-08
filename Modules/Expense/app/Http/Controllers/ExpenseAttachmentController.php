@@ -10,14 +10,20 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Modules\Expense\Models\Expense;
+use Modules\Expense\Repositories\ExpenseRepository;
 use Modules\Expense\Transformers\ExpenseDetailResource;
 
 /**
  * Expense Attachment Controller
- * For adding attachments to any expense type
+ * For adding attachments to any expense type.
+ * Data access via ExpenseRepository; business logic (upload/delete) in controller for now.
  */
 class ExpenseAttachmentController extends BaseController
 {
+    public function __construct(
+        private ExpenseRepository $expenseRepository
+    ) {}
+
     /**
      * Add attachments to an expense
      * POST /api/branch-manager/expenses/{expense}/attachments
@@ -27,7 +33,7 @@ class ExpenseAttachmentController extends BaseController
      */
     public function store(Request $request, string $expense): JsonResponse
     {
-        $expenseModel = Expense::with(['attachments', 'invoiceDetails'])->findOrFail($expense);
+        $expenseModel = $this->expenseRepository->findWithAttachmentsAndInvoiceDetails($expense);
 
         // Authorization check
         if ($expenseModel->branch_manager_id !== auth()->id()) {
@@ -292,7 +298,7 @@ class ExpenseAttachmentController extends BaseController
      */
     public function destroy(Request $request, string $expense): JsonResponse
     {
-        $expenseModel = Expense::with(['attachments'])->findOrFail($expense);
+        $expenseModel = $this->expenseRepository->findWithAttachmentsAndInvoiceDetails($expense);
 
         // Authorization check
         if ($expenseModel->branch_manager_id !== auth()->id()) {
@@ -388,7 +394,7 @@ class ExpenseAttachmentController extends BaseController
     public function index(string $expense): JsonResponse
     {
         try {
-            $expenseModel = Expense::with(['attachments', 'invoiceDetails'])->findOrFail($expense);
+            $expenseModel = $this->expenseRepository->findWithAttachmentsForIndex($expense);
 
             // Authorization check
             if ($expenseModel->branch_manager_id !== auth()->id()) {
