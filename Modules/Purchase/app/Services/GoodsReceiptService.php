@@ -5,6 +5,7 @@ namespace Modules\Purchase\Services;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Modules\Purchase\Enums\DocumentType;
+use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\VarianceType;
 use Modules\Purchase\Models\CompensatoryOrder;
@@ -405,6 +406,13 @@ class GoodsReceiptService
                             $item->quality_received?->value
                         );
                     }
+                }
+
+                // The controller pre-closed the order before receiving started;
+                // markAsReceived() above overrides item statuses. Re-sync them.
+                $order->refresh();
+                if ($order->status === OrderStatus::CLOSED) {
+                    $order->items()->update(['status' => OrderItemStatus::CLOSED->value]);
                 }
             }
 
@@ -990,6 +998,7 @@ class GoodsReceiptService
                 'status' => OrderStatus::CLOSED->value,
                 'closed_at' => now(),
             ]);
+            $order->items()->update(['status' => OrderItemStatus::CLOSED->value]);
 
             $this->timelineService->logInspectionCompleted($receipt);
             $this->timelineService->logOrderClosed($order);
