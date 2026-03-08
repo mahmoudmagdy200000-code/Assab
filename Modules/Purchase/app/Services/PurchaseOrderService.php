@@ -1461,7 +1461,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     {
         return OrderTimeline::where('timelineable_type', PurchaseOrder::class)
             ->where('timelineable_id', $orderId)
-            ->orderBy('occurred_at', 'desc')
+            ->orderBy('occurred_at', 'asc')
             ->get();
     }
 

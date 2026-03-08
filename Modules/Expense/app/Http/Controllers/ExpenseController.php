@@ -152,7 +152,7 @@ class ExpenseController extends BaseController
         }
 
         $timeline = $expenseModel->timelines()
-            ->orderBy('created_at', 'desc')
+            ->orderBy('created_at', 'asc')
             ->get();
 
         return $this->successResponse(

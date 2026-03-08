@@ -67,6 +67,6 @@ class CustodyRequest extends Model
 
     public function timeline(): HasMany
     {
-        return $this->hasMany(CustodyRequestTimeline::class, 'custody_request_id')->orderBy('action_date');
+        return $this->hasMany(CustodyRequestTimeline::class, 'custody_request_id')->orderBy('action_date', 'asc');
     }
 }

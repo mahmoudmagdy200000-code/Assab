@@ -794,7 +794,7 @@ class MonthlyInventoryService
     public function getTimelines(string $inventoryId): Collection
     {
         return MonthlyInventoryTimeline::where('monthly_inventory_id', $inventoryId)
-            ->orderBy('occurred_at', 'desc')
+            ->orderBy('occurred_at', 'asc')
             ->get();
     }
 

@@ -168,7 +168,13 @@ class MonthlyInventoryController extends BaseController
     {
         try {
             $actor = $this->resolveInventoryActor();
-            $inventory = $this->findInventoryForActor($id, $actor, ['branch', 'createdBy', 'staff.user', 'products']);
+            $inventory = $this->findInventoryForActor($id, $actor, [
+                'branch',
+                'createdBy',
+                'staff.user',
+                'products',
+                'timelines' => fn ($q) => $q->orderBy('occurred_at', 'asc'),
+            ]);
             if (!$inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }

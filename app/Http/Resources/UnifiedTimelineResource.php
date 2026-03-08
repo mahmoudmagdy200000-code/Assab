@@ -28,6 +28,14 @@ class UnifiedTimelineResource extends JsonResource
             return $this->formatCustodyTimeline();
         }
 
+        if ($this->resource instanceof \Modules\Inventory\Models\InventorySessionTimeline) {
+            return $this->formatInventorySessionTimeline();
+        }
+
+        if ($this->resource instanceof \Modules\Inventory\Models\MonthlyInventoryTimeline) {
+            return $this->formatMonthlyInventoryTimeline();
+        }
+
         return [
             'id' => $this->id,
             'event_type' => 'unknown',
@@ -76,6 +84,34 @@ class UnifiedTimelineResource extends JsonResource
             'name' => $timeline->actor_name ?? '',
             'image' => $timeline->actor_profile_image ? $this->actorImageUrl($timeline->actor_profile_image) : null,
             'occurred_at' => $timeline->action_date?->format(self::DATETIME_FORMAT),
+        ];
+    }
+
+    private function formatInventorySessionTimeline(): array
+    {
+        $timeline = $this->resource;
+        $eventType = 'inventory_session_' . ($timeline->event_type?->value ?? 'unknown');
+
+        return [
+            'id' => $timeline->id,
+            'event_type' => $eventType,
+            'name' => $timeline->actor_name ?? '',
+            'image' => $timeline->actor_image ? $this->actorImageUrl($timeline->actor_image) : null,
+            'occurred_at' => $timeline->occurred_at?->format(self::DATETIME_FORMAT),
+        ];
+    }
+
+    private function formatMonthlyInventoryTimeline(): array
+    {
+        $timeline = $this->resource;
+        $eventType = 'monthly_inventory_' . ($timeline->event_type?->value ?? 'unknown');
+
+        return [
+            'id' => $timeline->id,
+            'event_type' => $eventType,
+            'name' => $timeline->actor_name ?? '',
+            'image' => $timeline->actor_image_url ?? null,
+            'occurred_at' => $timeline->occurred_at?->format(self::DATETIME_FORMAT),
         ];
     }
 
