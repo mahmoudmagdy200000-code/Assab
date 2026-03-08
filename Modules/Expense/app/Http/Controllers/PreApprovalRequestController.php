@@ -126,7 +126,7 @@ class PreApprovalRequestController extends BaseController
              'is_draft' => 'sometimes|boolean',
 
             // New attachments
-            'attachments' => 'sometimes|array',
+            'attachments' => 'nullable|array',
             'attachments.*' => 'file|mimes:pdf,jpg,jpeg,png|max:5120',
 
             // Delete specific attachments
