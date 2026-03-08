@@ -87,10 +87,33 @@ class UnifiedTimelineResource extends JsonResource
         ];
     }
 
+    /**
+     * Unified inventory timeline event types (all inventory types: daily session, monthly).
+     * API returns only: inventory_created, inventory_reassigned, inventory_viewed, inventory_rejected, inventory_approved.
+     */
+    private const INVENTORY_EVENT_MAP = [
+        // Daily (session)
+        'submitted' => 'inventory_created',
+        'viewed_by_account_manager' => 'inventory_viewed',
+        'rejected' => 'inventory_rejected',
+        'approved' => 'inventory_approved',
+        'resubmitted' => 'inventory_reassigned',
+        'discrepancy_report_shared' => 'inventory_viewed',
+        'discrepancy_reviewed' => 'inventory_viewed',
+        // Monthly
+        'created' => 'inventory_created',
+        'started' => 'inventory_created',
+        'saved' => 'inventory_reassigned',
+        'reviewed' => 'inventory_viewed',
+        'returned_to_draft' => 'inventory_reassigned',
+        'feedback_added' => 'inventory_viewed',
+        'product_count_updated' => 'inventory_reassigned',
+    ];
+
     private function formatInventorySessionTimeline(): array
     {
         $timeline = $this->resource;
-        $eventType = 'inventory_session_' . ($timeline->event_type?->value ?? 'unknown');
+        $eventType = $this->mapInventoryEventType($timeline->event_type?->value);
 
         return [
             'id' => $timeline->id,
@@ -104,7 +127,7 @@ class UnifiedTimelineResource extends JsonResource
     private function formatMonthlyInventoryTimeline(): array
     {
         $timeline = $this->resource;
-        $eventType = 'monthly_inventory_' . ($timeline->event_type?->value ?? 'unknown');
+        $eventType = $this->mapInventoryEventType($timeline->event_type?->value);
 
         return [
             'id' => $timeline->id,
@@ -113,6 +136,15 @@ class UnifiedTimelineResource extends JsonResource
             'image' => $timeline->actor_image_url ?? null,
             'occurred_at' => $timeline->occurred_at?->format(self::DATETIME_FORMAT),
         ];
+    }
+
+    private function mapInventoryEventType(?string $value): string
+    {
+        if ($value === null || $value === '') {
+            return 'inventory_created';
+        }
+
+        return self::INVENTORY_EVENT_MAP[$value] ?? 'inventory_created';
     }
 
     private function actorImageUrl(?string $path): ?string
