@@ -3,23 +3,25 @@
 namespace Modules\Expense\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Controller;
-use Modules\Expense\Models\Expense;
-use Modules\Expense\Services\{ExpenseApprovalService, ExpenseHelperService};
-use App\Http\Resources\UnifiedTimelineResource;
-use Modules\Expense\Transformers\{ExpenseResource, ExpenseDetailResource};
+use Modules\Expense\Repositories\ExpenseRepository;
+use Modules\Expense\Services\ExpenseApprovalService;
+use Modules\Expense\Services\ExpenseHelperService;
+use Modules\Expense\Transformers\ExpenseDetailResource;
+use Modules\Expense\Transformers\ExpenseResource;
 
 /**
  * Main Expense Controller
- * General expense operations
+ * HTTP only: delegates to ExpenseRepository and services.
  */
 class ExpenseController extends BaseController
 {
     public function __construct(
         private ExpenseApprovalService $approvalService,
-        private ExpenseHelperService $helperService
+        private ExpenseHelperService $helperService,
+        private ExpenseRepository $expenseRepository
     ) {}
 
     /**
@@ -28,14 +30,10 @@ class ExpenseController extends BaseController
      */
     public function summary(Request $request): JsonResponse
     {
-        $month = $request->input('month', now()->month);
-        $year = $request->input('year', now()->year);
+        $month = (int) $request->input('month', now()->month);
+        $year = (int) $request->input('year', now()->year);
 
-        $expenses = Expense::where('branch_manager_id', auth()->id())
-            ->where('status', 'approved')
-            ->whereYear('created_at', $year)
-            ->whereMonth('created_at', $month)
-            ->get();
+        $expenses = $this->expenseRepository->getSummaryForManager(auth()->id(), $month, $year);
 
         $summary = [
             'date_filter' => [
@@ -62,12 +60,7 @@ class ExpenseController extends BaseController
      */
     public function recent(): JsonResponse
     {
-        $expenses = Expense::where('branch_manager_id', auth()->id())
-            ->with(['quickCashExpense', 'invoiceDetails', 'groupedInvoice', 'preApprovalRequest'])
-            ->where('status', '!=', 'pending')
-            ->orderBy('created_at', 'desc')
-            ->limit(10)
-            ->get();
+        $expenses = $this->expenseRepository->getRecentForManager(auth()->id(), 10);
 
         return $this->successResponse(
             ExpenseResource::collection($expenses),
@@ -81,28 +74,7 @@ class ExpenseController extends BaseController
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Expense::where('branch_manager_id', auth()->id())
-            ->with(['quickCashExpense', 'invoiceDetails', 'groupedInvoice', 'preApprovalRequest']);
-
-        // Apply filters
-        if ($request->has('type') && $request->type !== 'all') {
-            $query->where('expense_type', $request->type);
-        }
-
-        if ($request->has('status')) {
-            $query->where('status', $request->status);
-        }
-
-        if ($request->has('date_from')) {
-            $query->whereDate('created_at', '>=', $request->date_from);
-        }
-
-        if ($request->has('date_to')) {
-            $query->whereDate('created_at', '<=', $request->date_to);
-        }
-
-        $expenses = $query->orderBy('created_at', 'desc')
-            ->paginate($request->input('per_page', 20));
+        $expenses = $this->expenseRepository->getPaginatedForManager(auth()->id(), $request);
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
@@ -116,20 +88,8 @@ class ExpenseController extends BaseController
      */
     public function show(string $expense): JsonResponse
     {
-        $expenseModel = Expense::with([
-            'quickCashExpense.items',
-            'invoiceDetails',
-            'groupedInvoice.invoiceDetails.items',
-            'groupedInvoice.invoiceDetails.expenseLines',
-            'preApprovalRequest',
-            'items.category',
-            'expenseLines.category',
-            'attachments',
-            'supplier',
-            'timelines' => fn($q) => $q->orderBy('created_at', 'desc'),
-        ])->findOrFail($expense);
+        $expenseModel = $this->expenseRepository->findForShow($expense);
 
-        // Check authorization
         if ($expenseModel->branch_manager_id !== auth()->id()) {
             return $this->errorResponse('Unauthorized access', 403);
         }
@@ -146,7 +106,7 @@ class ExpenseController extends BaseController
      */
     public function timeline(string $expense): JsonResponse
     {
-        $expenseModel = Expense::findOrFail($expense);
+        $expenseModel = $this->expenseRepository->findOrFail($expense);
 
         if ($expenseModel->branch_manager_id !== auth()->id()) {
             return $this->errorResponse('Unauthorized access', 403);
@@ -168,11 +128,10 @@ class ExpenseController extends BaseController
      */
     public function drafts(Request $request): JsonResponse
     {
-        $drafts = Expense::where('branch_manager_id', auth()->id())
-            ->where('status', 'draft')
-            ->with(['quickCashExpense', 'invoiceDetails', 'groupedInvoice', 'preApprovalRequest'])
-            ->orderBy('created_at', 'desc')
-            ->paginate($request->input('per_page', 20));
+        $drafts = $this->expenseRepository->getDraftsPaginated(
+            auth()->id(),
+            (int) $request->input('per_page', 20)
+        );
 
         return $this->paginatedResponse(
             ExpenseResource::collection($drafts),
@@ -187,7 +146,7 @@ class ExpenseController extends BaseController
     public function submit(string $expense): JsonResponse
     {
         try {
-            $expenseModel = Expense::findOrFail($expense);
+            $expenseModel = $this->expenseRepository->findOrFail($expense);
 
             if ($expenseModel->branch_manager_id !== auth()->id()) {
                 return $this->errorResponse('Unauthorized', 403);
@@ -211,7 +170,7 @@ class ExpenseController extends BaseController
     public function resubmit(string $expense): JsonResponse
     {
         try {
-            $expenseModel = Expense::findOrFail($expense);
+            $expenseModel = $this->expenseRepository->findOrFail($expense);
 
             if ($expenseModel->branch_manager_id !== auth()->id()) {
                 return $this->errorResponse('Unauthorized', 403);
@@ -234,7 +193,7 @@ class ExpenseController extends BaseController
      */
     public function destroy(string $expense): JsonResponse
     {
-        $expenseModel = Expense::findOrFail($expense);
+        $expenseModel = $this->expenseRepository->findOrFail($expense);
 
         if ($expenseModel->branch_manager_id !== auth()->id()) {
             return $this->errorResponse('Unauthorized', 403);
@@ -262,11 +221,10 @@ class ExpenseController extends BaseController
      */
     public function quickCashList(Request $request): JsonResponse
     {
-        $expenses = Expense::where('branch_manager_id', auth()->id())
-            ->where('expense_type', 'quick_cash')
-            ->with('quickCashExpense')
-            ->orderBy('created_at', 'desc')
-            ->paginate($request->input('per_page', 20));
+        $expenses = $this->expenseRepository->getQuickCashPaginated(
+            auth()->id(),
+            (int) $request->input('per_page', 20)
+        );
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
@@ -280,11 +238,10 @@ class ExpenseController extends BaseController
      */
     public function singleInvoiceList(Request $request): JsonResponse
     {
-        $expenses = Expense::where('branch_manager_id', auth()->id())
-            ->where('expense_type', 'single_invoice')
-            ->with('invoiceDetails')
-            ->orderBy('created_at', 'desc')
-            ->paginate($request->input('per_page', 20));
+        $expenses = $this->expenseRepository->getSingleInvoicePaginated(
+            auth()->id(),
+            (int) $request->input('per_page', 20)
+        );
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
@@ -298,11 +255,10 @@ class ExpenseController extends BaseController
      */
     public function preApprovalList(Request $request): JsonResponse
     {
-        $expenses = Expense::where('branch_manager_id', auth()->id())
-            ->where('expense_type', 'pre_approval')
-            ->with('preApprovalRequest')
-            ->orderBy('created_at', 'desc')
-            ->paginate($request->input('per_page', 20));
+        $expenses = $this->expenseRepository->getPreApprovalPaginated(
+            auth()->id(),
+            (int) $request->input('per_page', 20)
+        );
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
@@ -316,11 +272,10 @@ class ExpenseController extends BaseController
      */
     public function groupedInvoiceList(Request $request): JsonResponse
     {
-        $expenses = Expense::where('branch_manager_id', auth()->id())
-            ->where('expense_type', 'grouped_invoice')
-            ->with('groupedInvoice.invoiceDetails')
-            ->orderBy('created_at', 'desc')
-            ->paginate($request->input('per_page', 20));
+        $expenses = $this->expenseRepository->getGroupedInvoicePaginated(
+            auth()->id(),
+            (int) $request->input('per_page', 20)
+        );
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
@@ -387,72 +342,7 @@ class ExpenseController extends BaseController
      */
     public function search(Request $request): JsonResponse
     {
-        $query = Expense::where('branch_manager_id', auth()->id())
-            ->with([
-                'quickCashExpense',
-                'invoiceDetails',
-                'groupedInvoice',
-                'preApprovalRequest',
-                'supplier'
-            ]);
-        $total = $query->count();
-
-
-        if ($search = $request->input('search')) {
-            $query->where(function ($q) use ($search) {
-                $q->where('reference_number', 'like', "%{$search}%")
-                    ->orWhereHas('supplier', fn($s) => $s->where('name', 'like', "%{$search}%"))
-                    ->orWhere('total_amount', 'like', "%{$search}%");
-            });
-        }
-
-
-
-        if ($type = $request->input('type')) {
-            if ($type !== 'all') {
-                if ($type === 'draft') {
-                    $query->where('status', 'draft');
-                } else {
-                    $query->where('expense_type', $type);
-                }
-            }
-        }
-
-
-
-        if ($status = $request->input('status')) {
-            $query->where('status', $status);
-        }
-
-        // 🕒
-        if ($period = $request->input('period')) {
-            switch ($period) {
-                case 'last_30_days':
-                    $query->where('created_at', '>=', now()->subDays(30));
-                    break;
-
-                case 'last_7_days':
-                    $query->where('created_at', '>=', now()->subDays(7));
-                    break;
-
-                case 'last_24_hours':
-                    $query->where('created_at', '>=', now()->subDay());
-                    break;
-            }
-        }
-
-        // 💰ف
-        if ($min = $request->input('min_amount')) {
-            $query->where('total_amount', '>=', $min);
-        }
-
-        if ($max = $request->input('max_amount')) {
-            $query->where('total_amount', '<=', $max);
-        }
-
-        // 🔢 Pagination
-        $expenses = $query->orderBy('created_at', 'desc')
-            ->paginate($request->input('per_page', 20));
+        $expenses = $this->expenseRepository->getSearchPaginated(auth()->id(), $request);
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),

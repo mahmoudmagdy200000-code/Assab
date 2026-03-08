@@ -7,8 +7,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Purchase\Http\Requests\CreateReturnRequest;
 use Modules\Purchase\Http\Requests\EscalateRequest;
-use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\ReturnOrder;
+use Modules\Purchase\Repositories\PurchaseOrderRepository;
 use Modules\Purchase\Services\ReturnManagementService;
 use Modules\Purchase\Transformers\ReturnOrderListResource;
 use Modules\Purchase\Transformers\ReturnOrderResource;
@@ -17,7 +17,8 @@ use App\Http\Resources\UnifiedTimelineResource;
 class ReturnManagementController extends BaseController
 {
     public function __construct(
-        private readonly ReturnManagementService $returnService
+        private readonly ReturnManagementService $returnService,
+        private readonly PurchaseOrderRepository $purchaseOrderRepository
     ) {}
 
     /**
@@ -88,16 +89,13 @@ class ReturnManagementController extends BaseController
     public function store(CreateReturnRequest $request): JsonResponse
     {
         try {
-            // Security: Verify user has access to this order's branch
             $userBranchId = auth()->user()->branch_id;
-            $order = PurchaseOrder::where('branch_id', $userBranchId)
-                ->find($request->purchase_order_id);
+            $order = $this->purchaseOrderRepository->findByBranch($request->purchase_order_id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Purchase order not found');
             }
 
-            // Validate that order is CLOSED (required for returns)
             if ($order->status !== \Modules\Purchase\Enums\OrderStatus::CLOSED) {
                 return $this->errorResponse(
                     'Returns can only be created for closed orders. Current order status: ' . $order->status->label(),
@@ -258,16 +256,13 @@ class ReturnManagementController extends BaseController
     public function saveDraft(CreateReturnRequest $request): JsonResponse
     {
         try {
-            // Security: Verify user has access to this order's branch
             $userBranchId = auth()->user()->branch_id;
-            $order = PurchaseOrder::where('branch_id', $userBranchId)
-                ->find($request->purchase_order_id);
+            $order = $this->purchaseOrderRepository->findByBranch($request->purchase_order_id, $userBranchId);
 
             if (!$order) {
                 return $this->notFoundResponse('Purchase order not found');
             }
 
-            // Validate that order is CLOSED (required for returns)
             if ($order->status !== \Modules\Purchase\Enums\OrderStatus::CLOSED) {
                 return $this->errorResponse(
                     'Returns can only be created for closed orders. Current order status: ' . $order->status->label(),
