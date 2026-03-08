@@ -3,6 +3,7 @@
 namespace Modules\Purchase\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
+use App\Services\StreamUploadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Purchase\Enums\DocumentType;
@@ -38,7 +39,8 @@ class GoodsReceivingController extends BaseController
         private readonly PurchaseOrderService $orderService,
         private readonly VarianceService $varianceService,
         private readonly SupplierCommunicationService $communicationService,
-        private readonly PurchaseOrderRepository $purchaseOrderRepository
+        private readonly PurchaseOrderRepository $purchaseOrderRepository,
+        private readonly StreamUploadService $streamUpload
     ) {}
 
     /**
@@ -139,7 +141,8 @@ class GoodsReceivingController extends BaseController
 
             foreach ($itemsData as $index => $itemData) {
                 if ($request->hasFile("items.{$index}.photo")) {
-                    $itemsData[$index]['photo'] = $request->file("items.{$index}.photo")->store('receipts/items', 'public');
+                    $file = $request->file("items.{$index}.photo");
+                    $itemsData[$index]['photo'] = $this->streamUpload->storeFromUpload($file, 'receipts/items', $file->hashName(), 'public');
                 }
             }
 
@@ -151,7 +154,8 @@ class GoodsReceivingController extends BaseController
                 $documentData = $validated['invoice_data'];
                 // Handle invoice photo upload
                 if ($request->hasFile('invoice_data.photo')) {
-                    $documentData['photo'] = $request->file('invoice_data.photo')->store('invoices', 'public');
+                    $file = $request->file('invoice_data.photo');
+                    $documentData['photo'] = $this->streamUpload->storeFromUpload($file, 'invoices', $file->hashName(), 'public');
                 }
             } elseif ($documentType === 'delivery_note' && isset($validated['delivery_note_data'])) {
                 $documentData = $validated['delivery_note_data'];
@@ -171,7 +175,8 @@ class GoodsReceivingController extends BaseController
 
                 // Handle variance photo upload
                 if ($request->hasFile('variance.photo')) {
-                    $varianceData['photo'] = $request->file('variance.photo')->store('variances', 'public');
+                    $file = $request->file('variance.photo');
+                    $varianceData['photo'] = $this->streamUpload->storeFromUpload($file, 'variances', $file->hashName(), 'public');
                 }
 
                 // Handle compensatory order items (directly in variance)
@@ -193,7 +198,8 @@ class GoodsReceivingController extends BaseController
 
                     // Handle photo upload for unlisted item
                     if ($request->hasFile("unlisted_items.{$index}.photo")) {
-                        $itemData['photo'] = $request->file("unlisted_items.{$index}.photo")->store('receipts/unlisted', 'public');
+                        $file = $request->file("unlisted_items.{$index}.photo");
+                        $itemData['photo'] = $this->streamUpload->storeFromUpload($file, 'receipts/unlisted', $file->hashName(), 'public');
                     }
 
                     $unlistedItems[] = $itemData;
@@ -237,7 +243,8 @@ class GoodsReceivingController extends BaseController
 
             // Handle driver image upload
             if ($request->hasFile('driver_image')) {
-                $data['driver_image'] = $request->file('driver_image')->store('receipts/drivers', 'public');
+                $file = $request->file('driver_image');
+                $data['driver_image'] = $this->streamUpload->storeFromUpload($file, 'receipts/drivers', $file->hashName(), 'public');
             }
 
             $receipt = $this->receiptService->setDeliveryDetails($receipt, $data);
@@ -271,7 +278,8 @@ class GoodsReceivingController extends BaseController
 
             // Handle photo upload
             if ($request->hasFile('photo')) {
-                $data['photo'] = $request->file('photo')->store('receipts/items', 'public');
+                $file = $request->file('photo');
+                $data['photo'] = $this->streamUpload->storeFromUpload($file, 'receipts/items', $file->hashName(), 'public');
             }
 
             $item = $this->receiptService->updateItemInspection($item, $data);
@@ -303,7 +311,8 @@ class GoodsReceivingController extends BaseController
 
             // Handle photo upload
             if ($request->hasFile('photo')) {
-                $data['photo'] = $request->file('photo')->store('receipts/unlisted', 'public');
+                $file = $request->file('photo');
+                $data['photo'] = $this->streamUpload->storeFromUpload($file, 'receipts/unlisted', $file->hashName(), 'public');
             }
 
             $item = $this->receiptService->addUnlistedItem($receipt, $data);

@@ -3,6 +3,7 @@
 namespace Modules\Expense\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
+use App\Services\StreamUploadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,7 +22,8 @@ use Modules\Expense\Transformers\ExpenseDetailResource;
 class ExpenseAttachmentController extends BaseController
 {
     public function __construct(
-        private ExpenseRepository $expenseRepository
+        private ExpenseRepository $expenseRepository,
+        private readonly StreamUploadService $streamUpload
     ) {}
 
     /**
@@ -478,7 +480,7 @@ class ExpenseAttachmentController extends BaseController
         };
 
         $filename = 'expense_' . $expense->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
-        $path = $file->storeAs($folderPath, $filename, 'public');
+        $path = $this->streamUpload->storeFromUpload($file, $folderPath, $filename, 'public');
 
         $attachment = $expense->attachments()->create([
             'file_path' => $path,
