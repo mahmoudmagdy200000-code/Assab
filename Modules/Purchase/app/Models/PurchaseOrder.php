@@ -421,6 +421,11 @@ class PurchaseOrder extends Model
         // Update in single query
         $this->update($updateData);
 
+        // When order becomes CLOSED, all items must be CLOSED too (single source of truth)
+        if ($newStatus === OrderStatus::CLOSED) {
+            $this->items()->update(['status' => OrderItemStatus::CLOSED->value]);
+        }
+
         // Dispatch event for listeners (e.g. RecurringOrder module)
         \Modules\Purchase\Events\OrderStatusChanged::dispatch($this, $oldStatus, $newStatus);
 
@@ -629,11 +634,8 @@ class PurchaseOrder extends Model
 
     public function close(): bool
     {
-        $closed = $this->transitionTo(OrderStatus::CLOSED);
-        if ($closed) {
-            $this->items()->update(['status' => OrderItemStatus::CLOSED->value]);
-        }
-        return $closed;
+        // transitionTo(CLOSED) already updates all items to CLOSED
+        return $this->transitionTo(OrderStatus::CLOSED);
     }
 
     public function reportDelay(string $reason): bool

@@ -5,6 +5,7 @@ namespace Modules\Purchase\Services;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Modules\Purchase\Enums\DocumentType;
+use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\VarianceType;
 use Modules\Purchase\Models\CompensatoryOrder;
@@ -990,6 +991,8 @@ class GoodsReceiptService
                 'status' => OrderStatus::CLOSED->value,
                 'closed_at' => now(),
             ]);
+            // Keep items in sync: when order is CLOSED, all items must be CLOSED
+            $order->items()->update(['status' => OrderItemStatus::CLOSED->value]);
 
             $this->timelineService->logInspectionCompleted($receipt);
             $this->timelineService->logOrderClosed($order);
