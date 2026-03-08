@@ -186,30 +186,11 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         ])
             ->orderBy('created_at', 'desc');
 
-        // Filter by branch
+        // Filter by branch: orders created BY this branch (branch_id = requester branch)
+        // Includes: direct_supplier, via_purchasing_officer, and internal_transfer where this branch is the requester (destination)
+        // Excludes: orders requested FROM this branch by others (those appear in requested_orders via getPendingOrders)
         if (!empty($filters['branch_id'])) {
-            $branchId = $filters['branch_id'];
-
-            // Get orders created BY this branch (orders where this branch is the requester)
-            // For internal_transfer: this branch requested from another branch
-            // Condition: to_branch_id = this branch (this branch is the destination - will receive items)
-            // AND from_branch_id != this branch (source is a different branch)
-            // AND requested_by user belongs to this branch (this branch created the order)
-            $query->where('branch_id', $branchId)
-                ->where(function ($q) use ($branchId) {
-                    // Include all non-internal_transfer orders
-                    $q->where('order_type', '!=', OrderType::INTERNAL_TRANSFER)
-                        // OR internal_transfer orders where this branch is the destination (will receive items)
-                        // AND this branch created the order (requested_by user belongs to this branch)
-                        ->orWhere(function ($internalTransferQuery) use ($branchId) {
-                            $internalTransferQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
-                                ->where('to_branch_id', $branchId) // This branch will receive the items
-                                ->where('from_branch_id', '!=', $branchId) // Source is a different branch
-                                ->whereHas('requestedBy', function ($userQuery) use ($branchId) {
-                                    $userQuery->where('branch_id', $branchId); // This branch created the order
-                                });
-                        });
-                });
+            $query->where('branch_id', $filters['branch_id']);
         }
 
         // Search by item name or order number
