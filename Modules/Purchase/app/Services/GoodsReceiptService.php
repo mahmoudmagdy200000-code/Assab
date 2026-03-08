@@ -776,34 +776,48 @@ class GoodsReceiptService
                 : ($order->branch?->location ?? null),
         ];
 
+        // Exclude cancelled order items from inspection (only show non-cancelled items)
+        $cancelledStatuses = OrderItemStatus::cancelledStatusValues();
+        $isCancelled = fn ($item) => in_array(
+            $item->status instanceof OrderItemStatus ? $item->status->value : ($item->status ?? ''),
+            $cancelledStatuses,
+            true
+        );
+        $cancelledOrderItemIds = $order->items->filter($isCancelled)->pluck('id')->all();
+
         // If receipt exists, use receipt items, otherwise use order items
         if ($receipt && $receipt->items->isNotEmpty()) {
             $receipt->load(['items.variance']);
-            $inspectionItems = $receipt->items->map(function ($item) {
-                return $this->formatInspectionItem($item);
-            });
+            $inspectionItems = $receipt->items
+                ->filter(fn ($item) => ! in_array($item->purchase_order_item_id ?? null, $cancelledOrderItemIds, true))
+                ->map(fn ($item) => $this->formatInspectionItem($item))
+                ->values()
+                ->all();
         } else {
-            // Use order items as fallback (not inspected yet)
-            $inspectionItems = $order->items->map(function ($orderItem) {
-                // Use quantity_confirmed if available (for partial confirmation), otherwise use quantity_ordered
-                $expectedQuantity = $orderItem->quantity_confirmed ?? $orderItem->quantity_ordered;
+            // Use order items as fallback (not inspected yet) — only non-cancelled
+            $inspectionItems = $order->items
+                ->reject($isCancelled)
+                ->map(function ($orderItem) {
+                    $expectedQuantity = $orderItem->quantity_confirmed ?? $orderItem->quantity_ordered;
 
-                return [
-                    'item_id' => $orderItem->id,
-                    'product_name' => $orderItem->item_name,
-                    'item_logo' => $orderItem->item_logo_url ?? null,
-                    'qty_ordered' => (float) $expectedQuantity,
-                    'qty_received' => 0.0, // Not inspected yet
-                    'unit' => $orderItem->unit_of_measurement,
-                    'quality' => 'normal', // Default until inspected
-                    'price' => (float) $orderItem->unit_price,
-                    'temperature' => null,
-                    'expiration_date' => null,
-                    'photo' => null,
-                    'note' => null,
-                    'variance' => null,
-                ];
-            });
+                    return [
+                        'item_id' => $orderItem->id,
+                        'product_name' => $orderItem->item_name,
+                        'item_logo' => $orderItem->item_logo_url ?? null,
+                        'qty_ordered' => (float) $expectedQuantity,
+                        'qty_received' => 0.0,
+                        'unit' => $orderItem->unit_of_measurement,
+                        'quality' => 'normal',
+                        'price' => (float) $orderItem->unit_price,
+                        'temperature' => null,
+                        'expiration_date' => null,
+                        'photo' => null,
+                        'note' => null,
+                        'variance' => null,
+                    ];
+                })
+                ->values()
+                ->all();
         }
 
         $response = [

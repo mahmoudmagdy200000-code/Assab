@@ -308,7 +308,10 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
         $currentPage = request()->get('page', 1);
 
-        $query = PurchaseOrder::withCount('items as items_count');
+        $cancelledStatuses = OrderItemStatus::cancelledStatusValues();
+        $query = PurchaseOrder::withCount([
+            'items as items_count' => fn ($q) => $q->whereNotIn('status', $cancelledStatuses),
+        ]);
 
         // Filter by order type to determine which statuses to include
         $orderType = !empty($filters['type']) ? OrderType::from($filters['type']) : null;
@@ -390,7 +393,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 ->orderBy('created_at', 'desc');
         }
 
-        $orders = $query->get();
+        $orders = $query->get()->filter(fn ($order) => (int) ($order->items_count ?? 0) > 0);
 
         // Transform orders to the required format (flattened, not grouped)
         $transformedOrders = $orders->map(function ($order) {

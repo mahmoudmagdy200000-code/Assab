@@ -210,6 +210,21 @@ enum OrderItemStatus: string
     }
 
     /**
+     * Status values considered cancelled (for use in DB queries)
+     */
+    public static function cancelledStatusValues(): array
+    {
+        return [
+            self::CANCELLED->value,
+            self::CANCELLED_BY_BRANCH->value,
+            self::CANCELLED_BY_SUPPLIER->value,
+            self::CANCELED_MODIFICATION->value,
+            self::CANCELLED_DELAYED->value,
+            self::DELAYED_CANCELED->value,
+        ];
+    }
+
+    /**
      * Check if item is delayed (any delay status)
      */
     public function isDelayed(): bool
