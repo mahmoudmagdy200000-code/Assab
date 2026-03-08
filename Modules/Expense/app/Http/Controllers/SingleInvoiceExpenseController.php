@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Validator;
 use Modules\Expense\Services\SingleInvoiceExpenseService;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Transformers\ExpenseDetailResource;
+use Modules\Expense\Transformers\ExpenseDetailWithoutTimelinesResource;
 use Modules\Expense\Transformers\PreviousInvoiceResource;
 use App\Http\Controllers\BaseController;
 use Illuminate\Support\Facades\Log;
@@ -253,7 +254,7 @@ class SingleInvoiceExpenseController extends BaseController
             $invoices = $query->paginate(10);
 
             return $this->paginatedResponse(
-                ExpenseDetailResource::collection($invoices),
+                ExpenseDetailWithoutTimelinesResource::collection($invoices),
                 'Previous invoices retrieved successfully'
             );
         } catch (\Exception $e) {
