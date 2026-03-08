@@ -132,7 +132,7 @@ class ReturnOrder extends Model
 
     public function timelines(): MorphMany
     {
-        return $this->morphMany(OrderTimeline::class, 'timelineable')->orderBy('occurred_at', 'desc');
+        return $this->morphMany(OrderTimeline::class, 'timelineable')->orderBy('occurred_at', 'asc');
     }
 
     public function documents(): MorphMany

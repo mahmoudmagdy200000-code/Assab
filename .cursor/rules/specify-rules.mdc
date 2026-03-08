@@ -11,6 +11,7 @@ Auto-generated from all feature plans. Last updated: 2026-03-07
 ## Active Technologies
 - PHP 8.x + Laravel, modular structure under `app/Modules/` (001-refactor-modules-optimization)
 - Existing database; migrations/schema unchanged for this feature (001-refactor-modules-optimization)
+- Existing DB; no schema changes. Timeline data lives in `expense_timelines`, `order_timelines` (polymorphic), `custody_request_timeline`, `inventory_session_timelines`, `monthly_inventory_timelines`. (002-timeline-sort-inventory-details)
 
 - PHP 8.x (Laravel) + Laravel, Expense module (Modules/Expense) (001-recent-expenses-fix)
 
@@ -30,6 +31,7 @@ tests/
 PHP 8.x (Laravel): Follow standard conventions
 
 ## Recent Changes
+- 002-timeline-sort-inventory-details: Added PHP 8.x + Laravel, modular structure under `app/Modules/`
 - 001-refactor-modules-optimization: Added PHP 8.x + Laravel, modular structure under `app/Modules/`
 
 - 001-recent-expenses-fix: Added PHP 8.x (Laravel) + Laravel, Expense module (Modules/Expense)

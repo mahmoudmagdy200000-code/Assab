@@ -159,7 +159,7 @@ class ExpenseApprovalController extends BaseController
         $expenseModel = $this->expenseRepository->findOrFail($expense);
 
         $timeline = $expenseModel->timelines()
-            ->orderBy('created_at', 'desc')
+            ->orderBy('created_at', 'asc')
             ->get();
 
         return $this->successResponse(

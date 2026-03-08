@@ -394,7 +394,13 @@ class DailyQuickInventoryController extends BaseController
             $actor = $this->resolveInventoryActor();
             $session = $this->sessionsQueryForActor($actor->getActor())
                 ->where('id', $id)
-                ->with(['items.item', 'items.purchaseOrderItem.purchaseOrder', 'assignedTo', 'createdBy'])
+                ->with([
+                    'items.item',
+                    'items.purchaseOrderItem.purchaseOrder',
+                    'assignedTo',
+                    'createdBy',
+                    'timelines' => fn ($q) => $q->orderBy('occurred_at', 'asc'),
+                ])
                 ->withCount('items')
                 ->firstOrFail();
 

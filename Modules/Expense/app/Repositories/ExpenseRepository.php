@@ -107,7 +107,7 @@ class ExpenseRepository
             'attachments',
             'supplier',
             'branchManager',
-            'timelines' => fn ($q) => $q->orderBy('created_at', 'desc'),
+            'timelines' => fn ($q) => $q->orderBy('created_at', 'asc'),
         ])->findOrFail($id);
     }
 

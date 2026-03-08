@@ -2,6 +2,7 @@
 
 namespace Modules\Inventory\Transformers;
 
+use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class InventorySessionResource extends JsonResource
@@ -53,6 +54,7 @@ class InventorySessionResource extends JsonResource
             'approved_at' => $this->approved_at?->format('Y-m-d H:i:s'),
             'created_at' => $this->created_at->format('Y-m-d H:i:s'),
             'updated_at' => $this->updated_at->format('Y-m-d H:i:s'),
+            'timelines' => $this->whenLoaded('timelines', fn () => UnifiedTimelineResource::collection($this->timelines)),
         ];
     }
 }
