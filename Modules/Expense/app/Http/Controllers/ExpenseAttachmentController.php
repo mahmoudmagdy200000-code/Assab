@@ -185,11 +185,16 @@ class ExpenseAttachmentController extends BaseController
 
     /**
      * Store regular attachments (original logic)
+     * Attachments are required only when the expense has no attachments yet (first upload).
+     * When the expense already has attachments, new files are optional (avoids "required" error when app sends empty POST on submit).
      */
     private function storeRegularAttachments(Request $request, Expense $expenseModel): JsonResponse
     {
+        $hasExistingAttachments = $expenseModel->attachments->count() > 0;
+        $attachmentsRule = $hasExistingAttachments ? 'sometimes|array|max:10' : 'required|array|max:10';
+
         $validator = Validator::make($request->all(), [
-            'attachments' => 'required|array|max:10',
+            'attachments' => $attachmentsRule,
             'attachments.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120', // 5MB
             'invoice_detail_id' => 'sometimes|exists:invoice_details,id', // For single invoice
         ]);
@@ -202,9 +207,20 @@ class ExpenseAttachmentController extends BaseController
             );
         }
 
+        $newAttachmentsCount = count($request->file('attachments') ?? []);
+        if ($newAttachmentsCount === 0) {
+            return $this->successResponse(
+                [
+                    'uploaded_count' => 0,
+                    'attachments' => $expenseModel->attachments->toArray(),
+                    'expense' => new ExpenseDetailResource($expenseModel->fresh(['attachments'])),
+                ],
+                'No new files to upload'
+            );
+        }
+
         // Check total attachments limit (max 15 per expense)
         $currentAttachmentsCount = $expenseModel->attachments->count();
-        $newAttachmentsCount = count($request->file('attachments'));
 
         if (($currentAttachmentsCount + $newAttachmentsCount) > 15) {
             return $this->errorResponse(
