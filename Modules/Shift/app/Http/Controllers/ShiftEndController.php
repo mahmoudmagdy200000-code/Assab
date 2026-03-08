@@ -708,11 +708,31 @@ class ShiftEndController extends Controller
             });
 
             $recipients = $availableCashiers->toArray();
+            $recipientIds = [];
             foreach ($branchManagers as $branchManager) {
                 $recipients[] = [
                     'id' => $branchManager->id,
                     'name' => $branchManager->name . ' (Branch Manager)',
                     'image' => $branchManager->image ? asset('storage/' . $branchManager->image) : null,
+                    'type' => 'branch_manager',
+                    'is_available' => true,
+                    'disabled' => false,
+                    'reason_disabled' => null,
+                    'is_suggested' => false,
+                    'suggestion_reason' => 'Final handover to Branch Manager',
+                ];
+                $recipientIds[(string) $branchManager->id] = true;
+            }
+
+            // Always include logged-in branch manager for this branch (so they can receive handover even if not in active list)
+            $authUser = auth()->user();
+            if ($authUser instanceof \Modules\BranchManagers\Models\BranchManager
+                && (string) $authUser->branch_id === (string) $shiftModel->shift->branch_id
+                && empty($recipientIds[(string) $authUser->id])) {
+                $recipients[] = [
+                    'id' => $authUser->id,
+                    'name' => $authUser->name . ' (Branch Manager)',
+                    'image' => $authUser->image ? asset('storage/' . $authUser->image) : null,
                     'type' => 'branch_manager',
                     'is_available' => true,
                     'disabled' => false,
