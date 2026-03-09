@@ -393,18 +393,18 @@ class PendingOrderController extends BaseController
                 return $this->errorResponse('new_delivery_time is required for time change requests', 422);
             }
 
-            if (!isset($validated['reason'])) {
-                return $this->errorResponse('reason is required for time change requests', 422);
+            $reason = $request->getReason();
+            if ($reason === '') {
+                return $this->errorResponse('reason or message is required for time change requests', 422);
             }
 
-            $note = $validated['note'] ?? $validated['modification_request'] ?? null;
             $order = $this->orderService->requestTimeChange(
                 $order,
                 $supplier,
                 $itemId,
                 $validated['new_delivery_time'],
-                $validated['reason'] ?? '',
-                $note
+                $reason,
+                $request->getNote()
             );
 
             return $this->successResponse(
@@ -435,14 +435,18 @@ class PendingOrderController extends BaseController
 
             $validated = $request->validated();
 
-            $note = $validated['note'] ?? $validated['modification_request'] ?? null;
+            $reason = $request->getReason();
+            if ($reason === '') {
+                return $this->errorResponse('reason or message is required for alternative product requests', 422);
+            }
+
             $order = $this->orderService->requestAlternative(
                 $order,
                 $supplier,
                 $itemId,
                 $validated['alternative_item_id'],
-                $validated['reason'] ?? '',
-                $note
+                $reason,
+                $request->getNote()
             );
 
             return $this->successResponse(
