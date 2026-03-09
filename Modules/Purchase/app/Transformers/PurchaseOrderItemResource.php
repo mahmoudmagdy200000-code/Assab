@@ -82,9 +82,9 @@ class PurchaseOrderItemResource extends JsonResource
                 ? ($inventory->next_supply_date?->format('Y-m-d') ?? null)
                 : ($this->next_supply_date?->format('Y-m-d') ?? null),
 
-            // Pricing
+            // Pricing (when variance: total reflects received qty so Details show correct amount)
             'unit_price' => (float) $this->unit_price,
-            'total_price' => (float) $this->total_price,
+            'total_price' => $this->getEffectiveTotalPrice(),
             'discount' => (float) $this->discount,
 
             // Quality (fallback to latest receipt item when order item has variance but quality_received not synced)
@@ -120,6 +120,8 @@ class PurchaseOrderItemResource extends JsonResource
             'status_color' => $this->status?->color() ?? '#F59E0B',
             'quantity_variance' => $this->quantity_variance,
             'has_variance' => $this->has_variance,
+            // When variance: use received qty so Details can show 1 not 2
+            'effective_quantity' => $this->quantity_received !== null ? (float) $this->quantity_received : (float) $this->quantity_ordered,
 
             // Approval Information (if item needs approval, has approval data, or is canceled modification)
             'approval_type' => $this->when(
@@ -144,6 +146,22 @@ class PurchaseOrderItemResource extends JsonResource
             'is_alternative' => $this->is_alternative,
             'is_gift' => $this->is_gift,
         ];
+    }
+
+    /**
+     * Total price for display: when item has variance use received qty × unit price so Details show correct amount.
+     */
+    private function getEffectiveTotalPrice(): float
+    {
+        if ($this->has_variance && $this->quantity_received !== null) {
+            $received = (float) $this->quantity_received;
+            $sub = $received * (float) $this->unit_price;
+            $disc = (float) ($this->discount ?? 0);
+
+            return round($sub - $disc, 2);
+        }
+
+        return (float) $this->total_price;
     }
 
     /**
