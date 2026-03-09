@@ -127,18 +127,24 @@ class CustodyRequestController extends BaseController
     /**
      * Create new cash-in request
      * POST /api/custody/request-cashin
+     *
+     * When reuseRequestId is sent: create a new request using the past request's data (amount, purpose, preferredReceiptMethod).
+     * Other fields can still be overridden; if only reuseRequestId is sent, all data is taken from the past request.
      */
     public function store(Request $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'requestedAmount' => 'required|numeric|min:1|max:1000000',
-            'purpose' => 'required|string|min:10|max:500',
-            'preferredReceiptMethod' => 'required|in:Cash Handover,Bank Transfer',
+        $reuseId = $request->input('reuseRequestId');
+        $rules = [
+            'requestedAmount' => 'required_without:reuseRequestId|numeric|min:1|max:1000000',
+            'purpose' => 'required_without:reuseRequestId|string|min:10|max:500',
+            'preferredReceiptMethod' => 'required_without:reuseRequestId|in:Cash Handover,Bank Transfer',
             'attachments' => 'nullable|array|max:5',
             'attachments.*' => 'file|mimes:pdf,jpg,jpeg,png,docx|max:5120',
             'additionalNotes' => 'nullable|string|max:1000',
             'reuseRequestId' => 'nullable|exists:custody_requests,id',
-        ]);
+        ];
+
+        $validator = Validator::make($request->all(), $rules);
 
         if ($validator->fails()) {
             return $this->validationErrorResponse($validator->errors());
@@ -157,13 +163,16 @@ class CustodyRequestController extends BaseController
                 'attachments' => $request->file('attachments', []),
             ];
 
-            // If reusing a previous request, merge its data
-            if ($request->input('reuseRequestId')) {
-                $previousRequest = \Modules\Custody\Models\CustodyRequest::find($request->input('reuseRequestId'));
-                if ($previousRequest && $previousRequest->branch_manager_id === $branchManager->id) {
-                    $data['requestedAmount'] = $request->input('requestedAmount', $previousRequest->requested_amount);
-                    $data['purpose'] = $request->input('purpose', $previousRequest->purpose);
-                    $data['preferredReceiptMethod'] = $request->input('preferredReceiptMethod', $previousRequest->preferred_receipt_method);
+            if ($reuseId) {
+                $previousRequest = \Modules\Custody\Models\CustodyRequest::find($reuseId);
+                if (!$previousRequest || $previousRequest->branch_manager_id !== $branchManager->id) {
+                    return $this->errorResponse('Previous request not found or you are not allowed to reuse it.', 403);
+                }
+                $data['requestedAmount'] = $request->input('requestedAmount', $previousRequest->requested_amount);
+                $data['purpose'] = $request->input('purpose', $previousRequest->purpose);
+                $data['preferredReceiptMethod'] = $request->input('preferredReceiptMethod', $previousRequest->preferred_receipt_method);
+                if ($request->input('additionalNotes') === null || $request->input('additionalNotes') === '') {
+                    $data['additionalNotes'] = $previousRequest->additional_notes;
                 }
             }
 

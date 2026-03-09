@@ -9,8 +9,8 @@ use Modules\Custody\Http\Controllers\CustodyBalanceController;
 use Modules\Custody\Http\Controllers\CustodyHandoverController;
 
 Route::middleware(['auth:sanctum'])->group(function () {
-    // Personal Ledger Management (3.1.2.2)
-    Route::prefix('branch-manager/ledger')->group(function () {
+    // Personal Ledger Management (3.1.2.2) — Cashier & Branch Manager: data scoped to authenticated user (token)
+    Route::middleware(['branch.manager.or.cashier'])->prefix('branch-manager/ledger')->group(function () {
         Route::get('personal-custody-balance', [LedgerController::class, 'getPersonalCustodyBalance']);
         Route::get('personal-balance-only', [LedgerController::class, 'getPersonalBalanceOnly']);
         Route::get('transactions', [LedgerController::class, 'getTransactions']);
