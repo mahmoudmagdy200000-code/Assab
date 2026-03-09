@@ -137,7 +137,7 @@ class ModificationDetailResource extends JsonResource
                 'modified_total' => (float) $proposedTotalPrice,
                 'difference' => (float) (($originalQuantity * $this->unit_price) - $proposedTotalPrice),
             ],
-            'modification_notes' => $approvalData['note'] ?? $this->modification_note ?? null,
+            'modification_notes' => $approvalData['note'] ?? $this->modification_note ?? $order->message ?? null,
         ]);
     }
 
@@ -229,7 +229,7 @@ class ModificationDetailResource extends JsonResource
                 ],
             ],
 
-            'modification_notes' => $approvalData['note'] ?? $this->modification_note ?? null,
+            'modification_notes' => $approvalData['note'] ?? $this->modification_note ?? $order->message ?? null,
         ]);
     }
 
