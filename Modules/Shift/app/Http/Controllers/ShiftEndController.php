@@ -267,8 +267,8 @@ class ShiftEndController extends Controller
             $handoverToId = null;
             $handoverToName = null;
 
-            // Check if branch_manager_id is provided
-            if ($request->has('branch_manager_id')) {
+            // Only treat as handover to branch manager when a valid branch_manager_id is provided
+            if ($request->filled('branch_manager_id')) {
                 $branchManager = \Modules\BranchManagers\Models\BranchManager::find($request->branch_manager_id);
 
                 if (!$branchManager) {
@@ -494,8 +494,8 @@ class ShiftEndController extends Controller
             $handoverToId = null;
             $handoverToName = null;
 
-            // Check if branch_manager_id is provided
-            if ($request->has('branch_manager_id')) {
+            // Only treat as handover to branch manager when a valid branch_manager_id is provided
+            if ($request->filled('branch_manager_id')) {
                 $branchManager = \Modules\BranchManagers\Models\BranchManager::find($request->branch_manager_id);
 
                 if (!$branchManager) {
