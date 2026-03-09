@@ -17,7 +17,7 @@ Templates:
 Follow-up TODOs: None
 -->
 
-# Assab (Al-Zukhruf Electronic Consultant Office) Constitution
+# Assab 
 
 ## Core Principles
 
