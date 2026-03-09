@@ -292,8 +292,9 @@ class OrderService
             throw new \Exception('Unauthorized access to this order');
         }
 
-        if ($order->status !== OrderStatus::PENDING) {
-            throw new \Exception('Order must be in pending status to request partial approval');
+        $allowedStatuses = [OrderStatus::PENDING, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
+        if (!in_array($order->status, $allowedStatuses)) {
+            throw new \Exception('Order must be in pending, emergency or variance status to request partial approval');
         }
 
         return DB::transaction(function () use ($order, $itemRequests) {
@@ -352,12 +353,14 @@ class OrderService
             }
 
             // Allow time change request if:
-            // 1. Order is in pending status, OR
+            // 1. Order is in pending / emergency / variance status, OR
             // 2. Order is in partial confirmation status, OR
             // 3. Order status is cancelled but there are still pending items (edge case)
             // The key check is that the item itself is pending, which we already validated above
             $allowedStatuses = [
                 OrderStatus::PENDING,
+                OrderStatus::EMERGENCY,
+                OrderStatus::VARIANCE,
                 OrderStatus::PARTIAL_CONFIRMATION,
                 OrderStatus::CANCELLED_BY_BRANCH, // Allow if item is still pending
                 OrderStatus::CANCELLED_BY_SUPPLIER, // Allow if item is still pending
@@ -365,7 +368,7 @@ class OrderService
             ];
 
             if (!in_array($order->status, $allowedStatuses)) {
-                throw new \Exception('Order must be in pending or partial confirmation status to request time change');
+                throw new \Exception('Order must be in pending, emergency, variance or partial confirmation status to request time change');
             }
 
             $item->requestTimeChange($newDeliveryTime, $reason, $note, true); // isSupplierRequest = true (supplier is requesting)
@@ -391,8 +394,9 @@ class OrderService
             throw new \Exception('Unauthorized access to this order');
         }
 
-        if ($order->status !== OrderStatus::PENDING) {
-            throw new \Exception('Order must be in pending status to request alternative');
+        $allowedStatuses = [OrderStatus::PENDING, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
+        if (!in_array($order->status, $allowedStatuses)) {
+            throw new \Exception('Order must be in pending, emergency or variance status to request alternative');
         }
 
         return DB::transaction(function () use ($order, $itemId, $alternativeItemId, $reason, $note) {
