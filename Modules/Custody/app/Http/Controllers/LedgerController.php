@@ -22,7 +22,8 @@ class LedgerController extends BaseController
     ) {}
 
     /**
-     * Get personal custody balance dashboard
+     * Get personal custody balance dashboard.
+     * Data is always for the authenticated user (token): cashier → cashier custody; branch manager → personal ledger.
      * GET /api/branch-manager/ledger/personal-custody-balance
      *
      * Query Parameters:
@@ -194,7 +195,7 @@ class LedgerController extends BaseController
     }
 
     /**
-     * Get branch custody balance with requests and transactions
+     * Get branch custody balance with requests and transactions (Branch Manager only).
      * GET /api/branch-manager/ledger/branch-custody-balance
      *
      * Query Parameters:
@@ -205,6 +206,10 @@ class LedgerController extends BaseController
      */
     public function getBranchCustodyBalance(Request $request): JsonResponse
     {
+        if (auth()->user() instanceof Cashier) {
+            return $this->errorResponse('This endpoint is for Branch Managers only.', 403);
+        }
+
         try {
             $filters = [
                 'status' => $request->input('status'), // Request status filter (All, Cash Handover, Bank Transfer, Custody Requests)

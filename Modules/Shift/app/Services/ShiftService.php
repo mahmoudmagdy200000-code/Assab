@@ -19,8 +19,9 @@ class ShiftService
 
     /**
      * Resolve next cashier from the chronologically next shift (same day, same branch).
-     * Finds the shift whose start_time is the earliest one after the current shift's end_time,
-     * regardless of its status (not_started or in_progress).
+     * Order of shifts by start_time: Night (00:00), Morning (06:00), Afternoon (12:00), Evening (18:00).
+     * When current shift ends at midnight (00:00:00), the next shift is Night (start_time 00:00:00).
+     * Otherwise next is the shift with smallest start_time > current end_time.
      * Used for display; override only when handing over.
      */
     public function getNextShiftCashier(CashierShift $shift): ?Cashier
@@ -31,16 +32,28 @@ class ShiftService
             return null;
         }
 
-        $next = CashierShift::where('cashier_shifts.id', '!=', $shift->id)
+        $endTime = $shift->shift->end_time;
+        $endTimeStr = $endTime instanceof \Carbon\Carbon
+            ? $endTime->format('H:i:s')
+            : (string) $endTime;
+        $isMidnightEnd = $endTimeStr === '00:00:00';
+
+        $query = CashierShift::where('cashier_shifts.id', '!=', $shift->id)
             ->where('cashier_shifts.shift_date', $shift->shift_date)
             ->join('shifts', 'cashier_shifts.shift_id', '=', 'shifts.id')
             ->where('shifts.branch_id', $shift->shift->branch_id)
-            ->where('shifts.start_time', '>', $shift->shift->end_time)
             ->whereIn('cashier_shifts.status', [
                 ShiftStatus::NOT_STARTED->value,
                 ShiftStatus::IN_PROGRESS->value,
-            ])
-            ->orderBy('shifts.start_time')
+            ]);
+
+        if ($isMidnightEnd) {
+            $query->where('shifts.start_time', '00:00:00');
+        } else {
+            $query->where('shifts.start_time', '>', $endTime);
+        }
+
+        $next = $query->orderBy('shifts.start_time')
             ->select('cashier_shifts.*')
             ->with('cashier:id,name,email,phone')
             ->first();
