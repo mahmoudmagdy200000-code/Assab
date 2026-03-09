@@ -6,9 +6,15 @@ use Modules\Custody\Http\Controllers\LedgerController;
 use Modules\Custody\Http\Controllers\CustodyRequestController;
 use Modules\Custody\Http\Controllers\CustodyTransactionController;
 use Modules\Custody\Http\Controllers\CustodyBalanceController;
+use Modules\Custody\Http\Controllers\CashierCustodyController;
 use Modules\Custody\Http\Controllers\CustodyHandoverController;
 
 Route::middleware(['auth:sanctum'])->group(function () {
+    // Cashier Custody (cash in/out balance & transactions)
+    Route::middleware(['cashier'])->prefix('cashier/custody')->group(function () {
+        Route::get('balance', [CashierCustodyController::class, 'balance']);
+        Route::get('transactions', [CashierCustodyController::class, 'transactions']);
+    });
     // Personal Ledger Management (3.1.2.2) — Cashier & Branch Manager: data scoped to authenticated user (token)
     Route::middleware(['branch.manager.or.cashier'])->prefix('branch-manager/ledger')->group(function () {
         Route::get('personal-custody-balance', [LedgerController::class, 'getPersonalCustodyBalance']);
