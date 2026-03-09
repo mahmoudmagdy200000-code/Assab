@@ -23,10 +23,7 @@ class RecurringOrderDetailResource extends JsonResource
         if ($sourceImage && !str_starts_with((string) $sourceImage, 'http')) {
             $sourceImage = asset('storage/' . $sourceImage);
         }
-        $typeValue = $this->order_source_type?->value ?? $this->order_source_type;
-        $typeLabel = ($typeValue === OrderSourceType::DIRECT_SUPPLIER->value || $typeValue === 'direct_supplier')
-            ? 'Direct Supplier'
-            : 'Purchasing Officer';
+        $orderType = $this->order_source_type?->value ?? $this->order_source_type ?? null;
 
         [$schedulingTimeStr, $schedulingTimeValue, $meridiem] = $this->buildSchedulingTimeAndMeridiem();
         $statusSection = $this->buildStatusSection($schedulingTimeStr);
@@ -63,6 +60,7 @@ class RecurringOrderDetailResource extends JsonResource
 
         return [
             'id' => $this->id,
+            'order_type' => $orderType,
             'status_section' => $statusSection,
             'inspection_summary' => $inspectionSummary,
             'frequency_settings' => $frequencySettings,
