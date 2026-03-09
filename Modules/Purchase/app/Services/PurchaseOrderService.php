@@ -490,6 +490,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 'special_instructions' => $data['special_instructions'] ?? null,
                 'tax_rate' => $data['tax_rate'] ?? PurchaseConstants::DEFAULT_TAX_RATE,
                 'recurring_order_id' => $data['recurring_order_id'] ?? null,
+                'recurring_metadata' => $data['recurring_metadata'] ?? null,
             ]);
 
             // Create order items

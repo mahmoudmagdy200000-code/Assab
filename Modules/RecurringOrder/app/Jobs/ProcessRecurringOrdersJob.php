@@ -30,6 +30,7 @@ class ProcessRecurringOrdersJob implements ShouldQueue
 
     public function handle(PurchaseOrderService $purchaseOrderService, RecurringOrderService $recurringOrderService): void
     {
+        // FR-006 / SC-004: Only pending, non-paused orders with next_run_at due are processed; paused or inactive orders are excluded.
         $due = RecurringOrder::with(['items', 'sourceable'])
             ->where('status', RecurringOrderStatus::PENDING)
             ->whereNotNull('next_run_at')
@@ -78,6 +79,18 @@ class ProcessRecurringOrdersJob implements ShouldQueue
             ];
         })->all();
 
+        $notificationChannels = $recurring->notification_channels && is_array($recurring->notification_channels) && count($recurring->notification_channels) > 0
+            ? array_values($recurring->notification_channels)
+            : ['app'];
+
+        $recurringMetadata = null;
+        if (!empty($recurring->notification_options) || !empty($recurring->smart_settings)) {
+            $recurringMetadata = array_filter([
+                'notification_options' => $recurring->notification_options ?? [],
+                'smart_settings' => $recurring->smart_settings ?? [],
+            ]);
+        }
+
         $data = [
             'order_type' => $orderType->value,
             'status' => PurchaseOrderStatus::PENDING,
@@ -87,9 +100,10 @@ class ProcessRecurringOrdersJob implements ShouldQueue
             'sourceable_id' => $recurring->sourceable_id,
             'supplier_id' => $orderType === OrderType::DIRECT_SUPPLIER ? $recurring->sourceable_id : null,
             'quality_level' => $items[0]['quality'] ?? QualityLevel::STANDARD->value,
-            'notification_channels' => ['app'],
+            'notification_channels' => $notificationChannels,
             'message' => 'Auto-generated from recurring order: ' . $recurring->order_name,
             'recurring_order_id' => $recurring->id,
+            'recurring_metadata' => $recurringMetadata,
             'items' => $items,
         ];
 

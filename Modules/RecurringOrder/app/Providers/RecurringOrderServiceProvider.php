@@ -2,8 +2,11 @@
 
 namespace Modules\RecurringOrder\Providers;
 
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\ServiceProvider;
+use Modules\RecurringOrder\Console\ProcessRecurringOrdersCommand;
+use Modules\RecurringOrder\Jobs\ProcessRecurringOrdersJob;
 use Nwidart\Modules\Traits\PathNamespace;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -43,7 +46,9 @@ class RecurringOrderServiceProvider extends ServiceProvider
      */
     protected function registerCommands(): void
     {
-        // $this->commands([]);
+        $this->commands([
+            ProcessRecurringOrdersCommand::class,
+        ]);
     }
 
     /**
@@ -51,10 +56,10 @@ class RecurringOrderServiceProvider extends ServiceProvider
      */
     protected function registerCommandSchedules(): void
     {
-        // $this->app->booted(function () {
-        //     $schedule = $this->app->make(Schedule::class);
-        //     $schedule->command('inspire')->hourly();
-        // });
+        $this->app->booted(function () {
+            $schedule = $this->app->make(Schedule::class);
+            $schedule->job(ProcessRecurringOrdersJob::class)->everyFiveMinutes()->withoutOverlapping(5);
+        });
     }
 
     /**
