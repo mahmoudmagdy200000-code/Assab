@@ -25,6 +25,7 @@ class StoreRecurringOrderRequest extends FormRequest
             'direct_supplier.items.*.item_id' => ['required', 'string', 'exists:items,id'],
             'direct_supplier.items.*.quantity' => ['required', 'numeric', 'min:0.001'],
             'direct_supplier.items.*.quality' => ['nullable', 'string', 'max:50'],
+            'direct_supplier.items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
 
             'purchase_officer' => ['nullable', 'array'],
             'purchase_officer.purchasing_officer_id' => ['required_with:purchase_officer', 'string', 'exists:branch_managers,id'],
@@ -32,6 +33,7 @@ class StoreRecurringOrderRequest extends FormRequest
             'purchase_officer.items.*.item_id' => ['required', 'string', 'exists:items,id'],
             'purchase_officer.items.*.quantity' => ['required', 'numeric', 'min:0.001'],
             'purchase_officer.items.*.quality' => ['nullable', 'string', 'max:50'],
+            'purchase_officer.items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
             'purchase_officer.items.*.preferred_delivery_date' => ['nullable', 'date'],
             'purchase_officer.items.*.latest_delivery_date' => ['nullable', 'date'],
             'purchase_officer.items.*.special_instructions' => ['nullable', 'string', 'max:1000'],

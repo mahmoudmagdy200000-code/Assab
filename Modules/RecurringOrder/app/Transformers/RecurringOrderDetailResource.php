@@ -4,6 +4,7 @@ namespace Modules\RecurringOrder\Transformers;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\Purchase\Models\BranchItem;
 use Modules\RecurringOrder\Enums\OrderSourceType;
 use Modules\RecurringOrder\Enums\RecurringOrderStatus;
 use Modules\RecurringOrder\Enums\RepeatFrequency;
@@ -48,7 +49,7 @@ class RecurringOrderDetailResource extends JsonResource
             ],
             'message' => $this->message,
             'notification_channels' => $this->notification_channels ?? [],
-            'items_summary' => RecurringOrderItemResource::collection($this->whenLoaded('items')),
+            'items_summary' => $this->buildItemsSummaryWithEffectiveUnitPrice($request),
             'scheduling_settings' => $this->buildSchedulingSettings(),
         ];
         $includeAvailability = $request->get('include_item_availability') || $this->resource->getAttribute('include_item_availability');
@@ -239,6 +240,28 @@ class RecurringOrderDetailResource extends JsonResource
             'notifications' => $this->notification_options ?? [],
             'smart_settings' => $this->smart_settings ?? [],
         ];
+    }
+
+    /**
+     * Build items_summary with unit_price fallback: when stored unit_price is 0, use branch item price.
+     */
+    private function buildItemsSummaryWithEffectiveUnitPrice(Request $request): array
+    {
+        $items = $this->whenLoaded('items');
+        if ($items === null || $items->isEmpty()) {
+            return [];
+        }
+        $branchPrices = BranchItem::where('branch_id', $this->branch_id)
+            ->whereIn('item_id', $items->pluck('item_id'))
+            ->get()
+            ->keyBy('item_id');
+
+        return $items->map(function ($item) use ($request, $branchPrices) {
+            $arr = (new RecurringOrderItemResource($item))->toArray($request);
+            $stored = (float) $item->unit_price;
+            $arr['unit_price'] = $stored > 0 ? $stored : (float) ($branchPrices->get($item->item_id)?->price ?? 0);
+            return $arr;
+        })->all();
     }
 
     private function buildItemCountAndAvailability(): array
