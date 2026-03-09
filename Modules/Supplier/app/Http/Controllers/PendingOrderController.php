@@ -144,9 +144,10 @@ class PendingOrderController extends BaseController
                 return $this->errorResponse('Unauthorized access to this order', 403);
             }
 
-            if ($order->status !== OrderStatus::PENDING) {
+            $allowedStatuses = [OrderStatus::PENDING, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
+            if (!in_array($order->status, $allowedStatuses)) {
                 return $this->errorResponse(
-                    "Order is not in pending status. Current status: {$order->status->label()}",
+                    "Order is not in pending, emergency or variance status. Current status: {$order->status->label()}",
                     400
                 );
             }
