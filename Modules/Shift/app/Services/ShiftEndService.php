@@ -59,7 +59,7 @@ class ShiftEndService
 
             DB::commit();
 
-            // Record Cash-IN (Cash Collected) for the cashier — they are declaring
+            // Record Cash-IN (Total Sales) for the cashier — they are declaring
             // they hold this cash at end of shift. Cash-OUT happens later via handover.
             if ($shift->cashier_id) {
                 try {
@@ -69,13 +69,13 @@ class ShiftEndService
                         if ($cashier) {
                             $existing = \Modules\Custody\Models\CashierCustodyTransaction::where('related_shift_id', $shift->id)
                                 ->where('cashier_id', $cashier->id)
-                                ->where('transaction_type', 'Cash Collected')
+                                ->where('transaction_type', 'Total Sales')
                                 ->first();
 
                             if (!$existing) {
                                 \Modules\Custody\Models\CashierCustodyTransaction::create([
                                     'cashier_id'       => $cashier->id,
-                                    'transaction_type'  => 'Cash Collected',
+                                    'transaction_type'  => 'Total Sales',
                                     'amount'            => $cashAmount,
                                     'is_cash_in'        => true,
                                     'counterpart_name'  => null,
@@ -86,7 +86,7 @@ class ShiftEndService
                         }
                     }
                 } catch (\Exception $e) {
-                    \Illuminate\Support\Facades\Log::warning('Failed to record end-shift-only Cash Collected', [
+                    \Illuminate\Support\Facades\Log::warning('Failed to record end-shift-only Total Sales', [
                         'shift_id' => $shift->id,
                         'error'    => $e->getMessage(),
                     ]);

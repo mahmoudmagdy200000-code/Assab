@@ -72,14 +72,14 @@ class CashierCustodyService
     }
 
     /**
-     * Record Cash-IN when a cashier sends a handover (declaring the cash they hold).
+     * Record Cash-IN (Total Sales) when a cashier sends a handover (declaring the cash they hold).
      * This entry stays if rejected, and is complemented by a Cash-OUT when accepted.
      */
     public function recordCashCollected(CashierShiftHandover $handover, Cashier $sendingCashier): CashierCustodyTransaction
     {
         $existing = CashierCustodyTransaction::where('related_handover_id', $handover->id)
             ->where('cashier_id', $sendingCashier->id)
-            ->where('transaction_type', 'Cash Collected')
+            ->where('transaction_type', 'Total Sales')
             ->first();
 
         if ($existing) {
@@ -95,7 +95,7 @@ class CashierCustodyService
 
         return CashierCustodyTransaction::create([
             'cashier_id'          => $sendingCashier->id,
-            'transaction_type'    => 'Cash Collected',
+            'transaction_type'    => 'Total Sales',
             'amount'              => $handover->handover_amount,
             'is_cash_in'          => true,
             'counterpart_name'    => $toName,

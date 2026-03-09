@@ -62,7 +62,7 @@ class CashierCustodyController extends BaseController
                 return $this->errorResponse('Both month and year must be provided together, or both omitted', 400);
             }
 
-            $validTypes = ['Handover Received', 'Handover Sent', 'Variance', 'Cash Collected'];
+            $validTypes = ['Handover Received', 'Handover Sent', 'Variance', 'Total Sales'];
             $type = $request->input('transaction_type');
             if ($type && !in_array($type, $validTypes)) {
                 return $this->errorResponse('Invalid transaction_type. Must be: ' . implode(', ', $validTypes), 400);

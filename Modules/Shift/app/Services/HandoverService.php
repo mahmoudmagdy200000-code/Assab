@@ -120,14 +120,14 @@ class HandoverService
 
             DB::commit();
 
-            // Record Cash-IN (Cash Collected) for the sending cashier — they are declaring
+            // Record Cash-IN (Total Sales) for the sending cashier — they are declaring
             // they hold this cash. Cash-OUT is deferred until acceptance/approval.
             if ($shift->cashier) {
                 try {
                     app(\Modules\Custody\Services\CashierCustodyService::class)
                         ->recordCashCollected($handover, $shift->cashier);
                 } catch (\Exception $e) {
-                    Log::warning('Failed to create Cash Collected entry', [
+                    Log::warning('Failed to create Total Sales entry', [
                         'error'       => $e->getMessage(),
                         'handover_id' => $handover->id,
                     ]);
