@@ -156,8 +156,9 @@ class OrderController extends BaseController
             $filters = request()->only(['search', 'is_available']);
             $perPage = request()->get('per_page', 15);
 
-            // Build query
+            // Build query: only include supplier items that have an existing item (exclude orphaned item_id)
             $query = SupplierItem::where('supplier_id', $supplier->id)
+                ->whereHas('item')
                 ->with(['item' => function ($q) {
                     $q->select('id', 'name', 'code', 'unit', 'logo', 'category', 'subcategory');
                 }]);
