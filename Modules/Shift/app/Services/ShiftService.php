@@ -19,9 +19,9 @@ class ShiftService
 
     /**
      * Resolve next cashier from the chronologically next shift (same day, same branch).
-     * Order of shifts by start_time: Night (00:00), Morning (06:00), Afternoon (12:00), Evening (18:00).
-     * When current shift ends at midnight (00:00:00), the next shift is Night (start_time 00:00:00).
-     * Otherwise next is the shift with smallest start_time > current end_time.
+     * Shift order: Morning (06:00) → Afternoon (12:00) → Evening (18:00) → Night (00:00).
+     * Next = the shift that starts when the current one ends (start_time >= end_time);
+     * when current ends at midnight (00:00), next is Night (start 00:00).
      * Used for display; override only when handing over.
      */
     public function getNextShiftCashier(CashierShift $shift): ?Cashier
@@ -50,7 +50,7 @@ class ShiftService
         if ($isMidnightEnd) {
             $query->where('shifts.start_time', '00:00:00');
         } else {
-            $query->where('shifts.start_time', '>', $endTime);
+            $query->where('shifts.start_time', '>=', $endTime);
         }
 
         $next = $query->orderBy('shifts.start_time')
