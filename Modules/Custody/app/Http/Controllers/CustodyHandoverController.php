@@ -31,8 +31,8 @@ class CustodyHandoverController extends BaseController
     public function handover(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'recipientId' => 'required|string',
-            'recipientType' => 'required|in:Branch Manager,Brand Owner,Custody',
+            'recipientId'   => 'required|string',
+            'recipientType' => 'required|in:Cashier,Branch Manager,Brand Owner,Custody',
             'handoverAmount' => 'required|numeric|min:1',
             'additionalNotes' => 'nullable|string|max:500',
             'handoverMethod' => 'required_if:recipientType,Branch Manager|required_if:recipientType,Brand Owner|in:Cash Handover,Bank Transfer',
@@ -62,15 +62,25 @@ class CustodyHandoverController extends BaseController
                 return DB::transaction(function () use ($request, $user, $personalBalance) {
                     $amount        = (float) $request->input('handoverAmount');
                     $recipientType = $request->input('recipientType');
-                    $recipientName = $this->getRecipientName($request->input('recipientId'), $recipientType);
+                    $recipientId   = $request->input('recipientId');
+                    $recipientName = $this->getRecipientName($recipientId, $recipientType);
 
-                    // Record Cash-OUT in cashier custody ledger
+                    // Record Cash-OUT for the sending cashier
                     $this->cashierCustodyService->recordManualHandoverSent($user->id, $amount, $recipientName);
+
+                    // Cashier-to-cashier: record Cash-IN for the receiving cashier
+                    if ($recipientType === 'Cashier') {
+                        $this->cashierCustodyService->recordManualHandoverReceived(
+                            $recipientId,
+                            $amount,
+                            $user->name
+                        );
+                    }
 
                     // If handing over to a branch manager, credit their personal ledger
                     if ($recipientType === 'Branch Manager') {
                         PersonalLedgerTransaction::create([
-                            'branch_manager_id' => $request->input('recipientId'),
+                            'branch_manager_id' => $recipientId,
                             'transaction_type'  => 'Total Sales',
                             'amount'            => $amount,
                             'is_cash_in'        => true,
@@ -214,7 +224,7 @@ class CustodyHandoverController extends BaseController
     /**
      * Get list of available recipients for handover.
      * GET /api/custody/recipients
-     * Returns: Custody option + Branch Managers (same branch, excluding current user) + Brand Owners (if any).
+     * Returns: Cashiers (when user is cashier) + Custody + Branch Managers (same branch) + Brand Owners (if any).
      */
     public function getRecipients(): JsonResponse
     {
@@ -224,15 +234,51 @@ class CustodyHandoverController extends BaseController
 
             $recipients = [];
 
-            // 1. Custody option (transfer to branch custody balance)
-            $recipients[] = [
-                'id' => 'custody',
-                'type' => 'Custody',
-                'name' => 'Transfer to Custody',
-            ];
+            // When user is Cashier: other cashiers + branch managers (same branch)
+            if ($user instanceof Cashier && $branchId) {
+                $cashiers = Cashier::query()
+                    ->where('branch_id', $branchId)
+                    ->where('id', '!=', $user->id)
+                    ->whereNull('deleted_at')
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'email']);
 
-            // 2. Other Branch Managers in the same branch (active, exclude current user)
-            if ($branchId) {
+                foreach ($cashiers as $c) {
+                    $recipients[] = [
+                        'id'    => $c->id,
+                        'type'  => 'Cashier',
+                        'name'  => $c->name,
+                        'email' => $c->email,
+                    ];
+                }
+
+                $branchManagersForCashier = BranchManager::query()
+                    ->byBranch($branchId)
+                    ->active()
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'email']);
+
+                foreach ($branchManagersForCashier as $bm) {
+                    $recipients[] = [
+                        'id'    => $bm->id,
+                        'type'  => 'Branch Manager',
+                        'name'  => $bm->name,
+                        'email' => $bm->email,
+                    ];
+                }
+            }
+
+            // Custody option (transfer to branch custody balance) — for Branch Managers only
+            if ($user instanceof BranchManager) {
+                $recipients[] = [
+                    'id'   => 'custody',
+                    'type' => 'Custody',
+                    'name' => 'Transfer to Custody',
+                ];
+            }
+
+            // Other Branch Managers in the same branch (active, exclude current user)
+            if ($branchId && $user instanceof BranchManager) {
                 $branchManagers = BranchManager::query()
                     ->byBranch($branchId)
                     ->active()
@@ -242,15 +288,15 @@ class CustodyHandoverController extends BaseController
 
                 foreach ($branchManagers as $bm) {
                     $recipients[] = [
-                        'id' => $bm->id,
-                        'type' => 'Branch Manager',
-                        'name' => $bm->name,
+                        'id'    => $bm->id,
+                        'type'  => 'Branch Manager',
+                        'name'  => $bm->name,
                         'email' => $bm->email,
                     ];
                 }
             }
 
-            // 3. Brand Owners (no BrandOwner model in codebase yet; extend when available)
+            // Brand Owners (extend when BrandOwner model exists)
             $brandOwners = $this->getBrandOwnerRecipients();
             foreach ($brandOwners as $bo) {
                 $recipients[] = $bo;
@@ -277,6 +323,12 @@ class CustodyHandoverController extends BaseController
      */
     private function getRecipientName(string $recipientId, string $recipientType): ?string
     {
+        if ($recipientType === 'Cashier') {
+            $c = Cashier::query()->find($recipientId);
+
+            return $c?->name;
+        }
+
         if ($recipientType === 'Branch Manager') {
             $bm = BranchManager::query()->find($recipientId);
 
@@ -284,7 +336,6 @@ class CustodyHandoverController extends BaseController
         }
 
         if ($recipientType === 'Brand Owner') {
-            // Extend when BrandOwner model exists
             return null;
         }
 

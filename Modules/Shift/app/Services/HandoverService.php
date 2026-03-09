@@ -120,12 +120,19 @@ class HandoverService
 
             DB::commit();
 
-            // Record Cash-IN (Total Sales) for the sending cashier — they are declaring
-            // they hold this cash. Cash-OUT is deferred until acceptance/approval.
+            // Record Cash-IN (Total Sales) only if this shift does not already have one for this cashier
+            // (e.g. from End Shift Only). Avoids double-counting when handover is sent after end shift only.
             if ($shift->cashier) {
                 try {
-                    app(\Modules\Custody\Services\CashierCustodyService::class)
-                        ->recordCashCollected($handover, $shift->cashier);
+                    $alreadyHasTotalSales = \Modules\Custody\Models\CashierCustodyTransaction::where('related_shift_id', $shift->id)
+                        ->where('cashier_id', $shift->cashier->id)
+                        ->where('transaction_type', 'Total Sales')
+                        ->exists();
+
+                    if (!$alreadyHasTotalSales) {
+                        app(\Modules\Custody\Services\CashierCustodyService::class)
+                            ->recordCashCollected($handover, $shift->cashier);
+                    }
                 } catch (\Exception $e) {
                     Log::warning('Failed to create Total Sales entry', [
                         'error'       => $e->getMessage(),

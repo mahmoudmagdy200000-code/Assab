@@ -121,6 +121,21 @@ class CashierCustodyService
     }
 
     /**
+     * Record Cash-IN (Handover Received) for a cashier when another cashier sends manual handover to them.
+     */
+    public function recordManualHandoverReceived(string $receivingCashierId, float $amount, ?string $senderName): CashierCustodyTransaction
+    {
+        return CashierCustodyTransaction::create([
+            'cashier_id'       => $receivingCashierId,
+            'transaction_type' => 'Handover Received',
+            'amount'           => $amount,
+            'is_cash_in'       => true,
+            'counterpart_name' => $senderName,
+            'transaction_date' => now(),
+        ]);
+    }
+
+    /**
      * Get current personal balance (cash in - cash out) for a cashier.
      */
     public function getPersonalBalanceOnly(string $cashierId): float
