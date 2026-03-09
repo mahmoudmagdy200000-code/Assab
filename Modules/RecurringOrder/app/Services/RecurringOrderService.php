@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
 use Modules\RecurringOrder\Enums\OrderSourceType;
 use Modules\RecurringOrder\Enums\RecurringOrderStatus;
@@ -472,14 +473,22 @@ class RecurringOrderService
     private function syncItems(RecurringOrder $order, array $items): void
     {
         $order->items()->delete();
-        $itemIds = collect($items)->pluck('item_id')->unique()->filter();
+        $itemIds = collect($items)->pluck('item_id')->unique()->filter()->values()->all();
         $itemsData = Item::whereIn('id', $itemIds)->get()->keyBy('id');
+
+        $branchPrices = BranchItem::where('branch_id', $order->branch_id)
+            ->whereIn('item_id', $itemIds)
+            ->get()
+            ->keyBy('item_id');
 
         foreach ($items as $row) {
             $item = $itemsData->get($row['item_id'] ?? null);
             if (!$item) {
                 continue;
             }
+            $unitPrice = isset($row['unit_price']) && (float) $row['unit_price'] > 0
+                ? (float) $row['unit_price']
+                : (float) ($branchPrices->get($item->id)?->price ?? 0);
             $logo = $item->logo;
             $logoStr = is_array($logo) ? ($logo[0] ?? null) : $logo;
             RecurringOrderItem::create([
@@ -489,7 +498,7 @@ class RecurringOrderService
                 'item_logo' => $logoStr,
                 'quantity' => $row['quantity'],
                 'quality' => $row['quality'] ?? 'standard',
-                'unit_price' => $row['unit_price'] ?? 0,
+                'unit_price' => $unitPrice,
                 'preferred_delivery_date' => isset($row['preferred_delivery_date']) ? $row['preferred_delivery_date'] : null,
                 'latest_delivery_date' => isset($row['latest_delivery_date']) ? $row['latest_delivery_date'] : null,
                 'special_instructions' => $row['special_instructions'] ?? null,
