@@ -815,28 +815,36 @@ class CashierShiftController extends BaseController
                 ->withCount('shifts')
                 ->paginate($request->input('per_page', 10));
 
-            // Load branch managers for this branch
-            $branchManagers = BranchManager::where('branch_id', $manager->branch_id)
+            $branchId = $manager->branch_id;
+            $selectCols = ['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'status', 'is_first_login', 'image', 'email_verified_at', 'phone_verified_at', 'created_at', 'updated_at'];
+
+            // 1) Branch managers for this branch
+            $byBranch = BranchManager::where('branch_id', $branchId)
                 ->with('branch:id,name,location')
-                ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'status', 'is_first_login', 'image', 'email_verified_at', 'phone_verified_at', 'created_at', 'updated_at'])
+                ->select($selectCols)
                 ->get();
 
-            // Include branch managers who created cashiers in this branch (so they always see themselves even with different branch_id or when calling as cashier)
-            $creatorIds = Cashier::where('branch_id', $manager->branch_id)
+            // 2) Branch managers who created cashiers in this branch (so the one who created cashiers always appears for handover)
+            $creatorIds = Cashier::where('branch_id', $branchId)
                 ->whereNotNull('created_by')
                 ->distinct()
-                ->pluck('created_by');
-            $existingIds = $branchManagers->pluck('id')->map(fn ($id) => (string) $id)->all();
-            $missingIds = $creatorIds->filter(fn ($id) => !in_array((string) $id, $existingIds, true))->unique()->values();
-            if ($missingIds->isNotEmpty()) {
-                $extra = BranchManager::with('branch:id,name,location')
-                    ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'status', 'is_first_login', 'image', 'email_verified_at', 'phone_verified_at', 'created_at', 'updated_at'])
-                    ->whereIn('id', $missingIds)
+                ->pluck('created_by')
+                ->unique()
+                ->values();
+            $existingIds = $byBranch->pluck('id')->map(fn ($id) => (string) $id)->all();
+            $missingCreatorIds = $creatorIds->filter(fn ($id) => !in_array((string) $id, $existingIds, true))->values();
+            $byCreator = collect();
+            if ($missingCreatorIds->isNotEmpty()) {
+                $byCreator = BranchManager::withTrashed()
+                    ->with('branch:id,name,location')
+                    ->select($selectCols)
+                    ->whereIn('id', $missingCreatorIds->all())
                     ->get();
-                $branchManagers = $extra->concat($branchManagers->all())->values();
             }
 
-            // Always put current user (branch manager) first when they are a branch manager
+            $branchManagers = $byCreator->concat($byBranch->all())->unique('id')->values();
+
+            // 3) If current user is branch manager, put them first so they can hand over to themselves
             if ($manager instanceof BranchManager) {
                 $current = $manager;
                 if (!$current->relationLoaded('branch')) {
