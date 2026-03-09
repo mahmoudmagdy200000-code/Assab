@@ -821,7 +821,22 @@ class CashierShiftController extends BaseController
                 ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'status', 'is_first_login', 'image', 'email_verified_at', 'phone_verified_at', 'created_at', 'updated_at'])
                 ->get();
 
-            // Always put current user (branch manager) first so they always see themselves
+            // Include branch managers who created cashiers in this branch (so they always see themselves even with different branch_id or when calling as cashier)
+            $creatorIds = Cashier::where('branch_id', $manager->branch_id)
+                ->whereNotNull('created_by')
+                ->distinct()
+                ->pluck('created_by');
+            $existingIds = $branchManagers->pluck('id')->map(fn ($id) => (string) $id)->all();
+            $missingIds = $creatorIds->filter(fn ($id) => !in_array((string) $id, $existingIds, true))->unique()->values();
+            if ($missingIds->isNotEmpty()) {
+                $extra = BranchManager::with('branch:id,name,location')
+                    ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'status', 'is_first_login', 'image', 'email_verified_at', 'phone_verified_at', 'created_at', 'updated_at'])
+                    ->whereIn('id', $missingIds)
+                    ->get();
+                $branchManagers = $extra->concat($branchManagers->all())->values();
+            }
+
+            // Always put current user (branch manager) first when they are a branch manager
             if ($manager instanceof BranchManager) {
                 $current = $manager;
                 if (!$current->relationLoaded('branch')) {
