@@ -182,8 +182,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 if (!$this->items) {
                     return [];
                 }
-                $activeItems = $this->items->filter(fn ($item) => !$item->status?->isCancelled());
-                return $activeItems->map(function ($item) {
+                return $this->items->map(function ($item) {
                     $hasVariance = $item->quantity_received !== null && (float) ($item->quantity_variance ?? 0) != 0;
                     $effectiveTotal = $hasVariance && $item->quantity_received !== null
                         ? round((float) $item->quantity_received * (float) $item->unit_price - (float) ($item->discount ?? 0), 2)
@@ -219,7 +218,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     }
 
                     return $itemData;
-                })->values()->all();
+                })->all();
             }) ?? [],
             'supplier' => $this->supplierFragment(),
             'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
@@ -253,8 +252,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 if (!$this->items) {
                     return [];
                 }
-                $activeItems = $this->items->filter(fn ($item) => !$item->status?->isCancelled());
-                return $activeItems->map(function ($item) {
+                return $this->items->map(function ($item) {
                     $hasVariance = $item->quantity_received !== null && (float) ($item->quantity_variance ?? 0) != 0;
                     $effectiveTotal = $hasVariance && $item->quantity_received !== null
                         ? round((float) $item->quantity_received * (float) $item->unit_price - (float) ($item->discount ?? 0), 2)
@@ -280,7 +278,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                         'special_instructions' => $this->special_instructions ?? 'n/a',
                         'price_comparison' => $priceComparison,
                     ];
-                })->values()->all();
+                })->all();
             }) ?? [],
             'supplier' => null,
             'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
@@ -318,14 +316,13 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'delay_details' => $this->getDelayDetails(),
             ],
             'product_details' => $this->whenLoaded('items', function () use ($fromBranchNameOnly) {
-                $activeItems = $this->items->filter(fn ($item) => !$item->status?->isCancelled());
                 // Get from_branch_id for inventory lookup
                 $fromBranchId = $this->from_branch_id;
 
-                // Eager load all inventory records for active items at once (performance optimization)
+                // Eager load all inventory records for items at once (performance optimization)
                 $inventories = collect();
-                if ($fromBranchId && $activeItems->isNotEmpty()) {
-                    $itemIds = $activeItems->pluck('item_id')->filter()->unique()->toArray();
+                if ($fromBranchId && $this->items->isNotEmpty()) {
+                    $itemIds = $this->items->pluck('item_id')->filter()->unique()->toArray();
                     if (!empty($itemIds)) {
                         $inventories = BranchInventory::where('branch_id', $fromBranchId)
                             ->whereIn('item_id', $itemIds)
@@ -334,7 +331,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     }
                 }
 
-                return $activeItems->map(function ($item) use ($fromBranchNameOnly, $inventories) {
+                return $this->items->map(function ($item) use ($fromBranchNameOnly, $inventories) {
                     // Get inventory data from preloaded collection
                     $inventory = $item->item_id ? ($inventories->get($item->item_id) ?? null) : null;
 
@@ -387,7 +384,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                         'cooling_status' => $coolingStatus,
                         'item_unit' => $item->unit_of_measurement ?? 'n/a',
                     ];
-                })->values()->all();
+                })->all();
             }) ?? [],
             'supplier' => null,
             'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),

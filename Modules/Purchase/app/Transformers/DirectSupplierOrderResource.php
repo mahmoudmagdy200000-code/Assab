@@ -76,10 +76,8 @@ class DirectSupplierOrderResource extends JsonResource
             // Available Actions
             'available_actions' => $this->getAvailableActions(),
 
-            // Items (exclude cancelled so details and totals show only active items)
-            'items' => PurchaseOrderItemResource::collection(
-                $this->whenLoaded('items', fn () => $this->items->filter(fn ($item) => !$item->status?->isCancelled())->values())
-            ),
+            // Items
+            'items' => PurchaseOrderItemResource::collection($this->whenLoaded('items')),
 
             // Financial Summary
             'subtotal' => (float) $this->subtotal,

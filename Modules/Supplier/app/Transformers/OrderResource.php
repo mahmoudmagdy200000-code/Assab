@@ -36,8 +36,8 @@ class OrderResource extends JsonResource
                 return $this->requestedBy ? new BranchManagerResource($this->requestedBy) : null;
             }),
 
-            // Order Items (exclude cancelled so details and totals show only active items)
-            'items' => $this->items->filter(fn ($item) => !$item->status?->isCancelled())->values()->map(function ($item) {
+            // Order Items
+            'items' => $this->items->map(function ($item) {
                 // For supplier view: if status is needs_approval_branch (supplier requested modification),
                 // show it as needs_approval_supplier in the response (from supplier's perspective)
                 $displayStatus = $item->status;

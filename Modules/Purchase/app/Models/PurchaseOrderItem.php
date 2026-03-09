@@ -499,10 +499,9 @@ class PurchaseOrderItem extends Model
         
         $this->save();
 
-        // Refresh purchase order, recalc totals (exclude cancelled items), and check status
+        // Refresh purchase order and check status
         $this->purchaseOrder->refresh();
         $this->purchaseOrder->load('items');
-        $this->purchaseOrder->calculateTotals();
         $this->purchaseOrder->checkAndTransitionToConfirmed();
     }
 
@@ -524,10 +523,9 @@ class PurchaseOrderItem extends Model
         
         $this->save();
 
-        // Refresh purchase order, recalc totals (exclude cancelled items), and check status
+        // Refresh purchase order and check status
         $this->purchaseOrder->refresh();
         $this->purchaseOrder->load('items');
-        $this->purchaseOrder->calculateTotals();
         $this->purchaseOrder->checkAndTransitionToConfirmed();
     }
 

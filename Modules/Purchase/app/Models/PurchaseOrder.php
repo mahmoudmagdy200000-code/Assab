@@ -520,19 +520,12 @@ class PurchaseOrder extends Model
         return false;
     }
 
-    /**
-     * Recalculate order totals from non-cancelled items only.
-     * Cancelled items are excluded so total_amount and number_of_items reflect active items.
-     */
     public function calculateTotals(): void
     {
-        $cancelledStatuses = OrderItemStatus::cancelledStatusValues();
-        $activeItems = $this->items()->whereNotIn('status', $cancelledStatuses);
-
-        $subtotal = (float) $activeItems->sum('total_price');
+        $subtotal = $this->items()->sum('total_price');
         $taxAmount = $subtotal * ($this->tax_rate / 100);
-        $totalAmount = $subtotal + $taxAmount - ((float) ($this->discount_amount ?? 0));
-        $totalItems = $activeItems->count();
+        $totalAmount = $subtotal + $taxAmount - ($this->discount_amount ?? 0);
+        $totalItems = $this->items()->count();
 
         $this->update([
             'subtotal' => $subtotal,
