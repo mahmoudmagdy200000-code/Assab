@@ -627,10 +627,32 @@ class CashierManagementController extends BaseController
 
             $branchManagers = $managersQuery->get();
 
-            // Exclude the current user so the logged-in manager never sees themselves in the list
+            // Include branch managers who created cashiers in this branch (even if their branch_id differs)
+            $creatorIds = Cashier::where('branch_id', $branchId)
+                ->whereNotNull('created_by')
+                ->distinct()
+                ->pluck('created_by')
+                ->unique()
+                ->values();
+            $existingIds = $branchManagers->pluck('id')->map(fn ($id) => (string) $id)->all();
+            $missingCreatorIds = $creatorIds->filter(fn ($id) => !in_array((string) $id, $existingIds, true))->values();
+            if ($missingCreatorIds->isNotEmpty()) {
+                $extra = BranchManager::withTrashed()
+                    ->with('branch:id,name,location')
+                    ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'status', 'is_first_login', 'image', 'email_verified_at', 'phone_verified_at', 'created_at', 'updated_at'])
+                    ->whereIn('id', $missingCreatorIds->all())
+                    ->get();
+                $branchManagers = $extra->concat($branchManagers->all())->unique('id')->values();
+            }
+
+            // Always put current user (branch manager) first so they can hand over to themselves
             if ($user instanceof BranchManager) {
+                if (!$user->relationLoaded('branch')) {
+                    $user->load('branch:id,name,location');
+                }
                 $currentId = (string) $user->getKey();
                 $branchManagers = $branchManagers->filter(fn (BranchManager $m) => (string) $m->getKey() !== $currentId)->values();
+                $branchManagers = $branchManagers->prepend($user)->values();
             }
 
             $cashiersResource = CashierResource::collection($cashiers);
