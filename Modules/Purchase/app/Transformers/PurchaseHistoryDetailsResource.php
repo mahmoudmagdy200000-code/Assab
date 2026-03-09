@@ -184,6 +184,10 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 }
                 $activeItems = $this->items->filter(fn ($item) => !$item->status?->isCancelled());
                 return $activeItems->map(function ($item) {
+                    $hasVariance = $item->quantity_received !== null && (float) ($item->quantity_variance ?? 0) != 0;
+                    $effectiveTotal = $hasVariance && $item->quantity_received !== null
+                        ? round((float) $item->quantity_received * (float) $item->unit_price - (float) ($item->discount ?? 0), 2)
+                        : (float) ($item->total_price ?? 0);
                     $itemData = [
                         'id' => $item->id ?? 'n/a',
                         'item_name' => $item->item_name ?? 'n/a',
@@ -194,10 +198,13 @@ class PurchaseHistoryDetailsResource extends JsonResource
                         'status_color' => $item->status?->color() ?? '#F59E0B',
                         'requested_qty' => $item->quantity_ordered ? (float) $item->quantity_ordered : 0.0,
                         'quantity_confirmed' => $item->quantity_confirmed ? (float) $item->quantity_confirmed : null,
+                        'quantity_received' => $item->quantity_received !== null ? (float) $item->quantity_received : null,
+                        'has_variance' => $hasVariance,
+                        'effective_quantity' => $item->quantity_received !== null ? (float) $item->quantity_received : (float) ($item->quantity_ordered ?? 0),
                         'quality' => $item->quality_ordered?->value ?? 'n/a',
                         'item_price' => $item->unit_price ? (float) $item->unit_price : 0.0,
                         'item_unit' => $item->unit_of_measurement ?? 'n/a',
-                        'total_price' => $item->total_price ? (float) $item->total_price : 0.0,
+                        'total_price' => $effectiveTotal,
                     ];
 
                     // Add approval information if item needs approval or has approval data
@@ -248,6 +255,10 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 }
                 $activeItems = $this->items->filter(fn ($item) => !$item->status?->isCancelled());
                 return $activeItems->map(function ($item) {
+                    $hasVariance = $item->quantity_received !== null && (float) ($item->quantity_variance ?? 0) != 0;
+                    $effectiveTotal = $hasVariance && $item->quantity_received !== null
+                        ? round((float) $item->quantity_received * (float) $item->unit_price - (float) ($item->discount ?? 0), 2)
+                        : (float) ($item->total_price ?? 0);
                     // Calculate price comparison for this specific item
                     $priceComparison = $this->calculatePriceComparisonForItem($item);
 
@@ -259,6 +270,10 @@ class PurchaseHistoryDetailsResource extends JsonResource
                         'item_logo' => $item->item_logo_url,
                         'item_price' => $item->unit_price ? (float) $item->unit_price : 0.0,
                         'requested_qty' => $item->quantity_ordered ? (float) $item->quantity_ordered : 0.0,
+                        'quantity_received' => $item->quantity_received !== null ? (float) $item->quantity_received : null,
+                        'has_variance' => $hasVariance,
+                        'effective_quantity' => $item->quantity_received !== null ? (float) $item->quantity_received : (float) ($item->quantity_ordered ?? 0),
+                        'total_price' => $effectiveTotal,
                         'quality' => $item->quality_ordered?->value ?? 'n/a',
                         'preferred_delivery_date' => $this->preferred_delivery_date?->format('Y-m-d') ?? 'n/a',
                         'latest_delivery_date' => $this->latest_delivery_date?->format('Y-m-d') ?? 'n/a',
@@ -361,6 +376,9 @@ class PurchaseHistoryDetailsResource extends JsonResource
                         'id' => $item->id ?? 'n/a',
                         'item_name' => $item->item_name ?? 'n/a',
                         'requested_qty' => $item->quantity_ordered ? (float) $item->quantity_ordered : 0.0,
+                        'quantity_received' => $item->quantity_received !== null ? (float) $item->quantity_received : null,
+                        'has_variance' => $item->quantity_received !== null && (float) ($item->quantity_variance ?? 0) != 0,
+                        'effective_quantity' => $item->quantity_received !== null ? (float) $item->quantity_received : (float) ($item->quantity_ordered ?? 0),
                         'available_in_branch_name' => $fromBranchNameOnly ?? 'n/a',
                         'available_in_quantity' => $availableQuantity,
                         'balance_after' => $balanceAfter,
