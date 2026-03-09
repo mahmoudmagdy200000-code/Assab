@@ -182,7 +182,8 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 if (!$this->items) {
                     return [];
                 }
-                return $this->items->map(function ($item) {
+                $activeItems = $this->items->filter(fn ($item) => !$item->status?->isCancelled());
+                return $activeItems->map(function ($item) {
                     $itemData = [
                         'id' => $item->id ?? 'n/a',
                         'item_name' => $item->item_name ?? 'n/a',
@@ -211,7 +212,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     }
 
                     return $itemData;
-                });
+                })->values()->all();
             }) ?? [],
             'supplier' => $this->supplierFragment(),
             'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
@@ -245,7 +246,8 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 if (!$this->items) {
                     return [];
                 }
-                return $this->items->map(function ($item) {
+                $activeItems = $this->items->filter(fn ($item) => !$item->status?->isCancelled());
+                return $activeItems->map(function ($item) {
                     // Calculate price comparison for this specific item
                     $priceComparison = $this->calculatePriceComparisonForItem($item);
 
@@ -263,7 +265,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                         'special_instructions' => $this->special_instructions ?? 'n/a',
                         'price_comparison' => $priceComparison,
                     ];
-                });
+                })->values()->all();
             }) ?? [],
             'supplier' => null,
             'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
@@ -301,13 +303,14 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'delay_details' => $this->getDelayDetails(),
             ],
             'product_details' => $this->whenLoaded('items', function () use ($fromBranchNameOnly) {
+                $activeItems = $this->items->filter(fn ($item) => !$item->status?->isCancelled());
                 // Get from_branch_id for inventory lookup
                 $fromBranchId = $this->from_branch_id;
 
-                // Eager load all inventory records for all items at once (performance optimization)
+                // Eager load all inventory records for active items at once (performance optimization)
                 $inventories = collect();
-                if ($fromBranchId && $this->items->isNotEmpty()) {
-                    $itemIds = $this->items->pluck('item_id')->filter()->unique()->toArray();
+                if ($fromBranchId && $activeItems->isNotEmpty()) {
+                    $itemIds = $activeItems->pluck('item_id')->filter()->unique()->toArray();
                     if (!empty($itemIds)) {
                         $inventories = BranchInventory::where('branch_id', $fromBranchId)
                             ->whereIn('item_id', $itemIds)
@@ -316,7 +319,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                     }
                 }
 
-                return $this->items->map(function ($item) use ($fromBranchNameOnly, $inventories) {
+                return $activeItems->map(function ($item) use ($fromBranchNameOnly, $inventories) {
                     // Get inventory data from preloaded collection
                     $inventory = $item->item_id ? ($inventories->get($item->item_id) ?? null) : null;
 
@@ -366,7 +369,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                         'cooling_status' => $coolingStatus,
                         'item_unit' => $item->unit_of_measurement ?? 'n/a',
                     ];
-                });
+                })->values()->all();
             }) ?? [],
             'supplier' => null,
             'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
