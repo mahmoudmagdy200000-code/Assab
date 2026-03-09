@@ -21,7 +21,38 @@ return new class extends Migration
         }
 
         try {
-            // Full ENUM list with 'cancelled' (not 'canceled') to match Modules\Purchase\Enums\OrderStatus::CANCELED
+            // Step 1: Add 'cancelled' to ENUM (keep 'canceled' so existing data is valid)
+            DB::statement("ALTER TABLE purchase_orders MODIFY COLUMN status ENUM(
+                'draft',
+                'pending',
+                'emergency',
+                'pending_confirmation',
+                'pending_approval',
+                'partial_confirmation',
+                'confirmed',
+                'preparing',
+                'on_the_way',
+                'delivered',
+                'closed',
+                'canceled',
+                'cancelled',
+                'cancelled_by_branch',
+                'cancelled_by_supplier',
+                'rejected',
+                'delayed',
+                'delayed_approved',
+                'delayed_confirmed',
+                'delayed_canceled',
+                'fully_approved',
+                'partial_approved',
+                'partial_confirmed',
+                'variance'
+            ) DEFAULT 'draft'");
+
+            // Step 2: Normalize data: 'canceled' -> 'cancelled'
+            DB::table('purchase_orders')->where('status', 'canceled')->update(['status' => 'cancelled']);
+
+            // Step 3: Remove 'canceled' from ENUM so only 'cancelled' remains (matches OrderStatus::CANCELED->value)
             DB::statement("ALTER TABLE purchase_orders MODIFY COLUMN status ENUM(
                 'draft',
                 'pending',
@@ -47,12 +78,6 @@ return new class extends Migration
                 'partial_confirmed',
                 'variance'
             ) DEFAULT 'draft'");
-
-            // If any rows still have 'canceled' (e.g. from before a previous migration), normalize to 'cancelled'
-            $count = DB::table('purchase_orders')->where('status', 'canceled')->count();
-            if ($count > 0) {
-                DB::table('purchase_orders')->where('status', 'canceled')->update(['status' => 'cancelled']);
-            }
         } catch (\Exception $e) {
             Log::warning('Migration fix_purchase_orders_status_cancelled_enum: ' . $e->getMessage());
             throw $e;
