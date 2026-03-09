@@ -815,11 +815,21 @@ class CashierShiftController extends BaseController
                 ->withCount('shifts')
                 ->paginate($request->input('per_page', 10));
 
-            // Load branch managers with relationships (include current manager so they see themselves)
+            // Load branch managers with relationships
             $branchManagers = BranchManager::where('branch_id', $manager->branch_id)
                 ->with('branch:id,name,location')
                 ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'status', 'is_first_login', 'image', 'email_verified_at', 'phone_verified_at', 'created_at', 'updated_at'])
                 ->get();
+
+            // Ensure current user (branch manager) is always in the list
+            if ($manager instanceof BranchManager && $branchManagers->where('id', $manager->id)->isEmpty()) {
+                $current = BranchManager::with('branch:id,name,location')
+                    ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'status', 'is_first_login', 'image', 'email_verified_at', 'phone_verified_at', 'created_at', 'updated_at'])
+                    ->find($manager->id);
+                if ($current) {
+                    $branchManagers = $branchManagers->prepend($current)->values();
+                }
+            }
 
             // Create ResourceCollection for cashiers (this preserves pagination)
             $cashiersResource = CashierResource::collection($cashiers);
