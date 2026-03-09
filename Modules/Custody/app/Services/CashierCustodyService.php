@@ -14,6 +14,16 @@ class CashierCustodyService
      */
     public function recordHandoverReceived(CashierShiftHandover $handover, Cashier $receivingCashier): CashierCustodyTransaction
     {
+        $existing = CashierCustodyTransaction::where('related_handover_id', $handover->id)
+            ->where('cashier_id', $receivingCashier->id)
+            ->where('transaction_type', 'Handover Received')
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        $handover->loadMissing('cashierShift.cashier');
         $fromName = $handover->cashierShift?->cashier?->name ?? null;
 
         return CashierCustodyTransaction::create([
