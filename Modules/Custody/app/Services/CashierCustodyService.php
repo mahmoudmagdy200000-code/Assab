@@ -43,6 +43,15 @@ class CashierCustodyService
      */
     public function recordHandoverSent(CashierShiftHandover $handover, Cashier $sendingCashier): CashierCustodyTransaction
     {
+        $existing = CashierCustodyTransaction::where('related_handover_id', $handover->id)
+            ->where('cashier_id', $sendingCashier->id)
+            ->where('transaction_type', 'Handover Sent')
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
         $toName = null;
         if ($handover->handover_to_type === 'cashier') {
             $toName = Cashier::find($handover->handover_to_id)?->name;
