@@ -58,6 +58,40 @@ class ShiftEndService
             ]);
 
             DB::commit();
+
+            // Record Cash-OUT for the cashier (end shift without handover to another cashier)
+            if ($shift->cashier_id) {
+                try {
+                    $cashOutAmount = (float) ($shift->cash_collected ?? $shift->closing_balance ?? 0);
+                    if ($cashOutAmount > 0) {
+                        $cashier = \Modules\Cashier\Models\Cashier::find($shift->cashier_id);
+                        if ($cashier) {
+                            $existing = \Modules\Custody\Models\CashierCustodyTransaction::where('related_shift_id', $shift->id)
+                                ->where('cashier_id', $cashier->id)
+                                ->where('transaction_type', 'Handover Sent')
+                                ->first();
+
+                            if (!$existing) {
+                                \Modules\Custody\Models\CashierCustodyTransaction::create([
+                                    'cashier_id'       => $cashier->id,
+                                    'transaction_type'  => 'Handover Sent',
+                                    'amount'            => $cashOutAmount,
+                                    'is_cash_in'        => false,
+                                    'counterpart_name'  => null,
+                                    'related_shift_id'  => $shift->id,
+                                    'transaction_date'  => now(),
+                                ]);
+                            }
+                        }
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::warning('Failed to record end-shift-only Cash OUT', [
+                        'shift_id' => $shift->id,
+                        'error'    => $e->getMessage(),
+                    ]);
+                }
+            }
+
             return $shift->fresh();
         } catch (\Exception $e) {
             DB::rollBack();

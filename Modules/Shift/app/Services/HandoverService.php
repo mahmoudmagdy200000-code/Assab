@@ -120,8 +120,19 @@ class HandoverService
 
             DB::commit();
 
-            // Cash-OUT for cashier-to-cashier is deferred until the receiving cashier accepts.
-            // See acceptHandoverByCashier() for both Cash-OUT (sender) and Cash-IN (receiver).
+            // Record Cash-IN (Cash Collected) for the sending cashier — they are declaring
+            // they hold this cash. Cash-OUT is deferred until acceptance/approval.
+            if ($shift->cashier) {
+                try {
+                    app(\Modules\Custody\Services\CashierCustodyService::class)
+                        ->recordCashCollected($handover, $shift->cashier);
+                } catch (\Exception $e) {
+                    Log::warning('Failed to create Cash Collected entry', [
+                        'error'       => $e->getMessage(),
+                        'handover_id' => $handover->id,
+                    ]);
+                }
+            }
 
             // Clear cache for branch manager shift so workday/current shows new handover immediately
             if ($handoverToType === 'branch_manager' && $handoverToId) {
