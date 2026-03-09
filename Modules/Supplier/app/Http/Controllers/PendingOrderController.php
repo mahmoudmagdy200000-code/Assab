@@ -157,6 +157,13 @@ class PendingOrderController extends BaseController
                 return $this->errorResponse('Items array is required for partial approval', 400);
             }
 
+            // Use root-level note/modification_request as fallback for items that don't have a note
+            $globalNote = $request->input('note') ?? $request->input('modification_request') ?? $request->input('message');
+            foreach ($items as &$item) {
+                $item['note'] = $item['note'] ?? $globalNote;
+            }
+            unset($item);
+
             // Use OrderService to handle partial approval requests
             $order = $this->orderService->requestPartialApproval($order, $supplier, $items);
 
@@ -389,13 +396,14 @@ class PendingOrderController extends BaseController
                 return $this->errorResponse('reason is required for time change requests', 422);
             }
 
+            $note = $validated['note'] ?? $validated['modification_request'] ?? null;
             $order = $this->orderService->requestTimeChange(
                 $order,
                 $supplier,
                 $itemId,
                 $validated['new_delivery_time'],
                 $validated['reason'] ?? '',
-                $validated['note'] ?? null
+                $note
             );
 
             return $this->successResponse(
@@ -426,13 +434,14 @@ class PendingOrderController extends BaseController
 
             $validated = $request->validated();
 
+            $note = $validated['note'] ?? $validated['modification_request'] ?? null;
             $order = $this->orderService->requestAlternative(
                 $order,
                 $supplier,
                 $itemId,
                 $validated['alternative_item_id'],
                 $validated['reason'] ?? '',
-                $validated['note'] ?? null
+                $note
             );
 
             return $this->successResponse(

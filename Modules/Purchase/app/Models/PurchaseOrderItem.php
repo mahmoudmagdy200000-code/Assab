@@ -274,6 +274,7 @@ class PurchaseOrderItem extends Model
             : OrderItemStatus::NEEDS_APPROVAL_SUPPLIER;
         
         $this->approval_type = 'partial';
+        $this->modification_note = $note;
         $this->approval_data = [
             'original_quantity' => $this->quantity_ordered,
             'requested_quantity' => $requestedQuantity,
@@ -301,6 +302,7 @@ class PurchaseOrderItem extends Model
             : OrderItemStatus::NEEDS_APPROVAL_SUPPLIER;
         
         $this->approval_type = 'time_change';
+        $this->modification_note = $note;
         $this->approval_data = [
             'original_delivery_time' => $this->purchaseOrder->expected_delivery_at?->toDateTimeString(),
             'requested_delivery_time' => $newDeliveryTime,
@@ -328,6 +330,7 @@ class PurchaseOrderItem extends Model
             : OrderItemStatus::NEEDS_APPROVAL_SUPPLIER;
         
         $this->approval_type = 'alternative';
+        $this->modification_note = $note;
         $this->approval_data = [
             'original_item_id' => $this->item_id,
             'original_item_name' => $this->item_name,
