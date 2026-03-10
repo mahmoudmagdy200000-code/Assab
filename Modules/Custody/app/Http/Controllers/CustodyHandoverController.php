@@ -230,41 +230,48 @@ class CustodyHandoverController extends BaseController
      * List custody handover requests (cashier-to-cashier).
      * GET /api/custody/handover-requests
      * Query: ?status=pending|accepted|rejected (default: pending for recipient)
-     * Cashier: as recipient (to_cashier_id = me) or as sender (from_cashier_id = me) when status filter applied.
+     * Cashier: as recipient (to_cashier_id = me) or as sender when status filter applied.
+     * Branch Manager: all requests in their branch.
      */
     public function indexHandoverRequests(Request $request): JsonResponse
     {
         try {
             $user = auth()->user();
-            if (!$user instanceof Cashier) {
-                return $this->errorResponse('Only cashiers can view custody handover requests', 403);
+            if (!$user instanceof Cashier && !$user instanceof BranchManager) {
+                return $this->errorResponse('Only cashiers and branch managers can view custody handover requests', 403);
             }
 
             $status = $request->query('status', 'pending');
-            $query  = CustodyHandoverRequest::with(['fromCashier:id,name,email', 'toCashier:id,name,email']);
+            $query  = CustodyHandoverRequest::with(['fromCashier:id,name,email,branch_id', 'toCashier:id,name,email,branch_id']);
 
-            // By default show requests where I am the recipient; with status filter show both directions
-            if ($status === 'pending') {
-                $query->where('to_cashier_id', $user->id);
+            if ($user instanceof Cashier) {
+                if ($status === 'pending') {
+                    $query->where('to_cashier_id', $user->id);
+                } else {
+                    $query->where(function ($q) use ($user) {
+                        $q->where('to_cashier_id', $user->id)->orWhere('from_cashier_id', $user->id);
+                    });
+                }
             } else {
-                $query->where(function ($q) use ($user) {
-                    $q->where('to_cashier_id', $user->id)->orWhere('from_cashier_id', $user->id);
-                });
+                // Branch Manager: all requests in their branch
+                $query->whereHas('fromCashier', fn ($q) => $q->where('branch_id', $user->branch_id));
             }
+
             $query->where('status', $status);
             $items = $query->orderByDesc('created_at')->paginate((int) $request->input('per_page', 15));
 
             $data = collect($items->items())->map(function (CustodyHandoverRequest $req) use ($user) {
+                $isIncoming = $user instanceof Cashier && (string) $req->to_cashier_id === (string) $user->id;
                 return [
-                    'id'          => $req->id,
-                    'amount'      => (float) $req->amount,
-                    'status'      => $req->status,
-                    'notes'       => $req->additional_notes,
-                    'created_at'  => $req->created_at->toIso8601String(),
-                    'responded_at'=> $req->responded_at?->toIso8601String(),
-                    'from'        => $req->fromCashier ? ['id' => $req->from_cashier_id, 'name' => $req->fromCashier->name] : null,
-                    'to'          => $req->toCashier ? ['id' => $req->to_cashier_id, 'name' => $req->toCashier->name] : null,
-                    'isIncoming'  => (string) $req->to_cashier_id === (string) $user->id,
+                    'id'           => $req->id,
+                    'amount'       => (float) $req->amount,
+                    'status'       => $req->status,
+                    'notes'        => $req->additional_notes,
+                    'created_at'   => $req->created_at->toIso8601String(),
+                    'responded_at' => $req->responded_at?->toIso8601String(),
+                    'from'         => $req->fromCashier ? ['id' => $req->from_cashier_id, 'name' => $req->fromCashier->name] : null,
+                    'to'           => $req->toCashier ? ['id' => $req->to_cashier_id, 'name' => $req->toCashier->name] : null,
+                    'isIncoming'   => $isIncoming,
                 ];
             });
 
