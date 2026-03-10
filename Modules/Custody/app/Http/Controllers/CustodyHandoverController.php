@@ -13,6 +13,7 @@ use Modules\Custody\Services\CashierCustodyService;
 use Modules\Custody\Services\CustodyTransactionService;
 use Modules\Custody\Services\PersonalLedgerService;
 use Modules\Custody\Services\CustodyBalanceService;
+use Modules\Custody\Models\CustodyHandoverRequest;
 use Modules\Custody\Models\PersonalLedgerTransaction;
 
 class CustodyHandoverController extends BaseController
@@ -65,34 +66,38 @@ class CustodyHandoverController extends BaseController
                     $recipientId   = $request->input('recipientId');
                     $recipientName = $this->getRecipientName($recipientId, $recipientType);
 
-                    // Record Cash-OUT for the sending cashier
-                    $this->cashierCustodyService->recordManualHandoverSent($user->id, $amount, $recipientName);
-
-                    // Cashier-to-cashier: record Cash-IN for the receiving cashier
+                    // Cashier-to-cashier: create pending request; ledger entries when recipient accepts/rejects
                     if ($recipientType === 'Cashier') {
-                        $this->cashierCustodyService->recordManualHandoverReceived(
-                            $recipientId,
-                            $amount,
-                            $user->name
-                        );
+                        $handoverRequest = CustodyHandoverRequest::create([
+                            'from_cashier_id'   => $user->id,
+                            'to_cashier_id'    => $recipientId,
+                            'amount'           => $amount,
+                            'additional_notes' => $request->input('additionalNotes'),
+                            'status'           => 'pending',
+                        ]);
+
+                        return $this->successResponse([
+                            'handoverRequestId' => $handoverRequest->id,
+                            'message'          => 'Handover request sent. It will be deducted from your balance when the recipient accepts.',
+                            'newBalance'       => round($personalBalance, 2),
+                        ], 'Handover request submitted successfully');
                     }
 
-                    // If handing over to a branch manager, credit their personal ledger
-                    if ($recipientType === 'Branch Manager') {
-                        PersonalLedgerTransaction::create([
-                            'branch_manager_id' => $recipientId,
-                            'transaction_type'  => 'Total Sales',
-                            'amount'            => $amount,
-                            'is_cash_in'        => true,
-                            'cashier_name'      => $user->name,
-                            'transaction_date'  => now(),
-                        ]);
-                    }
+                    // Branch Manager: immediate ledger (no request flow)
+                    $this->cashierCustodyService->recordManualHandoverSent($user->id, $amount, $recipientName);
+                    PersonalLedgerTransaction::create([
+                        'branch_manager_id' => $recipientId,
+                        'transaction_type'  => 'Total Sales',
+                        'amount'            => $amount,
+                        'is_cash_in'        => true,
+                        'cashier_name'      => $user->name,
+                        'transaction_date'  => now(),
+                    ]);
 
                     return $this->successResponse([
                         'handoverId' => uniqid('hand_'),
                         'newBalance' => round($personalBalance - $amount, 2),
-                    ], 'Handover request submitted successfully');
+                    ], 'Handover submitted successfully');
                 });
             }
 
@@ -216,6 +221,136 @@ class CustodyHandoverController extends BaseController
                     'newCustodyBalance' => round($newCustodyBalance, 2),
                 ], 'Transfer completed successfully');
             });
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * List custody handover requests (cashier-to-cashier).
+     * GET /api/custody/handover-requests
+     * Query: ?status=pending|accepted|rejected (default: pending for recipient)
+     * Cashier: as recipient (to_cashier_id = me) or as sender (from_cashier_id = me) when status filter applied.
+     */
+    public function indexHandoverRequests(Request $request): JsonResponse
+    {
+        try {
+            $user = auth()->user();
+            if (!$user instanceof Cashier) {
+                return $this->errorResponse('Only cashiers can view custody handover requests', 403);
+            }
+
+            $status = $request->query('status', 'pending');
+            $query  = CustodyHandoverRequest::with(['fromCashier:id,name,email', 'toCashier:id,name,email']);
+
+            // By default show requests where I am the recipient; with status filter show both directions
+            if ($status === 'pending') {
+                $query->where('to_cashier_id', $user->id);
+            } else {
+                $query->where(function ($q) use ($user) {
+                    $q->where('to_cashier_id', $user->id)->orWhere('from_cashier_id', $user->id);
+                });
+            }
+            $query->where('status', $status);
+            $items = $query->orderByDesc('created_at')->paginate((int) $request->input('per_page', 15));
+
+            $data = collect($items->items())->map(function (CustodyHandoverRequest $req) use ($user) {
+                return [
+                    'id'          => $req->id,
+                    'amount'      => (float) $req->amount,
+                    'status'      => $req->status,
+                    'notes'       => $req->additional_notes,
+                    'created_at'  => $req->created_at->toIso8601String(),
+                    'responded_at'=> $req->responded_at?->toIso8601String(),
+                    'from'        => $req->fromCashier ? ['id' => $req->from_cashier_id, 'name' => $req->fromCashier->name] : null,
+                    'to'          => $req->toCashier ? ['id' => $req->to_cashier_id, 'name' => $req->toCashier->name] : null,
+                    'isIncoming'  => (string) $req->to_cashier_id === (string) $user->id,
+                ];
+            });
+
+            return $this->successResponse([
+                'data'  => $data,
+                'meta'  => [
+                    'current_page' => $items->currentPage(),
+                    'last_page'    => $items->lastPage(),
+                    'per_page'     => $items->perPage(),
+                    'total'        => $items->total(),
+                ],
+            ], 'Custody handover requests retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Accept a custody handover request (recipient only). Records Cash OUT for sender, Cash IN for recipient.
+     * POST /api/custody/handover-requests/{id}/accept
+     */
+    public function acceptHandoverRequest(string $id): JsonResponse
+    {
+        try {
+            $user = auth()->user();
+            if (!$user instanceof Cashier) {
+                return $this->errorResponse('Only cashiers can accept custody handover requests', 403);
+            }
+
+            $req = CustodyHandoverRequest::with(['fromCashier', 'toCashier'])->findOrFail($id);
+            if ($req->to_cashier_id !== $user->id) {
+                return $this->errorResponse('You can only accept handover requests sent to you', 403);
+            }
+            if (!$req->isPending()) {
+                return $this->errorResponse('This request has already been responded to', 400);
+            }
+
+            DB::transaction(function () use ($req) {
+                $req->update(['status' => 'accepted', 'responded_at' => now()]);
+                $this->cashierCustodyService->recordManualHandoverSent(
+                    $req->from_cashier_id,
+                    (float) $req->amount,
+                    $req->toCashier?->name
+                );
+                $this->cashierCustodyService->recordManualHandoverReceived(
+                    $req->to_cashier_id,
+                    (float) $req->amount,
+                    $req->fromCashier?->name
+                );
+            });
+
+            return $this->successResponse([
+                'handoverRequestId' => $req->id,
+                'status'            => 'accepted',
+            ], 'Handover request accepted. Amount deducted from sender and added to your balance.');
+        } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Reject a custody handover request (recipient only). No ledger entries.
+     * POST /api/custody/handover-requests/{id}/reject
+     */
+    public function rejectHandoverRequest(string $id): JsonResponse
+    {
+        try {
+            $user = auth()->user();
+            if (!$user instanceof Cashier) {
+                return $this->errorResponse('Only cashiers can reject custody handover requests', 403);
+            }
+
+            $req = CustodyHandoverRequest::findOrFail($id);
+            if ($req->to_cashier_id !== $user->id) {
+                return $this->errorResponse('You can only reject handover requests sent to you', 403);
+            }
+            if (!$req->isPending()) {
+                return $this->errorResponse('This request has already been responded to', 400);
+            }
+
+            $req->update(['status' => 'rejected', 'responded_at' => now()]);
+
+            return $this->successResponse([
+                'handoverRequestId' => $req->id,
+                'status'            => 'rejected',
+            ], 'Handover request rejected.');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }

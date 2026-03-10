@@ -39,6 +39,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('handover', [CustodyHandoverController::class, 'handover']);
         Route::post('transfer', [CustodyHandoverController::class, 'transfer']);
         Route::get('recipients', [CustodyHandoverController::class, 'getRecipients']);
+        // Custody handover requests (cashier-to-cashier, pending until accept/reject)
+        Route::get('handover-requests', [CustodyHandoverController::class, 'indexHandoverRequests']);
+        Route::post('handover-requests/{id}/accept', [CustodyHandoverController::class, 'acceptHandoverRequest']);
+        Route::post('handover-requests/{id}/reject', [CustodyHandoverController::class, 'rejectHandoverRequest']);
 
         // Balance Trends
         Route::get('balance-trends', [CustodyBalanceController::class, 'getBalanceTrends']);
