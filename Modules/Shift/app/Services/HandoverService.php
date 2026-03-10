@@ -120,14 +120,22 @@ class HandoverService
 
             DB::commit();
 
-            // Record Cash-OUT custody entry for the outgoing cashier (cashier-to-cashier handovers only)
-            if ($handoverToType === 'cashier' && $shift->cashier) {
+            // Record Cash-IN (Total Sales) only if this shift does not already have one for this cashier
+            // (e.g. from End Shift Only). Avoids double-counting when handover is sent after end shift only.
+            if ($shift->cashier) {
                 try {
-                    app(\Modules\Custody\Services\CashierCustodyService::class)
-                        ->recordHandoverSent($handover, $shift->cashier);
+                    $alreadyHasTotalSales = \Modules\Custody\Models\CashierCustodyTransaction::where('related_shift_id', $shift->id)
+                        ->where('cashier_id', $shift->cashier->id)
+                        ->where('transaction_type', 'Total Sales')
+                        ->exists();
+
+                    if (!$alreadyHasTotalSales) {
+                        app(\Modules\Custody\Services\CashierCustodyService::class)
+                            ->recordCashCollected($handover, $shift->cashier);
+                    }
                 } catch (\Exception $e) {
-                    Log::warning('Failed to create cashier custody cash-out entry', [
-                        'error' => $e->getMessage(),
+                    Log::warning('Failed to create Total Sales entry', [
+                        'error'       => $e->getMessage(),
                         'handover_id' => $handover->id,
                     ]);
                 }
@@ -549,16 +557,41 @@ class HandoverService
 
             DB::commit();
 
-            // Record Cash-IN custody entry for the receiving cashier
+            // Record custody transactions (both sides) only after successful acceptance
             try {
-                $shift->loadMissing(['handover', 'handover.cashierShift.cashier']);
-                $receivingCashier = \Modules\Cashier\Models\Cashier::find($cashierId);
-                if ($shift->handover && $receivingCashier) {
-                    app(\Modules\Custody\Services\CashierCustodyService::class)
-                        ->recordHandoverReceived($shift->handover, $receivingCashier);
+                $handover = CashierShiftHandover::with('cashierShift.cashier')
+                    ->where('cashier_shift_id', $shift->id)
+                    ->first();
+
+                if (!$handover) {
+                    Log::error('Custody entries skipped: handover record not found after accept', [
+                        'shift_id' => $shift->id,
+                    ]);
+                    return;
                 }
+
+                $custodyService = app(\Modules\Custody\Services\CashierCustodyService::class);
+
+                // Cash-OUT for the sending cashier
+                $sendingCashier = $handover->cashierShift?->cashier;
+                if ($sendingCashier) {
+                    $custodyService->recordHandoverSent($handover, $sendingCashier);
+                }
+
+                // Cash-IN for the receiving cashier
+                $receivingCashier = \Modules\Cashier\Models\Cashier::find($cashierId);
+                if ($receivingCashier) {
+                    $custodyService->recordHandoverReceived($handover, $receivingCashier);
+                }
+
+                Log::info('Custody entries created on handover accept', [
+                    'shift_id'     => $shift->id,
+                    'handover_id'  => $handover->id,
+                    'sender_id'    => $sendingCashier?->id,
+                    'receiver_id'  => $cashierId,
+                ]);
             } catch (\Exception $e) {
-                Log::warning('Failed to create cashier custody cash-in entry', [
+                Log::error('Failed to create custody entries on handover accept', [
                     'error'      => $e->getMessage(),
                     'cashier_id' => $cashierId,
                     'shift_id'   => $shift->id,

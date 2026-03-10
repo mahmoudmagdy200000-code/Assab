@@ -24,11 +24,13 @@ class HandoverSummaryResource extends JsonResource
         $acceptanceMessage = $this->getAcceptanceMessage();
 
         $authUser     = auth()->user();
+        $recipientId  = $this->handover?->handover_to_id ?? $this->next_cashier_id;
         $isIncoming   = $authUser instanceof Cashier
-                        && (string) $this->next_cashier_id === (string) $authUser->id;
+                        && (string) $recipientId === (string) $authUser->id
+                        && (string) $this->cashier_id !== (string) $authUser->id;
         $isOutgoing   = $authUser instanceof Cashier
                         && (string) $this->cashier_id === (string) $authUser->id
-                        && (string) $this->next_cashier_id !== (string) $authUser->id;
+                        && (string) $recipientId !== (string) $authUser->id;
         $canBeAccepted = $isIncoming
                         && ($this->handoverStatus?->manager_approval_status ?? 'pending') === 'pending';
 

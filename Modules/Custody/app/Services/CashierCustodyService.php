@@ -14,6 +14,16 @@ class CashierCustodyService
      */
     public function recordHandoverReceived(CashierShiftHandover $handover, Cashier $receivingCashier): CashierCustodyTransaction
     {
+        $existing = CashierCustodyTransaction::where('related_handover_id', $handover->id)
+            ->where('cashier_id', $receivingCashier->id)
+            ->where('transaction_type', 'Handover Received')
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        $handover->loadMissing('cashierShift.cashier');
         $fromName = $handover->cashierShift?->cashier?->name ?? null;
 
         return CashierCustodyTransaction::create([
@@ -33,6 +43,15 @@ class CashierCustodyService
      */
     public function recordHandoverSent(CashierShiftHandover $handover, Cashier $sendingCashier): CashierCustodyTransaction
     {
+        $existing = CashierCustodyTransaction::where('related_handover_id', $handover->id)
+            ->where('cashier_id', $sendingCashier->id)
+            ->where('transaction_type', 'Handover Sent')
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
         $toName = null;
         if ($handover->handover_to_type === 'cashier') {
             $toName = Cashier::find($handover->handover_to_id)?->name;
@@ -53,6 +72,40 @@ class CashierCustodyService
     }
 
     /**
+     * Record Cash-IN (Total Sales) when a cashier sends a handover (declaring the cash they hold).
+     * This entry stays if rejected, and is complemented by a Cash-OUT when accepted.
+     */
+    public function recordCashCollected(CashierShiftHandover $handover, Cashier $sendingCashier): CashierCustodyTransaction
+    {
+        $existing = CashierCustodyTransaction::where('related_handover_id', $handover->id)
+            ->where('cashier_id', $sendingCashier->id)
+            ->where('transaction_type', 'Total Sales')
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        $toName = null;
+        if ($handover->handover_to_type === 'cashier') {
+            $toName = Cashier::find($handover->handover_to_id)?->name;
+        } elseif ($handover->handover_to_type === 'branch_manager') {
+            $toName = \Modules\BranchManagers\Models\BranchManager::find($handover->handover_to_id)?->name;
+        }
+
+        return CashierCustodyTransaction::create([
+            'cashier_id'          => $sendingCashier->id,
+            'transaction_type'    => 'Total Sales',
+            'amount'              => $handover->handover_amount,
+            'is_cash_in'          => true,
+            'counterpart_name'    => $toName,
+            'related_shift_id'    => $handover->cashier_shift_id,
+            'related_handover_id' => $handover->id,
+            'transaction_date'    => now(),
+        ]);
+    }
+
+    /**
      * Record a Cash-OUT entry from the custody/handover endpoint (manual handover, not shift-based).
      */
     public function recordManualHandoverSent(string $cashierId, float $amount, ?string $recipientName): CashierCustodyTransaction
@@ -63,6 +116,21 @@ class CashierCustodyService
             'amount'           => $amount,
             'is_cash_in'       => false,
             'counterpart_name' => $recipientName,
+            'transaction_date' => now(),
+        ]);
+    }
+
+    /**
+     * Record Cash-IN (Handover Received) for a cashier when another cashier sends manual handover to them.
+     */
+    public function recordManualHandoverReceived(string $receivingCashierId, float $amount, ?string $senderName): CashierCustodyTransaction
+    {
+        return CashierCustodyTransaction::create([
+            'cashier_id'       => $receivingCashierId,
+            'transaction_type' => 'Handover Received',
+            'amount'           => $amount,
+            'is_cash_in'       => true,
+            'counterpart_name' => $senderName,
             'transaction_date' => now(),
         ]);
     }
