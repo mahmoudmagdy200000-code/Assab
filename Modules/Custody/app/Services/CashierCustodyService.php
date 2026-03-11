@@ -73,8 +73,8 @@ class CashierCustodyService
 
     /**
      * Record Cash-IN (Total Sales) when a cashier sends a handover.
-     * Amount = shift's real total_sales (cash_collected + card_payments + aggregator payments),
-     * not handover_amount (physical cash only). Falls back to handover_amount if total_sales not set.
+     * Amount = sum of shift payment methods: cash_collected + card_payments + aggregator (salesBreakdown).
+     * Falls back to total_sales then handover_amount if sum is zero.
      */
     public function recordCashCollected(CashierShiftHandover $handover, Cashier $sendingCashier): CashierCustodyTransaction
     {
@@ -91,7 +91,13 @@ class CashierCustodyService
         $shift = $handover->cashierShift;
         $totalSales = 0.0;
         if ($shift) {
-            $totalSales = (float) ($shift->total_sales ?? 0);
+            $cashCollected = (float) ($shift->cash_collected ?? 0);
+            $cardPayments = (float) ($shift->card_payments ?? 0);
+            $aggregatorTotal = (float) $shift->salesBreakdown->sum('amount');
+            $totalSales = $cashCollected + $cardPayments + $aggregatorTotal;
+            if ($totalSales <= 0) {
+                $totalSales = (float) ($shift->total_sales ?? 0);
+            }
             if ($totalSales <= 0) {
                 $totalSales = (float) $handover->handover_amount;
             }
