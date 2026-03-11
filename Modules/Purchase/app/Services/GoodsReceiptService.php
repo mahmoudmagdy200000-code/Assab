@@ -1238,7 +1238,7 @@ class GoodsReceiptService
                             'quantity_ordered' => (float) $item->quantity_ordered,
                             'quantity_received' => (float) $item->quantity_received,
                             'quality' => $item->quality_received?->value ?? $item->quality_ordered?->value,
-                            'variance_type' => $item->variance_type?->value,
+                            'variance_type' => $item->variance_type?->value ?? 'none',
                             'amount_variance' => $item->variance_type !== null ? (float) $item->variance_amount : null,
                             'temperature' => $item->temperature,
                             'expiration_date' => $item->expiry_date?->format('Y-m-d'),
