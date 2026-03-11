@@ -111,30 +111,6 @@ class DailyQuickInventoryController extends BaseController
             $includeAll = filter_var(request()->query('include_all'), FILTER_VALIDATE_BOOLEAN);
             $items = $this->sessionService->getBranchItems($branchId, $includeAll);
 
-            // -- TEMP DEBUG: include diagnosis info when result is empty --
-            if ($items->isEmpty()) {
-                $totalBranchItems = \Modules\Purchase\Models\BranchItem::where('branch_id', $branchId)->count();
-                $itemsInActiveSessions = \Modules\Inventory\Models\InventoryItem::where('branch_id', $branchId)
-                    ->whereHas('inventorySession', fn($q) => $q->whereIn('status', ['draft', 'pending', 'pending_your_action', 'pending_your_confirmation']))
-                    ->distinct('item_id')
-                    ->count('item_id');
-                return $this->successResponse([], 'Branch items retrieved successfully', 200, [
-                    '_debug' => [
-                        'manager_id'              => $manager->id,
-                        'manager_branch_id'        => $manager->branch_id,
-                        'queried_branch_id'        => $branchId,
-                        'total_branch_items_in_db' => $totalBranchItems,
-                        'items_blocked_by_active_session' => $itemsInActiveSessions,
-                        'hint' => $totalBranchItems === 0
-                            ? 'Run: php artisan db:seed --class="Modules\\Inventory\\Database\\Seeders\\BranchDailyProductsSeeder" --force'
-                            : ($itemsInActiveSessions === $totalBranchItems
-                                ? 'All items are in active sessions. Close/approve sessions or call with ?include_all=1'
-                                : 'Items exist but are filtered. Try ?include_all=1 to see all.'),
-                    ],
-                ]);
-            }
-            // -- END TEMP DEBUG --
-
             return $this->successResponse(
                 $items,
                 'Branch items retrieved successfully'
