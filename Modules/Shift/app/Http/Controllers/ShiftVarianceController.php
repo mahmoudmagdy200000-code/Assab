@@ -31,8 +31,8 @@ class ShiftVarianceController extends Controller
         $validator = Validator::make($request->all(), [
             'responsibility_type' => 'required|in:self,self_and_others,other_factors,mixed',
 
-            // For self_and_others and mixed
-            'current_cashier_amount' => 'required_if:responsibility_type,self_and_others,mixed|numeric|min:0',
+            // For self_and_others and mixed (current_cashier_amount optional when other_cashiers sent — remainder is computed)
+            'current_cashier_amount' => 'nullable|numeric|min:0',
             'other_cashiers' => 'sometimes|array',
             'other_cashiers.*.cashier_id' => 'required_with:other_cashiers|exists:cashiers,id',
             'other_cashiers.*.amount' => 'required_with:other_cashiers|numeric|min:0',
@@ -76,13 +76,28 @@ class ShiftVarianceController extends Controller
                 ], 400);
             }
 
-            // Validate total amounts for shared/mixed responsibility
+            $varianceAmount = abs($shiftModel->calculateVariance());
+            $otherSum = collect($request->other_cashiers ?? [])->sum('amount');
+
+            // For self_and_others: allow sending only other_cashiers — current_cashier_amount = variance - sum(others)
             if (in_array($request->responsibility_type, ['self_and_others', 'mixed'])) {
-                $totalAssigned = $request->current_cashier_amount +
-                    collect($request->other_cashiers ?? [])->sum('amount');
+                $currentAmount = $request->has('current_cashier_amount') && $request->current_cashier_amount !== null && $request->current_cashier_amount !== ''
+                    ? (float) $request->current_cashier_amount
+                    : $varianceAmount - $otherSum;
 
-                $varianceAmount = abs($shiftModel->calculateVariance());
+                if ($currentAmount < -0.01) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Sum of other cashiers amounts cannot exceed total variance',
+                        'details' => [
+                            'variance_amount' => $varianceAmount,
+                            'other_cashiers_total' => $otherSum,
+                            'your_share_would_be' => $varianceAmount - $otherSum,
+                        ]
+                    ], 400);
+                }
 
+                $totalAssigned = $currentAmount + $otherSum;
                 if (abs($totalAssigned - $varianceAmount) > 0.01) {
                     return response()->json([
                         'success' => false,
@@ -94,6 +109,9 @@ class ShiftVarianceController extends Controller
                         ]
                     ], 400);
                 }
+
+                // Inject computed current_cashier_amount for service
+                $request->merge(['current_cashier_amount' => round($currentAmount, 2)]);
             }
 
             // Handle file uploads
