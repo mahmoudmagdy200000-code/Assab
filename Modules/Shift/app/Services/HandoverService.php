@@ -47,10 +47,11 @@ class HandoverService
                 'handover_to_id' => $handoverToId,
             ]);
 
-            // Update shift with handover details
-            if ($handoverToType === 'cashier' && isset($data['next_cashier_id'])) {
+            // Update shift with handover details so the recipient sees the request in cashier requests
+            $nextCashierId = $data['next_cashier_id'] ?? ($handoverToType === 'cashier' ? $handoverToId : null);
+            if ($handoverToType === 'cashier' && $nextCashierId) {
                 $shift->update([
-                    'next_cashier_id' => $data['next_cashier_id'],
+                    'next_cashier_id' => $nextCashierId,
                 ]);
             }
 
@@ -520,8 +521,11 @@ class HandoverService
     ): void {
         DB::beginTransaction();
         try {
-            // Verify this cashier is the next cashier
-            if ($shift->next_cashier_id !== $cashierId) {
+            // Verify this cashier is the recipient (from shift or handover record)
+            $handover = CashierShiftHandover::where('cashier_shift_id', $shift->id)->first();
+            $isRecipient = $shift->next_cashier_id === $cashierId
+                || ($handover && $handover->handover_to_type === 'cashier' && $handover->handover_to_id === $cashierId);
+            if (!$isRecipient) {
                 throw new \Exception('You are not authorized to accept this handover.');
             }
 
@@ -620,8 +624,11 @@ class HandoverService
     ): void {
         DB::beginTransaction();
         try {
-            // Verify this cashier is the next cashier
-            if ($shift->next_cashier_id !== $cashierId) {
+            // Verify this cashier is the recipient (from shift or handover record)
+            $handover = CashierShiftHandover::where('cashier_shift_id', $shift->id)->first();
+            $isRecipient = $shift->next_cashier_id === $cashierId
+                || ($handover && $handover->handover_to_type === 'cashier' && $handover->handover_to_id === $cashierId);
+            if (!$isRecipient) {
                 throw new \Exception('You are not authorized to reject this handover.');
             }
 

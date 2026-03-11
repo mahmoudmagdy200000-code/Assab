@@ -164,7 +164,8 @@ class ShiftRequestsService
         if ($user instanceof Cashier) {
             $query->where(function ($q) use ($user) {
                 $q->where('cashier_id', $user->id)
-                    ->orWhere('next_cashier_id', $user->id);
+                    ->orWhere('next_cashier_id', $user->id)
+                    ->orWhereHas('handover', fn ($h) => $h->where('handover_to_type', 'cashier')->where('handover_to_id', $user->id));
             });
             return;
         }
