@@ -170,7 +170,8 @@ class ShiftRequestsService
         }
 
         if ($user instanceof BranchManager && $user->branch_id) {
-            $query->whereHas('shift', fn($q) => $q->where('branch_id', $user->branch_id));
+            $query->whereHas('shift', fn($q) => $q->where('branch_id', $user->branch_id))
+                ->whereHas('handover', fn($q) => $q->where('handover_to_type', 'branch_manager')->where('handover_to_id', $user->id));
         }
     }
 

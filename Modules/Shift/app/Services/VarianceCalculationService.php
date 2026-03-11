@@ -108,8 +108,12 @@ class VarianceCalculationService
         VarianceType $type,
         array $data
     ): void {
-        // Record for current cashier
-        $currentCashierAmount = $data['current_cashier_amount'] ?? 0;
+        // Support both explicit current_cashier_amount and computed (variance − other_cashiers)
+        $otherCashiers = $data['other_cashiers'] ?? $data['cashiers'] ?? [];
+        $otherSum = collect($otherCashiers)->sum('amount');
+        $currentCashierAmount = isset($data['current_cashier_amount']) && $data['current_cashier_amount'] !== null && $data['current_cashier_amount'] !== ''
+            ? (float) $data['current_cashier_amount']
+            : max(0, $amount - $otherSum);
 
         // Use reason if provided, otherwise null (no default string)
         $reason = $data['reason'] ?? $data['notes'] ?? null;
@@ -130,9 +134,6 @@ class VarianceCalculationService
             'reason' => $reason,
             'supporting_files' => $supportingFiles,
         ]);
-
-        // ✅ Support both 'other_cashiers' (from controller) and 'cashiers' (legacy)
-        $otherCashiers = $data['other_cashiers'] ?? $data['cashiers'] ?? [];
 
         // Record for other cashiers
         if (!empty($otherCashiers)) {
@@ -396,20 +397,9 @@ class VarianceCalculationService
             $result['reason'] = null;
         }
 
-        // Calculate total variance amount
-        $totalVarianceAmount = $result['current_cashier_amount'];
-
-        // Add other cashiers amounts
-        foreach ($result['other_cashiers'] as $otherCashier) {
-            $totalVarianceAmount += $otherCashier['amount'];
-        }
-
-        // Add external factors amount (if exists)
-        if ($externalDetail) {
-            $totalVarianceAmount += (float) $externalDetail->assigned_amount;
-        }
-
-        $result['total_variance_amount'] = $totalVarianceAmount;
+        // Total variance amount is the shift's actual variance (not sum of assigned parts)
+        $shiftVarianceAmount = $mainDetail ? (float) abs($mainDetail->variance_amount) : abs((float) $shift->variance);
+        $result['total_variance_amount'] = $shiftVarianceAmount;
         $result['variance_type'] = $shift->variance > 0 ? 'Over' : 'Short';
 
         return $result;
