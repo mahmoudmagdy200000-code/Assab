@@ -1239,7 +1239,7 @@ class GoodsReceiptService
                             'quantity_received' => (float) $item->quantity_received,
                             'quality' => $item->quality_received?->value ?? $item->quality_ordered?->value,
                             'variance_type' => $item->variance_type?->value,
-                            'amount_variance' => $item->variance_amount ? (float) $item->variance_amount : null,
+                            'amount_variance' => $item->variance_type !== null ? (float) $item->variance_amount : null,
                             'temperature' => $item->temperature,
                             'expiration_date' => $item->expiry_date?->format('Y-m-d'),
                             'item_image' => FileResource::makeOrNull($item->photo)?->toArray(request()),
