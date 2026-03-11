@@ -108,8 +108,15 @@ class VarianceCalculationService
         VarianceType $type,
         array $data
     ): void {
-        // Record for current cashier
-        $currentCashierAmount = $data['current_cashier_amount'] ?? 0;
+        // Other cashiers' amounts (user enters these)
+        $otherCashiers = $data['other_cashiers'] ?? $data['cashiers'] ?? [];
+        $otherCashiersSum = collect($otherCashiers)->sum('amount');
+
+        // Current cashier's portion = total variance minus what was assigned to others
+        // (user only enters other_cashiers amounts; remainder is automatically the current cashier's)
+        $currentCashierAmount = !empty($otherCashiers)
+            ? $amount - $otherCashiersSum
+            : (float) ($data['current_cashier_amount'] ?? 0);
 
         // Use reason if provided, otherwise null (no default string)
         $reason = $data['reason'] ?? $data['notes'] ?? null;
@@ -130,9 +137,6 @@ class VarianceCalculationService
             'reason' => $reason,
             'supporting_files' => $supportingFiles,
         ]);
-
-        // ✅ Support both 'other_cashiers' (from controller) and 'cashiers' (legacy)
-        $otherCashiers = $data['other_cashiers'] ?? $data['cashiers'] ?? [];
 
         // Record for other cashiers
         if (!empty($otherCashiers)) {

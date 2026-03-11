@@ -72,8 +72,9 @@ class CashierCustodyService
     }
 
     /**
-     * Record Cash-IN (Total Sales) when a cashier sends a handover (declaring the cash they hold).
-     * This entry stays if rejected, and is complemented by a Cash-OUT when accepted.
+     * Record Cash-IN (Total Sales) when a cashier sends a handover.
+     * Amount = shift's real total_sales (cash_collected + card_payments + aggregator payments),
+     * not handover_amount (physical cash only). Falls back to handover_amount if total_sales not set.
      */
     public function recordCashCollected(CashierShiftHandover $handover, Cashier $sendingCashier): CashierCustodyTransaction
     {
@@ -86,6 +87,18 @@ class CashierCustodyService
             return $existing;
         }
 
+        $handover->loadMissing(['cashierShift', 'cashierShift.salesBreakdown']);
+        $shift = $handover->cashierShift;
+        $totalSales = 0.0;
+        if ($shift) {
+            $totalSales = (float) ($shift->total_sales ?? 0);
+            if ($totalSales <= 0) {
+                $totalSales = (float) $handover->handover_amount;
+            }
+        } else {
+            $totalSales = (float) $handover->handover_amount;
+        }
+
         $toName = null;
         if ($handover->handover_to_type === 'cashier') {
             $toName = Cashier::find($handover->handover_to_id)?->name;
@@ -96,7 +109,7 @@ class CashierCustodyService
         return CashierCustodyTransaction::create([
             'cashier_id'          => $sendingCashier->id,
             'transaction_type'    => 'Total Sales',
-            'amount'              => $handover->handover_amount,
+            'amount'              => $totalSales,
             'is_cash_in'          => true,
             'counterpart_name'    => $toName,
             'related_shift_id'    => $handover->cashier_shift_id,

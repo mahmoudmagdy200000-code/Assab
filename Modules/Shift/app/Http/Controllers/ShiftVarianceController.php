@@ -31,8 +31,9 @@ class ShiftVarianceController extends Controller
         $validator = Validator::make($request->all(), [
             'responsibility_type' => 'required|in:self,self_and_others,other_factors,mixed',
 
-            // For self_and_others and mixed
-            'current_cashier_amount' => 'required_if:responsibility_type,self_and_others,mixed|numeric|min:0',
+            // For self_and_others: current_cashier_amount is optional when other_cashiers is set
+            // (backend computes it as: variance - sum(other_cashiers))
+            'current_cashier_amount' => 'required_if:responsibility_type,mixed|nullable|numeric|min:0',
             'other_cashiers' => 'sometimes|array',
             'other_cashiers.*.cashier_id' => 'required_with:other_cashiers|exists:cashiers,id',
             'other_cashiers.*.amount' => 'required_with:other_cashiers|numeric|min:0',
@@ -56,6 +57,23 @@ class ShiftVarianceController extends Controller
             ], 422);
         }
 
+        // For self_and_others: require current_cashier_amount when no other_cashiers (full self responsibility)
+        if ($request->responsibility_type === 'self_and_others') {
+            $otherCashiers = $request->other_cashiers ?? [];
+            if (empty($otherCashiers)) {
+                $v = Validator::make($request->only('current_cashier_amount'), [
+                    'current_cashier_amount' => 'required|numeric|min:0',
+                ]);
+                if ($v->fails()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Validation failed',
+                        'errors' => $v->errors()
+                    ], 422);
+                }
+            }
+        }
+
         try {
             $shiftModel = CashierShift::with(['cashier', 'varianceDetails'])->findOrFail($shift);
 
@@ -76,13 +94,28 @@ class ShiftVarianceController extends Controller
                 ], 400);
             }
 
-            // Validate total amounts for shared/mixed responsibility
-            if (in_array($request->responsibility_type, ['self_and_others', 'mixed'])) {
-                $totalAssigned = $request->current_cashier_amount +
-                    collect($request->other_cashiers ?? [])->sum('amount');
-
+            // Validate amounts for self_and_others: sum(other_cashiers) must not exceed variance
+            // (current_cashier_amount is computed as variance - sum(other_cashiers))
+            if ($request->responsibility_type === 'self_and_others') {
                 $varianceAmount = abs($shiftModel->calculateVariance());
+                $otherSum = collect($request->other_cashiers ?? [])->sum('amount');
+                if ($otherSum > $varianceAmount + 0.01) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Sum of other cashiers amounts cannot exceed total variance',
+                        'details' => [
+                            'variance_amount' => $varianceAmount,
+                            'other_cashiers_sum' => $otherSum,
+                        ]
+                    ], 400);
+                }
+            }
 
+            // Validate total amounts for mixed responsibility (must match variance exactly)
+            if ($request->responsibility_type === 'mixed') {
+                $totalAssigned = (float) ($request->current_cashier_amount ?? 0) +
+                    collect($request->other_cashiers ?? [])->sum('amount');
+                $varianceAmount = abs($shiftModel->calculateVariance());
                 if (abs($totalAssigned - $varianceAmount) > 0.01) {
                     return response()->json([
                         'success' => false,
@@ -90,7 +123,6 @@ class ShiftVarianceController extends Controller
                         'details' => [
                             'variance_amount' => $varianceAmount,
                             'total_assigned' => $totalAssigned,
-                            'difference' => $varianceAmount - $totalAssigned,
                         ]
                     ], 400);
                 }
