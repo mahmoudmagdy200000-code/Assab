@@ -645,7 +645,9 @@ class ShiftHandoverController extends Controller
             ])->findOrFail($shift);
 
             if ($user instanceof Cashier) {
-                if ($shiftModel->cashier_id !== $user->id) {
+                $isShiftOwner = $shiftModel->cashier_id === $user->id;
+                $isResponsibleParty = $shiftModel->varianceDetails->contains('responsible_cashier_id', $user->id);
+                if (!$isShiftOwner && !$isResponsibleParty) {
                     return response()->json([
                         'success' => false,
                         'message' => 'Unauthorized: This shift does not belong to you',
