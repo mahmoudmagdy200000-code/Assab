@@ -209,22 +209,13 @@ class ShiftHandoverController extends Controller
                 ], 403);
             }
 
-            $shiftModel = CashierShift::with(['handoverStatus', 'shift', 'handover'])->findOrFail($shift);
+            $shiftModel = CashierShift::with(['handoverStatus', 'shift'])->findOrFail($shift);
 
             // Verify shift belongs to manager's branch
             if ($shiftModel->shift->branch_id !== $manager->branch_id) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized: This shift does not belong to your branch',
-                ], 403);
-            }
-
-            // Only the manager this handover was directed to can approve
-            $handover = $shiftModel->handover;
-            if (!$handover || $handover->handover_to_type !== 'branch_manager' || (string) $handover->handover_to_id !== (string) $manager->id) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthorized: This handover was not directed to you',
                 ], 403);
             }
 
@@ -381,22 +372,13 @@ class ShiftHandoverController extends Controller
                 ], 403);
             }
 
-            $shiftModel = CashierShift::with(['handoverStatus', 'cashier', 'shift', 'handover'])
+            $shiftModel = CashierShift::with(['handoverStatus', 'cashier', 'shift'])
                 ->findOrFail($shift);
 
             if ($shiftModel->shift->branch_id !== $manager->branch_id) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized: This shift does not belong to your branch',
-                ], 403);
-            }
-
-            // Only the manager this handover was directed to can reject
-            $handover = $shiftModel->handover;
-            if (!$handover || $handover->handover_to_type !== 'branch_manager' || (string) $handover->handover_to_id !== (string) $manager->id) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthorized: This handover was not directed to you',
                 ], 403);
             }
 
