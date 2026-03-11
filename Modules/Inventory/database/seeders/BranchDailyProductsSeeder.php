@@ -12,6 +12,8 @@ class BranchDailyProductsSeeder extends Seeder
 {
     private const BRANCH_ID = '019bd5e8-4837-700b-81b5-c9f2080fcbff';
 
+    private const MAX_ITEMS = 5;
+
     private const DEFAULT_PRICE = 0;
 
     private const DEFAULT_QUANTITY = 0;
@@ -32,6 +34,7 @@ class BranchDailyProductsSeeder extends Seeder
         $activeItems = Item::query()
             ->where('is_active', true)
             ->whereNotIn('id', $existingBranchItemIds)
+            ->limit(self::MAX_ITEMS)
             ->get(['id']);
 
         foreach ($activeItems as $item) {
