@@ -1230,22 +1230,24 @@ class GoodsReceiptService
                         'arrival_time' => $latestReceipt->arrival_time?->format('Y-m-d H:i:s')
                             ?? $order->expected_delivery_at?->format('Y-m-d H:i:s'),
                     ],
-                    'goods_inspections' => $latestReceipt->items->map(function ($item) {
-                        return [
-                            'item_name' => $item->item_name,
-                            'item_logo' => $item->item_logo_url,
-                            'item_unit' => $item->unit_of_measurement ?? 'kg',
-                            'quantity_ordered' => (float) $item->quantity_ordered,
-                            'quantity_received' => (float) $item->quantity_received,
-                            'quality' => $item->quality_received?->value ?? $item->quality_ordered?->value,
-                            'variance_type' => $item->variance_type?->value ?? 'none',
-                            'amount_variance' => $item->variance_type !== null ? (float) $item->variance_amount : null,
-                            'temperature' => $item->temperature,
-                            'expiration_date' => $item->expiry_date?->format('Y-m-d'),
-                            'item_image' => FileResource::makeOrNull($item->photo)?->toArray(request()),
-                            'additional_note' => $item->notes,
-                        ];
-                    })->toArray(),
+                    'goods_inspections' => $latestReceipt->items
+                        ->filter(fn($item) => $item->variance_type !== null)
+                        ->map(function ($item) {
+                            return [
+                                'item_name' => $item->item_name,
+                                'item_logo' => $item->item_logo_url,
+                                'item_unit' => $item->unit_of_measurement ?? 'kg',
+                                'quantity_ordered' => (float) $item->quantity_ordered,
+                                'quantity_received' => (float) $item->quantity_received,
+                                'quality' => $item->quality_received?->value ?? $item->quality_ordered?->value,
+                                'variance_type' => $item->variance_type->value,
+                                'amount_variance' => (float) $item->variance_amount,
+                                'temperature' => $item->temperature,
+                                'expiration_date' => $item->expiry_date?->format('Y-m-d'),
+                                'item_image' => FileResource::makeOrNull($item->photo)?->toArray(request()),
+                                'additional_note' => $item->notes,
+                            ];
+                        })->values()->toArray(),
                     'document_type' => $latestReceipt->document_type?->value,
                     'financial_summary' => $invoice ? [
                         'invoice_number' => $invoice->invoice_number,
