@@ -527,10 +527,11 @@ class ShiftHandoverController extends Controller
                 'nextCashier'
             ])->findOrFail($shift);
 
-            // Cashier must be the shift owner or the designated receiving cashier
+            // Cashier must be the shift owner or the designated receiving cashier (from shift or handover record)
             if ($user instanceof \Modules\Cashier\Models\Cashier) {
-                $isOwner    = (string) $shiftModel->cashier_id    === (string) $user->id;
-                $isReceiver = (string) $shiftModel->next_cashier_id === (string) $user->id;
+                $isOwner = (string) $shiftModel->cashier_id === (string) $user->id;
+                $isReceiver = (string) $shiftModel->next_cashier_id === (string) $user->id
+                    || ($shiftModel->handover && $shiftModel->handover->handover_to_type === 'cashier' && (string) $shiftModel->handover->handover_to_id === (string) $user->id);
                 if (!$isOwner && !$isReceiver) {
                     return response()->json([
                         'success' => false,
