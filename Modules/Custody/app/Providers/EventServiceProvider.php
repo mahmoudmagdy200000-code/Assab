@@ -15,6 +15,9 @@ class EventServiceProvider extends ServiceProvider
         \Modules\Custody\Events\HandoverApproved::class => [
             \Modules\Custody\Listeners\CreatePersonalLedgerTransactionFromHandover::class,
         ],
+        \Modules\Shift\Events\VarianceRecorded::class => [
+            \Modules\Custody\Listeners\CreateCustodyLedgerEntriesForVariance::class,
+        ],
         \Modules\Expense\Events\ExpenseApprovedEvent::class => [
             \Modules\Custody\Listeners\CreateCustodyTransactionFromExpenseApproval::class,
         ],
