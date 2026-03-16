@@ -772,9 +772,13 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             ->available()
             ->whereHas('supplier', fn($q) => $q->active());
 
-        // Filter by supplier status
+        // Filter by supplier status (Supplier model has no scopeByStatus; filter by column)
         if (!empty($filters['status'])) {
-            $query->whereHas('supplier', fn($q) => $q->byStatus($filters['status']));
+            $status = $filters['status'];
+            if ($status instanceof \Modules\Purchase\Enums\SupplierStatus) {
+                $status = $status->value;
+            }
+            $query->whereHas('supplier', fn($q) => $q->where('status', $status));
         }
 
         // Filter by delivery time
@@ -782,9 +786,14 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             $query->byDeliveryTime($filters['max_delivery_hours']);
         }
 
-        // Search by supplier name
+        // Search by supplier name (Supplier model has no scopeSearch; use where like)
         if (!empty($filters['search'])) {
-            $query->whereHas('supplier', fn($q) => $q->search($filters['search']));
+            $term = $filters['search'];
+            $query->whereHas('supplier', fn($q) => $q->where(function ($q) use ($term) {
+                $q->where('name', 'like', "%{$term}%")
+                    ->orWhere('email', 'like', "%{$term}%")
+                    ->orWhere('phone', 'like', "%{$term}%");
+            }));
         }
 
         return $query->get()->map(function ($item) {
