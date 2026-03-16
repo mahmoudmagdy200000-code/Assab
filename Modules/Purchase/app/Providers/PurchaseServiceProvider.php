@@ -16,6 +16,8 @@ use Modules\Purchase\Services\GoodsReceiptService;
 use Modules\Purchase\Services\OrderCreationService;
 use Modules\Purchase\Services\OrderTrackingService;
 use Modules\Purchase\Services\PriceComparisonService;
+use Modules\Purchase\Services\PurchaseOrderDelayService;
+use Modules\Purchase\Services\PurchaseOrderItemService;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Services\ReturnManagementService;
 use Modules\Purchase\Services\TimelineService;
@@ -84,8 +86,9 @@ class PurchaseServiceProvider extends ServiceProvider
         $this->app->singleton(PurchaseOrderService::class, function ($app) {
             return new PurchaseOrderService(
                 $app->make(TimelineService::class),
-                $app->make(CalculationService::class),
-                $app->make(OrderCreationService::class)
+                $app->make(OrderCreationService::class),
+                $app->make(PurchaseOrderDelayService::class),
+                $app->make(PurchaseOrderItemService::class)
             );
         });
 
