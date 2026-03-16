@@ -14,6 +14,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-07
 - Existing DB; no schema changes. Timeline data lives in `expense_timelines`, `order_timelines` (polymorphic), `custody_request_timeline`, `inventory_session_timelines`, `monthly_inventory_timelines`. (002-timeline-sort-inventory-details)
 - PHP 8.x + Laravel 11, RecurringOrder module, Purchase module (PurchaseOrderService), Nwidart Laravel Modules (003-recurring-order-scheduled-execution)
 - Existing DB; tables `recurring_orders`, `recurring_order_items`, `purchase_orders` (no schema change for this feature) (003-recurring-order-scheduled-execution)
+- PHP 8.x, Laravel 11 + Laravel 11 (modules under `app/Modules/`), Eloquent ORM, Laravel Queues/Jobs (Redis/Horizon in production), API Resources, Form Requests, Policies (001-modules-n1-query)
+- Relational database via Laravel (existing schema; no schema changes in this feature) (001-modules-n1-query)
 
 - PHP 8.x (Laravel) + Laravel, Expense module (Modules/Expense) (001-recent-expenses-fix)
 
@@ -33,9 +35,9 @@ tests/
 PHP 8.x (Laravel): Follow standard conventions
 
 ## Recent Changes
+- 001-modules-n1-query: Added PHP 8.x, Laravel 11 + Laravel 11 (modules under `app/Modules/`), Eloquent ORM, Laravel Queues/Jobs (Redis/Horizon in production), API Resources, Form Requests, Policies
 - 003-recurring-order-scheduled-execution: Added PHP 8.x + Laravel 11, RecurringOrder module, Purchase module (PurchaseOrderService), Nwidart Laravel Modules
 - 002-timeline-sort-inventory-details: Added PHP 8.x + Laravel, modular structure under `app/Modules/`
-- 001-refactor-modules-optimization: Added PHP 8.x + Laravel, modular structure under `app/Modules/`
 
 
 <!-- MANUAL ADDITIONS START -->

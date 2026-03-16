@@ -3,18 +3,15 @@
 namespace Modules\Purchase\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Http\Request;
 use Modules\Purchase\Constants\PurchaseConstants;
 use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\QualityLevel;
-use Modules\Purchase\Enums\TimelineEventType;
+use Modules\Purchase\Exceptions\PurchaseOrderException;
 use Modules\Purchase\Models\BranchItem;
-use Modules\Purchase\Models\Item;
 use Modules\Purchase\Models\OrderTimeline;
 use Modules\Purchase\Models\PriceHistory;
 use Modules\Purchase\Models\PurchaseOrder;
@@ -24,9 +21,10 @@ use Illuminate\Support\Collection;
 class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\PurchaseOrderServiceInterface
 {
     public function __construct(
-        private readonly TimelineService $timelineService,
-        private readonly CalculationService $calculationService,
-        private readonly OrderCreationService $orderCreationService
+        private readonly TimelineService           $timelineService,
+        private readonly OrderCreationService      $orderCreationService,
+        private readonly PurchaseOrderDelayService $delayService,
+        private readonly PurchaseOrderItemService  $itemService
     ) {}
 
     /**
@@ -37,7 +35,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      * - Filter by category/subcategory
      * - Filter by supplier (from Expense module)
      */
-    public function getBranchItems(string $branchId, array $filters = [], int $perPage = null): LengthAwarePaginator
+    public function getBranchItems(string $branchId, array $filters = [], ?int $perPage = null): LengthAwarePaginator
     {
         $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
 
@@ -73,7 +71,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     }
 
     /**
-     * Get purchase history with filters
+     * Get purchase history with filters.
      *
      * Filters:
      * - Search: by item name
@@ -81,83 +79,28 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      * - Type: All, Direct Supplier Order, Via Purchasing Officer, Internal Transfer
      * - Date: Last 24h, Last 7d, Last 30d, or Custom date range
      */
-    public function getHistory(array $filters, int $perPage = null): LengthAwarePaginator
+    public function getHistory(array $filters, ?int $perPage = null): LengthAwarePaginator
     {
         $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
 
-        // Performance: Eager load only needed columns
         $query = PurchaseOrder::with([
             'items:id,purchase_order_id,item_id,item_name,quantity_ordered,unit_price,total_price',
             'supplier:id,name,phone,email',
             'branch:id,name,lat,lng,opening_hours,closing_hours,image',
             'requestedBy:id,name,email',
-            'fromBranch:id,name,lat,lng'
+            'fromBranch:id,name,lat,lng',
         ])
             ->history()
             ->orderBy('created_at', 'desc');
 
-        // Search by item name
         if (!empty($filters['search'])) {
             $query->search($filters['search']);
         }
 
-        // Filter by perspective (submitted/received) - takes precedence over status
-        // Submitted: Close, Canceled
-        // Received: Confirmed, Partial Confirmation
-        if (!empty($filters['perspective'])) {
-            if ($filters['perspective'] === 'submitted') {
-                $query->whereIn('status', [OrderStatus::CLOSED, OrderStatus::CANCELED]);
-            } elseif ($filters['perspective'] === 'received') {
-                $query->whereIn('status', [OrderStatus::CONFIRMED, OrderStatus::PARTIAL_CONFIRMATION]);
-            }
-        }
+        $this->applyPerspectiveFilter($query, $filters['perspective'] ?? null);
+        $this->applyHistoryTypeFilter($query, $filters['type'] ?? null);
+        $this->applyHistoryDateFilters($query, $filters);
 
-        // Filter by type: All, Direct Supplier Order, Via Purchasing Officer, Internal Transfer
-        if (!empty($filters['type']) && $filters['type'] !== 'all') {
-            // Try to get OrderType from label first, then from enum value
-            $orderType = OrderType::fromLabel($filters['type']);
-
-            if ($orderType === null) {
-                // Fallback to direct enum value conversion
-                try {
-                    $orderType = OrderType::from($filters['type']);
-                } catch (\ValueError $e) {
-                    // Invalid type, skip filter
-                    Log::warning('Invalid order type filter', ['type' => $filters['type']]);
-                    $orderType = null;
-                }
-            }
-
-            // Apply filter if we have a valid order type
-            if ($orderType !== null) {
-                $query->byType($orderType);
-            }
-        }
-
-        // Date filters
-        // If date_range is 'custom', use date_from and date_to
-        // Otherwise, use the predefined ranges
-        if (!empty($filters['date_range'])) {
-            if ($filters['date_range'] === 'custom') {
-                // Custom date range
-                if (!empty($filters['date_from']) || !empty($filters['date_to'])) {
-                    $query->byDateRange($filters['date_from'] ?? null, $filters['date_to'] ?? null);
-                }
-            } else {
-                // Predefined ranges
-                match ($filters['date_range']) {
-                    'last_24h' => $query->last24Hours(),
-                    'last_7d' => $query->last7Days(),
-                    'last_30d' => $query->last30Days(),
-                    default => null,
-                };
-            }
-        } elseif (!empty($filters['date_from']) || !empty($filters['date_to'])) {
-            // If date_range is not set but date_from/date_to are provided, use them
-            $query->byDateRange($filters['date_from'] ?? null, $filters['date_to'] ?? null);
-        }
-
-        // Filter by branch: include orders created by this branch OR internal transfers where this branch is the source
         if (!empty($filters['branch_id'])) {
             $query->forBranchHistory($filters['branch_id']);
         }
@@ -173,7 +116,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      * and this branch created the order (branch_id = this branch).
      * Excludes orders requested FROM this branch by others (those appear in requested_orders).
      */
-    public function getOrders(array $filters, int $perPage = null): LengthAwarePaginator
+    public function getOrders(array $filters, ?int $perPage = null): LengthAwarePaginator
     {
         $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
 
@@ -231,7 +174,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      * For internal_transfer: orders where to_branch_id = this branch AND from_branch_id != this branch
      * For other types: no orders are requested from other branches (only from suppliers/officers)
      */
-    public function getPendingOrders(array $filters, int $perPage = null): LengthAwarePaginator
+    public function getPendingOrders(array $filters, ?int $perPage = null): LengthAwarePaginator
     {
         $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
 
@@ -281,194 +224,56 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     }
 
     /**
-     * Get orders for receiving grouped by expected delivery date
-     * Returns only orders with DELIVERED status
+     * Get orders for receiving grouped by expected delivery date.
+     * Returns only orders with DELIVERED status (or receivable statuses for internal transfers).
      */
-    public function getOrdersForReceiving(array $filters, int $perPage = null): LengthAwarePaginator
+    public function getOrdersForReceiving(array $filters, ?int $perPage = null): LengthAwarePaginator
     {
-        $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
+        $perPage     = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
         $currentPage = request()->get('page', 1);
 
         $cancelledStatuses = OrderItemStatus::cancelledStatusValues();
+        $orderType         = !empty($filters['type']) ? OrderType::from($filters['type']) : null;
+
         $query = PurchaseOrder::withCount([
             'items as items_count' => fn ($q) => $q->whereNotIn('status', $cancelledStatuses),
         ]);
 
-        // Filter by order type to determine which statuses to include
-        $orderType = !empty($filters['type']) ? OrderType::from($filters['type']) : null;
+        $this->applyReceivingStatusFilter($query, $orderType);
 
-        if ($orderType === OrderType::INTERNAL_TRANSFER) {
-            // For Internal Transfer: include orders with statuses that can be received
-            // fully_approved, partial_approved, confirmed, partial_confirmation
-            $query->whereIn('status', [
-                OrderStatus::FULLY_APPROVED,
-                OrderStatus::PARTIAL_APPROVED,
-                OrderStatus::CONFIRMED,
-                OrderStatus::PARTIAL_CONFIRMATION,
-            ]);
-        } elseif ($orderType !== null) {
-            // For other specific order types: only DELIVERED status
-            $query->byStatus(OrderStatus::DELIVERED)
-                ->whereNotNull('expected_delivery_at');
-        } else {
-            // If no type filter: include both internal_transfer and other orders
-            $query->where(function ($q) {
-                // Internal Transfer orders with receivable statuses
-                $q->where(function ($internalTransferQuery) {
-                    $internalTransferQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
-                        ->whereIn('status', [
-                            OrderStatus::FULLY_APPROVED,
-                            OrderStatus::PARTIAL_APPROVED,
-                            OrderStatus::CONFIRMED,
-                            OrderStatus::PARTIAL_CONFIRMATION,
-                        ]);
-                })
-                    // Other order types with DELIVERED status
-                    ->orWhere(function ($otherOrdersQuery) {
-                        $otherOrdersQuery->where('order_type', '!=', OrderType::INTERNAL_TRANSFER)
-                            ->where('status', OrderStatus::DELIVERED)
-                            ->whereNotNull('expected_delivery_at');
-                    });
-            });
-        }
-
-        // Apply order type filter if provided
         if ($orderType) {
             $query->byType($orderType);
         }
 
         if (!empty($filters['branch_id'])) {
-            $branchId = $filters['branch_id'];
-
-            if ($orderType === OrderType::INTERNAL_TRANSFER) {
-                // For Internal Transfer: filter by to_branch_id (the receiving branch)
-                // This is the branch that will receive the order
-                $query->where('to_branch_id', $branchId);
-            } elseif ($orderType === null) {
-                // If no type filter: check both internal_transfer (to_branch_id) and others (branch_id)
-                $query->where(function ($q) use ($branchId) {
-                    $q->where(function ($internalTransferQuery) use ($branchId) {
-                        $internalTransferQuery->where('order_type', OrderType::INTERNAL_TRANSFER)
-                            ->where('to_branch_id', $branchId);
-                    })
-                        ->orWhere(function ($otherOrdersQuery) use ($branchId) {
-                            $otherOrdersQuery->where('order_type', '!=', OrderType::INTERNAL_TRANSFER)
-                                ->where('branch_id', $branchId);
-                        });
-                });
-            } else {
-                // For other order types: filter by branch_id (the requesting branch)
-                $query->byBranch($branchId);
-            }
+            $this->applyReceivingBranchFilter($query, $filters['branch_id'], $orderType);
         }
 
-        // Order by expected_delivery_at for non-internal-transfer, or created_at for internal-transfer
-        if ($orderType === OrderType::INTERNAL_TRANSFER) {
-            $query->orderBy('created_at', 'desc');
-        } elseif ($orderType === null) {
-            // If no type filter: order internal_transfer by created_at, others by expected_delivery_at
-            // This is handled in the grouping logic, so just order by created_at for all
-            $query->orderBy('created_at', 'desc');
-        } else {
-            $query->orderBy('expected_delivery_at', 'asc')
-                ->orderBy('created_at', 'desc');
-        }
+        $this->applyReceivingSortOrder($query, $orderType);
 
-        $orders = $query->get()->filter(fn ($order) => (int) ($order->items_count ?? 0) > 0);
+        $query->whereHas('items', fn ($q) => $q->whereNotIn('status', $cancelledStatuses));
 
-        // Transform orders to the required format (flattened, not grouped)
-        $transformedOrders = $orders->map(function ($order) {
-            $orderType = null;
-            try {
-                if ($order->order_type) {
-                    $orderTypeValue = $order->order_type;
-                    if ($orderTypeValue instanceof \BackedEnum) {
-                        $orderType = $orderTypeValue->value;
-                    } elseif (is_string($orderTypeValue)) {
-                        $orderType = $orderTypeValue;
-                    }
-                }
-            } catch (\Exception $e) {
-                $orderType = null;
-            }
+        $paginator = $query->paginate($perPage, ['*'], 'page', $currentPage);
+        $paginator->setPath(request()->url());
 
-            $status = null;
-            try {
-                if ($order->status) {
-                    $statusValue = $order->status;
-                    if ($statusValue instanceof \BackedEnum) {
-                        $status = $statusValue->value;
-                    } elseif (is_string($statusValue)) {
-                        $status = $statusValue;
-                    }
-                }
-            } catch (\Exception $e) {
-                $status = null;
-            }
-
-            return [
-                'id' => $order->id,
-                'items_count' => (int) ($order->items_count ?? 0),
-                'type' => $orderType,
-                'status' => $status ?? 'draft',
-                'date' => $order->created_at?->format('Y-m-d H:i:s') ?? null,
-            ];
-        })->values();
-
-        // Create paginator for the flattened orders
-        $total = $transformedOrders->count();
-        $items = $transformedOrders->slice(($currentPage - 1) * $perPage, $perPage)->values();
-
-        return new LengthAwarePaginator(
-            $items,
-            $total,
-            $perPage,
-            $currentPage,
-            [
-                'path' => request()->url(),
-                'pageName' => 'page',
-            ]
+        $paginator->setCollection(
+            $paginator->getCollection()->map(fn ($order) => $this->transformReceivingOrder($order))->values()
         );
+
+        return $paginator;
     }
 
     /**
-     * Create a new purchase order
+     * Create a new purchase order.
      */
     public function createOrder(array $data): PurchaseOrder
     {
         return DB::transaction(function () use ($data) {
-            // Set sourceable_type and sourceable_id based on order type
-            $sourceableType = null;
-            $sourceableId = null;
-
             $orderType = is_string($data['order_type'])
                 ? OrderType::from($data['order_type'])
                 : $data['order_type'];
 
-            // Allow explicit sourceable (e.g. from recurring order where officer != requested_by)
-            if (!empty($data['sourceable_type']) && !empty($data['sourceable_id'])) {
-                $sourceableType = $data['sourceable_type'];
-                $sourceableId = $data['sourceable_id'];
-            } elseif ($orderType === OrderType::DIRECT_SUPPLIER) {
-                $sourceableType = \Modules\Supplier\Models\Supplier::class;
-                $sourceableId = $data['supplier_id'] ?? null;
-                if (!$sourceableId) {
-                    throw new \InvalidArgumentException('Supplier ID is required for direct supplier orders');
-                }
-            } elseif ($orderType === OrderType::VIA_PURCHASING_OFFICER) {
-                // For purchasing officer orders, use the branch manager as source (or explicit sourceable from recurring)
-                $sourceableType = \Modules\BranchManagers\Models\BranchManager::class;
-                $sourceableId = $data['sourceable_id'] ?? $data['requested_by'] ?? null;
-                if (!$sourceableId) {
-                    throw new \InvalidArgumentException('Requested by (Branch Manager ID) or sourceable is required');
-                }
-            } elseif ($orderType === OrderType::INTERNAL_TRANSFER) {
-                $sourceableType = \Modules\Branch\Models\Branch::class;
-                $sourceableId = $data['from_branch_id'] ?? null;
-                if (!$sourceableId) {
-                    throw new \InvalidArgumentException('From branch ID is required for internal transfer orders');
-                }
-            }
+            [$sourceableType, $sourceableId] = $this->resolveSourceable($data, $orderType);
 
             $order = PurchaseOrder::create([
                 'order_type' => $data['order_type'],
@@ -551,6 +356,56 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     }
 
     /**
+     * Resolve the sourceable type and ID for a new order based on order type.
+     *
+     * @return array{0: string|null, 1: string|null}
+     */
+    private function resolveSourceable(array $data, OrderType $orderType): array
+    {
+        if (!empty($data['sourceable_type']) && !empty($data['sourceable_id'])) {
+            return [$data['sourceable_type'], $data['sourceable_id']];
+        }
+
+        return $this->resolveSourceableByOrderType($data, $orderType);
+    }
+
+    /**
+     * Resolve sourceable class and ID based on a typed order type.
+     *
+     * @return array{0: string|null, 1: string|null}
+     */
+    private function resolveSourceableByOrderType(array $data, OrderType $orderType): array
+    {
+        $definitions = [
+            OrderType::DIRECT_SUPPLIER->value => [
+                'class'     => \Modules\Supplier\Models\Supplier::class,
+                'id'        => $data['supplier_id'] ?? null,
+                'exception' => fn () => PurchaseOrderException::supplierIdRequired(),
+            ],
+            OrderType::VIA_PURCHASING_OFFICER->value => [
+                'class'     => \Modules\BranchManagers\Models\BranchManager::class,
+                'id'        => $data['sourceable_id'] ?? $data['requested_by'] ?? null,
+                'exception' => fn () => PurchaseOrderException::requestedByRequired(),
+            ],
+            OrderType::INTERNAL_TRANSFER->value => [
+                'class'     => \Modules\Branch\Models\Branch::class,
+                'id'        => $data['from_branch_id'] ?? null,
+                'exception' => fn () => PurchaseOrderException::fromBranchIdRequired(),
+            ],
+        ];
+
+        if (!isset($definitions[$orderType->value])) {
+            return [null, null];
+        }
+
+        ['class' => $class, 'id' => $id, 'exception' => $mkException] = $definitions[$orderType->value];
+        if (!$id) {
+            throw $mkException();
+        }
+        return [$class, $id];
+    }
+
+    /**
      * Validate inputs for createMultipleOrders
      */
     private function validateCreateMultipleOrdersInputs(string $branchId, string $requestedBy): void
@@ -592,7 +447,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                     'error' => $e->getMessage(),
                     'branch_data' => $branchData,
                 ]);
-                throw new \Exception("Failed to create internal transfer order at index {$index}: " . $e->getMessage(), 0, $e);
+                throw PurchaseOrderException::failedToCreateOrder($index, $e->getMessage());
             }
         }
 
@@ -627,7 +482,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                     'error' => $e->getMessage(),
                     'supplier_data' => $supplierData,
                 ]);
-                throw new \Exception("Failed to create direct supplier order at index {$index}: " . $e->getMessage(), 0, $e);
+                throw PurchaseOrderException::failedToCreateOrder($index, $e->getMessage());
             }
         }
 
@@ -662,7 +517,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                     'error' => $e->getMessage(),
                     'officer_data' => $officerData,
                 ]);
-                throw new \Exception("Failed to create purchasing officer order at index {$index}: " . $e->getMessage(), 0, $e);
+                throw PurchaseOrderException::failedToCreateOrder($index, $e->getMessage());
             }
         }
 
@@ -670,143 +525,19 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     }
 
     /**
-     * Add item to order
-     *
-     * Gets item details from Item model (new structure) using item_id
-     *
-     * @param PurchaseOrder $order
-     * @param array $data
-     * @return PurchaseOrderItem
-     * @throws \InvalidArgumentException
+     * Add item to order. Delegates to PurchaseOrderItemService.
      */
     public function addItem(PurchaseOrder $order, array $data): PurchaseOrderItem
     {
-        // Validate required fields
-        if (empty($data['item_id'])) {
-            throw new \InvalidArgumentException('Item ID is required');
-        }
-
-        if (!isset($data['quantity']) || $data['quantity'] <= 0) {
-            throw new \InvalidArgumentException('Quantity is required and must be greater than 0');
-        }
-
-        // Get item details from Item model (new structure)
-        $item = Item::find($data['item_id']);
-        if (!$item) {
-            throw new \InvalidArgumentException("Item with ID {$data['item_id']} not found");
-        }
-
-        // Get BranchItem for current branch to get price and additional data (if exists)
-        $branchItem = BranchItem::where('branch_id', $order->branch_id)
-            ->where('item_id', $item->id)
-            ->with('item') // Eager load item relationship
-            ->first();
-
-        // For internal transfers, unit_price is optional (defaults to 0 - free transfer)
-        // For other order types, unit_price should be provided or use price from BranchItem
-        $unitPrice = $data['unit_price'] ?? ($branchItem?->price ?? 0);
-
-        // Ensure unit_price is numeric
-        $unitPrice = is_numeric($unitPrice) ? (float) $unitPrice : 0;
-
-        // Ensure quantity is numeric
-        $quantity = is_numeric($data['quantity']) ? (float) $data['quantity'] : 0;
-
-        // Calculate total price
-        $discount = isset($data['discount']) && is_numeric($data['discount']) ? (float) $data['discount'] : 0;
-        $totalPrice = ($quantity * $unitPrice) - $discount;
-
-        // Handle item_logo - can be array or string
-        $itemLogo = $item->logo;
-        if (is_array($itemLogo)) {
-            $itemLogo = $itemLogo[0] ?? null;
-        }
-
-        // Validate and normalize quality value
-        $quality = $this->normalizeQualityLevel($data['quality'] ?? null);
-
-        // Validate unit_of_measurement value
-        // Try to get unit from: data -> Item -> default 'kg'
-        $allowedUnits = ['kg', 'pk', 'unit', 'box', 'liter', 'piece'];
-        $unit = null;
-        if (!empty($data['unit']) && in_array($data['unit'], $allowedUnits)) {
-            $unit = $data['unit'];
-        } elseif (!empty($item->unit) && in_array($item->unit, $allowedUnits)) {
-            $unit = $item->unit;
-        } else {
-            $unit = 'kg'; // Default to 'kg'
-        }
-
-        // Get category and subcategory from Item (with fallback)
-        $category = $item->category
-            ?? ($branchItem && $branchItem->item ? $branchItem->item->category : null);
-        $subcategory = $item->subcategory
-            ?? ($branchItem && $branchItem->item ? $branchItem->item->subcategory : null);
-
-        $itemStatus = ($order->status ?? null) === OrderStatus::DRAFT
-            ? OrderItemStatus::DRAFT
-            : OrderItemStatus::PENDING;
-
-        try {
-            return PurchaseOrderItem::create([
-                'purchase_order_id' => $order->id,
-                'item_id' => $item->id, // Item.id (new structure)
-                'item_name' => $item->name ?? 'Unknown Item',
-                'item_logo' => $itemLogo,
-                'item_sku' => $item->code ?? null,
-                'category' => $category,
-                'subcategory' => $subcategory,
-                'quantity_ordered' => $quantity,
-                'original_quantity' => $quantity, // Set original_quantity to quantity_ordered
-                'new_quantity' => $quantity, // Set new_quantity to quantity_ordered initially
-                'unit_of_measurement' => $unit ?: 'kg', // Ensure unit is always set (never null)
-                'unit_price' => $unitPrice,
-                'total_price' => max(0, $totalPrice), // Ensure total_price is not negative
-                'discount' => $discount,
-                'quality_ordered' => $quality,
-                'status' => $itemStatus,
-                'available_in_source' => $data['available_in_source'] ?? null,
-                'daily_consumption' => $data['daily_consumption'] ?? null,
-                'weekend_forecast' => $data['weekend_forecast'] ?? null,
-                'next_supply_date' => $data['next_supply_date'] ?? null,
-                'expiry_date' => $data['expiry_date'] ?? null,
-                'cooling_status' => $data['cooling_status'] ?? null,
-                'is_alternative' => $data['is_alternative'] ?? false,
-                'is_gift' => $data['is_gift'] ?? false,
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Error creating purchase order item', [
-                'error' => $e->getMessage(),
-                'order_id' => $order->id,
-                'item_id' => $data['item_id'],
-                'item_data' => $data,
-            ]);
-            throw new \Exception("Failed to create order item: " . $e->getMessage(), 0, $e);
-        }
+        return $this->itemService->addItem($order, $data);
     }
 
     /**
-     * Update order items
+     * Update order items. Delegates to PurchaseOrderItemService.
      */
     public function updateItems(PurchaseOrder $order, array $items): void
     {
-        DB::transaction(function () use ($order, $items) {
-            foreach ($items as $itemData) {
-                if (isset($itemData['id'])) {
-                    $item = PurchaseOrderItem::find($itemData['id']);
-                    if ($item) {
-                        $item->update([
-                            'quantity_ordered' => $itemData['quantity'] ?? $item->quantity_ordered,
-                            'unit_price' => $itemData['unit_price'] ?? $item->unit_price,
-                            'quality_ordered' => $itemData['quality'] ?? $item->quality_ordered,
-                        ]);
-                        $item->calculateTotalPrice();
-                    }
-                }
-            }
-
-            $order->calculateTotals();
-        });
+        $this->itemService->updateItems($order, $items);
     }
 
     /**
@@ -843,39 +574,20 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     public function confirmOrder(PurchaseOrder $order, ?array $itemConfirmations = null, ?string $readyTime = null): bool
     {
         return DB::transaction(function () use ($order, $itemConfirmations, $readyTime) {
-            // Check if order is in decision phase
             if (!$order->status->isDecisionPhase() || $order->status === OrderStatus::CONFIRMED) {
                 throw new \InvalidArgumentException(
                     "Cannot approve order. Current status: {$order->status?->value}. Order must be in pending status."
                 );
             }
 
-            // If itemConfirmations provided, confirm specific items
-            if ($itemConfirmations) {
-                foreach ($itemConfirmations as $confirmation) {
-                    $item = $order->items()->find($confirmation['item_id']);
-                    if ($item) {
-                        $quantity = $confirmation['quantity'] ?? $item->quantity_ordered;
-                        $item->confirm($quantity);
-                    }
-                }
-            } else {
-                // Confirm all pending items
-                $order->items()
-                    ->where('status', OrderItemStatus::PENDING)
-                    ->get()
-                    ->each->confirm();
-            }
+            $this->applyItemConfirmations($order, $itemConfirmations);
 
-            // Update ready_time if provided
             if ($readyTime !== null) {
                 $order->update(['ready_time' => $readyTime]);
             }
 
-            // Check and transition to CONFIRMED if all items are decided
             $order->checkAndTransitionToConfirmed();
 
-            // If order is now confirmed, log and record prices
             if ($order->fresh()->status === OrderStatus::CONFIRMED) {
                 $this->timelineService->logOrderConfirmed($order);
                 $this->recordOrderPrices($order);
@@ -883,6 +595,24 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
             return true;
         });
+    }
+
+    /**
+     * Confirm individual items or all pending items depending on whether confirmations are provided.
+     */
+    private function applyItemConfirmations(PurchaseOrder $order, ?array $itemConfirmations): void
+    {
+        if (!$itemConfirmations) {
+            $order->items()->where('status', OrderItemStatus::PENDING)->get()->each->confirm();
+            return;
+        }
+
+        foreach ($itemConfirmations as $confirmation) {
+            $item = $order->items()->find($confirmation['item_id']);
+            if ($item) {
+                $item->confirm($confirmation['quantity'] ?? $item->quantity_ordered);
+            }
+        }
     }
 
     /**
@@ -1076,305 +806,66 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     }
 
     /**
-     * Approve item request (branch manager approves supplier's request for specific item)
-     *
-     * @param PurchaseOrder $order
-     * @param string $itemId
-     * @param array|null $additionalData Optional data like new_delivery_time
-     * @return bool
-     * @throws \InvalidArgumentException
+     * Approve item request (branch manager approves supplier's request for specific item).
+     * Delegates to PurchaseOrderItemService.
      */
     public function approveItemRequest(PurchaseOrder $order, string $itemId, ?array $additionalData = null): bool
     {
-        $item = $order->items()->where('item_id', $itemId)->first();
-
-        if (!$item) {
-            throw new \InvalidArgumentException('Item not found in order');
-        }
-
-        if (!$item->status->needsApproval() && !in_array($item->status, [
-            OrderItemStatus::PARTIAL_CONFIRMATION,
-            OrderItemStatus::PARTIAL
-        ])) {
-            throw new \InvalidArgumentException('Item must be in needs approval status to approve request');
-        }
-
-        return DB::transaction(function () use ($item, $additionalData, $order) {
-            $item->approveRequest($additionalData);
-            $item->save();
-
-            // Refresh order to get latest items status
-            $order->refresh();
-            $order->load('items');
-
-            // Check if all items are now confirmed/rejected, update order status accordingly
-            $order->checkAndTransitionToConfirmed();
-
-            // Log timeline event
-            $this->timelineService->logItemApproved($order, $item);
-
-            return true;
-        });
+        return $this->itemService->approveItemRequest($order, $itemId, $additionalData);
     }
 
     /**
-     * Reject item request (branch manager rejects supplier's request for specific item)
-     *
-     * @param PurchaseOrder $order
-     * @param string $itemId
-     * @param string|null $reason
-     * @return bool
-     * @throws \InvalidArgumentException
+     * Reject item request (branch manager rejects supplier's request for specific item).
+     * Delegates to PurchaseOrderItemService.
      */
     public function rejectItemRequest(PurchaseOrder $order, string $itemId, ?string $reason = null): bool
     {
-        $item = $order->items()->where('item_id', $itemId)->first();
-
-        if (!$item) {
-            throw new \InvalidArgumentException('Item not found in order');
-        }
-
-        if (!$item->status->needsApproval() && !in_array($item->status, [
-            OrderItemStatus::PARTIAL_CONFIRMATION,
-            OrderItemStatus::PARTIAL
-        ])) {
-            throw new \InvalidArgumentException('Item must be in needs approval status to reject request');
-        }
-
-        return DB::transaction(function () use ($item, $reason, $order) {
-            $item->rejectRequest($reason);
-            $item->save();
-
-            // Refresh order to get latest items status
-            $order->refresh();
-            $order->load('items');
-
-            // Check if all items are now confirmed/rejected, update order status accordingly
-            $order->checkAndTransitionToConfirmed();
-
-            // Log timeline event
-            $this->timelineService->logItemRejected($order, $item, $reason);
-
-            return true;
-        });
+        return $this->itemService->rejectItemRequest($order, $itemId, $reason);
     }
 
     /**
-     * Cancel item (branch manager cancels specific item)
-     *
-     * cancelByBranch will automatically check if item has approval_type:
-     * - If yes: sets status to CANCELED_MODIFICATION
-     * - Otherwise: sets status to CANCELLED_BY_BRANCH
-     *
-     * @param PurchaseOrder $order
-     * @param string $itemId
-     * @param string|null $reason
-     * @return bool
-     * @throws \InvalidArgumentException
+     * Cancel item (branch manager cancels specific item).
+     * Delegates to PurchaseOrderItemService.
      */
     public function cancelItem(PurchaseOrder $order, string $itemId, ?string $reason = null): bool
     {
-        $item = $order->items()->where('item_id', $itemId)->first();
-
-        if (!$item) {
-            throw new \InvalidArgumentException('Item not found in order');
-        }
-
-        if ($item->status->isCancelled()) {
-            throw new \InvalidArgumentException('Item is already cancelled');
-        }
-
-        return DB::transaction(function () use ($item, $reason, $order) {
-            // Cancel item by branch
-            // cancelByBranch will automatically check for approval_type and set appropriate status
-            $item->cancelByBranch($reason);
-
-            // Refresh order to get latest items status
-            $order->refresh();
-            $order->load('items');
-
-            // Check if all items are now cancelled/confirmed/rejected, update order status accordingly
-            $order->checkAndTransitionToConfirmed();
-
-            // Log timeline event
-            $this->timelineService->logItemRejected($order, $item, $reason ?? 'Item cancelled by branch manager');
-
-            return true;
-        });
+        return $this->itemService->cancelItem($order, $itemId, $reason);
     }
 
     /**
-     * Approve delay report for the entire order
-     * Branch manager approves supplier's delay request for all delayed items
-     *
-     * @param PurchaseOrder $order
-     * @return bool
+     * Approve delay report for the entire order.
+     * Delegates to PurchaseOrderDelayService.
      */
     public function approveOrderDelay(PurchaseOrder $order): bool
     {
-        // Check if order is in delayed status
-        if ($order->status !== OrderStatus::DELAYED) {
-            throw new \InvalidArgumentException('Order is not in delayed status');
-        }
-
-        return DB::transaction(function () use ($order) {
-            // Load items to get latest status
-            $order->load('items');
-
-            // Get all items in delayed status
-            $delayedItems = $order->items()->whereIn('status', [
-                OrderItemStatus::DELAYED_SUPPLIER,
-                OrderItemStatus::DELAYED_BRANCH,
-                OrderItemStatus::DELAYED, // For backward compatibility
-            ])->get();
-
-            if ($delayedItems->isEmpty()) {
-                throw new \InvalidArgumentException('No delayed items found in order');
-            }
-
-            // Update all delayed items to delayed_approved
-            foreach ($delayedItems as $item) {
-                $item->status = OrderItemStatus::DELAYED_APPROVED;
-                $item->save();
-
-                // Log timeline event for each item
-                $this->timelineService->logItemDelayApproved($order, $item);
-            }
-
-            // Update order status to delayed_approved
-            $order->transitionTo(OrderStatus::DELAYED_APPROVED);
-
-            return true;
-        });
+        return $this->delayService->approveOrderDelay($order);
     }
 
     /**
-     * Approve delay request (Branch Manager accepts) → status: delayed_confirmed, Track available
-     *
-     * @param PurchaseOrder $order
-     * @return bool
+     * Approve delay request (Branch Manager accepts) → status: delayed_confirmed.
+     * Delegates to PurchaseOrderDelayService.
      */
     public function approveDelayRequest(PurchaseOrder $order): bool
     {
-        if ($order->status !== OrderStatus::DELAYED) {
-            throw new \InvalidArgumentException('Order is not in delayed status');
-        }
-
-        return DB::transaction(function () use ($order) {
-            $order->load('items');
-
-            $delayedItems = $order->items()->whereIn('status', [
-                OrderItemStatus::DELAYED_SUPPLIER,
-                OrderItemStatus::DELAYED_BRANCH,
-                OrderItemStatus::DELAYED,
-            ])->get();
-
-            if ($delayedItems->isEmpty()) {
-                throw new \InvalidArgumentException('No delayed items found in order');
-            }
-
-            foreach ($delayedItems as $item) {
-                $item->status = OrderItemStatus::DELAYED_CONFIRMED;
-                $item->save();
-                $this->timelineService->logItemDelayApproved($order, $item);
-            }
-
-            $order->transitionTo(OrderStatus::DELAYED_CONFIRMED);
-
-            return true;
-        });
+        return $this->delayService->approveDelayRequest($order);
     }
 
     /**
-     * Reject delay request (Branch Manager rejects) → status: delayed_canceled, moves to Purchase History
-     *
-     * @param PurchaseOrder $order
-     * @param string|null $reason
-     * @return bool
+     * Reject delay request (Branch Manager rejects) → status: delayed_canceled.
+     * Delegates to PurchaseOrderDelayService.
      */
     public function rejectDelayRequest(PurchaseOrder $order, ?string $reason = null): bool
     {
-        if ($order->status !== OrderStatus::DELAYED) {
-            throw new \InvalidArgumentException('Order is not in delayed status');
-        }
-
-        return DB::transaction(function () use ($order, $reason) {
-            $order->cancellation_reason = $reason;
-            $order->save();
-
-            $order->load('items');
-            $delayedItems = $order->items()->whereIn('status', [
-                OrderItemStatus::DELAYED_SUPPLIER,
-                OrderItemStatus::DELAYED_BRANCH,
-                OrderItemStatus::DELAYED,
-            ])->get();
-
-            if (!$delayedItems->isEmpty()) {
-                foreach ($delayedItems as $item) {
-                    $item->status = OrderItemStatus::DELAYED_CANCELED;
-                    $approvalData = $item->approval_data ?? [];
-                    $approvalData['cancellation_reason'] = $reason;
-                    $item->approval_data = $approvalData;
-                    $item->save();
-                    $this->timelineService->logItemDelayRejected($order, $item, $reason ?? 'Delay request rejected by branch manager');
-                }
-            }
-
-            $order->transitionTo(OrderStatus::DELAYED_CANCELED);
-
-            return true;
-        });
+        return $this->delayService->rejectDelayRequest($order, $reason);
     }
 
     /**
-     * Reject delay report for the entire order
-     * Branch manager rejects supplier's delay request and cancels all delayed items
-     *
-     * @param PurchaseOrder $order
-     * @param string|null $reason
-     * @return bool
+     * Reject delay report for the entire order.
+     * Delegates to PurchaseOrderDelayService.
      */
     public function rejectOrderDelay(PurchaseOrder $order, ?string $reason = null): bool
     {
-        // Check if order is in delayed status
-        if ($order->status !== OrderStatus::DELAYED) {
-            throw new \InvalidArgumentException('Order is not in delayed status');
-        }
-
-        return DB::transaction(function () use ($order, $reason) {
-            // Load items to get latest status
-            $order->load('items');
-
-            // Get all items in delayed status
-            $delayedItems = $order->items()->whereIn('status', [
-                OrderItemStatus::DELAYED_SUPPLIER,
-                OrderItemStatus::DELAYED_BRANCH,
-                OrderItemStatus::DELAYED, // For backward compatibility
-            ])->get();
-
-            if ($delayedItems->isEmpty()) {
-                throw new \InvalidArgumentException('No delayed items found in order');
-            }
-
-            // Update all delayed items to delayed_canceled (same as order status)
-            foreach ($delayedItems as $item) {
-                $item->status = OrderItemStatus::DELAYED_CANCELED;
-
-                // Store cancellation reason in approval_data
-                $approvalData = $item->approval_data ?? [];
-                $approvalData['cancellation_reason'] = $reason;
-                $item->approval_data = $approvalData;
-
-                $item->save();
-
-                // Log timeline event for each item
-                $this->timelineService->logItemDelayRejected($order, $item, $reason ?? 'Delay request rejected by branch manager');
-            }
-
-            $order->transitionTo(OrderStatus::DELAYED_CANCELED);
-
-            return true;
-        });
+        return $this->delayService->rejectOrderDelay($order, $reason);
     }
 
     /**
@@ -1451,6 +942,167 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     }
 
     /**
+     * Apply receivable-status constraints to the receiving query.
+     */
+    private function applyReceivingStatusFilter($query, ?OrderType $orderType): void
+    {
+        $internalStatuses = [
+            OrderStatus::FULLY_APPROVED,
+            OrderStatus::PARTIAL_APPROVED,
+            OrderStatus::CONFIRMED,
+            OrderStatus::PARTIAL_CONFIRMATION,
+        ];
+
+        if ($orderType === OrderType::INTERNAL_TRANSFER) {
+            $query->whereIn('status', $internalStatuses);
+            return;
+        }
+
+        if ($orderType !== null) {
+            $query->byStatus(OrderStatus::DELIVERED)->whereNotNull('expected_delivery_at');
+            return;
+        }
+
+        // No type filter: include both internal transfers and delivered orders
+        $query->where(function ($q) use ($internalStatuses) {
+            $q->where(function ($sub) use ($internalStatuses) {
+                $sub->where('order_type', OrderType::INTERNAL_TRANSFER)
+                    ->whereIn('status', $internalStatuses);
+            })->orWhere(function ($sub) {
+                $sub->where('order_type', '!=', OrderType::INTERNAL_TRANSFER)
+                    ->where('status', OrderStatus::DELIVERED)
+                    ->whereNotNull('expected_delivery_at');
+            });
+        });
+    }
+
+    /**
+     * Apply branch filter for the receiving query (internal transfers use to_branch_id).
+     */
+    private function applyReceivingBranchFilter($query, string $branchId, ?OrderType $orderType): void
+    {
+        if ($orderType === OrderType::INTERNAL_TRANSFER) {
+            $query->where('to_branch_id', $branchId);
+            return;
+        }
+
+        if ($orderType !== null) {
+            $query->byBranch($branchId);
+            return;
+        }
+
+        $query->where(function ($q) use ($branchId) {
+            $q->where(function ($sub) use ($branchId) {
+                $sub->where('order_type', OrderType::INTERNAL_TRANSFER)
+                    ->where('to_branch_id', $branchId);
+            })->orWhere(function ($sub) use ($branchId) {
+                $sub->where('order_type', '!=', OrderType::INTERNAL_TRANSFER)
+                    ->where('branch_id', $branchId);
+            });
+        });
+    }
+
+    /**
+     * Apply sort order for the receiving query.
+     */
+    private function applyReceivingSortOrder($query, ?OrderType $orderType): void
+    {
+        if ($orderType !== null && $orderType !== OrderType::INTERNAL_TRANSFER) {
+            $query->orderBy('expected_delivery_at', 'asc');
+        }
+        $query->orderBy('created_at', 'desc');
+    }
+
+    /**
+     * Transform a single order model into the receiving-list API shape.
+     */
+    private function transformReceivingOrder($order): array
+    {
+        $orderTypeValue = $order->order_type;
+        $orderTypeStr   = $orderTypeValue instanceof \BackedEnum ? $orderTypeValue->value : null;
+        $orderType      = $orderTypeStr ?? (is_string($orderTypeValue) ? $orderTypeValue : null);
+
+        $statusValue = $order->status;
+        $statusStr   = $statusValue instanceof \BackedEnum ? $statusValue->value : null;
+        $status      = $statusStr ?? (is_string($statusValue) ? $statusValue : null);
+
+        return [
+            'id'          => $order->id,
+            'items_count' => (int) ($order->items_count ?? 0),
+            'type'        => $orderType,
+            'status'      => $status ?? 'draft',
+            'date'        => $order->created_at?->format('Y-m-d H:i:s') ?? null,
+        ];
+    }
+
+    /**
+     * Filter history query by perspective (submitted / received).
+     */
+    private function applyPerspectiveFilter($query, ?string $perspective): void
+    {
+        if ($perspective === 'submitted') {
+            $query->whereIn('status', [OrderStatus::CLOSED, OrderStatus::CANCELED]);
+        } elseif ($perspective === 'received') {
+            $query->whereIn('status', [OrderStatus::CONFIRMED, OrderStatus::PARTIAL_CONFIRMATION]);
+        }
+    }
+
+    /**
+     * Resolve order type from a label or enum value string, returning null on failure.
+     */
+    private function resolveOrderType(string $type): ?OrderType
+    {
+        $orderType = OrderType::fromLabel($type);
+        if ($orderType !== null) {
+            return $orderType;
+        }
+
+        try {
+            return OrderType::from($type);
+        } catch (\ValueError $e) {
+            Log::warning('Invalid order type filter', ['type' => $type]);
+            return null;
+        }
+    }
+
+    /**
+     * Filter history query by order type label / enum value.
+     */
+    private function applyHistoryTypeFilter($query, ?string $type): void
+    {
+        if (empty($type) || $type === 'all') {
+            return;
+        }
+
+        $orderType = $this->resolveOrderType($type);
+        if ($orderType !== null) {
+            $query->byType($orderType);
+        }
+    }
+
+    /**
+     * Apply date filters specific to the history endpoint (supports 'custom' keyword).
+     */
+    private function applyHistoryDateFilters($query, array $filters): void
+    {
+        $range = $filters['date_range'] ?? null;
+
+        if ($range === 'custom' || empty($range)) {
+            if (!empty($filters['date_from']) || !empty($filters['date_to'])) {
+                $query->byDateRange($filters['date_from'] ?? null, $filters['date_to'] ?? null);
+            }
+            return;
+        }
+
+        match ($range) {
+            'last_24h' => $query->last24Hours(),
+            'last_7d'  => $query->last7Days(),
+            'last_30d' => $query->last30Days(),
+            default    => null,
+        };
+    }
+
+    /**
      * Apply date filters to query
      */
     private function applyDateFilters($query, array $filters): void
@@ -1470,133 +1122,84 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     }
 
     /**
-     * Record order prices in price_histories table
-     * Called when order is confirmed or partially confirmed
-     *
-     * @param PurchaseOrder $order
-     * @param array|null $itemConfirmations Optional: only record confirmed items if provided
-     * @return void
+     * Record order prices in price_histories table.
+     * Called when order is confirmed or partially confirmed.
      */
     private function recordOrderPrices(PurchaseOrder $order, ?array $itemConfirmations = null): void
     {
         try {
-            // Load order items with relationships
             $order->load(['items', 'supplier', 'fromBranch']);
 
-            // Determine source information based on order type
-            $sourceId = match ($order->order_type) {
-                OrderType::DIRECT_SUPPLIER => $order->supplier_id,
-                OrderType::VIA_PURCHASING_OFFICER => null, // Purchasing officer doesn't have a specific ID
-                OrderType::INTERNAL_TRANSFER => $order->from_branch_id,
-                default => null,
+            $sourceId   = match ($order->order_type) {
+                OrderType::DIRECT_SUPPLIER       => $order->supplier_id,
+                OrderType::INTERNAL_TRANSFER     => $order->from_branch_id,
+                default                          => null,
             };
-
             $sourceName = match ($order->order_type) {
-                OrderType::DIRECT_SUPPLIER => $order->supplier?->name,
+                OrderType::DIRECT_SUPPLIER       => $order->supplier?->name,
                 OrderType::VIA_PURCHASING_OFFICER => 'Purchasing Officer',
-                OrderType::INTERNAL_TRANSFER => $order->fromBranch?->name,
-                default => null,
+                OrderType::INTERNAL_TRANSFER     => $order->fromBranch?->name,
+                default                          => null,
             };
 
-            // Calculate delivery days (from created_at to confirmed_at)
-            $deliveryDays = null;
-            if ($order->created_at && $order->confirmed_at) {
-                $deliveryDays = (int) $order->created_at->diffInDays($order->confirmed_at);
-            }
+            $deliveryDays = ($order->created_at && $order->confirmed_at)
+                ? (int) $order->created_at->diffInDays($order->confirmed_at)
+                : null;
 
-            // Get rating from supplier if available
-            $rating = $order->supplier?->rating ?? null;
+            $rating             = $order->supplier?->rating ?? null;
+            $confirmedItemIds   = $itemConfirmations !== null
+                ? collect($itemConfirmations)->pluck('item_id')->all()
+                : null;
 
-            // Record price for each item
             foreach ($order->items as $item) {
-                // If itemConfirmations provided, only record confirmed items
-                if ($itemConfirmations !== null) {
-                    $isConfirmed = collect($itemConfirmations)->contains(function ($confirmation) use ($item) {
-                        return ($confirmation['item_id'] ?? null) === $item->id;
-                    });
-                    if (!$isConfirmed) {
-                        continue; // Skip unconfirmed items
-                    }
-                }
-
-                // Skip if item doesn't have item_id (unlisted items)
-                if (!$item->item_id) {
-                    continue;
-                }
-
-                // Convert quality_ordered string to QualityLevel enum if needed
-                $qualityLevel = null;
-                if ($item->quality_ordered) {
-                    try {
-                        $qualityLevel = is_string($item->quality_ordered)
-                            ? QualityLevel::from($item->quality_ordered)
-                            : $item->quality_ordered;
-                    } catch (\ValueError $e) {
-                        // Invalid quality level, skip
-                        $qualityLevel = null;
-                    }
-                }
-
-                // Record price in price_histories
-                PriceHistory::recordPrice(
-                    $item->item_id,
-                    $item->item_name,
-                    $order->order_type,
-                    $sourceId,
-                    $sourceName,
-                    (float) $item->unit_price,
-                    $qualityLevel,
-                    $item->unit_of_measurement ?? 'kg',
-                    $deliveryDays,
-                    $rating
-                );
+                $this->recordSingleItemPrice($item, $order, $sourceId, $sourceName, $deliveryDays, $rating, $confirmedItemIds);
             }
         } catch (\Exception $e) {
-            // Log error but don't fail the order confirmation
             Log::error('Error recording order prices in price_histories', [
-                'order_id' => $order->id,
+                'order_id'     => $order->id,
                 'order_number' => $order->order_number,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
+                'error'        => $e->getMessage(),
+                'trace'        => $e->getTraceAsString(),
             ]);
         }
     }
 
     /**
-     * Normalize quality level value to enum or null
-     *
-     * Validates and converts quality level string to QualityLevel enum.
-     * Returns null if value is invalid or empty.
-     *
-     * @param string|null $qualityValue
-     * @return QualityLevel|null
+     * Record the price for a single order item, skipping unconfirmed or unlisted items.
      */
-    private function normalizeQualityLevel(?string $qualityValue): ?QualityLevel
+    private function recordSingleItemPrice($item, PurchaseOrder $order, $sourceId, ?string $sourceName, ?int $deliveryDays, $rating, ?array $confirmedItemIds): void
     {
-        if (empty($qualityValue)) {
-            return null;
+        if ($confirmedItemIds !== null && !in_array($item->id, $confirmedItemIds, true)) {
+            return;
         }
 
-        $normalizedValue = strtolower(trim($qualityValue));
-        $allowedValues = ['economy', 'standard', 'premium'];
-
-        if (!in_array($normalizedValue, $allowedValues)) {
-            Log::warning('Invalid quality level value provided, setting to null', [
-                'provided_quality' => $qualityValue,
-                'normalized_value' => $normalizedValue,
-            ]);
-            return null;
+        if (!$item->item_id) {
+            return;
         }
 
-        try {
-            return QualityLevel::from($normalizedValue);
-        } catch (\ValueError $e) {
-            Log::warning('Failed to convert quality level to enum, setting to null', [
-                'provided_quality' => $qualityValue,
-                'normalized_value' => $normalizedValue,
-                'error' => $e->getMessage(),
-            ]);
-            return null;
+        $qualityLevel = null;
+        if ($item->quality_ordered) {
+            try {
+                $qualityLevel = is_string($item->quality_ordered)
+                    ? QualityLevel::from($item->quality_ordered)
+                    : $item->quality_ordered;
+            } catch (\ValueError $e) {
+                $qualityLevel = null;
+            }
         }
+
+        PriceHistory::recordPrice(
+            $item->item_id,
+            $item->item_name,
+            $order->order_type,
+            $sourceId,
+            $sourceName,
+            (float) $item->unit_price,
+            $qualityLevel,
+            $item->unit_of_measurement ?? 'kg',
+            $deliveryDays,
+            $rating
+        );
     }
+
 }

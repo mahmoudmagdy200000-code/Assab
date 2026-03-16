@@ -14,6 +14,7 @@ use Modules\Shift\Models\ShiftHandoverStatus;
 use Modules\Shift\Enums\HandoverStatus;
 use Modules\Shift\Enums\ShiftHistoryAction;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Exceptions\HandoverException;
 
 /**
  * HandoverService
@@ -26,6 +27,8 @@ use Modules\Shift\Enums\ShiftStatus;
  */
 class HandoverService
 {
+    private const DATETIME_FORMAT = 'Y-m-d H:i:s';
+
     /**
      * Record a new handover
      * Supports both cashier-to-cashier and cashier-to-manager handovers
@@ -374,9 +377,8 @@ class HandoverService
         try {
             $handoverStatus = $shift->handoverStatus;
 
-            // Check if can be rejected
             if (!$handoverStatus->canBeRejected()) {
-                throw new \Exception('This handover cannot be rejected. Current status: ' . $handoverStatus->manager_approval_status);
+                throw HandoverException::cannotBeRejected($handoverStatus->manager_approval_status);
             }
 
             // Upload rejection files
@@ -425,7 +427,7 @@ class HandoverService
                 'is_final_rejection' => $result['is_final_rejection'],
                 'can_cashier_edit' => $result['can_cashier_edit'],
                 'rejection_reason' => $reason,
-                'rejected_at' => now()->format('Y-m-d H:i:s'),
+                'rejected_at' => now()->format(self::DATETIME_FORMAT),
             ];
         } catch (\Exception $e) {
             DB::rollBack();
@@ -452,9 +454,8 @@ class HandoverService
         try {
             $handoverStatus = $shift->handoverStatus;
 
-            // Verify can edit
             if (!$handoverStatus->canCashierEdit()) {
-                throw new \Exception('Handover cannot be edited. Either not rejected or permanently rejected.');
+                throw HandoverException::cannotBeEdited();
             }
 
             // Update shift data
@@ -526,7 +527,7 @@ class HandoverService
             $isRecipient = $shift->next_cashier_id === $cashierId
                 || ($handover && $handover->handover_to_type === 'cashier' && $handover->handover_to_id === $cashierId);
             if (!$isRecipient) {
-                throw new \Exception('You are not authorized to accept this handover.');
+                throw HandoverException::notAuthorizedToAccept();
             }
 
             $shift->handoverStatus->update([
@@ -629,7 +630,7 @@ class HandoverService
             $isRecipient = $shift->next_cashier_id === $cashierId
                 || ($handover && $handover->handover_to_type === 'cashier' && $handover->handover_to_id === $cashierId);
             if (!$isRecipient) {
-                throw new \Exception('You are not authorized to reject this handover.');
+                throw HandoverException::notAuthorizedToReject();
             }
 
             // Upload rejection files
@@ -680,10 +681,10 @@ class HandoverService
         DB::beginTransaction();
         try {
             if ($shift->status !== ShiftStatus::REASSIGNED) {
-                throw new \InvalidArgumentException('Shift is not in reassigned status.');
+                throw HandoverException::notInReassignedStatus();
             }
             if ($shift->cashier_id !== $cashierId) {
-                throw new \Exception('You are not authorized to accept this reassigned shift.');
+                throw HandoverException::notAuthorizedForReassignment();
             }
 
             // Reassign without handover: no handover record; treat as already accepted.
@@ -699,7 +700,7 @@ class HandoverService
             }
 
             if (($shift->handoverStatus->manager_approval_status ?? '') !== 'pending') {
-                throw new \Exception('This reassigned shift is no longer pending acceptance.');
+                throw HandoverException::reassignedShiftNotPending();
             }
 
             $shift->handoverStatus->approve(
@@ -754,19 +755,19 @@ class HandoverService
         DB::beginTransaction();
         try {
             if ($shift->status !== ShiftStatus::REASSIGNED) {
-                throw new \InvalidArgumentException('Shift is not in reassigned status.');
+                throw HandoverException::notInReassignedStatus();
             }
             if ($shift->cashier_id !== $cashierId) {
-                throw new \Exception('You are not authorized to reject this reassigned shift.');
+                throw HandoverException::notAuthorizedForReassignment();
             }
             if (!$shift->handoverStatus) {
-                throw new \Exception('Rejection is only available for shifts reassigned with handover.');
+                throw HandoverException::rejectionOnlyForHandoverReassignment();
             }
             if (($shift->handoverStatus->manager_approval_status ?? '') !== 'pending') {
-                throw new \Exception('This reassigned shift is no longer pending acceptance.');
+                throw HandoverException::reassignedShiftNotPending();
             }
             if (!$shift->original_cashier_id) {
-                throw new \Exception('Cannot revert: original cashier is unknown.');
+                throw HandoverException::noOriginalCashier();
             }
 
             $uploadedFiles = [];
@@ -833,46 +834,26 @@ class HandoverService
     public function autoHandover(CashierShift $endedShift): ?CashierShift
     {
         try {
-            // Skip if already handed over
-            if ($endedShift->handoverStatus?->status === HandoverStatus::ACCEPTED) {
-                Log::warning('Auto handover skipped: shift already handed over', ['shift_id' => $endedShift->id]);
+            $nextShift = $this->resolveNextShiftForAutoHandover($endedShift);
+            if ($nextShift === null) {
                 return null;
             }
 
-            // Find the next shift (same date, same branch, starts after this shift ends)
-            $nextShift = CashierShift::where('shift_date', $endedShift->shift_date)
-                ->whereHas('shift', function ($q) use ($endedShift) {
-                    $q->where('branch_id', $endedShift->shift->branch_id)
-                        ->where('start_time', '>=', $endedShift->shift->end_time);
-                })
-                ->where('status', ShiftStatus::NOT_STARTED)
-                ->orderBy('shift_id')
-                ->first();
-
-            if (!$nextShift) {
-                Log::info("No next shift found for auto handover", ['shift_id' => $endedShift->id]);
-                return null;
-            }
-
-            // Record automatic handover
             $handoverAmount = $endedShift->closing_balance ?? $endedShift->total_sales ?? 0;
 
             $recorded = $this->recordHandover($endedShift, [
                 'handover_to_type' => 'cashier',
-                'handover_to_id' => $nextShift->cashier_id,
-                'next_cashier_id' => $nextShift->cashier_id,
-                'handover_amount' => $handoverAmount,
-                'handover_notes' => 'Auto handover executed by system',
+                'handover_to_id'   => $nextShift->cashier_id,
+                'next_cashier_id'  => $nextShift->cashier_id,
+                'handover_amount'  => $handoverAmount,
+                'handover_notes'   => 'Auto handover executed by system',
             ]);
 
-            // Update next shift's opening balance
-            $nextShift->update([
-                'opening_balance' => $handoverAmount,
-            ]);
+            $nextShift->update(['opening_balance' => $handoverAmount]);
 
             Log::info('Auto handover completed successfully', [
-                'shift_id' => $endedShift->id,
-                'next_shift_id' => $nextShift->id,
+                'shift_id'        => $endedShift->id,
+                'next_shift_id'   => $nextShift->id,
                 'next_cashier_id' => $nextShift->cashier_id,
                 'handover_amount' => $handoverAmount,
             ]);
@@ -881,10 +862,48 @@ class HandoverService
         } catch (\Exception $e) {
             Log::error('Auto handover failed', [
                 'shift_id' => $endedShift->id,
-                'error' => $e->getMessage(),
+                'error'    => $e->getMessage(),
             ]);
             return null;
         }
+    }
+
+    /**
+     * Map a variance float to a human-readable type label.
+     */
+    private function resolveVarianceType(float $variance): string
+    {
+        if ($variance > 0) {
+            return 'Over';
+        }
+        return $variance < 0 ? 'Short' : 'None';
+    }
+
+    /**
+     * Resolve the next consecutive shift eligible for auto-handover, or return null.
+     * Returns null (with logging) when already handed over or when no next shift exists.
+     */
+    private function resolveNextShiftForAutoHandover(CashierShift $endedShift): ?CashierShift
+    {
+        if ($endedShift->handoverStatus?->status === HandoverStatus::ACCEPTED) {
+            Log::warning('Auto handover skipped: shift already handed over', ['shift_id' => $endedShift->id]);
+            return null;
+        }
+
+        $nextShift = CashierShift::where('shift_date', $endedShift->shift_date)
+            ->whereHas('shift', function ($q) use ($endedShift) {
+                $q->where('branch_id', $endedShift->shift->branch_id)
+                    ->where('start_time', '>=', $endedShift->shift->end_time);
+            })
+            ->where('status', ShiftStatus::NOT_STARTED)
+            ->orderBy('shift_id')
+            ->first();
+
+        if (!$nextShift) {
+            Log::info('No next shift found for auto handover', ['shift_id' => $endedShift->id]);
+        }
+
+        return $nextShift;
     }
 
     /**
@@ -928,7 +947,7 @@ class HandoverService
                 $query->where('cashier_id', $filters['cashier_id']);
             }
 
-            $shifts = $query->get();
+            $shifts = $query->limit(2000)->get();
 
             // Calculate statistics
             $totalHandovers = $shifts->count();
@@ -961,12 +980,12 @@ class HandoverService
                         'cashier_name' => $shift->cashier?->name,
                         'next_cashier_name' => $shift->nextCashier?->name,
                         'handover_amount' => (float) $shift->closing_balance,
-                        'variance' => (float) $shift->variance,
-                        'variance_type' => $shift->variance > 0 ? 'Over' : ($shift->variance < 0 ? 'Short' : 'None'),
-                        'status' => $shift->handoverStatus?->manager_approval_status,
+                        'variance'        => (float) $shift->variance,
+                        'variance_type'   => $this->resolveVarianceType((float) $shift->variance),
+                        'status'          => $shift->handoverStatus?->manager_approval_status,
                         'rejection_count' => $shift->handoverStatus?->rejection_count ?? 0,
-                        'handed_over_at' => $shift->handed_over_at?->format('Y-m-d H:i:s'),
-                        'branch_name' => $shift->shift?->branch?->name,
+                        'handed_over_at'  => $shift->handed_over_at?->format(self::DATETIME_FORMAT),
+                        'branch_name'     => $shift->shift?->branch?->name,
                     ];
                 })
                 ->values();
@@ -996,7 +1015,7 @@ class HandoverService
                 ],
                 'recent_handovers' => $recentHandovers,
                 'filters_applied' => $filters,
-                'generated_at' => now()->format('Y-m-d H:i:s'),
+                'generated_at' => now()->format(self::DATETIME_FORMAT),
             ];
         } catch (\Exception $e) {
             Log::error('Failed to generate handover summaries', [

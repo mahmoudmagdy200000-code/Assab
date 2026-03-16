@@ -92,14 +92,18 @@ class ExpenseRepository
 
     /**
      * Single expense with full relations for show.
+     * Eager loads nested supplier and category to avoid N+1 in ExpenseDetailResource (grouped/single invoice).
      */
     public function findForShow(string $id): Expense
     {
         return Expense::with([
-            'quickCashExpense.items',
-            'invoiceDetails',
-            'groupedInvoice.invoiceDetails.items',
-            'groupedInvoice.invoiceDetails.expenseLines',
+            'quickCashExpense.items.category',
+            'invoiceDetails.supplier',
+            'invoiceDetails.items.category',
+            'invoiceDetails.expenseLines.category',
+            'groupedInvoice.invoiceDetails.supplier',
+            'groupedInvoice.invoiceDetails.items.category',
+            'groupedInvoice.invoiceDetails.expenseLines.category',
             'preApprovalRequest',
             'items.category',
             'expenseLines.category',
@@ -207,13 +211,11 @@ class ExpenseRepository
                     ->orWhere('total_amount', 'like', "%{$search}%");
             });
         }
-        if ($type = $request->input('type')) {
-            if ($type !== 'all') {
-                if ($type === 'draft') {
-                    $query->where('status', 'draft');
-                } else {
-                    $query->where('expense_type', $type);
-                }
+        if (($type = $request->input('type')) && $type !== 'all') {
+            if ($type === 'draft') {
+                $query->where('status', 'draft');
+            } else {
+                $query->where('expense_type', $type);
             }
         }
         if ($status = $request->input('status')) {
