@@ -14,23 +14,21 @@ class CustodyBalanceService
 
     private const BRANCH_CUSTODY_REQUEST_TYPES = ['Cash Transfer', 'Cash Handover', 'Bank Transfer'];
 
+    private const TRANSACTION_TYPE_CASH_HANDOVER      = 'Cash Handover';
+    private const TRANSACTION_TYPE_BANK_TRANSFER      = 'Bank Transfer';
+    private const TRANSACTION_TYPE_EXPENSES_DEDUCTION = 'Expenses Deduction';
+    private const SQL_BALANCE_EXPRESSION              = 'SUM(CASE WHEN is_cash_in = 1 THEN amount ELSE -amount END) as balance';
+
     /**
-     * Get custody balance for branch manager
+     * Get custody balance for branch manager (single aggregated query).
      */
     public function getCustodyBalance(string $branchManagerId): float
     {
-        $transactions = CustodyTransaction::where('branch_manager_id', $branchManagerId)->get();
+        $balance = CustodyTransaction::where('branch_manager_id', $branchManagerId)
+            ->selectRaw(self::SQL_BALANCE_EXPRESSION)
+            ->value('balance');
 
-        $balance = 0;
-        foreach ($transactions as $transaction) {
-            if ($transaction->is_cash_in) {
-                $balance += $transaction->amount;
-            } else {
-                $balance -= $transaction->amount;
-            }
-        }
-
-        return round($balance, 2);
+        return round((float) ($balance ?? 0), 2);
     }
 
     /**
@@ -98,13 +96,13 @@ class CustodyBalanceService
                 'value' => round($currentTotals['custodyRequests'], 2),
                 'changeAmount' => $custodyChange,
                 'changePercentage' => $custodyPercentage,
-                'description' => $this->getComparisonDescription($custodyChange, $custodyPercentage, true, $periodLabel),
+                'description' => $this->getComparisonDescription($custodyChange, true, $periodLabel),
             ],
             'totalExpense' => [
                 'value' => round($currentTotals['expenses'], 2),
                 'changeAmount' => $expenseChange,
                 'changePercentage' => $expensePercentage,
-                'description' => $this->getComparisonDescription($expenseChange, $expensePercentage, false, $periodLabel),
+                'description' => $this->getComparisonDescription($expenseChange, false, $periodLabel),
             ],
             'expenseChart' => $expenseChart,
             'custodyRequestChart' => $custodyRequestChart,
@@ -113,32 +111,25 @@ class CustodyBalanceService
     }
 
     /**
-     * Get current custody balance for branch or personal (as of all transactions to date).
+     * Get current custody balance for branch or personal (single aggregated query).
      */
     private function getCurrentBalance(string $branchManagerId, string $custodyType): float
     {
         if ($custodyType === 'personal') {
-            $transactions = PersonalLedgerTransaction::where('branch_manager_id', $branchManagerId)->get();
-            $cashIn = $transactions->where('is_cash_in', true)->sum('amount');
-            $cashOut = $transactions->where('is_cash_in', false)->sum('amount');
-            return (float) ($cashIn - $cashOut);
+            $balance = PersonalLedgerTransaction::where('branch_manager_id', $branchManagerId)
+                ->selectRaw(self::SQL_BALANCE_EXPRESSION)
+                ->value('balance');
+            return (float) ($balance ?? 0);
         }
 
-        $query = CustodyTransaction::where('branch_manager_id', $branchManagerId);
+        $query = CustodyTransaction::where('branch_manager_id', $branchManagerId)
+            ->selectRaw(self::SQL_BALANCE_EXPRESSION);
         $branchId = auth()->user()->branch_id ?? null;
         if ($branchId !== null) {
             $query->where('branch_id', $branchId);
         }
-        $transactions = $query->get();
-        $balance = 0.0;
-        foreach ($transactions as $transaction) {
-            if ($transaction->is_cash_in) {
-                $balance += (float) $transaction->amount;
-            } else {
-                $balance -= (float) $transaction->amount;
-            }
-        }
-        return $balance;
+        $balance = $query->value('balance');
+        return (float) ($balance ?? 0);
     }
 
     /**
@@ -182,7 +173,7 @@ class CustodyBalanceService
             ->filter(fn($t) => in_array($t->type, self::BRANCH_CUSTODY_REQUEST_TYPES, true) && $t->is_cash_in)
             ->sum('amount');
         $expenses = $transactions
-            ->filter(fn($t) => $t->type === 'Expenses Deduction' && !$t->is_cash_in)
+            ->filter(fn($t) => $t->type === self::TRANSACTION_TYPE_EXPENSES_DEDUCTION && !$t->is_cash_in)
             ->sum('amount');
 
         return [
@@ -307,16 +298,24 @@ class CustodyBalanceService
         };
     }
 
-    private function getComparisonDescription(float $changeAmount, string $changePercentage, bool $isCustodyRequests, string $periodLabel): string
+    /**
+     * Build the description string for custody-request comparison.
+     */
+    private function getCustodyComparisonLabel(float $changeAmount, string $periodLabel): string
+    {
+        if ($changeAmount > 0) {
+            return 'INCREASE FROM ' . $periodLabel;
+        }
+        if ($changeAmount < 0) {
+            return 'DECREASE FROM ' . $periodLabel;
+        }
+        return 'NO INCREASE FROM ' . $periodLabel;
+    }
+
+    private function getComparisonDescription(float $changeAmount, bool $isCustodyRequests, string $periodLabel): string
     {
         if ($isCustodyRequests) {
-            if ($changeAmount > 0) {
-                return 'INCREASE FROM ' . $periodLabel;
-            }
-            if ($changeAmount < 0) {
-                return 'DECREASE FROM ' . $periodLabel;
-            }
-            return 'NO INCREASE FROM ' . $periodLabel;
+            return $this->getCustodyComparisonLabel($changeAmount, $periodLabel);
         }
 
         if ($changeAmount > 0) {
@@ -344,131 +343,86 @@ class CustodyBalanceService
     }
 
     /**
+     * Apply a time-period filter to a query builder.
+     */
+    private function applyTimePeriodFilter($query, ?string $timePeriod, array $filters, string $dateColumn): void
+    {
+        if ($timePeriod === 'custom') {
+            if (!empty($filters['startDate'])) {
+                $query->whereDate($dateColumn, '>=', $filters['startDate']);
+            }
+            if (!empty($filters['endDate'])) {
+                $query->whereDate($dateColumn, '<=', $filters['endDate']);
+            }
+            return;
+        }
+
+        if (!$timePeriod) {
+            return;
+        }
+
+        $startDate = match ($timePeriod) {
+            'last_24_hours' => now()->subHours(24),
+            'last_7_days'   => now()->subDays(7),
+            'last_30_days'  => now()->subDays(30),
+            default         => null,
+        };
+
+        if ($startDate) {
+            $query->where($dateColumn, '>=', $startDate);
+        }
+    }
+
+    /**
      * Get branch custody balance with requests and transactions
      * Similar to personal-custody-balance but for branch custody
      */
     public function getBranchCustodyBalance(string $branchManagerId, array $filters = []): array
     {
-        $branchId = auth()->user()->branch_id;
+        $branchId   = auth()->user()->branch_id;
+        $timePeriod = $filters['timePeriod'] ?? null;
 
-        // Get all transactions for this branch manager
         $transactionsQuery = CustodyTransaction::where('branch_manager_id', $branchManagerId)
             ->where('branch_id', $branchId);
 
-        // Apply transaction type filter
         if (!empty($filters['type'])) {
             $transactionsQuery->where('type', $filters['type']);
         }
 
-        // Apply time period filter (last 24 hours, last 7 days, last 30 days, or custom)
-        $timePeriod = $filters['timePeriod'] ?? null;
-        if ($timePeriod === 'custom') {
-            // Custom date range
-            if (!empty($filters['startDate'])) {
-                $transactionsQuery->whereDate('transaction_date', '>=', $filters['startDate']);
-            }
-            if (!empty($filters['endDate'])) {
-                $transactionsQuery->whereDate('transaction_date', '<=', $filters['endDate']);
-            }
-        } elseif ($timePeriod) {
-            $startDate = match($timePeriod) {
-                'last_24_hours' => now()->subHours(24),
-                'last_7_days' => now()->subDays(7),
-                'last_30_days' => now()->subDays(30),
-                default => null,
-            };
+        $this->applyTimePeriodFilter($transactionsQuery, $timePeriod, $filters, 'transaction_date');
 
-            if ($startDate) {
-                $transactionsQuery->where('transaction_date', '>=', $startDate);
-            }
-        }
-
-        // Get status filter for requests
         $requestStatusFilter = $filters['status'] ?? null;
-
-        // Get all requests for this branch manager
         $requestsQuery = CustodyRequest::where('branch_manager_id', $branchManagerId)
             ->where('branch_id', $branchId);
 
-        // Apply status filter for requests
         if ($requestStatusFilter && $requestStatusFilter !== 'All') {
-            if ($requestStatusFilter === 'Cash Handover' || $requestStatusFilter === 'Bank Transfer') {
-                // Filter by preferred_receipt_method
+            if ($requestStatusFilter === self::TRANSACTION_TYPE_CASH_HANDOVER || $requestStatusFilter === self::TRANSACTION_TYPE_BANK_TRANSFER) {
                 $requestsQuery->where('preferred_receipt_method', $requestStatusFilter);
-            } elseif ($requestStatusFilter === 'Custody Requests') {
-                // Show all requests regardless of status
-                // No additional filter needed
-            } else {
-                // Filter by status
+            } elseif ($requestStatusFilter !== 'Custody Requests') {
                 $requestsQuery->where('status', $requestStatusFilter);
             }
         }
 
-        // Apply time period filter to requests
-        if ($timePeriod === 'custom') {
-            // Custom date range
-            if (!empty($filters['startDate'])) {
-                $requestsQuery->whereDate('created_at', '>=', $filters['startDate']);
-            }
-            if (!empty($filters['endDate'])) {
-                $requestsQuery->whereDate('created_at', '<=', $filters['endDate']);
-            }
-        } elseif ($timePeriod) {
-            $startDate = match($timePeriod) {
-                'last_24_hours' => now()->subHours(24),
-                'last_7_days' => now()->subDays(7),
-                'last_30_days' => now()->subDays(30),
-                default => null,
-            };
-
-            if ($startDate) {
-                $requestsQuery->where('created_at', '>=', $startDate);
-            }
-        }
+        $this->applyTimePeriodFilter($requestsQuery, $timePeriod, $filters, 'created_at');
 
         $transactions = $transactionsQuery->orderBy('transaction_date', 'desc')->get();
-        $requests = $requestsQuery->orderBy('created_at', 'desc')->get();
+        $requests     = $requestsQuery->orderBy('created_at', 'desc')->get();
 
-        // Calculate branch balance (all branch managers in the branch)
         $branchTransactionsQuery = CustodyTransaction::where('branch_id', $branchId);
+        $this->applyTimePeriodFilter($branchTransactionsQuery, $timePeriod, $filters, 'transaction_date');
 
-        // Apply time period filter to branch balance calculation
-        if ($timePeriod === 'custom') {
-            if (!empty($filters['startDate'])) {
-                $branchTransactionsQuery->whereDate('transaction_date', '>=', $filters['startDate']);
-            }
-            if (!empty($filters['endDate'])) {
-                $branchTransactionsQuery->whereDate('transaction_date', '<=', $filters['endDate']);
-            }
-        } elseif ($timePeriod) {
-            $startDate = match($timePeriod) {
-                'last_24_hours' => now()->subHours(24),
-                'last_7_days' => now()->subDays(7),
-                'last_30_days' => now()->subDays(30),
-                default => null,
-            };
+        $currentBalance = (float) ($branchTransactionsQuery
+            ->selectRaw(self::SQL_BALANCE_EXPRESSION)
+            ->value('balance') ?? 0);
 
-            if ($startDate) {
-                $branchTransactionsQuery->where('transaction_date', '>=', $startDate);
-            }
-        }
-
-        $branchTransactions = $branchTransactionsQuery->get();
-        $branchTotalCashIn = $branchTransactions->where('is_cash_in', true)->sum('amount');
-        $branchTotalCashOut = $branchTransactions->where('is_cash_in', false)->sum('amount');
-        $currentBalance = $branchTotalCashIn - $branchTotalCashOut;
-
-        // Format transactions
         $formattedTransactions = $transactions->map(function ($transaction) {
             return $this->formatTransactionForBalance($transaction);
         })->values();
 
-        // Format requests
         $formattedRequests = $requests->map(function ($request) {
             return $this->formatRequestForBalance($request);
         })->values();
 
-        // Get recent activity (last 5 transactions)
         $recentActivity = $transactions->take(5)->map(function ($transaction) {
             return $this->formatTransactionForActivity($transaction);
         })->values();
@@ -476,8 +430,8 @@ class CustodyBalanceService
         return [
             'currentBalance' => round($currentBalance, 2),
             'recentActivity' => $recentActivity,
-            'requests' => $formattedRequests,
-            'transactions' => $formattedTransactions,
+            'requests'       => $formattedRequests,
+            'transactions'   => $formattedTransactions,
         ];
     }
 
@@ -491,21 +445,22 @@ class CustodyBalanceService
             : '-' . number_format($transaction->amount, 2, '.', '');
 
         $data = [
-            'id' => $transaction->id,
-            'type' => $transaction->type,
-            'amount' => $amount,
+            'id'       => $transaction->id,
+            'type'     => $transaction->type,
+            'amount'   => $amount,
             'dateTime' => $transaction->transaction_date->toIso8601String(),
             'isCashIn' => $transaction->is_cash_in,
         ];
 
-        if ($transaction->type === 'Expenses Deduction' && $transaction->related_expense_id) {
+        if ($transaction->type === self::TRANSACTION_TYPE_EXPENSES_DEDUCTION && $transaction->related_expense_id) {
             $data['linkedExpenseId'] = $transaction->related_expense_id;
         }
 
-        if ($transaction->type === 'Cash Handover' || $transaction->type === 'Bank Transfer') {
-            if ($transaction->related_custody_request_id) {
-                $data['linkedRequestId'] = $transaction->related_custody_request_id;
-            }
+        if (
+            ($transaction->type === self::TRANSACTION_TYPE_CASH_HANDOVER || $transaction->type === self::TRANSACTION_TYPE_BANK_TRANSFER)
+            && $transaction->related_custody_request_id
+        ) {
+            $data['linkedRequestId'] = $transaction->related_custody_request_id;
         }
 
         return $data;
@@ -517,14 +472,14 @@ class CustodyBalanceService
     private function formatRequestForBalance(CustodyRequest $request): array
     {
         return [
-            'id' => $request->id,
-            'type' => 'Custody Request',
-            'submittedBy' => 'Me (Branch Manager)',
-            'dateTime' => $request->created_at->toIso8601String(),
-            'status' => $request->status,
-            'amount' => (float) $request->requested_amount,
-            'preferredReceiptMethod' => $request->preferred_receipt_method,
-            'purpose' => $request->purpose,
+            'id'                    => $request->id,
+            'type'                  => 'Custody Request',
+            'submittedBy'           => 'Me (Branch Manager)',
+            'dateTime'              => $request->created_at->toIso8601String(),
+            'status'                => $request->status,
+            'amount'                => (float) $request->requested_amount,
+            'preferredReceiptMethod'=> $request->preferred_receipt_method,
+            'purpose'               => $request->purpose,
         ];
     }
 
@@ -539,12 +494,12 @@ class CustodyBalanceService
 
         $data = [
             'transactionType' => $transaction->type,
-            'amount' => $amount,
-            'dateTime' => $transaction->transaction_date->toIso8601String(),
-            'isCashIn' => $transaction->is_cash_in,
+            'amount'          => $amount,
+            'dateTime'        => $transaction->transaction_date->toIso8601String(),
+            'isCashIn'        => $transaction->is_cash_in,
         ];
 
-        if ($transaction->type === 'Expenses Deduction' && $transaction->related_expense_id) {
+        if ($transaction->type === self::TRANSACTION_TYPE_EXPENSES_DEDUCTION && $transaction->related_expense_id) {
             $data['linkedExpenseId'] = $transaction->related_expense_id;
         }
 

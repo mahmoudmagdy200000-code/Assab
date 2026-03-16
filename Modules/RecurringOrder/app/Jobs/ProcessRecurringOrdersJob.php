@@ -8,6 +8,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Enums\OrderStatus as PurchaseOrderStatus;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\QualityLevel;
@@ -26,7 +27,11 @@ class ProcessRecurringOrdersJob implements ShouldQueue
 
     public int $timeout = 120;
 
-    public function __construct() {}
+    public function __construct()
+    {
+        // Dependencies (PurchaseOrderService, RecurringOrderService) are resolved
+        // via Laravel's method injection in handle(); no constructor args required.
+    }
 
     public function handle(PurchaseOrderService $purchaseOrderService, RecurringOrderService $recurringOrderService): void
     {
@@ -65,6 +70,18 @@ class ProcessRecurringOrdersJob implements ShouldQueue
         PurchaseOrderService $purchaseOrderService,
         RecurringOrderService $recurringOrderService
     ): void {
+        // Idempotency: if we already created a PO for this recurring order in the last 5 minutes (e.g. retry), skip create and only update next_run_at
+        if (PurchaseOrder::where('recurring_order_id', $recurring->id)
+            ->where('created_at', '>=', now()->subMinutes(5))
+            ->exists()) {
+            $nextRun = $recurringOrderService->computeNextRunAtFromModel($recurring->fresh());
+            $recurring->update([
+                'status' => RecurringOrderStatus::GENERATED,
+                'next_run_at' => $nextRun,
+            ]);
+            return;
+        }
+
         $sourceType = $recurring->order_source_type?->value ?? $recurring->order_source_type;
         $orderType = ($sourceType === OrderSourceType::DIRECT_SUPPLIER->value || $sourceType === 'direct_supplier')
             ? OrderType::DIRECT_SUPPLIER

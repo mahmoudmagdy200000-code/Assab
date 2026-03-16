@@ -9,6 +9,9 @@ use Modules\Shift\Models\CashierShiftHandover;
 
 class CashierCustodyService
 {
+    private const TRANSACTION_TYPE_HANDOVER_RECEIVED = 'Handover Received';
+    private const TRANSACTION_TYPE_HANDOVER_SENT     = 'Handover Sent';
+
     /**
      * Record a Cash-IN entry when a cashier accepts a handover from another cashier (shift handover flow).
      */
@@ -16,7 +19,7 @@ class CashierCustodyService
     {
         $existing = CashierCustodyTransaction::where('related_handover_id', $handover->id)
             ->where('cashier_id', $receivingCashier->id)
-            ->where('transaction_type', 'Handover Received')
+            ->where('transaction_type', self::TRANSACTION_TYPE_HANDOVER_RECEIVED)
             ->first();
 
         if ($existing) {
@@ -28,7 +31,7 @@ class CashierCustodyService
 
         return CashierCustodyTransaction::create([
             'cashier_id'          => $receivingCashier->id,
-            'transaction_type'    => 'Handover Received',
+            'transaction_type'    => self::TRANSACTION_TYPE_HANDOVER_RECEIVED,
             'amount'              => $handover->handover_amount,
             'is_cash_in'          => true,
             'counterpart_name'    => $fromName,
@@ -45,7 +48,7 @@ class CashierCustodyService
     {
         $existing = CashierCustodyTransaction::where('related_handover_id', $handover->id)
             ->where('cashier_id', $sendingCashier->id)
-            ->where('transaction_type', 'Handover Sent')
+            ->where('transaction_type', self::TRANSACTION_TYPE_HANDOVER_SENT)
             ->first();
 
         if ($existing) {
@@ -61,7 +64,7 @@ class CashierCustodyService
 
         return CashierCustodyTransaction::create([
             'cashier_id'          => $sendingCashier->id,
-            'transaction_type'    => 'Handover Sent',
+            'transaction_type'    => self::TRANSACTION_TYPE_HANDOVER_SENT,
             'amount'              => $handover->handover_amount,
             'is_cash_in'          => false,
             'counterpart_name'    => $toName,
@@ -131,7 +134,7 @@ class CashierCustodyService
     {
         return CashierCustodyTransaction::create([
             'cashier_id'       => $cashierId,
-            'transaction_type' => 'Handover Sent',
+            'transaction_type' => self::TRANSACTION_TYPE_HANDOVER_SENT,
             'amount'           => $amount,
             'is_cash_in'       => false,
             'counterpart_name' => $recipientName,
@@ -146,7 +149,7 @@ class CashierCustodyService
     {
         return CashierCustodyTransaction::create([
             'cashier_id'       => $receivingCashierId,
-            'transaction_type' => 'Handover Received',
+            'transaction_type' => self::TRANSACTION_TYPE_HANDOVER_RECEIVED,
             'amount'           => $amount,
             'is_cash_in'       => true,
             'counterpart_name' => $senderName,
@@ -155,17 +158,15 @@ class CashierCustodyService
     }
 
     /**
-     * Get current personal balance (cash in - cash out) for a cashier.
+     * Get current personal balance (cash in - cash out) for a cashier (single aggregated query).
      */
     public function getPersonalBalanceOnly(string $cashierId): float
     {
-        $transactions = CashierCustodyTransaction::where('cashier_id', $cashierId)->get();
+        $balance = CashierCustodyTransaction::where('cashier_id', $cashierId)
+            ->selectRaw('SUM(CASE WHEN is_cash_in = 1 THEN amount ELSE -amount END) as balance')
+            ->value('balance');
 
-        return round(
-            (float) $transactions->where('is_cash_in', true)->sum('amount')
-            - (float) $transactions->where('is_cash_in', false)->sum('amount'),
-            2
-        );
+        return round((float) ($balance ?? 0), 2);
     }
 
     /**

@@ -2,6 +2,8 @@
 
 namespace Modules\Shift\Services;
 
+use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
@@ -14,6 +16,68 @@ use Carbon\Carbon;
 
 class BranchManagerShiftService
 {
+    private const DATETIME_FORMAT = 'Y-m-d H:i:s';
+
+    private ?ShiftFinancialService $financialService = null;
+
+    /**
+     * Lazily resolve ShiftFinancialService to break the circular dependency
+     * (ShiftFinancialService depends on this class).
+     */
+    private function financialService(): ShiftFinancialService
+    {
+        if ($this->financialService === null) {
+            $this->financialService = app(ShiftFinancialService::class);
+        }
+        return $this->financialService;
+    }
+    /**
+     * Attach handoffs_summary and financial_summary to each shift to avoid N+1 in BranchManagerShiftResource.
+     * Call this when returning a collection of BranchManagerShift (e.g. list/history).
+     */
+    public function attachHandoffsAndFinancialSummariesForCollection(Collection $shifts): void
+    {
+        if ($shifts->isEmpty()) {
+            return;
+        }
+
+        $managerIds = $shifts->pluck('branch_manager_id')->unique()->filter()->values()->all();
+        if (empty($managerIds)) {
+            return;
+        }
+
+        $handovers = CashierShiftHandover::where('handover_to_type', 'branch_manager')
+            ->whereIn('handover_to_id', $managerIds)
+            ->with(['cashierShift.shift', 'cashierShift.salesBreakdown.aggregator'])
+            ->get();
+
+        $grouped = collect($handovers)->groupBy(function (CashierShiftHandover $h) {
+            $cs = $h->cashierShift;
+            $shiftDate = $cs?->shift_date?->format('Y-m-d');
+            $branchId = $cs?->shift?->branch_id;
+            return ($h->handover_to_id ?? '') . '|' . ($shiftDate ?? '') . '|' . ($branchId ?? '');
+        });
+
+        foreach ($shifts as $shift) {
+            $key = ($shift->branch_manager_id ?? '') . '|' . ($shift->shift_date?->format('Y-m-d') ?? '') . '|' . ($shift->branch_id ?? '');
+            $shiftHandovers = $grouped->get($key, collect());
+
+            $shift->setAttribute('handoffs_summary', [
+                'total_handovers' => $shiftHandovers->count(),
+                'approved' => $shiftHandovers->where('status', 'approved')->count(),
+                'pending' => $shiftHandovers->where('status', 'pending')->count(),
+                'rejected' => $shiftHandovers->whereIn('status', ['rejected', 'rejected_final'])->count(),
+                'rejected_final' => $shiftHandovers->where('status', 'rejected_final')->count(),
+                'total_amount' => (float) $shiftHandovers->where('status', 'approved')->sum('handover_amount'),
+                'total_variance' => (float) $shiftHandovers->sum('variance_amount'),
+                'all_received' => $shiftHandovers->count() > 0 && $shiftHandovers->where('status', 'pending')->count() === 0,
+            ]);
+
+            $financial = $this->financialService()->computeFinancialSummaryFromHandovers($shift, $shiftHandovers);
+            $shift->setAttribute('financial_summary', $financial);
+        }
+    }
+
     /**
      * Auto-archive completed shifts after 7 days
      */
@@ -56,7 +120,7 @@ class BranchManagerShiftService
             'total_sales' => (float) $cashierShift->total_sales,
             'handover_amount' => (float) $handover->handover_amount,
             'variance_amount' => (float) $handover->variance_amount,
-            'variance_type' => $handover->variance_amount > 0 ? 'Over' : ($handover->variance_amount < 0 ? 'Short' : 'None'),
+            'variance_type' => $this->normalizeVarianceType((float) $handover->variance_amount),
             'reason' => $handover->variance_reason,
             'attached_files' => $handover->variance_files ?? [],
             'cashier_details' => [
@@ -120,11 +184,11 @@ class BranchManagerShiftService
             ]);
 
             // Notify manager about new handover
-            $this->notifyManagerAboutHandover($handover);
+            $this->notifyManagerAboutHandover();
         });
     }
 
-    private function notifyManagerAboutHandover(CashierShiftHandover $handover): void
+    private function notifyManagerAboutHandover(): void
     {
         // Implementation for sending notification to manager
         // This could be email, push notification, or in-app notification
@@ -258,9 +322,9 @@ class BranchManagerShiftService
     }
 
     /**
-     * Normalize handover status to standard values: pending, accepted, rejected
+     * Normalise a raw handover/shift status to one of: pending | accepted | rejected.
      */
-    private function normalizeHandoverStatus(?string $status): string
+    public function normalizeHandoverStatus(?string $status): string
     {
         if (in_array($status, ['approved', 'accepted', 'completed'])) {
             return 'accepted';
@@ -317,7 +381,7 @@ class BranchManagerShiftService
             'cashier_name' => $cashierShift->cashier->name,
             'shift_time' => $shift ? $shift->name : 'N/A',
             'handover_amount' => (float) $handover->handover_amount,
-            'handover_date' => $handover->handover_date?->format('Y-m-d H:i:s'),
+            'handover_date' => $handover->handover_date?->format(self::DATETIME_FORMAT),
             'handover_time' => $handover->handover_time?->format('H:i:s'),
             'handover_notes' => $handover->handover_notes,
             'handover_from' => $cashierShift->cashier->name,
@@ -326,14 +390,14 @@ class BranchManagerShiftService
             'handover_to_type' => $handover->handover_to_type,
             'total_sales' => (float) $cashierShift->total_sales,
             'variance_amount' => (float) $handover->variance_amount,
-            'variance_type' => $handover->variance_amount > 0 ? 'Over' : ($handover->variance_amount < 0 ? 'Short' : 'None'),
+            'variance_type' => $this->normalizeVarianceType((float) $handover->variance_amount),
             'variance_reason' => $handover->variance_reason,
             'attached_files' => $handover->variance_files ?? [],
             'status' => $this->normalizeHandoverStatus($handover->status),
             'rejection_reason' => $handover->rejection_reason,
             'rejection_count' => $handover->rejection_count,
-            'handed_over_at' => $handover->handed_over_at?->format('Y-m-d H:i:s'),
-            'approved_at' => $handover->approved_at?->format('Y-m-d H:i:s'),
+            'handed_over_at' => $handover->handed_over_at?->format(self::DATETIME_FORMAT),
+            'approved_at' => $handover->approved_at?->format(self::DATETIME_FORMAT),
             'approved_by' => $handover->approvedBy?->name,
             'can_approve' => $handover->canApprove(),
             'can_reject' => $handover->canReject(),
@@ -465,54 +529,142 @@ class BranchManagerShiftService
     }
 
     /**
-     * IMPROVEMENT 5: Updated calculateFinancialSummary with better caching
-     * تحديث method مع caching محسّن
+     * Calculate financial summary (delegates to ShiftFinancialService).
      */
     public function calculateFinancialSummary(BranchManagerShift $shift): array
     {
-        $cacheKey = $this->getShiftCacheKey($shift, 'financial_summary');
+        return $this->financialService()->calculateFinancialSummary($shift);
+    }
 
-        if (config('cache.default') === 'redis') {
-            $shiftTag = "shift:{$shift->id}:{$shift->shift_date->format('Y-m-d')}";
+    // =====================================================================
+    // HELPERS EXTRACTED FROM CONTROLLER (reduce controller method count)
+    // =====================================================================
 
-            try {
-                return Cache::tags([$shiftTag])->remember($cacheKey, 300, function () use ($shift) {
-                    return $this->computeFinancialSummary($shift);
-                });
-            } catch (\Exception $e) {
-                // Fallback if tags not supported
-            }
+    /**
+     * Calculate the branch manager shift progress for a given shift.
+     */
+    public function calculateShiftProgress(BranchManagerShift $shift): array
+    {
+        $defaultShiftHours = 8;
+        $startTime = $shift->actual_start_time;
+        $endTime   = $shift->actual_end_time;
+        $shiftDateFormatted = $shift->shift_date->format('d M Y');
+
+        $statusLabel = match ($shift->status) {
+            'not_started' => 'Not Started',
+            'in_progress' => 'In Progress',
+            default       => 'Completed',
+        };
+
+        $progress = [
+            'title'               => "Branch Manager Shift - {$shiftDateFormatted}",
+            'description'         => 'Managing daily operations and cashier handovers',
+            'status'              => $statusLabel,
+            'start_time'          => $startTime ? $startTime->format('H:i') : '09:00',
+            'end_time'            => $endTime ? $endTime->format('H:i') : '17:00',
+            'elapsed_hours'       => 0,
+            'progress_percentage' => 0,
+        ];
+
+        if (!$startTime) {
+            return $progress;
         }
 
-        return Cache::remember($cacheKey, 300, function () use ($shift) {
-            return $this->computeFinancialSummary($shift);
-        });
+        if ($shift->status === 'in_progress') {
+            $expectedEndTime = $endTime ?: $startTime->copy()->addHours($defaultShiftHours);
+            $totalMinutes    = $startTime->diffInMinutes($expectedEndTime);
+            $elapsedMinutes  = now()->diffInMinutes($startTime);
+
+            $progress['elapsed_hours']       = round($elapsedMinutes / 60, 2);
+            $progress['progress_percentage'] = $totalMinutes > 0
+                ? min(($elapsedMinutes / $totalMinutes) * 100, 100)
+                : 0;
+        } elseif ($shift->status === 'completed' && $endTime) {
+            $progress['elapsed_hours']       = round($startTime->diffInHours($endTime), 2);
+            $progress['progress_percentage'] = 100;
+        }
+
+        return $progress;
     }
 
     /**
-     * Extract computation logic
+     * Build the per-cashier breakdown array from a collection of handovers (delegates to ShiftFinancialService).
      */
-    private function computeFinancialSummary(BranchManagerShift $shift): array
+    public function buildCashierBreakdownFromHandovers(Collection $handovers): array
     {
-        $handovers = $this->getShiftHandovers($shift, 'to_manager');
+        return $this->financialService()->buildCashierBreakdownFromHandovers($handovers);
+    }
 
-        return $handovers->reduce(function ($summary, $handover) {
-            $cashierShift = $handover->cashierShift;
+    /**
+     * Sum all approved handover amounts directed to a specific manager (delegates to ShiftFinancialService).
+     */
+    public function sumApprovedHandoverAmount(BranchManagerShift $managerShift, string $managerId): float
+    {
+        return $this->financialService()->sumApprovedHandoverAmount($managerShift, $managerId);
+    }
 
-            $summary['total_sales'] += $cashierShift->total_sales ?? 0;
-            $summary['cash_collected'] += $cashierShift->cash_collected ?? 0;
-            $summary['card_payments'] += $cashierShift->card_payments ?? 0;
-            $summary['delivery_app_payments'] += $cashierShift->salesBreakdown->sum('amount');
-            $summary['total_variance'] += $handover->variance_amount ?? 0;
+    /**
+     * Prepare the final daily close summary (delegates to ShiftFinancialService).
+     */
+    public function prepareDailyCloseSummary(BranchManagerShift $shift): array
+    {
+        return $this->financialService()->prepareDailyCloseSummary($shift);
+    }
 
-            return $summary;
-        }, [
-            'total_sales' => 0,
-            'cash_collected' => 0,
-            'card_payments' => 0,
-            'delivery_app_payments' => 0,
-            'total_variance' => 0,
-        ]);
+    /**
+     * Return correction-request details from a handover status model, or null when not applicable.
+     */
+    public function getCorrectionDetails($handoverStatus): ?array
+    {
+        if (!$this->isCorrectionDetailsEligible($handoverStatus)) {
+            return null;
+        }
+
+        return [
+            'requested_by'      => $handoverStatus->reviewedBy?->name ?? 'N/A',
+            'requested_by_id'   => $handoverStatus->reviewed_by_id,
+            'requested_by_type' => $this->getReviewerTypeLabel($handoverStatus->reviewed_by_type),
+            'manager_comment'   => $handoverStatus->manager_comment,
+            'requested_at'      => $handoverStatus->reviewed_at?->format(self::DATETIME_FORMAT),
+            'can_cashier_edit'  => $handoverStatus->canCashierEdit(),
+        ];
+    }
+
+    /**
+     * Convert a fully-qualified class name or slug into a human-readable reviewer label.
+     */
+    public function getReviewerTypeLabel(?string $reviewerType): ?string
+    {
+        if (!$reviewerType) {
+            return null;
+        }
+
+        return $this->mapReviewerTypeToLabel($reviewerType);
+    }
+
+    private function mapReviewerTypeToLabel(string $reviewerType): string
+    {
+        if (str_contains($reviewerType, 'BranchManager') || $reviewerType === 'branch_manager') {
+            return 'Branch Manager';
+        }
+
+        if (str_contains($reviewerType, 'Cashier') || $reviewerType === 'cashier') {
+            return 'Cashier';
+        }
+
+        return class_basename($reviewerType);
+    }
+
+    /**
+     * Returns true when all conditions for producing correction details are met.
+     */
+    private function isCorrectionDetailsEligible($handoverStatus): bool
+    {
+        return $handoverStatus
+            && $handoverStatus->manager_comment
+            && $handoverStatus->reviewed_at
+            && !$handoverStatus->isPermanentlyRejected()
+            && $handoverStatus->manager_approval_status === 'rejected';
     }
 
     /**
@@ -572,5 +724,64 @@ class BranchManagerShiftService
         Cache::forget("shift_handovers_{$shift->id}_to_manager_" . $shift->updated_at->timestamp);
         Cache::forget("shift_handovers_{$shift->id}_between_cashiers_" . $shift->updated_at->timestamp);
         Cache::forget("financial_summary_{$shift->id}_" . $shift->updated_at->timestamp);
+    }
+
+    /**
+     * Resolve opening balance from the most recent completed shift for a branch, defaulting to 0.
+     */
+    public function resolveBranchManagerOpeningBalance(string $branchId): float
+    {
+        $previousShift = BranchManagerShift::where('branch_id', $branchId)
+            ->where('shift_date', '<', today())
+            ->where('status', 'completed')
+            ->orderByDesc('shift_date')
+            ->select(['handover_amount', 'closing_balance'])
+            ->first();
+
+        if (!$previousShift) {
+            return 0.0;
+        }
+
+        return (float) ($previousShift->handover_amount ?? $previousShift->closing_balance ?? 0);
+    }
+
+    /**
+     * Resolve the financial totals to be stored on the shift (delegates to ShiftFinancialService).
+     */
+    public function resolveFinancialValues(Request $request, array $financialSummary, BranchManagerShift $managerShift): array
+    {
+        return $this->financialService()->resolveFinancialValues($request, $financialSummary, $managerShift);
+    }
+
+    /**
+     * Build the standardised daily_close_status response array (delegates to ShiftFinancialService).
+     */
+    public function buildDailyCloseStatusArray(BranchManagerShift $managerShift): array
+    {
+        return $this->financialService()->buildDailyCloseStatusArray($managerShift);
+    }
+
+    /**
+     * Build the variance_details payload for a CashierShiftHandover response (delegates to ShiftFinancialService).
+     */
+    public function buildHandoverVarianceDetails(CashierShiftHandover $handover, CashierShift $cashierShift): ?array
+    {
+        return $this->financialService()->buildHandoverVarianceDetails($handover, $cashierShift);
+    }
+
+    /**
+     * Map a numeric variance to a human-readable type label.
+     */
+    public function normalizeVarianceType(float $variance): string
+    {
+        if ($variance > 0) {
+            return 'Over';
+        }
+
+        if ($variance < 0) {
+            return 'Short';
+        }
+
+        return 'None';
     }
 }

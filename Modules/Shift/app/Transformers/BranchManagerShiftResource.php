@@ -15,6 +15,9 @@ use Modules\Shift\Models\BranchManagerShift;
  */
 class BranchManagerShiftResource extends JsonResource
 {
+    private const DATETIME_FORMAT    = 'Y-m-d H:i:s';
+    private const STATUS_NOT_SUBMITTED = 'Not Submitted';
+
     /**
      * Transform the resource into an array.
      */
@@ -49,12 +52,12 @@ class BranchManagerShiftResource extends JsonResource
 
             // Timestamps
             'timestamps' => [
-                'actual_start_time' => $this->actual_start_time?->format('Y-m-d H:i:s'),
-                'actual_end_time' => $this->actual_end_time?->format('Y-m-d H:i:s'),
-                'daily_report_submitted_at' => $this->daily_report_submitted_at?->format('Y-m-d H:i:s'),
-                'reopened_at' => $this->reopened_at?->format('Y-m-d H:i:s'),
-                'approved_at' => $this->approved_at?->format('Y-m-d H:i:s'),
-                'archived_at' => $this->archived_at?->format('Y-m-d H:i:s'),
+                'actual_start_time'         => $this->actual_start_time?->format(self::DATETIME_FORMAT),
+                'actual_end_time'           => $this->actual_end_time?->format(self::DATETIME_FORMAT),
+                'daily_report_submitted_at' => $this->daily_report_submitted_at?->format(self::DATETIME_FORMAT),
+                'reopened_at'               => $this->reopened_at?->format(self::DATETIME_FORMAT),
+                'approved_at'               => $this->approved_at?->format(self::DATETIME_FORMAT),
+                'archived_at'               => $this->archived_at?->format(self::DATETIME_FORMAT),
             ],
         ];
     }
@@ -99,11 +102,16 @@ class BranchManagerShiftResource extends JsonResource
 
     /**
      * Get handoffs summary (Section C)
+     * Uses pre-attached handoffs_summary when set by BranchManagerShiftService::attachHandoffsAndFinancialSummariesForCollection to avoid N+1.
      */
     private function getHandoffsSummary(): array
     {
-        // Always use direct query to ensure consistency (same as getHandoverSummary in model)
-        $handovers = \Modules\Shift\Models\CashierShiftHandover::where('handover_to_type', 'branch_manager')
+        $precomputed = $this->resource->getAttribute('handoffs_summary');
+        if (is_array($precomputed)) {
+            return $precomputed;
+        }
+
+        $handovers = CashierShiftHandover::where('handover_to_type', 'branch_manager')
             ->where('handover_to_id', $this->branch_manager_id)
             ->whereHas('cashierShift', function ($query) {
                 $query->whereDate('shift_date', $this->shift_date)
@@ -139,7 +147,7 @@ class BranchManagerShiftResource extends JsonResource
     private function getFinalHandoverInfo(): ?array
     {
         // Determine status based on requirements
-        $status = 'Not Submitted';
+        $status = self::STATUS_NOT_SUBMITTED;
         if ($this->handover_status === 'completed' || $this->handover_status === 'approved') {
             $status = 'Completed';
         } elseif ($this->handover_status === 'pending') {
@@ -148,50 +156,46 @@ class BranchManagerShiftResource extends JsonResource
 
         // Get current time based on handover_timing
         $currentTime = $this->handover_timing === 'yesterday'
-            ? now()->subDay()->format('Y-m-d H:i:s')
-            : now()->format('Y-m-d H:i:s');
+            ? now()->subDay()->format(self::DATETIME_FORMAT)
+            : now()->format(self::DATETIME_FORMAT);
 
-        // Calculate expected_balance and variance from financial data
-        // expected_balance = total_sales
-        $expectedBalance = (float) ($this->total_sales ?? 0);
-        // closing_balance = handover_amount (المبلغ الذي تم تسليمه)
-        $closingBalance = (float) ($this->handover_amount ?? $this->closing_balance ?? 0);
-        // variance = expected_balance - closing_balance
-        $variance = $expectedBalance - $closingBalance;
-
-        // Petty cash & last deposit = final cash collected that the manager received (يُسجّل في الـ custody عند الموافقة على الـ handovers)
+        $expectedBalance    = (float) ($this->total_sales ?? 0);
+        $closingBalance     = (float) ($this->handover_amount ?? $this->closing_balance ?? 0);
+        $variance           = $expectedBalance - $closingBalance;
         $finalCashCollected = $closingBalance;
+
         $lastDepositDateRaw = $this->handover_date ?? $this->actual_end_time ?? now();
-        $lastDepositDate = $lastDepositDateRaw instanceof \DateTimeInterface
+        $lastDepositDate    = $lastDepositDateRaw instanceof \DateTimeInterface
             ? $lastDepositDateRaw->format('Y-m-d')
             : (is_string($lastDepositDateRaw) ? $lastDepositDateRaw : now()->format('Y-m-d'));
+
         $lastDepositTimeRaw = $this->handover_time ?? $this->actual_end_time ?? now();
-        $lastDepositTime = $lastDepositTimeRaw instanceof \DateTimeInterface
+        $lastDepositTime    = $lastDepositTimeRaw instanceof \DateTimeInterface
             ? $lastDepositTimeRaw->format('H:i:s')
             : now()->format('H:i:s');
 
+        $varianceType = $variance > 0 ? 'Over' : ($variance < 0 ? 'Short' : 'None');
+
         return [
-            'handover_amount' => (float) ($this->handover_amount ?? 0), // ✅ Handover Amount
-            'status' => $status, // ✅ Status: Completed, Not Submitted, or Pending
-            'status_options' => ['Completed', 'Not Submitted', 'Pending'],
-            'handover_from' => $this->branchManager?->name ?? 'N/A', // ✅ Handover From
-            'handover_to' => $this->nextManager?->name ?? 'Not specified', // ✅ Handover To
-            'handover_date' => $this->handover_date?->format('Y-m-d') ?? now()->format('Y-m-d'), // ✅ Handover Date
-            'handover_time' => $this->handover_time?->format('H:i:s') ?? now()->format('H:i:s'), // ✅ Handover Time
-            'current_time' => $currentTime, // ✅ Current Time
-            'current_time_setting' => $this->handover_timing ?? 'today', // Today or Yesterday
-            'handover_notes' => $this->handover_notes,
-            // Additional info
-            'opening_balance' => (float) ($this->opening_balance ?? 0),
-            'closing_balance' => $closingBalance, // handover_amount
-            'expected_balance' => $expectedBalance, // total_sales
-            'variance' => $variance, // expected_balance - closing_balance
-            'variance_type' => $variance > 0 ? 'Over' : ($variance < 0 ? 'Short' : 'None'),
-            // Petty cash & last deposit (final cash collected received — عند الموافقة على الـ handovers يُسجّل في الـ custody)
-            'petty_cash' => (float) $finalCashCollected,
-            'last_deposit' => (float) $finalCashCollected,
-            'last_deposit_date' => $lastDepositDate,
-            'last_deposit_time' => $lastDepositTime,
+            'handover_amount'      => (float) ($this->handover_amount ?? 0),
+            'status'               => $status,
+            'status_options'       => ['Completed', self::STATUS_NOT_SUBMITTED, 'Pending'],
+            'handover_from'        => $this->branchManager?->name ?? 'N/A',
+            'handover_to'          => $this->nextManager?->name ?? 'Not specified',
+            'handover_date'        => $this->handover_date?->format('Y-m-d') ?? now()->format('Y-m-d'),
+            'handover_time'        => $this->handover_time?->format('H:i:s') ?? now()->format('H:i:s'),
+            'current_time'         => $currentTime,
+            'current_time_setting' => $this->handover_timing ?? 'today',
+            'handover_notes'       => $this->handover_notes,
+            'opening_balance'      => (float) ($this->opening_balance ?? 0),
+            'closing_balance'      => $closingBalance,
+            'expected_balance'     => $expectedBalance,
+            'variance'             => $variance,
+            'variance_type'        => $varianceType,
+            'petty_cash'           => (float) $finalCashCollected,
+            'last_deposit'         => (float) $finalCashCollected,
+            'last_deposit_date'    => $lastDepositDate,
+            'last_deposit_time'    => $lastDepositTime,
         ];
     }
 
@@ -204,24 +208,29 @@ class BranchManagerShiftResource extends JsonResource
     {
         return [
             'is_submitted' => (bool) $this->daily_report_submitted,
-            'submitted_at' => $this->daily_report_submitted_at?->format('Y-m-d H:i:s'),
-            'notes' => $this->daily_report_notes,
-            'can_reopen' => $this->can_reopen && $this->daily_report_submitted,
-            'reopened_at' => $this->reopened_at?->format('Y-m-d H:i:s'),
-            'reopen_reason' => $this->reopen_reason,
-            'is_archived' => !is_null($this->archived_at),
-            'archived_at' => $this->archived_at?->format('Y-m-d H:i:s'),
-            'approved_by' => $this->approvedBy?->name,
-            'approved_at' => $this->approved_at?->format('Y-m-d H:i:s'),
+            'submitted_at' => $this->daily_report_submitted_at?->format(self::DATETIME_FORMAT),
+            'notes'        => $this->daily_report_notes,
+            'can_reopen'   => $this->can_reopen && $this->daily_report_submitted,
+            'reopened_at'  => $this->reopened_at?->format(self::DATETIME_FORMAT),
+            'reopen_reason'=> $this->reopen_reason,
+            'is_archived'  => !is_null($this->archived_at),
+            'archived_at'  => $this->archived_at?->format(self::DATETIME_FORMAT),
+            'approved_by'  => $this->approvedBy?->name,
+            'approved_at'  => $this->approved_at?->format(self::DATETIME_FORMAT),
         ];
     }
 
     /**
      * Get financial summary
+     * Uses pre-attached financial_summary when set by BranchManagerShiftService::attachHandoffsAndFinancialSummariesForCollection to avoid N+1.
      */
     private function getFinancialSummary(): array
     {
-        // If shift has financial data, use it
+        $precomputed = $this->resource->getAttribute('financial_summary');
+        if (is_array($precomputed)) {
+            return $precomputed;
+        }
+
         if ($this->total_sales > 0 || $this->cash_collected > 0 || $this->card_payments > 0) {
             return [
                 'total_sales' => (float) ($this->total_sales ?? 0),
@@ -234,8 +243,7 @@ class BranchManagerShiftResource extends JsonResource
             ];
         }
 
-        // Otherwise, calculate from handovers
-        $handovers = \Modules\Shift\Models\CashierShiftHandover::where('handover_to_type', 'branch_manager')
+        $handovers = CashierShiftHandover::where('handover_to_type', 'branch_manager')
             ->where('handover_to_id', $this->branch_manager_id)
             ->whereHas('cashierShift', function ($query) {
                 $query->whereDate('shift_date', $this->shift_date)
@@ -243,9 +251,7 @@ class BranchManagerShiftResource extends JsonResource
                         $q->where('branch_id', $this->branch_id);
                     });
             })
-            ->with([
-                'cashierShift.salesBreakdown.aggregator'
-            ])
+            ->with(['cashierShift.salesBreakdown.aggregator'])
             ->get();
 
         $totalSales = 0;
@@ -259,7 +265,7 @@ class BranchManagerShiftResource extends JsonResource
             $totalSales += $cashierShift->total_sales ?? 0;
             $cashCollected += $cashierShift->cash_collected ?? 0;
             $cardPayments += $cashierShift->card_payments ?? 0;
-            $aggregatorPayments += $cashierShift->salesBreakdown->sum('amount');
+            $aggregatorPayments += $cashierShift->salesBreakdown?->sum('amount') ?? 0;
             $totalVariance += $handover->variance_amount ?? 0;
         }
 
@@ -334,17 +340,5 @@ class BranchManagerShiftResource extends JsonResource
         };
     }
 
-    /**
-     * Get handover status label
-     */
-    private function getHandoverStatusLabel(): string
-    {
-        return match ($this->handover_status) {
-            'pending' => 'Pending',
-            'completed' => 'Completed',
-            'approved' => 'Approved',
-            null => 'Not Submitted',
-            default => ucfirst($this->handover_status ?? 'Unknown'),
-        };
-    }
 }
+

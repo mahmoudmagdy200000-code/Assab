@@ -3,6 +3,8 @@
 namespace Modules\Shift\Services;
 
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator as LengthAwarePaginatorConcrete;
 use Illuminate\Support\Collection;
 use Modules\BranchManagers\Models\BranchManager;
@@ -29,7 +31,8 @@ class ShiftRequestsService
      */
     public function getHandoversForAuthUser(?string $status = null, ?int $perPage = null)
     {
-        $user = auth()->user();
+        /** @var Cashier|BranchManager|null $user */
+        $user = Auth::user();
         if (!$user) {
             return $perPage ? new LengthAwarePaginatorConcrete([], 0, $perPage, 1, ['path' => request()->url()]) : collect();
         }
@@ -70,7 +73,7 @@ class ShiftRequestsService
 
         $query->orderByDesc('handed_over_at')->orderByDesc('shift_date');
 
-        return $perPage ? $query->paginate($perPage) : $query->get();
+        return $perPage ? $query->paginate($perPage) : $query->limit(100)->get();
     }
 
     /**
@@ -85,7 +88,8 @@ class ShiftRequestsService
      */
     public function getVariancesForAuthUser(?string $status = null, ?int $perPage = null)
     {
-        $user = auth()->user();
+        /** @var Cashier|BranchManager|null $user */
+        $user = Auth::user();
         if (!$user) {
             return $perPage ? new LengthAwarePaginatorConcrete([], 0, $perPage, 1, ['path' => request()->url()]) : collect();
         }
@@ -120,7 +124,7 @@ class ShiftRequestsService
 
         $query->orderByDesc('shift_date')->orderByDesc('handed_over_at');
 
-        return $perPage ? $query->paginate($perPage) : $query->get();
+        return $perPage ? $query->paginate($perPage) : $query->limit(100)->get();
     }
 
     /**
@@ -132,7 +136,8 @@ class ShiftRequestsService
      */
     public function getReassignedShiftsForCashier(?int $perPage = null)
     {
-        $user = auth()->user();
+        /** @var Cashier|BranchManager|null $user */
+        $user = Auth::user();
         if (!$user instanceof Cashier) {
             return $perPage ? new LengthAwarePaginatorConcrete([], 0, $perPage, 1, ['path' => request()->url()]) : collect();
         }
@@ -153,25 +158,25 @@ class ShiftRequestsService
             ->where('cashier_id', $user->id)
             ->orderByDesc('reassigned_at');
 
-        return $perPage ? $query->paginate($perPage) : $query->get();
+        return $perPage ? $query->paginate($perPage) : $query->limit(100)->get();
     }
 
     /**
      * Scope handover query by user role (cashier or branch manager).
      */
-    private function applyHandoverScopeByUser($query, $user): void
+    private function applyHandoverScopeByUser(Builder $query, Cashier|BranchManager $user): void
     {
         if ($user instanceof Cashier) {
-            $query->where(function ($q) use ($user) {
+            $query->where(function (Builder $q) use ($user) {
                 $q->where('cashier_id', $user->id)
                     ->orWhere('next_cashier_id', $user->id)
-                    ->orWhereHas('handover', fn ($h) => $h->where('handover_to_type', 'cashier')->where('handover_to_id', $user->id));
+                    ->orWhereHas('handover', fn (Builder $h) => $h->where('handover_to_type', 'cashier')->where('handover_to_id', $user->id));
             });
             return;
         }
 
         if ($user instanceof BranchManager && $user->branch_id) {
-            $query->whereHas('shift', fn($q) => $q->where('branch_id', $user->branch_id));
+            $query->whereHas('shift', fn (Builder $q) => $q->where('branch_id', $user->branch_id));
         }
     }
 
@@ -180,21 +185,19 @@ class ShiftRequestsService
      * Cashier: own shifts OR shifts where they are assigned responsibility via variance details.
      * Branch Manager: all shifts in their branch.
      */
-    private function applyVarianceScopeByUser($query, $user): void
+    private function applyVarianceScopeByUser(Builder $query, Cashier|BranchManager $user): void
     {
         if ($user instanceof Cashier) {
             $cashierId = $user->id;
-            $query->where(function ($q) use ($cashierId) {
-                // Primary cashier of the shift
+            $query->where(function (Builder $q) use ($cashierId) {
                 $q->where('cashier_id', $cashierId)
-                  // OR assigned as responsible party in variance details (self_and_others / mixed)
-                  ->orWhereHas('varianceDetails', fn($vd) => $vd->where('responsible_cashier_id', $cashierId));
+                  ->orWhereHas('varianceDetails', fn (Builder $vd) => $vd->where('responsible_cashier_id', $cashierId));
             });
             return;
         }
 
         if ($user instanceof BranchManager && $user->branch_id) {
-            $query->whereHas('shift', fn($q) => $q->where('branch_id', $user->branch_id));
+            $query->whereHas('shift', fn (Builder $q) => $q->where('branch_id', $user->branch_id));
         }
     }
 }
