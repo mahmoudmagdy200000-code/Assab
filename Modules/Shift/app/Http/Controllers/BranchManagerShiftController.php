@@ -593,6 +593,7 @@ class BranchManagerShiftController extends BaseController
             return $this->successResponse([
                 'shift'              => new BranchManagerShiftResource($managerShift),
                 'cashier_breakdown'  => $dailyClose['cashier_breakdown'],
+                'aggregators'        => $dailyClose['aggregators'] ?? [],
                 'totals'             => $dailyClose['totals'],
                 'daily_close_status' => $this->shiftService->buildDailyCloseStatusArray($managerShift),
                 'manager_summary'    => $dailyClose['manager_summary'] ?? null,

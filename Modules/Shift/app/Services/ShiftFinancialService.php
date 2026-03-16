@@ -173,7 +173,7 @@ class ShiftFinancialService
         $cashierShifts = CashierShift::whereDate('shift_date', $shift->shift_date)
             ->whereHas('shift', fn ($q) => $q->where('branch_id', $shift->branch_id))
             ->whereIn('status', ['in_progress', 'completed'])
-            ->with(['cashier:id,name', 'salesBreakdown', 'handover'])
+            ->with(['cashier:id,name', 'salesBreakdown.aggregator:id,name', 'handover'])
             ->select(['id', 'cashier_id', 'shift_id', 'shift_date', 'total_sales', 'cash_collected', 'card_payments', 'variance', 'status'])
             ->get();
 
@@ -210,6 +210,8 @@ class ShiftFinancialService
             'total_sales'          => (float) collect($cashierBreakdown)->sum('sales'),
         ];
 
+        $aggregators = $this->buildAggregatorsBreakdown($cashierShifts);
+
         $closingBalance  = $totals['total_cash_collected'];
         $expectedBalance = $totals['total_sales'];
         $calcVariance    = $expectedBalance - $closingBalance;
@@ -223,6 +225,7 @@ class ShiftFinancialService
 
         return [
             'cashier_breakdown' => $cashierBreakdown,
+            'aggregators'       => $aggregators,
             'totals'            => $totals,
             'manager_summary'   => [
                 'opening_balance'  => (float) ($shift->opening_balance ?? 0),
@@ -291,6 +294,71 @@ class ShiftFinancialService
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
+
+    /**
+     * Build per-aggregator breakdown for daily close (Delivery Apps: Jahez, Hunger Station, etc.).
+     * Returns same cashier order as cashier_breakdown for consistent UI columns.
+     */
+    private function buildAggregatorsBreakdown(Collection $cashierShifts): array
+    {
+        $aggregatorMap = [];
+        $cashierOrder  = $cashierShifts->pluck('cashier_id')->unique()->values()->all();
+        $cashierNames  = $cashierShifts->keyBy('cashier_id')->map(fn ($cs) => $cs->cashier->name ?? '')->all();
+
+        foreach ($cashierShifts as $cashierShift) {
+            $cashierId   = $cashierShift->cashier_id;
+            $cashierName = $cashierShift->cashier->name ?? ($cashierNames[$cashierId] ?? '');
+            foreach ($cashierShift->salesBreakdown as $row) {
+                $agg = $row->aggregator;
+                if (!$agg) {
+                    continue;
+                }
+                $id = $agg->id;
+                $amount = (float) $row->amount;
+                if (!isset($aggregatorMap[$id])) {
+                    $aggregatorMap[$id] = [
+                        'id'                => $id,
+                        'name'              => $agg->name,
+                        'total'             => 0.0,
+                        'cashier_breakdown' => [],
+                    ];
+                }
+                $aggregatorMap[$id]['total'] += $amount;
+                if (!isset($aggregatorMap[$id]['cashier_breakdown'][$cashierId])) {
+                    $aggregatorMap[$id]['cashier_breakdown'][$cashierId] = [
+                        'cashier_id'   => $cashierId,
+                        'cashier_name' => $cashierName,
+                        'amount'       => 0.0,
+                    ];
+                }
+                $aggregatorMap[$id]['cashier_breakdown'][$cashierId]['amount'] += $amount;
+            }
+        }
+
+        $result = [];
+        foreach ($aggregatorMap as $row) {
+            $breakdown = [];
+            foreach ($cashierOrder as $cid) {
+                if (isset($row['cashier_breakdown'][$cid])) {
+                    $breakdown[] = $row['cashier_breakdown'][$cid];
+                } else {
+                    $breakdown[] = [
+                        'cashier_id'   => $cid,
+                        'cashier_name' => $cashierNames[$cid] ?? '',
+                        'amount'       => 0.0,
+                    ];
+                }
+            }
+            $result[] = [
+                'id'                => $row['id'],
+                'name'              => $row['name'],
+                'total'             => (float) $row['total'],
+                'cashier_breakdown' => array_values($breakdown),
+            ];
+        }
+
+        return $result;
+    }
 
     private function computeFinancialSummary(BranchManagerShift $shift): array
     {
