@@ -27,6 +27,8 @@ use Modules\Purchase\Http\Requests\GetPurchasingOfficerItemsRequest;
 use Modules\Purchase\Http\Requests\GetSupplierItemsRequest;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Modules\BranchManagers\Models\BranchManager;
+use Modules\Purchase\Notifications\PurchaseOrderCreated;
 
 class NewOrderController extends BaseController
 {
@@ -333,6 +335,10 @@ class NewOrderController extends BaseController
                 $statusMessage = $isDraft
                     ? "Successfully saved {$orderCount} order(s) as draft: " . implode(', ', $orderTypes)
                     : "Successfully created {$orderCount} order(s): " . implode(', ', $orderTypes);
+
+                if ($user instanceof BranchManager) {
+                    $user->notify(new PurchaseOrderCreated($orders));
+                }
 
                 return $this->createdResponse(
                     PurchaseOrderResource::collection($orders),

@@ -23,7 +23,7 @@ use Modules\Purchase\Enums\QualityLevel;
 
 class PurchaseOrder extends Model
 {
-    use HasFactory, HasUuids, SoftDeletes;
+    use HasFactory, HasUuids, SoftDeletes ,Notifiable;
 
     protected $fillable = [
         'order_number',

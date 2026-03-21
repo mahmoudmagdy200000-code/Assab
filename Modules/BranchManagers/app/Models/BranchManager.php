@@ -12,7 +12,6 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Log;
 use Laravel\Sanctum\HasApiTokens;
 use Modules\Branch\Models\Branch;
-use Modules\BranchManager\Database\Factories\BranchManagerFactory;
 use Modules\BranchManagers\Database\Factories\BranchManagerFactory as FactoriesBranchManagerFactory;
 use Modules\BranchManagers\Notifications\ResetPasswordNotification;
 use Modules\Cashier\Models\Cashier;
