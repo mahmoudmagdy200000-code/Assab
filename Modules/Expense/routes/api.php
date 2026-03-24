@@ -20,7 +20,7 @@ use Modules\Expense\Http\Controllers\{
 */
 
 Route::prefix('branch-manager/expenses')
-    ->middleware(['auth:sanctum', 'branch.manager.or.cashier'])
+    ->middleware(['auth:sanctum', 'branch.manager.or.cashier', 'log.throttle'])
     ->name('api.branch-manager.expenses.') // Add this line for route name prefix
     ->group(function () {
 
@@ -58,8 +58,8 @@ Route::prefix('branch-manager/expenses')
         */
         Route::prefix('quick-cash')->group(function () {
             Route::get('/', [ExpenseController::class, 'quickCashList']);
-            Route::post('/', [QuickCashExpenseController::class, 'store']);
-            Route::put('/{expense}', [QuickCashExpenseController::class, 'update']);
+            Route::post('/', [QuickCashExpenseController::class, 'store'])->middleware('throttle:expense-write');
+            Route::put('/{expense}', [QuickCashExpenseController::class, 'update'])->middleware('throttle:expense-write');
             Route::delete('/{expense}', [QuickCashExpenseController::class, 'destroy']);
 
             // Helper: Calculate VAT
@@ -74,8 +74,8 @@ Route::prefix('branch-manager/expenses')
         Route::prefix('single-invoice')->group(function () {
             Route::get('/', [ExpenseController::class, 'singleInvoiceList']);
             Route::get('/previous', [SingleInvoiceExpenseController::class, 'getPreviousInvoices']);
-            Route::post('/', [SingleInvoiceExpenseController::class, 'store']);
-            Route::put('/{expense}', [SingleInvoiceExpenseController::class, 'update']);
+            Route::post('/', [SingleInvoiceExpenseController::class, 'store'])->middleware('throttle:expense-write');
+            Route::put('/{expense}', [SingleInvoiceExpenseController::class, 'update'])->middleware('throttle:expense-write');
 
             // duplicate
             Route::post('/{expense}/duplicate', [SingleInvoiceExpenseController::class, 'duplicate']);
@@ -88,8 +88,8 @@ Route::prefix('branch-manager/expenses')
         */
         Route::prefix('pre-approval')->group(function () {
             Route::get('/', [ExpenseController::class, 'preApprovalList']);
-            Route::post('/', [PreApprovalRequestController::class, 'store']);
-            Route::put('/{expense}', [PreApprovalRequestController::class, 'update']);
+            Route::post('/', [PreApprovalRequestController::class, 'store'])->middleware('throttle:expense-write');
+            Route::put('/{expense}', [PreApprovalRequestController::class, 'update'])->middleware('throttle:expense-write');
             Route::get('/previous', [PreApprovalRequestController::class, 'getPreviousRequests']);
             Route::post('/{expense}/duplicate', [PreApprovalRequestController::class, 'duplicate']);
         });
@@ -101,8 +101,8 @@ Route::prefix('branch-manager/expenses')
         */
         Route::prefix('grouped-invoice')->group(function () {
             Route::get('/', [ExpenseController::class, 'groupedInvoiceList']);
-            Route::post('/', [GroupedInvoiceExpenseController::class, 'store']);
-            Route::put('/{expense}', [GroupedInvoiceExpenseController::class, 'update']);
+            Route::post('/', [GroupedInvoiceExpenseController::class, 'store'])->middleware('throttle:expense-write');
+            Route::put('/{expense}', [GroupedInvoiceExpenseController::class, 'update'])->middleware('throttle:expense-write');
         });
 
         /*
@@ -122,8 +122,8 @@ Route::prefix('branch-manager/expenses')
         // Show / Timeline / Submit
         Route::get('/{expense}', [ExpenseController::class, 'show']);
         Route::get('/{expense}/timeline', [ExpenseController::class, 'timeline']);
-        Route::post('/{expense}/submit', [ExpenseController::class, 'submit']);
-        Route::post('/{expense}/resubmit', [ExpenseController::class, 'resubmit']);
+        Route::post('/{expense}/submit', [ExpenseController::class, 'submit'])->middleware('throttle:expense-write');
+        Route::post('/{expense}/resubmit', [ExpenseController::class, 'resubmit'])->middleware('throttle:expense-write');
         Route::delete('/{expense}', [ExpenseController::class, 'destroy']);
 
         /*
@@ -153,7 +153,7 @@ Route::prefix('branch-manager/expenses')
 */
 
 Route::prefix('brand-owner/expenses')
-    ->middleware(['auth:sanctum', 'brand.owner'])
+    ->middleware(['auth:sanctum', 'brand.owner', 'log.throttle'])
     ->name('api.brand-owner.expenses.') // Add this line for route name prefix
     ->group(function () {
 

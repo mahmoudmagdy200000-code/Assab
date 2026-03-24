@@ -2,6 +2,8 @@
 
 namespace Modules\Custody\Listeners;
 
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Custody\Models\CashierCustodyTransaction;
@@ -13,8 +15,18 @@ use Modules\Shift\Events\VarianceRecorded;
  * - Deduct from cashier's ledger (CashierCustodyTransaction, cash out)
  * - Add to branch manager's ledger (PersonalLedgerTransaction, cash in)
  */
-class CreateCustodyLedgerEntriesForVariance
+class CreateCustodyLedgerEntriesForVariance implements ShouldQueue
 {
+    use InteractsWithQueue;
+
+    public $afterCommit = true;
+    public $tries = 3;
+
+    public function backoff(): array
+    {
+        $jitter = random_int(1, 4);
+        return [10 + $jitter, 30 + $jitter, 90 + $jitter];
+    }
 
     public function handle(VarianceRecorded $event): void
     {

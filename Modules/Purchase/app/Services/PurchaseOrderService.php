@@ -253,7 +253,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
         $query->whereHas('items', fn ($q) => $q->whereNotIn('status', $cancelledStatuses));
 
-        $paginator = $query->paginate($perPage, ['*'], 'page', $currentPage);
+        $paginator = $query->paginate($perPage, ['id', 'order_type', 'status', 'created_at', 'expected_delivery_at'], 'page', $currentPage);
         $paginator->setPath(request()->url());
 
         $paginator->setCollection(
@@ -574,6 +574,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     public function confirmOrder(PurchaseOrder $order, ?array $itemConfirmations = null, ?string $readyTime = null): bool
     {
         return DB::transaction(function () use ($order, $itemConfirmations, $readyTime) {
+            $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             if (!$order->status->isDecisionPhase() || $order->status === OrderStatus::CONFIRMED) {
                 throw new \InvalidArgumentException(
                     "Cannot approve order. Current status: {$order->status?->value}. Order must be in pending status."
@@ -621,6 +622,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     public function partialConfirmOrder(PurchaseOrder $order, array $itemConfirmations, ?string $readyTime = null): bool
     {
         return DB::transaction(function () use ($order, $itemConfirmations, $readyTime) {
+            $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             // Check if order is in decision phase
             if (!$order->status->isDecisionPhase() || $order->status === OrderStatus::CONFIRMED) {
                 throw new \InvalidArgumentException(
@@ -731,6 +733,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     public function reportDelay(PurchaseOrder $order, string $reason, ?string $newDeliveryDate = null): bool
     {
         return DB::transaction(function () use ($order, $reason, $newDeliveryDate) {
+            $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             if ($newDeliveryDate) {
                 $order->expected_delivery_at = $newDeliveryDate;
             }
@@ -763,8 +766,9 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     public function handleModification(PurchaseOrder $order, array $modifications): void
     {
         DB::transaction(function () use ($order, $modifications) {
+            $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             foreach ($modifications as $mod) {
-                $item = PurchaseOrderItem::find($mod['item_id']);
+                $item = PurchaseOrderItem::whereKey($mod['item_id'])->lockForUpdate()->first();
                 if ($item) {
                     $item->updateQuantity($mod['new_quantity'], $mod['note'] ?? null);
                 }

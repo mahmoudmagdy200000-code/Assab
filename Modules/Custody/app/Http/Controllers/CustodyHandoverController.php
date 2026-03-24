@@ -14,6 +14,7 @@ use Modules\Custody\Services\CustodyTransactionService;
 use Modules\Custody\Services\PersonalLedgerService;
 use Modules\Custody\Services\CustodyBalanceService;
 use Modules\Custody\Models\CustodyHandoverRequest;
+use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Custody\Models\PersonalLedgerTransaction;
 
 class CustodyHandoverController extends BaseController
@@ -50,18 +51,18 @@ class CustodyHandoverController extends BaseController
 
             // ── Cashier path ──────────────────────────────────────────────────
             if ($isCashier) {
-                $personalBalance = $this->cashierCustodyService->getPersonalBalanceOnly($user->id);
-
-                if ($request->input('handoverAmount') > $personalBalance) {
-                    return $this->errorResponse('Insufficient balance', 400, [
-                        'code'      => 'INSUFFICIENT_BALANCE',
-                        'required'  => $request->input('handoverAmount'),
-                        'available' => $personalBalance,
-                    ]);
-                }
-
-                return DB::transaction(function () use ($request, $user, $personalBalance) {
+                return DB::transaction(function () use ($request, $user) {
+                    CashierCustodyTransaction::where('cashier_id', $user->id)->lockForUpdate()->get(['id']);
+                    $personalBalance = $this->cashierCustodyService->getPersonalBalanceOnly($user->id);
                     $amount        = (float) $request->input('handoverAmount');
+                    if ($amount > $personalBalance) {
+                        return $this->errorResponse('Insufficient balance', 400, [
+                            'code'      => 'INSUFFICIENT_BALANCE',
+                            'required'  => $request->input('handoverAmount'),
+                            'available' => $personalBalance,
+                        ]);
+                    }
+
                     $recipientType = $request->input('recipientType');
                     $recipientId   = $request->input('recipientId');
                     $recipientName = $this->getRecipientName($recipientId, $recipientType);

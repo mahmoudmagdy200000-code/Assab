@@ -16,17 +16,17 @@ use Modules\Supplier\Http\Controllers\PendingOrderController;
 // Public authentication routes
 Route::prefix('v1/supplier')->group(function () {
     // Authentication
-    Route::post('/auth/first-login', [AuthController::class, 'firstLogin']);
-    Route::post('/auth/login', [AuthController::class, 'login']);
+    Route::post('/auth/first-login', [AuthController::class, 'firstLogin'])->middleware(['throttle:supplier-auth', 'log.throttle']);
+    Route::post('/auth/login', [AuthController::class, 'login'])->middleware(['throttle:supplier-auth', 'log.throttle']);
 
     // Password Reset
-    Route::post('/auth/password/reset/send-otp', [PasswordResetController::class, 'sendOTP']);
-    Route::post('/auth/password/reset/verify-otp', [PasswordResetController::class, 'verifyOTP']);
-    Route::post('/auth/password/reset', [PasswordResetController::class, 'resetPassword']);
+    Route::post('/auth/password/reset/send-otp', [PasswordResetController::class, 'sendOTP'])->middleware(['throttle:supplier-auth', 'log.throttle']);
+    Route::post('/auth/password/reset/verify-otp', [PasswordResetController::class, 'verifyOTP'])->middleware(['throttle:supplier-auth', 'log.throttle']);
+    Route::post('/auth/password/reset', [PasswordResetController::class, 'resetPassword'])->middleware(['throttle:supplier-auth', 'log.throttle']);
 });
 
 // Protected routes - require supplier authentication
-Route::middleware(['auth:sanctum', \Modules\Supplier\Http\Middleware\SupplierMiddleware::class])->prefix('v1/supplier')->group(function () {
+Route::middleware(['auth:sanctum', \Modules\Supplier\Http\Middleware\SupplierMiddleware::class, 'log.throttle'])->prefix('v1/supplier')->group(function () {
     // Authentication
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
@@ -38,9 +38,9 @@ Route::middleware(['auth:sanctum', \Modules\Supplier\Http\Middleware\SupplierMid
     Route::get('/orders/dashboard', [OrderController::class, 'dashboard']);
     Route::get('/orders/supplier-items', [OrderController::class, 'getSupplierItems']);
     Route::get('/orders/{id}', [OrderController::class, 'show']);
-    Route::post('/orders/{id}/accept', [OrderController::class, 'accept']);
-    Route::post('/orders/{id}/reject', [OrderController::class, 'reject']);
-    Route::post('/orders/{id}/request-modification', [OrderController::class, 'requestModification']);
+    Route::post('/orders/{id}/accept', [OrderController::class, 'accept'])->middleware('throttle:purchase-write');
+    Route::post('/orders/{id}/reject', [OrderController::class, 'reject'])->middleware('throttle:purchase-write');
+    Route::post('/orders/{id}/request-modification', [OrderController::class, 'requestModification'])->middleware('throttle:purchase-write');
 
     // Pending Orders (Supplier Actions)
     Route::prefix('pending-orders')->group(function () {

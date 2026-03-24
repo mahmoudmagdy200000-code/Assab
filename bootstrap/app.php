@@ -77,6 +77,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'cashier' => \Modules\Cashier\Http\Middleware\CashierMiddleware::class,
             'brand.owner' => \Modules\BrandOwner\Http\Middleware\BrandOwnerMiddleware::class,
             'supplier' => \Modules\Supplier\Http\Middleware\SupplierMiddleware::class,
+            'overload.shed' => \App\Http\Middleware\OverloadSheddingMiddleware::class,
+            'log.throttle' => \App\Http\Middleware\LogThrottledRequestsMiddleware::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

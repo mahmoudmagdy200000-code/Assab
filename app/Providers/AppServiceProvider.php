@@ -3,7 +3,10 @@
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Response;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Schema;
 
 class AppServiceProvider extends ServiceProvider
@@ -21,6 +24,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->registerBurstResilienceRateLimiters();
+
         // Success Response Macro
         Response::macro('success', function ($data = null, $message = 'Success', $statusCode = 200) {
             return response()->json([
@@ -68,5 +73,35 @@ class AppServiceProvider extends ServiceProvider
         });
 
         Schema::defaultStringLength(191);
+    }
+
+    private function registerBurstResilienceRateLimiters(): void
+    {
+        RateLimiter::for('supplier-auth', function (Request $request) {
+            return [
+                Limit::perMinute(20)->by($request->ip()),
+                Limit::perMinute(8)->by((string) $request->input('phone')),
+            ];
+        });
+
+        RateLimiter::for('purchase-write', function (Request $request) {
+            return Limit::perMinute(40)->by((string) optional($request->user())->getAuthIdentifier() ?: $request->ip());
+        });
+
+        RateLimiter::for('expense-write', function (Request $request) {
+            return Limit::perMinute(35)->by((string) optional($request->user())->getAuthIdentifier() ?: $request->ip());
+        });
+
+        RateLimiter::for('inventory-write', function (Request $request) {
+            return Limit::perMinute(45)->by((string) optional($request->user())->getAuthIdentifier() ?: $request->ip());
+        });
+
+        RateLimiter::for('shift-write', function (Request $request) {
+            return Limit::perMinute(50)->by((string) optional($request->user())->getAuthIdentifier() ?: $request->ip());
+        });
+
+        RateLimiter::for('custody-write', function (Request $request) {
+            return Limit::perMinute(25)->by((string) optional($request->user())->getAuthIdentifier() ?: $request->ip());
+        });
     }
 }

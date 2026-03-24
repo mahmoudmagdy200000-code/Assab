@@ -178,6 +178,7 @@ class OrderService
         }
 
         return DB::transaction(function () use ($order, $data) {
+            $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             // Mark all items as confirmed when order is fully accepted
             $order->items()
                 ->where('status', OrderItemStatus::PENDING)
@@ -226,6 +227,7 @@ class OrderService
         }
 
         return DB::transaction(function () use ($order, $data) {
+            $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             $reason = $data['reason'] ?? null;
             $explanation = $data['explanation'] ?? null;
 
@@ -298,6 +300,7 @@ class OrderService
         }
 
         return DB::transaction(function () use ($order, $itemRequests) {
+            $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             foreach ($itemRequests as $request) {
                 $item = $order->items()->where('item_id', $request['item_id'])->first();
 
@@ -336,8 +339,7 @@ class OrderService
         }
 
         return DB::transaction(function () use ($order, $itemId, $newDeliveryTime, $reason, $note) {
-            // Refresh order to get latest status (in case it changed after item cancellations)
-            $order->refresh();
+            $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
 
             // Get the item first to check its status
             $item = $order->items()->where('item_id', $itemId)->first();
@@ -400,6 +402,7 @@ class OrderService
         }
 
         return DB::transaction(function () use ($order, $itemId, $alternativeItemId, $reason, $note) {
+            $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             $item = $order->items()->where('item_id', $itemId)->first();
 
             if (!$item) {
@@ -459,6 +462,7 @@ class OrderService
         }
 
         return DB::transaction(function () use ($order, $itemId, $quantity) {
+            $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             $item = $order->items()->where('item_id', $itemId)->first();
 
             if (!$item) {
@@ -504,6 +508,7 @@ class OrderService
         }
 
         return DB::transaction(function () use ($order, $itemId, $reason, $explanation) {
+            $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             $item = $order->items()->where('item_id', $itemId)->first();
 
             if (!$item) {
@@ -558,6 +563,7 @@ class OrderService
         }
 
         return DB::transaction(function () use ($order, $itemId, $reason) {
+            $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             $item = $order->items()->where('item_id', $itemId)->first();
 
             if (!$item) {

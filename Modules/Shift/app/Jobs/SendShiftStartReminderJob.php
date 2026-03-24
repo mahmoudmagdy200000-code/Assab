@@ -17,6 +17,7 @@ class SendShiftStartReminderJob implements ShouldQueue
 
     public $timeout = 60;
     public $tries = 3;
+    public $afterCommit = true;
 
     public function __construct(
         public CashierShift $shift
@@ -26,6 +27,12 @@ class SendShiftStartReminderJob implements ShouldQueue
     {
         // Send notification 15 minutes before shift starts
         $notificationService->notifyShiftStart($this->shift);
+    }
+
+    public function backoff(): array
+    {
+        $jitter = random_int(1, 5);
+        return [10 + $jitter, 30 + $jitter, 90 + $jitter];
     }
 
     public function failed(\Throwable $exception): void

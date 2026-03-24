@@ -37,7 +37,8 @@ class OrderResource extends JsonResource
             }),
 
             // Order Items
-            'items' => $this->items->map(function ($item) {
+            'items' => $this->whenLoaded('items', function () {
+                return $this->items->map(function ($item) {
                 // For supplier view: if status is needs_approval_branch (supplier requested modification),
                 // show it as needs_approval_supplier in the response (from supplier's perspective)
                 $displayStatus = $item->status;
@@ -133,8 +134,9 @@ class OrderResource extends JsonResource
                     }
                 }
 
-                return $itemData;
-            }),
+                    return $itemData;
+                });
+            }, []),
 
             // Financial Information
             'subtotal' => (float) ($this->subtotal ?? 0),

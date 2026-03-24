@@ -18,7 +18,7 @@ use Modules\Purchase\Http\Controllers\SupplierInfoController;
 |
 */
 
-Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
+Route::middleware(['auth:sanctum', 'log.throttle'])->prefix('v1/purchase')->group(function () {
 
     /*
     |--------------------------------------------------------------------------
@@ -36,7 +36,7 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
     | New Order (3.1.2.4.2)
     |--------------------------------------------------------------------------
     */
-    Route::prefix('orders')->group(function () {
+    Route::prefix('orders')->middleware('overload.shed:utility')->group(function () {
 
         // get branch items
         Route::get('/branch-items', [NewOrderController::class, 'getBranchItems'])->name('purchase.orders.branch-items');
@@ -61,13 +61,13 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
 
         // Orders list and creation
         Route::get('/', [NewOrderController::class, 'index'])->name('purchase.orders.index');
-        Route::post('/', [NewOrderController::class, 'store'])->name('purchase.orders.store');
+        Route::post('/', [NewOrderController::class, 'store'])->middleware('throttle:purchase-write')->name('purchase.orders.store');
 
         // Order actions
         Route::get('/{id}/summary', [NewOrderController::class, 'getSummary'])->name('purchase.orders.summary');
         Route::get('/{id}/supplier-info', [SupplierInfoController::class, 'byOrder'])->name('purchase.orders.supplier-info');
-        Route::put('/{id}/items', [NewOrderController::class, 'updateItems'])->name('purchase.orders.update-items');
-        Route::post('/{id}/submit', [NewOrderController::class, 'submit'])->name('purchase.orders.submit');
+        Route::put('/{id}/items', [NewOrderController::class, 'updateItems'])->middleware('throttle:purchase-write')->name('purchase.orders.update-items');
+        Route::post('/{id}/submit', [NewOrderController::class, 'submit'])->middleware('throttle:purchase-write')->name('purchase.orders.submit');
         Route::delete('/{id}/draft', [NewOrderController::class, 'deleteDraft'])->name('purchase.orders.delete-draft');
     });
 
@@ -82,7 +82,7 @@ Route::middleware(['auth:sanctum'])->prefix('v1/purchase')->group(function () {
         Route::get('/{id}/timeline', [PendingOrderController::class, 'timeline'])->name('purchase.pending.timeline');
 
         // Order actions
-        Route::post('/{id}/approve', [PendingOrderController::class, 'approve'])->name('purchase.pending.approve');
+        Route::post('/{id}/approve', [PendingOrderController::class, 'approve'])->middleware('throttle:purchase-write')->name('purchase.pending.approve');
         Route::post('/{id}/partial-approve', [PendingOrderController::class, 'partialApprove'])->name('purchase.pending.partial-approve');
         Route::post('/{id}/reject', [PendingOrderController::class, 'reject'])->name('purchase.pending.reject');
         Route::post('/{id}/cancel', [PendingOrderController::class, 'cancel'])->name('purchase.pending.cancel');

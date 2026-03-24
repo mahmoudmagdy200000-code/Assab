@@ -30,7 +30,12 @@ class SaudiTelecomSmsProvider implements SmsProviderInterface
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $this->apiKey,
                 'Content-Type' => 'application/json',
-            ])->post($this->apiUrl, [
+            ])
+                ->timeout(8)
+                ->retry(3, function (int $attempt) {
+                    return ($attempt ** 2) * 100 + random_int(25, 200);
+                })
+                ->post($this->apiUrl, [
                 'to' => $phoneNumber,
                 'message' => $message,
                 'sender' => $this->senderId,

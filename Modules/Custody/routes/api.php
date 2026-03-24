@@ -9,7 +9,7 @@ use Modules\Custody\Http\Controllers\CustodyBalanceController;
 use Modules\Custody\Http\Controllers\CashierCustodyController;
 use Modules\Custody\Http\Controllers\CustodyHandoverController;
 
-Route::middleware(['auth:sanctum'])->group(function () {
+Route::middleware(['auth:sanctum', 'log.throttle'])->group(function () {
     // Cashier Custody (cash in/out balance & transactions)
     Route::middleware(['cashier'])->prefix('cashier/custody')->group(function () {
         Route::get('balance', [CashierCustodyController::class, 'balance']);
@@ -36,13 +36,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('transactions', [CustodyTransactionController::class, 'index']);
 
         // Handover & Transfer
-        Route::post('handover', [CustodyHandoverController::class, 'handover']);
-        Route::post('transfer', [CustodyHandoverController::class, 'transfer']);
+        Route::post('handover', [CustodyHandoverController::class, 'handover'])->middleware('throttle:custody-write');
+        Route::post('transfer', [CustodyHandoverController::class, 'transfer'])->middleware('throttle:custody-write');
         Route::get('recipients', [CustodyHandoverController::class, 'getRecipients']);
         // Custody handover requests (cashier-to-cashier, pending until accept/reject)
         Route::get('handover-requests', [CustodyHandoverController::class, 'indexHandoverRequests']);
-        Route::post('handover-requests/{id}/accept', [CustodyHandoverController::class, 'acceptHandoverRequest']);
-        Route::post('handover-requests/{id}/reject', [CustodyHandoverController::class, 'rejectHandoverRequest']);
+        Route::post('handover-requests/{id}/accept', [CustodyHandoverController::class, 'acceptHandoverRequest'])->middleware('throttle:custody-write');
+        Route::post('handover-requests/{id}/reject', [CustodyHandoverController::class, 'rejectHandoverRequest'])->middleware('throttle:custody-write');
 
         // Balance Trends
         Route::get('balance-trends', [CustodyBalanceController::class, 'getBalanceTrends']);

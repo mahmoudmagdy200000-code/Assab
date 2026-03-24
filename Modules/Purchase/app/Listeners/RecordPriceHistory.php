@@ -10,6 +10,14 @@ use Modules\Purchase\Models\PriceHistory;
 class RecordPriceHistory implements ShouldQueue
 {
     use InteractsWithQueue;
+    public $afterCommit = true;
+    public $tries = 3;
+
+    public function backoff(): array
+    {
+        $jitter = random_int(1, 3);
+        return [8 + $jitter, 25 + $jitter, 75 + $jitter];
+    }
 
     public function handle(GoodsReceived $event): void
     {

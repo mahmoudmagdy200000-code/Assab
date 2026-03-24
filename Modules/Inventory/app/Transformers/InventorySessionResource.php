@@ -24,18 +24,18 @@ class InventorySessionResource extends JsonResource
             'session_number' => $this->session_number,
             'branch' => [
                 'id' => $this->branch_id,
-                'name' => $this->branch->name ?? null,
+                'name' => $this->whenLoaded('branch', fn () => $this->branch?->name),
             ],
             'performed_by' => $performedBy,
             'created_by' => [
                 'id' => $this->created_by,
-                'name' => $this->createdBy->name ?? null,
+                'name' => $this->whenLoaded('createdBy', fn () => $this->createdBy?->name),
             ],
             'assigned_to_type' => $this->assigned_to_type,
             'assigned_to' => $this->when($this->assigned_to_id, [
                 'id' => $this->assigned_to_id,
-                'name' => $this->assignedTo->name ?? null,
-                'email' => $this->assignedTo->email ?? null,
+                'name' => $this->whenLoaded('assignedTo', fn () => $this->assignedTo?->name),
+                'email' => $this->whenLoaded('assignedTo', fn () => $this->assignedTo?->email),
             ]),
             'inventory_date' => $this->inventory_date?->format('Y-m-d'),
             'start_time' => $this->start_time?->format('Y-m-d H:i:s'),

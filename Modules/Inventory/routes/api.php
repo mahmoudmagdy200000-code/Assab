@@ -8,7 +8,7 @@ use Modules\Inventory\Http\Controllers\DailyInventoryScheduleController;
 use Modules\Inventory\Http\Controllers\MonthlyInventoryController;
 use Modules\Inventory\Http\Controllers\WasteDamageReportController;
 
-Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
+Route::middleware(['auth:sanctum', 'log.throttle'])->prefix('v1')->group(function () {
     Route::apiResource('inventories', InventoryController::class)->names('inventory');
 
     /*
@@ -27,15 +27,15 @@ Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
         Route::get('/setup-info', [MonthlyInventoryController::class, 'setupInfo'])->name('inventory.monthly.setup-info');
         Route::get('/staff-options', [MonthlyInventoryController::class, 'staffOptions'])->name('inventory.monthly.staff-options');
         Route::get('/last-team', [MonthlyInventoryController::class, 'lastTeam'])->name('inventory.monthly.last-team');
-        Route::post('/', [MonthlyInventoryController::class, 'store'])->name('inventory.monthly.store');
+        Route::post('/', [MonthlyInventoryController::class, 'store'])->middleware('throttle:inventory-write')->name('inventory.monthly.store');
         Route::get('/', [MonthlyInventoryController::class, 'index'])->name('inventory.monthly.index');
         Route::get('/status-counts', [MonthlyInventoryController::class, 'statusCounts'])->name('inventory.monthly.status-counts');
         Route::get('/comparison', [MonthlyInventoryController::class, 'comparison'])->name('inventory.monthly.comparison');
         Route::get('/{id}', [MonthlyInventoryController::class, 'show'])->name('inventory.monthly.show');
         Route::get('/{id}/products', [MonthlyInventoryController::class, 'products'])->name('inventory.monthly.products');
-        Route::put('/{id}/products/{productId}', [MonthlyInventoryController::class, 'updateProduct'])->name('inventory.monthly.products.update');
-        Route::post('/{id}/products/{productId}/claim', [MonthlyInventoryController::class, 'claimProduct'])->name('inventory.monthly.products.claim');
-        Route::post('/{id}/products/{productId}/release', [MonthlyInventoryController::class, 'releaseProduct'])->name('inventory.monthly.products.release');
+        Route::put('/{id}/products/{productId}', [MonthlyInventoryController::class, 'updateProduct'])->middleware('throttle:inventory-write')->name('inventory.monthly.products.update');
+        Route::post('/{id}/products/{productId}/claim', [MonthlyInventoryController::class, 'claimProduct'])->middleware('throttle:inventory-write')->name('inventory.monthly.products.claim');
+        Route::post('/{id}/products/{productId}/release', [MonthlyInventoryController::class, 'releaseProduct'])->middleware('throttle:inventory-write')->name('inventory.monthly.products.release');
         Route::get('/{id}/progress', [MonthlyInventoryController::class, 'progress'])->name('inventory.monthly.progress');
         Route::post('/{id}/save-progress', [MonthlyInventoryController::class, 'saveProgress'])->name('inventory.monthly.save-progress');
         Route::post('/{id}/review', [MonthlyInventoryController::class, 'review'])->name('inventory.monthly.review');

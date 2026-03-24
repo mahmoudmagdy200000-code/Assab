@@ -23,7 +23,7 @@ use Modules\Shift\Http\Controllers\{
 */
 
 Route::prefix('branch-manager')
-    ->middleware(['auth:sanctum', 'branch.manager.or.cashier'])
+    ->middleware(['auth:sanctum', 'branch.manager.or.cashier', 'log.throttle'])
     ->group(function () {
 
 
@@ -230,7 +230,7 @@ Route::prefix('branch-manager')
 |--------------------------------------------------------------------------
 */
 Route::prefix('branch-manager/workday')
-    ->middleware(['auth:sanctum', 'branch.manager'])
+    ->middleware(['auth:sanctum', 'branch.manager', 'log.throttle'])
     ->group(function () {
 
         // Section A: Shift Overview
@@ -286,7 +286,7 @@ Route::prefix('branch-manager/workday')
 |--------------------------------------------------------------------------
 */
 Route::prefix('cashier')
-    ->middleware(['auth:sanctum', 'cashier'])
+    ->middleware(['auth:sanctum', 'cashier', 'log.throttle'])
     ->group(function () {
 
         /*

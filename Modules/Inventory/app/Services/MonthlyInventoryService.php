@@ -322,15 +322,28 @@ class MonthlyInventoryService
     public function claimProduct(string $inventoryId, string $productId, BranchManager|Cashier $user): MonthlyInventoryProduct
     {
         return DB::transaction(function () use ($inventoryId, $productId, $user) {
-            $product = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
+            $updatedRows = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
                 ->where('id', $productId)
-                ->firstOrFail();
-
-            $product->update([
+                ->where(function ($query) use ($user) {
+                    $query->whereNull('handled_by_id')
+                        ->orWhere(function ($subQuery) use ($user) {
+                            $subQuery->where('handled_by_id', $user->getKey())
+                                ->where('handled_by_type', $user->getMorphClass());
+                        });
+                })
+                ->update([
                 'handled_by_id' => $user->getKey(),
                 'handled_by_type' => $user->getMorphClass(),
                 'locked_at' => now(),
             ]);
+
+            if ($updatedRows === 0) {
+                throw new \InvalidArgumentException('This product is already claimed by another staff member.');
+            }
+
+            $product = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
+                ->where('id', $productId)
+                ->firstOrFail();
 
             return $product->fresh(['handledBy']);
         });
