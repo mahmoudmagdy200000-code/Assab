@@ -20,6 +20,7 @@ class QuickCashItem extends Model
 
     protected $fillable = [
         'quick_cash_expense_id',
+        'category_id',
         'title',
         'amount',
     ];
@@ -31,5 +32,10 @@ class QuickCashItem extends Model
     public function quickCashExpense()
     {
         return $this->belongsTo(QuickCashExpense::class);
+    }
+
+    public function category()
+    {
+        return $this->belongsTo(Category::class);
     }
 }

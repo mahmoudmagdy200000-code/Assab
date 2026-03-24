@@ -2,7 +2,6 @@
 
 namespace Modules\Notification\Repositories;
 
-use Illuminate\Notifications\Notifiable;
 use Modules\Notification\Enums\NotificationType;
 use Modules\Notification\Models\NotificationPreference;
 
@@ -11,13 +10,13 @@ interface NotificationPreferenceRepositoryInterface
     /**
      * Get preference for notifiable and type
      */
-    public function getPreference(Notifiable $notifiable, NotificationType $type): ?NotificationPreference;
+    public function getPreference(object $notifiable, NotificationType $type): ?NotificationPreference;
 
     /**
      * Create or update preference
      */
     public function createOrUpdate(
-        Notifiable $notifiable,
+        object $notifiable,
         NotificationType $type,
         array $channels,
         string $priorityLevel,
@@ -27,7 +26,7 @@ interface NotificationPreferenceRepositoryInterface
     /**
      * Get all preferences for notifiable
      */
-    public function getAllPreferences(Notifiable $notifiable): array;
+    public function getAllPreferences(object $notifiable): array;
 
     /**
      * Get default preferences for role

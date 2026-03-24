@@ -23,7 +23,7 @@ class BaseNotification extends Notification implements ShouldQueue
     public function __construct(
         public NotificationType $type,
         public array $data = [],
-        public NotificationPriority $priority = null,
+        public ?NotificationPriority $priority = null,
         array $channels = []
     ) {
         $this->priority = $priority ?? $this->type->defaultPriority();

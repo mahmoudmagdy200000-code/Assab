@@ -2,7 +2,6 @@
 
 namespace Modules\Notification\Repositories;
 
-use Illuminate\Notifications\Notifiable;
 use Modules\Notification\Enums\NotificationChannel;
 use Modules\Notification\Enums\NotificationPriority;
 use Modules\Notification\Enums\NotificationType;
@@ -13,7 +12,7 @@ class NotificationPreferenceRepository implements NotificationPreferenceReposito
     /**
      * Get preference for notifiable and type
      */
-    public function getPreference(Notifiable $notifiable, NotificationType $type): ?NotificationPreference
+    public function getPreference(object $notifiable, NotificationType $type): ?NotificationPreference
     {
         return NotificationPreference::where('notifiable_type', get_class($notifiable))
             ->where('notifiable_id', $notifiable->id)
@@ -25,7 +24,7 @@ class NotificationPreferenceRepository implements NotificationPreferenceReposito
      * Create or update preference
      */
     public function createOrUpdate(
-        Notifiable $notifiable,
+        object $notifiable,
         NotificationType $type,
         array $channels,
         string $priorityLevel,
@@ -48,7 +47,7 @@ class NotificationPreferenceRepository implements NotificationPreferenceReposito
     /**
      * Get all preferences for notifiable
      */
-    public function getAllPreferences(Notifiable $notifiable): array
+    public function getAllPreferences(object $notifiable): array
     {
         return NotificationPreference::where('notifiable_type', get_class($notifiable))
             ->where('notifiable_id', $notifiable->id)

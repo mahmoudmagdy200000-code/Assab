@@ -2,7 +2,6 @@
 
 namespace Modules\Notification\Services;
 
-use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Notification\Contracts\NotificationServiceInterface;
@@ -25,11 +24,15 @@ class NotificationService implements NotificationServiceInterface
      * Send notification to a notifiable entity
      */
     public function send(
-        Notifiable $notifiable,
+        object $notifiable,
         NotificationType $type,
         array $data,
-        NotificationPriority $priority = null
+        ?NotificationPriority $priority = null
     ): void {
+        if (!$this->isNotifiable($notifiable)) {
+            throw new \InvalidArgumentException('Provided entity is not notifiable.');
+        }
+
         $priority = $priority ?? $type->defaultPriority();
 
         // Check user preferences
@@ -56,7 +59,7 @@ class NotificationService implements NotificationServiceInterface
         array $notifiables,
         NotificationType $type,
         array $data,
-        NotificationPriority $priority = null
+        ?NotificationPriority $priority = null
     ): void {
         foreach ($notifiables as $notifiable) {
             try {
@@ -78,7 +81,7 @@ class NotificationService implements NotificationServiceInterface
         string $role,
         NotificationType $type,
         array $data,
-        NotificationPriority $priority = null
+        ?NotificationPriority $priority = null
     ): void {
         // This will be implemented based on your role system
         // For now, placeholder - you'll need to adapt to your role management
@@ -92,7 +95,7 @@ class NotificationService implements NotificationServiceInterface
      * Send notification via specific channel
      */
     private function sendViaChannel(
-        Notifiable $notifiable,
+        object $notifiable,
         NotificationChannel $channel,
         NotificationType $type,
         array $data,
@@ -203,6 +206,11 @@ class NotificationService implements NotificationServiceInterface
             'error_message' => $errorMessage,
             'sent_at' => $status === 'sent' ? now() : null,
         ]);
+    }
+
+    private function isNotifiable(object $entity): bool
+    {
+        return method_exists($entity, 'notify') && method_exists($entity, 'notifications');
     }
 }
 

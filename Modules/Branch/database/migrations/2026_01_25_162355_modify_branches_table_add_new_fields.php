@@ -117,21 +117,19 @@ return new class extends Migration
         }
 
         // Step 4: Now modify the columns to their final types
+        if ($this->isSqlite()) {
+            return;
+        }
+
         Schema::table('branches', function (Blueprint $table) {
             // Change opening_hours from string to time (only if it's still string)
             if (Schema::hasColumn('branches', 'opening_hours')) {
-                $columnType = DB::select("SHOW COLUMNS FROM branches WHERE Field = 'opening_hours'");
-                if (!empty($columnType) && strpos($columnType[0]->Type, 'time') === false) {
-                    $table->time('opening_hours')->nullable()->change();
-                }
+                $table->time('opening_hours')->nullable()->change();
             }
             
             // Change closing_hours from string to time (only if it exists and is string)
             if (Schema::hasColumn('branches', 'closing_hours')) {
-                $columnType = DB::select("SHOW COLUMNS FROM branches WHERE Field = 'closing_hours'");
-                if (!empty($columnType) && strpos($columnType[0]->Type, 'time') === false) {
-                    $table->time('closing_hours')->nullable()->change();
-                }
+                $table->time('closing_hours')->nullable()->change();
             }
         });
 
@@ -191,14 +189,16 @@ return new class extends Migration
     public function down(): void
     {
         // Step 1: Change opening_hours and closing_hours back to string first
-        Schema::table('branches', function (Blueprint $table) {
-            if (Schema::hasColumn('branches', 'opening_hours')) {
-                $table->string('opening_hours')->nullable()->change();
-            }
-            if (Schema::hasColumn('branches', 'closing_hours')) {
-                $table->string('closing_hours')->nullable()->change();
-            }
-        });
+        if (!$this->isSqlite()) {
+            Schema::table('branches', function (Blueprint $table) {
+                if (Schema::hasColumn('branches', 'opening_hours')) {
+                    $table->string('opening_hours')->nullable()->change();
+                }
+                if (Schema::hasColumn('branches', 'closing_hours')) {
+                    $table->string('closing_hours')->nullable()->change();
+                }
+            });
+        }
 
         // Step 2: Add back old columns first (before updating data)
         Schema::table('branches', function (Blueprint $table) {
@@ -263,5 +263,10 @@ return new class extends Migration
                 $table->dropColumn($columnsToDrop);
             }
         });
+    }
+
+    private function isSqlite(): bool
+    {
+        return DB::connection()->getDriverName() === 'sqlite';
     }
 };

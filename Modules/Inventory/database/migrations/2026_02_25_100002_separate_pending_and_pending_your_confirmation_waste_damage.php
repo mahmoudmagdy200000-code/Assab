@@ -16,7 +16,7 @@ return new class extends Migration
 
         if ($driver === 'mysql') {
             DB::statement("ALTER TABLE `{$table}` MODIFY COLUMN `status` VARCHAR(32) NOT NULL DEFAULT 'draft'");
-        } else {
+        } elseif ($driver === 'pgsql') {
             DB::statement("ALTER TABLE \"{$table}\" ALTER COLUMN status TYPE VARCHAR(32), ALTER COLUMN status SET DEFAULT 'draft'");
         }
 
@@ -39,7 +39,7 @@ return new class extends Migration
         $table = 'waste_damage_reports';
         if ($driver === 'mysql') {
             DB::statement("ALTER TABLE `{$table}` MODIFY COLUMN `status` VARCHAR(20) NOT NULL DEFAULT 'draft'");
-        } else {
+        } elseif ($driver === 'pgsql') {
             DB::statement("ALTER TABLE \"{$table}\" ALTER COLUMN status TYPE VARCHAR(20), ALTER COLUMN status SET DEFAULT 'draft'");
         }
     }

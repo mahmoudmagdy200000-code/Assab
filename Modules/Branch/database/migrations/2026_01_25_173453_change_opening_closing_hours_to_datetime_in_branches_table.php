@@ -57,19 +57,17 @@ return new class extends Migration
         }
 
         // Step 2: Change column types from time to datetime
+        if ($this->isSqlite()) {
+            return;
+        }
+
         Schema::table('branches', function (Blueprint $table) {
             if (Schema::hasColumn('branches', 'opening_hours')) {
-                $columnType = DB::select("SHOW COLUMNS FROM branches WHERE Field = 'opening_hours'");
-                if (!empty($columnType) && strpos($columnType[0]->Type, 'time') !== false && strpos($columnType[0]->Type, 'datetime') === false) {
-                    $table->datetime('opening_hours')->nullable()->change();
-                }
+                $table->datetime('opening_hours')->nullable()->change();
             }
             
             if (Schema::hasColumn('branches', 'closing_hours')) {
-                $columnType = DB::select("SHOW COLUMNS FROM branches WHERE Field = 'closing_hours'");
-                if (!empty($columnType) && strpos($columnType[0]->Type, 'time') !== false && strpos($columnType[0]->Type, 'datetime') === false) {
-                    $table->datetime('closing_hours')->nullable()->change();
-                }
+                $table->datetime('closing_hours')->nullable()->change();
             }
         });
     }
@@ -116,20 +114,23 @@ return new class extends Migration
         }
 
         // Step 2: Change column types back from datetime to time
+        if ($this->isSqlite()) {
+            return;
+        }
+
         Schema::table('branches', function (Blueprint $table) {
             if (Schema::hasColumn('branches', 'opening_hours')) {
-                $columnType = DB::select("SHOW COLUMNS FROM branches WHERE Field = 'opening_hours'");
-                if (!empty($columnType) && strpos($columnType[0]->Type, 'datetime') !== false) {
-                    $table->time('opening_hours')->nullable()->change();
-                }
+                $table->time('opening_hours')->nullable()->change();
             }
             
             if (Schema::hasColumn('branches', 'closing_hours')) {
-                $columnType = DB::select("SHOW COLUMNS FROM branches WHERE Field = 'closing_hours'");
-                if (!empty($columnType) && strpos($columnType[0]->Type, 'datetime') !== false) {
-                    $table->time('closing_hours')->nullable()->change();
-                }
+                $table->time('closing_hours')->nullable()->change();
             }
         });
+    }
+
+    private function isSqlite(): bool
+    {
+        return DB::connection()->getDriverName() === 'sqlite';
     }
 };

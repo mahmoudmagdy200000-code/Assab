@@ -20,7 +20,9 @@ return new class extends Migration
         });
 
         // Change status enum to include new values (MySQL)
-        \DB::statement("ALTER TABLE inventory_sessions MODIFY COLUMN status ENUM('draft', 'pending', 'approved', 'rejected', 'pending_your_action', 'pending_your_confirmation', 'completed') DEFAULT 'draft'");
+        if (\DB::connection()->getDriverName() !== 'sqlite') {
+            \DB::statement("ALTER TABLE inventory_sessions MODIFY COLUMN status ENUM('draft', 'pending', 'approved', 'rejected', 'pending_your_action', 'pending_your_confirmation', 'completed') DEFAULT 'draft'");
+        }
     }
 
     /**
@@ -32,6 +34,8 @@ return new class extends Migration
             $table->dropColumn(['rejected_at', 'rejected_by', 'rejection_comment', 'approved_at', 'approved_by']);
         });
 
-        \DB::statement("ALTER TABLE inventory_sessions MODIFY COLUMN status ENUM('draft', 'completed') DEFAULT 'draft'");
+        if (\DB::connection()->getDriverName() !== 'sqlite') {
+            \DB::statement("ALTER TABLE inventory_sessions MODIFY COLUMN status ENUM('draft', 'completed') DEFAULT 'draft'");
+        }
     }
 };

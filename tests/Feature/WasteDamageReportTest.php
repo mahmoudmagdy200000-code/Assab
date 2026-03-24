@@ -11,6 +11,7 @@ use Modules\Inventory\Models\WasteDamageReport;
 use Modules\Inventory\Models\WasteDamageReportItem;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
+use Modules\Cashier\Models\Cashier;
 use Tests\TestCase;
 
 class WasteDamageReportTest extends TestCase
@@ -38,31 +39,34 @@ class WasteDamageReportTest extends TestCase
             ->assertJsonPath('data.branch_name', $this->branch->name);
     }
 
-    public function test_assignment_info_fails_when_manager_has_no_branch(): void
+    public function test_assignment_info_fails_when_actor_is_not_branch_manager(): void
     {
-        $managerNoBranch = BranchManager::factory()->create(['branch_id' => null]);
+        /** @var Cashier $cashier */
+        $cashier = Cashier::factory()->create(['branch_id' => $this->branch->id, 'created_by' => $this->manager->id]);
 
-        $response = $this->actingAs($managerNoBranch, 'sanctum')
+        $response = $this->actingAs($cashier, 'sanctum')
             ->getJson('/api/v1/inventory/waste-damage/assignment-info');
 
-        $response->assertStatus(400)
+        $response->assertStatus(403)
             ->assertJsonPath('success', false);
     }
 
     public function test_create_report_returns_draft_report(): void
     {
         $response = $this->actingAs($this->manager, 'sanctum')
-            ->postJson('/api/v1/inventory/waste-damage/reports');
+            ->postJson('/api/v1/inventory/waste-damage/reports', [
+                'assigned_to_type' => 'personal',
+            ]);
 
         $response->assertStatus(201)
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.status', 'draft')
+            ->assertJsonPath('data.status', 'pending')
             ->assertJsonPath('data.branch_id', $this->branch->id);
 
         $this->assertDatabaseHas('waste_damage_reports', [
             'branch_id' => $this->branch->id,
             'created_by' => $this->manager->id,
-            'status' => 'draft',
+            'status' => 'pending',
         ]);
     }
 
@@ -136,12 +140,11 @@ class WasteDamageReportTest extends TestCase
                 'item_id' => $item->id,
                 'problem_type' => ProblemType::WASTE->value,
                 'quantity' => 5,
-                'reason' => WasteDamageReason::EXPIRED->value,
+                'reason' => WasteDamageReason::EXPIRED_PRODUCT->value,
                 'justification_text' => 'Test justification',
             ]);
 
         $addResponse->assertStatus(201);
-        $reportItemId = $addResponse->json('data.id');
 
         $submitResponse = $this->actingAs($this->manager, 'sanctum')
             ->postJson("/api/v1/inventory/waste-damage/reports/{$report->id}/submit");
@@ -149,7 +152,7 @@ class WasteDamageReportTest extends TestCase
         $submitResponse->assertStatus(200);
         $this->assertDatabaseHas('waste_damage_reports', [
             'id' => $report->id,
-            'status' => 'submitted',
+            'status' => 'pending_your_confirmation',
         ]);
     }
 
@@ -179,7 +182,7 @@ class WasteDamageReportTest extends TestCase
             'item_id' => $item->id,
             'problem_type' => ProblemType::WASTE->value,
             'quantity' => 10,
-            'reason' => WasteDamageReason::EXPIRED->value,
+            'reason' => WasteDamageReason::EXPIRED_PRODUCT->value,
             'unit' => 'liter',
             'total_value' => -60,
             'price_per_unit' => 6,

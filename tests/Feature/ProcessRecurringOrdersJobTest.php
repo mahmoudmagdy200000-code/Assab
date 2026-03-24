@@ -3,11 +3,11 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Str;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\RecurringOrder\Enums\RecurringOrderStatus;
 use Modules\RecurringOrder\Jobs\ProcessRecurringOrdersJob;
 use Modules\RecurringOrder\Models\RecurringOrder;
+use Modules\Supplier\Models\Supplier;
 use Tests\TestCase;
 
 class ProcessRecurringOrdersJobTest extends TestCase
@@ -42,15 +42,13 @@ class ProcessRecurringOrdersJobTest extends TestCase
             'branch_id' => $branch->id,
             'phone' => '1234567890',
         ]);
-        $supplierId = (string) Str::uuid();
-        \Illuminate\Support\Facades\DB::table('purchase_suppliers')->insert([
-            'id' => $supplierId,
+        $supplier = Supplier::create([
             'name' => 'Test Supplier',
             'email' => 'supplier@test.recurring',
+            'password' => bcrypt('password'),
             'phone' => '1234567891',
             'is_active' => true,
-            'created_at' => now(),
-            'updated_at' => now(),
+            'status' => 'online',
         ]);
         $item = \Modules\Purchase\Models\Item::create([
             'name' => 'Test Item',
@@ -65,8 +63,8 @@ class ProcessRecurringOrdersJobTest extends TestCase
             'order_name' => 'Test Recurring',
             'order_source_type' => 'direct_supplier',
             'status' => RecurringOrderStatus::PENDING,
-            'sourceable_type' => \Modules\Purchase\Models\PurchaseSupplier::class,
-            'sourceable_id' => $supplierId,
+            'sourceable_type' => \Modules\Supplier\Models\Supplier::class,
+            'sourceable_id' => $supplier->id,
             'repeat_frequency' => 'weekly',
             'repeat_config' => ['repeat_days' => [1]],
             'scheduling_time_am' => '10:00',
