@@ -36,11 +36,11 @@ class PurchasingOfficerItemResource extends JsonResource
         return [
             // Item Information
             'item_id' => $item->item_id, // Use item_id from BranchItem, not id
-            'item_name' => $item->item_name,
-            'item_code' => $item->item_code,
+            'item_name' => $item->item_name ?? $item->item?->name,
+            'item_code' => $item->item_code ?? $item->item?->code,
             'item_unit' => $item->item_unit ?? 'kg',
             'item_logo' => $itemLogo,
-            'item_price' => $item->item_price ? (float) $item->item_price : null,
+            'item_price' => (float) ($this->resource['resolved_item_price'] ?? $item->item_price ?? 0),
 
             // Editable Fields
             'quantity' => $this->resource['quantity'] ?? 1.0, // Editable

@@ -561,6 +561,12 @@ class OrderDataService
             $directSupplierTotal = $directSupplierUnitPrice * $defaultQuantity;
             $poTotal = $poUnitPrice * $defaultQuantity;
             $savings = $directSupplierTotal - $poTotal;
+            $resolvedItemPrice = (float) ($branchItem->item_price ?? 0);
+            if ($resolvedItemPrice <= 0) {
+                $resolvedItemPrice = $directSupplierUnitPrice > 0
+                    ? $directSupplierUnitPrice
+                    : $poUnitPrice;
+            }
 
             // Add to totals
             $totalDirectSupplierAmount += $directSupplierTotal;
@@ -572,6 +578,7 @@ class OrderDataService
                 'item' => $branchItem,
                 'quantity' => $defaultQuantity, // Editable
                 'quality' => 'standard', // Editable, default
+                'resolved_item_price' => round($resolvedItemPrice, 2),
                 'price_comparison' => [
                     'direct_supplier' => [
                         'unit_price' => round($directSupplierUnitPrice, 2),

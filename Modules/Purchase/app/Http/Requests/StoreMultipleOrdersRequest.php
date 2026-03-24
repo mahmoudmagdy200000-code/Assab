@@ -72,6 +72,16 @@ class StoreMultipleOrdersRequest extends FormRequest
         ];
     }
 
+    protected function prepareForValidation(): void
+    {
+        // Backward-compatibility alias used by some clients.
+        if (!$this->has('purchase_officer') && $this->has('purchasing_officer')) {
+            $this->merge([
+                'purchase_officer' => $this->input('purchasing_officer'),
+            ]);
+        }
+    }
+
     public function messages(): array
     {
         return [
