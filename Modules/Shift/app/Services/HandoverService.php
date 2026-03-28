@@ -11,10 +11,14 @@ use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\BranchManagerShiftService;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\ShiftHandoverStatus;
+use Modules\Shift\Models\ShiftSalesBreakdown;
+use Modules\Shift\Models\ShiftVarianceAlert;
+use Modules\Shift\Models\ShiftVarianceDetail;
 use Modules\Shift\Enums\HandoverStatus;
 use Modules\Shift\Enums\ShiftHistoryAction;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Exceptions\HandoverException;
+use Modules\Custody\Models\PersonalLedgerTransaction;
 
 /**
  * HandoverService
@@ -351,6 +355,80 @@ class HandoverService
     }
 
     /**
+     * Clear BM workday caches for every manager in the cashier shift's branch (cashier-driven handover actions).
+     */
+    private function clearBranchManagerShiftCachesForBranch(CashierShift $shift): void
+    {
+        $shift->loadMissing('shift');
+        $branchId = $shift->shift?->branch_id;
+        if (!$branchId) {
+            return;
+        }
+
+        $managerIds = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $branchId)
+            ->pluck('id');
+        foreach ($managerIds as $managerId) {
+            $this->clearBranchManagerShiftCacheForApproval($shift, (string) $managerId);
+        }
+    }
+
+    /**
+     * After a handover rejection that allows the cashier to redo end-shift: reset shift data, strip custody, remove handover rows.
+     */
+    public function revertCashierShiftAfterHandoverRejection(CashierShift $shift, array $audit = []): void
+    {
+        $shift = $shift->fresh();
+
+        if ($audit !== []) {
+            $shift->recordHistory(
+                'handover_rejected_shift_reverted',
+                ['status' => $shift->status->value],
+                array_merge([
+                    'status' => ShiftStatus::IN_PROGRESS->value,
+                ], $audit)
+            );
+        }
+
+        try {
+            app(\Modules\Custody\Services\CashierCustodyService::class)
+                ->deleteTransactionsForCashierShift($shift->id);
+        } catch (\Exception $e) {
+            Log::warning('Failed to delete custody transactions for reverted shift', [
+                'shift_id' => $shift->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        PersonalLedgerTransaction::where('related_shift_id', $shift->id)
+            ->where('transaction_type', 'Variance from Cashier')
+            ->delete();
+
+        ShiftSalesBreakdown::where('cashier_shift_id', $shift->id)->delete();
+        ShiftVarianceAlert::where('cashier_shift_id', $shift->id)->delete();
+        ShiftVarianceDetail::where('cashier_shift_id', $shift->id)->delete();
+
+        CashierShiftHandover::where('cashier_shift_id', $shift->id)->delete();
+        ShiftHandoverStatus::where('cashier_shift_id', $shift->id)->delete();
+
+        $shift->update([
+            'status' => ShiftStatus::IN_PROGRESS,
+            'total_sales' => 0,
+            'net_sales' => 0,
+            'vat_amount' => 0,
+            'cash_collected' => 0,
+            'card_payments' => 0,
+            'pos_receipt' => null,
+            'closing_balance' => 0,
+            'expected_balance' => 0,
+            'variance' => 0,
+            'handed_over_at' => null,
+            'handover_notes' => null,
+            'next_cashier_id' => null,
+            'actual_end_time' => null,
+        ]);
+    }
+
+    /**
      * Reject a handover (by Branch Manager)
      *
      * Business Rules:
@@ -375,13 +453,25 @@ class HandoverService
     ): array {
         DB::beginTransaction();
         try {
+            $shift->loadMissing('handoverStatus');
             $handoverStatus = $shift->handoverStatus;
+
+            if (!$handoverStatus) {
+                ShiftHandoverStatus::updateOrCreate(
+                    ['cashier_shift_id' => $shift->id],
+                    [
+                        'status' => HandoverStatus::PENDING,
+                        'manager_approval_status' => 'pending',
+                    ]
+                );
+                $shift->refresh();
+                $handoverStatus = $shift->handoverStatus;
+            }
 
             if (!$handoverStatus->canBeRejected()) {
                 throw HandoverException::cannotBeRejected($handoverStatus->manager_approval_status);
             }
 
-            // Upload rejection files
             $uploadedFiles = [];
             foreach ($files as $file) {
                 $filename = 'rejection_' . $shift->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
@@ -389,10 +479,8 @@ class HandoverService
                 $uploadedFiles[] = $path;
             }
 
-            // Use model's reject method
             $result = $handoverStatus->reject($reviewerId, $reviewerType, $reason, $uploadedFiles, $comment);
 
-            // Update CashierShiftHandover status
             CashierShiftHandover::where('cashier_shift_id', $shift->id)
                 ->update([
                     'status' => $result['is_final_rejection'] ? 'rejected_final' : 'rejected',
@@ -400,29 +488,38 @@ class HandoverService
                     'rejection_count' => $result['rejection_count'],
                 ]);
 
-            // Record history
-            $shift->recordHistory(
-                ShiftHistoryAction::HANDOVER_REJECTED->value,
-                ['status' => $handoverStatus->status->value],
-                [
-                    'status' => HandoverStatus::REJECTED->value,
-                    'manager_approval_status' => $result['is_final_rejection'] ? 'rejected_final' : 'rejected',
+            if (!$result['is_final_rejection']) {
+                $this->revertCashierShiftAfterHandoverRejection($shift->fresh(), [
+                    'rejection_reason' => $reason,
+                    'manager_comment' => $comment,
                     'reviewed_by_id' => $reviewerId,
                     'reviewed_by_type' => $reviewerType,
-                    'rejection_reason' => $reason,
-                    'rejection_count' => $result['rejection_count'],
-                    'is_final_rejection' => $result['is_final_rejection'],
-                ]
-            );
+                    'rejection_files' => $uploadedFiles,
+                    'source' => 'branch_manager_reject',
+                ]);
+            } else {
+                $shift->recordHistory(
+                    ShiftHistoryAction::HANDOVER_REJECTED->value,
+                    ['status' => $handoverStatus->status->value],
+                    [
+                        'status' => HandoverStatus::REJECTED->value,
+                        'manager_approval_status' => 'rejected_final',
+                        'reviewed_by_id' => $reviewerId,
+                        'reviewed_by_type' => $reviewerType,
+                        'rejection_reason' => $reason,
+                        'rejection_count' => $result['rejection_count'],
+                        'is_final_rejection' => true,
+                    ]
+                );
+            }
 
             DB::commit();
 
-            // Clear branch manager shift cache so workday/current shows updated status immediately
             $this->clearBranchManagerShiftCacheForApproval($shift, $reviewerId);
 
             return [
                 'shift_id' => $shift->id,
-                'handover_status' => $result['is_final_rejection'] ? 'rejected_final' : 'rejected',
+                'handover_status' => $result['is_final_rejection'] ? 'rejected_final' : 'reverted',
                 'rejection_count' => $result['rejection_count'],
                 'is_final_rejection' => $result['is_final_rejection'],
                 'can_cashier_edit' => $result['can_cashier_edit'],
@@ -530,13 +627,33 @@ class HandoverService
                 throw HandoverException::notAuthorizedToAccept();
             }
 
-            $shift->handoverStatus->update([
-                'status' => HandoverStatus::ACCEPTED,
-                'reviewed_by_id' => $cashierId,
-                'reviewed_by_type' => \Modules\Cashier\Models\Cashier::class,
-                'manager_comment' => $comment,
-                'reviewed_at' => now(),
-            ]);
+            if (!$shift->handoverStatus) {
+                ShiftHandoverStatus::updateOrCreate(
+                    ['cashier_shift_id' => $shift->id],
+                    [
+                        'status' => HandoverStatus::PENDING,
+                        'manager_approval_status' => 'pending',
+                    ]
+                );
+                $shift->refresh();
+            }
+
+            $shift->handoverStatus->approve(
+                $cashierId,
+                \Modules\Cashier\Models\Cashier::class,
+                $comment
+            );
+
+            $shift->update(['status' => ShiftStatus::COMPLETED]);
+
+            if ($handover) {
+                $handover->update([
+                    'status' => 'approved',
+                    'approved_by_id' => $cashierId,
+                    'approved_by_type' => \Modules\Cashier\Models\Cashier::class,
+                    'approved_at' => now(),
+                ]);
+            }
 
             // Update next cashier's shift with opening balance
             $nextShift = CashierShift::where('cashier_id', $cashierId)
@@ -557,6 +674,7 @@ class HandoverService
                     'status' => HandoverStatus::ACCEPTED->value,
                     'reviewed_by_id' => $cashierId,
                     'reviewed_by_type' => 'cashier',
+                    'cashier_shift_status' => ShiftStatus::COMPLETED->value,
                 ]
             );
 
@@ -641,27 +759,17 @@ class HandoverService
                 $uploadedFiles[] = $path;
             }
 
-            $shift->handoverStatus->update([
-                'status' => HandoverStatus::REJECTED,
+            $this->revertCashierShiftAfterHandoverRejection($shift->fresh(), [
+                'rejection_reason' => $reason,
+                'rejection_files' => $uploadedFiles,
                 'reviewed_by_id' => $cashierId,
                 'reviewed_by_type' => \Modules\Cashier\Models\Cashier::class,
-                'rejection_reason' => $reason,
-                'rejection_files' => $uploadedFiles ?: null,
-                'reviewed_at' => now(),
+                'source' => 'recipient_cashier_reject',
             ]);
 
-            $shift->recordHistory(
-                'handover_rejected_by_cashier',
-                ['status' => HandoverStatus::PENDING->value],
-                [
-                    'status' => HandoverStatus::REJECTED->value,
-                    'reviewed_by_id' => $cashierId,
-                    'reviewed_by_type' => 'cashier',
-                    'rejection_reason' => $reason,
-                ]
-            );
-
             DB::commit();
+
+            $this->clearBranchManagerShiftCachesForBranch($shift->fresh(['shift']));
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;

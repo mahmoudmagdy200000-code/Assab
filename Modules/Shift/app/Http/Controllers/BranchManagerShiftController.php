@@ -14,6 +14,7 @@ use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Services\BranchManagerShiftService;
+use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Transformers\BranchManagerShiftResource;
 
 class BranchManagerShiftController extends BaseController
@@ -24,7 +25,8 @@ class BranchManagerShiftController extends BaseController
     private const TIME_SHORT_FORMAT = 'H:i';
 
     public function __construct(
-        private BranchManagerShiftService $shiftService
+        private BranchManagerShiftService $shiftService,
+        private HandoverService $handoverService
     ) {}
 
     // =========================================================================
@@ -253,19 +255,21 @@ class BranchManagerShiftController extends BaseController
                 return $this->errorResponse('Handover cannot be approved. Current status: ' . $handover->status, 400);
             }
 
-            DB::transaction(function () use ($handover, $manager) {
-                $handover->update([
-                    'status'           => 'approved',
-                    'approved_by_id'   => $manager->id,
-                    'approved_by_type' => 'branch_manager',
-                    'approved_at'      => now(),
-                ]);
+            $cashierShift = CashierShift::with(['handoverStatus', 'shift', 'cashier', 'varianceDetails'])
+                ->findOrFail($handover->cashier_shift_id);
 
-                if ($handover->handover_to_type === 'branch_manager') {
-                    event(new \Modules\Custody\Events\HandoverApproved($handover->fresh()));
-                }
-            });
+            if ($cashierShift->shift->branch_id !== $manager->branch_id) {
+                return $this->errorResponse('Unauthorized to approve this handover', 403);
+            }
 
+            $this->handoverService->approveHandover(
+                $cashierShift,
+                $manager->id,
+                get_class($manager),
+                null
+            );
+
+            $handover->refresh();
             $normalizedStatus = $this->shiftService->normalizeHandoverStatus($handover->status);
 
             return $this->successResponse([
@@ -301,32 +305,40 @@ class BranchManagerShiftController extends BaseController
                 return $this->errorResponse('Handover cannot be rejected. Current status: ' . $handover->status, 400);
             }
 
-            $rejectionCount   = $handover->rejection_count + 1;
-            $isFinalRejection = $rejectionCount >= 2;
+            $cashierShift = CashierShift::with(['handoverStatus', 'shift'])
+                ->findOrFail($handover->cashier_shift_id);
 
-            $updateData = [
-                'status'           => $isFinalRejection ? 'rejected_final' : 'rejected',
-                'rejection_reason' => $request->rejection_reason,
-                'rejection_count'  => $rejectionCount,
-            ];
-
-            if ($rejectionCount === 1) {
-                $updateData['first_rejected_at'] = now();
-            } elseif ($rejectionCount === 2) {
-                $updateData['second_rejected_at'] = now();
+            if ($cashierShift->shift->branch_id !== $manager->branch_id) {
+                return $this->errorResponse('Unauthorized to reject this handover', 403);
             }
 
-            DB::transaction(fn () => $handover->update($updateData));
+            $result = $this->handoverService->rejectHandover(
+                $cashierShift,
+                $manager->id,
+                get_class($manager),
+                $request->rejection_reason,
+                [],
+                null
+            );
 
-            $normalizedStatus = $this->shiftService->normalizeHandoverStatus($handover->status);
+            $handoverAfter = CashierShiftHandover::find($request->handover_id);
+            $handoverPayload = $handoverAfter
+                ? array_merge($handoverAfter->toArray(), [
+                    'status' => $this->shiftService->normalizeHandoverStatus($handoverAfter->status),
+                ])
+                : [
+                    'id' => $request->handover_id,
+                    'status' => 'reverted',
+                    'note' => 'Handover record cleared; cashier shift reset to in progress',
+                ];
 
             return $this->successResponse([
-                'handover'          => array_merge($handover->toArray(), ['status' => $normalizedStatus]),
-                'rejection_count'   => $rejectionCount,
-                'is_final_rejection'=> $isFinalRejection,
-                'message'           => $isFinalRejection
+                'handover'            => $handoverPayload,
+                'rejection_count'     => $result['rejection_count'],
+                'is_final_rejection'  => $result['is_final_rejection'],
+                'message'             => $result['is_final_rejection']
                     ? 'Handoff rejected permanently (2nd rejection)'
-                    : 'Handoff rejected. Cashier can edit and resubmit.',
+                    : 'Handoff rejected. Shift reverted to in progress; cashier must end shift again.',
             ], 'Handoff rejected successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);

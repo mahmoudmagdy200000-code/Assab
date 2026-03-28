@@ -158,6 +158,14 @@ class CashierCustodyService
     }
 
     /**
+     * Remove all custody rows tied to a cashier shift (end shift / handover / variance rollback).
+     */
+    public function deleteTransactionsForCashierShift(string $cashierShiftId): void
+    {
+        CashierCustodyTransaction::where('related_shift_id', $cashierShiftId)->delete();
+    }
+
+    /**
      * Get current personal balance (cash in - cash out) for a cashier (single aggregated query).
      */
     public function getPersonalBalanceOnly(string $cashierId): float

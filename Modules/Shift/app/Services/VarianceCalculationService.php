@@ -7,7 +7,6 @@ use Modules\Shift\Models\ShiftVarianceDetail;
 use Modules\Shift\Models\ShiftVarianceAlert;
 use Modules\Shift\Enums\VarianceType;
 use Modules\Shift\Enums\ResponsibilityType;
-use Modules\Shift\Events\VarianceRecorded;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -70,8 +69,7 @@ class VarianceCalculationService
 
             DB::commit();
 
-            // Reflect variance ownership in custody ledgers (cashier deduction + BM addition)
-            $this->dispatchVarianceRecorded($shift);
+            // Custody ledger entries are created only after responsibility is approved (VarianceRecorded from controllers / handover approval).
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Variance recording failed', [
@@ -431,10 +429,5 @@ class VarianceCalculationService
             'variance_type' => $shift->variance > 0 ? 'Over' : 'Short',
             'variance' => $formatted,
         ];
-    }
-
-    private function dispatchVarianceRecorded(CashierShift $shift): void
-    {
-        event(new VarianceRecorded($shift));
     }
 }

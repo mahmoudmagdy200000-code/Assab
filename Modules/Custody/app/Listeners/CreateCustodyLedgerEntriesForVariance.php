@@ -8,12 +8,13 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Custody\Models\PersonalLedgerTransaction;
+use Modules\Shift\Enums\VarianceType;
 use Modules\Shift\Events\VarianceRecorded;
 
 /**
- * When a cashier is marked as variance owner, reflect in custody ledgers:
- * - Deduct from cashier's ledger (CashierCustodyTransaction, cash out)
- * - Add to branch manager's ledger (PersonalLedgerTransaction, cash in)
+ * When variance responsibility is approved, reflect in custody ledgers:
+ * - SHORT: cashier cash out; OVER: cashier cash in
+ * - Branch manager line mirrors net effect for approved cashier-assigned rows only
  */
 class CreateCustodyLedgerEntriesForVariance implements ShouldQueue
 {
@@ -36,31 +37,34 @@ class CreateCustodyLedgerEntriesForVariance implements ShouldQueue
             return;
         }
 
-        $detailsWithCashier = $shift->varianceDetails->filter(fn ($d) => $d->responsible_cashier_id !== null);
-
-        if ($detailsWithCashier->isEmpty()) {
-            return;
-        }
+        $approvedWithCashier = $shift->varianceDetails->filter(
+            fn ($d) => $d->responsible_cashier_id !== null && $d->responsibility_status === 'approved'
+        );
 
         try {
             DB::beginTransaction();
 
             $this->removeExistingVarianceLedgerEntriesForShift($shift->id);
 
-            foreach ($detailsWithCashier as $detail) {
+            if ($approvedWithCashier->isEmpty()) {
+                DB::commit();
+
+                return;
+            }
+
+            foreach ($approvedWithCashier as $detail) {
                 $this->createCashierVarianceEntry($shift, $detail);
             }
 
-            // Only create the branch manager entry when the handover to a manager exists
             if ($shift->handover && $shift->handover->handover_to_type === 'branch_manager' && $shift->handover->handover_to_id) {
-                $this->createBranchManagerVarianceEntry($shift, $detailsWithCashier);
+                $this->createBranchManagerVarianceEntry($shift, $approvedWithCashier);
             }
 
             DB::commit();
 
             Log::info('Custody ledger entries created for variance', [
                 'cashier_shift_id' => $shift->id,
-                'details_count' => $detailsWithCashier->count(),
+                'details_count' => $approvedWithCashier->count(),
                 'has_handover' => (bool) $shift->handover,
             ]);
         } catch (\Exception $e) {
@@ -91,6 +95,12 @@ class CreateCustodyLedgerEntriesForVariance implements ShouldQueue
             return;
         }
 
+        $varianceType = $detail->variance_type instanceof VarianceType
+            ? $detail->variance_type
+            : (VarianceType::tryFrom((string) $detail->variance_type) ?? VarianceType::SHORT);
+
+        $isCashIn = $varianceType === VarianceType::OVER;
+
         $counterpartName = null;
         $handoverId = null;
         $transactionDate = now();
@@ -104,31 +114,53 @@ class CreateCustodyLedgerEntriesForVariance implements ShouldQueue
         }
 
         CashierCustodyTransaction::create([
-            'cashier_id'          => $detail->responsible_cashier_id,
-            'transaction_type'    => 'Variance',
-            'amount'              => $amount,
-            'is_cash_in'          => false,
-            'counterpart_name'    => $counterpartName,
-            'related_shift_id'    => $shift->id,
+            'cashier_id' => $detail->responsible_cashier_id,
+            'transaction_type' => 'Variance',
+            'amount' => $amount,
+            'is_cash_in' => $isCashIn,
+            'counterpart_name' => $counterpartName,
+            'related_shift_id' => $shift->id,
             'related_handover_id' => $handoverId,
-            'transaction_date'    => $transactionDate,
+            'transaction_date' => $transactionDate,
         ]);
     }
 
-    private function createBranchManagerVarianceEntry($shift, $detailsWithCashier): void
+    private function createBranchManagerVarianceEntry($shift, $detailsApproved): void
     {
-        $totalAmount = $detailsWithCashier->sum(fn ($d) => (float) $d->assigned_amount);
-        if ($totalAmount <= 0) {
+        $shortTotal = 0.0;
+        $overTotal = 0.0;
+
+        foreach ($detailsApproved as $d) {
+            $amt = (float) $d->assigned_amount;
+            if ($amt <= 0) {
+                continue;
+            }
+            $varianceType = $d->variance_type instanceof VarianceType
+                ? $d->variance_type
+                : (VarianceType::tryFrom((string) $d->variance_type) ?? VarianceType::SHORT);
+            if ($varianceType === VarianceType::SHORT) {
+                $shortTotal += $amt;
+            } else {
+                $overTotal += $amt;
+            }
+        }
+
+        $net = $shortTotal - $overTotal;
+        if (abs($net) < 0.0001) {
             return;
         }
 
-        $cashierNames = $detailsWithCashier->map(fn ($d) => $d->responsibleCashier?->name)->filter()->unique()->implode(', ');
+        $cashierNames = $detailsApproved
+            ->map(fn ($d) => $d->responsibleCashier?->name)
+            ->filter()
+            ->unique()
+            ->implode(', ');
 
         PersonalLedgerTransaction::create([
             'branch_manager_id' => $shift->handover->handover_to_id,
             'transaction_type' => 'Variance from Cashier',
-            'amount' => $totalAmount,
-            'is_cash_in' => true,
+            'amount' => abs($net),
+            'is_cash_in' => $net > 0,
             'cashier_name' => $cashierNames ?: null,
             'related_shift_id' => $shift->id,
             'related_handover_id' => $shift->handover->id,

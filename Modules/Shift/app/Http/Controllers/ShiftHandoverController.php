@@ -341,7 +341,7 @@ class ShiftHandoverController extends Controller
 
                 return response()->json([
                     'success' => true,
-                    'message' => 'Handover rejected. Cashier can edit and resubmit.',
+                    'message' => 'Handover rejected. Shift reverted to in progress; sender must end shift again.',
                     'data' => [
                         'shift' => new ShiftDetailResource($fresh),
                         'rejection_details' => [
@@ -411,7 +411,7 @@ class ShiftHandoverController extends Controller
                 'success' => true,
                 'message' => $result['is_final_rejection']
                     ? 'Handover permanently rejected (2nd rejection)'
-                    : 'Handover rejected. Cashier can edit and resubmit.',
+                    : 'Handover rejected. Shift reverted to in progress; cashier must end shift again.',
                 'data' => [
                     'shift' => new ShiftDetailResource($shiftModel->fresh()),
                     'rejection_details' => [
