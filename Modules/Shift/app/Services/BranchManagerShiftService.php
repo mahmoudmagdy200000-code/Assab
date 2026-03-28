@@ -368,8 +368,8 @@ class BranchManagerShiftService
                     return [
                         'cashier_id' => $detail->responsible_cashier_id,
                         'cashier_name' => $detail->responsibleCashier?->name,
-                        'amount' => (float) $detail->amount,
-                        'notes' => $detail->notes,
+                        'amount' => (float) $detail->assigned_amount,
+                        'notes' => $detail->reason,
                     ];
                 })->toArray();
             }
@@ -380,7 +380,7 @@ class BranchManagerShiftService
             'cashier_shift_id' => $handover->cashier_shift_id,
             'cashier_name' => $cashierShift->cashier->name,
             'shift_time' => $shift ? $shift->name : 'N/A',
-            'handover_amount' => (float) $handover->handover_amount,
+            'handover_amount' => (float) ($handover->handover_amount ?? $cashierShift->closing_balance ?? 0),
             'handover_date' => $handover->handover_date?->format(self::DATETIME_FORMAT),
             'handover_time' => $handover->handover_time?->format('H:i:s'),
             'handover_notes' => $handover->handover_notes,

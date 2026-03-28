@@ -4,11 +4,11 @@ namespace Modules\Shift\Services;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\ShiftSalesBreakdown;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -150,17 +150,10 @@ class ShiftFinancialService
      */
     public function sumApprovedHandoverAmount(BranchManagerShift $managerShift, string $managerId): float
     {
-        $cashierShiftIds = DB::table('cashier_shifts')
-            ->join('shifts', 'cashier_shifts.shift_id', '=', 'shifts.id')
-            ->whereDate('cashier_shifts.shift_date', $managerShift->shift_date)
-            ->where('shifts.branch_id', $managerShift->branch_id)
-            ->pluck('cashier_shifts.id');
-
-        $sum = CashierShiftHandover::where('handover_to_type', 'branch_manager')
-            ->where('handover_to_id', $managerId)
-            ->where('status', 'approved')
-            ->whereIn('cashier_shift_id', $cashierShiftIds)
-            ->sum('handover_amount');
+        // Same inclusion rules as handoffs list / daily close (shift_date OR handover_date window).
+        $handovers = $this->shiftService->getShiftHandovers($managerShift, 'to_manager', true)
+            ->filter(fn ($h) => (string) $h->handover_to_id === (string) $managerId);
+        $sum = $handovers->where('status', 'approved')->sum(fn ($h) => (float) $h->handover_amount);
 
         return (float) ($sum ?: ($managerShift->closing_balance ?? 0));
     }
@@ -170,18 +163,36 @@ class ShiftFinancialService
      */
     public function prepareDailyCloseSummary(BranchManagerShift $shift): array
     {
-        $cashierShifts = CashierShift::whereDate('shift_date', $shift->shift_date)
-            ->whereHas('shift', fn ($q) => $q->where('branch_id', $shift->branch_id))
-            ->whereIn('status', ['in_progress', 'completed'])
-            ->with(['cashier:id,name', 'salesBreakdown.aggregator:id,name', 'handover'])
-            ->select(['id', 'cashier_id', 'shift_id', 'shift_date', 'total_sales', 'cash_collected', 'card_payments', 'variance', 'status'])
-            ->get();
+        // Align with fetchShiftHandovers(to_manager): include cashier shifts tied to this workday via
+        // shift_date OR via handover_date, so Summary is not empty when handoffs list shows approved items.
+        $managerHandovers = $this->shiftService->getShiftHandovers($shift, 'to_manager', true);
+        $idsFromHandovers = $managerHandovers->pluck('cashier_shift_id')->unique()->filter()->values();
 
-        $handoversByShiftId = CashierShiftHandover::where('handover_to_type', 'branch_manager')
-            ->where('handover_to_id', $shift->branch_manager_id)
-            ->whereIn('cashier_shift_id', $cashierShifts->pluck('id'))
-            ->get()
-            ->keyBy('cashier_shift_id');
+        $idsSameDayBranch = CashierShift::query()
+            ->whereDate('shift_date', $shift->shift_date)
+            ->whereHas('shift', fn ($q) => $q->where('branch_id', $shift->branch_id))
+            ->whereIn('status', [ShiftStatus::IN_PROGRESS->value, ShiftStatus::COMPLETED->value])
+            ->pluck('id');
+
+        $allCashierShiftIds = $idsFromHandovers->merge($idsSameDayBranch)->unique()->values();
+
+        if ($allCashierShiftIds->isEmpty()) {
+            $cashierShifts = collect();
+            $handoversByShiftId = collect();
+        } else {
+            $cashierShifts = CashierShift::whereIn('id', $allCashierShiftIds)
+                ->with(['cashier:id,name', 'salesBreakdown.aggregator:id,name', 'handover'])
+                ->select(['id', 'cashier_id', 'shift_id', 'shift_date', 'total_sales', 'cash_collected', 'card_payments', 'variance', 'status', 'closing_balance'])
+                ->get()
+                ->sortBy(fn ($cs) => $cs->cashier->name ?? '')
+                ->values();
+
+            $handoversByShiftId = CashierShiftHandover::where('handover_to_type', 'branch_manager')
+                ->where('handover_to_id', $shift->branch_manager_id)
+                ->whereIn('cashier_shift_id', $allCashierShiftIds)
+                ->get()
+                ->keyBy('cashier_shift_id');
+        }
 
         $cashierBreakdown = $cashierShifts->map(function ($cashierShift) use ($handoversByShiftId) {
             $deliveryApps = $cashierShift->salesBreakdown->sum('amount');
@@ -189,6 +200,10 @@ class ShiftFinancialService
             $variance     = $handover
                 ? (float) ($handover->variance_amount ?? $cashierShift->variance ?? 0)
                 : (float) ($cashierShift->variance ?? 0);
+
+            $handoverAmount = $handover
+                ? (float) ($handover->handover_amount ?? $cashierShift->closing_balance ?? 0)
+                : (float) ($cashierShift->closing_balance ?? 0);
 
             return [
                 'cashier_name'          => $cashierShift->cashier->name,
@@ -198,6 +213,7 @@ class ShiftFinancialService
                 'delivery_app_payments' => (float) $deliveryApps,
                 'variance'              => $variance,
                 'sales'                 => (float) ($cashierShift->total_sales ?? 0),
+                'handover_amount'       => $handoverAmount,
                 'handover_status'       => $handover?->status ?? 'not_submitted',
             ];
         })->values()->all();
@@ -362,7 +378,7 @@ class ShiftFinancialService
 
     private function computeFinancialSummary(BranchManagerShift $shift): array
     {
-        $handovers = $this->shiftService->getShiftHandovers($shift, 'to_manager');
+        $handovers = $this->shiftService->getShiftHandovers($shift, 'to_manager', true);
 
         return $handovers->reduce(function ($summary, $handover) {
             $cashierShift = $handover->cashierShift;
