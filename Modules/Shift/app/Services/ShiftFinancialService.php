@@ -181,7 +181,7 @@ class ShiftFinancialService
             $handoversByShiftId = collect();
         } else {
             $cashierShifts = CashierShift::whereIn('id', $allCashierShiftIds)
-                ->with(['cashier:id,name', 'salesBreakdown.aggregator:id,name', 'handover'])
+                ->with(['cashier:id,name', 'salesBreakdown.aggregator:id,name,logo', 'handover'])
                 ->select(['id', 'cashier_id', 'shift_id', 'shift_date', 'total_sales', 'cash_collected', 'card_payments', 'variance', 'status', 'closing_balance'])
                 ->get()
                 ->sortBy(fn ($cs) => $cs->cashier->name ?? '')
@@ -335,6 +335,7 @@ class ShiftFinancialService
                     $aggregatorMap[$id] = [
                         'id'                => $id,
                         'name'              => $agg->name,
+                        'logo'              => $agg->logo_url,
                         'total'             => 0.0,
                         'cashier_breakdown' => [],
                     ];
@@ -368,6 +369,7 @@ class ShiftFinancialService
             $result[] = [
                 'id'                => $row['id'],
                 'name'              => $row['name'],
+                'logo'              => $row['logo'],
                 'total'             => (float) $row['total'],
                 'cashier_breakdown' => array_values($breakdown),
             ];
