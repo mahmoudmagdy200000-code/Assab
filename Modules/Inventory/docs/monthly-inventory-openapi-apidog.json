@@ -1,0 +1,332 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Monthly Inventory API (Apidog Compatible)",
+    "version": "1.0.0",
+    "description": "Apidog-compatible OpenAPI document for Monthly Inventory endpoints."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000/api/v1"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "CreateMonthlyInventoryBody": {
+        "type": "object",
+        "required": ["inventory_date", "staff"],
+        "properties": {
+          "inventory_date": { "type": "string", "format": "date" },
+          "staff": {
+            "type": "array",
+            "items": { "type": "string", "format": "uuid" },
+            "minItems": 3
+          },
+          "notes": { "type": "string" }
+        }
+      },
+      "UpdateMonthlyInventoryProductBody": {
+        "type": "object",
+        "required": ["quantity_inventory"],
+        "properties": {
+          "quantity_inventory": { "type": "number", "minimum": 0 },
+          "count_method": { "type": "string", "enum": ["simple", "slider"] },
+          "count_metadata": { "type": "object" },
+          "notes": { "type": "string" }
+        }
+      },
+      "SaveProgressBody": {
+        "type": "object",
+        "properties": {
+          "move_to_draft": { "type": "boolean" }
+        }
+      },
+      "ReturnToDraftBody": {
+        "type": "object",
+        "required": ["feedback"],
+        "properties": {
+          "feedback": { "type": "string" }
+        }
+      },
+      "ExportMonthlyInventoryBody": {
+        "type": "object",
+        "required": ["format"],
+        "properties": {
+          "format": { "type": "string", "enum": ["pdf", "excel"] }
+        }
+      },
+      "AddFeedbackBody": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": { "type": "string" }
+        }
+      }
+    }
+  },
+  "security": [
+    { "bearerAuth": [] }
+  ],
+  "paths": {
+    "/inventory/monthly/setup-info": {
+      "get": { "tags": ["Monthly Inventory"], "summary": "Setup info", "responses": { "200": { "description": "OK" } } }
+    },
+    "/inventory/monthly/staff-options": {
+      "get": { "tags": ["Monthly Inventory"], "summary": "Staff options", "responses": { "200": { "description": "OK" } } }
+    },
+    "/inventory/monthly/last-team": {
+      "get": { "tags": ["Monthly Inventory"], "summary": "Last team", "responses": { "200": { "description": "OK" } } }
+    },
+    "/inventory/monthly": {
+      "post": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Create monthly inventory",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateMonthlyInventoryBody" }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Created" } }
+      },
+      "get": {
+        "tags": ["Monthly Inventory"],
+        "summary": "List monthly inventories",
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "date_from", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "date_to", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "per_page", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/inventory/monthly/status-counts": {
+      "get": { "tags": ["Monthly Inventory"], "summary": "Status counts", "responses": { "200": { "description": "OK" } } }
+    },
+    "/inventory/monthly/comparison": {
+      "get": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Comparison",
+        "parameters": [
+          { "name": "branch_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "year", "in": "query", "schema": { "type": "integer" } },
+          { "name": "month", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/inventory/monthly/{id}": {
+      "get": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Show inventory",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Not found" } }
+      }
+    },
+    "/inventory/monthly/{id}/products": {
+      "get": {
+        "tags": ["Monthly Inventory"],
+        "summary": "List products",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "search", "in": "query", "schema": { "type": "string" } },
+          { "name": "completed_only", "in": "query", "schema": { "type": "boolean" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/inventory/monthly/{id}/products/{productId}": {
+      "put": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Update product quantity",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "productId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateMonthlyInventoryProductBody" }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" }, "400": { "description": "Bad request" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/inventory/monthly/{id}/products/{productId}/claim": {
+      "post": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Claim product",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "productId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" }, "409": { "description": "Already claimed" } }
+      }
+    },
+    "/inventory/monthly/{id}/products/{productId}/release": {
+      "post": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Release product",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "productId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/inventory/monthly/{id}/progress": {
+      "get": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Progress",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "search", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/inventory/monthly/{id}/save-progress": {
+      "post": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Save progress",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SaveProgressBody" }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/inventory/monthly/{id}/review": {
+      "post": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Review",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/inventory/monthly/{id}/submit": {
+      "post": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Submit",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/inventory/monthly/{id}/approve": {
+      "post": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Approve",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/inventory/monthly/{id}/return-to-draft": {
+      "post": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Return to draft",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ReturnToDraftBody" }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/inventory/monthly/{id}/report": {
+      "get": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Report",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/inventory/monthly/{id}/export": {
+      "post": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Export",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ExportMonthlyInventoryBody" }
+            }
+          }
+        },
+        "responses": { "200": { "description": "File stream" } }
+      }
+    },
+    "/inventory/monthly/{id}/timelines": {
+      "get": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Timelines",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/inventory/monthly/{id}/feedback": {
+      "get": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Feedback list",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "tags": ["Monthly Inventory"],
+        "summary": "Add feedback",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AddFeedbackBody" }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Created" } }
+      }
+    }
+  }
+}

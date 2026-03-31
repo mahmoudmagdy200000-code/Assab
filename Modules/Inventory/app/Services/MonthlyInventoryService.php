@@ -2,11 +2,13 @@
 
 namespace Modules\Inventory\Services;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
+use Modules\Inventory\Events\MonthlyInventorySessionUpdated;
 use Modules\Inventory\Enums\MonthlyInventoryStatus;
 use Modules\Inventory\Enums\MonthlyInventoryTimelineEventType;
 use Modules\Inventory\Models\MonthlyInventory;
@@ -34,7 +36,7 @@ class MonthlyInventoryService
      */
     public function getSetupInfo(string $branchId): array
     {
-        $items = $this->sessionService->getClosedOrderItems($branchId);
+        $items = $this->sessionService->getBranchItems($branchId, true);
         $count = $items->count();
 
         $expectedMinutes = (int) min(
@@ -114,7 +116,7 @@ class MonthlyInventoryService
 
         return DB::transaction(function () use ($data, $manager) {
             $branchId = $manager->branch_id;
-            $items = $this->sessionService->getClosedOrderItems($branchId);
+            $items = $this->sessionService->getBranchItems($branchId, true);
             $count = $items->count();
             $expectedMinutes = (int) min(
                 max(self::MIN_EXPECTED_MINUTES, ceil($count * self::EXPECTED_MINUTES_PER_PRODUCT)),
@@ -132,7 +134,7 @@ class MonthlyInventoryService
             ]);
 
             $this->attachTeam($inventory, $manager, $data['staff'] ?? []);
-            $this->seedProductsFromClosedItems($inventory, $items, $branchId);
+            $this->seedProductsFromAssignedItems($inventory, $items, $branchId);
 
             MonthlyInventoryTimeline::log(
                 $inventory,
@@ -175,29 +177,35 @@ class MonthlyInventoryService
         }
     }
 
-    private function seedProductsFromClosedItems(MonthlyInventory $inventory, Collection $items, string $branchId): void
+    private function seedProductsFromAssignedItems(MonthlyInventory $inventory, Collection $items, string $branchId): void
     {
+        $seenItemIds = [];
         foreach ($items as $row) {
-            $poItem = PurchaseOrderItem::with('item')->find($row['id'] ?? $row['purchase_order_item_id'] ?? null);
-            if (!$poItem) {
+            $itemId = $row['item_id'] ?? null;
+            if (!$itemId || isset($seenItemIds[$itemId])) {
                 continue;
             }
+            $seenItemIds[$itemId] = true;
 
-            $unit = $row['item_unit'] ?? $poItem->item?->unit ?? $poItem->unit_of_measurement ?? 'unit';
+            $poItem = null;
+            if (!empty($row['purchase_order_item_id'])) {
+                $poItem = PurchaseOrderItem::with('item')->find($row['purchase_order_item_id']);
+            }
+            $unit = $row['item_unit'] ?? $poItem?->item?->unit ?? $poItem?->unit_of_measurement ?? 'unit';
             if (is_array($unit) || is_object($unit)) {
                 $unit = 'unit';
             }
 
             MonthlyInventoryProduct::create([
                 'monthly_inventory_id' => $inventory->id,
-                'item_id' => $poItem->item_id,
-                'purchase_order_item_id' => $poItem->id,
-                'item_name' => $poItem->item_name ?? $row['item_name'] ?? 'Unknown',
+                'item_id' => $itemId,
+                'purchase_order_item_id' => $poItem?->id,
+                'item_name' => $row['item_name'] ?? $poItem?->item_name ?? 'Unknown',
                 'unit' => $unit,
                 'quantity_inventory' => 0,
-                'unit_price' => (float) ($row['unit_price'] ?? $poItem->unit_price ?? 0),
-                'category' => $row['category'] ?? $poItem->category,
-                'subcategory' => $row['subcategory'] ?? $poItem->subcategory,
+                'unit_price' => (float) ($row['price'] ?? $row['unit_price'] ?? $poItem?->unit_price ?? 0),
+                'category' => $row['category'] ?? $poItem?->category,
+                'subcategory' => $row['subcategory'] ?? $poItem?->subcategory,
                 'branch_id' => $branchId,
             ]);
         }
@@ -286,26 +294,34 @@ class MonthlyInventoryService
      *
      * @param array{quantity_inventory: float, count_method?: string, count_metadata?: array} $data
      */
-    public function updateProductQuantity(string $inventoryId, string $productId, array $data): MonthlyInventoryProduct
+    public function updateProductQuantity(string $inventoryId, string $productId, array $data, BranchManager|Cashier $actor): MonthlyInventoryProduct
     {
-        return DB::transaction(function () use ($inventoryId, $productId, $data) {
+        return DB::transaction(function () use ($inventoryId, $productId, $data, $actor) {
             $product = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
                 ->where('id', $productId)
                 ->firstOrFail();
 
             $inventory = $product->monthlyInventory;
+            $this->ensureProductBelongsToInventoryBranch($inventory, $product);
             if (!$inventory->status->isEditable()) {
                 throw new \InvalidArgumentException('Inventory is not editable in current status.');
             }
 
-            $user = auth()->user();
+            if (
+                $product->handled_by_id !== null
+                && (
+                    $product->handled_by_id !== $actor->getKey()
+                    || $product->handled_by_type !== $actor->getMorphClass()
+                )
+            ) {
+                throw new \InvalidArgumentException('This product is locked by another staff member.');
+            }
+
             $update = [
                 'quantity_inventory' => $data['quantity_inventory'] ?? $product->quantity_inventory,
             ];
-            if ($user) {
-                $update['counted_by_id'] = $user->getKey();
-                $update['counted_by_type'] = $user->getMorphClass();
-            }
+            $update['counted_by_id'] = $actor->getKey();
+            $update['counted_by_type'] = $actor->getMorphClass();
             if (isset($data['count_method'])) {
                 $update['count_method'] = $data['count_method'];
             }
@@ -314,14 +330,37 @@ class MonthlyInventoryService
             }
 
             $product->update($update);
+            MonthlyInventoryTimeline::log(
+                $inventory,
+                MonthlyInventoryTimelineEventType::PRODUCT_COUNT_UPDATED,
+                'Product quantity updated',
+                $product->item_name,
+                null,
+                null,
+                [
+                    'product_id' => $product->id,
+                    'item_id' => $product->item_id,
+                    'quantity_inventory' => (float) $product->quantity_inventory,
+                ]
+            );
 
-            return $product->fresh(['item', 'purchaseOrderItem']);
+            $fresh = $product->fresh(['item', 'purchaseOrderItem', 'handledBy']);
+            $this->broadcastInventoryEvent($inventoryId, 'product.updated', [
+                'product' => $fresh->toArray(),
+            ]);
+
+            return $fresh;
         });
     }
 
     public function claimProduct(string $inventoryId, string $productId, BranchManager|Cashier $user): MonthlyInventoryProduct
     {
         return DB::transaction(function () use ($inventoryId, $productId, $user) {
+            $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
+            if (!$inventory->status->isEditable()) {
+                throw new \InvalidArgumentException('Inventory is not editable in current status.');
+            }
+
             $updatedRows = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
                 ->where('id', $productId)
                 ->where(function ($query) use ($user) {
@@ -344,17 +383,44 @@ class MonthlyInventoryService
             $product = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
                 ->where('id', $productId)
                 ->firstOrFail();
+            $this->ensureProductBelongsToInventoryBranch($inventory, $product);
 
-            return $product->fresh(['handledBy']);
+            $fresh = $product->fresh(['handledBy']);
+            $this->broadcastInventoryEvent($inventoryId, 'product.claimed', [
+                'product' => $fresh->toArray(),
+                'actor' => [
+                    'id' => $user->getKey(),
+                    'type' => $user->getMorphClass(),
+                    'name' => $user->name,
+                ],
+            ]);
+
+            return $fresh;
         });
     }
 
-    public function releaseProduct(string $inventoryId, string $productId): MonthlyInventoryProduct
+    public function releaseProduct(string $inventoryId, string $productId, BranchManager|Cashier $actor): MonthlyInventoryProduct
     {
-        return DB::transaction(function () use ($inventoryId, $productId) {
+        return DB::transaction(function () use ($inventoryId, $productId, $actor) {
+            $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
+            if (!$inventory->status->isEditable()) {
+                throw new \InvalidArgumentException('Inventory is not editable in current status.');
+            }
+
             $product = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
                 ->where('id', $productId)
                 ->firstOrFail();
+            $this->ensureProductBelongsToInventoryBranch($inventory, $product);
+
+            if (
+                $product->handled_by_id !== null
+                && (
+                    $product->handled_by_id !== $actor->getKey()
+                    || $product->handled_by_type !== $actor->getMorphClass()
+                )
+            ) {
+                throw new AuthorizationException('Only the current handler can release this product.');
+            }
 
             $product->update([
                 'handled_by_id' => null,
@@ -362,7 +428,17 @@ class MonthlyInventoryService
                 'locked_at' => null,
             ]);
 
-            return $product->fresh(['handledBy']);
+            $fresh = $product->fresh(['handledBy']);
+            $this->broadcastInventoryEvent($inventoryId, 'product.released', [
+                'product' => $fresh->toArray(),
+                'actor' => [
+                    'id' => $actor->getKey(),
+                    'type' => $actor->getMorphClass(),
+                    'name' => $actor->name,
+                ],
+            ]);
+
+            return $fresh;
         });
     }
 
@@ -420,6 +496,11 @@ class MonthlyInventoryService
                     MonthlyInventoryStatus::DRAFT->value
                 );
             }
+
+            $this->broadcastInventoryEvent($inventoryId, 'inventory.progress_saved', [
+                'status' => $inventory->status->value,
+                'move_to_draft' => $moveToDraft,
+            ]);
 
             return $inventory->fresh();
         });
@@ -496,6 +577,10 @@ class MonthlyInventoryService
                 $old,
                 MonthlyInventoryStatus::SUBMITTED->value
             );
+            $this->broadcastInventoryEvent($inventoryId, 'inventory.submitted', [
+                'status' => MonthlyInventoryStatus::SUBMITTED->value,
+                'submitted_at' => now()->toIso8601String(),
+            ]);
 
             return $inventory->fresh();
         });
@@ -830,5 +915,20 @@ class MonthlyInventoryService
             'author_name' => $actor?->name ?? 'Management',
             'message' => $message,
         ]);
+    }
+
+    private function ensureProductBelongsToInventoryBranch(MonthlyInventory $inventory, MonthlyInventoryProduct $product): void
+    {
+        if ($product->branch_id !== $inventory->branch_id) {
+            throw new \InvalidArgumentException('Product does not belong to this inventory assignment scope.');
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function broadcastInventoryEvent(string $inventoryId, string $eventType, array $payload): void
+    {
+        event(new MonthlyInventorySessionUpdated($inventoryId, $eventType, $payload));
     }
 }

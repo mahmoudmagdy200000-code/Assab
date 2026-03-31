@@ -2,7 +2,7 @@
     "openapi": "3.0.3",
     "info": {
         "title": "Monthly Inventory API",
-        "description": "API documentation for Monthly Inventory endpoints (Inventory module). All endpoints require Bearer token (Laravel Sanctum).",
+        "description": "API documentation for Monthly Inventory endpoints (Inventory module). All endpoints require Bearer token (Laravel Sanctum). Realtime updates are broadcast on presence channel: inventory.monthly.{inventoryId} with event name inventory.monthly.updated.",
         "version": "1.0.0"
     },
     "servers": [
@@ -364,7 +364,8 @@
                     "200": {
                         "description": "Product quantity updated successfully"
                     },
-                    "400": { "description": "Validation error" },
+                    "400": { "description": "Validation error or locked by another staff member" },
+                    "403": { "description": "Forbidden for current actor" },
                     "404": { "description": "Monthly inventory not found" }
                 }
             }
@@ -391,6 +392,7 @@
                 ],
                 "responses": {
                     "200": { "description": "Product claimed successfully" },
+                    "409": { "description": "Product already claimed by another staff member" },
                     "404": { "description": "Monthly inventory not found" }
                 }
             }
@@ -417,6 +419,7 @@
                 ],
                 "responses": {
                     "200": { "description": "Product released successfully" },
+                    "403": { "description": "Only current handler can release" },
                     "404": { "description": "Monthly inventory not found" }
                 }
             }

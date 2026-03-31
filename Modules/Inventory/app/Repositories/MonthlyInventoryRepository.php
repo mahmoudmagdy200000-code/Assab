@@ -60,10 +60,12 @@ class MonthlyInventoryRepository
     public function findByBranchOrStaff(string $id, string $branchId, ?string $createdBy, ?string $staffCashierId, array $relations = []): ?MonthlyInventory
     {
         $query = MonthlyInventory::where('id', $id)->where('branch_id', $branchId);
+        $cashierMorph = (new Cashier)->getMorphClass();
 
         if ($staffCashierId !== null && $staffCashierId !== '') {
-            $query->whereHas('staff', function ($q) use ($staffCashierId) {
-                $q->where('user_id', $staffCashierId)->where('user_type', Cashier::class);
+            $query->whereHas('staff', function ($q) use ($staffCashierId, $cashierMorph) {
+                $q->where('user_id', $staffCashierId)
+                    ->whereIn('user_type', [Cashier::class, $cashierMorph]);
             });
         } elseif ($createdBy !== null && $createdBy !== '') {
             $query->where('created_by', $createdBy);
@@ -117,9 +119,11 @@ class MonthlyInventoryRepository
     public function getPaginatedForStaff(string $branchId, string $cashierId, array $filters, int $perPage = 15): LengthAwarePaginator
     {
         $filters['branch_id'] = $branchId;
+        $cashierMorph = (new Cashier)->getMorphClass();
         $query = MonthlyInventory::query()->where('branch_id', $branchId)
-            ->whereHas('staff', function ($q) use ($cashierId) {
-                $q->where('user_id', $cashierId)->where('user_type', Cashier::class);
+            ->whereHas('staff', function ($q) use ($cashierId, $cashierMorph) {
+                $q->where('user_id', $cashierId)
+                    ->whereIn('user_type', [Cashier::class, $cashierMorph]);
             });
 
         if (isset($filters['status'])) {
@@ -183,10 +187,12 @@ class MonthlyInventoryRepository
      */
     public function getStatusCountsForStaff(string $branchId, string $cashierId): array
     {
+        $cashierMorph = (new Cashier)->getMorphClass();
         $query = MonthlyInventory::query()
             ->where('branch_id', $branchId)
-            ->whereHas('staff', function ($q) use ($cashierId) {
-                $q->where('user_id', $cashierId)->where('user_type', Cashier::class);
+            ->whereHas('staff', function ($q) use ($cashierId, $cashierMorph) {
+                $q->where('user_id', $cashierId)
+                    ->whereIn('user_type', [Cashier::class, $cashierMorph]);
             });
 
         $counts = (clone $query)

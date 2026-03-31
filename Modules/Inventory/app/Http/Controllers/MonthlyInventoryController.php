@@ -217,13 +217,15 @@ class MonthlyInventoryController extends BaseController
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $data = $request->validated();
-            $product = $this->service->updateProductQuantity($id, $productId, $data);
+            $product = $this->service->updateProductQuantity($id, $productId, $data, $actor->getActor());
             return $this->successResponse(
                 new MonthlyInventoryProductResource($product),
                 'Product quantity updated successfully'
             );
         } catch (\InvalidArgumentException $e) {
             return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
+            return $this->errorResponse($e->getMessage(), 403);
         } catch (\Throwable $e) {
             return $this->handleException($e, 'updating product quantity');
         }
@@ -239,6 +241,8 @@ class MonthlyInventoryController extends BaseController
             }
             $product = $this->service->claimProduct($id, $productId, $actor->getActor());
             return $this->successResponse(new MonthlyInventoryProductResource($product), 'Product claimed successfully');
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 409);
         } catch (\Throwable $e) {
             return $this->handleException($e, 'claiming product');
         }
@@ -252,8 +256,12 @@ class MonthlyInventoryController extends BaseController
             if (!$inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
-            $product = $this->service->releaseProduct($id, $productId);
+            $product = $this->service->releaseProduct($id, $productId, $actor->getActor());
             return $this->successResponse(new MonthlyInventoryProductResource($product), 'Product released successfully');
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
+            return $this->errorResponse($e->getMessage(), 403);
         } catch (\Throwable $e) {
             return $this->handleException($e, 'releasing product');
         }

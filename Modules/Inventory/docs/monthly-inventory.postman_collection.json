@@ -1,0 +1,137 @@
+{
+  "info": {
+    "name": "Monthly Inventory API",
+    "_postman_id": "7f571ec0-e056-4f2b-a8e9-23d4ac4c67c4",
+    "description": "Monthly inventory endpoints with realtime collaboration workflow.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Setup",
+      "item": [
+        { "name": "Setup Info", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/setup-info" } },
+        { "name": "Staff Options", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/staff-options" } },
+        { "name": "Last Team", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/last-team" } }
+      ]
+    },
+    {
+      "name": "Session",
+      "item": [
+        {
+          "name": "Create Monthly Inventory",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"inventory_date\": \"{{inventory_date}}\",\n  \"staff\": [\"{{staff_id_1}}\", \"{{staff_id_2}}\", \"{{staff_id_3}}\"]\n}" },
+            "url": "{{base_url}}/inventory/monthly"
+          }
+        },
+        { "name": "List Monthly Inventories", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly?status={{status}}&per_page=15" } },
+        { "name": "Status Counts", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/status-counts" } },
+        { "name": "Show Monthly Inventory", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/{{monthly_id}}" } }
+      ]
+    },
+    {
+      "name": "Products & Realtime",
+      "item": [
+        { "name": "Products", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/{{monthly_id}}/products?search=&completed_only=false" } },
+        { "name": "Claim Product", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/{{monthly_id}}/products/{{product_id}}/claim" } },
+        {
+          "name": "Update Product Quantity",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"quantity_inventory\": 10,\n  \"count_method\": \"simple\"\n}" },
+            "url": "{{base_url}}/inventory/monthly/{{monthly_id}}/products/{{product_id}}"
+          }
+        },
+        { "name": "Release Product", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/{{monthly_id}}/products/{{product_id}}/release" } }
+      ]
+    },
+    {
+      "name": "Workflow",
+      "item": [
+        { "name": "Progress", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/{{monthly_id}}/progress" } },
+        {
+          "name": "Save Progress",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"move_to_draft\": false\n}" },
+            "url": "{{base_url}}/inventory/monthly/{{monthly_id}}/save-progress"
+          }
+        },
+        { "name": "Review", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/{{monthly_id}}/review" } },
+        { "name": "Submit", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/{{monthly_id}}/submit" } },
+        { "name": "Approve", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/{{monthly_id}}/approve" } },
+        {
+          "name": "Return To Draft",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"feedback\": \"Fix counted quantity mismatch\"\n}" },
+            "url": "{{base_url}}/inventory/monthly/{{monthly_id}}/return-to-draft"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reports & History",
+      "item": [
+        { "name": "Report", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/{{monthly_id}}/report" } },
+        {
+          "name": "Export",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"format\": \"excel\"\n}" },
+            "url": "{{base_url}}/inventory/monthly/{{monthly_id}}/export"
+          }
+        },
+        { "name": "Timelines", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/{{monthly_id}}/timelines" } },
+        { "name": "Feedback List", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/{{monthly_id}}/feedback" } },
+        {
+          "name": "Add Feedback",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"message\": \"Please validate product #123\"\n}" },
+            "url": "{{base_url}}/inventory/monthly/{{monthly_id}}/feedback"
+          }
+        },
+        { "name": "Comparison", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/inventory/monthly/comparison?year={{year}}&month={{month}}" } }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000/api/v1" },
+    { "key": "token", "value": "" },
+    { "key": "inventory_date", "value": "2026-03-31" },
+    { "key": "staff_id_1", "value": "" },
+    { "key": "staff_id_2", "value": "" },
+    { "key": "staff_id_3", "value": "" },
+    { "key": "monthly_id", "value": "" },
+    { "key": "product_id", "value": "" },
+    { "key": "status", "value": "" },
+    { "key": "year", "value": "2026" },
+    { "key": "month", "value": "3" }
+  ]
+}
