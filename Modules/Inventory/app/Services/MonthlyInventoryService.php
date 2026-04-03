@@ -105,15 +105,10 @@ class MonthlyInventoryService
     /**
      * Create and start a monthly inventory.
      *
-     * @param array{inventory_date: string, staff: array<string>} $data
+     * @param array{inventory_date: string, staff?: array<string>} $data
      */
     public function create(array $data, BranchManager $manager): MonthlyInventory
     {
-        $staffIds = $data['staff'] ?? [];
-        if (count($staffIds) < 3) {
-            throw new \InvalidArgumentException('At least 3 staff members are required.');
-        }
-
         return DB::transaction(function () use ($data, $manager) {
             $branchId = $manager->branch_id;
             $items = $this->sessionService->getBranchItems($branchId, true);
