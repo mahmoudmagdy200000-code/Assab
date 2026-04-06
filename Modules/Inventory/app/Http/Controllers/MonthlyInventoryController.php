@@ -197,12 +197,17 @@ class MonthlyInventoryController extends BaseController
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $search = $request->query('search');
-            $completedOnly = $request->boolean('completed_only');
+            $completedOnly = $request->boolean('completed_only')
+                || $request->boolean('counted_only')
+                || $request->boolean('inventoried_only');
             $products = $this->service->getProducts($id, $search, $completedOnly);
             return $this->successResponse(
                 MonthlyInventoryProductResource::collection($products),
                 'Products retrieved successfully'
-            );
+            )->withHeaders([
+                'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+                'Pragma' => 'no-cache',
+            ]);
         } catch (\Throwable $e) {
             return $this->handleException($e, 'fetching products');
         }
@@ -280,7 +285,10 @@ class MonthlyInventoryController extends BaseController
             return $this->successResponse(
                 new MonthlyInventoryProgressResource($progress),
                 'Progress retrieved successfully'
-            );
+            )->withHeaders([
+                'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+                'Pragma' => 'no-cache',
+            ]);
         } catch (\Throwable $e) {
             return $this->handleException($e, 'fetching progress');
         }

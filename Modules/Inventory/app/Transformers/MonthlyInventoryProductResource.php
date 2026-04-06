@@ -13,7 +13,6 @@ class MonthlyInventoryProductResource extends JsonResource
      */
     public function toArray($request): array
     {
-        $handledBy = $this->handledBy;
         return [
             'id' => $this->id,
             'item_id' => $this->item_id,
@@ -27,11 +26,16 @@ class MonthlyInventoryProductResource extends JsonResource
             'count_method' => $this->count_method,
             'preferred_count_method' => $this->preferred_count_method,
             'count_metadata' => $this->count_metadata,
-            'handled_by' => $this->when($this->handled_by_id, [
+            'handled_by' => $this->handled_by_id !== null ? [
                 'id' => $this->handled_by_id,
                 'type' => $this->handled_by_type,
-                'name' => $handledBy?->name ?? null,
-            ]),
+                'name' => $this->handledBy?->name ?? null,
+            ] : null,
+            'counted_by' => $this->counted_by_id !== null ? [
+                'id' => $this->counted_by_id,
+                'type' => $this->counted_by_type,
+                'name' => $this->countedBy?->name ?? null,
+            ] : null,
             'locked_at' => $this->locked_at?->toIso8601String(),
             'notes' => $this->notes,
         ];

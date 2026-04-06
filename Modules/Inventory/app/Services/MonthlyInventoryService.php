@@ -256,7 +256,7 @@ class MonthlyInventoryService
     public function getPendingProducts(string $inventoryId, ?string $search = null): Collection
     {
         $query = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
-            ->with(['item', 'purchaseOrderItem', 'handledBy']);
+            ->with(['item', 'purchaseOrderItem', 'handledBy', 'countedBy']);
 
         if ($search !== null && $search !== '') {
             $query->where('item_name', 'like', '%' . $search . '%');
@@ -271,7 +271,7 @@ class MonthlyInventoryService
     public function getProducts(string $inventoryId, ?string $search = null, bool $completedOnly = false): Collection
     {
         $query = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
-            ->with(['item', 'purchaseOrderItem', 'handledBy']);
+            ->with(['item', 'purchaseOrderItem', 'handledBy', 'countedBy']);
 
         if ($search !== null && $search !== '') {
             $query->where('item_name', 'like', '%' . $search . '%');
@@ -339,7 +339,7 @@ class MonthlyInventoryService
                 ]
             );
 
-            $fresh = $product->fresh(['item', 'purchaseOrderItem', 'handledBy']);
+            $fresh = $product->fresh(['item', 'purchaseOrderItem', 'handledBy', 'countedBy']);
             $this->broadcastInventoryEvent($inventoryId, 'product.updated', [
                 'product' => $fresh->toArray(),
             ]);
@@ -380,7 +380,7 @@ class MonthlyInventoryService
                 ->firstOrFail();
             $this->ensureProductBelongsToInventoryBranch($inventory, $product);
 
-            $fresh = $product->fresh(['handledBy']);
+            $fresh = $product->fresh(['handledBy', 'countedBy']);
             $this->broadcastInventoryEvent($inventoryId, 'product.claimed', [
                 'product' => $fresh->toArray(),
                 'actor' => [
@@ -423,7 +423,7 @@ class MonthlyInventoryService
                 'locked_at' => null,
             ]);
 
-            $fresh = $product->fresh(['handledBy']);
+            $fresh = $product->fresh(['handledBy', 'countedBy']);
             $this->broadcastInventoryEvent($inventoryId, 'product.released', [
                 'product' => $fresh->toArray(),
                 'actor' => [

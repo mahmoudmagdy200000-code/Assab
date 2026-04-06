@@ -22,7 +22,7 @@ class InventoryTaskController extends BaseController
 
     /**
      * List tasks (assignments) for the authenticated user.
-     * GET /inventory/tasks?limit=20
+     * Cashier token: GET /api/v1/inventory/tasks?limit=20 (same Sanctum Bearer as monthly inventory).
      */
     public function index(Request $request): JsonResponse
     {

@@ -129,7 +129,22 @@ class MonthlyInventoryRealtimeParityTest extends TestCase
             ->putJson("/api/v1/inventory/monthly/{$inventoryId}/products/{$productId}", [
                 'quantity_inventory' => 12,
             ]);
-        $updateByHandler->assertStatus(200);
+        $updateByHandler->assertStatus(200)
+            ->assertJsonPath('data.counted_by.id', $cashierOne->id);
+
+        $listAfterCount = $this->actingAs($cashierTwo, 'sanctum')
+            ->getJson("/api/v1/inventory/monthly/{$inventoryId}/products");
+        $listAfterCount->assertStatus(200)
+            ->assertHeader('Cache-Control');
+        $row = collect($listAfterCount->json('data'))->firstWhere('id', $productId);
+        $this->assertNotNull($row, 'Product row should exist in list');
+        $this->assertEquals($cashierOne->id, $row['handled_by']['id']);
+        $this->assertEquals($cashierOne->id, $row['counted_by']['id']);
+
+        $countedOnly = $this->actingAs($manager, 'sanctum')
+            ->getJson("/api/v1/inventory/monthly/{$inventoryId}/products?counted_only=1");
+        $countedOnly->assertStatus(200);
+        $this->assertNotNull(collect($countedOnly->json('data'))->firstWhere('id', $productId));
 
         $releaseByOther = $this->actingAs($cashierTwo, 'sanctum')
             ->postJson("/api/v1/inventory/monthly/{$inventoryId}/products/{$productId}/release");

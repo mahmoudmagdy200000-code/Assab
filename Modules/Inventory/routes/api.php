@@ -8,7 +8,7 @@ use Modules\Inventory\Http\Controllers\DailyInventoryScheduleController;
 use Modules\Inventory\Http\Controllers\MonthlyInventoryController;
 use Modules\Inventory\Http\Controllers\WasteDamageReportController;
 
-Route::middleware(['auth:sanctum', 'log.throttle'])->prefix('v1')->group(function () {
+Route::middleware(['auth:sanctum', 'branch.manager.or.cashier', 'log.throttle'])->prefix('v1')->group(function () {
     Route::apiResource('inventories', InventoryController::class)->names('inventory');
 
     /*
