@@ -291,7 +291,7 @@ class MonthlyInventoryService
      */
     public function updateProductQuantity(string $inventoryId, string $productId, array $data, BranchManager|Cashier $actor): MonthlyInventoryProduct
     {
-        return DB::transaction(function () use ($inventoryId, $productId, $data, $actor) {
+        $fresh = DB::transaction(function () use ($inventoryId, $productId, $data, $actor) {
             $product = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
                 ->where('id', $productId)
                 ->firstOrFail();
@@ -339,18 +339,19 @@ class MonthlyInventoryService
                 ]
             );
 
-            $fresh = $product->fresh(['item', 'purchaseOrderItem', 'handledBy', 'countedBy']);
-            $this->broadcastInventoryEvent($inventoryId, 'product.updated', [
-                'product' => $fresh->toArray(),
-            ]);
-
-            return $fresh;
+            return $product->fresh(['item', 'purchaseOrderItem', 'handledBy', 'countedBy']);
         });
+
+        $this->broadcastInventoryEvent($inventoryId, 'product.updated', [
+            'product' => $fresh->toArray(),
+        ]);
+
+        return $fresh;
     }
 
     public function claimProduct(string $inventoryId, string $productId, BranchManager|Cashier $user): MonthlyInventoryProduct
     {
-        return DB::transaction(function () use ($inventoryId, $productId, $user) {
+        $fresh = DB::transaction(function () use ($inventoryId, $productId, $user) {
             $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
             if (!$inventory->status->isEditable()) {
                 throw new \InvalidArgumentException('Inventory is not editable in current status.');
@@ -380,23 +381,24 @@ class MonthlyInventoryService
                 ->firstOrFail();
             $this->ensureProductBelongsToInventoryBranch($inventory, $product);
 
-            $fresh = $product->fresh(['handledBy', 'countedBy']);
-            $this->broadcastInventoryEvent($inventoryId, 'product.claimed', [
-                'product' => $fresh->toArray(),
-                'actor' => [
-                    'id' => $user->getKey(),
-                    'type' => $user->getMorphClass(),
-                    'name' => $user->name,
-                ],
-            ]);
-
-            return $fresh;
+            return $product->fresh(['handledBy', 'countedBy']);
         });
+
+        $this->broadcastInventoryEvent($inventoryId, 'product.claimed', [
+            'product' => $fresh->toArray(),
+            'actor' => [
+                'id' => $user->getKey(),
+                'type' => $user->getMorphClass(),
+                'name' => $user->name,
+            ],
+        ]);
+
+        return $fresh;
     }
 
     public function releaseProduct(string $inventoryId, string $productId, BranchManager|Cashier $actor): MonthlyInventoryProduct
     {
-        return DB::transaction(function () use ($inventoryId, $productId, $actor) {
+        $fresh = DB::transaction(function () use ($inventoryId, $productId, $actor) {
             $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
             if (!$inventory->status->isEditable()) {
                 throw new \InvalidArgumentException('Inventory is not editable in current status.');
@@ -423,18 +425,19 @@ class MonthlyInventoryService
                 'locked_at' => null,
             ]);
 
-            $fresh = $product->fresh(['handledBy', 'countedBy']);
-            $this->broadcastInventoryEvent($inventoryId, 'product.released', [
-                'product' => $fresh->toArray(),
-                'actor' => [
-                    'id' => $actor->getKey(),
-                    'type' => $actor->getMorphClass(),
-                    'name' => $actor->name,
-                ],
-            ]);
-
-            return $fresh;
+            return $product->fresh(['handledBy', 'countedBy']);
         });
+
+        $this->broadcastInventoryEvent($inventoryId, 'product.released', [
+            'product' => $fresh->toArray(),
+            'actor' => [
+                'id' => $actor->getKey(),
+                'type' => $actor->getMorphClass(),
+                'name' => $actor->name,
+            ],
+        ]);
+
+        return $fresh;
     }
 
     /**
@@ -472,7 +475,7 @@ class MonthlyInventoryService
      */
     public function saveProgress(string $inventoryId, bool $moveToDraft = false): MonthlyInventory
     {
-        return DB::transaction(function () use ($inventoryId, $moveToDraft) {
+        $inventory = DB::transaction(function () use ($inventoryId, $moveToDraft) {
             $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
 
             if (!$inventory->status->isEditable()) {
@@ -492,13 +495,15 @@ class MonthlyInventoryService
                 );
             }
 
-            $this->broadcastInventoryEvent($inventoryId, 'inventory.progress_saved', [
-                'status' => $inventory->status->value,
-                'move_to_draft' => $moveToDraft,
-            ]);
-
             return $inventory->fresh();
         });
+
+        $this->broadcastInventoryEvent($inventoryId, 'inventory.progress_saved', [
+            'status' => $inventory->status->value,
+            'move_to_draft' => $moveToDraft,
+        ]);
+
+        return $inventory;
     }
 
     /**
@@ -545,7 +550,7 @@ class MonthlyInventoryService
      */
     public function submitForApproval(string $inventoryId, BranchManager|Cashier $actor): MonthlyInventory
     {
-        return DB::transaction(function () use ($inventoryId, $actor) {
+        $inventory = DB::transaction(function () use ($inventoryId, $actor) {
             $branchId = $actor->branch_id;
             $createdBy = $actor instanceof BranchManager ? $actor->id : null;
             $staffCashierId = $actor instanceof Cashier ? $actor->id : null;
@@ -572,13 +577,16 @@ class MonthlyInventoryService
                 $old,
                 MonthlyInventoryStatus::SUBMITTED->value
             );
-            $this->broadcastInventoryEvent($inventoryId, 'inventory.submitted', [
-                'status' => MonthlyInventoryStatus::SUBMITTED->value,
-                'submitted_at' => now()->toIso8601String(),
-            ]);
 
             return $inventory->fresh();
         });
+
+        $this->broadcastInventoryEvent($inventoryId, 'inventory.submitted', [
+            'status' => MonthlyInventoryStatus::SUBMITTED->value,
+            'submitted_at' => now()->toIso8601String(),
+        ]);
+
+        return $inventory;
     }
 
     /**
