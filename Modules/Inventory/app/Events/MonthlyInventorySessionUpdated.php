@@ -23,7 +23,13 @@ class MonthlyInventorySessionUpdated implements ShouldBroadcastNow
 
     public function broadcastOn(): PresenceChannel
     {
-        return new PresenceChannel('inventory.monthly.' . $this->inventoryId);
+        $suffix = match ($this->eventType) {
+            'product.claimed', 'product.released' => '.pending',
+            'product.updated' => '.completed',
+            default => '',
+        };
+
+        return new PresenceChannel('inventory.monthly.' . $this->inventoryId . $suffix);
     }
 
     public function broadcastAs(): string

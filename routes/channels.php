@@ -20,7 +20,7 @@ Broadcast::channel('user.{userId}', function ($user, $userId) {
     return (int) $user->id === (int) $userId;
 });
 
-Broadcast::channel('inventory.monthly.{inventoryId}', function ($user, $inventoryId) {
+$authorizeInventoryChannel = function ($user, $inventoryId) {
     $inventory = MonthlyInventory::query()
         ->select(['id', 'branch_id', 'created_by'])
         ->find($inventoryId);
@@ -52,4 +52,13 @@ Broadcast::channel('inventory.monthly.{inventoryId}', function ($user, $inventor
         'name' => $user->name ?? 'Unknown',
         'type' => $user->getMorphClass(),
     ];
-});
+};
+
+// Inventory-level events (progress_saved, submitted)
+Broadcast::channel('inventory.monthly.{inventoryId}', $authorizeInventoryChannel);
+
+// Product pending events (product.claimed, product.released)
+Broadcast::channel('inventory.monthly.{inventoryId}.pending', $authorizeInventoryChannel);
+
+// Product completed events (product.updated)
+Broadcast::channel('inventory.monthly.{inventoryId}.completed', $authorizeInventoryChannel);
