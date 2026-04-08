@@ -1,6 +1,11 @@
 <?php
 
+use App\Http\Controllers\BroadcastAuthController;
 use Illuminate\Support\Facades\Route;
+
+// Broadcasting auth for Sanctum token users
+Route::post('/broadcasting/auth', [BroadcastAuthController::class, 'authenticate'])
+    ->middleware(['auth:sanctum']);
 
 // API routes should not have locale prefixes in URL
 // Locale is determined from Accept-Language header via ApiLocaleMiddleware
