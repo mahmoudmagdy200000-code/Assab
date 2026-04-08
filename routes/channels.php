@@ -72,10 +72,10 @@ $authorizeInventoryChannel = function ($user, $inventoryId) {
 };
 
 // Inventory-level events (progress_saved, submitted)
-Broadcast::channel('inventory.monthly.{inventoryId}', $authorizeInventoryChannel);
+Broadcast::channel('inventory.monthly.{inventoryId}', $authorizeInventoryChannel, ['guards' => ['sanctum']]);
 
 // Product pending events (product.claimed, product.released)
-Broadcast::channel('inventory.monthly.{inventoryId}.pending', $authorizeInventoryChannel);
+Broadcast::channel('inventory.monthly.{inventoryId}.pending', $authorizeInventoryChannel, ['guards' => ['sanctum']]);
 
 // Product completed events (product.updated)
-Broadcast::channel('inventory.monthly.{inventoryId}.completed', $authorizeInventoryChannel);
+Broadcast::channel('inventory.monthly.{inventoryId}.completed', $authorizeInventoryChannel, ['guards' => ['sanctum']]);
