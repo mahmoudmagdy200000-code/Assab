@@ -6,6 +6,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Inventory\Events\MonthlyInventorySessionUpdated;
@@ -291,6 +292,12 @@ class MonthlyInventoryService
      */
     public function updateProductQuantity(string $inventoryId, string $productId, array $data, BranchManager|Cashier $actor): MonthlyInventoryProduct
     {
+        Log::info('updateProductQuantity CALLED', [
+            'inventory_id' => $inventoryId,
+            'product_id' => $productId,
+            'actor' => get_class($actor) . ':' . $actor->getKey(),
+        ]);
+
         $fresh = DB::transaction(function () use ($inventoryId, $productId, $data, $actor) {
             $product = MonthlyInventoryProduct::where('monthly_inventory_id', $inventoryId)
                 ->where('id', $productId)
@@ -932,6 +939,16 @@ class MonthlyInventoryService
      */
     private function broadcastInventoryEvent(string $inventoryId, string $eventType, array $payload): void
     {
+        Log::info('Broadcasting inventory event', [
+            'inventory_id' => $inventoryId,
+            'event_type' => $eventType,
+            'channel' => 'inventory.monthly.' . $inventoryId . match ($eventType) {
+                'product.claimed', 'product.released' => '.pending',
+                'product.updated' => '.completed',
+                default => '',
+            },
+        ]);
+
         event(new MonthlyInventorySessionUpdated($inventoryId, $eventType, $payload));
     }
 }
