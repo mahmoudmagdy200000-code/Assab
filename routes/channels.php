@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\Log;
 use Modules\Inventory\Models\MonthlyInventory;
 use Modules\Inventory\Models\MonthlyInventoryStaff;
 
@@ -21,13 +22,27 @@ Broadcast::channel('user.{userId}', function ($user, $userId) {
 });
 
 $authorizeInventoryChannel = function ($user, $inventoryId) {
+    Log::info('Channel auth attempt', [
+        'inventory_id' => $inventoryId,
+        'user_id' => $user->getKey(),
+        'user_type' => get_class($user),
+        'morph_class' => $user->getMorphClass(),
+    ]);
+
     $inventory = MonthlyInventory::query()
         ->select(['id', 'branch_id', 'created_by'])
         ->find($inventoryId);
 
     if (!$inventory) {
+        Log::warning('Channel auth: inventory not found', ['inventory_id' => $inventoryId]);
         return false;
     }
+
+    Log::info('Channel auth: comparing', [
+        'inventory_created_by' => $inventory->created_by,
+        'user_key' => $user->getKey(),
+        'match' => (string) $inventory->created_by === (string) $user->getKey(),
+    ]);
 
     if ((string) $inventory->created_by === (string) $user->getKey()) {
         return [
@@ -42,6 +57,8 @@ $authorizeInventoryChannel = function ($user, $inventoryId) {
         ->where('user_id', $user->getKey())
         ->whereIn('user_type', [$user->getMorphClass(), get_class($user)])
         ->exists();
+
+    Log::info('Channel auth: staff check', ['is_staff' => $isStaffMember]);
 
     if (!$isStaffMember) {
         return false;
