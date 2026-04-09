@@ -46,6 +46,7 @@ class MonthlyInventoryListResource extends JsonResource
             'submitted_at' => $this->submitted_at?->format('Y-m-d H:i:s'),
             'approved_at' => $this->approved_at?->format('Y-m-d H:i:s'),
             'created_at' => $this->created_at->format('Y-m-d H:i:s'),
+            'details' => (new MonthlyInventoryResource($this->resource))->resolve(),
         ];
     }
 }

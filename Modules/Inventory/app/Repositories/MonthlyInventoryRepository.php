@@ -105,7 +105,7 @@ class MonthlyInventoryRepository
             $query->whereDate('inventory_date', '<=', $filters['date_to']);
         }
 
-        return $query->with(['branch', 'createdBy', 'staff.user', 'products'])
+        return $query->with(['branch', 'createdBy', 'staff.user', 'products', 'timelines' => fn ($q) => $q->orderBy('occurred_at', 'asc')])
             ->withCount('products')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
@@ -136,7 +136,7 @@ class MonthlyInventoryRepository
             $query->whereDate('inventory_date', '<=', $filters['date_to']);
         }
 
-        return $query->with(['branch', 'createdBy', 'staff.user', 'products'])
+        return $query->with(['branch', 'createdBy', 'staff.user', 'products', 'timelines' => fn ($q) => $q->orderBy('occurred_at', 'asc')])
             ->withCount('products')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
