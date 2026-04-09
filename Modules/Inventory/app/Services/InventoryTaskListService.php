@@ -7,6 +7,7 @@ use Modules\Cashier\Models\Cashier;
 use Modules\Inventory\Models\InventorySession;
 use Modules\Inventory\Models\MonthlyInventory;
 use Modules\Inventory\Models\WasteDamageReport;
+use Modules\Purchase\Models\BranchItem;
 
 /**
  * Returns a unified list of "my tasks" (assignments) for the authenticated inventory actor.
@@ -47,30 +48,54 @@ class InventoryTaskListService
     }
 
     /**
-     * @return array<int, array{id: string, type: string, status: string, status_label: string, inventory_date: string|null, session_number: string, created_at: string}>
+     * @return array<int, array{id: string, type: string, status: string, status_label: string, inventory_date: string|null, session_number: string, created_at: string, items: array}>
      */
     private function getDailyQuickTasksForCashier(string $cashierId, string $branchId, int $limit): array
     {
-        return InventorySession::query()
+        $sessions = InventorySession::query()
             ->where('branch_id', $branchId)
             ->where('assigned_to_type', 'staff')
             ->where('assigned_to_id', $cashierId)
-            ->with(['branch:id,name', 'assignedTo:id,name'])
+            ->with(['branch:id,name', 'assignedTo:id,name', 'items.item'])
             ->orderByDesc('created_at')
             ->limit($limit)
+            ->get();
+
+        // Batch-load BranchItems for all items across sessions
+        $itemIds = $sessions->flatMap(fn ($s) => $s->items->pluck('item_id'))->unique()->values()->all();
+
+        $branchItems = BranchItem::where('branch_id', $branchId)
+            ->whereIn('item_id', $itemIds)
             ->get()
-            ->map(fn (InventorySession $s) => [
-                'id' => $s->id,
-                'type' => 'daily_quick',
-                'status' => $s->status->value,
-                'status_label' => $s->status_label,
-                'inventory_date' => $s->inventory_date?->format('Y-m-d'),
-                'session_number' => $s->session_number ?? '',
-                'start_time' => $s->start_time?->format('Y-m-d H:i:s'),
-                'created_at' => $s->created_at->toIso8601String(),
-            ])
-            ->values()
-            ->all();
+            ->keyBy('item_id');
+
+        return $sessions->map(fn (InventorySession $s) => [
+            'id' => $s->id,
+            'type' => 'daily_quick',
+            'status' => $s->status->value,
+            'status_label' => $s->status_label,
+            'inventory_date' => $s->inventory_date?->format('Y-m-d'),
+            'session_number' => $s->session_number ?? '',
+            'start_time' => $s->start_time?->format('Y-m-d H:i:s'),
+            'created_at' => $s->created_at->toIso8601String(),
+            'items' => $s->items->map(function ($inventoryItem) use ($branchItems) {
+                $item = $inventoryItem->item;
+                $branchItem = $branchItems->get($inventoryItem->item_id);
+                return [
+                    'id' => $inventoryItem->id,
+                    'branch_item_id' => $branchItem?->id,
+                    'item_id' => $inventoryItem->item_id,
+                    'item_name' => $item?->name ?? $inventoryItem->item_name,
+                    'item_code' => $item?->code,
+                    'item_logo' => $item?->logo_url,
+                    'item_unit' => $item?->unit,
+                    'category' => $item?->category,
+                    'subcategory' => $item?->subcategory,
+                    'price' => $branchItem ? (float) $branchItem->price : null,
+                    'locked_at' => null,
+                ];
+            })->values()->all(),
+        ])->values()->all();
     }
 
     /**
