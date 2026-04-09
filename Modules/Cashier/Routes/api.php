@@ -86,6 +86,10 @@ Route::prefix('cashier')
         Route::post('/profile/image', [ProfileController::class, 'uploadImage']);
         Route::get('/profile/statistics', [ProfileController::class, 'statistics']);
 
+        // Branch & Self Info
+        Route::get('/branch-info', [ProfileController::class, 'branchInfo']);
+        Route::get('/my-info', [ProfileController::class, 'myInfo']);
+
         // Settings (3.2.1.3 Account, Notifications, System)
         Route::get('/settings', [CashierSettingsController::class, 'index']);
         Route::get('/settings/account', [CashierSettingsController::class, 'account']);

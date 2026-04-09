@@ -22,7 +22,7 @@ class WasteDamageReportController extends BaseController
 {
     use ResolvesInventoryActor;
 
-    private const BRANCH_NOT_ASSIGNED_MESSAGE = 'Branch manager is not assigned to any branch';
+    private const BRANCH_NOT_ASSIGNED_MESSAGE = 'User is not assigned to any branch';
 
     public function __construct(
         private readonly WasteDamageReportService $reportService,
@@ -36,15 +36,17 @@ class WasteDamageReportController extends BaseController
     public function assignmentInfo(): JsonResponse
     {
         try {
-            $manager = $this->resolveInventoryActor()->requireManager();
-            if (!$manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (!$branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
-            $info = $this->productService->getAssignmentInfo(
-                $manager->branch_id,
-                $manager->name ?? null
-            );
+            $creatorName = $actor->isManager()
+                ? $actor->getManager()->name
+                : $actor->getCashier()->name;
+
+            $info = $this->productService->getAssignmentInfo($branchId, $creatorName);
 
             return $this->successResponse($info, 'Assignment info retrieved successfully');
         } catch (\Exception $e) {
@@ -58,8 +60,9 @@ class WasteDamageReportController extends BaseController
     public function productsFromClosedOrders(Request $request): JsonResponse
     {
         try {
-            $manager = $this->resolveInventoryActor()->requireManager();
-            if (!$manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (!$branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -68,7 +71,7 @@ class WasteDamageReportController extends BaseController
             unset($filters['per_page']);
 
             $products = $this->productService->getProductsFromClosedOrdersForBranch(
-                $manager->branch_id,
+                $branchId,
                 $filters
             );
 
@@ -88,12 +91,13 @@ class WasteDamageReportController extends BaseController
     public function employees(): JsonResponse
     {
         try {
-            $manager = $this->resolveInventoryActor()->requireManager();
-            if (!$manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (!$branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
-            $cashiers = $this->sessionService->getAvailableCashiers($manager->branch_id);
+            $cashiers = $this->sessionService->getAvailableCashiers($branchId);
             $cashiers = $cashiers->load('branch:id,name');
 
             $data = $cashiers->map(fn ($c) => [
@@ -119,21 +123,23 @@ class WasteDamageReportController extends BaseController
     public function store(StoreWasteDamageReportRequest $request): JsonResponse
     {
         try {
-            $manager = $this->resolveInventoryActor()->requireManager();
-            if (!$manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (!$branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
+            $createdById = $actor->getActorId();
             $assignedToType = $request->validated('assigned_to_type', 'personal');
             $assignedToId = $request->validated('assigned_to_id');
             $items = $request->validated('items', []);
 
             if (empty($items)) {
-                $report = $this->reportService->createReport($manager->branch_id, $manager->id, $assignedToType, $assignedToId);
+                $report = $this->reportService->createReport($branchId, $createdById, $assignedToType, $assignedToId);
             } else {
-                $report = $this->reportService->createReport($manager->branch_id, $manager->id, $assignedToType, $assignedToId);
+                $report = $this->reportService->createReport($branchId, $createdById, $assignedToType, $assignedToId);
                 $items = $this->storeItemPhotosForReport($request, $report->id, $items);
-                $this->reportService->addItemsToReport($report, $items, $manager->id);
+                $this->reportService->addItemsToReport($report, $items, $createdById);
             }
 
             $report->loadMissing('assignedTo');

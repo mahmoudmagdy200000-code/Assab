@@ -21,15 +21,30 @@ class MonthlyInventorySessionUpdated implements ShouldBroadcastNow
         public readonly array $payload
     ) {}
 
-    public function broadcastOn(): PresenceChannel
+    /**
+     * Broadcast on the main channel AND the specific sub-channel.
+     * This ensures clients subscribed to either channel receive the event.
+     *
+     * @return array<int, PresenceChannel>
+     */
+    public function broadcastOn(): array
     {
+        $mainChannel = new PresenceChannel('inventory.monthly.' . $this->inventoryId);
+
         $suffix = match ($this->eventType) {
             'product.claimed', 'product.released' => '.pending',
             'product.updated' => '.completed',
-            default => '',
+            default => null,
         };
 
-        return new PresenceChannel('inventory.monthly.' . $this->inventoryId . $suffix);
+        if ($suffix) {
+            return [
+                $mainChannel,
+                new PresenceChannel('inventory.monthly.' . $this->inventoryId . $suffix),
+            ];
+        }
+
+        return [$mainChannel];
     }
 
     public function broadcastAs(): string
