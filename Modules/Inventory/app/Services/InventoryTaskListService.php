@@ -81,7 +81,7 @@ class InventoryTaskListService
         return MonthlyInventory::query()
             ->where('branch_id', $branchId)
             ->whereHas('staff', function ($q) use ($cashierId) {
-                $q->where('user_id', $cashierId)->where('user_type', Cashier::class);
+                $q->where('user_id', $cashierId)->whereIn('user_type', [(new Cashier)->getMorphClass(), Cashier::class]);
             })
             ->with(['branch:id,name'])
             ->orderByDesc('created_at')
