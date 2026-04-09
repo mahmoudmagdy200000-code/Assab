@@ -5,6 +5,7 @@ namespace Modules\Inventory\Database\Seeders;
 use Illuminate\Database\Seeder;
 use Modules\Inventory\Models\DailyInventorySchedule;
 use Modules\Inventory\Models\DailyInventoryScheduleItem;
+use Modules\Inventory\Models\MonthlyInventory;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
 
@@ -92,5 +93,17 @@ class BranchDailyProductsSeeder extends Seeder
         $added = count($toAdd);
         $total = count($existingItemIds) + $added;
         $this->command?->info("Added {$added} daily product(s) to branch schedule. Total items in schedule: {$total}.");
+
+        $this->resetMonthlyInventory($branchId);
+    }
+
+    private function resetMonthlyInventory(string $branchId): void
+    {
+        $deletedCount = MonthlyInventory::query()
+            ->withTrashed()
+            ->where('branch_id', $branchId)
+            ->forceDelete();
+
+        $this->command?->info("Removed {$deletedCount} monthly inventory record(s) for branch {$branchId}.");
     }
 }
