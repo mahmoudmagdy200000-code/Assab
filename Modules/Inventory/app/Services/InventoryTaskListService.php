@@ -83,17 +83,47 @@ class InventoryTaskListService
             ->whereHas('staff', function ($q) use ($cashierId) {
                 $q->where('user_id', $cashierId)->whereIn('user_type', [(new Cashier)->getMorphClass(), Cashier::class]);
             })
-            ->with(['branch:id,name'])
+            ->with([
+                'branch:id,name',
+                'createdBy:id,name',
+                'staff.user',
+                'products',
+            ])
+            ->withCount('products')
             ->orderByDesc('created_at')
             ->limit($limit)
             ->get()
             ->map(fn (MonthlyInventory $m) => [
                 'id' => $m->id,
                 'type' => 'monthly',
+                'inventory_number' => $m->inventory_number ?? '',
+                'inventory_date' => $m->inventory_date?->format('Y-m-d'),
+                'start_time' => $m->start_time?->format('H:i A'),
+                'end_time' => $m->end_time?->format('Y-m-d H:i:s'),
+                'time_taken' => $m->time_taken_formatted,
                 'status' => $m->status->value,
                 'status_label' => $m->status_label,
-                'inventory_date' => $m->inventory_date?->format('Y-m-d'),
-                'inventory_number' => $m->inventory_number ?? '',
+                'status_color' => $m->status_color,
+                'branch' => [
+                    'id' => $m->branch_id,
+                    'name' => $m->branch->name ?? null,
+                ],
+                'created_by' => [
+                    'id' => $m->created_by,
+                    'name' => $m->createdBy->name ?? null,
+                ],
+                'products_count' => $m->products_count,
+                'completed_count' => $m->products->whereNotNull('counted_by_id')->count(),
+                'staff' => $m->staff->map(fn ($s) => [
+                    'id' => $s->id,
+                    'user_id' => $s->user_id,
+                    'user_type' => $s->user_type,
+                    'role' => $s->role,
+                    'name' => $s->user?->name ?? null,
+                ])->values()->all(),
+                'notes' => $m->notes,
+                'submitted_at' => $m->submitted_at?->format('Y-m-d H:i:s'),
+                'approved_at' => $m->approved_at?->format('Y-m-d H:i:s'),
                 'created_at' => $m->created_at->toIso8601String(),
             ])
             ->values()
