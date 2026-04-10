@@ -130,14 +130,15 @@ class WasteDamageReportController extends BaseController
             }
 
             $createdById = $actor->getActorId();
+            $createdByType = $actor->getActor()->getMorphClass();
             $assignedToType = $request->validated('assigned_to_type', 'personal');
             $assignedToId = $request->validated('assigned_to_id');
             $items = $request->validated('items', []);
 
             if (empty($items)) {
-                $report = $this->reportService->createReport($branchId, $createdById, $assignedToType, $assignedToId);
+                $report = $this->reportService->createReport($branchId, $createdById, $assignedToType, $assignedToId, $createdByType);
             } else {
-                $report = $this->reportService->createReport($branchId, $createdById, $assignedToType, $assignedToId);
+                $report = $this->reportService->createReport($branchId, $createdById, $assignedToType, $assignedToId, $createdByType);
                 $items = $this->storeItemPhotosForReport($request, $report->id, $items);
                 $this->reportService->addItemsToReport($report, $items, $createdById);
             }

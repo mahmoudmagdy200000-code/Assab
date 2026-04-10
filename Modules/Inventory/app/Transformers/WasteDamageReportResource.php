@@ -105,13 +105,14 @@ class WasteDamageReportResource extends JsonResource
      */
     private function buildAssignmentInformation(): array
     {
-        $creatorName = $this->createdBy->name ?? 'Branch Manager';
+        $creatorName = $this->createdBy->name ?? 'Unknown';
+        $creatorRole = $this->created_by_type === 'cashier' ? 'Cashier' : 'Branch Manager';
         $isStaff = ($this->assigned_to_type ?? 'personal') === 'staff' && $this->assignedTo;
         $assignedByName = $isStaff ? ($this->assignedTo->name ?? $creatorName) : $creatorName;
 
         return [
             'assigned_by_name' => $assignedByName,
-            'assigned_by_role' => 'Branch Manager',
+            'assigned_by_role' => $creatorRole,
             'responsibility' => 'Accurate Waste & Damage Registration',
             'timing' => 'Immediate Upon Discovery',
             'review' => 'Will Be Sent To Manager For Approval',

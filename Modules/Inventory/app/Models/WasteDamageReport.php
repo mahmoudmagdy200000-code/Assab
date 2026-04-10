@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
@@ -27,6 +28,7 @@ class WasteDamageReport extends Model
     protected $fillable = [
         'branch_id',
         'created_by',
+        'created_by_type',
         'assigned_to_type',
         'assigned_to_id',
         'status',
@@ -43,9 +45,9 @@ class WasteDamageReport extends Model
         return $this->belongsTo(Branch::class);
     }
 
-    public function createdBy(): BelongsTo
+    public function createdBy(): MorphTo
     {
-        return $this->belongsTo(BranchManager::class, 'created_by');
+        return $this->morphTo(__FUNCTION__, 'created_by_type', 'created_by');
     }
 
     public function assignedTo(): BelongsTo

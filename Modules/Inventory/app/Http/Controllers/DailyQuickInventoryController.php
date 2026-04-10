@@ -152,12 +152,13 @@ class DailyQuickInventoryController extends BaseController
     public function getEmployees(): JsonResponse
     {
         try {
-            $manager = $this->resolveInventoryActor()->requireManager();
-            if (!$manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (!$branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
-            $cashiers = $this->sessionService->getAvailableCashiers($manager->branch_id);
+            $cashiers = $this->sessionService->getAvailableCashiers($branchId);
 
             return $this->successResponse(
                 $cashiers,
