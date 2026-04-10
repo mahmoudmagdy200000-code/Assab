@@ -99,7 +99,7 @@ class InventoryTaskListService
     }
 
     /**
-     * @return array<int, array{id: string, type: string, status: string, status_label: string, inventory_date: string|null, inventory_number: string, created_at: string}>
+     * @return array<int, array{id: string, type: string, status: string, status_label: string, inventory_date: string|null, inventory_number: string, products_count: int, inventoried_count: int, created_at: string}>
      */
     private function getMonthlyTasksForCashier(string $cashierId, string $branchId, int $limit): array
     {
@@ -109,6 +109,12 @@ class InventoryTaskListService
                 $q->where('user_id', $cashierId)->whereIn('user_type', [(new Cashier)->getMorphClass(), Cashier::class]);
             })
             ->with(['branch:id,name'])
+            ->withCount([
+                'products',
+                'products as inventoried_count' => function ($q) {
+                    $q->whereNotNull('counted_by_id');
+                },
+            ])
             ->orderByDesc('created_at')
             ->limit($limit)
             ->get()
@@ -119,6 +125,8 @@ class InventoryTaskListService
                 'status_label' => $m->status_label,
                 'inventory_date' => $m->inventory_date?->format('Y-m-d'),
                 'inventory_number' => $m->inventory_number ?? '',
+                'products_count' => $m->products_count,
+                'inventoried_count' => $m->inventoried_count,
                 'created_at' => $m->created_at->toIso8601String(),
             ])
             ->values()

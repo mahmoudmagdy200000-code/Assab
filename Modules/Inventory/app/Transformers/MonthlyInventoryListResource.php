@@ -14,6 +14,10 @@ class MonthlyInventoryListResource extends JsonResource
     public function toArray($request): array
     {
         $staffCount = $this->whenLoaded('staff') ? $this->staff->count() : 0;
+        $inventoriedProducts = $this->whenLoaded('products')
+            ? $this->products->whereNotNull('counted_by_id')
+            : collect();
+
         return [
             'id' => $this->id,
             'inventory_number' => $this->inventory_number,
@@ -34,13 +38,14 @@ class MonthlyInventoryListResource extends JsonResource
             ]),
             'performed_by' => 'Team (You & ' . max(0, $staffCount - 1) . ' Others)',
             'products_count' => $this->when(isset($this->products_count), $this->products_count),
-            'completed_count' => $this->whenLoaded('products', fn () => $this->products->whereNotNull('counted_by_id')->count(), 0),
+            'inventoried_count' => $inventoriedProducts->count(),
             'staff' => $this->whenLoaded('staff', fn () => $this->staff->map(fn ($s) => [
                 'id' => $s->id,
                 'user_id' => $s->user_id,
                 'user_type' => $s->user_type,
                 'role' => $s->role,
                 'name' => $s->user?->name ?? null,
+                'products_counted' => $inventoriedProducts->where('counted_by_id', $s->user_id)->count(),
             ])->values()),
             'notes' => $this->notes,
             'submitted_at' => $this->submitted_at?->format('Y-m-d H:i:s'),

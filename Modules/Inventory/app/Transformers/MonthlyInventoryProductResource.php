@@ -18,6 +18,7 @@ class MonthlyInventoryProductResource extends JsonResource
             'item_id' => $this->item_id,
             'purchase_order_item_id' => $this->purchase_order_item_id,
             'item_name' => $this->item_name,
+            'item_logo' => $this->item?->logo_url,
             'unit' => $this->unit,
             'quantity_inventory' => (float) $this->quantity_inventory,
             'unit_price' => (float) $this->unit_price,
