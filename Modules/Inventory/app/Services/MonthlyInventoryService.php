@@ -939,19 +939,10 @@ class MonthlyInventoryService
      */
     private function broadcastInventoryEvent(string $inventoryId, string $eventType, array $payload): void
     {
-        $suffix = match ($eventType) {
-            'product.claimed', 'product.released' => '.pending',
-            'product.updated' => '.completed',
-            default => '',
-        };
-
         Log::info('Broadcasting inventory event', [
             'inventory_id' => $inventoryId,
             'event_type' => $eventType,
-            'channels' => array_filter([
-                'inventory.monthly.' . $inventoryId,
-                $suffix ? 'inventory.monthly.' . $inventoryId . $suffix : null,
-            ]),
+            'channel' => 'inventory.monthly.' . $inventoryId,
         ]);
 
         event(new MonthlyInventorySessionUpdated($inventoryId, $eventType, $payload));
