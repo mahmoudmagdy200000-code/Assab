@@ -148,6 +148,7 @@ class ProfileController extends BaseController
                 'shift_date' => $activeShift->shift_date?->format('Y-m-d'),
                 'status' => $activeShift->status->value,
                 'status_label' => $activeShift->status->label(),
+                'workdays' => $this->getCashierWorkdays($cashier),
                 'hands_over_to' => $activeShift->next_cashier_id ? [
                     'id' => $activeShift->nextCashier?->id,
                     'name' => $activeShift->nextCashier?->name,
@@ -157,6 +158,33 @@ class ProfileController extends BaseController
                     'role' => 'Branch Manager',
                 ] : null),
             ];
+        } else {
+            // Fallback: get shift template from the latest shift assignment
+            $latestCashierShift = $cashier->shifts()
+                ->join('shifts', 'cashier_shifts.shift_id', '=', 'shifts.id')
+                ->orderBy('cashier_shifts.shift_date', 'desc')
+                ->select('cashier_shifts.*')
+                ->first();
+
+            if ($latestCashierShift && $latestCashierShift->shift) {
+                $shift = $latestCashierShift->shift;
+                $shiftDetails = [
+                    'id' => null,
+                    'store_branch' => $cashier->branch?->name,
+                    'shift_name' => $shift->name,
+                    'start_time' => $shift->start_time,
+                    'end_time' => $shift->end_time,
+                    'shift_date' => null,
+                    'status' => null,
+                    'status_label' => null,
+                    'workdays' => $this->getCashierWorkdays($cashier),
+                    'hands_over_to' => $cashier->creator ? [
+                        'id' => $cashier->creator->id,
+                        'name' => $cashier->creator->name,
+                        'role' => 'Branch Manager',
+                    ] : null,
+                ];
+            }
         }
 
         return $this->successResponse([
@@ -176,5 +204,54 @@ class ProfileController extends BaseController
                 'total_sales' => (float) $cashier->getTotalSales(),
             ],
         ], 'Cashier info retrieved successfully');
+    }
+
+    /**
+     * Get the cashier's workdays based on their recent shift pattern.
+     */
+    private function getCashierWorkdays(Cashier $cashier): ?string
+    {
+        $dayNames = [
+            0 => 'Sunday',
+            1 => 'Monday',
+            2 => 'Tuesday',
+            3 => 'Wednesday',
+            4 => 'Thursday',
+            5 => 'Friday',
+            6 => 'Saturday',
+        ];
+
+        // Get distinct days of the week from the cashier's most recent week of shifts
+        $latestDate = $cashier->shifts()->max('shift_date');
+        if (!$latestDate) {
+            return null;
+        }
+
+        $latestDate = \Carbon\Carbon::parse($latestDate);
+        $weekStart = $latestDate->copy()->startOfWeek(\Carbon\Carbon::SUNDAY);
+        $weekEnd = $weekStart->copy()->addDays(6);
+
+        $days = $cashier->shifts()
+            ->whereBetween('shift_date', [$weekStart, $weekEnd])
+            ->pluck('shift_date')
+            ->map(fn ($date) => \Carbon\Carbon::parse($date)->dayOfWeek)
+            ->unique()
+            ->sort()
+            ->values();
+
+        if ($days->isEmpty()) {
+            return null;
+        }
+
+        // Check if days are consecutive to format as range
+        $daysList = $days->toArray();
+        $isConsecutive = count($daysList) > 1 &&
+            ($daysList[count($daysList) - 1] - $daysList[0]) === (count($daysList) - 1);
+
+        if ($isConsecutive) {
+            return $dayNames[$daysList[0]] . ' - ' . $dayNames[$daysList[count($daysList) - 1]];
+        }
+
+        return $days->map(fn ($d) => $dayNames[$d])->implode(', ');
     }
 }
