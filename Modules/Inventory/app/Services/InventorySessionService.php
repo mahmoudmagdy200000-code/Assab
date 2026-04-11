@@ -132,12 +132,20 @@ class InventorySessionService
      * @param BranchManager $manager
      * @return InventorySession
      */
-    public function createDraft(array $data, BranchManager $manager): InventorySession
+    public function createDraft(array $data, BranchManager|Cashier $creator): InventorySession
     {
-        return DB::transaction(function () use ($data, $manager) {
+        return DB::transaction(function () use ($data, $creator) {
+            $creatorType = $creator instanceof Cashier ? 'cashier' : 'branch_manager';
+
+            // Cashiers can only create personal sessions (assigned to themselves)
+            if ($creator instanceof Cashier) {
+                $data['assigned_to_type'] = 'personal';
+            }
+
             $sessionData = [
-                'branch_id' => $manager->branch_id,
-                'created_by' => $manager->id,
+                'branch_id' => $creator->branch_id,
+                'created_by' => $creator->id,
+                'created_by_type' => $creatorType,
                 'assigned_to_type' => $data['assigned_to_type'],
                 'assigned_to_id' => $data['assigned_to_type'] === 'staff' ? $data['assigned_to_id'] : null,
                 'inventory_date' => $data['inventory_date'] ?? null,
@@ -146,10 +154,10 @@ class InventorySessionService
                 'status' => InventorySessionStatus::PENDING,
             ];
 
-            // Validate assigned cashier belongs to same branch
+            // Validate assigned cashier belongs to same branch (only managers can assign staff)
             if ($sessionData['assigned_to_id']) {
                 $cashier = Cashier::where('id', $sessionData['assigned_to_id'])
-                    ->where('branch_id', $manager->branch_id)
+                    ->where('branch_id', $creator->branch_id)
                     ->where('status', 'active')
                     ->firstOrFail();
             }
@@ -162,7 +170,7 @@ class InventorySessionService
                     $this->addItemToSessionByIdentifier(
                         $session->id,
                         $itemData['item_id'],
-                        $manager,
+                        $creator,
                         $itemData['quantity'] ?? 0,
                         $itemData['notes'] ?? null
                     );
@@ -183,22 +191,24 @@ class InventorySessionService
      * @param string|null $notes
      * @return InventoryItem
      */
-    private function addItemToSessionByIdentifier(string $sessionId, string $identifier, BranchManager $manager, float $quantity = 0, ?string $notes = null): InventoryItem
+    private function addItemToSessionByIdentifier(string $sessionId, string $identifier, BranchManager|Cashier $actor, float $quantity = 0, ?string $notes = null): InventoryItem
     {
+        $branchId = $actor->branch_id;
+
         $purchaseOrderItem = PurchaseOrderItem::with('purchaseOrder')
             ->where('id', $identifier)
-            ->whereHas('purchaseOrder', function ($query) use ($manager): void {
-                $query->where('branch_id', $manager->branch_id)
+            ->whereHas('purchaseOrder', function ($query) use ($branchId): void {
+                $query->where('branch_id', $branchId)
                     ->where('status', OrderStatus::CLOSED);
             })
             ->first();
 
         if ($purchaseOrderItem) {
-            return $this->addItemToSession($sessionId, $purchaseOrderItem, $manager, $quantity, $notes);
+            return $this->addItemToSession($sessionId, $purchaseOrderItem, $branchId, $quantity, $notes);
         }
 
         $branchItem = BranchItem::with('item')
-            ->where('branch_id', $manager->branch_id)
+            ->where('branch_id', $branchId)
             ->where('item_id', $identifier)
             ->firstOrFail();
 
@@ -218,21 +228,14 @@ class InventorySessionService
             'item_name' => $branchItem->item_name ?? $branchItem->item?->name ?? '',
             'quantity_inventory' => $quantity,
             'notes' => $notes,
-            'branch_id' => $manager->branch_id,
+            'branch_id' => $branchId,
         ]);
     }
 
     /**
      * Add item to session from a purchase order item (internal helper).
-     *
-     * @param string $sessionId
-     * @param PurchaseOrderItem $purchaseOrderItem
-     * @param BranchManager $manager
-     * @param float $quantity
-     * @param string|null $notes
-     * @return InventoryItem
      */
-    private function addItemToSession(string $sessionId, PurchaseOrderItem $purchaseOrderItem, BranchManager $manager, float $quantity = 0, ?string $notes = null): InventoryItem
+    private function addItemToSession(string $sessionId, PurchaseOrderItem $purchaseOrderItem, string $branchId, float $quantity = 0, ?string $notes = null): InventoryItem
     {
         $existingItem = InventoryItem::where('inventory_session_id', $sessionId)
             ->where('purchase_order_item_id', $purchaseOrderItem->id)
@@ -249,7 +252,7 @@ class InventorySessionService
             'item_name' => $purchaseOrderItem->item_name,
             'quantity_inventory' => $quantity,
             'notes' => $notes,
-            'branch_id' => $manager->branch_id,
+            'branch_id' => $branchId,
         ]);
     }
 

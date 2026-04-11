@@ -177,12 +177,13 @@ class DailyQuickInventoryController extends BaseController
     public function createSession(CreateInventorySessionRequest $request): JsonResponse
     {
         try {
-            $manager = $this->resolveInventoryActor()->requireManager();
-            if (!$manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            $user = $actor->getActor();
+            if (!$user->branch_id) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
-            $session = $this->sessionService->createDraft($request->validated(), $manager);
+            $session = $this->sessionService->createDraft($request->validated(), $user);
 
             return $this->successResponse(
                 new InventorySessionResource($session->load(['items.item', 'items.purchaseOrderItem.purchaseOrder', 'assignedTo'])),

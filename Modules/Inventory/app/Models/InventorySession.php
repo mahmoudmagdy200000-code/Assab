@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 use Modules\Branch\Models\Branch;
@@ -22,6 +23,7 @@ class InventorySession extends Model
         'session_number',
         'branch_id',
         'created_by',
+        'created_by_type',
         'assigned_to_id',
         'assigned_to_type',
         'inventory_date',
@@ -97,9 +99,9 @@ class InventorySession extends Model
         return $this->belongsTo(Branch::class);
     }
 
-    public function createdBy(): BelongsTo
+    public function createdBy(): MorphTo
     {
-        return $this->belongsTo(BranchManager::class, 'created_by');
+        return $this->morphTo(__FUNCTION__, 'created_by_type', 'created_by');
     }
 
     public function assignedTo(): BelongsTo
