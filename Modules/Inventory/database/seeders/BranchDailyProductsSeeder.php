@@ -27,14 +27,11 @@ class BranchDailyProductsSeeder extends Seeder
     {
         $branchId = self::BRANCH_ID;
 
-        $existingBranchItemIds = BranchItem::query()
-            ->where('branch_id', $branchId)
-            ->pluck('item_id')
-            ->all();
+        // Remove all existing branch items and keep only MAX_ITEMS
+        BranchItem::query()->where('branch_id', $branchId)->delete();
 
         $activeItems = Item::query()
             ->where('is_active', true)
-            ->whereNotIn('id', $existingBranchItemIds)
             ->limit(self::MAX_ITEMS)
             ->get(['id']);
 
@@ -47,8 +44,7 @@ class BranchDailyProductsSeeder extends Seeder
             ]);
         }
 
-        $branchItemsCount = count($existingBranchItemIds) + $activeItems->count();
-        $this->command?->info("Branch items: {$branchItemsCount} (added " . $activeItems->count() . "). /branch-items API will return these.");
+        $this->command?->info("Branch items reset: {$activeItems->count()} items.");
 
         $schedule = DailyInventorySchedule::query()
             ->byBranch($branchId)
