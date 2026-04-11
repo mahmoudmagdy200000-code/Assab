@@ -13,7 +13,7 @@ class BranchDailyProductsSeeder extends Seeder
 {
     private const BRANCH_ID = '019bd5e8-4837-700b-81b5-c9f2080fcbff';
 
-    private const MAX_ITEMS = 5;
+    private const MAX_ITEMS = 4;
 
     private const DEFAULT_PRICE = 0;
 
@@ -69,20 +69,19 @@ class BranchDailyProductsSeeder extends Seeder
 
         $itemIds = BranchItem::query()
             ->where('branch_id', $branchId)
+            ->limit(self::MAX_ITEMS)
             ->pluck('item_id')
             ->unique()
             ->values()
             ->all();
 
-        $existingItemIds = DailyInventoryScheduleItem::query()
+        // Reset schedule items and add only MAX_ITEMS
+        DailyInventoryScheduleItem::query()
             ->where('daily_inventory_schedule_id', $schedule->id)
-            ->pluck('item_id')
-            ->all();
+            ->delete();
 
-        $toAdd = array_diff($itemIds, $existingItemIds);
-        $sortOrder = count($existingItemIds);
-
-        foreach ($toAdd as $itemId) {
+        $sortOrder = 0;
+        foreach ($itemIds as $itemId) {
             DailyInventoryScheduleItem::create([
                 'daily_inventory_schedule_id' => $schedule->id,
                 'item_id' => $itemId,
@@ -90,9 +89,7 @@ class BranchDailyProductsSeeder extends Seeder
             ]);
         }
 
-        $added = count($toAdd);
-        $total = count($existingItemIds) + $added;
-        $this->command?->info("Added {$added} daily product(s) to branch schedule. Total items in schedule: {$total}.");
+        $this->command?->info("Set " . count($itemIds) . " daily product(s) in branch schedule.");
 
         $this->resetMonthlyInventory($branchId);
     }
