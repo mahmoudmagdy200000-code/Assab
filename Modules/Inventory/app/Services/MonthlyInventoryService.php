@@ -570,6 +570,31 @@ class MonthlyInventoryService
                 throw new \InvalidArgumentException('Inventory cannot be submitted in current status.');
             }
 
+            // Auto-complete if still in_progress and all products are counted
+            if ($inventory->status === MonthlyInventoryStatus::IN_PROGRESS) {
+                $inventory->load('products');
+                $total = $inventory->products->count();
+                $counted = $inventory->products->where('quantity_inventory', '>', 0)->count();
+                if ($total > 0 && $counted < $total) {
+                    throw new \InvalidArgumentException('All products must be counted before submitting.');
+                }
+                $inventory->update([
+                    'status' => MonthlyInventoryStatus::COMPLETED,
+                    'end_time' => now(),
+                ]);
+                $inventory->calculateTimeTaken();
+                $inventory->save();
+
+                MonthlyInventoryTimeline::log(
+                    $inventory,
+                    MonthlyInventoryTimelineEventType::REVIEWED,
+                    'Auto-completed on submit',
+                    'All products counted.',
+                    MonthlyInventoryStatus::IN_PROGRESS->value,
+                    MonthlyInventoryStatus::COMPLETED->value
+                );
+            }
+
             $old = $inventory->status->value;
             $inventory->update([
                 'status' => MonthlyInventoryStatus::SUBMITTED,

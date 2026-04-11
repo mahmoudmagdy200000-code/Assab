@@ -52,6 +52,6 @@ enum MonthlyInventoryStatus: string
 
     public function canSubmit(): bool
     {
-        return in_array($this, [self::COMPLETED, self::RETURNED_TO_DRAFT], true);
+        return in_array($this, [self::IN_PROGRESS, self::COMPLETED, self::RETURNED_TO_DRAFT], true);
     }
 }
