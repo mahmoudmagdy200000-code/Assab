@@ -4,6 +4,7 @@ namespace Modules\Inventory\Enums;
 
 enum DailyInventoryTimelineEventType: string
 {
+    case CREATED = 'created';
     case SUBMITTED = 'submitted';
     case VIEWED_BY_ACCOUNT_MANAGER = 'viewed_by_account_manager';
     case REJECTED = 'rejected';
@@ -15,6 +16,7 @@ enum DailyInventoryTimelineEventType: string
     public function label(): string
     {
         return match ($this) {
+            self::CREATED => 'Created',
             self::SUBMITTED => 'Submitted',
             self::VIEWED_BY_ACCOUNT_MANAGER => 'Viewed by Account Manager',
             self::REJECTED => 'Rejected',
@@ -28,6 +30,7 @@ enum DailyInventoryTimelineEventType: string
     public function icon(): string
     {
         return match ($this) {
+            self::CREATED => 'plus-circle',
             self::SUBMITTED => 'send',
             self::VIEWED_BY_ACCOUNT_MANAGER => 'eye',
             self::REJECTED => 'x-circle',

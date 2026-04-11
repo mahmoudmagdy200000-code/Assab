@@ -11,10 +11,8 @@ use Modules\Inventory\Enums\InventorySessionStatus;
 use Modules\Inventory\Models\InventoryItem;
 use Modules\Inventory\Models\InventorySession;
 use Modules\Inventory\Models\InventorySessionTimeline;
-use Modules\Inventory\Services\DailyInventoryDiscrepancyService;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Models\BranchItem;
-use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
 
 class InventorySessionService
@@ -25,9 +23,7 @@ class InventorySessionService
      * By default excludes items that are in an ACTIVE session (draft/pending/pending_your_action/pending_your_confirmation).
      * Items from completed, approved, or rejected sessions are always available again.
      *
-     * @param string $branchId
-     * @param bool $includeAll When true, return all branch items without any exclusion.
-     * @return Collection
+     * @param  bool  $includeAll  When true, return all branch items without any exclusion.
      */
     public function getBranchItems(string $branchId, bool $includeAll = false): Collection
     {
@@ -43,7 +39,7 @@ class InventorySessionService
             ];
 
             $itemIdsInActiveSessions = InventoryItem::where('branch_id', $branchId)
-                ->whereHas('inventorySession', fn($q) => $q->whereIn('status', $activeStatuses))
+                ->whereHas('inventorySession', fn ($q) => $q->whereIn('status', $activeStatuses))
                 ->select('item_id')
                 ->distinct()
                 ->pluck('item_id');
@@ -53,7 +49,7 @@ class InventorySessionService
 
         return $query
             ->get()
-            ->sortBy(fn($bi) => $bi->item?->name ?? '')
+            ->sortBy(fn ($bi) => $bi->item?->name ?? '')
             ->values()
             ->map(function ($branchItem) {
                 return [
@@ -74,9 +70,6 @@ class InventorySessionService
 
     /**
      * Get all purchase order items from closed orders for a branch
-     *
-     * @param string $branchId
-     * @return Collection
      */
     public function getClosedOrderItems(string $branchId): Collection
     {
@@ -112,9 +105,6 @@ class InventorySessionService
 
     /**
      * Get available cashiers for a branch
-     *
-     * @param string $branchId
-     * @return Collection
      */
     public function getAvailableCashiers(string $branchId): Collection
     {
@@ -128,9 +118,7 @@ class InventorySessionService
     /**
      * Create a draft inventory session
      *
-     * @param array $data
-     * @param BranchManager $manager
-     * @return InventorySession
+     * @param  BranchManager  $manager
      */
     public function createDraft(array $data, BranchManager|Cashier $creator): InventorySession
     {
@@ -151,7 +139,7 @@ class InventorySessionService
                 'inventory_date' => $data['inventory_date'] ?? null,
                 'start_time' => $data['start_time'] ?? null,
                 'notes' => $data['notes'] ?? null,
-                'status' => InventorySessionStatus::PENDING,
+                'status' => InventorySessionStatus::DRAFT,
             ];
 
             // Validate assigned cashier belongs to same branch (only managers can assign staff)
@@ -165,7 +153,7 @@ class InventorySessionService
             $session = InventorySession::create($sessionData);
 
             // Add items if provided (item_id can be purchase_order_item id or item id from getBranchItems)
-            if (!empty($data['items']) && is_array($data['items'])) {
+            if (! empty($data['items']) && is_array($data['items'])) {
                 foreach ($data['items'] as $itemData) {
                     $this->addItemToSessionByIdentifier(
                         $session->id,
@@ -177,6 +165,15 @@ class InventorySessionService
                 }
             }
 
+            InventorySessionTimeline::log(
+                $session,
+                DailyInventoryTimelineEventType::CREATED,
+                'Created',
+                'Daily inventory session created.',
+                null,
+                InventorySessionStatus::DRAFT->value
+            );
+
             return $session->fresh(['items.item', 'items.purchaseOrderItem.purchaseOrder']);
         });
     }
@@ -184,12 +181,8 @@ class InventorySessionService
     /**
      * Add item to session by identifier (purchase_order_item id or item id from getBranchItems).
      *
-     * @param string $sessionId
-     * @param string $identifier Either purchase_order_items.id or items.id (from branch_items)
-     * @param BranchManager $manager
-     * @param float $quantity
-     * @param string|null $notes
-     * @return InventoryItem
+     * @param  string  $identifier  Either purchase_order_items.id or items.id (from branch_items)
+     * @param  BranchManager  $manager
      */
     private function addItemToSessionByIdentifier(string $sessionId, string $identifier, BranchManager|Cashier $actor, float $quantity = 0, ?string $notes = null): InventoryItem
     {
@@ -258,11 +251,6 @@ class InventorySessionService
 
     /**
      * Update a draft inventory session
-     *
-     * @param string $sessionId
-     * @param array $data
-     * @param BranchManager $manager
-     * @return InventorySession
      */
     public function updateDraft(string $sessionId, array $data, BranchManager $manager): InventorySession
     {
@@ -298,10 +286,6 @@ class InventorySessionService
     /**
      * Submit inventory session. Sets status to Pending (awaiting Account Manager approval).
      * Allowed for Branch Manager (creator) or Cashier (assigned to session).
-     *
-     * @param string $sessionId
-     * @param BranchManager|Cashier $actor
-     * @return InventorySession
      */
     public function submitSession(string $sessionId, BranchManager|Cashier $actor): InventorySession
     {
@@ -408,9 +392,8 @@ class InventorySessionService
     /**
      * Approve session (Account Manager). Optionally accept sales per item. Runs discrepancy calculation.
      *
-     * @param string $sessionId
-     * @param array $sales Map of inventory_item_id or item_id => sales_quantity
-     * @param array $recordedWaste Optional map of inventory_item_id or item_id => recorded_waste
+     * @param  array  $sales  Map of inventory_item_id or item_id => sales_quantity
+     * @param  array  $recordedWaste  Optional map of inventory_item_id or item_id => recorded_waste
      */
     public function approveSession(string $sessionId, array $sales = [], array $recordedWaste = []): InventorySession
     {
@@ -490,11 +473,6 @@ class InventorySessionService
 
     /**
      * Add item to inventory session
-     *
-     * @param string $sessionId
-     * @param array $itemData
-     * @param BranchManager $manager
-     * @return InventoryItem
      */
     public function addItem(string $sessionId, array $itemData, BranchManager $manager): InventoryItem
     {
@@ -537,11 +515,6 @@ class InventorySessionService
 
     /**
      * Update inventory item. Allowed for Branch Manager or Cashier (when session assigned to them).
-     *
-     * @param string $itemId
-     * @param array $data
-     * @param BranchManager|Cashier $actor
-     * @return InventoryItem
      */
     public function updateItem(string $itemId, array $data, BranchManager|Cashier $actor): InventoryItem
     {
@@ -578,10 +551,6 @@ class InventorySessionService
 
     /**
      * Remove item from inventory session
-     *
-     * @param string $itemId
-     * @param BranchManager $manager
-     * @return bool
      */
     public function removeItem(string $itemId, BranchManager $manager): bool
     {
@@ -616,7 +585,7 @@ class InventorySessionService
             ->orderByDesc('updated_at')
             ->limit(5)
             ->pluck('quantity_inventory')
-            ->map(fn($q) => (float) $q)
+            ->map(fn ($q) => (float) $q)
             ->values()
             ->toArray();
     }
@@ -641,13 +610,13 @@ class InventorySessionService
 
         $session = $query->firstOrFail();
 
-        if (!$session->start_time) {
+        if (! $session->start_time) {
             $session->start_time = now();
         }
-        if (!$session->inventory_date) {
+        if (! $session->inventory_date) {
             $session->inventory_date = now()->toDateString();
         }
-        if (!$session->created_by && $session->status === InventorySessionStatus::PENDING && $actor instanceof BranchManager) {
+        if (! $session->created_by && $session->status === InventorySessionStatus::PENDING && $actor instanceof BranchManager) {
             $session->created_by = $actor->id;
         }
         $session->save();
@@ -657,10 +626,6 @@ class InventorySessionService
 
     /**
      * Get session summary. Allowed for Branch Manager or Cashier (when session assigned to them).
-     *
-     * @param string $sessionId
-     * @param BranchManager|Cashier $actor
-     * @return array
      */
     public function getSessionSummary(string $sessionId, BranchManager|Cashier $actor): array
     {
@@ -683,7 +648,7 @@ class InventorySessionService
 
         $items = $session->items()->with(['item', 'purchaseOrderItem.purchaseOrder'])->get();
         $totalItems = $items->count();
-        $completedCount = $items->filter(fn($i) => (float) $i->quantity_inventory > 0)->count();
+        $completedCount = $items->filter(fn ($i) => (float) $i->quantity_inventory > 0)->count();
 
         $performedBy = ($session->assigned_to_type === 'staff' && $session->assigned_to_id && $session->assignedTo)
             ? ['id' => $session->assigned_to_id, 'name' => $session->assignedTo->name]
@@ -696,7 +661,7 @@ class InventorySessionService
                 'end_time' => $session->end_time?->format('Y-m-d H:i:s'),
                 'time_taken' => $session->time_taken_formatted,
                 'performed_by' => $performedBy,
-                'completed_products' => $totalItems > 0 ? "{$completedCount}/{$totalItems} (" . round($completedCount / $totalItems * 100) . '%)' : '0/0 (0%)',
+                'completed_products' => $totalItems > 0 ? "{$completedCount}/{$totalItems} (".round($completedCount / $totalItems * 100).'%)' : '0/0 (0%)',
                 'completed_count' => $completedCount,
                 'total_count' => $totalItems,
                 'status' => $session->status->value,

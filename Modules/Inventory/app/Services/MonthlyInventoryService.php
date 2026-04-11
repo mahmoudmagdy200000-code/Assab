@@ -9,22 +9,23 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
-use Modules\Inventory\Events\MonthlyInventorySessionUpdated;
 use Modules\Inventory\Enums\MonthlyInventoryStatus;
 use Modules\Inventory\Enums\MonthlyInventoryTimelineEventType;
+use Modules\Inventory\Events\MonthlyInventorySessionUpdated;
 use Modules\Inventory\Models\MonthlyInventory;
 use Modules\Inventory\Models\MonthlyInventoryFeedback;
 use Modules\Inventory\Models\MonthlyInventoryProduct;
 use Modules\Inventory\Models\MonthlyInventoryStaff;
 use Modules\Inventory\Models\MonthlyInventoryTimeline;
 use Modules\Inventory\Repositories\MonthlyInventoryRepository;
-use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Models\PurchaseOrderItem;
 
 class MonthlyInventoryService
 {
     private const EXPECTED_MINUTES_PER_PRODUCT = 0.5;
+
     private const MIN_EXPECTED_MINUTES = 45;
+
     private const MAX_EXPECTED_MINUTES = 60;
 
     public function __construct(
@@ -49,7 +50,7 @@ class MonthlyInventoryService
             'date' => now()->format('Y-m-d'),
             'number_of_products' => $count,
             'expected_time_minutes' => $expectedMinutes,
-            'expected_time_label' => $expectedMinutes . '-' . min($expectedMinutes + 15, self::MAX_EXPECTED_MINUTES) . ' Minutes',
+            'expected_time_label' => $expectedMinutes.'-'.min($expectedMinutes + 15, self::MAX_EXPECTED_MINUTES).' Minutes',
         ];
     }
 
@@ -67,12 +68,13 @@ class MonthlyInventoryService
     public function getLastTeam(string $branchId): array
     {
         $last = $this->repository->getLastCompletedForBranch($branchId);
-        if (!$last || $last->staff->isEmpty()) {
+        if (! $last || $last->staff->isEmpty()) {
             return [];
         }
 
         return $last->staff->map(function (MonthlyInventoryStaff $s) {
             $user = $s->user;
+
             return [
                 'id' => $s->user_id,
                 'type' => $s->user_type,
@@ -85,7 +87,7 @@ class MonthlyInventoryService
     /**
      * Get status counts for list tabs (in_progress, draft, completed, etc.).
      *
-     * @param array{branch_id: string, created_by?: string} $filters
+     * @param  array{branch_id: string, created_by?: string}  $filters
      * @return array<string, int>
      */
     public function getStatusCounts(array $filters): array
@@ -106,7 +108,7 @@ class MonthlyInventoryService
     /**
      * Create and start a monthly inventory.
      *
-     * @param array{inventory_date: string, staff?: array<string>} $data
+     * @param  array{inventory_date: string, staff?: array<string>}  $data
      */
     public function create(array $data, BranchManager $manager): MonthlyInventory
     {
@@ -146,7 +148,7 @@ class MonthlyInventoryService
     }
 
     /**
-     * @param array<string> $staffIds Cashier IDs
+     * @param  array<string>  $staffIds  Cashier IDs
      */
     private function attachTeam(MonthlyInventory $inventory, BranchManager $manager, array $staffIds): void
     {
@@ -178,13 +180,13 @@ class MonthlyInventoryService
         $seenItemIds = [];
         foreach ($items as $row) {
             $itemId = $row['item_id'] ?? null;
-            if (!$itemId || isset($seenItemIds[$itemId])) {
+            if (! $itemId || isset($seenItemIds[$itemId])) {
                 continue;
             }
             $seenItemIds[$itemId] = true;
 
             $poItem = null;
-            if (!empty($row['purchase_order_item_id'])) {
+            if (! empty($row['purchase_order_item_id'])) {
                 $poItem = PurchaseOrderItem::with('item')->find($row['purchase_order_item_id']);
             }
             $unit = $row['item_unit'] ?? $poItem?->item?->unit ?? $poItem?->unit_of_measurement ?? 'unit';
@@ -208,7 +210,7 @@ class MonthlyInventoryService
     }
 
     /**
-     * @param array{branch_id?: string, created_by?: string, status?: string, date_from?: string, date_to?: string} $filters
+     * @param  array{branch_id?: string, created_by?: string, status?: string, date_from?: string, date_to?: string}  $filters
      */
     public function listByStatus(string $branchId, ?string $status, array $filters, int $perPage = 15): LengthAwarePaginator
     {
@@ -223,7 +225,7 @@ class MonthlyInventoryService
     /**
      * List monthly inventories for a cashier (where they are in staff).
      *
-     * @param array{date_from?: string, date_to?: string} $filters
+     * @param  array{date_from?: string, date_to?: string}  $filters
      */
     public function listByStatusForStaff(string $branchId, string $cashierId, ?string $status, array $filters, int $perPage = 15): LengthAwarePaginator
     {
@@ -260,7 +262,7 @@ class MonthlyInventoryService
             ->with(['item', 'purchaseOrderItem', 'handledBy', 'countedBy']);
 
         if ($search !== null && $search !== '') {
-            $query->where('item_name', 'like', '%' . $search . '%');
+            $query->where('item_name', 'like', '%'.$search.'%');
         }
 
         return $query->orderBy('item_name')->get();
@@ -275,7 +277,7 @@ class MonthlyInventoryService
             ->with(['item', 'purchaseOrderItem', 'handledBy', 'countedBy']);
 
         if ($search !== null && $search !== '') {
-            $query->where('item_name', 'like', '%' . $search . '%');
+            $query->where('item_name', 'like', '%'.$search.'%');
         }
 
         if ($completedOnly) {
@@ -288,14 +290,14 @@ class MonthlyInventoryService
     /**
      * Update product quantity. Optional count_method and count_metadata for slider.
      *
-     * @param array{quantity_inventory: float, count_method?: string, count_metadata?: array} $data
+     * @param  array{quantity_inventory: float, count_method?: string, count_metadata?: array}  $data
      */
     public function updateProductQuantity(string $inventoryId, string $productId, array $data, BranchManager|Cashier $actor): MonthlyInventoryProduct
     {
         Log::info('updateProductQuantity CALLED', [
             'inventory_id' => $inventoryId,
             'product_id' => $productId,
-            'actor' => get_class($actor) . ':' . $actor->getKey(),
+            'actor' => get_class($actor).':'.$actor->getKey(),
         ]);
 
         $fresh = DB::transaction(function () use ($inventoryId, $productId, $data, $actor) {
@@ -305,7 +307,7 @@ class MonthlyInventoryService
 
             $inventory = $product->monthlyInventory;
             $this->ensureProductBelongsToInventoryBranch($inventory, $product);
-            if (!$inventory->status->isEditable()) {
+            if (! $inventory->status->isEditable()) {
                 throw new \InvalidArgumentException('Inventory is not editable in current status.');
             }
 
@@ -360,7 +362,7 @@ class MonthlyInventoryService
     {
         $fresh = DB::transaction(function () use ($inventoryId, $productId, $user) {
             $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
-            if (!$inventory->status->isEditable()) {
+            if (! $inventory->status->isEditable()) {
                 throw new \InvalidArgumentException('Inventory is not editable in current status.');
             }
 
@@ -374,10 +376,10 @@ class MonthlyInventoryService
                         });
                 })
                 ->update([
-                'handled_by_id' => $user->getKey(),
-                'handled_by_type' => $user->getMorphClass(),
-                'locked_at' => now(),
-            ]);
+                    'handled_by_id' => $user->getKey(),
+                    'handled_by_type' => $user->getMorphClass(),
+                    'locked_at' => now(),
+                ]);
 
             if ($updatedRows === 0) {
                 throw new \InvalidArgumentException('This product is already claimed by another staff member.');
@@ -407,7 +409,7 @@ class MonthlyInventoryService
     {
         $fresh = DB::transaction(function () use ($inventoryId, $productId, $actor) {
             $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
-            if (!$inventory->status->isEditable()) {
+            if (! $inventory->status->isEditable()) {
                 throw new \InvalidArgumentException('Inventory is not editable in current status.');
             }
 
@@ -485,7 +487,7 @@ class MonthlyInventoryService
         $inventory = DB::transaction(function () use ($inventoryId, $moveToDraft) {
             $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
 
-            if (!$inventory->status->isEditable()) {
+            if (! $inventory->status->isEditable()) {
                 throw new \InvalidArgumentException('Inventory is not editable.');
             }
 
@@ -521,7 +523,7 @@ class MonthlyInventoryService
         return DB::transaction(function () use ($inventoryId) {
             $inventory = MonthlyInventory::with('products')->where('id', $inventoryId)->firstOrFail();
 
-            if (!$inventory->status->isEditable()) {
+            if (! $inventory->status->isEditable()) {
                 throw new \InvalidArgumentException('Inventory is not editable.');
             }
 
@@ -562,11 +564,11 @@ class MonthlyInventoryService
             $createdBy = $actor instanceof BranchManager ? $actor->id : null;
             $staffCashierId = $actor instanceof Cashier ? $actor->id : null;
             $inventory = $this->findForBranchOrStaff($inventoryId, $branchId, $createdBy, $staffCashierId);
-            if (!$inventory) {
+            if (! $inventory) {
                 throw new \InvalidArgumentException('Inventory not found.');
             }
 
-            if (!$inventory->status->canSubmit()) {
+            if (! $inventory->status->canSubmit()) {
                 throw new \InvalidArgumentException('Inventory cannot be submitted in current status.');
             }
 
@@ -708,19 +710,20 @@ class MonthlyInventoryService
             ->map(function ($items, $cat) use ($totalValue) {
                 $value = $items->sum(fn (MonthlyInventoryProduct $p) => $p->line_value);
                 $percentage = $totalValue > 0 ? round((float) $value / (float) $totalValue * 100, 0) : 0;
+
                 return ['category' => $cat, 'value' => round($value, 2), 'percentage' => (int) $percentage, 'items' => $items->count()];
             })
             ->values()
             ->all();
 
         $countedByCounts = $products->filter(fn (MonthlyInventoryProduct $p) => $p->counted_by_id !== null)
-            ->groupBy(fn (MonthlyInventoryProduct $p) => $p->counted_by_type . ':' . $p->counted_by_id)
+            ->groupBy(fn (MonthlyInventoryProduct $p) => $p->counted_by_type.':'.$p->counted_by_id)
             ->map->count()
             ->all();
 
         $teamContributions = [];
         foreach ($inventory->staff as $s) {
-            $key = $s->user_type . ':' . $s->user_id;
+            $key = $s->user_type.':'.$s->user_id;
             $teamContributions[] = [
                 'user_id' => $s->user_id,
                 'user_type' => $s->user_type,
@@ -784,6 +787,7 @@ class MonthlyInventoryService
         }
         $changePercent = (($currentTotalValue - $previousTotal) / $previousTotal) * 100;
         $direction = $changePercent > 0 ? 'higher' : ($changePercent < 0 ? 'lower' : 'same');
+
         return [
             'total_value_previous' => $previousTotal,
             'change_percent' => round($changePercent, 2),
@@ -805,13 +809,14 @@ class MonthlyInventoryService
         if ($completionPct >= 90 && $withinTime) {
             return 'Very Good';
         }
+
         return 'Good';
     }
 
     /**
      * Rule-based recommendations for next month.
      *
-     * @param array<int, array{products_count: int, performance: string}> $teamContributions
+     * @param  array<int, array{products_count: int, performance: string}>  $teamContributions
      * @return array<int, string>
      */
     private function deriveRecommendations(MonthlyInventory $inventory, int $completed, int $total, array $teamContributions): array
@@ -835,13 +840,14 @@ class MonthlyInventoryService
         if ($recommendations === []) {
             $recommendations[] = 'Maintain current performance level';
         }
+
         return array_values(array_unique($recommendations));
     }
 
     /**
      * Assign performance labels (Excellent, Very Good, Good) by products_count rank.
      *
-     * @param array<int, array{products_count: int, performance: string}> $teamContributions
+     * @param  array<int, array{products_count: int, performance: string}>  $teamContributions
      */
     private function assignPerformanceLabels(array &$teamContributions): void
     {
@@ -857,9 +863,9 @@ class MonthlyInventoryService
             $rank++;
         }
         unset($row);
-        $byKey = collect($sorted)->keyBy(fn ($r) => $r['user_type'] . ':' . $r['user_id'])->all();
+        $byKey = collect($sorted)->keyBy(fn ($r) => $r['user_type'].':'.$r['user_id'])->all();
         foreach ($teamContributions as &$row) {
-            $key = $row['user_type'] . ':' . $row['user_id'];
+            $key = $row['user_type'].':'.$row['user_id'];
             if (isset($byKey[$key])) {
                 $row['performance'] = $byKey[$key]['performance'];
             }
@@ -907,14 +913,17 @@ class MonthlyInventoryService
                 ? (($currQty - $prevQty) / $prevQty) * 100
                 : ($currQty > 0 ? 100.0 : 0.0);
 
+            $direction = $changePct > 0 ? 'Increase' : ($changePct < 0 ? 'Decrease' : 'No Change');
+
             $items[] = [
                 'item_id' => $itemId,
                 'item_name' => $c?->item_name ?? $p?->item_name ?? 'Unknown',
                 'unit' => $c?->unit ?? $p?->unit ?? 'unit',
                 'current_quantity' => $currQty,
                 'previous_quantity' => $prevQty,
-                'change_percent' => round($changePct, 2),
-                'not_in_current_report' => !$c && $p,
+                'change_percent' => round(abs($changePct), 2),
+                'direction' => $direction,
+                'not_in_current_report' => ! $c && $p,
             ];
         }
 
@@ -960,14 +969,14 @@ class MonthlyInventoryService
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     private function broadcastInventoryEvent(string $inventoryId, string $eventType, array $payload): void
     {
         Log::info('Broadcasting inventory event', [
             'inventory_id' => $inventoryId,
             'event_type' => $eventType,
-            'channel' => 'inventory.monthly.' . $inventoryId,
+            'channel' => 'inventory.monthly.'.$inventoryId,
         ]);
 
         event(new MonthlyInventorySessionUpdated($inventoryId, $eventType, $payload));

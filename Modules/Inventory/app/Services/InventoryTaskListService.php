@@ -4,6 +4,8 @@ namespace Modules\Inventory\Services;
 
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
+use Modules\Inventory\Enums\InventorySessionStatus;
+use Modules\Inventory\Enums\WasteDamageReportStatus;
 use Modules\Inventory\Models\InventorySession;
 use Modules\Inventory\Models\MonthlyInventory;
 use Modules\Inventory\Models\WasteDamageReport;
@@ -24,7 +26,7 @@ class InventoryTaskListService
     public function getTasksForActor(BranchManager|Cashier $actor, int $limit = self::DEFAULT_LIMIT): array
     {
         $branchId = $actor->branch_id ?? null;
-        if (!$branchId) {
+        if (! $branchId) {
             return [
                 'daily_quick' => [],
                 'monthly' => [],
@@ -56,6 +58,10 @@ class InventoryTaskListService
             ->where('branch_id', $branchId)
             ->where('assigned_to_type', 'staff')
             ->where('assigned_to_id', $cashierId)
+            ->whereIn('status', [
+                InventorySessionStatus::DRAFT->value,
+                InventorySessionStatus::REJECTED->value,
+            ])
             ->with(['branch:id,name', 'assignedTo:id,name', 'items.item'])
             ->orderByDesc('created_at')
             ->limit($limit)
@@ -81,6 +87,7 @@ class InventoryTaskListService
             'items' => $s->items->map(function ($inventoryItem) use ($branchItems) {
                 $item = $inventoryItem->item;
                 $branchItem = $branchItems->get($inventoryItem->item_id);
+
                 return [
                     'id' => $inventoryItem->id,
                     'branch_item_id' => $branchItem?->id,
@@ -141,6 +148,10 @@ class InventoryTaskListService
         return WasteDamageReport::query()
             ->where('branch_id', $branchId)
             ->where('assigned_to_id', $cashierId)
+            ->whereIn('status', [
+                WasteDamageReportStatus::DRAFT->value,
+                WasteDamageReportStatus::PENDING->value,
+            ])
             ->orderByDesc('created_at')
             ->limit($limit)
             ->get()

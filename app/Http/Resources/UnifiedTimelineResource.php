@@ -65,7 +65,7 @@ class UnifiedTimelineResource extends JsonResource
     private function formatExpenseTimeline(): array
     {
         $timeline = $this->resource;
-        $eventType = 'expense_' . $timeline->action;
+        $eventType = 'expense_'.$timeline->action;
 
         return [
             'id' => $timeline->id,
@@ -80,7 +80,7 @@ class UnifiedTimelineResource extends JsonResource
     {
         $timeline = $this->resource;
         $stageSnake = str_replace(' ', '_', strtolower($timeline->stage));
-        $eventType = 'custody_' . $stageSnake;
+        $eventType = 'custody_'.$stageSnake;
 
         return [
             'id' => $timeline->id,
@@ -103,6 +103,7 @@ class UnifiedTimelineResource extends JsonResource
 
     private const INVENTORY_EVENT_MAP = [
         // Daily (session)
+        'created' => 'inventory_created',
         'submitted' => 'inventory_created',
         'viewed_by_account_manager' => 'inventory_viewed',
         'rejected' => 'inventory_rejected',
@@ -173,21 +174,24 @@ class UnifiedTimelineResource extends JsonResource
 
     private function actorImageUrl(?string $path): ?string
     {
-        if (!$path) {
+        if (! $path) {
             return null;
         }
-        return str_starts_with($path, 'http') ? $path : asset('storage/' . $path);
+
+        return str_starts_with($path, 'http') ? $path : asset('storage/'.$path);
     }
 
     private function expensePerformerName(\Modules\Expense\Models\ExpenseTimeline $timeline): string
     {
         if ($timeline->performed_by_type === 'branch_manager') {
             $manager = \Modules\BranchManagers\Models\BranchManager::find($timeline->performed_by);
+
             return $manager?->name ?? '';
         }
         if ($timeline->performed_by_type === 'brand_owner') {
             return 'Brand Owner';
         }
+
         return 'System';
     }
 
@@ -196,8 +200,10 @@ class UnifiedTimelineResource extends JsonResource
         if ($timeline->performed_by_type === 'branch_manager') {
             $manager = \Modules\BranchManagers\Models\BranchManager::find($timeline->performed_by);
             $image = $manager?->image ?? null;
+
             return $image ? $this->actorImageUrl($image) : null;
         }
+
         return null;
     }
 }
