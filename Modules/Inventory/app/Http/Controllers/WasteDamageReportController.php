@@ -140,7 +140,12 @@ class WasteDamageReportController extends BaseController
             } else {
                 $report = $this->reportService->createReport($branchId, $createdById, $assignedToType, $assignedToId, $createdByType);
                 $items = $this->storeItemPhotosForReport($request, $report->id, $items);
-                $this->reportService->addItemsToReport($report, $items, $createdById);
+                $this->reportService->addItemsToReport(
+                    $report,
+                    $items,
+                    $actor->isManager() ? $createdById : null,
+                    $actor->isCashier() ? $createdById : null,
+                );
             }
 
             $report->loadMissing('assignedTo');
@@ -277,7 +282,14 @@ class WasteDamageReportController extends BaseController
             }
 
             $assignedToId = $actor->isCashier() ? $actor->getActorId() : null;
-            $item = $this->reportService->addItem($id, $branchId, $data, $actor->getActorId(), $assignedToId);
+            $item = $this->reportService->addItem(
+                $id,
+                $branchId,
+                $data,
+                $actor->isManager() ? $actor->getActorId() : null,
+                $actor->isCashier() ? $actor->getActorId() : null,
+                $assignedToId,
+            );
 
             return $this->createdResponse(
                 new WasteDamageReportItemResource($item),
@@ -309,7 +321,15 @@ class WasteDamageReportController extends BaseController
             }
 
             $assignedToId = $actor->isCashier() ? $actor->getActorId() : null;
-            $item = $this->reportService->updateItem($id, $itemId, $branchId, $data, $actor->getActorId(), $assignedToId);
+            $item = $this->reportService->updateItem(
+                $id,
+                $itemId,
+                $branchId,
+                $data,
+                $actor->isManager() ? $actor->getActorId() : null,
+                $actor->isCashier() ? $actor->getActorId() : null,
+                $assignedToId,
+            );
 
             return $this->successResponse(
                 new WasteDamageReportItemResource($item),

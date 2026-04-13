@@ -130,7 +130,7 @@ class WasteDamageReportService
                     'price_per_unit' => $pricePerUnit,
                 ]);
 
-                $this->syncResponsibleEmployees($item, $itemData['responsible_employees'] ?? [], $createdBy, (float) ($itemData['my_quantity_accountable'] ?? 0));
+                $this->syncResponsibleEmployees($item, $itemData['responsible_employees'] ?? [], $createdBy, null, (float) ($itemData['my_quantity_accountable'] ?? 0));
             }
 
             return $report->load(['items.responsibleEmployees.cashier.branch', 'items.responsibleEmployees.branchManager', 'items.item']);
@@ -142,11 +142,11 @@ class WasteDamageReportService
      *
      * @param array<int, array{item_id: string, purchase_order_item_id?: string|null, problem_type: string, cause_of_damage?: string|null, quantity: float, reason: string, unit?: string|null, justification_text?: string|null, photo_path?: string|null, price_per_unit?: float|null, my_quantity_accountable?: float, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>}> $items
      */
-    public function addItemsToReport(WasteDamageReport $report, array $items, string $branchManagerId): WasteDamageReport
+    public function addItemsToReport(WasteDamageReport $report, array $items, ?string $actorBranchManagerId, ?string $actorCashierId = null): WasteDamageReport
     {
         $branchId = $report->branch_id;
 
-        return DB::transaction(function () use ($report, $branchId, $items, $branchManagerId) {
+        return DB::transaction(function () use ($report, $branchId, $items, $actorBranchManagerId, $actorCashierId) {
             foreach ($items as $itemData) {
                 $pricePerUnit = $itemData['price_per_unit'] ?? $this->resolvePricePerUnit($itemData['item_id'], $branchId);
                 $unit = $itemData['unit'] ?? $this->resolveUnit($itemData['item_id']);
@@ -174,7 +174,7 @@ class WasteDamageReportService
                     'price_per_unit' => $pricePerUnit,
                 ]);
 
-                $this->syncResponsibleEmployees($item, $itemData['responsible_employees'] ?? [], $branchManagerId, (float) ($itemData['my_quantity_accountable'] ?? 0));
+                $this->syncResponsibleEmployees($item, $itemData['responsible_employees'] ?? [], $actorBranchManagerId, $actorCashierId, (float) ($itemData['my_quantity_accountable'] ?? 0));
             }
 
             return $report->load(['items.responsibleEmployees.cashier.branch', 'items.responsibleEmployees.branchManager', 'items.item']);
@@ -186,7 +186,7 @@ class WasteDamageReportService
      *
      * @param array{item_id: string, purchase_order_item_id?: string|null, problem_type: string, cause_of_damage?: string|null, quantity: float, reason: string, unit?: string|null, justification_text?: string|null, photo_path?: string|null, price_per_unit?: float|null, my_quantity_accountable?: float, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>} $data
      */
-    public function addItem(string $reportId, string $branchId, array $data, string $branchManagerId, ?string $assignedToId = null): WasteDamageReportItem
+    public function addItem(string $reportId, string $branchId, array $data, ?string $actorBranchManagerId, ?string $actorCashierId = null, ?string $assignedToId = null): WasteDamageReportItem
     {
         $report = $this->reportRepository->findByBranch($reportId, $branchId, [], $assignedToId);
         if (!$report || !$report->status->isEditable()) {
@@ -203,7 +203,7 @@ class WasteDamageReportService
 
         $purchaseOrderItemId = $data['purchase_order_item_id'] ?? $this->resolvePurchaseOrderItemId($data['item_id'], $branchId);
 
-        return DB::transaction(function () use ($report, $branchId, $data, $pricePerUnit, $unit, $quantity, $totalValue, $branchManagerId, $purchaseOrderItemId) {
+        return DB::transaction(function () use ($report, $branchId, $data, $pricePerUnit, $unit, $quantity, $totalValue, $actorBranchManagerId, $actorCashierId, $purchaseOrderItemId) {
             $item = $this->itemRepository->create([
                 'waste_damage_report_id' => $report->id,
                 'branch_id' => $branchId,
@@ -220,7 +220,7 @@ class WasteDamageReportService
                 'price_per_unit' => $pricePerUnit,
             ]);
 
-            $this->syncResponsibleEmployees($item, $data['responsible_employees'] ?? [], $branchManagerId, (float) ($data['my_quantity_accountable'] ?? 0));
+            $this->syncResponsibleEmployees($item, $data['responsible_employees'] ?? [], $actorBranchManagerId, $actorCashierId, (float) ($data['my_quantity_accountable'] ?? 0));
 
             return $item->load('responsibleEmployees.cashier.branch', 'responsibleEmployees.branchManager');
         });
@@ -252,7 +252,7 @@ class WasteDamageReportService
      *
      * @param array{problem_type?: string, cause_of_damage?: string|null, quantity?: float, reason?: string, justification_text?: string|null, photo_path?: string|null, my_quantity_accountable?: float, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>} $data
      */
-    public function updateItem(string $reportId, string $itemId, string $branchId, array $data, string $branchManagerId, ?string $assignedToId = null): WasteDamageReportItem
+    public function updateItem(string $reportId, string $itemId, string $branchId, array $data, ?string $actorBranchManagerId, ?string $actorCashierId = null, ?string $assignedToId = null): WasteDamageReportItem
     {
         $report = $this->reportRepository->findByBranch($reportId, $branchId, [], $assignedToId);
         if (!$report || !$report->status->isEditable()) {
@@ -266,11 +266,21 @@ class WasteDamageReportService
 
         $item->load('responsibleEmployees');
 
-        $existingMyQty = (float) $item->responsibleEmployees->whereNotNull('branch_manager_id')->first()?->quantity_accountable ?? 0;
-        $existingCashiers = $item->responsibleEmployees->whereNotNull('cashier_id')->map(fn ($e) => [
-            'cashier_id' => $e->cashier_id,
-            'quantity_accountable' => (float) $e->quantity_accountable,
-        ])->values()->toArray();
+        if ($actorBranchManagerId !== null) {
+            $selfRow = $item->responsibleEmployees->firstWhere('branch_manager_id', $actorBranchManagerId);
+        } else {
+            $selfRow = $actorCashierId !== null
+                ? $item->responsibleEmployees->first(fn ($e) => $e->cashier_id === $actorCashierId && $e->branch_manager_id === null)
+                : null;
+        }
+        $existingMyQty = (float) ($selfRow?->quantity_accountable ?? 0);
+        $existingCashiers = $item->responsibleEmployees
+            ->whereNotNull('cashier_id')
+            ->when($selfRow !== null, fn ($c) => $c->where('id', '!=', $selfRow->id))
+            ->map(fn ($e) => [
+                'cashier_id' => $e->cashier_id,
+                'quantity_accountable' => (float) $e->quantity_accountable,
+            ])->values()->toArray();
 
         $pricePerUnit = (float) ($item->price_per_unit ?? 0);
         $quantity = isset($data['quantity']) ? (float) $data['quantity'] : (float) $item->quantity;
@@ -303,10 +313,10 @@ class WasteDamageReportService
             }
         }
 
-        return DB::transaction(function () use ($item, $payload, $updateData, $branchManagerId) {
+        return DB::transaction(function () use ($item, $payload, $updateData, $actorBranchManagerId, $actorCashierId) {
             $this->itemRepository->update($item, $updateData);
 
-            $this->syncResponsibleEmployees($item, $payload['responsible_employees'] ?? [], $branchManagerId, (float) ($payload['my_quantity_accountable'] ?? 0));
+            $this->syncResponsibleEmployees($item, $payload['responsible_employees'] ?? [], $actorBranchManagerId, $actorCashierId, (float) ($payload['my_quantity_accountable'] ?? 0));
 
             return $item->fresh(['responsibleEmployees.cashier.branch', 'responsibleEmployees.branchManager']);
         });
@@ -452,20 +462,23 @@ class WasteDamageReportService
     /**
      * @param array<int, array{cashier_id: string, quantity_accountable: float}> $employees
      */
-    private function syncResponsibleEmployees(WasteDamageReportItem $item, array $employees, ?string $branchManagerId = null, float $myQuantityAccountable = 0): void
+    private function syncResponsibleEmployees(WasteDamageReportItem $item, array $employees, ?string $actorBranchManagerId = null, ?string $actorCashierId = null, float $myQuantityAccountable = 0): void
     {
         $item->responsibleEmployees()->delete();
 
-        if ($branchManagerId && $myQuantityAccountable > 0) {
+        if (($actorBranchManagerId || $actorCashierId) && $myQuantityAccountable > 0) {
             WasteDamageReportItemEmployee::create([
                 'waste_damage_report_item_id' => $item->id,
-                'branch_manager_id' => $branchManagerId,
-                'cashier_id' => null,
+                'branch_manager_id' => $actorBranchManagerId,
+                'cashier_id' => $actorBranchManagerId ? null : $actorCashierId,
                 'quantity_accountable' => $myQuantityAccountable,
             ]);
         }
 
         foreach ($employees as $row) {
+            if ($actorCashierId !== null && $row['cashier_id'] === $actorCashierId && $myQuantityAccountable > 0) {
+                continue;
+            }
             WasteDamageReportItemEmployee::create([
                 'waste_damage_report_item_id' => $item->id,
                 'branch_manager_id' => null,
