@@ -136,7 +136,7 @@ class WasteDamageReportController extends BaseController
             $assignedToId = $request->validated('assigned_to_id');
             $items = $request->validated('items', []);
 
-            $report = $this->findReusableReportForActor($actor, $branchId);
+            $report = $this->findReusableReportForActor($actor, $branchId, $assignedToType, $assignedToId);
 
             if (!$report) {
                 $report = $this->reportService->createReport($branchId, $createdById, $assignedToType, $assignedToId, $createdByType);
@@ -166,11 +166,17 @@ class WasteDamageReportController extends BaseController
     }
 
     /**
-     * Find an existing editable report the actor can reuse instead of creating a new empty one.
-     * Cashier: their latest DRAFT/PENDING assigned report. Manager: their latest DRAFT/PENDING personal report.
+     * Find an existing editable (DRAFT/PENDING) report to reuse instead of creating a new empty one.
+     *   - Cashier: latest report assigned to them.
+     *   - Manager creating staff task: latest staff-assigned report for the same cashier in branch.
+     *   - Manager creating personal task: their latest personal report in branch.
      */
-    private function findReusableReportForActor(\Modules\Inventory\Support\InventoryActor $actor, string $branchId): ?WasteDamageReport
-    {
+    private function findReusableReportForActor(
+        \Modules\Inventory\Support\InventoryActor $actor,
+        string $branchId,
+        string $assignedToType = 'personal',
+        ?string $assignedToId = null,
+    ): ?WasteDamageReport {
         $query = WasteDamageReport::where('branch_id', $branchId)
             ->whereIn('status', [
                 WasteDamageReportStatus::DRAFT->value,
@@ -179,6 +185,8 @@ class WasteDamageReportController extends BaseController
 
         if ($actor->isCashier()) {
             $query->where('assigned_to_type', 'staff')->where('assigned_to_id', $actor->getActorId());
+        } elseif ($assignedToType === 'staff' && $assignedToId) {
+            $query->where('assigned_to_type', 'staff')->where('assigned_to_id', $assignedToId);
         } else {
             $query->where('created_by', $actor->getActorId())->where('assigned_to_type', 'personal');
         }
