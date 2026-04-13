@@ -11,6 +11,7 @@ use Modules\Inventory\Http\Requests\WasteDamage\StoreWasteDamageReportItemReques
 use Modules\Inventory\Http\Requests\WasteDamage\StoreWasteDamageReportRequest;
 use Modules\Inventory\Http\Requests\WasteDamage\UpdateWasteDamageReportItemRequest;
 use Modules\Inventory\Services\InventorySessionService;
+use Modules\Inventory\Models\WasteDamageReport;
 use Modules\Inventory\Services\WasteDamageProductService;
 use Modules\Inventory\Services\WasteDamageReportService;
 use Modules\Inventory\Enums\WasteDamageReportStatus;
@@ -135,10 +136,13 @@ class WasteDamageReportController extends BaseController
             $assignedToId = $request->validated('assigned_to_id');
             $items = $request->validated('items', []);
 
-            if (empty($items)) {
+            $report = $this->findReusableReportForActor($actor, $branchId);
+
+            if (!$report) {
                 $report = $this->reportService->createReport($branchId, $createdById, $assignedToType, $assignedToId, $createdByType);
-            } else {
-                $report = $this->reportService->createReport($branchId, $createdById, $assignedToType, $assignedToId, $createdByType);
+            }
+
+            if (!empty($items)) {
                 $items = $this->storeItemPhotosForReport($request, $report->id, $items);
                 $this->reportService->addItemsToReport(
                     $report,
@@ -159,6 +163,27 @@ class WasteDamageReportController extends BaseController
         } catch (\Exception $e) {
             return $this->handleException($e, 'creating waste & damage report');
         }
+    }
+
+    /**
+     * Find an existing editable report the actor can reuse instead of creating a new empty one.
+     * Cashier: their latest DRAFT/PENDING assigned report. Manager: their latest DRAFT/PENDING personal report.
+     */
+    private function findReusableReportForActor(\Modules\Inventory\Support\InventoryActor $actor, string $branchId): ?WasteDamageReport
+    {
+        $query = WasteDamageReport::where('branch_id', $branchId)
+            ->whereIn('status', [
+                WasteDamageReportStatus::DRAFT->value,
+                WasteDamageReportStatus::PENDING->value,
+            ]);
+
+        if ($actor->isCashier()) {
+            $query->where('assigned_to_type', 'staff')->where('assigned_to_id', $actor->getActorId());
+        } else {
+            $query->where('created_by', $actor->getActorId())->where('assigned_to_type', 'personal');
+        }
+
+        return $query->orderByDesc('created_at')->first();
     }
 
     /**
