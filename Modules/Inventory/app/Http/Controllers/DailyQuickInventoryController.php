@@ -367,7 +367,14 @@ class DailyQuickInventoryController extends BaseController
 
             $sessions = $this->sessionsQueryForActor($actor->getActor())
                 ->when($hasStatusFilter, fn($q) => $q->where('status', $statusFilter))
-                ->with(['items.item', 'items.purchaseOrderItem.purchaseOrder', 'assignedTo', 'createdBy', 'branch'])
+                ->with([
+                    'items.item',
+                    'items.purchaseOrderItem.purchaseOrder',
+                    'assignedTo',
+                    'createdBy',
+                    'branch',
+                    'timelines' => fn ($q) => $q->orderBy('occurred_at', 'asc'),
+                ])
                 ->withCount('items')
                 ->orderBy('created_at', 'desc')
                 ->paginate();
