@@ -5,6 +5,7 @@ namespace Modules\Inventory\Services;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Inventory\Enums\InventorySessionStatus;
+use Modules\Inventory\Enums\MonthlyInventoryStatus;
 use Modules\Inventory\Enums\WasteDamageReportStatus;
 use Modules\Inventory\Models\InventorySession;
 use Modules\Inventory\Models\MonthlyInventory;
@@ -58,10 +59,8 @@ class InventoryTaskListService
             ->where('branch_id', $branchId)
             ->where('assigned_to_type', 'staff')
             ->where('assigned_to_id', $cashierId)
-            ->whereIn('status', [
-                InventorySessionStatus::DRAFT->value,
-                InventorySessionStatus::REJECTED->value,
-            ])
+            ->where('status', InventorySessionStatus::PENDING->value)
+            ->whereNull('submitted_at')
             ->with(['branch:id,name', 'assignedTo:id,name', 'items.item'])
             ->orderByDesc('created_at')
             ->limit($limit)
@@ -112,6 +111,11 @@ class InventoryTaskListService
     {
         return MonthlyInventory::query()
             ->where('branch_id', $branchId)
+            ->whereIn('status', [
+                MonthlyInventoryStatus::IN_PROGRESS->value,
+                MonthlyInventoryStatus::DRAFT->value,
+                MonthlyInventoryStatus::RETURNED_TO_DRAFT->value,
+            ])
             ->whereHas('staff', function ($q) use ($cashierId) {
                 $q->where('user_id', $cashierId)->whereIn('user_type', [(new Cashier)->getMorphClass(), Cashier::class]);
             })

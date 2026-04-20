@@ -71,6 +71,13 @@ class MonthlyInventoryPolicy
             && in_array($inventory->status->value, ['submitted', 'pending_finance_review'], true);
     }
 
+    public function confirmSubmission(BranchManager|Cashier $user, MonthlyInventory $inventory): bool
+    {
+        return $user instanceof BranchManager
+            && $user->branch_id === $inventory->branch_id
+            && $inventory->status->value === 'pending_your_confirmation';
+    }
+
     public function returnToDraft(BranchManager|Cashier $user, MonthlyInventory $inventory): bool
     {
         return $user instanceof BranchManager

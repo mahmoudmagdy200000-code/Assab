@@ -356,6 +356,27 @@ class MonthlyInventoryController extends BaseController
         }
     }
 
+    public function confirmSubmission(string $id): JsonResponse
+    {
+        try {
+            $manager = $this->manager();
+            $inventory = $this->service->findForBranch($id, $manager->branch_id);
+            if (! $inventory) {
+                return $this->notFoundResponse('Monthly inventory not found');
+            }
+            $this->authorize('confirmSubmission', $inventory);
+            $updated = $this->service->confirmStaffSubmission($id, $manager);
+            return $this->successResponse(
+                new MonthlyInventoryResource($updated),
+                'Staff submission confirmed successfully'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (\Throwable $e) {
+            return $this->handleException($e, 'confirming staff submission');
+        }
+    }
+
     public function approve(string $id): JsonResponse
     {
         try {

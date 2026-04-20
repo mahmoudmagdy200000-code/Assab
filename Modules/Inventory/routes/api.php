@@ -40,6 +40,7 @@ Route::middleware(['auth:sanctum', 'branch.manager.or.cashier', 'log.throttle'])
         Route::post('/{id}/save-progress', [MonthlyInventoryController::class, 'saveProgress'])->name('inventory.monthly.save-progress');
         Route::post('/{id}/review', [MonthlyInventoryController::class, 'review'])->name('inventory.monthly.review');
         Route::post('/{id}/submit', [MonthlyInventoryController::class, 'submit'])->name('inventory.monthly.submit');
+        Route::post('/{id}/confirm', [MonthlyInventoryController::class, 'confirmSubmission'])->name('inventory.monthly.confirm');
         Route::post('/{id}/approve', [MonthlyInventoryController::class, 'approve'])->name('inventory.monthly.approve');
         Route::post('/{id}/return-to-draft', [MonthlyInventoryController::class, 'returnToDraft'])->name('inventory.monthly.return-to-draft');
         Route::get('/{id}/report', [MonthlyInventoryController::class, 'report'])->name('inventory.monthly.report');
@@ -78,6 +79,7 @@ Route::middleware(['auth:sanctum', 'branch.manager.or.cashier', 'log.throttle'])
         Route::put('/sessions/{id}', [DailyQuickInventoryController::class, 'updateSession'])->name('inventory.daily-quick.sessions.update');
         Route::delete('/sessions/{id}', [DailyQuickInventoryController::class, 'deleteSession'])->name('inventory.daily-quick.sessions.delete');
         Route::post('/sessions/{id}/submit', [DailyQuickInventoryController::class, 'submitSession'])->name('inventory.daily-quick.sessions.submit');
+        Route::post('/sessions/{id}/confirm', [DailyQuickInventoryController::class, 'confirmSubmission'])->name('inventory.daily-quick.sessions.confirm');
         Route::post('/sessions/{id}/approve', [DailyQuickInventoryController::class, 'approveSession'])->name('inventory.daily-quick.sessions.approve');
         Route::post('/sessions/{id}/reject', [DailyQuickInventoryController::class, 'rejectSession'])->name('inventory.daily-quick.sessions.reject');
         Route::post('/sessions/{id}/resubmit', [DailyQuickInventoryController::class, 'resubmitSession'])->name('inventory.daily-quick.sessions.resubmit');

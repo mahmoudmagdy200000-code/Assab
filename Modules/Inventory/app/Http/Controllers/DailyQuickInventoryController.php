@@ -301,6 +301,26 @@ class DailyQuickInventoryController extends BaseController
     }
 
     /**
+     * Confirm cashier submission (Branch Manager). Status PENDING_YOUR_CONFIRMATION -> PENDING (sent to Account Manager).
+     *
+     * @group Daily Quick Inventory
+     */
+    public function confirmSubmission(string $id): JsonResponse
+    {
+        try {
+            $manager = $this->resolveInventoryActor()->requireManager();
+            $session = $this->sessionService->confirmCashierSubmission($id, $manager);
+
+            return $this->successResponse(
+                new InventorySessionResource($session),
+                'Staff submission confirmed successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'confirming staff submission');
+        }
+    }
+
+    /**
      * Get session summary
      *
      * @group Daily Quick Inventory

@@ -598,16 +598,65 @@ class MonthlyInventoryService
             }
 
             $old = $inventory->status->value;
+            $newStatus = $actor instanceof Cashier
+                ? MonthlyInventoryStatus::PENDING_YOUR_CONFIRMATION
+                : MonthlyInventoryStatus::SUBMITTED;
+
             $inventory->update([
-                'status' => MonthlyInventoryStatus::SUBMITTED,
+                'status' => $newStatus,
                 'submitted_at' => now(),
             ]);
 
             MonthlyInventoryTimeline::log(
                 $inventory,
                 MonthlyInventoryTimelineEventType::SUBMITTED,
-                'Submitted for approval',
-                'Sent to management/finance for review.',
+                $actor instanceof Cashier ? 'Submitted for Branch Manager confirmation' : 'Submitted for approval',
+                $actor instanceof Cashier
+                    ? 'Staff submitted the monthly inventory. Awaiting Branch Manager confirmation.'
+                    : 'Sent to management/finance for review.',
+                $old,
+                $newStatus->value
+            );
+
+            return $inventory->fresh();
+        });
+
+        $this->broadcastInventoryEvent($inventoryId, 'inventory.submitted', [
+            'status' => $inventory->status->value,
+            'submitted_at' => now()->toIso8601String(),
+        ]);
+
+        return $inventory;
+    }
+
+    /**
+     * Confirm cashier's submission (Branch Manager). PENDING_YOUR_CONFIRMATION -> SUBMITTED (sent to finance).
+     */
+    public function confirmStaffSubmission(string $inventoryId, BranchManager $manager): MonthlyInventory
+    {
+        $inventory = DB::transaction(function () use ($inventoryId, $manager) {
+            $inventory = $this->repository->findByBranchAndCreator($inventoryId, $manager->branch_id, $manager->id);
+            if (! $inventory) {
+                $inventory = $this->repository->findByBranch($inventoryId, $manager->branch_id);
+            }
+            if (! $inventory) {
+                throw new \InvalidArgumentException('Inventory not found.');
+            }
+
+            if ($inventory->status !== MonthlyInventoryStatus::PENDING_YOUR_CONFIRMATION) {
+                throw new \InvalidArgumentException('Inventory is not awaiting confirmation.');
+            }
+
+            $old = $inventory->status->value;
+            $inventory->update([
+                'status' => MonthlyInventoryStatus::SUBMITTED,
+            ]);
+
+            MonthlyInventoryTimeline::log(
+                $inventory,
+                MonthlyInventoryTimelineEventType::SUBMITTED,
+                'Confirmed by Branch Manager',
+                'Branch Manager confirmed staff submission. Sent to management/finance for review.',
                 $old,
                 MonthlyInventoryStatus::SUBMITTED->value
             );
@@ -617,7 +666,7 @@ class MonthlyInventoryService
 
         $this->broadcastInventoryEvent($inventoryId, 'inventory.submitted', [
             'status' => MonthlyInventoryStatus::SUBMITTED->value,
-            'submitted_at' => now()->toIso8601String(),
+            'confirmed_at' => now()->toIso8601String(),
         ]);
 
         return $inventory;

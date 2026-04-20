@@ -130,16 +130,19 @@ class InventorySessionService
                 $data['assigned_to_type'] = 'personal';
             }
 
+            $assignedToType = $data['assigned_to_type'];
+            $isStaffAssignment = $assignedToType === 'staff' && $creator instanceof BranchManager;
+
             $sessionData = [
                 'branch_id' => $creator->branch_id,
                 'created_by' => $creator->id,
                 'created_by_type' => $creatorType,
-                'assigned_to_type' => $data['assigned_to_type'],
-                'assigned_to_id' => $data['assigned_to_type'] === 'staff' ? $data['assigned_to_id'] : null,
+                'assigned_to_type' => $assignedToType,
+                'assigned_to_id' => $isStaffAssignment ? $data['assigned_to_id'] : null,
                 'inventory_date' => $data['inventory_date'] ?? null,
                 'start_time' => $data['start_time'] ?? null,
                 'notes' => $data['notes'] ?? null,
-                'status' => InventorySessionStatus::DRAFT,
+                'status' => $isStaffAssignment ? InventorySessionStatus::PENDING : InventorySessionStatus::DRAFT,
             ];
 
             // Validate assigned cashier belongs to same branch (only managers can assign staff)
@@ -291,15 +294,18 @@ class InventorySessionService
     {
         return DB::transaction(function () use ($sessionId, $actor) {
             $query = InventorySession::where('id', $sessionId)
-                ->where('branch_id', $actor->branch_id)
-                ->where('status', InventorySessionStatus::DRAFT);
+                ->where('branch_id', $actor->branch_id);
 
             if ($actor instanceof Cashier) {
-                $query->where('assigned_to_type', 'staff')->where('assigned_to_id', $actor->id);
+                $query->where('assigned_to_type', 'staff')
+                    ->where('assigned_to_id', $actor->id)
+                    ->where('status', InventorySessionStatus::PENDING)
+                    ->whereNull('submitted_at');
             } else {
-                $query->where(function ($q) use ($actor) {
-                    $q->whereNull('created_by')->orWhere('created_by', $actor->id);
-                });
+                $query->where('status', InventorySessionStatus::DRAFT)
+                    ->where(function ($q) use ($actor) {
+                        $q->whereNull('created_by')->orWhere('created_by', $actor->id);
+                    });
             }
 
             $session = $query->firstOrFail();
@@ -308,9 +314,14 @@ class InventorySessionService
                 throw new \InvalidArgumentException('Cannot submit session without items');
             }
 
+            $oldStatus = $session->status->value;
+            $newStatus = $actor instanceof Cashier
+                ? InventorySessionStatus::PENDING_YOUR_CONFIRMATION
+                : InventorySessionStatus::PENDING;
+
             $session->end_time = now();
             $session->calculateTimeTaken();
-            $session->status = InventorySessionStatus::PENDING;
+            $session->status = $newStatus;
             $session->submitted_at = now();
             $session->save();
 
@@ -318,12 +329,43 @@ class InventorySessionService
                 $session,
                 DailyInventoryTimelineEventType::SUBMITTED,
                 'Submitted',
-                'You submitted this daily inventory for review and approval.',
-                InventorySessionStatus::DRAFT->value,
-                InventorySessionStatus::PENDING->value
+                $actor instanceof Cashier
+                    ? 'Staff submitted this daily inventory for Branch Manager confirmation.'
+                    : 'You submitted this daily inventory for review and approval.',
+                $oldStatus,
+                $newStatus->value
             );
 
             return $session->fresh(['items.item', 'items.purchaseOrderItem.purchaseOrder']);
+        });
+    }
+
+    /**
+     * Confirm cashier's submission (Branch Manager). Status PENDING_YOUR_CONFIRMATION -> PENDING (awaiting Account Manager).
+     */
+    public function confirmCashierSubmission(string $sessionId, BranchManager $manager): InventorySession
+    {
+        return DB::transaction(function () use ($sessionId, $manager) {
+            $session = InventorySession::where('id', $sessionId)
+                ->where('branch_id', $manager->branch_id)
+                ->where('status', InventorySessionStatus::PENDING_YOUR_CONFIRMATION)
+                ->where('assigned_to_type', 'staff')
+                ->firstOrFail();
+
+            $oldStatus = $session->status->value;
+            $session->status = InventorySessionStatus::PENDING;
+            $session->save();
+
+            InventorySessionTimeline::log(
+                $session,
+                DailyInventoryTimelineEventType::SUBMITTED,
+                'Confirmed by Branch Manager',
+                'Branch Manager confirmed staff submission. Sent to Account Manager for approval.',
+                $oldStatus,
+                InventorySessionStatus::PENDING->value
+            );
+
+            return $session->fresh(['items.item', 'items.purchaseOrderItem.purchaseOrder', 'assignedTo', 'createdBy']);
         });
     }
 
@@ -520,14 +562,17 @@ class InventorySessionService
     {
         return DB::transaction(function () use ($itemId, $data, $actor) {
             $item = InventoryItem::whereHas('inventorySession', function ($query) use ($actor) {
-                $query->where('branch_id', $actor->branch_id)
-                    ->whereIn('status', [InventorySessionStatus::DRAFT, InventorySessionStatus::REJECTED]);
+                $query->where('branch_id', $actor->branch_id);
                 if ($actor instanceof Cashier) {
-                    $query->where('assigned_to_type', 'staff')->where('assigned_to_id', $actor->id);
+                    $query->where('assigned_to_type', 'staff')
+                        ->where('assigned_to_id', $actor->id)
+                        ->where('status', InventorySessionStatus::PENDING)
+                        ->whereNull('submitted_at');
                 } else {
-                    $query->where(function ($q) use ($actor) {
-                        $q->whereNull('created_by')->orWhere('created_by', $actor->id);
-                    });
+                    $query->whereIn('status', [InventorySessionStatus::DRAFT, InventorySessionStatus::REJECTED])
+                        ->where(function ($q) use ($actor) {
+                            $q->whereNull('created_by')->orWhere('created_by', $actor->id);
+                        });
                 }
             })
                 ->where('id', $itemId)
