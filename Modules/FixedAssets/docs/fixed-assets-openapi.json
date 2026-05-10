@@ -1,0 +1,832 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Fixed Assets API",
+    "description": "Branch Manager Fixed Assets feature. All endpoints require Bearer token (Laravel Sanctum) and the authenticated user must be an active Branch Manager assigned to a branch. Response shapes match the canonical specification (see Section 7 of the spec for casing exceptions: `ReceiveAssetsItem` uses camelCase keys, and Transfer/Disposal request body uses camelCase fields like `branchId`, `autoApprove`, `disposalDate`, `disposalTime`, `disposalMethod`).",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Assab Backend Team"
+    }
+  },
+  "servers": [
+    {
+      "url": "/api/v1/branch-manager/fixed-assets",
+      "description": "Fixed Assets base path"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    { "name": "Overview", "description": "Dashboard summary counts" },
+    { "name": "Reference Data", "description": "Lookups for filters and pickers" },
+    { "name": "Assets", "description": "Asset details and settings" },
+    { "name": "Search", "description": "Asset search (general / quick / by image)" },
+    { "name": "Receive Assets", "description": "Receive pending assets workflow" },
+    { "name": "Transfer & Disposal", "description": "Create transfer or disposal requests" },
+    { "name": "Modification Requests", "description": "Asset status modification workflow" },
+    { "name": "Transfer Requests", "description": "Transfer request listing/details/approval" },
+    { "name": "Disposal Requests", "description": "Disposal request listing/details" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Sanctum-Token",
+        "description": "Laravel Sanctum personal access token"
+      }
+    },
+    "schemas": {
+      "AssetLocation": {
+        "type": "object",
+        "required": ["id", "name"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" }
+        }
+      },
+      "AssetSearchItem": {
+        "type": "object",
+        "required": ["id", "name", "code", "image", "location", "status", "assigned_to", "age", "value", "custody"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "code": { "type": "string" },
+          "image": { "type": "string", "description": "Absolute URL or empty string when no image. NEVER null." },
+          "location": { "$ref": "#/components/schemas/AssetLocation" },
+          "status": { "type": "string", "enum": ["excellent", "need_attention", "problem"] },
+          "assigned_to": { "type": "string" },
+          "age": { "type": "string", "description": "Readable text e.g. '6 Months'" },
+          "value": { "type": "string", "description": "Numeric value as text e.g. '12500'" },
+          "custody": { "type": "string", "description": "Readable text e.g. '2 Months'" }
+        }
+      },
+      "ReceiveAssetsItem": {
+        "type": "object",
+        "description": "NOTE: This schema uses camelCase keys per the Flutter contract. Backend MUST emit camelCase here.",
+        "required": ["id", "assetName", "assetCode", "assetImage"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "assetName": { "type": "string" },
+          "assetCode": { "type": "string" },
+          "assetImage": { "type": "string", "description": "Absolute URL or empty string." }
+        }
+      },
+      "Zone": {
+        "type": "object",
+        "required": ["id", "name"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" }
+        }
+      },
+      "Type": {
+        "type": "object",
+        "required": ["id", "name"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" }
+        }
+      },
+      "ResponsibleEmployee": {
+        "type": "object",
+        "required": ["id", "name", "image"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "image": { "type": "string" }
+        }
+      },
+      "Branch": {
+        "type": "object",
+        "required": ["id", "name", "image"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "image": { "type": "string" }
+        }
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "description": "Three-field meta only. Do NOT include Laravel's default `from`, `to`, `path`, `per_page`, `links`.",
+        "required": ["current_page", "last_page", "total"],
+        "properties": {
+          "current_page": { "type": "integer" },
+          "last_page": { "type": "integer" },
+          "total": { "type": "integer" }
+        }
+      },
+      "Attachment": {
+        "type": "object",
+        "required": ["id", "file_name", "file_type", "file_size", "url", "uploaded_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "file_name": { "type": "string" },
+          "file_type": { "type": "string" },
+          "file_size": { "type": "integer" },
+          "url": { "type": "string" },
+          "uploaded_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "TimelineItem": {
+        "type": "object",
+        "required": ["id", "event_type", "name", "image", "occurred_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "event_type": { "type": "string" },
+          "name": { "type": "string" },
+          "image": { "type": "string", "description": "Actor image URL or empty string." },
+          "occurred_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "SearchSummary": {
+        "type": "object",
+        "required": [
+          "total_items",
+          "total_items_matching_search",
+          "total_items_matching_search_excellent_status",
+          "total_items_matching_search_maintenance_status",
+          "total_items_matching_search_problem_status"
+        ],
+        "properties": {
+          "total_items": { "type": "integer" },
+          "total_items_matching_search": { "type": "integer" },
+          "total_items_matching_search_excellent_status": { "type": "integer" },
+          "total_items_matching_search_maintenance_status": { "type": "integer" },
+          "total_items_matching_search_problem_status": { "type": "integer" }
+        }
+      },
+      "SearchResponse": {
+        "type": "object",
+        "description": "CRITICAL: nested `data.summary` and `data.items` shape. Flutter parses these as separate blocks; deviation breaks the search results screen.",
+        "required": ["asset_type_name", "data"],
+        "properties": {
+          "asset_type_name": { "type": "string" },
+          "data": {
+            "type": "object",
+            "required": ["summary", "items"],
+            "properties": {
+              "summary": { "$ref": "#/components/schemas/SearchSummary" },
+              "items": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/AssetSearchItem" }
+              }
+            }
+          }
+        }
+      },
+      "FixedAssetsOverviewResponse": {
+        "type": "object",
+        "description": "Flat shape (no `data` wrapper).",
+        "required": ["total", "excellent", "maintenance", "problem"],
+        "properties": {
+          "total": { "type": "integer" },
+          "excellent": { "type": "integer" },
+          "maintenance": { "type": "integer" },
+          "problem": { "type": "integer" }
+        }
+      },
+      "ZonesListResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Zone" } }
+        }
+      },
+      "TypesListResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Type" } }
+        }
+      },
+      "EmployeesListResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ResponsibleEmployee" } }
+        }
+      },
+      "BranchesListResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Branch" } }
+        }
+      },
+      "AssetsListResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/AssetSearchItem" } }
+        }
+      },
+      "ReceiveAssetsListResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ReceiveAssetsItem" } }
+        }
+      },
+      "AssetDetailsResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/AssetSearchItem" }
+        }
+      },
+      "ModificationRequestListItem": {
+        "type": "object",
+        "required": ["id", "asset_name", "status"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "asset_name": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "approved"] }
+        }
+      },
+      "ModificationRequestsListResponse": {
+        "type": "object",
+        "required": ["data", "meta"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ModificationRequestListItem" } },
+          "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+        }
+      },
+      "TransferRequestListItem": {
+        "type": "object",
+        "required": ["id", "asset_name", "status", "condition", "date_and_time", "type"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "asset_name": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "approved"] },
+          "condition": { "type": "string", "enum": ["excellent", "need_attention", "problem"] },
+          "date_and_time": { "type": "string", "format": "date-time" },
+          "type": { "type": "string", "enum": ["from_branch", "from_finance", "to_branch"] }
+        }
+      },
+      "TransfersRequestsListResponse": {
+        "type": "object",
+        "required": ["data", "meta"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/TransferRequestListItem" } },
+          "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+        }
+      },
+      "DisposalRequestListItem": {
+        "type": "object",
+        "required": ["id", "asset_name", "status", "date_and_time"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "asset_name": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "approved"] },
+          "date_and_time": { "type": "string", "format": "date-time" }
+        }
+      },
+      "DisposalsRequestsListResponse": {
+        "type": "object",
+        "required": ["data", "meta"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/DisposalRequestListItem" } },
+          "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+        }
+      },
+      "ModificationDetailsResponse": {
+        "type": "object",
+        "required": ["status", "asset_details", "modification_details", "required_actions", "timelines"],
+        "properties": {
+          "status": { "type": "string", "enum": ["pending", "approved"] },
+          "asset_details": { "$ref": "#/components/schemas/AssetSearchItem" },
+          "modification_details": {
+            "type": "object",
+            "required": ["new_status", "reason", "attachment"],
+            "properties": {
+              "new_status": { "type": "string", "enum": ["excellent", "need_attention", "problem"] },
+              "reason": { "type": "string" },
+              "attachment": { "$ref": "#/components/schemas/Attachment" }
+            }
+          },
+          "required_actions": {
+            "type": "object",
+            "required": ["done_actions", "next_action", "approval_request_owner_note"],
+            "properties": {
+              "done_actions": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["initial_check", "cleaning"] }
+              },
+              "next_action": { "type": "string", "enum": ["need_technician", "halt", "replace"] },
+              "approval_request_owner_note": { "type": "string" }
+            }
+          },
+          "timelines": { "type": "array", "items": { "$ref": "#/components/schemas/TimelineItem" } }
+        }
+      },
+      "TransferDetailsAsset": {
+        "type": "object",
+        "required": ["name", "code", "image_url", "zone", "type", "status", "value", "custody", "transfer_reason"],
+        "properties": {
+          "name": { "type": "string" },
+          "code": { "type": "string" },
+          "image_url": { "type": "string" },
+          "zone": { "$ref": "#/components/schemas/Zone" },
+          "type": { "$ref": "#/components/schemas/Type" },
+          "status": { "type": "string", "enum": ["excellent", "need_attention", "problem"] },
+          "value": { "type": "string" },
+          "custody": { "type": "string" },
+          "transfer_reason": { "type": "string" }
+        }
+      },
+      "FixedAssetsTransferDetailsResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": ["request_details", "assets", "skip_confirmation", "timelines"],
+            "properties": {
+              "request_details": {
+                "type": "object",
+                "required": ["from", "to", "request_date", "arrival_time", "transfer_id", "status"],
+                "properties": {
+                  "from": { "type": "string" },
+                  "to": { "type": "string" },
+                  "request_date": { "type": "string" },
+                  "arrival_time": { "type": "string" },
+                  "transfer_id": { "type": "string" },
+                  "status": { "type": "string" }
+                }
+              },
+              "assets": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/TransferDetailsAsset" }
+              },
+              "skip_confirmation": { "type": "boolean" },
+              "timelines": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/TimelineItem" }
+              }
+            }
+          }
+        }
+      },
+      "FixedAssetsDisposalsDetailsResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": ["request_details", "assets", "timelines"],
+            "properties": {
+              "request_details": {
+                "type": "object",
+                "required": ["proposed_date", "proposed_time", "disposal_method", "selected_assets", "status"],
+                "properties": {
+                  "proposed_date": { "type": "string" },
+                  "proposed_time": { "type": "string" },
+                  "disposal_method": { "type": "string" },
+                  "selected_assets": { "type": "integer" },
+                  "status": { "type": "string" },
+                  "approved_on": { "type": "string", "nullable": true }
+                }
+              },
+              "assets": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/TransferDetailsAsset" }
+              },
+              "timelines": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/TimelineItem" }
+              }
+            }
+          }
+        }
+      },
+      "AssetsSearchRequest": {
+        "type": "object",
+        "required": ["search_type"],
+        "properties": {
+          "search_type": { "type": "string", "enum": ["general", "quick"] },
+          "zone_id": { "type": "string", "format": "uuid", "description": "Required when search_type=general" },
+          "type_id": { "type": "string", "format": "uuid", "description": "Required when search_type=general" },
+          "employee_id": { "type": "string", "format": "uuid", "description": "Required when search_type=general" },
+          "date": { "type": "string", "format": "date", "description": "Required when search_type=general" },
+          "quick_search_key": {
+            "type": "string",
+            "enum": [
+              "update_today",
+              "update_yesterday",
+              "not_update_1_month",
+              "not_update_2_month",
+              "in_my_custody",
+              "under_maintenance"
+            ],
+            "description": "Required when search_type=quick"
+          }
+        }
+      },
+      "AssetsSearchByImageRequest": {
+        "type": "object",
+        "required": ["image"],
+        "properties": {
+          "image": { "type": "string", "format": "binary" }
+        }
+      },
+      "ReceiveAssetsConfirmRequest": {
+        "type": "object",
+        "description": "Multipart form. Top-level `type` field plus per-item nested fields. Frontend uses the `assetId` value as the array key (e.g. `items[abc123][assetId]`) rather than numeric indexes.",
+        "required": ["type", "items"],
+        "properties": {
+          "type": { "type": "string", "enum": ["from_branch", "from_finance"] },
+          "items": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "assetId",
+                "assignedZoneId",
+                "assetTypeId",
+                "assetCount",
+                "excellentCount",
+                "needAttentionCount",
+                "problemCount",
+                "image"
+              ],
+              "properties": {
+                "assetId": { "type": "string", "format": "uuid" },
+                "assignedZoneId": { "type": "string", "format": "uuid" },
+                "assetTypeId": { "type": "string", "format": "uuid" },
+                "assetCount": { "type": "integer", "minimum": 0 },
+                "excellentCount": { "type": "integer", "minimum": 0 },
+                "needAttentionCount": { "type": "integer", "minimum": 0 },
+                "problemCount": { "type": "integer", "minimum": 0 },
+                "image": { "type": "string", "format": "binary" }
+              }
+            }
+          }
+        }
+      },
+      "UpdateAssetSettingsRequest": {
+        "type": "object",
+        "required": ["new_zone_id"],
+        "properties": {
+          "new_zone_id": { "type": "string", "format": "uuid" },
+          "new_image": { "type": "string", "format": "binary" }
+        }
+      },
+      "TransferOrDisposalRequest": {
+        "type": "object",
+        "description": "Multipart form. NOTE: camelCase fields here (`branchId`, `autoApprove`, `disposalDate`, `disposalTime`, `disposalMethod`) are intentional and must NOT be auto-snake-cased — see Section 7 of the spec.",
+        "required": ["type", "assets"],
+        "properties": {
+          "type": { "type": "string", "enum": ["transfer_to_branch", "disposal", "external_transfer"] },
+          "branchId": { "type": "string", "format": "uuid", "description": "Required when type=transfer_to_branch" },
+          "autoApprove": { "type": "boolean" },
+          "disposalDate": { "type": "string", "description": "Required when type=disposal" },
+          "disposalTime": { "type": "string", "description": "Required when type=disposal" },
+          "disposalMethod": { "type": "string", "enum": ["scrap", "sell", "return_to_supplier", "other"] },
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["assetId"],
+              "properties": {
+                "assetId": { "type": "string", "format": "uuid" },
+                "transferReason": { "type": "string" },
+                "documentationPhotos": { "type": "string", "format": "binary" },
+                "disposalReason": { "type": "string" },
+                "conditionDescription": { "type": "string" },
+                "visualEvidence": { "type": "string", "format": "binary" }
+              }
+            }
+          }
+        }
+      },
+      "ModifyAssetStatusRequest": {
+        "type": "object",
+        "description": "Multipart form. KNOWN BUG: Flutter currently sends asset_id as empty string. Backend MUST validate and reject empty asset_id with 422.",
+        "required": [
+          "asset_id",
+          "new_status",
+          "reason",
+          "attachment",
+          "done_actions",
+          "next_action",
+          "approval_request_owner_note"
+        ],
+        "properties": {
+          "asset_id": { "type": "string", "format": "uuid" },
+          "new_status": { "type": "string", "enum": ["excellent", "need_attention", "problem"] },
+          "reason": { "type": "string" },
+          "attachment": { "type": "string", "format": "binary" },
+          "done_actions": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "enum": ["initial_check", "cleaning"] }
+          },
+          "next_action": { "type": "string", "enum": ["need_technician", "halt", "replace"] },
+          "approval_request_owner_note": { "type": "string" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string" },
+          "errors": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Missing or invalid token",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "Forbidden": {
+        "description": "Authenticated user is not a Branch Manager / not assigned to a branch",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "NotFound": {
+        "description": "Resource not found",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "ValidationError": {
+        "description": "Validation failed",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      }
+    }
+  },
+  "paths": {
+    "/overview": {
+      "get": {
+        "tags": ["Overview"],
+        "summary": "Dashboard overview stats",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FixedAssetsOverviewResponse" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/zones": {
+      "get": {
+        "tags": ["Reference Data"],
+        "summary": "List zones for the manager's branch",
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ZonesListResponse" } } } }
+        }
+      }
+    },
+    "/types": {
+      "get": {
+        "tags": ["Reference Data"],
+        "summary": "List asset types",
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TypesListResponse" } } } }
+        }
+      }
+    },
+    "/employees": {
+      "get": {
+        "tags": ["Reference Data"],
+        "summary": "List responsible employees",
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EmployeesListResponse" } } } }
+        }
+      }
+    },
+    "/branches": {
+      "get": {
+        "tags": ["Reference Data"],
+        "summary": "List branches (excludes manager's branch)",
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BranchesListResponse" } } } }
+        }
+      }
+    },
+    "/assets": {
+      "get": {
+        "tags": ["Reference Data"],
+        "summary": "List branch assets (picker)",
+        "parameters": [
+          { "name": "search", "in": "query", "schema": { "type": "string" }, "required": false, "description": "Filter by name substring" }
+        ],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AssetsListResponse" } } } }
+        }
+      }
+    },
+    "/assets/{assetId}": {
+      "get": {
+        "tags": ["Assets"],
+        "summary": "Get asset details",
+        "parameters": [
+          { "name": "assetId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AssetDetailsResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/assets/{assetId}/settings": {
+      "patch": {
+        "tags": ["Assets"],
+        "summary": "Update asset zone and image",
+        "parameters": [
+          { "name": "assetId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": { "schema": { "$ref": "#/components/schemas/UpdateAssetSettingsRequest" } }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/assets/search": {
+      "post": {
+        "tags": ["Search"],
+        "summary": "Search assets (general or quick)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/AssetsSearchRequest" } }
+          }
+        },
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchResponse" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/assets/search-image": {
+      "post": {
+        "tags": ["Search"],
+        "summary": "Search assets by uploaded image",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": { "schema": { "$ref": "#/components/schemas/AssetsSearchByImageRequest" } }
+          }
+        },
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchResponse" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/receive-assets": {
+      "get": {
+        "tags": ["Receive Assets"],
+        "summary": "List pending receive assets",
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReceiveAssetsListResponse" } } } }
+        }
+      }
+    },
+    "/receive-assets/confirm": {
+      "post": {
+        "tags": ["Receive Assets"],
+        "summary": "Confirm receipt of pending assets",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": { "schema": { "$ref": "#/components/schemas/ReceiveAssetsConfirmRequest" } }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/requests/transfer-disposal": {
+      "post": {
+        "tags": ["Transfer & Disposal"],
+        "summary": "Create a transfer or disposal request",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": { "schema": { "$ref": "#/components/schemas/TransferOrDisposalRequest" } }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/requests/modifications": {
+      "get": {
+        "tags": ["Modification Requests"],
+        "summary": "List modification requests (paginated)",
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModificationRequestsListResponse" } } } }
+        }
+      },
+      "post": {
+        "tags": ["Modification Requests"],
+        "summary": "Submit a modification request",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": { "schema": { "$ref": "#/components/schemas/ModifyAssetStatusRequest" } }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/requests/modifications/{requestId}": {
+      "get": {
+        "tags": ["Modification Requests"],
+        "summary": "Modification request details",
+        "parameters": [
+          { "name": "requestId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModificationDetailsResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/requests/transfers": {
+      "get": {
+        "tags": ["Transfer Requests"],
+        "summary": "List transfer requests (paginated)",
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TransfersRequestsListResponse" } } } }
+        }
+      }
+    },
+    "/requests/transfers/{requestId}": {
+      "get": {
+        "tags": ["Transfer Requests"],
+        "summary": "Transfer request details",
+        "parameters": [
+          { "name": "requestId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FixedAssetsTransferDetailsResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/requests/transfers/{requestId}/approve": {
+      "post": {
+        "tags": ["Transfer Requests"],
+        "summary": "Approve a pending transfer request",
+        "parameters": [
+          { "name": "requestId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "Approved" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/requests/disposals": {
+      "get": {
+        "tags": ["Disposal Requests"],
+        "summary": "List disposal requests (paginated)",
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DisposalsRequestsListResponse" } } } }
+        }
+      }
+    },
+    "/requests/disposals/{requestId}": {
+      "get": {
+        "tags": ["Disposal Requests"],
+        "summary": "Disposal request details",
+        "parameters": [
+          { "name": "requestId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FixedAssetsDisposalsDetailsResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    }
+  }
+}

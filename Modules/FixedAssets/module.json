@@ -1,0 +1,12 @@
+{
+    "name": "FixedAssets",
+    "alias": "fixedassets",
+    "description": "Fixed Assets management for branch managers",
+    "keywords": ["fixed-assets", "branch-manager"],
+    "priority": 3,
+    "providers": [
+        "Modules\\FixedAssets\\Providers\\FixedAssetsServiceProvider"
+    ],
+    "files": [],
+    "requires": ["Branch", "BranchManagers"]
+}

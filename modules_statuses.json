@@ -13,5 +13,6 @@
     "Notification": true,
     "RecurringOrder": true,
     "Supplier": true,
-    "Inventory": true
+    "Inventory": true,
+    "FixedAssets": true
 }

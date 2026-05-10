@@ -1,0 +1,30 @@
+{
+    "name": "nwidart/fixedassets",
+    "description": "",
+    "authors": [
+        {
+            "name": "Nicolas Widart",
+            "email": "n.widart@gmail.com"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {
+
+            }
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\FixedAssets\\": "app/",
+            "Modules\\FixedAssets\\Database\\Factories\\": "database/factories/",
+            "Modules\\FixedAssets\\Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Modules\\FixedAssets\\Tests\\": "tests/"
+        }
+    }
+}
