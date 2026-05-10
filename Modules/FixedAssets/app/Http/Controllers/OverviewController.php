@@ -14,9 +14,10 @@ class OverviewController extends BaseController
 
     public function index(): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
         $stats = $this->overviewService->stats($manager->branch_id);
 
-        return response()->json($stats);
+        return $this->successResponse($stats, 'Overview retrieved successfully');
     }
 }

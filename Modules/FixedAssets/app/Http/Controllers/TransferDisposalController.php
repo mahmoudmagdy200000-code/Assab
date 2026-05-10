@@ -15,31 +15,34 @@ class TransferDisposalController extends BaseController
 
     public function store(TransferOrDisposalRequest $request): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
 
         $payload = $request->validated();
 
-        // Merge file uploads into per-asset arrays.
-        $files = $request->file('assets', []);
-        foreach ($payload['assets'] ?? [] as $i => $asset) {
-            if (isset($files[$i]['documentationPhotos'])) {
-                $payload['assets'][$i]['documentationPhotos'] = $files[$i]['documentationPhotos'];
+        $files = (array) $request->file('assets', []);
+        foreach (array_keys($payload['assets'] ?? []) as $i) {
+            $bag = $files[$i] ?? null;
+            if (! is_array($bag)) {
+                continue;
             }
-            if (isset($files[$i]['visualEvidence'])) {
-                $payload['assets'][$i]['visualEvidence'] = $files[$i]['visualEvidence'];
+            if (isset($bag['documentationPhotos'])) {
+                $payload['assets'][$i]['documentationPhotos'] = $bag['documentationPhotos'];
+            }
+            if (isset($bag['visualEvidence'])) {
+                $payload['assets'][$i]['visualEvidence'] = $bag['visualEvidence'];
             }
         }
 
         $req = $this->service->create($payload, $manager);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Request submitted successfully',
-            'data' => [
+        return $this->createdResponse(
+            [
                 'id' => (string) $req->id,
                 'kind' => $req->kind?->value ?? '',
                 'status' => $req->status?->value ?? '',
             ],
-        ], 201);
+            'Request submitted successfully',
+        );
     }
 }

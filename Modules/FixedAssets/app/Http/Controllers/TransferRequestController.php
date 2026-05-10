@@ -17,50 +17,53 @@ class TransferRequestController extends BaseController
 
     public function index(Request $request): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
         $page = (int) $request->query('page', 1);
 
         $paginator = $this->service->paginateTransfers($manager->branch_id, max($page, 1));
 
-        return response()->json([
-            'data' => TransferRequestListItemResource::collection($paginator->getCollection())->resolve(),
-            'meta' => [
-                'current_page' => $paginator->currentPage(),
-                'last_page' => $paginator->lastPage(),
-                'total' => $paginator->total(),
+        return $this->successResponse(
+            [
+                'data' => TransferRequestListItemResource::collection($paginator->getCollection())->resolve(),
+                'meta' => [
+                    'current_page' => $paginator->currentPage(),
+                    'last_page' => $paginator->lastPage(),
+                    'total' => $paginator->total(),
+                ],
             ],
-        ]);
+            'Transfer requests retrieved successfully',
+        );
     }
 
     public function show(string $requestId): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
         $req = $this->service->transferDetails($requestId, $manager->branch_id);
 
         if (! $req) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Transfer request not found.',
-            ], 404);
+            return $this->notFoundResponse('Transfer request not found');
         }
 
-        return response()->json(
-            (new TransferDetailsResource($req))->toArray(request())
+        return $this->successResponse(
+            (new TransferDetailsResource($req))->toArray(request()),
+            'Transfer request details retrieved successfully',
         );
     }
 
     public function approve(string $requestId): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
         $req = $this->service->approveTransfer($requestId, $manager->branch_id, $manager);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Transfer approved successfully',
-            'data' => [
+        return $this->successResponse(
+            [
                 'id' => (string) $req->id,
                 'status' => $req->status?->value ?? '',
             ],
-        ]);
+            'Transfer approved successfully',
+        );
     }
 }

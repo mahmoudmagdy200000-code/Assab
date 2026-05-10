@@ -18,29 +18,37 @@ class AssetSearchController extends BaseController
 
     public function search(AssetsSearchRequest $request): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
         $result = $this->service->search($request->validated(), $manager->branch_id, $manager->id);
 
-        return response()->json([
-            'asset_type_name' => $result['asset_type_name'],
-            'data' => [
-                'summary' => (new SearchSummaryResource($result['summary']))->toArray($request),
-                'items' => AssetSearchItemResource::collection($result['items'])->resolve(),
+        return $this->successResponse(
+            [
+                'asset_type_name' => $result['asset_type_name'],
+                'data' => [
+                    'summary' => (new SearchSummaryResource($result['summary']))->toArray($request),
+                    'items' => AssetSearchItemResource::collection($result['items'])->resolve(),
+                ],
             ],
-        ]);
+            'Search results retrieved successfully',
+        );
     }
 
     public function searchByImage(AssetsSearchByImageRequest $request): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
         $result = $this->service->searchByImage($manager->branch_id);
 
-        return response()->json([
-            'asset_type_name' => $result['asset_type_name'],
-            'data' => [
-                'summary' => (new SearchSummaryResource($result['summary']))->toArray($request),
-                'items' => AssetSearchItemResource::collection($result['items'])->resolve(),
+        return $this->successResponse(
+            [
+                'asset_type_name' => $result['asset_type_name'],
+                'data' => [
+                    'summary' => (new SearchSummaryResource($result['summary']))->toArray($request),
+                    'items' => AssetSearchItemResource::collection($result['items'])->resolve(),
+                ],
             ],
-        ]);
+            'Search results retrieved successfully',
+        );
     }
 }

@@ -16,22 +16,24 @@ class ReceiveAssetsController extends BaseController
 
     public function index(): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
         $list = $this->service->pendingList($manager->branch_id);
 
-        return response()->json([
-            'data' => ReceiveAssetsItemResource::collection($list)->resolve(),
-        ]);
+        return $this->successResponse(
+            ['data' => ReceiveAssetsItemResource::collection($list)->resolve()],
+            'Pending assets retrieved successfully',
+        );
     }
 
     public function confirm(ReceiveAssetsConfirmRequest $request): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
 
         $items = $request->input('items', []);
         $files = $request->file('items', []);
 
-        // Merge image files into per-item arrays.
         foreach ($files as $key => $fileSet) {
             if (isset($fileSet['image'])) {
                 $items[$key]['image'] = $fileSet['image'];
@@ -44,13 +46,12 @@ class ReceiveAssetsController extends BaseController
             $manager,
         );
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Assets received successfully',
-            'data' => [
+        return $this->createdResponse(
+            [
                 'session_id' => (string) $session->id,
                 'received_count' => $session->items->count(),
             ],
-        ], 201);
+            'Assets received successfully',
+        );
     }
 }

@@ -17,35 +17,38 @@ class DisposalRequestController extends BaseController
 
     public function index(Request $request): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
         $page = (int) $request->query('page', 1);
 
         $paginator = $this->service->paginateDisposals($manager->branch_id, max($page, 1));
 
-        return response()->json([
-            'data' => DisposalRequestListItemResource::collection($paginator->getCollection())->resolve(),
-            'meta' => [
-                'current_page' => $paginator->currentPage(),
-                'last_page' => $paginator->lastPage(),
-                'total' => $paginator->total(),
+        return $this->successResponse(
+            [
+                'data' => DisposalRequestListItemResource::collection($paginator->getCollection())->resolve(),
+                'meta' => [
+                    'current_page' => $paginator->currentPage(),
+                    'last_page' => $paginator->lastPage(),
+                    'total' => $paginator->total(),
+                ],
             ],
-        ]);
+            'Disposal requests retrieved successfully',
+        );
     }
 
     public function show(string $requestId): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
         $req = $this->service->disposalDetails($requestId, $manager->branch_id);
 
         if (! $req) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Disposal request not found.',
-            ], 404);
+            return $this->notFoundResponse('Disposal request not found');
         }
 
-        return response()->json(
-            (new DisposalDetailsResource($req))->toArray(request())
+        return $this->successResponse(
+            (new DisposalDetailsResource($req))->toArray(request()),
+            'Disposal request details retrieved successfully',
         );
     }
 }

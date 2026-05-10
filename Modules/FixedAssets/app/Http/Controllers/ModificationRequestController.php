@@ -18,23 +18,28 @@ class ModificationRequestController extends BaseController
 
     public function index(Request $request): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
         $page = (int) $request->query('page', 1);
 
         $paginator = $this->service->paginate($manager->branch_id, max($page, 1));
 
-        return response()->json([
-            'data' => ModificationRequestListItemResource::collection($paginator->getCollection())->resolve(),
-            'meta' => [
-                'current_page' => $paginator->currentPage(),
-                'last_page' => $paginator->lastPage(),
-                'total' => $paginator->total(),
+        return $this->successResponse(
+            [
+                'data' => ModificationRequestListItemResource::collection($paginator->getCollection())->resolve(),
+                'meta' => [
+                    'current_page' => $paginator->currentPage(),
+                    'last_page' => $paginator->lastPage(),
+                    'total' => $paginator->total(),
+                ],
             ],
-        ]);
+            'Modification requests retrieved successfully',
+        );
     }
 
     public function store(ModifyAssetStatusRequest $request): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
 
         $payload = $request->validated();
@@ -42,30 +47,28 @@ class ModificationRequestController extends BaseController
 
         $modification = $this->service->create($payload, $attachment, $manager);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Modification request submitted',
-            'data' => [
+        return $this->createdResponse(
+            [
                 'id' => (string) $modification->id,
                 'status' => $modification->status?->value ?? '',
             ],
-        ], 201);
+            'Modification request submitted',
+        );
     }
 
     public function show(string $requestId): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
         $modification = $this->service->findForBranch($requestId, $manager->branch_id);
 
         if (! $modification) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Modification request not found.',
-            ], 404);
+            return $this->notFoundResponse('Modification request not found');
         }
 
-        return response()->json(
-            (new ModificationDetailsResource($modification))->toArray(request())
+        return $this->successResponse(
+            (new ModificationDetailsResource($modification))->toArray(request()),
+            'Modification details retrieved successfully',
         );
     }
 }

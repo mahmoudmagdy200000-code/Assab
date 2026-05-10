@@ -16,23 +16,23 @@ class AssetController extends BaseController
 
     public function show(string $assetId): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
         $asset = $this->assetService->findForBranch($assetId, $manager->branch_id);
 
         if (! $asset) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Asset not found.',
-            ], 404);
+            return $this->notFoundResponse('Asset not found');
         }
 
-        return response()->json([
-            'data' => (new AssetSearchItemResource($asset))->toArray(request()),
-        ]);
+        return $this->successResponse(
+            ['data' => (new AssetSearchItemResource($asset))->toArray(request())],
+            'Asset details retrieved successfully',
+        );
     }
 
     public function updateSettings(UpdateAssetSettingsRequest $request, string $assetId): JsonResponse
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
         $asset = $this->assetService->updateSettings(
             $assetId,
@@ -42,10 +42,9 @@ class AssetController extends BaseController
             $manager,
         );
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Asset settings updated successfully',
-            'data' => (new AssetSearchItemResource($asset))->toArray($request),
-        ]);
+        return $this->updatedResponse(
+            (new AssetSearchItemResource($asset))->toArray($request),
+            'Asset settings updated successfully',
+        );
     }
 }
