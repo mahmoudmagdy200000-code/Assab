@@ -33,25 +33,25 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->index('kind');
-            $table->index('branch_id');
-            $table->index('requested_by_id');
-            $table->index('recipient_branch_id');
-            $table->index('status');
-            $table->index(['kind', 'status']);
-            $table->index(['branch_id', 'kind']);
+            $table->index('kind', 'fa_td_req_kind_idx');
+            $table->index('branch_id', 'fa_td_req_branch_idx');
+            $table->index('requested_by_id', 'fa_td_req_requested_by_idx');
+            $table->index('recipient_branch_id', 'fa_td_req_recipient_branch_idx');
+            $table->index('status', 'fa_td_req_status_idx');
+            $table->index(['kind', 'status'], 'fa_td_req_kind_status_idx');
+            $table->index(['branch_id', 'kind'], 'fa_td_req_branch_kind_idx');
 
-            $table->foreign('branch_id')
+            $table->foreign('branch_id', 'fa_td_req_branch_fk')
                 ->references('id')
                 ->on('branches')
                 ->cascadeOnDelete();
 
-            $table->foreign('recipient_branch_id')
+            $table->foreign('recipient_branch_id', 'fa_td_req_recipient_branch_fk')
                 ->references('id')
                 ->on('branches')
                 ->nullOnDelete();
 
-            $table->foreign('requested_by_id')
+            $table->foreign('requested_by_id', 'fa_td_req_requested_by_fk')
                 ->references('id')
                 ->on('branch_managers')
                 ->cascadeOnDelete();

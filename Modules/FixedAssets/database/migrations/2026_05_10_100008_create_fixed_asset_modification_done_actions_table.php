@@ -19,10 +19,10 @@ return new class extends Migration
 
             $table->timestamps();
 
-            $table->index('modification_request_id');
-            $table->unique(['modification_request_id', 'action'], 'unique_request_action');
+            $table->index('modification_request_id', 'fa_mod_done_request_idx');
+            $table->unique(['modification_request_id', 'action'], 'fa_mod_done_request_action_uq');
 
-            $table->foreign('modification_request_id')
+            $table->foreign('modification_request_id', 'fa_mod_done_request_fk')
                 ->references('id')
                 ->on('fixed_asset_modification_requests')
                 ->cascadeOnDelete();
