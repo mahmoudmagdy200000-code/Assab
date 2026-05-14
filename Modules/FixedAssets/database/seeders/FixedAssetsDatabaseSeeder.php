@@ -13,6 +13,9 @@ class FixedAssetsDatabaseSeeder extends Seeder
             AssetZoneSeeder::class,
             FixedAssetSeeder::class,
             PendingReceiptSeeder::class,
+            ModificationRequestSeeder::class,
+            TransferRequestSeeder::class,
+            DisposalRequestSeeder::class,
         ]);
     }
 }
