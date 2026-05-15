@@ -24,8 +24,8 @@ return new class extends Migration
             $table->timestamps();
 
             $table->unique(['handover_id', 'role'], 'handover_role_unique');
-            $table->index('handover_id');
-            $table->index(['signed_by_type', 'signed_by_id']);
+            $table->index('handover_id', 'handover_sig_handover_idx');
+            $table->index(['signed_by_type', 'signed_by_id'], 'handover_sig_signer_idx');
 
             $table->foreign('handover_id')
                 ->references('id')
