@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Log;
+use Modules\FixedAssets\Models\Handover;
 use Modules\Inventory\Models\MonthlyInventory;
 use Modules\Inventory\Models\MonthlyInventoryStaff;
 
@@ -33,8 +34,9 @@ $authorizeInventoryChannel = function ($user, $inventoryId) {
         ->select(['id', 'branch_id', 'created_by'])
         ->find($inventoryId);
 
-    if (!$inventory) {
+    if (! $inventory) {
         Log::warning('Channel auth: inventory not found', ['inventory_id' => $inventoryId]);
+
         return false;
     }
 
@@ -60,7 +62,7 @@ $authorizeInventoryChannel = function ($user, $inventoryId) {
 
     Log::info('Channel auth: staff check', ['is_staff' => $isStaffMember]);
 
-    if (!$isStaffMember) {
+    if (! $isStaffMember) {
         return false;
     }
 
@@ -79,3 +81,29 @@ Broadcast::channel('inventory.monthly.{inventoryId}.pending', $authorizeInventor
 
 // Product completed events (product.updated)
 Broadcast::channel('inventory.monthly.{inventoryId}.completed', $authorizeInventoryChannel, ['guards' => ['sanctum']]);
+
+// Fixed Assets handover session channel — only sender and recipient may subscribe
+Broadcast::channel('handover-session.{sessionId}', function ($user, $sessionId) {
+    $handover = Handover::query()
+        ->select(['id', 'sender_id', 'recipient_type', 'recipient_id'])
+        ->find($sessionId);
+
+    if (! $handover) {
+        return false;
+    }
+
+    $userKey = (string) $user->getKey();
+
+    if ((string) $handover->sender_id === $userKey) {
+        return true;
+    }
+
+    if (
+        (string) $handover->recipient_id === $userKey
+        && in_array($user->getMorphClass(), [$handover->recipient_type, get_class($user)], true)
+    ) {
+        return true;
+    }
+
+    return false;
+}, ['guards' => ['sanctum']]);

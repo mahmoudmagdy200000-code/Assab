@@ -8,6 +8,11 @@ use Modules\FixedAssets\Models\FixedAsset;
 
 class OverviewService
 {
+    public function __construct(
+        private readonly HandoverService $handoverService,
+        private readonly HandoverRecipientResolver $recipientResolver,
+    ) {}
+
     public function stats(string $branchId): array
     {
         $rows = FixedAsset::query()
@@ -20,12 +25,25 @@ class OverviewService
         $excellent = (int) ($rows[AssetStatus::EXCELLENT->value] ?? 0);
         $needAttention = (int) ($rows[AssetStatus::NEED_ATTENTION->value] ?? 0);
         $problem = (int) ($rows[AssetStatus::PROBLEM->value] ?? 0);
+        $total = $excellent + $needAttention + $problem;
+
+        $handover = $this->handoverService->activeHandoverForBranch($branchId);
+        $handoverPayload = null;
+        if ($handover) {
+            $recipient = $handover->recipient()->first();
+            $handoverPayload = [
+                'id' => (string) $handover->id,
+                'status' => $handover->status?->value,
+                'recipientName' => $this->recipientResolver->displayName($recipient),
+            ];
+        }
 
         return [
-            'total' => $excellent + $needAttention + $problem,
-            'excellent' => $excellent,
-            'maintenance' => $needAttention,
-            'problem' => $problem,
+            'handover' => $handoverPayload,
+            'totalAssets' => $total,
+            'totalAssetsExcellent' => $excellent,
+            'totalAssetsMaintenance' => $needAttention,
+            'totalAssetsProblem' => $problem,
         ];
     }
 }

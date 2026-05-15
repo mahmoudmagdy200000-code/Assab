@@ -4,6 +4,10 @@ use Illuminate\Support\Facades\Route;
 use Modules\FixedAssets\Http\Controllers\AssetController;
 use Modules\FixedAssets\Http\Controllers\AssetSearchController;
 use Modules\FixedAssets\Http\Controllers\DisposalRequestController;
+use Modules\FixedAssets\Http\Controllers\HandoverController;
+use Modules\FixedAssets\Http\Controllers\HandoverIncludedZonesController;
+use Modules\FixedAssets\Http\Controllers\HandoverSessionController;
+use Modules\FixedAssets\Http\Controllers\HandoverSignatureController;
 use Modules\FixedAssets\Http\Controllers\ModificationRequestController;
 use Modules\FixedAssets\Http\Controllers\OverviewController;
 use Modules\FixedAssets\Http\Controllers\ReceiveAssetsController;
@@ -69,4 +73,50 @@ Route::middleware(['auth:sanctum', 'branch.manager'])
             ->name('requests.disposals.index');
         Route::get('requests/disposals/{requestId}', [DisposalRequestController::class, 'show'])
             ->name('requests.disposals.show');
+
+        /*
+        |----------------------------------------------------------------------
+        | Fixed Assets Handover
+        |----------------------------------------------------------------------
+        */
+        Route::prefix('handover')
+            ->name('handover.')
+            ->group(function () {
+                Route::get('included-zones', [HandoverIncludedZonesController::class, 'index'])
+                    ->name('included-zones');
+
+                Route::post('start', [HandoverController::class, 'start'])
+                    ->name('start');
+
+                Route::prefix('sessions/{sessionId}')->group(function () {
+                    Route::get('join-details', [HandoverSessionController::class, 'joinDetails'])
+                        ->name('sessions.join-details');
+                    Route::post('join', [HandoverSessionController::class, 'join'])
+                        ->name('sessions.join');
+
+                    Route::get('details', [HandoverSessionController::class, 'details'])
+                        ->name('sessions.details');
+                    Route::post('approve-zone', [HandoverSessionController::class, 'approveZone'])
+                        ->name('sessions.approve-zone');
+                    Route::post('approve-all', [HandoverSessionController::class, 'approveAll'])
+                        ->name('sessions.approve-all');
+
+                    Route::get('signature', [HandoverSignatureController::class, 'state'])
+                        ->name('sessions.signature.state');
+                    Route::post('signature/receiver', [HandoverSignatureController::class, 'receiver'])
+                        ->name('sessions.signature.receiver');
+                    Route::post('signature/sender', [HandoverSignatureController::class, 'sender'])
+                        ->name('sessions.signature.sender');
+
+                    Route::get('preview', [HandoverSessionController::class, 'preview'])
+                        ->name('sessions.preview');
+                    Route::get('summary', [HandoverSessionController::class, 'summary'])
+                        ->name('sessions.summary');
+                    Route::post('complete', [HandoverSessionController::class, 'complete'])
+                        ->name('sessions.complete');
+                });
+
+                Route::get('{handoverId}', [HandoverController::class, 'show'])
+                    ->name('show');
+            });
     });
