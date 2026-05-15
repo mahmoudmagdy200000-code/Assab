@@ -12,6 +12,10 @@ use Modules\FixedAssets\Models\HandoverItem;
 
 class HandoverIncludedZonesService
 {
+    public function __construct(
+        private readonly HandoverRecipientResolver $recipientResolver,
+    ) {}
+
     public function forBranch(string $branchId, string $statusFilter = 'global'): array
     {
         $statusFilter = $statusFilter === 'rejected' ? 'rejected' : 'global';
@@ -113,6 +117,53 @@ class HandoverIncludedZonesService
             'totalIncludedItems' => $totalItems,
             'totalValueOfIncludedZones' => round($totalValue, 2),
             'includedZones' => $zones,
+        ];
+    }
+
+    public function sessionDetails(Handover $handover): array
+    {
+        $handover->loadMissing(['items', 'sender', 'zoneApprovals']);
+
+        $recipient = $handover->recipient()->first();
+        $approvedZoneIds = $handover->zoneApprovals
+            ->pluck('zone_id')
+            ->filter()
+            ->map(fn ($id) => (string) $id)
+            ->all();
+
+        $items = $handover->items;
+        $zones = [];
+
+        foreach ($items->groupBy('zone_id') as $zoneId => $group) {
+            if (! $zoneId) {
+                continue;
+            }
+
+            $assets = [];
+            foreach ($group as $item) {
+                $assets[] = [
+                    'assetId' => (string) $item->asset_id,
+                    'assetName' => (string) $item->asset_name_snapshot,
+                    'assetCode' => (string) $item->asset_code_snapshot,
+                    'assetImageUrl' => $item->asset_image_snapshot ? asset('storage/'.$item->asset_image_snapshot) : '',
+                    'currentQty' => (int) $item->current_qty,
+                ];
+            }
+
+            $zones[] = [
+                'zoneId' => (string) $zoneId,
+                'zoneName' => (string) ($group->first()->zone_name_snapshot ?? ''),
+                'assetsCount' => count($assets),
+                'isZoneApproved' => in_array((string) $zoneId, $approvedZoneIds, true),
+                'assets' => $assets,
+            ];
+        }
+
+        return [
+            'sessionId' => (string) $handover->id,
+            'fromEmployeeName' => (string) ($handover->sender?->name ?? ''),
+            'toEmployeeName' => $this->recipientResolver->displayName($recipient),
+            'zones' => $zones,
         ];
     }
 
