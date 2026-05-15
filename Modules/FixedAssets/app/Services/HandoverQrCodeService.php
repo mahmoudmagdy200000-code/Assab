@@ -2,6 +2,10 @@
 
 namespace Modules\FixedAssets\Services;
 
+use Endroid\QrCode\Encoding\Encoding;
+use Endroid\QrCode\ErrorCorrectionLevel;
+use Endroid\QrCode\QrCode;
+use Endroid\QrCode\Writer\PngWriter;
 use Illuminate\Support\Facades\Storage;
 
 class HandoverQrCodeService
@@ -14,10 +18,19 @@ class HandoverQrCodeService
     public function generateAndStore(string $handoverId): string
     {
         $payload = $this->payload($handoverId);
-        $svg = $this->renderSvg($payload);
 
-        $path = "fixed-assets/handover-qr/{$handoverId}.svg";
-        Storage::disk('public')->put($path, $svg);
+        $qrCode = new QrCode(
+            data: $payload,
+            encoding: new Encoding('UTF-8'),
+            errorCorrectionLevel: ErrorCorrectionLevel::Medium,
+            size: 400,
+            margin: 16,
+        );
+
+        $result = (new PngWriter())->write($qrCode);
+
+        $path = "fixed-assets/handover-qr/{$handoverId}.png";
+        Storage::disk('public')->put($path, $result->getString());
 
         return $path;
     }
@@ -29,18 +42,5 @@ class HandoverQrCodeService
         }
 
         return asset('storage/'.$path);
-    }
-
-    private function renderSvg(string $payload): string
-    {
-        $escaped = htmlspecialchars($payload, ENT_QUOTES | ENT_XML1, 'UTF-8');
-
-        return <<<SVG
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
-  <rect width="200" height="200" fill="#ffffff"/>
-  <text x="100" y="100" text-anchor="middle" dominant-baseline="middle" font-family="monospace" font-size="10">{$escaped}</text>
-</svg>
-SVG;
     }
 }
