@@ -15,6 +15,15 @@ class TransferOrDisposalRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        if ($this->has('autoApprove')) {
+            $this->merge([
+                'autoApprove' => filter_var($this->input('autoApprove'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE),
+            ]);
+        }
+    }
+
     public function rules(): array
     {
         return [

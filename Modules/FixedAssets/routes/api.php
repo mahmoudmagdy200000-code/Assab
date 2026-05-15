@@ -39,7 +39,7 @@ Route::middleware(['auth:sanctum', 'branch.manager'])
 
         Route::get('assets/{assetId}', [AssetController::class, 'show'])
             ->name('assets.show');
-        Route::patch('assets/{assetId}/settings', [AssetController::class, 'updateSettings'])
+        Route::match(['patch', 'post'], 'assets/{assetId}/settings', [AssetController::class, 'updateSettings'])
             ->name('assets.update-settings');
 
         Route::post('assets/search', [AssetSearchController::class, 'search'])
