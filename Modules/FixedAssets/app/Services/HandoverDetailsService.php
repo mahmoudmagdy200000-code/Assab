@@ -65,8 +65,15 @@ class HandoverDetailsService
             ];
         }
 
+        $viewerId = (string) (auth()->user()?->getKey() ?? '');
+        $viewerType = auth()->user()?->getMorphClass();
+        $type = (string) $handover->sender_id === $viewerId
+            ? 'sender'
+            : (((string) $handover->recipient_id === $viewerId && $handover->recipient_type === $viewerType) ? 'receiver' : 'sender');
+
         return [
             'handoverId' => (string) $handover->id,
+            'type' => $type,
             'status' => $handover->status?->value,
             'initiatedDetails' => $initiated,
             'recipientName' => $recipientName,
