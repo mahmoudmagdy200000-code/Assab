@@ -74,6 +74,9 @@ Route::middleware(['auth:sanctum', 'branch.manager'])
         Route::get('requests/disposals/{requestId}', [DisposalRequestController::class, 'show'])
             ->name('requests.disposals.show');
 
+        Route::get('requests/handovers', [HandoverController::class, 'index'])
+            ->name('requests.handovers.index');
+
         /*
         |----------------------------------------------------------------------
         | Fixed Assets Handover

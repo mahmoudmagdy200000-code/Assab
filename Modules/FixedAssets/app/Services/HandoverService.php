@@ -2,6 +2,7 @@
 
 namespace Modules\FixedAssets\Services;
 
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
@@ -29,6 +30,28 @@ class HandoverService
         private readonly HandoverBroadcastService $broadcaster,
         private readonly TimelineService $timeline,
     ) {}
+
+    public function paginateRequestsForManager(
+        BranchManager $manager,
+        int $page = 1,
+        int $perPage = 15,
+    ): LengthAwarePaginator {
+        $managerId = (string) $manager->id;
+        $managerMorph = $manager->getMorphClass();
+        $branchId = (string) $manager->branch_id;
+
+        return Handover::query()
+            ->where('branch_id', $branchId)
+            ->where(function ($q) use ($managerId, $managerMorph) {
+                $q->where('sender_id', $managerId)
+                    ->orWhere(function ($q2) use ($managerId, $managerMorph) {
+                        $q2->where('recipient_type', $managerMorph)
+                            ->where('recipient_id', $managerId);
+                    });
+            })
+            ->orderByDesc('created_at')
+            ->paginate(perPage: $perPage, page: $page);
+    }
 
     public function activeHandoverForBranch(string $branchId): ?Handover
     {
