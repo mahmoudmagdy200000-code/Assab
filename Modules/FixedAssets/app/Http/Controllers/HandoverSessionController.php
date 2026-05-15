@@ -53,7 +53,7 @@ class HandoverSessionController extends BaseController
         $handover = Handover::query()->findOrFail($sessionId);
 
         return $this->successResponse(
-            $this->zonesService->activeSessionZones($handover),
+            $this->zonesService->sessionDetails($handover),
             'Session details retrieved successfully',
         );
     }
