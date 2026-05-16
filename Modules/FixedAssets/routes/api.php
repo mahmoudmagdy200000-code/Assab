@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Modules\FixedAssets\Http\Controllers\AssetController;
+use Modules\FixedAssets\Http\Controllers\AssetHistoryController;
 use Modules\FixedAssets\Http\Controllers\AssetSearchController;
 use Modules\FixedAssets\Http\Controllers\DisposalRequestController;
 use Modules\FixedAssets\Http\Controllers\HandoverController;
@@ -41,6 +42,11 @@ Route::middleware(['auth:sanctum', 'branch.manager'])
             ->name('assets.show');
         Route::match(['patch', 'post'], 'assets/{assetId}/settings', [AssetController::class, 'updateSettings'])
             ->name('assets.update-settings');
+
+        Route::get('assets/{assetId}/history', [AssetHistoryController::class, 'show'])
+            ->name('assets.history.show');
+        Route::post('assets/{assetId}/history/report', [AssetHistoryController::class, 'generateReport'])
+            ->name('assets.history.report');
 
         Route::post('assets/search', [AssetSearchController::class, 'search'])
             ->name('assets.search');

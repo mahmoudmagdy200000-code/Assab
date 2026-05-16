@@ -6,6 +6,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\FixedAssets\Enums\TimelineEventType;
+use Modules\FixedAssets\Models\Attachment;
 use Modules\FixedAssets\Models\FixedAsset;
 
 class AssetService
@@ -37,7 +38,22 @@ class AssetService
             ];
 
             if ($newImage) {
+                $previousImage = $asset->image;
                 $payload['image'] = $newImage->store('fixed-assets/assets', 'public');
+
+                if ($previousImage) {
+                    Attachment::create([
+                        'attachable_type' => $asset->getMorphClass(),
+                        'attachable_id' => $asset->getKey(),
+                        'kind' => 'asset_photo',
+                        'file_name' => basename($previousImage),
+                        'file_type' => 'image',
+                        'file_size' => 0,
+                        'path' => $previousImage,
+                        'uploaded_by_id' => $manager->id,
+                        'uploaded_at' => now(),
+                    ]);
+                }
             }
 
             $asset->update($payload);

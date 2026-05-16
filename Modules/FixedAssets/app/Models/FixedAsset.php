@@ -76,4 +76,15 @@ class FixedAsset extends Model
     {
         return $this->morphMany(Attachment::class, 'attachable');
     }
+
+    public function photoHistory(): MorphMany
+    {
+        return $this->morphMany(Attachment::class, 'attachable')
+            ->where('kind', 'asset_photo');
+    }
+
+    public function timelines(): MorphMany
+    {
+        return $this->morphMany(Timeline::class, 'timelineable');
+    }
 }
