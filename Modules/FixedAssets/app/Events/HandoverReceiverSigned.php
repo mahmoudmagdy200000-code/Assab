@@ -4,13 +4,13 @@ namespace Modules\FixedAssets\Events;
 
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 use Modules\FixedAssets\Models\Handover;
 use Modules\FixedAssets\Models\HandoverSignature;
 
-class HandoverReceiverSigned implements ShouldBroadcast
+class HandoverReceiverSigned implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
