@@ -88,28 +88,28 @@ class HandoverSummaryService
         $items = $handover->items;
         $totalItems = $items->count();
         $inspectedItems = $items->whereNotNull('recipient_inspection')->count();
-        $assetsReviewCompleted = $totalItems > 0 && $inspectedItems === $totalItems;
 
         $zoneIds = $items->pluck('zone_id')->filter()->unique();
         $totalZones = $zoneIds->count();
         $approvedZones = $handover->zoneApprovals->whereNotNull('approved_at')->count();
-        $zoneApprovalCompleted = $totalZones > 0 && $approvedZones >= $totalZones;
-
-        $finalSignatureCompleted = (bool) $senderSignature && (bool) $receiverSignature;
 
         $itemsRatio = $totalItems > 0 ? $inspectedItems / $totalItems : 0.0;
         $zonesRatio = $totalZones > 0 ? min(1.0, $approvedZones / $totalZones) : 0.0;
         $sigCount = ((int) (bool) $senderSignature) + ((int) (bool) $receiverSignature);
         $sigRatio = $sigCount / 2;
 
+        $assetsReviewPercent = (int) round($itemsRatio * 100);
+        $zoneValidationPercent = (int) round($zonesRatio * 100);
+        $signatureStepPercent = (int) round($sigRatio * 100);
+
         $completedPercent = (int) round(($itemsRatio * 25) + ($zonesRatio * 25) + ($sigRatio * 50));
         $remainingPercent = max(0, 100 - $completedPercent);
 
         return [
             'progressItems' => [
-                ['title' => 'Assets Review', 'isCompleted' => $assetsReviewCompleted],
-                ['title' => 'Zone Approval', 'isCompleted' => $zoneApprovalCompleted],
-                ['title' => 'Final Signature', 'isCompleted' => $finalSignatureCompleted],
+                ['label' => 'Assets Review', 'percent' => $assetsReviewPercent],
+                ['label' => 'Zone Validation', 'percent' => $zoneValidationPercent],
+                ['label' => 'Signature Step', 'percent' => $signatureStepPercent],
             ],
             'timeSpent' => $this->handover->timeSpent($handover),
             'remainingPercent' => $remainingPercent,
