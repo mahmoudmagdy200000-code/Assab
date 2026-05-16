@@ -74,6 +74,8 @@ class HandoverSummaryService
 
     public function signatureStatePayload(Handover $handover): array
     {
+        $handover->loadMissing(['items', 'zoneApprovals', 'signatures']);
+
         $senderSignature = $this->handover->signatureFor($handover, HandoverSignatureRole::SENDER);
         $receiverSignature = $this->handover->signatureFor($handover, HandoverSignatureRole::RECEIVER);
 
@@ -83,8 +85,34 @@ class HandoverSummaryService
         $receiverName = $receiverSignature?->signed_by_name_snapshot
             ?? $this->recipientResolver->displayName($receiver);
 
+        $items = $handover->items;
+        $totalItems = $items->count();
+        $inspectedItems = $items->whereNotNull('recipient_inspection')->count();
+        $assetsReviewCompleted = $totalItems > 0 && $inspectedItems === $totalItems;
+
+        $zoneIds = $items->pluck('zone_id')->filter()->unique();
+        $totalZones = $zoneIds->count();
+        $approvedZones = $handover->zoneApprovals->whereNotNull('approved_at')->count();
+        $zoneApprovalCompleted = $totalZones > 0 && $approvedZones >= $totalZones;
+
+        $finalSignatureCompleted = (bool) $senderSignature && (bool) $receiverSignature;
+
+        $itemsRatio = $totalItems > 0 ? $inspectedItems / $totalItems : 0.0;
+        $zonesRatio = $totalZones > 0 ? min(1.0, $approvedZones / $totalZones) : 0.0;
+        $sigCount = ((int) (bool) $senderSignature) + ((int) (bool) $receiverSignature);
+        $sigRatio = $sigCount / 2;
+
+        $completedPercent = (int) round(($itemsRatio * 25) + ($zonesRatio * 25) + ($sigRatio * 50));
+        $remainingPercent = max(0, 100 - $completedPercent);
+
         return [
-            'progressItems' => $this->handover->progressItems($handover),
+            'progressItems' => [
+                ['title' => 'Assets Review', 'isCompleted' => $assetsReviewCompleted],
+                ['title' => 'Zone Approval', 'isCompleted' => $zoneApprovalCompleted],
+                ['title' => 'Final Signature', 'isCompleted' => $finalSignatureCompleted],
+            ],
+            'timeSpent' => $this->handover->timeSpent($handover),
+            'remainingPercent' => $remainingPercent,
             'sender' => [
                 'name' => $senderName,
                 'isSigned' => (bool) $senderSignature,

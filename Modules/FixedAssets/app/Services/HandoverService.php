@@ -133,7 +133,9 @@ class HandoverService
                 $sender,
             );
 
-            $this->broadcaster->statusChanged($handover->fresh());
+            $fresh = $handover->fresh();
+            $this->broadcaster->started($fresh);
+            $this->broadcaster->statusChanged($fresh);
 
             return $handover->fresh(['items']);
         });
@@ -415,7 +417,7 @@ class HandoverService
         $m = intdiv($seconds % 3600, 60);
         $s = $seconds % 60;
 
-        return sprintf('%d:%02d:%02d', $h, $m, $s);
+        return sprintf('%02d:%02d:%02d', $h, $m, $s);
     }
 
     public function durationLabel(Handover $handover): string
