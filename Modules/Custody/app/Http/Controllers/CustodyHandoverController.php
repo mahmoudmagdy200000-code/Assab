@@ -377,6 +377,27 @@ class CustodyHandoverController extends BaseController
 
             $recipients = [];
 
+            // Brand Owner: branch managers only (per brand-owner contract)
+            if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
+                $branchManagers = BranchManager::query()
+                    ->active()
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'email']);
+
+                foreach ($branchManagers as $bm) {
+                    $recipients[] = [
+                        'id'    => $bm->id,
+                        'type'  => 'Branch Manager',
+                        'name'  => $bm->name,
+                        'email' => $bm->email,
+                    ];
+                }
+
+                return $this->successResponse([
+                    'recipients' => $recipients,
+                ], 'Recipients retrieved successfully');
+            }
+
             // When user is Cashier: other cashiers + branch managers (same branch)
             if ($user instanceof Cashier && $branchId) {
                 $cashiers = Cashier::query()

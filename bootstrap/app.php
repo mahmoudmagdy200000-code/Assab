@@ -77,6 +77,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'localeViewPath'        => \Mcamara\LaravelLocalization\Middleware\LaravelLocalizationViewPath::class,
             'branch.manager' => \Modules\BranchManagers\Http\Middleware\BranchManagerMiddleware::class,
             'branch.manager.or.cashier' => \App\Http\Middleware\BranchManagerOrCashierMiddleware::class,
+            'branch.manager.or.cashier.or.brand.owner' => \App\Http\Middleware\BranchManagerOrCashierOrBrandOwnerMiddleware::class,
             'cashier' => \Modules\Cashier\Http\Middleware\CashierMiddleware::class,
             'brand.owner' => \Modules\BrandOwner\Http\Middleware\BrandOwnerMiddleware::class,
             'supplier' => \Modules\Supplier\Http\Middleware\SupplierMiddleware::class,

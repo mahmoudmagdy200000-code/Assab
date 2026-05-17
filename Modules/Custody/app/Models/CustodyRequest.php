@@ -19,14 +19,18 @@ class CustodyRequest extends Model
     protected $fillable = [
         'branch_manager_id',
         'branch_id',
+        'created_by_brand_owner_id',
         'requested_amount',
         'purpose',
         'preferred_receipt_method',
         'additional_notes',
+        'handover_date',
         'status',
         'approved_by',
+        'approved_by_type',
         'approved_at',
         'rejected_by',
+        'rejected_by_type',
         'rejected_at',
         'rejection_reason',
         'viewed_at',
@@ -37,6 +41,7 @@ class CustodyRequest extends Model
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
         'viewed_at' => 'datetime',
+        'handover_date' => 'datetime',
     ];
 
     // Relationships

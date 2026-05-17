@@ -58,9 +58,14 @@ class LedgerController extends BaseController
             $userId = auth()->id();
 
             // Route to the correct service based on authenticated user type
-            $balance = auth()->user() instanceof Cashier
-                ? $this->cashierCustodyService->getPersonalCustodyBalance($userId, $monthValue, $yearValue)
-                : $this->ledgerService->getPersonalCustodyBalance($userId, $monthValue, $yearValue);
+            $user = auth()->user();
+            if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
+                $balance = $this->brandOwnerCustodyBalance($userId, $monthValue, $yearValue);
+            } elseif ($user instanceof Cashier) {
+                $balance = $this->cashierCustodyService->getPersonalCustodyBalance($userId, $monthValue, $yearValue);
+            } else {
+                $balance = $this->ledgerService->getPersonalCustodyBalance($userId, $monthValue, $yearValue);
+            }
 
             return $this->successResponse($balance, 'Personal custody balance retrieved successfully');
         } catch (\Exception $e) {
@@ -76,9 +81,14 @@ class LedgerController extends BaseController
     {
         try {
             $userId  = auth()->id();
-            $balance = auth()->user() instanceof Cashier
-                ? $this->cashierCustodyService->getPersonalBalanceOnly($userId)
-                : $this->ledgerService->getPersonalBalanceOnly($userId);
+            $user    = auth()->user();
+            if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
+                $balance = $this->brandOwnerBalanceOnly($userId);
+            } elseif ($user instanceof Cashier) {
+                $balance = $this->cashierCustodyService->getPersonalBalanceOnly($userId);
+            } else {
+                $balance = $this->ledgerService->getPersonalBalanceOnly($userId);
+            }
 
             return $this->successResponse([
                 'personalCustodyBalance' => $balance
@@ -136,9 +146,14 @@ class LedgerController extends BaseController
             }
 
             $userId       = auth()->id();
-            $transactions = auth()->user() instanceof Cashier
-                ? $this->cashierCustodyService->getTransactionHistory($userId, $filters)
-                : $this->ledgerService->getTransactionHistory($userId, $filters);
+            $user         = auth()->user();
+            if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
+                $transactions = $this->brandOwnerTransactions($userId, $filters);
+            } elseif ($user instanceof Cashier) {
+                $transactions = $this->cashierCustodyService->getTransactionHistory($userId, $filters);
+            } else {
+                $transactions = $this->ledgerService->getTransactionHistory($userId, $filters);
+            }
 
             return $this->successResponse($transactions, 'Transactions retrieved successfully');
         } catch (\Exception $e) {
@@ -256,5 +271,74 @@ class LedgerController extends BaseController
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
+    }
+
+    /**
+     * Brand owner personal custody balance: aggregates from custody_requests created by the brand owner.
+     */
+    private function brandOwnerCustodyBalance(string $brandOwnerId, ?int $month = null, ?int $year = null): array
+    {
+        $query = \Modules\Custody\Models\CustodyRequest::where('created_by_brand_owner_id', $brandOwnerId);
+
+        if ($month && $year) {
+            $query->whereYear('created_at', $year)->whereMonth('created_at', $month);
+        }
+
+        $requests = $query->get();
+        $approved = $requests->where('status', 'Approved')->sum('requested_amount');
+        $pending  = $requests->where('status', 'Pending')->sum('requested_amount');
+        $rejected = $requests->where('status', 'Rejected')->sum('requested_amount');
+
+        return [
+            'personalCustodyBalance' => (float) $approved,
+            'totals' => [
+                'approved' => (float) $approved,
+                'pending'  => (float) $pending,
+                'rejected' => (float) $rejected,
+            ],
+            'transactions' => [],
+            'filter' => [
+                'month' => $month,
+                'year'  => $year,
+            ],
+        ];
+    }
+
+    private function brandOwnerBalanceOnly(string $brandOwnerId): array
+    {
+        $approved = \Modules\Custody\Models\CustodyRequest::where('created_by_brand_owner_id', $brandOwnerId)
+            ->where('status', 'Approved')
+            ->sum('requested_amount');
+
+        return [
+            'personalCustodyBalance' => (float) $approved,
+        ];
+    }
+
+    private function brandOwnerTransactions(string $brandOwnerId, array $filters): array
+    {
+        $query = \Modules\Custody\Models\CustodyRequest::where('created_by_brand_owner_id', $brandOwnerId);
+
+        if (!empty($filters['month']) && !empty($filters['year'])) {
+            $query->whereYear('created_at', $filters['year'])
+                ->whereMonth('created_at', $filters['month']);
+        }
+
+        $transactions = $query->orderBy('created_at', 'desc')->get()->map(function ($req) {
+            return [
+                'id'            => $req->id,
+                'type'          => 'Owner Payment',
+                'amount'        => (float) $req->requested_amount,
+                'status'        => strtolower((string) $req->status),
+                'preferredReceiptMethod' => $req->preferred_receipt_method,
+                'handoverDate'  => $req->handover_date?->toIso8601String(),
+                'dateTime'      => $req->created_at->toIso8601String(),
+            ];
+        })->values();
+
+        return [
+            'transactions' => $transactions,
+            'filter'       => $filters,
+        ];
     }
 }

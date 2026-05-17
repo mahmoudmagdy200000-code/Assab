@@ -74,9 +74,14 @@ class ExpenseApprovalController extends BaseController
     /**
      * Approve expense
      * POST /api/brand-owner/expenses/{expense}/approve
+     * POST /api/branch-manager/expenses/{expense}/approve
      */
     public function approve(string $expense): JsonResponse
     {
+        if (!(auth()->user() instanceof \Modules\BrandOwner\Models\BrandOwner)) {
+            return $this->errorResponse('Only brand owners can approve expenses', 403);
+        }
+
         try {
             $expenseModel = $this->expenseRepository->findOrFail($expense);
 
@@ -100,6 +105,10 @@ class ExpenseApprovalController extends BaseController
      */
     public function reject(Request $request, string $expense): JsonResponse
     {
+        if (!(auth()->user() instanceof \Modules\BrandOwner\Models\BrandOwner)) {
+            return $this->errorResponse('Only brand owners can reject expenses', 403);
+        }
+
         $validator = Validator::make($request->all(), [
             'reason' => 'required|string|min:10|max:500',
         ]);

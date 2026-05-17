@@ -65,6 +65,29 @@ class ExpenseRepository
     }
 
     /**
+     * Recent expenses for Brand Owner view (non-draft, across all managers), limit 10.
+     */
+    public function getRecentForBrandOwner(int $limit = 10): Collection
+    {
+        return Expense::whereIn('status', ['pending', 'approved', 'rejected'])
+            ->with(['quickCashExpense', 'invoiceDetails', 'groupedInvoice.invoiceDetails', 'preApprovalRequest', 'branchManager'])
+            ->orderBy('created_at', 'desc')
+            ->limit($limit)
+            ->get();
+    }
+
+    /**
+     * Brand Owner summary: approved expenses across all managers for month/year.
+     */
+    public function getSummaryForBrandOwner(int $month, int $year): Collection
+    {
+        return Expense::where('status', 'approved')
+            ->whereYear('created_at', $year)
+            ->whereMonth('created_at', $month)
+            ->get();
+    }
+
+    /**
      * Paginated index with optional type, status, date filters.
      * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */

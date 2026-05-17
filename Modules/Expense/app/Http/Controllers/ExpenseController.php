@@ -40,7 +40,12 @@ class ExpenseController extends BaseController
         $month = (int) $request->input('month', now()->month);
         $year = (int) $request->input('year', now()->year);
 
-        $expenses = $this->expenseRepository->getSummaryForManager(auth()->id(), $month, $year);
+        $user = auth()->user();
+        if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
+            $expenses = $this->expenseRepository->getSummaryForBrandOwner($month, $year);
+        } else {
+            $expenses = $this->expenseRepository->getSummaryForManager(auth()->id(), $month, $year);
+        }
 
         $summary = [
             'date_filter' => [
@@ -99,7 +104,13 @@ class ExpenseController extends BaseController
      */
     public function recent(): JsonResponse
     {
-        $expenses = $this->expenseRepository->getRecentForManager(auth()->id(), 10);
+        $user = auth()->user();
+
+        if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
+            $expenses = $this->expenseRepository->getRecentForBrandOwner(10);
+        } else {
+            $expenses = $this->expenseRepository->getRecentForManager(auth()->id(), 10);
+        }
 
         return $this->successResponse(
             ExpenseResource::collection($expenses),
@@ -113,7 +124,14 @@ class ExpenseController extends BaseController
      */
     public function index(Request $request): JsonResponse
     {
-        $expenses = $this->expenseRepository->getPaginatedForManager(auth()->id(), $request);
+        $user = auth()->user();
+
+        // Brand Owner: list non-draft expenses across all managers (drafts excluded by contract)
+        if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
+            $expenses = $this->expenseRepository->getPaginatedForApproval($request);
+        } else {
+            $expenses = $this->expenseRepository->getPaginatedForManager(auth()->id(), $request);
+        }
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
@@ -128,8 +146,14 @@ class ExpenseController extends BaseController
     public function show(string $expense): JsonResponse
     {
         $expenseModel = $this->expenseRepository->findForShow($expense);
+        $user = auth()->user();
 
-        if ($expenseModel->branch_manager_id !== auth()->id()) {
+        // Brand Owner may view any non-draft expense
+        if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
+            if ($expenseModel->status === 'draft') {
+                return $this->errorResponse('Draft expenses are not accessible to brand owners', 403);
+            }
+        } elseif ($expenseModel->branch_manager_id !== auth()->id()) {
             return $this->errorResponse('Unauthorized access', 403);
         }
 

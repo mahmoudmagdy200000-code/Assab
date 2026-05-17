@@ -15,11 +15,14 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->group(function () {
         Route::get('balance', [CashierCustodyController::class, 'balance']);
         Route::get('transactions', [CashierCustodyController::class, 'transactions']);
     });
-    // Personal Ledger Management (3.1.2.2) — Cashier & Branch Manager: data scoped to authenticated user (token)
-    Route::middleware(['branch.manager.or.cashier'])->prefix('branch-manager/ledger')->group(function () {
+    // Personal Ledger Management (3.1.2.2) — Cashier, Branch Manager, Brand Owner (owner payment form)
+    Route::middleware(['branch.manager.or.cashier.or.brand.owner'])->prefix('branch-manager/ledger')->group(function () {
         Route::get('personal-custody-balance', [LedgerController::class, 'getPersonalCustodyBalance']);
         Route::get('personal-balance-only', [LedgerController::class, 'getPersonalBalanceOnly']);
         Route::get('transactions', [LedgerController::class, 'getTransactions']);
+    });
+    // PDF export + branch custody balance remain BM/Cashier only
+    Route::middleware(['branch.manager.or.cashier'])->prefix('branch-manager/ledger')->group(function () {
         Route::post('export-pdf', [LedgerController::class, 'exportPdf']);
         Route::get('branch-custody-balance', [LedgerController::class, 'getBranchCustodyBalance']);
     });
@@ -31,6 +34,10 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->group(function () {
         Route::get('requests/{requestId}', [CustodyRequestController::class, 'show']);
         Route::post('request-cashin', [CustodyRequestController::class, 'store']);
         Route::get('request-cashin/history', [CustodyRequestController::class, 'getHistory']);
+
+        // Approve / Reject (brand-owner only — enforced inside controller)
+        Route::post('requests/{requestId}/approve', [CustodyRequestController::class, 'approve'])->middleware('throttle:custody-write');
+        Route::post('requests/{requestId}/reject', [CustodyRequestController::class, 'reject'])->middleware('throttle:custody-write');
 
         // Transactions
         Route::get('transactions', [CustodyTransactionController::class, 'index']);

@@ -15,6 +15,30 @@ use Modules\Expense\Http\Controllers\{
 
 /*
 |--------------------------------------------------------------------------
+| Branch Manager Expenses - Shared read + Brand Owner approve/reject
+| These routes are reused by Brand Owner views per the brand-owner contract.
+|--------------------------------------------------------------------------
+*/
+
+Route::prefix('branch-manager/expenses')
+    ->middleware(['auth:sanctum', 'branch.manager.or.cashier.or.brand.owner', 'log.throttle'])
+    ->name('api.branch-manager.expenses.shared.')
+    ->group(function () {
+        // Shared read endpoints (brand owner sees non-draft only via controller branching)
+        Route::get('/', [ExpenseController::class, 'index']);
+        Route::get('/summary', [ExpenseController::class, 'summary']);
+        Route::get('/recent', [ExpenseController::class, 'recent']);
+        Route::get('/{expense}', [ExpenseController::class, 'show'])->where('expense', '[0-9a-f-]{36}');
+
+        // Approve / Reject (brand-owner only — enforced inside controller)
+        Route::post('/{expense}/approve', [ExpenseApprovalController::class, 'approve'])
+            ->where('expense', '[0-9a-f-]{36}');
+        Route::post('/{expense}/reject', [ExpenseApprovalController::class, 'reject'])
+            ->where('expense', '[0-9a-f-]{36}');
+    });
+
+/*
+|--------------------------------------------------------------------------
 | Branch Manager - Expense Management Routes
 |--------------------------------------------------------------------------
 */
@@ -110,17 +134,14 @@ Route::prefix('branch-manager/expenses')
         | General Expense Routes
         |--------------------------------------------------------------------------
         */
-        Route::get('/', [ExpenseController::class, 'index']);
-        Route::get('/summary', [ExpenseController::class, 'summary']);
-        Route::get('/recent', [ExpenseController::class, 'recent']);
+        // Note: index, summary, recent, show are registered in the shared route group above
         Route::get('/drafts', [ExpenseController::class, 'drafts']);
         Route::get('/filter', [ExpenseController::class, 'filter']);
         Route::get('/search', [ExpenseController::class, 'search']);
         Route::get('/custody-balance', [ExpenseController::class, 'custodyBalance']);
         Route::get('/enums', [ExpenseController::class, 'enums']);
 
-        // Show / Timeline / Submit
-        Route::get('/{expense}', [ExpenseController::class, 'show']);
+        // Timeline / Submit
         Route::get('/{expense}/timeline', [ExpenseController::class, 'timeline']);
         Route::post('/{expense}/submit', [ExpenseController::class, 'submit'])->middleware('throttle:expense-write');
         Route::post('/{expense}/resubmit', [ExpenseController::class, 'resubmit'])->middleware('throttle:expense-write');

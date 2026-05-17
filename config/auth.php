@@ -52,6 +52,10 @@ return [
             'driver' => 'sanctum',
             'provider' => 'suppliers',
         ],
+        'brand_owner' => [
+            'driver' => 'sanctum',
+            'provider' => 'brand_owners',
+        ],
     ],
 
     /*
@@ -95,7 +99,12 @@ return [
             'driver' => 'eloquent',
             'model' => Modules\Supplier\Models\Supplier::class,
         ],
-        
+
+        'brand_owners' => [
+            'driver' => 'eloquent',
+            'model' => Modules\BrandOwner\Models\BrandOwner::class,
+        ],
+
     ],
 
     /*
