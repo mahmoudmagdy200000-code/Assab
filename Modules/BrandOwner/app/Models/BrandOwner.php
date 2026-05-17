@@ -21,8 +21,10 @@ class BrandOwner extends Authenticatable
         'password',
         'image',
         'is_active',
+        'is_first_login',
         'status',
         'email_verified_at',
+        'phone_verified_at',
     ];
 
     protected $hidden = [
@@ -32,8 +34,10 @@ class BrandOwner extends Authenticatable
 
     protected $casts = [
         'email_verified_at' => 'datetime',
-        'password' => 'hashed',
-        'is_active' => 'boolean',
+        'phone_verified_at' => 'datetime',
+        'password'          => 'hashed',
+        'is_active'         => 'boolean',
+        'is_first_login'    => 'boolean',
     ];
 
     public function isActive(): bool
@@ -44,6 +48,16 @@ class BrandOwner extends Authenticatable
     public function isSuspended(): bool
     {
         return $this->status === 'suspended';
+    }
+
+    public function isFirstLogin(): bool
+    {
+        return (bool) $this->is_first_login;
+    }
+
+    public function markFirstLoginComplete(): void
+    {
+        $this->update(['is_first_login' => false]);
     }
 
     public function getImageUrlAttribute(): ?string

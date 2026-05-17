@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Modules\BrandOwner\Http\Controllers\AuthController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerController;
 use Modules\BrandOwner\Http\Controllers\CashSalesTransferController;
 use Modules\BrandOwner\Http\Controllers\OwnerPaymentFormController;
@@ -8,6 +9,28 @@ use Modules\BrandOwner\Http\Controllers\OwnerPaymentLogController;
 
 Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
     Route::apiResource('brandowners', BrandOwnerController::class)->names('brandowner');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Brand Owner - Authentication (mirrors Branch Manager auth)
+|--------------------------------------------------------------------------
+*/
+
+Route::prefix('brand-owner')->group(function () {
+    // Public
+    Route::post('auth/first-login', [AuthController::class, 'firstLogin']);
+    Route::post('auth/login', [AuthController::class, 'login']);
+    Route::post('auth/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('auth/verify-otp', [AuthController::class, 'verifyOtp']);
+    Route::post('auth/reset-password', [AuthController::class, 'resetPassword']);
+
+    // Protected
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::post('auth/reset-password-first-login', [AuthController::class, 'resetPasswordFirstLogin']);
+        Route::post('auth/logout', [AuthController::class, 'logout']);
+        Route::get('auth/me', [AuthController::class, 'me']);
+    });
 });
 
 /*
