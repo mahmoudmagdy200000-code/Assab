@@ -16,6 +16,35 @@ class CashSalesTransferController extends BaseController
     ) {}
 
     /**
+     * GET /api/brand-owner/cash-sales-transfers
+     * Filters: fromDate, toDate, storeId, status, page, pageSize
+     */
+    public function index(Request $request): JsonResponse
+    {
+        $actor = auth()->user();
+        if (!($actor instanceof BrandOwner)) {
+            return $this->errorResponse('Only brand owners can list cash sales transfers', 403);
+        }
+
+        $page     = max((int) $request->input('page', 1), 1);
+        $pageSize = max(min((int) $request->input('pageSize', 20), 100), 1);
+
+        $status = $request->input('status');
+        if ($status && !in_array($status, ['pending', 'approved', 'rejected'], true)) {
+            return $this->errorResponse('Invalid status. Must be: pending, approved, or rejected', 400);
+        }
+
+        $payload = $this->service->listForBrandOwner($actor->id, [
+            'fromDate' => $request->input('fromDate'),
+            'toDate'   => $request->input('toDate'),
+            'storeId'  => $request->input('storeId'),
+            'status'   => $status,
+        ], $page, $pageSize);
+
+        return $this->successResponse($payload, 'Cash sales transfers retrieved successfully');
+    }
+
+    /**
      * GET /api/brand-owner/cash-sales-transfers/{id}
      */
     public function show(string $id): JsonResponse

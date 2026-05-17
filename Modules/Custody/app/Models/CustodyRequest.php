@@ -20,11 +20,13 @@ class CustodyRequest extends Model
         'branch_manager_id',
         'branch_id',
         'created_by_brand_owner_id',
+        'recipient_employee_id',
         'requested_amount',
         'purpose',
         'preferred_receipt_method',
         'additional_notes',
         'handover_date',
+        'transfer_date',
         'status',
         'approved_by',
         'approved_by_type',
@@ -42,6 +44,7 @@ class CustodyRequest extends Model
         'rejected_at' => 'datetime',
         'viewed_at' => 'datetime',
         'handover_date' => 'datetime',
+        'transfer_date' => 'datetime',
     ];
 
     // Relationships
