@@ -114,55 +114,73 @@ class CustodyRequestController extends BaseController
      * Create new cash-in request
      * POST /api/custody/request-cashin
      *
-     * - Branch Manager: existing flow (JSON or form).
-     * - Brand Owner: Owner Payment Form contract — multipart/form-data:
-     *     recipientEmployeeId, amount, preferredReceiptMethod (cash|bank_transfer),
-     *     handoverDate (ISO-8601), note, attachments[]
+     * multipart/form-data:
+     *   requestedAmount         number (required unless reuseRequestId)
+     *   purpose                 string (required unless reuseRequestId)
+     *   preferredReceiptMethod  cash_handover | bank_transfer
+     *                           (also accepts "Cash Handover" / "Bank Transfer" for compatibility)
+     *   additionalNotes         string (optional)
+     *   attachments[]           file   (optional)
+     *   reuseRequestId          string (optional — branch-manager only)
      */
     public function store(Request $request): JsonResponse
     {
-        $user = auth()->user();
-
-        if ($user instanceof BrandOwner) {
-            return $this->storeBrandOwnerPayment($request, $user);
-        }
-
-        return $this->storeBranchManagerRequest($request);
-    }
-
-    private function storeBrandOwnerPayment(Request $request, BrandOwner $brandOwner): JsonResponse
-    {
-        $validator = Validator::make($request->all(), [
-            'recipientEmployeeId'    => 'required|string|exists:branch_managers,id',
-            'amount'                 => 'required|numeric|min:1|max:1000000',
-            'preferredReceiptMethod' => 'required|in:cash,bank_transfer,Cash Handover,Bank Transfer',
-            'handoverDate'           => 'required|date',
-            'note'                   => 'required|string|max:1000',
+        $reuseId = $request->input('reuseRequestId');
+        $rules = [
+            'requestedAmount'        => 'required_without:reuseRequestId|numeric|min:1|max:1000000',
+            'purpose'                => 'required_without:reuseRequestId|string|min:3|max:500',
+            'preferredReceiptMethod' => 'required_without:reuseRequestId|in:cash_handover,bank_transfer,Cash Handover,Bank Transfer',
             'attachments'            => 'nullable|array|max:5',
             'attachments.*'          => 'file|mimes:pdf,jpg,jpeg,png,docx|max:5120',
-        ]);
+            'additionalNotes'        => 'nullable|string|max:1000',
+            'reuseRequestId'         => 'nullable|exists:custody_requests,id',
+        ];
+
+        $validator = Validator::make($request->all(), $rules);
 
         if ($validator->fails()) {
             return $this->validationErrorResponse($validator->errors());
         }
 
         try {
-            $method = $request->input('preferredReceiptMethod');
-            $normalized = match (strtolower($method)) {
-                'cash', 'cash handover' => 'Cash Handover',
-                'bank_transfer', 'bank transfer' => 'Bank Transfer',
-                default => $method,
-            };
+            $user = auth()->user();
+            $isBrandOwner = $user instanceof BrandOwner;
 
-            $custodyRequest = $this->requestService->createBrandOwnerPayment([
-                'brand_owner_id'           => $brandOwner->id,
-                'recipient_employee_id'    => $request->input('recipientEmployeeId'),
-                'amount'                   => $request->input('amount'),
-                'preferred_receipt_method' => $normalized,
-                'handover_date'            => $request->input('handoverDate'),
-                'note'                     => $request->input('note'),
-                'attachments'              => $request->file('attachments', []),
-            ]);
+            $method = $request->input('preferredReceiptMethod');
+            $normalizedMethod = $this->normalizeReceiptMethod($method);
+
+            $data = [
+                'branch_manager_id'         => $isBrandOwner ? null : $user->id,
+                'branch_id'                 => $isBrandOwner ? null : ($user->branch_id ?? null),
+                'created_by_brand_owner_id' => $isBrandOwner ? $user->id : null,
+                'requestedAmount'           => $request->input('requestedAmount'),
+                'purpose'                   => $request->input('purpose'),
+                'preferredReceiptMethod'    => $normalizedMethod,
+                'additionalNotes'           => $request->input('additionalNotes'),
+                'attachments'               => $request->file('attachments', []),
+            ];
+
+            if ($reuseId) {
+                $previousRequest = \Modules\Custody\Models\CustodyRequest::find($reuseId);
+                if (!$previousRequest) {
+                    return $this->errorResponse('Previous request not found.', 404);
+                }
+                $owns = $isBrandOwner
+                    ? $previousRequest->created_by_brand_owner_id === $user->id
+                    : $previousRequest->branch_manager_id === $user->id;
+                if (!$owns) {
+                    return $this->errorResponse('You are not allowed to reuse this request.', 403);
+                }
+
+                $data['requestedAmount'] = $request->input('requestedAmount', $previousRequest->requested_amount);
+                $data['purpose']         = $request->input('purpose', $previousRequest->purpose);
+                $data['preferredReceiptMethod'] = $normalizedMethod ?: $previousRequest->preferred_receipt_method;
+                if ($request->input('additionalNotes') === null || $request->input('additionalNotes') === '') {
+                    $data['additionalNotes'] = $previousRequest->additional_notes;
+                }
+            }
+
+            $custodyRequest = $this->requestService->createRequest($data);
 
             return $this->createdResponse([
                 'requestId'   => $custodyRequest->id,
@@ -174,61 +192,17 @@ class CustodyRequestController extends BaseController
         }
     }
 
-    private function storeBranchManagerRequest(Request $request): JsonResponse
+    private function normalizeReceiptMethod(?string $value): ?string
     {
-        $reuseId = $request->input('reuseRequestId');
-        $rules = [
-            'requestedAmount' => 'required_without:reuseRequestId|numeric|min:1|max:1000000',
-            'purpose' => 'required_without:reuseRequestId|string|min:10|max:500',
-            'preferredReceiptMethod' => 'required_without:reuseRequestId|in:Cash Handover,Bank Transfer',
-            'attachments' => 'nullable|array|max:5',
-            'attachments.*' => 'file|mimes:pdf,jpg,jpeg,png,docx|max:5120',
-            'additionalNotes' => 'nullable|string|max:1000',
-            'reuseRequestId' => 'nullable|exists:custody_requests,id',
-        ];
-
-        $validator = Validator::make($request->all(), $rules);
-
-        if ($validator->fails()) {
-            return $this->validationErrorResponse($validator->errors());
+        if (!$value) {
+            return null;
         }
 
-        try {
-            $branchManager = auth()->user();
-
-            $data = [
-                'branch_manager_id' => $branchManager->id,
-                'branch_id' => $branchManager->branch_id,
-                'requestedAmount' => $request->input('requestedAmount'),
-                'purpose' => $request->input('purpose'),
-                'preferredReceiptMethod' => $request->input('preferredReceiptMethod'),
-                'additionalNotes' => $request->input('additionalNotes'),
-                'attachments' => $request->file('attachments', []),
-            ];
-
-            if ($reuseId) {
-                $previousRequest = \Modules\Custody\Models\CustodyRequest::find($reuseId);
-                if (!$previousRequest || $previousRequest->branch_manager_id !== $branchManager->id) {
-                    return $this->errorResponse('Previous request not found or you are not allowed to reuse it.', 403);
-                }
-                $data['requestedAmount'] = $request->input('requestedAmount', $previousRequest->requested_amount);
-                $data['purpose'] = $request->input('purpose', $previousRequest->purpose);
-                $data['preferredReceiptMethod'] = $request->input('preferredReceiptMethod', $previousRequest->preferred_receipt_method);
-                if ($request->input('additionalNotes') === null || $request->input('additionalNotes') === '') {
-                    $data['additionalNotes'] = $previousRequest->additional_notes;
-                }
-            }
-
-            $custodyRequest = $this->requestService->createRequest($data);
-
-            return $this->createdResponse([
-                'requestId' => $custodyRequest->id,
-                'status' => $this->normalizeStatus($custodyRequest->status),
-                'submittedAt' => $custodyRequest->created_at?->toIso8601String(),
-            ], 'Cash-in request submitted successfully');
-        } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
-        }
+        return match (strtolower($value)) {
+            'cash_handover', 'cash handover' => 'Cash Handover',
+            'bank_transfer', 'bank transfer' => 'Bank Transfer',
+            default                          => $value,
+        };
     }
 
     /**

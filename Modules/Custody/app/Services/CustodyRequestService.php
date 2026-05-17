@@ -18,23 +18,26 @@ class CustodyRequestService
     public function createRequest(array $data): CustodyRequest
     {
         return DB::transaction(function () use ($data) {
+            $isBrandOwner = !empty($data['created_by_brand_owner_id']);
+
             $request = CustodyRequest::create([
-                'branch_manager_id' => $data['branch_manager_id'],
-                'branch_id' => $data['branch_id'],
-                'requested_amount' => $data['requestedAmount'],
-                'purpose' => $data['purpose'],
-                'preferred_receipt_method' => $data['preferredReceiptMethod'],
-                'additional_notes' => $data['additionalNotes'] ?? null,
-                'status' => 'Pending',
+                'branch_manager_id'         => $data['branch_manager_id'] ?? null,
+                'branch_id'                 => $data['branch_id'] ?? null,
+                'created_by_brand_owner_id' => $data['created_by_brand_owner_id'] ?? null,
+                'requested_amount'          => $data['requestedAmount'],
+                'purpose'                   => $data['purpose'],
+                'preferred_receipt_method'  => $data['preferredReceiptMethod'],
+                'additional_notes'          => $data['additionalNotes'] ?? null,
+                'status'                    => 'Pending',
             ]);
 
-            // Handle attachments
             if (!empty($data['attachments'])) {
                 $this->storeAttachments($request, $data['attachments']);
             }
 
-            // Create timeline entry for submission
-            $this->createTimelineEntry($request, 'Submit Case', 'Submitted', $data['branch_manager_id']);
+            $actorId   = $isBrandOwner ? $data['created_by_brand_owner_id'] : $data['branch_manager_id'];
+            $actorType = $isBrandOwner ? 'brand_owner' : 'branch_manager';
+            $this->createTimelineEntry($request, 'Submit Case', 'Submitted', $actorId, $actorType);
 
             return $request->load(['attachments', 'timeline']);
         });
@@ -275,37 +278,6 @@ class CustodyRequestService
             'actor_profile_image' => $actorProfileImage ?? $actor->image ?? null,
             'action_date'         => now(),
         ]);
-    }
-
-    /**
-     * Owner Payment Form submission (Brand Owner).
-     * Creates a custody request on behalf of the recipient branch manager.
-     */
-    public function createBrandOwnerPayment(array $data): CustodyRequest
-    {
-        return DB::transaction(function () use ($data) {
-            $recipient = BranchManager::findOrFail($data['recipient_employee_id']);
-
-            $request = CustodyRequest::create([
-                'branch_manager_id'         => $recipient->id,
-                'branch_id'                 => $recipient->branch_id,
-                'created_by_brand_owner_id' => $data['brand_owner_id'],
-                'requested_amount'          => $data['amount'],
-                'purpose'                   => $data['note'],
-                'preferred_receipt_method'  => $data['preferred_receipt_method'],
-                'additional_notes'          => $data['note'],
-                'handover_date'             => $data['handover_date'] ?? null,
-                'status'                    => 'Pending',
-            ]);
-
-            if (!empty($data['attachments'])) {
-                $this->storeAttachments($request, $data['attachments']);
-            }
-
-            $this->createTimelineEntry($request, 'Submit Case', 'Submitted', $data['brand_owner_id'], 'brand_owner');
-
-            return $request->load(['attachments', 'timeline']);
-        });
     }
 
     /**
