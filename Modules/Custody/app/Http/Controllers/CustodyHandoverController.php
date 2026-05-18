@@ -117,7 +117,7 @@ class CustodyHandoverController extends BaseController
                 ]);
             }
 
-            return DB::transaction(function () use ($request, $branchManager, $personalBalance) {
+            return DB::transaction(function () use ($request, $branchManager, $personalBalance, $handoverMethod) {
                 $amount        = $request->input('handoverAmount');
                 $recipientType = $request->input('recipientType');
 
