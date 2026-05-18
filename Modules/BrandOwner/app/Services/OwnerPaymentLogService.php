@@ -56,7 +56,7 @@ class OwnerPaymentLogService
 
     public function findDetails(BrandOwner $brandOwner, string $id): ?array
     {
-        $payment = CustodyRequest::with(['branchManager.branch'])
+        $payment = CustodyRequest::with(['branch', 'branchManager.branch'])
             ->where('id', $id)
             ->where('created_by_brand_owner_id', $brandOwner->id)
             ->first();
@@ -78,7 +78,7 @@ class OwnerPaymentLogService
     private function fetchPaymentForm(BrandOwner $brandOwner, ?string $method, ?string $sortByDate, ?string $branchId)
     {
         $query = CustodyRequest::query()
-            ->with(['branchManager.branch'])
+            ->with(['branch', 'branchManager.branch'])
             ->where('created_by_brand_owner_id', $brandOwner->id);
 
         if ($method) {
@@ -93,7 +93,7 @@ class OwnerPaymentLogService
             return [
                 'id'           => $r->id,
                 'title'        => 'Owner Payment',
-                'branchName'   => $r->branchManager?->branch?->name,
+                'branchName'   => $r->branch?->name ?? $r->branchManager?->branch?->name,
                 'amount'       => (float) $r->requested_amount,
                 'dateTimeRaw'  => $r->created_at,
                 'isIncome'     => false,
@@ -154,7 +154,7 @@ class OwnerPaymentLogService
             'title'       => 'Owner Payment',
             'description' => $r->purpose ?? $r->additional_notes,
             'amount'      => (float) $r->requested_amount,
-            'branchName'  => $r->branchManager?->branch?->name,
+            'branchName'  => $r->branch?->name ?? $r->branchManager?->branch?->name,
             'managerName' => $r->branchManager?->name,
             'dateTime'    => $r->created_at?->toIso8601String(),
             'methodLabel' => $this->methodLabel($r->preferred_receipt_method),

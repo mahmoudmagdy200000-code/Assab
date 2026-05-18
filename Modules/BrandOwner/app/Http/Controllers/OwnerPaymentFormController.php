@@ -28,13 +28,13 @@ class OwnerPaymentFormController extends BaseController
         $method = strtolower((string) $request->input('preferredReceiptMethod'));
 
         $validator = Validator::make($request->all(), [
-            'recipientEmployeeId'    => 'nullable|string|exists:branch_managers,id',
-            'amount'                 => 'nullable|numeric|min:0|max:1000000',
-            'preferredReceiptMethod' => 'nullable|in:cash_handover,bank_transfer,Cash Handover,Bank Transfer',
+            'recipientEmployeeId'    => 'required|string|exists:branch_managers,id',
+            'amount'                 => 'required|numeric|min:0|max:1000000',
+            'preferredReceiptMethod' => 'required|in:cash_handover,bank_transfer,Cash Handover,Bank Transfer',
             'handoverDate'           => 'nullable|date|required_if:preferredReceiptMethod,cash_handover|required_if:preferredReceiptMethod,Cash Handover',
             'transferDate'           => 'nullable|date|required_if:preferredReceiptMethod,bank_transfer|required_if:preferredReceiptMethod,Bank Transfer',
             'purpose'                => 'nullable|string|max:500',
-            'note'                   => 'nullable|string|max:1000',
+            'note'                   => 'required|string|max:1000',
             'attachments'            => 'nullable|array|max:5',
             'attachments.*'          => 'file|mimes:pdf,jpg,jpeg,png,docx|max:5120',
         ]);
