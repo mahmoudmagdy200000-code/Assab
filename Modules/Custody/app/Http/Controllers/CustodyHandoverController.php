@@ -59,11 +59,18 @@ class CustodyHandoverController extends BaseController
                     $personalBalance = $this->cashierCustodyService->getPersonalBalanceOnly($user->id);
                     $amount        = (float) $request->input('handoverAmount');
                     if ($amount > $personalBalance) {
-                        return $this->errorResponse('Insufficient balance', 400, [
-                            'code'      => 'INSUFFICIENT_BALANCE',
-                            'required'  => $request->input('handoverAmount'),
-                            'available' => $personalBalance,
-                        ]);
+                        return $this->errorResponse(
+                            sprintf('Insufficient balance. Available: %s SAR, requested: %s SAR.',
+                                number_format($personalBalance, 2),
+                                number_format($amount, 2)
+                            ),
+                            400,
+                            [
+                                'code'      => 'INSUFFICIENT_BALANCE',
+                                'required'  => $amount,
+                                'available' => $personalBalance,
+                            ]
+                        );
                     }
 
                     $recipientType = $request->input('recipientType');
@@ -105,20 +112,32 @@ class CustodyHandoverController extends BaseController
                 });
             }
 
-            // ── Branch Manager path (unchanged) ──────────────────────────────
-            $branchManager   = $user;
-            $personalBalance = $this->ledgerService->getPersonalBalanceOnly($branchManager->id);
+            // ── Branch Manager path ──────────────────────────────
+            $branchManager = $user;
 
-            if ($request->input('handoverAmount') > $personalBalance) {
-                return $this->errorResponse('Insufficient balance', 400, [
-                    'code'      => 'INSUFFICIENT_BALANCE',
-                    'required'  => $request->input('handoverAmount'),
-                    'available' => $personalBalance,
-                ]);
-            }
+            return DB::transaction(function () use ($request, $branchManager, $handoverMethod) {
+                // Lock BM ledger rows + recompute balance inside the transaction to
+                // avoid races (two parallel handovers reading the same stale balance).
+                PersonalLedgerTransaction::where('branch_manager_id', $branchManager->id)
+                    ->lockForUpdate()->get(['id']);
+                $personalBalance = $this->ledgerService->getPersonalBalanceOnly($branchManager->id);
 
-            return DB::transaction(function () use ($request, $branchManager, $personalBalance, $handoverMethod) {
-                $amount        = $request->input('handoverAmount');
+                $amount = (float) $request->input('handoverAmount');
+                if ($amount > $personalBalance) {
+                    return $this->errorResponse(
+                        sprintf('Insufficient balance. Available: %s SAR, requested: %s SAR.',
+                            number_format($personalBalance, 2),
+                            number_format($amount, 2)
+                        ),
+                        400,
+                        [
+                            'code'      => 'INSUFFICIENT_BALANCE',
+                            'required'  => $amount,
+                            'available' => $personalBalance,
+                        ]
+                    );
+                }
+
                 $recipientType = $request->input('recipientType');
 
                 if ($recipientType === 'Custody') {
