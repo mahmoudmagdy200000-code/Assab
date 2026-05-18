@@ -8,6 +8,7 @@ use Illuminate\Database\Seeder;
 use Modules\Aggregator\Database\Seeders\AggregatorSeeder;
 use Modules\Aggregator\Database\Seeders\BranchAggregatorSeeder;
 use Modules\Branch\Database\Seeders\BranchSeeder;
+use Modules\BrandOwner\Database\Seeders\BrandOwnerSeeder;
 use Modules\BranchManagers\Database\Seeders\BranchManagerSeeder;
 use Modules\Cashier\Database\Seeders\CashierSeeder;
 use Modules\Cashier\Database\Seeders\CashierShiftSeeder;
@@ -44,6 +45,9 @@ class DatabaseSeeder extends Seeder
              CategorySeeder::class,
             SupplierSeeder::class,
             ExpenseSeeder::class,
+
+            // 6) Brand Owner account
+            BrandOwnerSeeder::class,
         ]);
     }
 }
