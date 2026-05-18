@@ -81,8 +81,28 @@ class CashSalesTransferService
                 'image'      => $sender['image'] ?? null,
                 'branchName' => $request->branch?->name,
             ],
-            'timelines' => [],
-            'approval'  => $this->buildApprovalBlock($request),
+            'timelines'    => [],
+            'approval'     => $this->buildApprovalBlock($request),
+            'cancellation' => $this->buildCancellationBlock($request),
+        ];
+    }
+
+    private function buildCancellationBlock(CashSalesTransferRequest $request): ?array
+    {
+        if (strcasecmp((string) $request->status, 'rejected') !== 0 || !$request->rejected_by) {
+            return null;
+        }
+
+        $brandOwner = BrandOwner::find($request->rejected_by);
+
+        return [
+            'cancellation_reason' => $request->rejection_reason,
+            'cancelled_at'        => $request->rejected_at?->toIso8601String(),
+            'cancelled_by'        => [
+                'id'   => $request->rejected_by,
+                'name' => $brandOwner?->name,
+                'type' => 'brand_owner',
+            ],
         ];
     }
 

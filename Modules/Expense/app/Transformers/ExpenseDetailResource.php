@@ -36,6 +36,7 @@ class ExpenseDetailResource extends JsonResource
             'created_at' => $this->created_at->format('Y-m-d H:i:s'),
             'submitted_at' => $this->submitted_at?->format('Y-m-d H:i:s'),
             'approval' => $this->getApprovalFragment(),
+            'cancellation' => $this->getCancellationFragment(),
             'timelines' => $this->whenLoaded('timelines', fn() => \App\Http\Resources\UnifiedTimelineResource::collection($this->timelines)),
         ];
 
@@ -284,6 +285,25 @@ class ExpenseDetailResource extends JsonResource
             'rejected_by' => $this->rejected_by,
             'rejected_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
             'rejection_reason' => $this->rejection_reason,
+        ];
+    }
+
+    private function getCancellationFragment(): ?array
+    {
+        if ($this->status !== 'rejected' || !$this->rejected_by) {
+            return null;
+        }
+
+        $brandOwner = \Modules\BrandOwner\Models\BrandOwner::find($this->rejected_by);
+
+        return [
+            'cancellation_reason' => $this->rejection_reason,
+            'cancelled_at'        => $this->rejected_at?->toIso8601String(),
+            'cancelled_by'        => [
+                'id'   => $this->rejected_by,
+                'name' => $brandOwner?->name,
+                'type' => 'brand_owner',
+            ],
         ];
     }
 

@@ -82,7 +82,7 @@ class CustodyRequestService
             'details'   => [
                 'requestedAmount'        => (float) $request->requested_amount,
                 'purpose'                => $request->purpose,
-                'preferredReceiptMethod' => $request->preferred_receipt_method,
+                'preferredReceiptMethod' => $this->methodToSnake($request->preferred_receipt_method),
                 'attachments'            => $request->attachments->map(function ($attachment) {
                     return [
                         'filename'   => $attachment->original_name,
@@ -92,9 +92,42 @@ class CustodyRequestService
                 })->values(),
                 'additionalNotes'        => $request->additional_notes,
             ],
-            'timelines' => $timeline,
-            'timeline'  => $timeline,
-            'approval'  => $approval,
+            'timelines'    => $timeline,
+            'timeline'     => $timeline,
+            'approval'     => $approval,
+            'cancellation' => $this->buildCancellationBlock($request),
+        ];
+    }
+
+    private function methodToSnake(?string $value): ?string
+    {
+        if (!$value) {
+            return null;
+        }
+
+        return match ($value) {
+            'Cash Handover' => 'cash_handover',
+            'Bank Transfer' => 'bank_transfer',
+            default         => strtolower(str_replace(' ', '_', $value)),
+        };
+    }
+
+    private function buildCancellationBlock(CustodyRequest $request): ?array
+    {
+        if (strcasecmp((string) $request->status, 'Rejected') !== 0) {
+            return null;
+        }
+
+        $actor = $this->resolveActor($request->rejected_by, $request->rejected_by_type);
+
+        return [
+            'cancellation_reason' => $request->rejection_reason,
+            'cancelled_at'        => $request->rejected_at?->toIso8601String(),
+            'cancelled_by'        => [
+                'id'   => $request->rejected_by,
+                'name' => $actor['name'] ?? null,
+                'type' => $request->rejected_by_type,
+            ],
         ];
     }
 
