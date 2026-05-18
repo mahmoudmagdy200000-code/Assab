@@ -432,38 +432,29 @@ class CustodyHandoverController extends BaseController
                 }
             }
 
-            // Custody option (transfer to branch custody balance) — for Branch Managers only
+            // Branch Manager: Brand Owners FIRST, then other Branch Managers in same branch
             if ($user instanceof BranchManager) {
-                $recipients[] = [
-                    'id'   => 'custody',
-                    'type' => 'Custody',
-                    'name' => 'Transfer to Custody',
-                ];
-            }
-
-            // Other Branch Managers in the same branch (active, exclude current user)
-            if ($branchId && $user instanceof BranchManager) {
-                $branchManagers = BranchManager::query()
-                    ->byBranch($branchId)
-                    ->active()
-                    ->where('id', '!=', $user->id)
-                    ->orderBy('name')
-                    ->get(['id', 'name', 'email']);
-
-                foreach ($branchManagers as $bm) {
-                    $recipients[] = [
-                        'id'    => $bm->id,
-                        'type'  => 'Branch Manager',
-                        'name'  => $bm->name,
-                        'email' => $bm->email,
-                    ];
+                foreach ($this->getBrandOwnerRecipients() as $bo) {
+                    $recipients[] = $bo;
                 }
-            }
 
-            // Brand Owners (extend when BrandOwner model exists)
-            $brandOwners = $this->getBrandOwnerRecipients();
-            foreach ($brandOwners as $bo) {
-                $recipients[] = $bo;
+                if ($branchId) {
+                    $branchManagers = BranchManager::query()
+                        ->byBranch($branchId)
+                        ->active()
+                        ->where('id', '!=', $user->id)
+                        ->orderBy('name')
+                        ->get(['id', 'name', 'email']);
+
+                    foreach ($branchManagers as $bm) {
+                        $recipients[] = [
+                            'id'    => $bm->id,
+                            'type'  => 'Branch Manager',
+                            'name'  => $bm->name,
+                            'email' => $bm->email,
+                        ];
+                    }
+                }
             }
 
             return $this->successResponse([
@@ -475,11 +466,22 @@ class CustodyHandoverController extends BaseController
     }
 
     /**
-     * Brand owner recipients (override or extend when BrandOwner model exists).
+     * Brand owner recipients (active brand owners).
      */
     protected function getBrandOwnerRecipients(): array
     {
-        return [];
+        return \Modules\BrandOwner\Models\BrandOwner::query()
+            ->where('is_active', true)
+            ->where('status', 'active')
+            ->orderBy('name')
+            ->get(['id', 'name', 'email'])
+            ->map(fn ($bo) => [
+                'id'    => $bo->id,
+                'type'  => 'Brand Owner',
+                'name'  => $bo->name,
+                'email' => $bo->email,
+            ])
+            ->all();
     }
 
     /**
