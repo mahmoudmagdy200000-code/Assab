@@ -16,6 +16,7 @@ use Modules\Custody\Services\CustodyBalanceService;
 use Modules\Custody\Models\CustodyHandoverRequest;
 use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Custody\Models\PersonalLedgerTransaction;
+use Modules\BrandOwner\Models\CashSalesTransferRequest;
 
 class CustodyHandoverController extends BaseController
 {
@@ -37,13 +38,15 @@ class CustodyHandoverController extends BaseController
             'recipientType' => 'required|in:Cashier,Branch Manager,Brand Owner,Custody',
             'handoverAmount' => 'required|numeric|min:1',
             'additionalNotes' => 'nullable|string|max:500',
-            'handoverMethod' => 'required_if:recipientType,Branch Manager|required_if:recipientType,Brand Owner|in:Cash Handover,Bank Transfer',
+            'handoverMethod' => 'required_if:recipientType,Branch Manager|required_if:recipientType,Brand Owner|in:Cash Handover,Bank Transfer,cash_handover,bank_transfer',
             'handoverDate' => 'required_if:recipientType,Branch Manager|required_if:recipientType,Brand Owner|date|after_or_equal:today',
         ]);
 
         if ($validator->fails()) {
             return $this->validationErrorResponse($validator->errors());
         }
+
+        $handoverMethod = $this->normalizeHandoverMethod($request->input('handoverMethod'));
 
         try {
             $user    = auth()->user();
@@ -139,10 +142,24 @@ class CustodyHandoverController extends BaseController
                         'amount'            => $amount,
                         'recipient_type'    => $recipientType,
                         'recipient_id'      => $request->input('recipientId'),
-                        'handover_method'   => $request->input('handoverMethod'),
+                        'handover_method'   => $handoverMethod,
                         'handover_date'     => $request->input('handoverDate'),
                         'additional_notes'  => $request->input('additionalNotes'),
                     ]);
+
+                    if ($recipientType === 'Brand Owner') {
+                        CashSalesTransferRequest::create([
+                            'sender_id'        => $branchManager->id,
+                            'sender_type'      => 'branch_manager',
+                            'branch_id'        => $branchManager->branch_id,
+                            'brand_owner_id'   => $request->input('recipientId'),
+                            'handover_amount'  => $amount,
+                            'handover_method'  => $handoverMethod,
+                            'handover_date'    => $request->input('handoverDate'),
+                            'additional_notes' => $request->input('additionalNotes'),
+                            'status'           => 'pending',
+                        ]);
+                    }
 
                     PersonalLedgerTransaction::create([
                         'branch_manager_id' => $branchManager->id,
@@ -482,6 +499,19 @@ class CustodyHandoverController extends BaseController
                 'email' => $bo->email,
             ])
             ->all();
+    }
+
+    private function normalizeHandoverMethod(?string $value): ?string
+    {
+        if (!$value) {
+            return null;
+        }
+
+        return match (strtolower($value)) {
+            'cash_handover', 'cash handover' => 'Cash Handover',
+            'bank_transfer', 'bank transfer' => 'Bank Transfer',
+            default                          => $value,
+        };
     }
 
     /**
