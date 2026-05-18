@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Modules\BranchManagers\Http\Controllers\AuthController;
+use Modules\BranchManagers\Http\Controllers\BrandManagerInventoryController;
 use Modules\BranchManagers\Http\Controllers\DashboardController;
 use Modules\BranchManagers\Http\Controllers\NotificationController;
 use Modules\BranchManagers\Http\Controllers\ProfileController;
@@ -69,6 +70,19 @@ Route::prefix('branch-manager')->group(function () {
         //     Route::get('/branch', [SettingsController::class, 'getBranchSettings']);
         //     Route::post('/aggregators', [SettingsController::class, 'updateAggregators']);
         // });
+
+        // Inventory work queues (BrandManagerInventoryManagementScreen)
+        Route::prefix('inventory')->group(function () {
+            Route::get('daily-requests', [BrandManagerInventoryController::class, 'dailyIndex']);
+            Route::get('daily-requests/{requestId}', [BrandManagerInventoryController::class, 'dailyShow']);
+            Route::post('daily-requests/{requestId}/approve', [BrandManagerInventoryController::class, 'dailyApprove']);
+            Route::post('daily-requests/{requestId}/reject', [BrandManagerInventoryController::class, 'dailyReject']);
+
+            Route::get('waste-damage-requests', [BrandManagerInventoryController::class, 'wasteDamageIndex']);
+            Route::get('waste-damage-requests/{requestId}', [BrandManagerInventoryController::class, 'wasteDamageShow']);
+            Route::post('waste-damage-requests/{requestId}/approve', [BrandManagerInventoryController::class, 'wasteDamageApprove']);
+            Route::post('waste-damage-requests/{requestId}/reject', [BrandManagerInventoryController::class, 'wasteDamageReject']);
+        });
 
         // Notifications
         Route::prefix('notifications')->group(function () {

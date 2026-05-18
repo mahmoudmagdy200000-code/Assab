@@ -9,6 +9,8 @@ enum WasteDamageReportStatus: string
     case PENDING = 'pending';
     /** Staff submitted; waiting manager approval */
     case PENDING_YOUR_CONFIRMATION = 'pending_your_confirmation';
+    case APPROVED = 'approved';
+    case REJECTED = 'rejected';
     case COMPLETED = 'completed';
 
     private const PENDING_YOUR_CONFIRMATION_LABEL = 'Pending your confirmation';
@@ -19,6 +21,8 @@ enum WasteDamageReportStatus: string
             self::DRAFT => 'Draft',
             self::PENDING => 'Pending',
             self::PENDING_YOUR_CONFIRMATION => self::PENDING_YOUR_CONFIRMATION_LABEL,
+            self::APPROVED => 'Approved',
+            self::REJECTED => 'Rejected',
             self::COMPLETED => 'Completed',
         };
     }
@@ -30,6 +34,8 @@ enum WasteDamageReportStatus: string
             self::DRAFT => 'Draft',
             self::PENDING => 'Pending',
             self::PENDING_YOUR_CONFIRMATION => self::PENDING_YOUR_CONFIRMATION_LABEL,
+            self::APPROVED => 'Approved',
+            self::REJECTED => 'Rejected',
             self::COMPLETED => 'Completed',
         };
     }
@@ -41,6 +47,8 @@ enum WasteDamageReportStatus: string
             self::DRAFT => 'Draft',
             self::PENDING => 'Pending',
             self::PENDING_YOUR_CONFIRMATION => self::PENDING_YOUR_CONFIRMATION_LABEL,
+            self::APPROVED => 'Approved',
+            self::REJECTED => 'Rejected',
             self::COMPLETED => 'Completed',
         };
     }
@@ -65,6 +73,21 @@ enum WasteDamageReportStatus: string
     public function isCompleted(): bool
     {
         return $this === self::COMPLETED;
+    }
+
+    public function isApproved(): bool
+    {
+        return $this === self::APPROVED;
+    }
+
+    public function isRejected(): bool
+    {
+        return $this === self::REJECTED;
+    }
+
+    public function isFinal(): bool
+    {
+        return in_array($this, [self::APPROVED, self::REJECTED, self::COMPLETED], true);
     }
 
     /** Report has been submitted (waiting confirmation or completed) */

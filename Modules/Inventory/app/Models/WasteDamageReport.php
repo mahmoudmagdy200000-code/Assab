@@ -33,12 +33,39 @@ class WasteDamageReport extends Model
         'assigned_to_id',
         'status',
         'submitted_at',
+        'approved_at',
+        'approved_by',
+        'rejected_at',
+        'rejected_by',
+        'rejection_comment',
     ];
 
     protected $casts = [
         'status' => WasteDamageReportStatus::class,
         'submitted_at' => 'datetime',
+        'approved_at' => 'datetime',
+        'rejected_at' => 'datetime',
     ];
+
+    /**
+     * Resolve report_type from items: waste | damage | waste_and_damage.
+     */
+    public function getReportTypeAttribute(): string
+    {
+        if (!$this->relationLoaded('items') || $this->items->isEmpty()) {
+            return 'waste_and_damage';
+        }
+        $types = $this->items->pluck('problem_type')->unique()->filter()->values();
+        if ($types->isEmpty()) {
+            return 'waste_and_damage';
+        }
+        $hasWaste = $types->contains(fn ($t) => $t === \Modules\Inventory\Enums\ProblemType::WASTE);
+        $hasDamage = $types->contains(fn ($t) => $t === \Modules\Inventory\Enums\ProblemType::DAMAGE);
+        if ($hasWaste && $hasDamage) {
+            return 'waste_and_damage';
+        }
+        return $hasWaste ? 'waste' : 'damage';
+    }
 
     public function branch(): BelongsTo
     {
