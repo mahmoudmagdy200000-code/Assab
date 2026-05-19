@@ -52,9 +52,9 @@ class BmWasteDamageDetailsResource extends JsonResource
                 $problem = $item->problem_type instanceof ProblemType
                     ? $item->problem_type->label()
                     : (string) $item->problem_type;
-                $reason = is_object($item->reason) && method_exists($item->reason, 'value')
+                $reason = $item->reason instanceof \BackedEnum
                     ? $item->reason->value
-                    : (string) $item->reason;
+                    : (is_scalar($item->reason) ? (string) $item->reason : null);
 
                 return [
                     'product_name' => $productName,

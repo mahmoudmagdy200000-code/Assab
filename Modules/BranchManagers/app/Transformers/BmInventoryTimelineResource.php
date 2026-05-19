@@ -9,9 +9,9 @@ class BmInventoryTimelineResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $eventType = is_object($this->event_type) && method_exists($this->event_type, 'value')
+        $eventType = $this->event_type instanceof \BackedEnum
             ? $this->event_type->value
-            : (string) $this->event_type;
+            : (is_scalar($this->event_type) ? (string) $this->event_type : null);
 
         return [
             'id' => $this->id,
