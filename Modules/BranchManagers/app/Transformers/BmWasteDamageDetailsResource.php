@@ -119,7 +119,8 @@ class BmWasteDamageDetailsResource extends JsonResource
     {
         return match ($value) {
             'pending_your_confirmation', 'pending' => 'pending',
-            'approved', 'rejected', 'completed' => 'completed',
+            'rejected' => 'rejected',
+            'approved', 'completed' => 'completed',
             default => $value,
         };
     }
