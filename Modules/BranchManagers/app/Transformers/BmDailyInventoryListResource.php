@@ -17,8 +17,8 @@ class BmDailyInventoryListResource extends JsonResource
         return [
             'id' => $this->id,
             'status' => $this->mapStatus($status),
-            'inventory_date' => $this->inventory_date?->toIso8601String(),
-            'start_time' => $this->start_time?->format('h:i A'),
+            'inventory_date' => ($this->inventory_date ?? $this->submitted_at ?? $this->created_at)?->toIso8601String(),
+            'start_time' => ($this->start_time ?? $this->submitted_at ?? $this->created_at)?->format('h:i A'),
             'branch' => $this->whenLoaded('branch', fn () => [
                 'id' => $this->branch->id,
                 'name' => $this->branch->name,
