@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Modules\BrandOwner\Http\Controllers\AuthController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerController;
+use Modules\BrandOwner\Http\Controllers\BrandOwnerInventoryController;
 use Modules\BrandOwner\Http\Controllers\CashSalesTransferController;
 use Modules\BrandOwner\Http\Controllers\OwnerPaymentFormController;
 use Modules\BrandOwner\Http\Controllers\OwnerPaymentLogController;
@@ -69,4 +70,31 @@ Route::prefix('brand-owner')
         Route::get('payment-logs', [OwnerPaymentLogController::class, 'index']);
         Route::get('payment-logs/{paymentLogId}', [OwnerPaymentLogController::class, 'show'])
             ->where('paymentLogId', '[0-9a-f-]{36}');
+    });
+
+/*
+|--------------------------------------------------------------------------
+| Brand Owner - Inventory (BrandManagerInventoryManagementScreen)
+|--------------------------------------------------------------------------
+*/
+
+Route::prefix('brand-owner/inventory')
+    ->middleware(['auth:sanctum', 'brand.owner'])
+    ->name('api.brand-owner.inventory.')
+    ->group(function () {
+        Route::get('daily-requests', [BrandOwnerInventoryController::class, 'dailyIndex']);
+        Route::get('daily-requests/{requestId}', [BrandOwnerInventoryController::class, 'dailyShow'])
+            ->where('requestId', '[0-9a-f-]{36}');
+        Route::post('daily-requests/{requestId}/approve', [BrandOwnerInventoryController::class, 'dailyApprove'])
+            ->where('requestId', '[0-9a-f-]{36}');
+        Route::post('daily-requests/{requestId}/reject', [BrandOwnerInventoryController::class, 'dailyReject'])
+            ->where('requestId', '[0-9a-f-]{36}');
+
+        Route::get('waste-damage-requests', [BrandOwnerInventoryController::class, 'wasteDamageIndex']);
+        Route::get('waste-damage-requests/{requestId}', [BrandOwnerInventoryController::class, 'wasteDamageShow'])
+            ->where('requestId', '[0-9a-f-]{36}');
+        Route::post('waste-damage-requests/{requestId}/approve', [BrandOwnerInventoryController::class, 'wasteDamageApprove'])
+            ->where('requestId', '[0-9a-f-]{36}');
+        Route::post('waste-damage-requests/{requestId}/reject', [BrandOwnerInventoryController::class, 'wasteDamageReject'])
+            ->where('requestId', '[0-9a-f-]{36}');
     });
