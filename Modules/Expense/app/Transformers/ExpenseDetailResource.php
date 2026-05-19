@@ -277,14 +277,21 @@ class ExpenseDetailResource extends JsonResource
         })->values()->toArray();
     }
 
-    private function getApprovalFragment(): array
+    private function getApprovalFragment(): ?array
     {
+        $actorId = $this->approved_by ?? $this->rejected_by;
+        if (!$actorId) {
+            return null;
+        }
+
+        $brandOwner = \Modules\BrandOwner\Models\BrandOwner::find($actorId);
+
         return [
-            'approved_by' => $this->approved_by,
-            'approved_at' => $this->approved_at?->format('Y-m-d H:i:s'),
-            'rejected_by' => $this->rejected_by,
-            'rejected_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
-            'rejection_reason' => $this->rejection_reason,
+            'id'       => $actorId,
+            'name'     => $brandOwner?->name ?? 'Brand Owner',
+            'role'     => 'brand_owner',
+            'imageUrl' => $brandOwner?->image_url,
+            'status'   => $this->approved_by ? 'approved' : 'rejected',
         ];
     }
 

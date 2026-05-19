@@ -39,20 +39,10 @@ class BrandManagerInventoryController extends BaseController
             $request->query('branch'),
         );
 
-        $items = BmDailyInventoryListResource::collection($paginator)->resolve();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Daily inventory requests retrieved successfully',
-            'data' => [
-                'requests' => $items,
-                'pagination' => [
-                    'page' => $paginator->currentPage(),
-                    'limit' => $paginator->perPage(),
-                    'total' => $paginator->total(),
-                ],
-            ],
-        ]);
+        return $this->paginatedResponse(
+            BmDailyInventoryListResource::collection($paginator),
+            'Daily inventory requests retrieved successfully'
+        );
     }
 
     public function wasteDamageIndex(Request $request): JsonResponse
@@ -75,20 +65,10 @@ class BrandManagerInventoryController extends BaseController
             $request->query('branch'),
         );
 
-        $items = BmWasteDamageListResource::collection($paginator)->resolve();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Waste & damage requests retrieved successfully',
-            'data' => [
-                'requests' => $items,
-                'pagination' => [
-                    'page' => $paginator->currentPage(),
-                    'limit' => $paginator->perPage(),
-                    'total' => $paginator->total(),
-                ],
-            ],
-        ]);
+        return $this->paginatedResponse(
+            BmWasteDamageListResource::collection($paginator),
+            'Waste & damage requests retrieved successfully'
+        );
     }
 
     public function dailyShow(string $requestId): JsonResponse
