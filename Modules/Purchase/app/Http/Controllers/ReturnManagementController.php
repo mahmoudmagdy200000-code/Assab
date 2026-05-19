@@ -5,6 +5,8 @@ namespace Modules\Purchase\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Modules\BrandOwner\Models\BrandOwner;
+use Modules\Purchase\Enums\ReturnStatus;
 use Modules\Purchase\Http\Requests\CreateReturnRequest;
 use Modules\Purchase\Http\Requests\EscalateRequest;
 use Modules\Purchase\Models\ReturnOrder;
@@ -29,8 +31,14 @@ class ReturnManagementController extends BaseController
     public function inProgress(Request $request): JsonResponse
     {
         try {
-            $branchId = auth()->user()->branch_id;
-            $returns = $this->returnService->getInProgressReturns($branchId, $request->get('per_page', 15));
+            $perPage = (int) $request->get('per_page', 15);
+            $user = auth()->user();
+
+            if ($user instanceof BrandOwner) {
+                $returns = $this->returnService->getBrandOwnerInProgressReturns($perPage);
+            } else {
+                $returns = $this->returnService->getInProgressReturns($user->branch_id, $perPage);
+            }
 
             return $this->paginatedResponse(
                 ReturnOrderListResource::collection($returns),
@@ -69,8 +77,14 @@ class ReturnManagementController extends BaseController
     public function completed(Request $request): JsonResponse
     {
         try {
-            $branchId = auth()->user()->branch_id;
-            $returns = $this->returnService->getCompletedReturns($branchId, $request->get('per_page', 15));
+            $perPage = (int) $request->get('per_page', 15);
+            $user = auth()->user();
+
+            if ($user instanceof BrandOwner) {
+                $returns = $this->returnService->getBrandOwnerCompletedReturns($perPage);
+            } else {
+                $returns = $this->returnService->getCompletedReturns($user->branch_id, $perPage);
+            }
 
             return $this->paginatedResponse(
                 ReturnOrderListResource::collection($returns),
@@ -324,10 +338,21 @@ class ReturnManagementController extends BaseController
                 return $this->notFoundResponse('Return order not found');
             }
 
-            // Security: Verify user has access to this return's branch
-            $userBranchId = auth()->user()->branch_id;
-            if ($return->branch_id !== $userBranchId) {
-                return $this->errorResponse('Unauthorized access to this return order', 403);
+            $user = auth()->user();
+
+            if ($user instanceof BrandOwner) {
+                $allowed = [
+                    ReturnStatus::ESCALATED,
+                    ReturnStatus::ESCALATED_RESOLVED,
+                    ReturnStatus::ESCALATED_REJECTED,
+                ];
+                if (!in_array($return->status, $allowed, true)) {
+                    return $this->errorResponse('Unauthorized access to this return order', 403);
+                }
+            } else {
+                if ($return->branch_id !== $user->branch_id) {
+                    return $this->errorResponse('Unauthorized access to this return order', 403);
+                }
             }
 
             return $this->successResponse(

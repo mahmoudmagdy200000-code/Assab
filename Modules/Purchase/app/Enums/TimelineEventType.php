@@ -43,6 +43,8 @@ enum TimelineEventType: string
     case RETURN_REJECTED = 'return_rejected';
     case RETURN_ESCALATED = 'return_escalated';
     case RETURN_RESOLVED = 'return_resolved';
+    case RETURN_ESCALATION_APPROVED = 'return_escalation_approved';
+    case RETURN_ESCALATION_REJECTED = 'return_escalation_rejected';
     
     // Variance
     case COMPENSATORY_ORDER_CREATED = 'compensatory_order_created';
@@ -80,6 +82,8 @@ enum TimelineEventType: string
             self::RETURN_REJECTED => 'Return Rejected',
             self::RETURN_ESCALATED => 'Return Escalated',
             self::RETURN_RESOLVED => 'Return Resolved',
+            self::RETURN_ESCALATION_APPROVED => 'Escalation Approved',
+            self::RETURN_ESCALATION_REJECTED => 'Escalation Rejected',
             self::COMPENSATORY_ORDER_CREATED => 'Compensatory Order Created',
             self::INVOICE_DEDUCTED => 'Invoice Deducted',
             self::VARIANCE_ACCEPTED => 'Variance Accepted',
@@ -111,6 +115,8 @@ enum TimelineEventType: string
             self::RETURN_REJECTED => 'thumbs-down',
             self::RETURN_ESCALATED => 'arrow-up',
             self::RETURN_RESOLVED => 'check-circle',
+            self::RETURN_ESCALATION_APPROVED => 'check-circle',
+            self::RETURN_ESCALATION_REJECTED => 'x-circle',
             self::COMPENSATORY_ORDER_CREATED => 'refresh-cw',
             self::INVOICE_DEDUCTED => 'minus-circle',
             self::VARIANCE_ACCEPTED => 'check',

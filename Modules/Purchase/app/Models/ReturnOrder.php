@@ -212,12 +212,27 @@ class ReturnOrder extends Model
         return $query->whereIn('status', [
             ReturnStatus::CLOSED,
             ReturnStatus::RESOLVED,
+            ReturnStatus::ESCALATED_RESOLVED,
+            ReturnStatus::ESCALATED_REJECTED,
         ]);
     }
 
     public function scopeEscalated($query)
     {
         return $query->where('is_escalated', true);
+    }
+
+    public function scopeBrandOwnerInProgress($query)
+    {
+        return $query->where('status', ReturnStatus::ESCALATED);
+    }
+
+    public function scopeBrandOwnerCompleted($query)
+    {
+        return $query->whereIn('status', [
+            ReturnStatus::ESCALATED_RESOLVED,
+            ReturnStatus::ESCALATED_REJECTED,
+        ]);
     }
 
     // Methods
@@ -307,6 +322,30 @@ class ReturnOrder extends Model
     {
         $this->update([
             'status' => ReturnStatus::CLOSED,
+            'closed_at' => now(),
+        ]);
+    }
+
+    public function approveEscalation(string $resolvedBy, ?string $notes = null): void
+    {
+        $this->update([
+            'status' => ReturnStatus::ESCALATED_RESOLVED,
+            'resolution_type' => 'escalation_approved',
+            'resolution_notes' => $notes,
+            'resolved_by' => $resolvedBy,
+            'resolved_at' => now(),
+            'closed_at' => now(),
+        ]);
+    }
+
+    public function rejectEscalation(string $resolvedBy, string $reason): void
+    {
+        $this->update([
+            'status' => ReturnStatus::ESCALATED_REJECTED,
+            'resolution_type' => 'escalation_rejected',
+            'resolution_notes' => $reason,
+            'resolved_by' => $resolvedBy,
+            'resolved_at' => now(),
             'closed_at' => now(),
         ]);
     }

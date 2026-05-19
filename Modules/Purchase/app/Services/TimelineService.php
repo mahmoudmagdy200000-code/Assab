@@ -547,6 +547,32 @@ class TimelineService
         );
     }
 
+    public function logEscalationApproved(ReturnOrder $return, ?string $notes = null): OrderTimeline
+    {
+        return $this->log(
+            $return,
+            TimelineEventType::RETURN_ESCALATION_APPROVED,
+            'Escalation Approved',
+            'Brand Owner approved the escalation',
+            'escalated',
+            'escalated_resolved',
+            $notes ? ['notes' => $notes] : []
+        );
+    }
+
+    public function logEscalationRejected(ReturnOrder $return, string $reason): OrderTimeline
+    {
+        return $this->log(
+            $return,
+            TimelineEventType::RETURN_ESCALATION_REJECTED,
+            'Escalation Rejected',
+            "Brand Owner rejected the escalation: {$reason}",
+            'escalated',
+            'escalated_rejected',
+            ['reason' => $reason]
+        );
+    }
+
     /**
      * Log preparing stage
      */

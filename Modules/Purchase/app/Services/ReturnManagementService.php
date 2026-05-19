@@ -53,6 +53,26 @@ class ReturnManagementService
     }
 
     /**
+     * Brand owner: returns currently escalated (awaiting decision).
+     */
+    public function getBrandOwnerInProgressReturns(int $perPage = 15): LengthAwarePaginator
+    {
+        return ReturnOrder::brandOwnerInProgress()
+            ->orderBy('escalated_at', 'desc')
+            ->paginate($perPage);
+    }
+
+    /**
+     * Brand owner: returns whose escalation has been resolved or rejected.
+     */
+    public function getBrandOwnerCompletedReturns(int $perPage = 15): LengthAwarePaginator
+    {
+        return ReturnOrder::brandOwnerCompleted()
+            ->orderBy('resolved_at', 'desc')
+            ->paginate($perPage);
+    }
+
+    /**
      * Create return order. Always creates as PENDING (In Progress) so it appears in In Progress list.
      */
     public function createReturn(PurchaseOrder $order, array $data, $request = null): ReturnOrder
@@ -287,6 +307,38 @@ class ReturnManagementService
     {
         $returnOrder->resolve($resolvedBy, $resolutionType, $notes);
         $this->timelineService->logReturnResolved($returnOrder, $resolutionType);
+    }
+
+    /**
+     * Brand owner approves escalation. Status -> ESCALATED_RESOLVED.
+     */
+    public function approveEscalation(ReturnOrder $returnOrder, string $brandOwnerId, ?string $notes = null): ReturnOrder
+    {
+        if ($returnOrder->status !== ReturnStatus::ESCALATED) {
+            throw new \DomainException('Return is not in escalated state');
+        }
+
+        return DB::transaction(function () use ($returnOrder, $brandOwnerId, $notes) {
+            $returnOrder->approveEscalation($brandOwnerId, $notes);
+            $this->timelineService->logEscalationApproved($returnOrder, $notes);
+            return $returnOrder->fresh();
+        });
+    }
+
+    /**
+     * Brand owner rejects escalation. Status -> ESCALATED_REJECTED.
+     */
+    public function rejectEscalation(ReturnOrder $returnOrder, string $brandOwnerId, string $reason): ReturnOrder
+    {
+        if ($returnOrder->status !== ReturnStatus::ESCALATED) {
+            throw new \DomainException('Return is not in escalated state');
+        }
+
+        return DB::transaction(function () use ($returnOrder, $brandOwnerId, $reason) {
+            $returnOrder->rejectEscalation($brandOwnerId, $reason);
+            $this->timelineService->logEscalationRejected($returnOrder, $reason);
+            return $returnOrder->fresh();
+        });
     }
 
     /**

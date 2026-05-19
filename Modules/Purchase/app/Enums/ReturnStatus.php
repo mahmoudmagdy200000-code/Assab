@@ -9,6 +9,8 @@ enum ReturnStatus: string
     case APPROVED = 'approved';
     case REJECTED = 'rejected';
     case ESCALATED = 'escalated';
+    case ESCALATED_RESOLVED = 'escalated_resolved';
+    case ESCALATED_REJECTED = 'escalated_rejected';
     case CLOSED = 'closed';
     case RESOLVED = 'resolved';
 
@@ -20,6 +22,8 @@ enum ReturnStatus: string
             self::APPROVED => 'Approved',
             self::REJECTED => 'Rejected',
             self::ESCALATED => 'Escalated',
+            self::ESCALATED_RESOLVED => 'Escalation Resolved',
+            self::ESCALATED_REJECTED => 'Escalation Rejected',
             self::CLOSED => 'Closed',
             self::RESOLVED => 'Resolved',
         };
@@ -33,6 +37,8 @@ enum ReturnStatus: string
             self::APPROVED => '#22C55E',
             self::REJECTED => '#EF4444',
             self::ESCALATED => '#F97316',
+            self::ESCALATED_RESOLVED => '#10B981',
+            self::ESCALATED_REJECTED => '#EF4444',
             self::CLOSED => '#6B7280',
             self::RESOLVED => '#10B981',
         };
@@ -43,6 +49,8 @@ enum ReturnStatus: string
         return in_array($this, [
             self::CLOSED,
             self::RESOLVED,
+            self::ESCALATED_RESOLVED,
+            self::ESCALATED_REJECTED,
         ]);
     }
 

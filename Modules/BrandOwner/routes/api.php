@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Modules\BrandOwner\Http\Controllers\AuthController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerInventoryController;
+use Modules\BrandOwner\Http\Controllers\BrandOwnerReturnController;
 use Modules\BrandOwner\Http\Controllers\CashSalesTransferController;
 use Modules\BrandOwner\Http\Controllers\OwnerPaymentFormController;
 use Modules\BrandOwner\Http\Controllers\OwnerPaymentLogController;
@@ -77,6 +78,27 @@ Route::prefix('brand-owner')
 | Brand Owner - Inventory (BrandManagerInventoryManagementScreen)
 |--------------------------------------------------------------------------
 */
+
+/*
+|--------------------------------------------------------------------------
+| Brand Owner - Purchase Return Escalations
+|--------------------------------------------------------------------------
+| Approve / reject an escalated purchase return. Listing + details for
+| escalated returns are served by the shared /purchase/returns endpoints
+| (controller branches on user type).
+*/
+
+Route::prefix('brand-owner/purchase/returns')
+    ->middleware(['auth:sanctum', 'brand.owner', 'log.throttle'])
+    ->name('api.brand-owner.purchase.returns.')
+    ->group(function () {
+        Route::post('/{returnId}/approve-escalation', [BrandOwnerReturnController::class, 'approveEscalation'])
+            ->where('returnId', '[0-9a-f-]{36}')
+            ->name('approve-escalation');
+        Route::post('/{returnId}/reject-escalation', [BrandOwnerReturnController::class, 'rejectEscalation'])
+            ->where('returnId', '[0-9a-f-]{36}')
+            ->name('reject-escalation');
+    });
 
 Route::prefix('brand-owner/inventory')
     ->middleware(['auth:sanctum', 'brand.owner'])
