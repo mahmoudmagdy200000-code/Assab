@@ -4,13 +4,18 @@ namespace Modules\BranchManagers\Services;
 
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Models\BranchManagerOtp;
+use Modules\Notification\Mail\NotificationMail;
+use Modules\Notification\Services\SmsProviders\SmsProviderInterface;
 
 class AuthService
 {
+    public function __construct(
+        private SmsProviderInterface $smsProvider
+    ) {}
+
     /**
      * Handle first login
      */
@@ -203,11 +208,10 @@ class AuthService
      */
     private function sendOtpByEmail(string $email, string $otp)
     {
-        // TODO: Implement email sending
-        // Mail::to($email)->send(new OtpMail($otp));
-
-        // For development, you can log the OTP
-        Log::info("OTP for $email: $otp");
+        Mail::to($email)->send(new NotificationMail(
+            'Password Reset Code',
+            "Your password reset code is: {$otp}",
+        ));
     }
 
     /**
@@ -215,11 +219,7 @@ class AuthService
      */
     private function sendOtpBySms(string $phone, string $otp)
     {
-        // TODO: Implement SMS sending using a service like Twilio
-        // Example: Twilio::message($phone, "Your OTP is: $otp");
-
-        // For development, you can log the OTP
-        Log::info("OTP for $phone: $otp");
+        $this->smsProvider->send($phone, "Your password reset code is: {$otp}");
     }
 
     /**

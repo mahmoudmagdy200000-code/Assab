@@ -3,12 +3,18 @@
 namespace Modules\Supplier\Services;
 
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use Modules\Notification\Mail\NotificationMail;
+use Modules\Notification\Services\SmsProviders\SmsProviderInterface;
 use Modules\Supplier\Models\Supplier;
 use Modules\Supplier\Models\SupplierOtp;
 
 class OTPService
 {
+    public function __construct(
+        private SmsProviderInterface $smsProvider
+    ) {}
+
     /**
      * Generate and send OTP
      */
@@ -106,11 +112,10 @@ class OTPService
      */
     private function sendOtpByEmail(string $email, string $otp): void
     {
-        // TODO: Implement email sending
-        // Mail::to($email)->send(new SupplierPasswordResetOTPNotification($otp));
-
-        // For development, log the OTP
-        Log::info("OTP for supplier email {$email}: {$otp}");
+        Mail::to($email)->send(new NotificationMail(
+            'Password Reset Code',
+            "Your password reset code is: {$otp}",
+        ));
     }
 
     /**
@@ -118,10 +123,6 @@ class OTPService
      */
     private function sendOtpBySms(string $phone, string $otp): void
     {
-        // TODO: Implement SMS sending using a service like Twilio
-        // Example: Twilio::message($phone, "Your OTP is: {$otp}");
-
-        // For development, log the OTP
-        Log::info("OTP for supplier phone {$phone}: {$otp}");
+        $this->smsProvider->send($phone, "Your password reset code is: {$otp}");
     }
 }
