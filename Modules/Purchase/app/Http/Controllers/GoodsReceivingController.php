@@ -230,7 +230,7 @@ class GoodsReceivingController extends BaseController
     public function updateDeliveryDetails(UpdateDeliveryDetailsRequest $request, string $id): JsonResponse
     {
         try {
-            $receipt = GoodsReceipt::find($id);
+            $receipt = GoodsReceipt::where('branch_id', auth()->user()->branch_id)->find($id);
 
             if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
@@ -298,7 +298,7 @@ class GoodsReceivingController extends BaseController
     public function addUnlistedItem(AddUnlistedItemRequest $request, string $id): JsonResponse
     {
         try {
-            $receipt = GoodsReceipt::find($id);
+            $receipt = GoodsReceipt::where('branch_id', auth()->user()->branch_id)->find($id);
 
             if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
@@ -331,7 +331,7 @@ class GoodsReceivingController extends BaseController
     public function setDocumentType(Request $request, string $id): JsonResponse
     {
         try {
-            $receipt = GoodsReceipt::find($id);
+            $receipt = GoodsReceipt::where('branch_id', auth()->user()->branch_id)->find($id);
 
             if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
@@ -357,7 +357,7 @@ class GoodsReceivingController extends BaseController
     public function createInvoice(CreateInvoiceRequest $request, string $id): JsonResponse
     {
         try {
-            $receipt = GoodsReceipt::find($id);
+            $receipt = GoodsReceipt::where('branch_id', auth()->user()->branch_id)->find($id);
 
             if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
@@ -382,7 +382,7 @@ class GoodsReceivingController extends BaseController
     public function completeInspection(string $id): JsonResponse
     {
         try {
-            $receipt = GoodsReceipt::find($id);
+            $receipt = GoodsReceipt::where('branch_id', auth()->user()->branch_id)->find($id);
 
             if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
@@ -407,7 +407,7 @@ class GoodsReceivingController extends BaseController
     public function saveDraft(string $id): JsonResponse
     {
         try {
-            $receipt = GoodsReceipt::find($id);
+            $receipt = GoodsReceipt::where('branch_id', auth()->user()->branch_id)->find($id);
 
             if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
@@ -485,7 +485,7 @@ class GoodsReceivingController extends BaseController
     public function deleteDraft(string $id): JsonResponse
     {
         try {
-            $receipt = GoodsReceipt::find($id);
+            $receipt = GoodsReceipt::where('branch_id', auth()->user()->branch_id)->find($id);
 
             if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
@@ -845,7 +845,7 @@ class GoodsReceivingController extends BaseController
     public function createDeliveryNote(CreateDeliveryNoteRequest $request, string $id): JsonResponse
     {
         try {
-            $receipt = GoodsReceipt::find($id);
+            $receipt = GoodsReceipt::where('branch_id', auth()->user()->branch_id)->find($id);
 
             if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
@@ -870,7 +870,7 @@ class GoodsReceivingController extends BaseController
     public function createReceiptWithoutDocument(string $id): JsonResponse
     {
         try {
-            $receipt = GoodsReceipt::find($id);
+            $receipt = GoodsReceipt::where('branch_id', auth()->user()->branch_id)->find($id);
 
             if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');

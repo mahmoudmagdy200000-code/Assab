@@ -67,7 +67,7 @@ class OTPService
             return false;
         }
 
-        return Hash::check($otp, $otpRecord->otp) || $otpRecord->otp === $otp;
+        return Hash::check($otp, $otpRecord->otp);
     }
 
     /**
