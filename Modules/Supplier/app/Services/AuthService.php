@@ -59,7 +59,6 @@ class AuthService
 
         if (! $supplier) {
             Log::warning('Supplier login attempt with non-existent identifier', [
-                'identifier' => $identifier,
                 'field' => $field,
             ]);
             throw new \Exception('Invalid credentials');
@@ -69,7 +68,6 @@ class AuthService
         if (! Hash::check($password, $supplier->password)) {
             Log::warning('Supplier login attempt with invalid password', [
                 'supplier_id' => $supplier->id,
-                'identifier' => $identifier,
             ]);
             throw new \Exception('Invalid credentials');
         }

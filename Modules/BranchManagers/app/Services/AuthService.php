@@ -4,13 +4,18 @@ namespace Modules\BranchManagers\Services;
 
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Models\BranchManagerOtp;
+use Modules\Notification\Mail\NotificationMail;
+use Modules\Notification\Services\SmsProviders\SmsProviderInterface;
 
 class AuthService
 {
+    public function __construct(
+        private SmsProviderInterface $smsProvider
+    ) {}
+
     /**
      * Handle first login
      */
@@ -143,10 +148,10 @@ class AuthService
         // Generate a random token
         $resetToken = bin2hex(random_bytes(32));
 
-        // Store reset token in OTP table as a new record
+        // Store reset token in OTP table as a new record (hashed at rest)
         BranchManagerOtp::create([
             'identifier' => $identifier,
-            'otp' => $resetToken, // Store reset token as plain text (not hashed)
+            'otp' => Hash::make($resetToken),
             'type' => 'reset_token',
             'expires_at' => Carbon::now()->addHours(1),
             'is_used' => false,
@@ -160,13 +165,14 @@ class AuthService
      */
     public function resetPassword(string $identifier, string $resetToken, string $newPassword)
     {
-        // Verify reset token (stored in OTP table as plain text for reset tokens)
+        // Verify reset token (hashed at rest; match by Hash::check)
         $otpRecord = BranchManagerOtp::where('identifier', $identifier)
             ->where('type', 'reset_token')
-            ->where('otp', $resetToken) // Reset token is stored as plain text
             ->where('expires_at', '>', Carbon::now())
             ->where('is_used', false)
-            ->first();
+            ->latest()
+            ->get()
+            ->first(fn ($record) => Hash::check($resetToken, $record->otp));
 
         if (! $otpRecord) {
             throw new \Exception('Invalid or expired reset token');
@@ -185,6 +191,9 @@ class AuthService
             'password' => Hash::make($newPassword),
         ]);
 
+        // Revoke all existing sessions after a password reset
+        $manager->tokens()->delete();
+
         // Mark reset token as used
         $otpRecord->update(['is_used' => true]);
 
@@ -199,11 +208,10 @@ class AuthService
      */
     private function sendOtpByEmail(string $email, string $otp)
     {
-        // TODO: Implement email sending
-        // Mail::to($email)->send(new OtpMail($otp));
-
-        // For development, you can log the OTP
-        Log::info("OTP for $email: $otp");
+        Mail::to($email)->send(new NotificationMail(
+            'Password Reset Code',
+            "Your password reset code is: {$otp}",
+        ));
     }
 
     /**
@@ -211,11 +219,7 @@ class AuthService
      */
     private function sendOtpBySms(string $phone, string $otp)
     {
-        // TODO: Implement SMS sending using a service like Twilio
-        // Example: Twilio::message($phone, "Your OTP is: $otp");
-
-        // For development, you can log the OTP
-        Log::info("OTP for $phone: $otp");
+        $this->smsProvider->send($phone, "Your password reset code is: {$otp}");
     }
 
     /**
