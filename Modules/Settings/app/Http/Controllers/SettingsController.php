@@ -40,7 +40,7 @@ class SettingsController extends Controller
                 'data' => [
                     'profile' => [
                         'name' => auth()->user()->name,
-                        'image' => auth()->user()->image ? asset('storage/' . auth()->user()->image) : null,
+                        'image' => auth()->user()->image ? asset('storage/'.auth()->user()->image) : null,
                         'position' => 'Branch Manager',
                         'created_at' => auth()->user()->created_at->format('Y-m-d H:i:s'),
                     ],
@@ -57,13 +57,13 @@ class SettingsController extends Controller
                     ],
                     'account' => $accountDetails['account'],
                     'branch' => $accountDetails['branch'],
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve settings',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -83,7 +83,7 @@ class SettingsController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -103,14 +103,14 @@ class SettingsController extends Controller
                 'message' => 'Profile updated successfully',
                 'data' => [
                     'name' => $user->name,
-                    'image' => $user->image ? asset('storage/' . $user->image) : null,
-                ]
+                    'image' => $user->image ? asset('storage/'.$user->image) : null,
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update profile',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -130,7 +130,7 @@ class SettingsController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -150,13 +150,13 @@ class SettingsController extends Controller
                 'data' => [
                     'language' => $settings->language,
                     'theme' => $settings->theme,
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update system settings',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -179,7 +179,7 @@ class SettingsController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -202,13 +202,13 @@ class SettingsController extends Controller
                     'approved_aggregators' => $settings->notification_approved_aggregators,
                     'asset_transfers' => $settings->notification_asset_transfers,
                     'split_shift_handover' => $settings->notification_split_shift_handover,
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update notification settings',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -226,13 +226,13 @@ class SettingsController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Account details retrieved successfully',
-                'data' => $accountDetails
+                'data' => $accountDetails,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve account details',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }

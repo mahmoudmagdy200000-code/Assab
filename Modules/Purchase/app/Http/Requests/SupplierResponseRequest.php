@@ -14,7 +14,7 @@ class SupplierResponseRequest extends FormRequest
     public function rules(): array
     {
         $action = $this->input('action');
-        
+
         $rules = [
             'action' => ['required', 'string', 'in:approve,reject'],
         ];

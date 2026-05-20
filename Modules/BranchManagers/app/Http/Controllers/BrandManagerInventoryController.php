@@ -22,7 +22,7 @@ class BrandManagerInventoryController extends BaseController
     public function dailyIndex(Request $request): JsonResponse
     {
         $manager = $this->resolveManager();
-        if (!$manager) {
+        if (! $manager) {
             return $this->forbiddenResponse('Only branch managers can access this resource.');
         }
 
@@ -48,7 +48,7 @@ class BrandManagerInventoryController extends BaseController
     public function wasteDamageIndex(Request $request): JsonResponse
     {
         $manager = $this->resolveManager();
-        if (!$manager) {
+        if (! $manager) {
             return $this->forbiddenResponse('Only branch managers can access this resource.');
         }
 
@@ -74,7 +74,7 @@ class BrandManagerInventoryController extends BaseController
     public function dailyShow(string $requestId): JsonResponse
     {
         $manager = $this->resolveManager();
-        if (!$manager) {
+        if (! $manager) {
             return $this->forbiddenResponse('Only branch managers can access this resource.');
         }
 
@@ -93,7 +93,7 @@ class BrandManagerInventoryController extends BaseController
     public function wasteDamageShow(string $requestId): JsonResponse
     {
         $manager = $this->resolveManager();
-        if (!$manager) {
+        if (! $manager) {
             return $this->forbiddenResponse('Only branch managers can access this resource.');
         }
 
@@ -112,7 +112,7 @@ class BrandManagerInventoryController extends BaseController
     public function dailyApprove(string $requestId): JsonResponse
     {
         $manager = $this->resolveManager();
-        if (!$manager) {
+        if (! $manager) {
             return $this->forbiddenResponse('Only branch managers can access this resource.');
         }
 
@@ -130,7 +130,7 @@ class BrandManagerInventoryController extends BaseController
     public function dailyReject(Request $request, string $requestId): JsonResponse
     {
         $manager = $this->resolveManager();
-        if (!$manager) {
+        if (! $manager) {
             return $this->forbiddenResponse('Only branch managers can access this resource.');
         }
 
@@ -152,7 +152,7 @@ class BrandManagerInventoryController extends BaseController
     public function wasteDamageApprove(string $requestId): JsonResponse
     {
         $manager = $this->resolveManager();
-        if (!$manager) {
+        if (! $manager) {
             return $this->forbiddenResponse('Only branch managers can access this resource.');
         }
 
@@ -170,7 +170,7 @@ class BrandManagerInventoryController extends BaseController
     public function wasteDamageReject(Request $request, string $requestId): JsonResponse
     {
         $manager = $this->resolveManager();
-        if (!$manager) {
+        if (! $manager) {
             return $this->forbiddenResponse('Only branch managers can access this resource.');
         }
 
@@ -192,6 +192,7 @@ class BrandManagerInventoryController extends BaseController
     private function resolveManager(): ?BranchManager
     {
         $user = auth()->user();
+
         return $user instanceof BranchManager ? $user : null;
     }
 
@@ -201,6 +202,7 @@ class BrandManagerInventoryController extends BaseController
         if ($limit < 1) {
             $limit = 20;
         }
+
         return min($limit, 100);
     }
 
@@ -214,9 +216,10 @@ class BrandManagerInventoryController extends BaseController
             return null;
         }
         $value = strtolower((string) $raw);
-        if (!in_array($value, ['pending', 'completed'], true)) {
+        if (! in_array($value, ['pending', 'completed'], true)) {
             return false;
         }
+
         return $value;
     }
 

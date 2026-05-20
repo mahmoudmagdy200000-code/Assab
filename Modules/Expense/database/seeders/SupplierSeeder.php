@@ -3,7 +3,6 @@
 namespace Modules\Expense\Database\Seeders;
 
 use Illuminate\Database\Seeder;
-use Modules\Expense\Database\Factories\SupplierFactory;
 use Modules\Expense\Models\Supplier;
 
 class SupplierSeeder extends Seeder
@@ -62,7 +61,7 @@ class SupplierSeeder extends Seeder
             $supplierData['theme'] = 'light';
             $supplierData['total_orders'] = 0;
             $supplierData['completed_orders'] = 0;
-            
+
             Supplier::create($supplierData);
         }
 

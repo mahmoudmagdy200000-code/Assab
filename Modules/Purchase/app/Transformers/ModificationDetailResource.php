@@ -119,7 +119,7 @@ class ModificationDetailResource extends JsonResource
                 'unit' => $this->unit_of_measurement,
                 'quality' => $this->quality_ordered?->value,
                 'price' => (float) $this->unit_price,
-                'price_per_unit' => (float) $this->unit_price . ' / ' . $this->unit_of_measurement,
+                'price_per_unit' => (float) $this->unit_price.' / '.$this->unit_of_measurement,
                 'total_price' => (float) ($originalQuantity * $this->unit_price),
                 'delivery_date' => $order->preferred_delivery_date?->format('Y-m-d'),
             ],
@@ -129,7 +129,7 @@ class ModificationDetailResource extends JsonResource
                 'shortage' => (float) $shortage,
                 'quality' => $this->quality_ordered?->value,
                 'price' => (float) $this->unit_price,
-                'price_per_unit' => (float) $this->unit_price . ' / ' . $this->unit_of_measurement,
+                'price_per_unit' => (float) $this->unit_price.' / '.$this->unit_of_measurement,
                 'total_price' => (float) $proposedTotalPrice,
             ],
             'modified_total' => [
@@ -170,14 +170,14 @@ class ModificationDetailResource extends JsonResource
                 'unit' => $this->unit_of_measurement,
                 'quality' => $this->quality_ordered?->value,
                 'price' => (float) $this->unit_price,
-                'price_per_unit' => (float) $this->unit_price . ' / ' . $this->unit_of_measurement,
+                'price_per_unit' => (float) $this->unit_price.' / '.$this->unit_of_measurement,
                 'total_price' => (float) $this->total_price,
                 'delivery_date' => $originalDeliveryDate?->format('Y-m-d'),
             ],
             'supplier_proposal' => [
                 'type' => 'Low Stock — Need Time',
                 'delivery_details' => [
-                    'qty_to_deliver' => (float) $this->quantity_ordered . ' (Full)',
+                    'qty_to_deliver' => (float) $this->quantity_ordered.' (Full)',
                     'is_full' => true,
                     'new_delivery_date' => $newDeliveryDate?->format('Y-m-d'),
                     'days_difference' => $daysDifference,
@@ -211,7 +211,7 @@ class ModificationDetailResource extends JsonResource
                 'unit' => $this->unit_of_measurement,
                 'quality' => $this->quality_ordered?->value,
                 'price' => (float) $this->unit_price,
-                'price_per_unit' => (float) $this->unit_price . ' / ' . $this->unit_of_measurement,
+                'price_per_unit' => (float) $this->unit_price.' / '.$this->unit_of_measurement,
                 'total_price' => (float) $this->total_price,
                 'delivery_date' => $order->preferred_delivery_date?->format('Y-m-d'),
             ],
@@ -224,7 +224,7 @@ class ModificationDetailResource extends JsonResource
                     'proposed_qty' => (float) $this->quantity_ordered,
                     'quality' => $this->quality_ordered?->value,
                     'price' => (float) $alternativePrice,
-                    'price_per_unit' => (float) $alternativePrice . ' / ' . $this->unit_of_measurement,
+                    'price_per_unit' => (float) $alternativePrice.' / '.$this->unit_of_measurement,
                     'total_price' => (float) ($this->quantity_ordered * $alternativePrice),
                 ],
             ],
@@ -238,7 +238,7 @@ class ModificationDetailResource extends JsonResource
      */
     private function isSupplierView($request): bool
     {
-        if (!$request) {
+        if (! $request) {
             return false;
         }
 

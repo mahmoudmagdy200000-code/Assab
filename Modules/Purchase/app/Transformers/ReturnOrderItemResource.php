@@ -27,4 +27,3 @@ class ReturnOrderItemResource extends JsonResource
         ];
     }
 }
-

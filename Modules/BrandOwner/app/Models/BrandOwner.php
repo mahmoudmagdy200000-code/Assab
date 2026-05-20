@@ -35,9 +35,9 @@ class BrandOwner extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'phone_verified_at' => 'datetime',
-        'password'          => 'hashed',
-        'is_active'         => 'boolean',
-        'is_first_login'    => 'boolean',
+        'password' => 'hashed',
+        'is_active' => 'boolean',
+        'is_first_login' => 'boolean',
     ];
 
     public function isActive(): bool
@@ -62,7 +62,7 @@ class BrandOwner extends Authenticatable
 
     public function getImageUrlAttribute(): ?string
     {
-        return $this->image ? asset('storage/' . $this->image) : null;
+        return $this->image ? asset('storage/'.$this->image) : null;
     }
 
     public function getRouteKeyName(): string

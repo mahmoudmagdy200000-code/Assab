@@ -3,8 +3,8 @@
 namespace Modules\Expense\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
-use Modules\Expense\Models\QuickCashItem;
 use Modules\Expense\Models\QuickCashExpense;
+use Modules\Expense\Models\QuickCashItem;
 
 class QuickCashItemFactory extends Factory
 {

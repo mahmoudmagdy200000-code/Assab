@@ -7,11 +7,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        DB::statement("ALTER TABLE `custody_requests` MODIFY `purpose` TEXT NULL");
+        DB::statement('ALTER TABLE `custody_requests` MODIFY `purpose` TEXT NULL');
     }
 
     public function down(): void
     {
-        DB::statement("ALTER TABLE `custody_requests` MODIFY `purpose` TEXT NOT NULL");
+        DB::statement('ALTER TABLE `custody_requests` MODIFY `purpose` TEXT NOT NULL');
     }
 };

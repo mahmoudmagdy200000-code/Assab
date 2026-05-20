@@ -3,14 +3,13 @@
 namespace Modules\Purchase\Database\Seeders;
 
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\QualityLevel;
-use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\BranchInventory;
+use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
 use Modules\Purchase\Models\PriceHistory;
 use Modules\Purchase\Models\PurchaseOrder;
@@ -69,12 +68,12 @@ class PurchaseTestDataSeeder extends Seeder
 
         $this->command->info('✅ Purchase Test Data Seeded Successfully!');
         $this->command->info('📝 Summary:');
-        $this->command->info('   - Branches: ' . count($branches));
-        $this->command->info('   - Branch Managers: ' . count($managers));
-        $this->command->info('   - Items: ' . count($items));
-        $this->command->info('   - Branch Items: ' . count($branchItems));
-        $this->command->info('   - Suppliers: ' . count($suppliers));
-        $this->command->info('   - Purchase Orders: ' . count($orders));
+        $this->command->info('   - Branches: '.count($branches));
+        $this->command->info('   - Branch Managers: '.count($managers));
+        $this->command->info('   - Items: '.count($items));
+        $this->command->info('   - Branch Items: '.count($branchItems));
+        $this->command->info('   - Suppliers: '.count($suppliers));
+        $this->command->info('   - Purchase Orders: '.count($orders));
     }
 
     /**
@@ -152,14 +151,14 @@ class PurchaseTestDataSeeder extends Seeder
         $basePhone = 5000000001; // Start from a unique number
 
         foreach ($branches as $index => $branch) {
-            $email = 'manager' . ($index + 1) . '@assab.com';
+            $email = 'manager'.($index + 1).'@assab.com';
 
             // Find unique phone number
-            $phone = '+966' . ($basePhone + $index);
+            $phone = '+966'.($basePhone + $index);
             $phoneExists = BranchManager::where('phone', $phone)->exists();
             $phoneCounter = 0;
             while ($phoneExists && $phoneCounter < 100) {
-                $phone = '+966' . ($basePhone + $index + $phoneCounter + 1000);
+                $phone = '+966'.($basePhone + $index + $phoneCounter + 1000);
                 $phoneExists = BranchManager::where('phone', $phone)->exists();
                 $phoneCounter++;
             }
@@ -169,13 +168,13 @@ class PurchaseTestDataSeeder extends Seeder
 
             if ($manager) {
                 // Update existing manager (only if phone is different)
-                if ($manager->phone !== $phone && !BranchManager::where('phone', $phone)->exists()) {
+                if ($manager->phone !== $phone && ! BranchManager::where('phone', $phone)->exists()) {
                     $manager->update([
                         'phone' => $phone,
                     ]);
                 }
                 $manager->update([
-                    'name' => $managerNames[$index] ?? 'Manager ' . ($index + 1),
+                    'name' => $managerNames[$index] ?? 'Manager '.($index + 1),
                     'branch_id' => $branch->id,
                     'status' => 'active',
                     'is_active' => true,
@@ -183,7 +182,7 @@ class PurchaseTestDataSeeder extends Seeder
             } else {
                 // Create new manager
                 $manager = BranchManager::create([
-                    'name' => $managerNames[$index] ?? 'Manager ' . ($index + 1),
+                    'name' => $managerNames[$index] ?? 'Manager '.($index + 1),
                     'email' => $email,
                     'phone' => $phone,
                     'password' => bcrypt('password123'),
@@ -399,7 +398,7 @@ class PurchaseTestDataSeeder extends Seeder
         $suppliers = PurchaseSupplier::all();
 
         if ($suppliers->isEmpty()) {
-            $seeder = new PurchaseSupplierSeeder();
+            $seeder = new PurchaseSupplierSeeder;
             $seeder->setCommand($this->command);
             $seeder->run();
             $suppliers = PurchaseSupplier::all();
@@ -415,7 +414,7 @@ class PurchaseTestDataSeeder extends Seeder
     {
         foreach ($suppliers as $supplier) {
             $supplierModel = PurchaseSupplier::find($supplier['id']);
-            if (!$supplierModel) {
+            if (! $supplierModel) {
                 continue;
             }
 

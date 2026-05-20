@@ -23,12 +23,12 @@ class HandoverSummaryResource extends JsonResource
         $status = $this->getStatusLabel();
         $acceptanceMessage = $this->getAcceptanceMessage();
 
-        $authUser     = auth()->user();
-        $recipientId  = $this->handover?->handover_to_id ?? $this->next_cashier_id;
-        $isIncoming   = $authUser instanceof Cashier
+        $authUser = auth()->user();
+        $recipientId = $this->handover?->handover_to_id ?? $this->next_cashier_id;
+        $isIncoming = $authUser instanceof Cashier
                         && (string) $recipientId === (string) $authUser->id
                         && (string) $this->cashier_id !== (string) $authUser->id;
-        $isOutgoing   = $authUser instanceof Cashier
+        $isOutgoing = $authUser instanceof Cashier
                         && (string) $this->cashier_id === (string) $authUser->id
                         && (string) $recipientId !== (string) $authUser->id;
         $canBeAccepted = $isIncoming
@@ -44,12 +44,12 @@ class HandoverSummaryResource extends JsonResource
             'variance_amount' => $varianceAmount,
             'cash_from' => $cashFrom,
             'acceptance_message' => $acceptanceMessage,
-            'responsibility_status'      => $this->getResponsibilityStatus(),
+            'responsibility_status' => $this->getResponsibilityStatus(),
             'responsibility_reviewed_at' => $this->getResponsibilityReviewedAt(),
 
             // Role flags — the app uses these to show/hide Accept & Reject buttons
-            'is_incoming'    => $isIncoming,    // true = current user is the designated receiver
-            'is_outgoing'    => $isOutgoing,    // true = current user sent this handover
+            'is_incoming' => $isIncoming,    // true = current user is the designated receiver
+            'is_outgoing' => $isOutgoing,    // true = current user sent this handover
             'can_be_accepted' => $canBeAccepted, // true = incoming AND still pending → show Accept/Reject
         ];
     }
@@ -62,15 +62,17 @@ class HandoverSummaryResource extends JsonResource
         if (abs($amount) < 0.01) {
             return 'None';
         }
+
         return (string) round($amount, 2);
     }
 
     private function getStatusLabel(): string
     {
         $status = $this->handoverStatus?->manager_approval_status ?? null;
-        if (!$status) {
+        if (! $status) {
             return 'Pending';
         }
+
         return match ($status) {
             'approved' => 'Approved',
             'rejected', 'rejected_final' => 'Rejected',
@@ -87,6 +89,7 @@ class HandoverSummaryResource extends JsonResource
         if ($this->relationLoaded('varianceDetails') && $this->varianceDetails->isNotEmpty()) {
             return $this->varianceDetails->first()->responsibility_status ?? 'pending';
         }
+
         return 'not_submitted';
     }
 
@@ -98,6 +101,7 @@ class HandoverSummaryResource extends JsonResource
         if ($this->relationLoaded('varianceDetails') && $this->varianceDetails->isNotEmpty()) {
             return $this->varianceDetails->first()->reviewed_at?->format('Y-m-d H:i:s');
         }
+
         return null;
     }
 
@@ -111,7 +115,7 @@ class HandoverSummaryResource extends JsonResource
             return null;
         }
         $reviewedAt = $this->handoverStatus?->reviewed_at ?? $this->handover?->approved_at ?? null;
-        if (!$reviewedAt) {
+        if (! $reviewedAt) {
             return null;
         }
         $dt = $reviewedAt instanceof Carbon ? $reviewedAt : Carbon::parse($reviewedAt);
@@ -122,7 +126,7 @@ class HandoverSummaryResource extends JsonResource
             3, 23 => 'rd',
             default => 'th',
         };
-        $datePart = $dt->format('F') . ' ' . $day . $suffix . ', ' . $dt->format('Y');
+        $datePart = $dt->format('F').' '.$day.$suffix.', '.$dt->format('Y');
         $timePart = $dt->format('g:i A');
 
         return "You accepted this handover on: {$datePart} - {$timePart}";

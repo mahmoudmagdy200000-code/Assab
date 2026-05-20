@@ -2,21 +2,21 @@
 
 namespace Tests\NFR\Compatibility;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Modules\BranchManagers\Models\BranchManager;
+use Tests\TestCase;
 
 /**
  * Compatibility Requirements Test: Platform Compatibility
- * 
+ *
  * Tests platform compatibility requirements:
  * - iOS Support: iOS 14.0 and newer, iPhone 8 and newer, iPad (5th generation and newer)
  * - Android Support: Android 9.0 (API level 28) and newer
  * - Support for major OEM devices (Samsung, Huawei, Xiaomi)
  * - Various screen densities and resolutions
  * - Different Android distributions and skins
- * 
+ *
  * Note: These are backend API tests. Actual mobile platform testing
  * should be done with mobile testing frameworks.
  */
@@ -29,7 +29,7 @@ class PlatformCompatibilityTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->manager = BranchManager::factory()->create([
             'email' => 'platform-test-manager@assab.com',
             'password' => Hash::make('password123'),
@@ -47,7 +47,7 @@ class PlatformCompatibilityTest extends TestCase
             ->getJson('/api/v1/branch-manager/dashboard');
 
         $response->assertStatus(200);
-        
+
         $responseSize = strlen($response->getContent());
         $responseSizeKB = $responseSize / 1024;
 
@@ -91,7 +91,7 @@ class PlatformCompatibilityTest extends TestCase
             ->withHeaders(['Content-Type' => 'application/json'])
             ->getJson('/api/v1/branch-manager/profile');
 
-        $this->assertEquals(200, $response->status(), "API should accept application/json");
+        $this->assertEquals(200, $response->status(), 'API should accept application/json');
     }
 
     /**
@@ -103,15 +103,15 @@ class PlatformCompatibilityTest extends TestCase
         $response = $this->options('/api/v1/branch-manager/profile');
 
         // OPTIONS request should work (preflight)
-        $this->assertNotEquals(404, $response->status(), "CORS preflight should be supported");
+        $this->assertNotEquals(404, $response->status(), 'CORS preflight should be supported');
 
         // Check for CORS headers (if implemented)
         $headers = $response->headers->all();
-        $hasCorsHeaders = isset($headers['access-control-allow-origin']) || 
+        $hasCorsHeaders = isset($headers['access-control-allow-origin']) ||
                          isset($headers['Access-Control-Allow-Origin']);
 
         // CORS headers may or may not be present depending on implementation
-        $this->assertTrue(true, "CORS should be configured for mobile app access");
+        $this->assertTrue(true, 'CORS should be configured for mobile app access');
     }
 
     /**
@@ -122,7 +122,7 @@ class PlatformCompatibilityTest extends TestCase
     {
         // API should work even with slower requests
         $startTime = microtime(true);
-        
+
         $response = $this->actingAs($this->manager, 'sanctum')
             ->getJson('/api/v1/branch-manager/profile');
 
@@ -130,9 +130,9 @@ class PlatformCompatibilityTest extends TestCase
         $responseTime = ($endTime - $startTime) * 1000;
 
         $response->assertStatus(200);
-        
+
         // Should complete within reasonable time (accounting for test environment)
-        $this->assertLessThan(5000, $responseTime, "API should work on mobile networks");
+        $this->assertLessThan(5000, $responseTime, 'API should work on mobile networks');
     }
 
     /**
@@ -144,7 +144,7 @@ class PlatformCompatibilityTest extends TestCase
         // Test if file upload endpoint exists
         try {
             $file = \Illuminate\Http\UploadedFile::fake()->image('profile.jpg', 800, 600);
-            
+
             $response = $this->actingAs($this->manager, 'sanctum')
                 ->postJson('/api/v1/branch-manager/profile/image', [
                     'image' => $file,
@@ -154,11 +154,11 @@ class PlatformCompatibilityTest extends TestCase
             $this->assertContains(
                 $response->status(),
                 [200, 201, 422, 404, 405],
-                "File upload should be supported or return appropriate status"
+                'File upload should be supported or return appropriate status'
             );
         } catch (\Exception $e) {
             // Endpoint may not exist
-            $this->assertTrue(true, "File upload endpoint may not be implemented");
+            $this->assertTrue(true, 'File upload endpoint may not be implemented');
         }
     }
 
@@ -169,7 +169,7 @@ class PlatformCompatibilityTest extends TestCase
     public function test_pagination_for_mobile(): void
     {
         $response = $this->actingAs($this->manager, 'sanctum')
-            ->getJson('/api/v1/purchase/orders?' . http_build_query([
+            ->getJson('/api/v1/purchase/orders?'.http_build_query([
                 'per_page' => 20, // Reasonable page size for mobile
             ]));
 
@@ -179,7 +179,7 @@ class PlatformCompatibilityTest extends TestCase
         // Should support pagination
         if (isset($data['data']['data'])) {
             $items = $data['data']['data'];
-            $this->assertLessThanOrEqual(20, count($items), "Pagination should limit items per page");
+            $this->assertLessThanOrEqual(20, count($items), 'Pagination should limit items per page');
         }
     }
 
@@ -191,7 +191,7 @@ class PlatformCompatibilityTest extends TestCase
     {
         // API should support timestamp-based sync
         $response = $this->actingAs($this->manager, 'sanctum')
-            ->getJson('/api/v1/purchase/orders?' . http_build_query([
+            ->getJson('/api/v1/purchase/orders?'.http_build_query([
                 'updated_since' => now()->subDays(1)->toIso8601String(),
             ]));
 
@@ -199,7 +199,7 @@ class PlatformCompatibilityTest extends TestCase
         $this->assertContains(
             $response->status(),
             [200, 400, 422],
-            "API should support sync parameters or handle gracefully"
+            'API should support sync parameters or handle gracefully'
         );
     }
 
@@ -220,11 +220,11 @@ class PlatformCompatibilityTest extends TestCase
             $this->assertContains(
                 $response->status(),
                 [200, 201, 404, 405],
-                "Push notification token registration should be supported"
+                'Push notification token registration should be supported'
             );
         } catch (\Exception $e) {
             // Endpoint may not exist
-            $this->assertTrue(true, "Push notification endpoint may not be implemented");
+            $this->assertTrue(true, 'Push notification endpoint may not be implemented');
         }
     }
 }

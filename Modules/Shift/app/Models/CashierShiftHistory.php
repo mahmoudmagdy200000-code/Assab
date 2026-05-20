@@ -3,8 +3,8 @@
 namespace Modules\Shift\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * Updated CashierShiftHistory Model
@@ -63,7 +63,7 @@ class CashierShiftHistory extends Model
     // Helper Methods
     public function getPerformerName(): string
     {
-        return match($this->performed_by_type) {
+        return match ($this->performed_by_type) {
             'branch_manager' => \Modules\BranchManagers\Models\BranchManager::find($this->performed_by)?->name ?? 'Unknown',
             'cashier' => \Modules\Cashier\Models\Cashier::find($this->performed_by)?->name ?? 'Unknown',
             'system' => 'System',
@@ -73,7 +73,7 @@ class CashierShiftHistory extends Model
 
     public function getActionLabel(): string
     {
-        return match($this->action) {
+        return match ($this->action) {
             'assigned' => 'Assigned',
             'started' => 'Started',
             'completed' => 'Completed',
@@ -84,4 +84,3 @@ class CashierShiftHistory extends Model
         };
     }
 }
-

@@ -2,14 +2,13 @@
 
 namespace Modules\Expense\Database\Seeders;
 
-
-use Illuminate\Database\Seeder;
-use Modules\Expense\Services\SingleInvoiceExpenseService;
 use Faker\Factory as Faker;
-use Modules\Expense\Models\Supplier;
-use Modules\Expense\Models\Category;
+use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Auth;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Expense\Models\Category;
+use Modules\Expense\Models\Supplier;
+use Modules\Expense\Services\SingleInvoiceExpenseService;
 
 class SingleInvoiceExpenseSeeder extends Seeder
 {
@@ -21,8 +20,9 @@ class SingleInvoiceExpenseSeeder extends Seeder
 
         // Get any branch manager user
         $branchManager = BranchManager::first();
-        if (!$branchManager) {
+        if (! $branchManager) {
             $this->command->warn('⚠️ لا يوجد مستخدمين في جدول users. أنشئ واحد أولاً.');
+
             return;
         }
 
@@ -35,6 +35,7 @@ class SingleInvoiceExpenseSeeder extends Seeder
 
         if (empty($suppliers) || empty($categories)) {
             $this->command->warn('⚠️ يجب أن يوجد Suppliers و Categories أولاً.');
+
             return;
         }
 

@@ -21,4 +21,3 @@ class SendMessageRequest extends FormRequest
         ];
     }
 }
-

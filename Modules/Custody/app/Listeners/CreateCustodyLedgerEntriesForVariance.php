@@ -21,11 +21,13 @@ class CreateCustodyLedgerEntriesForVariance implements ShouldQueue
     use InteractsWithQueue;
 
     public $afterCommit = true;
+
     public $tries = 3;
 
     public function backoff(): array
     {
         $jitter = random_int(1, 4);
+
         return [10 + $jitter, 30 + $jitter, 90 + $jitter];
     }
 

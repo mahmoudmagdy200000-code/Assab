@@ -11,11 +11,11 @@ class AggregatorObserver
     public function creating(Aggregator $aggregator): void
     {
         // Set defaults
-        if (!isset($aggregator->is_active)) {
+        if (! isset($aggregator->is_active)) {
             $aggregator->is_active = true;
         }
 
-        if (!isset($aggregator->commission_rate)) {
+        if (! isset($aggregator->commission_rate)) {
             $aggregator->commission_rate = 0;
         }
     }
@@ -36,12 +36,12 @@ class AggregatorObserver
             $oldActive = $aggregator->getOriginal('is_active');
             $newActive = $aggregator->is_active;
 
-            if ($oldActive && !$newActive) {
+            if ($oldActive && ! $newActive) {
                 Log::warning('Aggregator deactivated', [
                     'aggregator_id' => $aggregator->id,
                     'name' => $aggregator->name,
                 ]);
-            } elseif (!$oldActive && $newActive) {
+            } elseif (! $oldActive && $newActive) {
                 Log::info('Aggregator activated', [
                     'aggregator_id' => $aggregator->id,
                     'name' => $aggregator->name,

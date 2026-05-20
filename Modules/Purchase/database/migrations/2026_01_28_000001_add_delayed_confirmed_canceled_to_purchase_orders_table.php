@@ -44,7 +44,7 @@ return new class extends Migration
                 'variance'
             ) DEFAULT 'draft'");
         } catch (\Exception $e) {
-            Log::warning('Migration add_delayed_confirmed_canceled: ' . $e->getMessage());
+            Log::warning('Migration add_delayed_confirmed_canceled: '.$e->getMessage());
         }
     }
 
@@ -91,7 +91,7 @@ return new class extends Migration
                 'variance'
             ) DEFAULT 'draft'");
         } catch (\Exception $e) {
-            Log::warning('Migration rollback add_delayed_confirmed_canceled: ' . $e->getMessage());
+            Log::warning('Migration rollback add_delayed_confirmed_canceled: '.$e->getMessage());
         }
     }
 };

@@ -16,4 +16,3 @@ class ExpenseRejectedEvent
         public string $reason
     ) {}
 }
-

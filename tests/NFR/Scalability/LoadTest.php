@@ -2,22 +2,22 @@
 
 namespace Tests\NFR\Scalability;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Purchase\Models\PurchaseOrder;
+use Tests\TestCase;
 
 /**
  * Scalability Requirements Test: Load Testing
- * 
+ *
  * Tests scalability requirements:
  * - Support 500 concurrent users during peak hours
  * - 3x normal load during month-end closing
  * - 2x normal load during holiday seasons
  * - Graceful performance degradation under extreme load
  * - Automatic scaling triggers based on load metrics
- * 
+ *
  * Note: Full load testing should be done with dedicated tools (JMeter, K6, etc.)
  * These tests verify system can handle basic concurrent requests
  */
@@ -30,7 +30,7 @@ class LoadTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->manager = BranchManager::factory()->create([
             'email' => 'load-test-manager@assab.com',
             'password' => Hash::make('password123'),
@@ -70,7 +70,7 @@ class LoadTest extends TestCase
         $totalTime = $endTime - $startTime;
 
         $successRate = ($successCount / $concurrentUsers) * 100;
-        
+
         $this->assertGreaterThan(
             80,
             $successRate,
@@ -100,7 +100,7 @@ class LoadTest extends TestCase
 
         for ($i = 0; $i < $testRequests; $i++) {
             $response = $this->actingAs($this->manager, 'sanctum')
-                ->getJson('/api/v1/purchase/history?' . http_build_query([
+                ->getJson('/api/v1/purchase/history?'.http_build_query([
                     'start_date' => now()->startOfMonth()->format('Y-m-d'),
                     'end_date' => now()->endOfMonth()->format('Y-m-d'),
                 ]));
@@ -114,7 +114,7 @@ class LoadTest extends TestCase
         $responseTime = ($endTime - $startTime) / $testRequests * 1000; // Average ms per request
 
         $successRate = ($successCount / $testRequests) * 100;
-        
+
         $this->assertGreaterThan(
             70,
             $successRate,
@@ -160,7 +160,7 @@ class LoadTest extends TestCase
 
         // Performance may degrade but system should still function
         $degradationRatio = $loadTime / max($baselineTime, 1);
-        
+
         $this->assertLessThan(
             10, // Should not degrade more than 10x
             $degradationRatio,
@@ -187,7 +187,7 @@ class LoadTest extends TestCase
         }
 
         $successRate = ($successfulConnections / $concurrentConnections) * 100;
-        
+
         $this->assertGreaterThan(
             90,
             $successRate,
@@ -235,14 +235,14 @@ class LoadTest extends TestCase
             $response = $this->actingAs($this->manager, 'sanctum')
                 ->getJson('/api/v1/branch-manager/dashboard');
             $end = microtime(true);
-            
+
             $response->assertStatus(200);
             $responseTimes[] = ($end - $start) * 1000;
         }
 
         // Calculate coefficient of variation (CV) for consistency
         $mean = array_sum($responseTimes) / count($responseTimes);
-        $variance = array_sum(array_map(fn($x) => pow($x - $mean, 2), $responseTimes)) / count($responseTimes);
+        $variance = array_sum(array_map(fn ($x) => pow($x - $mean, 2), $responseTimes)) / count($responseTimes);
         $stdDev = sqrt($variance);
         $cv = $mean > 0 ? ($stdDev / $mean) * 100 : 0;
 

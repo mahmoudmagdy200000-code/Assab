@@ -4,13 +4,10 @@ namespace Modules\Expense\Services;
 
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Modules\Expense\Models\{
-    Expense,
-    InvoiceDetail,
-    ExpenseItem,
-    ExpenseLine,
-    ExpenseAttachment
-};
+use Modules\Expense\Models\Expense;
+use Modules\Expense\Models\ExpenseItem;
+use Modules\Expense\Models\ExpenseLine;
+use Modules\Expense\Models\InvoiceDetail;
 
 /**
  * Single Invoice Expense Service
@@ -49,7 +46,7 @@ class SingleInvoiceExpenseService
             'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
         ]);
 
-        if (!empty($data['is_tax_invoice']) && !empty($data['tax_invoice_details'])) {
+        if (! empty($data['is_tax_invoice']) && ! empty($data['tax_invoice_details'])) {
             $invoice->update([
                 'tax_supplier_name' => $data['tax_invoice_details']['supplier_name'] ?? null,
                 'tax_net_amount' => $data['tax_invoice_details']['net_amount'] ?? null,
@@ -58,7 +55,7 @@ class SingleInvoiceExpenseService
             ]);
         }
 
-        if (!empty($data['items'])) {
+        if (! empty($data['items'])) {
             foreach ($data['items'] as $item) {
                 ExpenseItem::create([
                     'expense_id' => $expense->id,
@@ -72,7 +69,7 @@ class SingleInvoiceExpenseService
             }
         }
 
-        if (!empty($data['expenses'])) {
+        if (! empty($data['expenses'])) {
             foreach ($data['expenses'] as $expenseLine) {
                 ExpenseLine::create([
                     'expense_id' => $expense->id,
@@ -115,8 +112,7 @@ class SingleInvoiceExpenseService
 
             $updateData['status'] = $data['is_draft'] ? 'draft' : 'pending';
 
-
-            if (!$data['is_draft'] && !$expense->submitted_at) {
+            if (! $data['is_draft'] && ! $expense->submitted_at) {
                 $updateData['submitted_at'] = now();
             }
         }
@@ -131,7 +127,7 @@ class SingleInvoiceExpenseService
             $updateData['vat_amount'] = $totals['vat_amount'];
         }
 
-        if (!empty($updateData)) {
+        if (! empty($updateData)) {
             $expense->update($updateData);
         }
 
@@ -164,7 +160,7 @@ class SingleInvoiceExpenseService
             $invoiceDetail->update($invoiceUpdateData);
 
             // Update tax invoice details if applicable
-            if (!empty($data['is_tax_invoice']) && !empty($data['tax_invoice_details'])) {
+            if (! empty($data['is_tax_invoice']) && ! empty($data['tax_invoice_details'])) {
                 $invoiceDetail->update([
                     'tax_supplier_name' => $data['tax_invoice_details']['supplier_name'] ?? $invoiceDetail->tax_supplier_name,
                     'tax_net_amount' => $data['tax_invoice_details']['net_amount'] ?? $invoiceDetail->tax_net_amount,
@@ -240,7 +236,7 @@ class SingleInvoiceExpenseService
                 // Delete database record
                 $attachment->delete();
             } catch (\Exception $e) {
-                Log::warning('Failed to delete attachment: ' . $e->getMessage());
+                Log::warning('Failed to delete attachment: '.$e->getMessage());
             }
         }
     }
@@ -253,13 +249,13 @@ class SingleInvoiceExpenseService
         $itemsTotal = 0;
         $expensesTotal = 0;
 
-        if (!empty($data['items'])) {
+        if (! empty($data['items'])) {
             foreach ($data['items'] as $item) {
                 $itemsTotal += $item['quantity'] * $item['unit_price'];
             }
         }
 
-        if (!empty($data['expenses'])) {
+        if (! empty($data['expenses'])) {
             foreach ($data['expenses'] as $expense) {
                 $expensesTotal += $expense['price'];
             }
@@ -303,7 +299,7 @@ class SingleInvoiceExpenseService
      */
     private function uploadInvoiceReceipt(Expense $expense, $file): void
     {
-        $filename = 'expense_' . $expense->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+        $filename = 'expense_'.$expense->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
         $path = $file->storeAs('expenses/receipts', $filename, 'public');
 
         $expense->attachments()->create([
@@ -314,7 +310,7 @@ class SingleInvoiceExpenseService
         ]);
     }
 
-    private function createTimelineEntry(Expense $expense, string $action, string $status = null): void
+    private function createTimelineEntry(Expense $expense, string $action, ?string $status = null): void
     {
         $expense->timelines()->create([
             'action' => $action,
@@ -332,12 +328,14 @@ class SingleInvoiceExpenseService
     {
         try {
             $custodyBalanceService = app(\Modules\Custody\Services\CustodyBalanceService::class);
+
             return $custodyBalanceService->getCustodyBalance($branchManagerId);
         } catch (\Exception $e) {
             Log::error('Failed to get custody balance', [
                 'branch_manager_id' => $branchManagerId,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
+
             return 0.00;
         }
     }

@@ -5,12 +5,12 @@ namespace Modules\Aggregator\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Modules\Aggregator\Http\Requests\CreateAggregatorRequest;
-use Modules\Aggregator\Http\Requests\UpdateAggregatorRequest;
 use Modules\Aggregator\Http\Requests\FilterAggregatorRequest;
+use Modules\Aggregator\Http\Requests\UpdateAggregatorRequest;
 use Modules\Aggregator\Models\Aggregator;
 use Modules\Aggregator\Services\AggregatorService;
-use Modules\Aggregator\Transformers\AggregatorResource;
 use Modules\Aggregator\Transformers\AggregatorDetailResource;
+use Modules\Aggregator\Transformers\AggregatorResource;
 
 class AggregatorController extends BaseController
 {
@@ -139,7 +139,7 @@ class AggregatorController extends BaseController
     public function deactivate(Aggregator $aggregator): JsonResponse
     {
         try {
-            if (!$aggregator->is_active) {
+            if (! $aggregator->is_active) {
                 return $this->errorResponse('Aggregator is already inactive', 400);
             }
 
@@ -178,13 +178,13 @@ class AggregatorController extends BaseController
     {
         try {
             $request->validate([
-                'logo' => 'required|image|mimes:jpeg,png,jpg,gif,svg|max:1024'
+                'logo' => 'required|image|mimes:jpeg,png,jpg,gif,svg|max:1024',
             ]);
 
             $logoPath = $this->aggregatorService->uploadLogo($aggregator, $request->file('logo'));
 
             return $this->updatedResponse(
-                ['logo_url' => asset('storage/' . $logoPath)],
+                ['logo_url' => asset('storage/'.$logoPath)],
                 'Logo uploaded successfully'
             );
         } catch (\Exception $e) {

@@ -6,15 +6,15 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use Modules\Inventory\Enums\WasteDamageReportStatus;
 use Modules\Inventory\Http\Controllers\Concerns\ResolvesInventoryActor;
 use Modules\Inventory\Http\Requests\WasteDamage\StoreWasteDamageReportItemRequest;
 use Modules\Inventory\Http\Requests\WasteDamage\StoreWasteDamageReportRequest;
 use Modules\Inventory\Http\Requests\WasteDamage\UpdateWasteDamageReportItemRequest;
-use Modules\Inventory\Services\InventorySessionService;
 use Modules\Inventory\Models\WasteDamageReport;
+use Modules\Inventory\Services\InventorySessionService;
 use Modules\Inventory\Services\WasteDamageProductService;
 use Modules\Inventory\Services\WasteDamageReportService;
-use Modules\Inventory\Enums\WasteDamageReportStatus;
 use Modules\Inventory\Transformers\WasteDamageReportItemResource;
 use Modules\Inventory\Transformers\WasteDamageReportListResource;
 use Modules\Inventory\Transformers\WasteDamageReportResource;
@@ -39,7 +39,7 @@ class WasteDamageReportController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $branchId = $actor->getBranchId();
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -63,7 +63,7 @@ class WasteDamageReportController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $branchId = $actor->getBranchId();
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -94,7 +94,7 @@ class WasteDamageReportController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $branchId = $actor->getBranchId();
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -126,7 +126,7 @@ class WasteDamageReportController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $branchId = $actor->getBranchId();
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -138,11 +138,11 @@ class WasteDamageReportController extends BaseController
 
             $report = $this->findReusableReportForActor($actor, $branchId, $assignedToType, $assignedToId);
 
-            if (!$report) {
+            if (! $report) {
                 $report = $this->reportService->createReport($branchId, $createdById, $assignedToType, $assignedToId, $createdByType);
             }
 
-            if (!empty($items)) {
+            if (! empty($items)) {
                 $items = $this->storeItemPhotosForReport($request, $report->id, $items);
                 $this->reportService->addItemsToReport(
                     $report,
@@ -206,7 +206,7 @@ class WasteDamageReportController extends BaseController
 
         foreach (array_keys($items) as $index) {
             $key = "items.{$index}.photo";
-            if (!$request->hasFile($key)) {
+            if (! $request->hasFile($key)) {
                 continue;
             }
             $path = $request->file($key)->store($basePath, 'public');
@@ -224,7 +224,7 @@ class WasteDamageReportController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $branchId = $actor->getBranchId();
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -268,7 +268,7 @@ class WasteDamageReportController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $branchId = $actor->getBranchId();
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -283,7 +283,7 @@ class WasteDamageReportController extends BaseController
                 'timelines',
             ], $assignedToId);
 
-            if (!$report) {
+            if (! $report) {
                 return $this->notFoundResponse('Report not found');
             }
 
@@ -304,7 +304,7 @@ class WasteDamageReportController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $branchId = $actor->getBranchId();
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -343,7 +343,7 @@ class WasteDamageReportController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $branchId = $actor->getBranchId();
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -383,7 +383,7 @@ class WasteDamageReportController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $branchId = $actor->getBranchId();
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -406,7 +406,7 @@ class WasteDamageReportController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $branchId = $actor->getBranchId();
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -430,7 +430,7 @@ class WasteDamageReportController extends BaseController
      */
     private function storePhotoIfPresent(Request $request, string $reportId): ?string
     {
-        if (!$request->hasFile('photo')) {
+        if (! $request->hasFile('photo')) {
             return null;
         }
 

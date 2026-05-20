@@ -3,12 +3,12 @@
 namespace Modules\Shift\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Models\CashierShift;
 
 /**
  * Form Request for reassigning a shift
- * 
+ *
  * Business Rules:
  * - Cannot reassign to occupied shifts
  * - Cannot reassign currently working cashier
@@ -33,12 +33,12 @@ class ReassignShiftRequest extends FormRequest
                 },
             ],
             'reason' => 'nullable|string|max:500',
-            
+
             // For in-progress shift reassignment with handover
             'with_handover' => 'sometimes|boolean',
             'handover_amount' => 'required_if:with_handover,true|nullable|numeric|min:0',
             'handover_notes' => 'nullable|string|max:500',
-            
+
             // Current sales data (for in-progress shifts)
             'current_sales' => 'sometimes|numeric|min:0',
             'cash_collected' => 'sometimes|numeric|min:0',
@@ -48,7 +48,7 @@ class ReassignShiftRequest extends FormRequest
             'aggregators.*.amount' => 'required_with:aggregators|numeric|min:0',
             'aggregators.*.notes' => 'nullable|string|max:255',
             'pos_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
-            
+
             // Variance data (for reassignment with variance)
             'variance' => 'sometimes|array',
             'variance.responsibility_type' => 'required_with:variance|in:self,self_and_others,other_factors,mixed',
@@ -79,21 +79,22 @@ class ReassignShiftRequest extends FormRequest
     private function validateCashierNotOccupied($cashierId, $fail): void
     {
         $shift = $this->route('shift');
-        
-        if (!$shift) {
+
+        if (! $shift) {
             return;
         }
 
         // Get the shift model
         $shiftModel = CashierShift::with('shift')->find($shift);
-        
-        if (!$shiftModel) {
+
+        if (! $shiftModel) {
             return;
         }
 
         // Check if trying to reassign to same cashier
         if ($shiftModel->cashier_id === $cashierId) {
             $fail('Cannot reassign to the same cashier.');
+
             return;
         }
 
@@ -108,8 +109,8 @@ class ReassignShiftRequest extends FormRequest
             ->first();
 
         if ($conflictingShift) {
-            $status = $conflictingShift->status === ShiftStatus::IN_PROGRESS 
-                ? 'currently working' 
+            $status = $conflictingShift->status === ShiftStatus::IN_PROGRESS
+                ? 'currently working'
                 : 'already assigned to another shift';
             $fail("The selected cashier is {$status} on this date.");
         }
@@ -123,8 +124,7 @@ class ReassignShiftRequest extends FormRequest
         $validated = $this->validated();
         $validated['reassigned_by'] = auth()->id();
         $validated['reassigned_at'] = now();
-        
+
         return $validated;
     }
 }
-

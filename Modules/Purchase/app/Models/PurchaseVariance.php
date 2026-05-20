@@ -104,13 +104,13 @@ class PurchaseVariance extends Model
     // Accessors
     public function getItemLogoUrlAttribute(): ?string
     {
-        if (!$this->item_logo) {
+        if (! $this->item_logo) {
             return null;
         }
-        
-        return str_starts_with($this->item_logo, 'http') 
-            ? $this->item_logo 
-            : asset('storage/' . $this->item_logo);
+
+        return str_starts_with($this->item_logo, 'http')
+            ? $this->item_logo
+            : asset('storage/'.$this->item_logo);
     }
 
     public function getIsPendingAttribute(): bool
@@ -175,14 +175,14 @@ class PurchaseVariance extends Model
             'action' => VarianceAction::COMPENSATORY_ORDER,
             'status' => 'pending',
         ]);
-        
+
         // Store items list in additional_notes or create a separate field
         // For now, we'll store items as JSON in additional_notes along with notes
         $notesData = [
             'notes' => $data['notes'] ?? null,
             'items' => $data['items'] ?? [],
         ];
-        
+
         return CompensatoryOrder::create([
             'variance_id' => $this->id,
             'original_order_id' => $this->purchase_order_id,
@@ -252,4 +252,3 @@ class PurchaseVariance extends Model
         ]);
     }
 }
-

@@ -78,20 +78,22 @@ class BmDailyInventoryDetailsResource extends JsonResource
 
     private function formatBranchHours($branch): ?string
     {
-        if (!$branch || !$branch->opening_hours || !$branch->closing_hours) {
+        if (! $branch || ! $branch->opening_hours || ! $branch->closing_hours) {
             return null;
         }
         $open = $branch->opening_hours->format('g:i A');
         $close = $branch->closing_hours->format('g:i A');
+
         return "Mon - Sun / {$open} - {$close}";
     }
 
     private function resolveImage(?string $path): ?string
     {
-        if (!$path) {
+        if (! $path) {
             return null;
         }
-        return str_starts_with($path, 'http') ? $path : asset('storage/' . $path);
+
+        return str_starts_with($path, 'http') ? $path : asset('storage/'.$path);
     }
 
     private function formatSignedNumber(float $value): string
@@ -100,7 +102,8 @@ class BmDailyInventoryDetailsResource extends JsonResource
             return '0';
         }
         $sign = $value > 0 ? '+' : '';
-        return $sign . rtrim(rtrim(number_format($value, 3, '.', ''), '0'), '.');
+
+        return $sign.rtrim(rtrim(number_format($value, 3, '.', ''), '0'), '.');
     }
 
     private function mapStatus(string $value): string

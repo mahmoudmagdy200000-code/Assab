@@ -15,4 +15,3 @@ class ExpenseApprovedEvent
         public string $approvedBy
     ) {}
 }
-

@@ -63,4 +63,3 @@ enum InventorySessionStatus: string
         return $this === self::DRAFT;
     }
 }
-

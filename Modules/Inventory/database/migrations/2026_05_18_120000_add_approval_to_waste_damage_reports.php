@@ -9,19 +9,19 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('waste_damage_reports', function (Blueprint $table) {
-            if (!Schema::hasColumn('waste_damage_reports', 'approved_at')) {
+            if (! Schema::hasColumn('waste_damage_reports', 'approved_at')) {
                 $table->timestamp('approved_at')->nullable()->after('submitted_at');
             }
-            if (!Schema::hasColumn('waste_damage_reports', 'approved_by')) {
+            if (! Schema::hasColumn('waste_damage_reports', 'approved_by')) {
                 $table->uuid('approved_by')->nullable()->after('approved_at');
             }
-            if (!Schema::hasColumn('waste_damage_reports', 'rejected_at')) {
+            if (! Schema::hasColumn('waste_damage_reports', 'rejected_at')) {
                 $table->timestamp('rejected_at')->nullable()->after('approved_by');
             }
-            if (!Schema::hasColumn('waste_damage_reports', 'rejected_by')) {
+            if (! Schema::hasColumn('waste_damage_reports', 'rejected_by')) {
                 $table->uuid('rejected_by')->nullable()->after('rejected_at');
             }
-            if (!Schema::hasColumn('waste_damage_reports', 'rejection_comment')) {
+            if (! Schema::hasColumn('waste_damage_reports', 'rejection_comment')) {
                 $table->text('rejection_comment')->nullable()->after('rejected_by');
             }
         });

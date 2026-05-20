@@ -87,13 +87,13 @@ class PurchaseSupplier extends Model
     // Accessors
     public function getImageUrlAttribute(): ?string
     {
-        if (!$this->image) {
+        if (! $this->image) {
             return null;
         }
-        
-        return str_starts_with($this->image, 'http') 
-            ? $this->image 
-            : asset('storage/' . $this->image);
+
+        return str_starts_with($this->image, 'http')
+            ? $this->image
+            : asset('storage/'.$this->image);
     }
 
     public function getStatusLabelAttribute(): string
@@ -146,8 +146,8 @@ class PurchaseSupplier extends Model
     {
         return $query->where(function ($q) use ($term) {
             $q->where('name', 'like', "%{$term}%")
-              ->orWhere('email', 'like', "%{$term}%")
-              ->orWhere('phone', 'like', "%{$term}%");
+                ->orWhere('email', 'like', "%{$term}%")
+                ->orWhere('phone', 'like', "%{$term}%");
         });
     }
 
@@ -157,13 +157,13 @@ class PurchaseSupplier extends Model
         $completedOrders = $this->purchaseOrders()
             ->whereIn('status', ['closed', 'delivered'])
             ->count();
-        
+
         $totalOrders = $this->purchaseOrders()->count();
-        
-        $responseRate = $totalOrders > 0 
-            ? ($completedOrders / $totalOrders) * 100 
+
+        $responseRate = $totalOrders > 0
+            ? ($completedOrders / $totalOrders) * 100
             : 0;
-        
+
         $this->update([
             'total_orders' => $totalOrders,
             'completed_orders' => $completedOrders,
@@ -199,4 +199,3 @@ class PurchaseSupplier extends Model
         $this->update(['status' => SupplierStatus::AWAY]);
     }
 }
-

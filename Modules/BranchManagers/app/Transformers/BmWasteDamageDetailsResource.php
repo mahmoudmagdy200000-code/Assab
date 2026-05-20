@@ -89,25 +89,28 @@ class BmWasteDamageDetailsResource extends JsonResource
         if ($hasWaste && $hasDamage) {
             return 'waste_and_damage';
         }
+
         return $hasWaste ? 'waste' : 'damage';
     }
 
     private function formatBranchHours($branch): ?string
     {
-        if (!$branch || !$branch->opening_hours || !$branch->closing_hours) {
+        if (! $branch || ! $branch->opening_hours || ! $branch->closing_hours) {
             return null;
         }
         $open = $branch->opening_hours->format('g:i A');
         $close = $branch->closing_hours->format('g:i A');
+
         return "Mon - Sun / {$open} - {$close}";
     }
 
     private function resolveImage(?string $path): ?string
     {
-        if (!$path) {
+        if (! $path) {
             return null;
         }
-        return str_starts_with($path, 'http') ? $path : asset('storage/' . $path);
+
+        return str_starts_with($path, 'http') ? $path : asset('storage/'.$path);
     }
 
     private function formatNumber(float $value): string

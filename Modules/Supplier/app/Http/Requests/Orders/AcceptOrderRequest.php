@@ -24,4 +24,3 @@ class AcceptOrderRequest extends FormRequest
         ];
     }
 }
-

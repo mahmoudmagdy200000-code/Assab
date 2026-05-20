@@ -6,16 +6,15 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\ServiceProvider;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Observers\CashierShiftObserver;
-use Modules\Shift\Repositories\{
-    CashierShiftRepository,
-    CashierShiftRepositoryInterface,
-    ShiftRepository,
-    ShiftRepositoryInterface
-};
+use Modules\Shift\Repositories\CashierShiftRepository;
+use Modules\Shift\Repositories\CashierShiftRepositoryInterface;
+use Modules\Shift\Repositories\ShiftRepository;
+use Modules\Shift\Repositories\ShiftRepositoryInterface;
 
 class ShiftServiceProvider extends ServiceProvider
 {
     protected string $moduleName = 'Shift';
+
     protected string $moduleNameLower = 'shift';
 
     public function boot(): void
@@ -62,7 +61,7 @@ class ShiftServiceProvider extends ServiceProvider
     protected function registerConfig(): void
     {
         $this->publishes([
-            module_path($this->moduleName, 'config/config.php') => config_path($this->moduleNameLower . '.php'),
+            module_path($this->moduleName, 'config/config.php') => config_path($this->moduleNameLower.'.php'),
         ], 'config');
 
         $this->mergeConfigFrom(
@@ -72,19 +71,19 @@ class ShiftServiceProvider extends ServiceProvider
 
     protected function registerViews(): void
     {
-        $viewPath = resource_path('views/modules/' . $this->moduleNameLower);
+        $viewPath = resource_path('views/modules/'.$this->moduleNameLower);
         $sourcePath = module_path($this->moduleName, 'resources/views');
 
         $this->publishes([
-            $sourcePath => $viewPath
-        ], ['views', $this->moduleNameLower . '-module-views']);
+            $sourcePath => $viewPath,
+        ], ['views', $this->moduleNameLower.'-module-views']);
 
         $this->loadViewsFrom(array_merge($this->getPublishableViewPaths(), [$sourcePath]), $this->moduleNameLower);
     }
 
     protected function registerTranslations(): void
     {
-        $langPath = resource_path('lang/modules/' . $this->moduleNameLower);
+        $langPath = resource_path('lang/modules/'.$this->moduleNameLower);
 
         if (is_dir($langPath)) {
             $this->loadTranslationsFrom($langPath, $this->moduleNameLower);
@@ -97,10 +96,11 @@ class ShiftServiceProvider extends ServiceProvider
     {
         $paths = [];
         foreach (config('view.paths') as $path) {
-            if (is_dir($path . '/modules/' . $this->moduleNameLower)) {
-                $paths[] = $path . '/modules/' . $this->moduleNameLower;
+            if (is_dir($path.'/modules/'.$this->moduleNameLower)) {
+                $paths[] = $path.'/modules/'.$this->moduleNameLower;
             }
         }
+
         return $paths;
     }
 

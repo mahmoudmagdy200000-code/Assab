@@ -8,7 +8,9 @@ use Illuminate\Support\Facades\Log;
 class SaudiTelecomSmsProvider implements SmsProviderInterface
 {
     private string $apiUrl;
+
     private string $apiKey;
+
     private string $senderId;
 
     public function __construct()
@@ -28,7 +30,7 @@ class SaudiTelecomSmsProvider implements SmsProviderInterface
             $phoneNumber = $this->formatPhoneNumber($phoneNumber);
 
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Authorization' => 'Bearer '.$this->apiKey,
                 'Content-Type' => 'application/json',
             ])
                 ->timeout(8)
@@ -36,10 +38,10 @@ class SaudiTelecomSmsProvider implements SmsProviderInterface
                     return ($attempt ** 2) * 100 + random_int(25, 200);
                 })
                 ->post($this->apiUrl, [
-                'to' => $phoneNumber,
-                'message' => $message,
-                'sender' => $this->senderId,
-            ]);
+                    'to' => $phoneNumber,
+                    'message' => $message,
+                    'sender' => $this->senderId,
+                ]);
 
             if ($response->successful()) {
                 return true;
@@ -70,15 +72,14 @@ class SaudiTelecomSmsProvider implements SmsProviderInterface
         $phoneNumber = preg_replace('/[^0-9]/', '', $phoneNumber);
 
         // Add country code if not present
-        if (!str_starts_with($phoneNumber, '966')) {
+        if (! str_starts_with($phoneNumber, '966')) {
             if (str_starts_with($phoneNumber, '0')) {
-                $phoneNumber = '966' . substr($phoneNumber, 1);
+                $phoneNumber = '966'.substr($phoneNumber, 1);
             } else {
-                $phoneNumber = '966' . $phoneNumber;
+                $phoneNumber = '966'.$phoneNumber;
             }
         }
 
         return $phoneNumber;
     }
 }
-

@@ -2,9 +2,8 @@
 
 namespace Modules\Custody\Services;
 
-use Illuminate\Support\Facades\View;
 use Illuminate\Support\Facades\Storage;
-use Modules\Custody\Services\PersonalLedgerService;
+use Illuminate\Support\Facades\View;
 
 class PdfExportService
 {
@@ -32,39 +31,39 @@ class PdfExportService
         ];
 
         // Generate filename
-        $filename = 'transaction_history_' . $branchManagerId . '_' . now()->format('Y-m-d_His') . '.pdf';
-        $filePath = 'custody/reports/' . $filename;
+        $filename = 'transaction_history_'.$branchManagerId.'_'.now()->format('Y-m-d_His').'.pdf';
+        $filePath = 'custody/reports/'.$filename;
 
         // Try to generate PDF using DomPDF
         try {
             $pdfContent = $this->exportWithDompdf($data);
-            
+
             // Verify it's actually PDF content (starts with %PDF)
             if (substr($pdfContent, 0, 4) === '%PDF') {
                 // Save PDF to storage
                 Storage::disk('public')->put($filePath, $pdfContent);
-                
+
                 return [
                     'file_path' => $filePath,
-                    'file_url' => asset('storage/' . $filePath),
+                    'file_url' => asset('storage/'.$filePath),
                     'filename' => $filename,
                 ];
             }
         } catch (\Exception $e) {
             // If PDF generation fails, fall back to HTML
-            \Log::warning('PDF generation failed, falling back to HTML: ' . $e->getMessage());
+            \Log::warning('PDF generation failed, falling back to HTML: '.$e->getMessage());
         }
 
         // Fallback: save HTML
         $htmlContent = $this->exportAsHtml($data);
         $htmlFilename = str_replace('.pdf', '.html', $filename);
-        $htmlFilePath = 'custody/reports/' . $htmlFilename;
-        
+        $htmlFilePath = 'custody/reports/'.$htmlFilename;
+
         Storage::disk('public')->put($htmlFilePath, $htmlContent);
-        
+
         return [
             'file_path' => $htmlFilePath,
-            'file_url' => asset('storage/' . $htmlFilePath),
+            'file_url' => asset('storage/'.$htmlFilePath),
             'filename' => $htmlFilename,
         ];
     }
@@ -89,7 +88,7 @@ class PdfExportService
         }
 
         // Method 2: Try service container
-        if (!$pdf && app()->bound('dompdf.wrapper')) {
+        if (! $pdf && app()->bound('dompdf.wrapper')) {
             try {
                 $pdf = app('dompdf.wrapper')->loadHTML($html);
             } catch (\Exception $e) {
@@ -98,19 +97,20 @@ class PdfExportService
         }
 
         // Method 3: Try direct instantiation
-        if (!$pdf && class_exists('Dompdf\Dompdf')) {
+        if (! $pdf && class_exists('Dompdf\Dompdf')) {
             try {
-                $dompdf = new \Dompdf\Dompdf();
+                $dompdf = new \Dompdf\Dompdf;
                 $dompdf->loadHtml($html);
                 $dompdf->setPaper('A4', 'portrait');
                 $dompdf->render();
+
                 return $dompdf->output();
             } catch (\Exception $e) {
                 // Continue to throw error
             }
         }
 
-        if (!$pdf) {
+        if (! $pdf) {
             throw new \Exception('DomPDF is not available. Please ensure barryvdh/laravel-dompdf is installed and configured.');
         }
 

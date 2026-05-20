@@ -25,7 +25,6 @@ return new class extends Migration
             $table->timestamp('activated_at')->nullable();
             $table->timestamp('deactivated_at')->nullable();
 
-
             $table->index('branch_id');
             $table->index('status');
             $table->index('created_at');

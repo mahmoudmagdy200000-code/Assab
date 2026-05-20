@@ -155,4 +155,3 @@ enum NotificationType: string
         };
     }
 }
-

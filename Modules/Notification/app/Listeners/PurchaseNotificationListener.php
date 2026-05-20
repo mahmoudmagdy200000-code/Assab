@@ -8,8 +8,6 @@ use Modules\Notification\Contracts\NotificationServiceInterface;
 use Modules\Notification\Enums\NotificationPriority;
 use Modules\Notification\Enums\NotificationType;
 use Modules\Purchase\Events\OrderCreated;
-use Modules\Purchase\Events\OrderStatusChanged;
-use Modules\Purchase\Events\VarianceDetected;
 
 class PurchaseNotificationListener implements ShouldQueue
 {
@@ -39,6 +37,4 @@ class PurchaseNotificationListener implements ShouldQueue
             );
         }
     }
-
 }
-

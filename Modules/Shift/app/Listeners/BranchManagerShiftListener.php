@@ -2,9 +2,10 @@
 
 namespace Modules\Shift\Listeners;
 
-use Modules\Shift\Models\{CashierShift, BranchManagerShift};
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Log;
+use Modules\Shift\Models\BranchManagerShift;
+use Modules\Shift\Models\CashierShift;
 
 class BranchManagerShiftListener implements ShouldQueue
 {
@@ -16,17 +17,18 @@ class BranchManagerShiftListener implements ShouldQueue
         try {
             $cashierShift = $event->cashierShift ?? $event;
 
-            if (!$cashierShift instanceof CashierShift) {
+            if (! $cashierShift instanceof CashierShift) {
                 return;
             }
 
             // Get branch manager for this cashier
             $branchManager = $cashierShift->shift->branch->branchManager;
 
-            if (!$branchManager) {
+            if (! $branchManager) {
                 Log::warning('No branch manager found for cashier shift', [
                     'cashier_shift_id' => $cashierShift->id,
                 ]);
+
                 return;
             }
 

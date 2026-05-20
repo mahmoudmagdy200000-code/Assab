@@ -10,9 +10,9 @@ use Modules\Inventory\Enums\ProblemType;
 use Modules\Inventory\Enums\WasteDamageReportStatus;
 use Modules\Inventory\Enums\WasteDamageReportTimelineEventType;
 use Modules\Inventory\Models\WasteDamageReport;
-use Modules\Inventory\Models\WasteDamageReportTimeline;
 use Modules\Inventory\Models\WasteDamageReportItem;
 use Modules\Inventory\Models\WasteDamageReportItemEmployee;
+use Modules\Inventory\Models\WasteDamageReportTimeline;
 use Modules\Inventory\Repositories\WasteDamageReportItemRepository;
 use Modules\Inventory\Repositories\WasteDamageReportRepository;
 use Modules\Purchase\Enums\OrderStatus;
@@ -60,7 +60,7 @@ class WasteDamageReportService
     /**
      * Find report by id and branch (for show). Optionally scope by assignee for cashier.
      *
-     * @param array<int, string> $relations
+     * @param  array<int, string>  $relations
      */
     public function findReportForBranch(string $reportId, string $branchId, array $relations = [], ?string $assignedToId = null): ?WasteDamageReport
     {
@@ -70,7 +70,7 @@ class WasteDamageReportService
     /**
      * Create a draft waste & damage report.
      *
-     * @param 'personal'|'staff' $assignedToType
+     * @param  'personal'|'staff'  $assignedToType
      */
     public function createReport(string $branchId, string $createdBy, string $assignedToType = 'personal', ?string $assignedToId = null, string $createdByType = 'branch_manager'): WasteDamageReport
     {
@@ -95,8 +95,8 @@ class WasteDamageReportService
     /**
      * Create a draft report and add multiple items in one go (single transaction).
      *
-     * @param 'personal'|'staff' $assignedToType
-     * @param array<int, array{item_id: string, purchase_order_item_id?: string|null, problem_type: string, cause_of_damage?: string|null, quantity: float, reason: string, unit?: string|null, justification_text?: string|null, photo_path?: string|null, price_per_unit?: float|null, my_quantity_accountable?: float, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>}> $items
+     * @param  'personal'|'staff'  $assignedToType
+     * @param  array<int, array{item_id: string, purchase_order_item_id?: string|null, problem_type: string, cause_of_damage?: string|null, quantity: float, reason: string, unit?: string|null, justification_text?: string|null, photo_path?: string|null, price_per_unit?: float|null, my_quantity_accountable?: float, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>}>  $items
      */
     public function createReportWithItems(string $branchId, string $createdBy, string $assignedToType = 'personal', ?string $assignedToId = null, array $items = []): WasteDamageReport
     {
@@ -140,7 +140,7 @@ class WasteDamageReportService
     /**
      * Add multiple items to an existing report (e.g. after storing photos under report id).
      *
-     * @param array<int, array{item_id: string, purchase_order_item_id?: string|null, problem_type: string, cause_of_damage?: string|null, quantity: float, reason: string, unit?: string|null, justification_text?: string|null, photo_path?: string|null, price_per_unit?: float|null, my_quantity_accountable?: float, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>}> $items
+     * @param  array<int, array{item_id: string, purchase_order_item_id?: string|null, problem_type: string, cause_of_damage?: string|null, quantity: float, reason: string, unit?: string|null, justification_text?: string|null, photo_path?: string|null, price_per_unit?: float|null, my_quantity_accountable?: float, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>}>  $items
      */
     public function addItemsToReport(WasteDamageReport $report, array $items, ?string $actorBranchManagerId, ?string $actorCashierId = null): WasteDamageReport
     {
@@ -184,12 +184,12 @@ class WasteDamageReportService
     /**
      * Add a product line to the report.
      *
-     * @param array{item_id: string, purchase_order_item_id?: string|null, problem_type: string, cause_of_damage?: string|null, quantity: float, reason: string, unit?: string|null, justification_text?: string|null, photo_path?: string|null, price_per_unit?: float|null, my_quantity_accountable?: float, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>} $data
+     * @param  array{item_id: string, purchase_order_item_id?: string|null, problem_type: string, cause_of_damage?: string|null, quantity: float, reason: string, unit?: string|null, justification_text?: string|null, photo_path?: string|null, price_per_unit?: float|null, my_quantity_accountable?: float, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>}  $data
      */
     public function addItem(string $reportId, string $branchId, array $data, ?string $actorBranchManagerId, ?string $actorCashierId = null, ?string $assignedToId = null): WasteDamageReportItem
     {
         $report = $this->reportRepository->findByBranch($reportId, $branchId, [], $assignedToId);
-        if (!$report || !$report->status->isEditable()) {
+        if (! $report || ! $report->status->isEditable()) {
             throw ValidationException::withMessages(['report' => [self::REPORT_NOT_EDITABLE_MESSAGE]]);
         }
 
@@ -229,7 +229,7 @@ class WasteDamageReportService
     /**
      * When cause is i_was_responsible and no responsible party was sent, default my_quantity_accountable to full quantity.
      *
-     * @param array<string, mixed> $itemData
+     * @param  array<string, mixed>  $itemData
      * @return array<string, mixed>
      */
     private function normalizeResponsibleForIWasResponsible(array $itemData, float $quantity): array
@@ -250,17 +250,17 @@ class WasteDamageReportService
     /**
      * Update a report item.
      *
-     * @param array{problem_type?: string, cause_of_damage?: string|null, quantity?: float, reason?: string, justification_text?: string|null, photo_path?: string|null, my_quantity_accountable?: float, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>} $data
+     * @param  array{problem_type?: string, cause_of_damage?: string|null, quantity?: float, reason?: string, justification_text?: string|null, photo_path?: string|null, my_quantity_accountable?: float, responsible_employees?: array<int, array{cashier_id: string, quantity_accountable: float}>}  $data
      */
     public function updateItem(string $reportId, string $itemId, string $branchId, array $data, ?string $actorBranchManagerId, ?string $actorCashierId = null, ?string $assignedToId = null): WasteDamageReportItem
     {
         $report = $this->reportRepository->findByBranch($reportId, $branchId, [], $assignedToId);
-        if (!$report || !$report->status->isEditable()) {
+        if (! $report || ! $report->status->isEditable()) {
             throw ValidationException::withMessages(['report' => [self::REPORT_NOT_EDITABLE_MESSAGE]]);
         }
 
         $item = $this->itemRepository->findByIdAndReport($itemId, $reportId);
-        if (!$item) {
+        if (! $item) {
             throw ValidationException::withMessages(['item' => ['Report item not found.']]);
         }
 
@@ -328,12 +328,12 @@ class WasteDamageReportService
     public function deleteItem(string $reportId, string $itemId, string $branchId, ?string $assignedToId = null): void
     {
         $report = $this->reportRepository->findByBranch($reportId, $branchId, [], $assignedToId);
-        if (!$report || !$report->status->isEditable()) {
+        if (! $report || ! $report->status->isEditable()) {
             throw ValidationException::withMessages(['report' => [self::REPORT_NOT_EDITABLE_MESSAGE]]);
         }
 
         $item = $this->itemRepository->findByIdAndReport($itemId, $reportId);
-        if (!$item) {
+        if (! $item) {
             throw ValidationException::withMessages(['item' => ['Report item not found.']]);
         }
 
@@ -347,11 +347,11 @@ class WasteDamageReportService
     public function submitReport(string $reportId, string $branchId, ?string $assignedToId = null): WasteDamageReport
     {
         $report = $this->reportRepository->findByBranch($reportId, $branchId, ['items'], $assignedToId);
-        if (!$report) {
+        if (! $report) {
             throw ValidationException::withMessages(['report' => ['Report not found.']]);
         }
 
-        if (!$report->status->isEditable()) {
+        if (! $report->status->isEditable()) {
             throw ValidationException::withMessages(['report' => ['Report is already submitted.']]);
         }
 
@@ -420,7 +420,7 @@ class WasteDamageReportService
     }
 
     /**
-     * @param array{problem_type: string, cause_of_damage?: string|null, quantity: float, total_value: float, photo_path?: string|null, responsible_employees?: array} $data
+     * @param  array{problem_type: string, cause_of_damage?: string|null, quantity: float, total_value: float, photo_path?: string|null, responsible_employees?: array}  $data
      */
     private function validateItemData(array $data, float $quantity, float $totalValue): void
     {
@@ -428,7 +428,7 @@ class WasteDamageReportService
             ? $data['problem_type']
             : ProblemType::tryFrom($data['problem_type']);
 
-        if (!$problemType) {
+        if (! $problemType) {
             throw ValidationException::withMessages(['problem_type' => ['Invalid problem type.']]);
         }
 
@@ -460,7 +460,7 @@ class WasteDamageReportService
     }
 
     /**
-     * @param array<int, array{cashier_id: string, quantity_accountable: float}> $employees
+     * @param  array<int, array{cashier_id: string, quantity_accountable: float}>  $employees
      */
     private function syncResponsibleEmployees(WasteDamageReportItem $item, array $employees, ?string $actorBranchManagerId = null, ?string $actorCashierId = null, float $myQuantityAccountable = 0): void
     {

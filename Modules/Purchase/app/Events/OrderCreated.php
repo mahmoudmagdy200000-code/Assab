@@ -15,4 +15,3 @@ class OrderCreated
         public PurchaseOrder $order
     ) {}
 }
-

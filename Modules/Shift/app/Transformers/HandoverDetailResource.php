@@ -29,7 +29,7 @@ class HandoverDetailResource extends JsonResource
                 'id' => $cashierShift?->cashier_id,
                 'name' => $cashierShift?->cashier?->name ?? 'N/A',
                 'image' => $cashierShift?->cashier?->image
-                    ? asset('storage/' . $cashierShift->cashier->image)
+                    ? asset('storage/'.$cashierShift->cashier->image)
                     : null,
             ],
 
@@ -58,13 +58,13 @@ class HandoverDetailResource extends JsonResource
             // Rejection Details (if rejected)
             'rejection_details' => $this->when(
                 in_array($this->status, ['rejected', 'rejected_final']),
-                fn() => $this->getRejectionDetails()
+                fn () => $this->getRejectionDetails()
             ),
 
             // Approval Details (if approved)
             'approval_details' => $this->when(
                 $this->status === 'approved',
-                fn() => $this->getApprovalDetails()
+                fn () => $this->getApprovalDetails()
             ),
 
             // Timestamps
@@ -109,7 +109,7 @@ class HandoverDetailResource extends JsonResource
         if ($hasVariance) {
             $details['reason_for_variance'] = $this->variance_reason;
             $details['attached_files'] = $this->variance_files
-                ? array_map(fn($f) => asset('storage/' . $f), $this->variance_files)
+                ? array_map(fn ($f) => asset('storage/'.$f), $this->variance_files)
                 : [];
 
             // Add cashier details with variance reason
@@ -170,10 +170,12 @@ class HandoverDetailResource extends JsonResource
     {
         if ($this->handover_to_type === 'branch_manager') {
             $manager = \Modules\BranchManagers\Models\BranchManager::find($this->handover_to_id);
+
             return $manager?->name ?? 'Branch Manager';
         }
 
         $cashier = \Modules\Cashier\Models\Cashier::find($this->handover_to_id);
+
         return $cashier?->name ?? 'Next Cashier';
     }
 
@@ -182,16 +184,18 @@ class HandoverDetailResource extends JsonResource
      */
     private function getApprovedByName(): ?string
     {
-        if (!$this->approved_by_id) {
+        if (! $this->approved_by_id) {
             return null;
         }
 
         if ($this->approved_by_type === 'branch_manager') {
             $manager = \Modules\BranchManagers\Models\BranchManager::find($this->approved_by_id);
+
             return $manager?->name;
         }
 
         $cashier = \Modules\Cashier\Models\Cashier::find($this->approved_by_id);
+
         return $cashier?->name;
     }
 
@@ -223,4 +227,3 @@ class HandoverDetailResource extends JsonResource
         };
     }
 }
-

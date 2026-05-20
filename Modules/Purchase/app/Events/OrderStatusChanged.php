@@ -19,4 +19,3 @@ class OrderStatusChanged
         public ?string $reason = null
     ) {}
 }
-

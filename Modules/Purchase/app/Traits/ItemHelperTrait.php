@@ -6,9 +6,6 @@ trait ItemHelperTrait
 {
     /**
      * Get item logo URL from array or string
-     * 
-     * @param array|string|null $logo
-     * @return string|null
      */
     protected function getItemLogoUrl(array|string|null $logo): ?string
     {
@@ -17,25 +14,22 @@ trait ItemHelperTrait
         }
 
         $logoPath = is_array($logo) ? ($logo[0] ?? null) : $logo;
-        
-        if (!$logoPath) {
+
+        if (! $logoPath) {
             return null;
         }
 
         return str_starts_with($logoPath, 'http')
             ? $logoPath
-            : asset('storage/' . $logoPath);
+            : asset('storage/'.$logoPath);
     }
 
     /**
      * Resolve Item ID from BranchItem ID or Item ID
-     * 
-     * @param string|null $requestedItemId
-     * @return string|null
      */
     protected function resolveItemId(?string $requestedItemId): ?string
     {
-        if (!$requestedItemId) {
+        if (! $requestedItemId) {
             return null;
         }
 
@@ -56,11 +50,8 @@ trait ItemHelperTrait
 
     /**
      * Calculate average from collection using chunking for large datasets
-     * 
-     * @param \Illuminate\Database\Eloquent\Builder $query
-     * @param string $column
-     * @param int $chunkSize
-     * @return float
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $query
      */
     protected function calculateAverageWithChunking($query, string $column, int $chunkSize = 500): float
     {
@@ -80,4 +71,3 @@ trait ItemHelperTrait
         return $count > 0 ? round($total / $count, 2) : 0;
     }
 }
-

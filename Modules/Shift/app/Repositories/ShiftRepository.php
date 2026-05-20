@@ -10,7 +10,5 @@ class ShiftRepository
     /**
      * No-op placeholder for interface compatibility.
      */
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

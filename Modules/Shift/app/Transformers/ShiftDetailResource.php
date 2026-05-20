@@ -120,7 +120,7 @@ class ShiftDetailResource extends JsonResource
 
         $nextName = $recipient?->name ?? 'Not assigned';
         if ($recipient instanceof \Modules\BranchManagers\Models\BranchManager) {
-            $nextName = $recipient->name . ' (Branch Manager)';
+            $nextName = $recipient->name.' (Branch Manager)';
         }
         $nextId = $recipient?->id ?? $this->next_cashier_id;
         $nextRecipientType = null;
@@ -178,7 +178,7 @@ class ShiftDetailResource extends JsonResource
                     ];
                 });
             }),
-            'pos_receipt' => $this->pos_receipt ? asset('storage/' . $this->pos_receipt) : null,
+            'pos_receipt' => $this->pos_receipt ? asset('storage/'.$this->pos_receipt) : null,
             'opening_balance' => (float) ($this->opening_balance ?? 0),
             'closing_balance' => (float) ($this->closing_balance ?? 0),
         ];
@@ -191,8 +191,9 @@ class ShiftDetailResource extends JsonResource
     private function getHandoverInfo(): ?array
     {
         // Check if handover exists
-        if (!$this->handed_over_at && !$this->handoverStatus) {
+        if (! $this->handed_over_at && ! $this->handoverStatus) {
             $handover = $this->relationLoaded('handover') ? $this->handover : null;
+
             return [
                 'status' => 'not_submitted',
                 'status_label' => 'Not Submitted',
@@ -221,7 +222,7 @@ class ShiftDetailResource extends JsonResource
         $handoverToId = null;
         $handoverToName = 'N/A';
         $handover = $this->relationLoaded('handover') ? $this->handover : null;
-        
+
         if ($handover && $handover->handover_to_id) {
             $handoverToId = $handover->handover_to_id;
             if ($handover->handover_to_type === 'cashier') {
@@ -334,6 +335,7 @@ class ShiftDetailResource extends JsonResource
             if ($value === null || trim($value) === '') {
                 return null;
             }
+
             return in_array(trim($value), $defaultPlaceholders, true) ? null : trim($value);
         };
 
@@ -382,7 +384,7 @@ class ShiftDetailResource extends JsonResource
         return [
             'can_start' => $status === 'not_started' && $this->shift_date?->isToday(),
             'can_end' => $status === 'in_progress',
-            'can_handover' => $status === 'in_progress' || ($status === 'completed' && !$this->handoverStatus?->isManagerApproved()),
+            'can_handover' => $status === 'in_progress' || ($status === 'completed' && ! $this->handoverStatus?->isManagerApproved()),
             'can_reassign' => in_array($status, ['not_started', 'reassigned']),
             'can_view_details' => true,
             'can_approve_handover' => $this->handoverStatus?->canBeApproved() ?? false,
@@ -398,6 +400,7 @@ class ShiftDetailResource extends JsonResource
     {
         $shiftName = $this->shift?->name ?? 'Shift';
         $date = $this->shift_date?->format('d M Y') ?? '';
+
         return "{$shiftName} - {$date}";
     }
 
@@ -407,8 +410,9 @@ class ShiftDetailResource extends JsonResource
     private function getProgressDescription(): string
     {
         $branchName = $this->shift?->branch?->name ?? 'Store';
-        
+
         $cashierName = $this->cashier?->name ?? 'Cashier';
+
         return "Working shift at {$branchName} assigned to {$cashierName}";
     }
 
@@ -438,7 +442,7 @@ class ShiftDetailResource extends JsonResource
         }
 
         $endTime = $this->shift?->end_time;
-        if (!$endTime) {
+        if (! $endTime) {
             return true;
         }
 

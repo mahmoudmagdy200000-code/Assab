@@ -24,6 +24,7 @@ class MonthlyInventoryPolicy
         if ($user instanceof Cashier) {
             return $inventory->staff()->where('user_id', $user->id)->where('user_type', Cashier::class)->exists();
         }
+
         return true;
     }
 
@@ -39,6 +40,7 @@ class MonthlyInventoryPolicy
                 && $inventory->staff()->where('user_id', $user->id)->where('user_type', Cashier::class)->exists()
                 && $inventory->status->isEditable();
         }
+
         return $user->branch_id === $inventory->branch_id
             && $user->id === $inventory->created_by
             && $inventory->status->isEditable();
@@ -61,6 +63,7 @@ class MonthlyInventoryPolicy
             return $inventory->staff()->where('user_id', $user->id)->where('user_type', Cashier::class)->exists()
                 && $inventory->status->canSubmit();
         }
+
         return $user->id === $inventory->created_by && $inventory->status->canSubmit();
     }
 

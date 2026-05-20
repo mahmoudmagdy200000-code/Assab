@@ -7,7 +7,7 @@ use Illuminate\Validation\Rule;
 
 /**
  * Form Request for recording a handover
- * 
+ *
  * Supports handover to:
  * - Next cashier (auto-handover between consecutive shifts)
  * - Branch manager (final handover at end of day)
@@ -28,11 +28,11 @@ class RecordHandoverRequest extends FormRequest
                 Rule::in(['cashier', 'branch_manager']),
             ],
             'next_cashier_id' => 'required_if:handover_to_type,cashier|nullable|exists:cashiers,id',
-            
+
             // Handover details
             'handover_amount' => 'required|numeric|min:0',
             'handover_notes' => 'nullable|string|max:500',
-            
+
             // Variance handling (optional)
             'variance' => 'sometimes|array',
             'variance.responsibility_type' => [
@@ -64,4 +64,3 @@ class RecordHandoverRequest extends FormRequest
         ];
     }
 }
-

@@ -4,12 +4,10 @@ namespace Modules\Purchase\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
-use Modules\Purchase\Enums\VarianceAction;
 use Modules\Purchase\Enums\VarianceType;
 use Modules\Purchase\Models\CompensatoryOrder;
 use Modules\Purchase\Models\GoodsReceipt;
 use Modules\Purchase\Models\GoodsReceiptItem;
-use Modules\Purchase\Models\PurchaseInvoice;
 use Modules\Purchase\Models\PurchaseVariance;
 
 class VarianceService
@@ -47,7 +45,7 @@ class VarianceService
     public function getPendingVariances(string $branchId, int $perPage = 15): LengthAwarePaginator
     {
         return PurchaseVariance::with(['goodsReceipt', 'purchaseOrder.supplier'])
-            ->whereHas('goodsReceipt', fn($q) => $q->where('branch_id', $branchId))
+            ->whereHas('goodsReceipt', fn ($q) => $q->where('branch_id', $branchId))
             ->pending()
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
@@ -71,7 +69,7 @@ class VarianceService
     {
         $variance->acceptAsIs();
         $this->timelineService->logVarianceAccepted($variance);
-        
+
         return $variance->fresh();
     }
 
@@ -82,9 +80,9 @@ class VarianceService
     {
         return DB::transaction(function () use ($variance, $data) {
             $compensatory = $variance->createCompensatoryOrder($data);
-            
+
             $this->timelineService->logCompensatoryOrderCreated($variance, $compensatory);
-            
+
             return $compensatory;
         });
     }
@@ -96,7 +94,7 @@ class VarianceService
     {
         DB::transaction(function () use ($variance, $amount, $reason, $notes) {
             $variance->deductFromInvoice($amount, $reason, $notes);
-            
+
             // Update the invoice if it exists
             $invoice = $variance->goodsReceipt->invoice;
             if ($invoice) {
@@ -110,7 +108,7 @@ class VarianceService
                     ]
                 );
             }
-            
+
             $this->timelineService->logInvoiceDeducted($variance, $amount);
         });
     }
@@ -140,7 +138,7 @@ class VarianceService
     {
         $variance->update(['status' => 'closed']);
         $this->timelineService->logRejectionAccepted($variance);
-        
+
         // Close the order
         $variance->purchaseOrder->close();
     }
@@ -161,7 +159,7 @@ class VarianceService
     {
         $variance->resolve($resolvedBy, $notes);
         $this->timelineService->logVarianceResolved($variance);
-        
+
         // Close the order
         $variance->purchaseOrder->close();
     }
@@ -197,7 +195,7 @@ class VarianceService
     public function getVarianceSummary(string $receiptId): array
     {
         $variances = PurchaseVariance::byReceipt($receiptId)->get();
-        
+
         return [
             'total_variances' => $variances->count(),
             'short_quantity' => $variances->where('variance_type', VarianceType::SHORT)->count(),
@@ -209,4 +207,3 @@ class VarianceService
         ];
     }
 }
-

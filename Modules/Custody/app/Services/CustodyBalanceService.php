@@ -4,8 +4,8 @@ namespace Modules\Custody\Services;
 
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
-use Modules\Custody\Models\CustodyTransaction;
 use Modules\Custody\Models\CustodyRequest;
+use Modules\Custody\Models\CustodyTransaction;
 use Modules\Custody\Models\PersonalLedgerTransaction;
 
 class CustodyBalanceService
@@ -14,10 +14,13 @@ class CustodyBalanceService
 
     private const BRANCH_CUSTODY_REQUEST_TYPES = ['Cash Transfer', 'Cash Handover', 'Bank Transfer'];
 
-    private const TRANSACTION_TYPE_CASH_HANDOVER      = 'Cash Handover';
-    private const TRANSACTION_TYPE_BANK_TRANSFER      = 'Bank Transfer';
+    private const TRANSACTION_TYPE_CASH_HANDOVER = 'Cash Handover';
+
+    private const TRANSACTION_TYPE_BANK_TRANSFER = 'Bank Transfer';
+
     private const TRANSACTION_TYPE_EXPENSES_DEDUCTION = 'Expenses Deduction';
-    private const SQL_BALANCE_EXPRESSION              = 'SUM(CASE WHEN is_cash_in = 1 THEN amount ELSE -amount END) as balance';
+
+    private const SQL_BALANCE_EXPRESSION = 'SUM(CASE WHEN is_cash_in = 1 THEN amount ELSE -amount END) as balance';
 
     /**
      * Get custody balance for branch manager (single aggregated query).
@@ -39,14 +42,14 @@ class CustodyBalanceService
     public function getBalanceTrends(string $branchManagerId, array $filters = []): array
     {
         $custodyType = $filters['custodyType'] ?? 'branch';
-        if (!in_array($custodyType, self::CUSTODY_TYPES, true)) {
+        if (! in_array($custodyType, self::CUSTODY_TYPES, true)) {
             $custodyType = 'branch';
         }
 
         $month = isset($filters['month']) ? (int) $filters['month'] : (int) now()->month;
         $year = isset($filters['year']) ? (int) $filters['year'] : (int) now()->year;
         $granularity = $filters['granularity'] ?? 'daily';
-        if (!in_array($granularity, ['daily', 'weekly', 'monthly'], true)) {
+        if (! in_array($granularity, ['daily', 'weekly', 'monthly'], true)) {
             $granularity = 'daily';
         }
 
@@ -119,6 +122,7 @@ class CustodyBalanceService
             $balance = PersonalLedgerTransaction::where('branch_manager_id', $branchManagerId)
                 ->selectRaw(self::SQL_BALANCE_EXPRESSION)
                 ->value('balance');
+
             return (float) ($balance ?? 0);
         }
 
@@ -129,6 +133,7 @@ class CustodyBalanceService
             $query->where('branch_id', $branchId);
         }
         $balance = $query->value('balance');
+
         return (float) ($balance ?? 0);
     }
 
@@ -163,6 +168,7 @@ class CustodyBalanceService
         if ($custodyType === 'personal') {
             $custodyRequests = $transactions->where('is_cash_in', true)->sum('amount');
             $expenses = $transactions->where('is_cash_in', false)->sum('amount');
+
             return [
                 'custodyRequests' => (float) $custodyRequests,
                 'expenses' => (float) $expenses,
@@ -170,10 +176,10 @@ class CustodyBalanceService
         }
 
         $custodyRequests = $transactions
-            ->filter(fn($t) => in_array($t->type, self::BRANCH_CUSTODY_REQUEST_TYPES, true) && $t->is_cash_in)
+            ->filter(fn ($t) => in_array($t->type, self::BRANCH_CUSTODY_REQUEST_TYPES, true) && $t->is_cash_in)
             ->sum('amount');
         $expenses = $transactions
-            ->filter(fn($t) => $t->type === self::TRANSACTION_TYPE_EXPENSES_DEDUCTION && !$t->is_cash_in)
+            ->filter(fn ($t) => $t->type === self::TRANSACTION_TYPE_EXPENSES_DEDUCTION && ! $t->is_cash_in)
             ->sum('amount');
 
         return [
@@ -200,6 +206,7 @@ class CustodyBalanceService
                 'custodyRequests' => (float) round($totals['custodyRequests'], 2),
                 'expenses' => (float) round($totals['expenses'], 2),
             ];
+
             return $dataPoints;
         }
 
@@ -212,24 +219,26 @@ class CustodyBalanceService
                 }
                 $subset = $transactions->filter(function ($t) use ($cursor, $weekEnd) {
                     $d = $t->transaction_date;
+
                     return $d->gte($cursor) && $d->lte($weekEnd);
                 });
                 $totals = $getCustodyAndExpenses($subset);
                 $dataPoints[] = [
                     'timestamp' => $cursor->toIso8601String(),
-                    'label' => 'Week of ' . $cursor->format('M j'),
+                    'label' => 'Week of '.$cursor->format('M j'),
                     'custodyRequests' => (float) round($totals['custodyRequests'], 2),
                     'expenses' => (float) round($totals['expenses'], 2),
                 ];
                 $cursor->addWeek()->startOfWeek();
             }
+
             return $dataPoints;
         }
 
         // daily
         $cursor = $start->copy();
         while ($cursor->lte($end)) {
-            $subset = $transactions->filter(fn($t) => $t->transaction_date->isSameDay($cursor));
+            $subset = $transactions->filter(fn ($t) => $t->transaction_date->isSameDay($cursor));
             $totals = $getCustodyAndExpenses($subset);
             $dataPoints[] = [
                 'timestamp' => $cursor->toIso8601String(),
@@ -253,6 +262,7 @@ class CustodyBalanceService
                 return false;
             }
         }
+
         return true;
     }
 
@@ -285,6 +295,7 @@ class CustodyBalanceService
                 $out[] = $point;
             }
         }
+
         return $out;
     }
 
@@ -304,12 +315,13 @@ class CustodyBalanceService
     private function getCustodyComparisonLabel(float $changeAmount, string $periodLabel): string
     {
         if ($changeAmount > 0) {
-            return 'INCREASE FROM ' . $periodLabel;
+            return 'INCREASE FROM '.$periodLabel;
         }
         if ($changeAmount < 0) {
-            return 'DECREASE FROM ' . $periodLabel;
+            return 'DECREASE FROM '.$periodLabel;
         }
-        return 'NO INCREASE FROM ' . $periodLabel;
+
+        return 'NO INCREASE FROM '.$periodLabel;
     }
 
     private function getComparisonDescription(float $changeAmount, bool $isCustodyRequests, string $periodLabel): string
@@ -319,12 +331,13 @@ class CustodyBalanceService
         }
 
         if ($changeAmount > 0) {
-            return 'HIGHER THAN ' . $periodLabel;
+            return 'HIGHER THAN '.$periodLabel;
         }
         if ($changeAmount < 0) {
-            return 'LOWER THAN ' . $periodLabel;
+            return 'LOWER THAN '.$periodLabel;
         }
-        return 'SAME AS ' . $periodLabel;
+
+        return 'SAME AS '.$periodLabel;
     }
 
     /**
@@ -339,7 +352,7 @@ class CustodyBalanceService
         $change = (($current - $previous) / $previous) * 100;
         $sign = $change >= 0 ? '+' : '';
 
-        return $sign . round($change, 0) . '%';
+        return $sign.round($change, 0).'%';
     }
 
     /**
@@ -348,24 +361,25 @@ class CustodyBalanceService
     private function applyTimePeriodFilter($query, ?string $timePeriod, array $filters, string $dateColumn): void
     {
         if ($timePeriod === 'custom') {
-            if (!empty($filters['startDate'])) {
+            if (! empty($filters['startDate'])) {
                 $query->whereDate($dateColumn, '>=', $filters['startDate']);
             }
-            if (!empty($filters['endDate'])) {
+            if (! empty($filters['endDate'])) {
                 $query->whereDate($dateColumn, '<=', $filters['endDate']);
             }
+
             return;
         }
 
-        if (!$timePeriod) {
+        if (! $timePeriod) {
             return;
         }
 
         $startDate = match ($timePeriod) {
             'last_24_hours' => now()->subHours(24),
-            'last_7_days'   => now()->subDays(7),
-            'last_30_days'  => now()->subDays(30),
-            default         => null,
+            'last_7_days' => now()->subDays(7),
+            'last_30_days' => now()->subDays(30),
+            default => null,
         };
 
         if ($startDate) {
@@ -379,13 +393,13 @@ class CustodyBalanceService
      */
     public function getBranchCustodyBalance(string $branchManagerId, array $filters = []): array
     {
-        $branchId   = auth()->user()->branch_id;
+        $branchId = auth()->user()->branch_id;
         $timePeriod = $filters['timePeriod'] ?? null;
 
         $transactionsQuery = CustodyTransaction::where('branch_manager_id', $branchManagerId)
             ->where('branch_id', $branchId);
 
-        if (!empty($filters['type'])) {
+        if (! empty($filters['type'])) {
             $transactionsQuery->where('type', $filters['type']);
         }
 
@@ -406,7 +420,7 @@ class CustodyBalanceService
         $this->applyTimePeriodFilter($requestsQuery, $timePeriod, $filters, 'created_at');
 
         $transactions = $transactionsQuery->orderBy('transaction_date', 'desc')->get();
-        $requests     = $requestsQuery->orderBy('created_at', 'desc')->get();
+        $requests = $requestsQuery->orderBy('created_at', 'desc')->get();
 
         $branchTransactionsQuery = CustodyTransaction::where('branch_id', $branchId);
         $this->applyTimePeriodFilter($branchTransactionsQuery, $timePeriod, $filters, 'transaction_date');
@@ -430,8 +444,8 @@ class CustodyBalanceService
         return [
             'currentBalance' => round($currentBalance, 2),
             'recentActivity' => $recentActivity,
-            'requests'       => $formattedRequests,
-            'transactions'   => $formattedTransactions,
+            'requests' => $formattedRequests,
+            'transactions' => $formattedTransactions,
         ];
     }
 
@@ -441,13 +455,13 @@ class CustodyBalanceService
     private function formatTransactionForBalance(CustodyTransaction $transaction): array
     {
         $amount = $transaction->is_cash_in
-            ? '+' . number_format($transaction->amount, 2, '.', '')
-            : '-' . number_format($transaction->amount, 2, '.', '');
+            ? '+'.number_format($transaction->amount, 2, '.', '')
+            : '-'.number_format($transaction->amount, 2, '.', '');
 
         $data = [
-            'id'       => $transaction->id,
-            'type'     => $transaction->type,
-            'amount'   => $amount,
+            'id' => $transaction->id,
+            'type' => $transaction->type,
+            'amount' => $amount,
             'dateTime' => $transaction->transaction_date->toIso8601String(),
             'isCashIn' => $transaction->is_cash_in,
         ];
@@ -472,14 +486,14 @@ class CustodyBalanceService
     private function formatRequestForBalance(CustodyRequest $request): array
     {
         return [
-            'id'                    => $request->id,
-            'type'                  => 'Custody Request',
-            'submittedBy'           => 'Me (Branch Manager)',
-            'dateTime'              => $request->created_at->toIso8601String(),
-            'status'                => $request->status,
-            'amount'                => (float) $request->requested_amount,
-            'preferredReceiptMethod'=> $request->preferred_receipt_method,
-            'purpose'               => $request->purpose,
+            'id' => $request->id,
+            'type' => 'Custody Request',
+            'submittedBy' => 'Me (Branch Manager)',
+            'dateTime' => $request->created_at->toIso8601String(),
+            'status' => $request->status,
+            'amount' => (float) $request->requested_amount,
+            'preferredReceiptMethod' => $request->preferred_receipt_method,
+            'purpose' => $request->purpose,
         ];
     }
 
@@ -489,14 +503,14 @@ class CustodyBalanceService
     private function formatTransactionForActivity(CustodyTransaction $transaction): array
     {
         $amount = $transaction->is_cash_in
-            ? '+' . number_format($transaction->amount, 2, '.', '')
-            : '-' . number_format($transaction->amount, 2, '.', '');
+            ? '+'.number_format($transaction->amount, 2, '.', '')
+            : '-'.number_format($transaction->amount, 2, '.', '');
 
         $data = [
             'transactionType' => $transaction->type,
-            'amount'          => $amount,
-            'dateTime'        => $transaction->transaction_date->toIso8601String(),
-            'isCashIn'        => $transaction->is_cash_in,
+            'amount' => $amount,
+            'dateTime' => $transaction->transaction_date->toIso8601String(),
+            'isCashIn' => $transaction->is_cash_in,
         ];
 
         if ($transaction->type === self::TRANSACTION_TYPE_EXPENSES_DEDUCTION && $transaction->related_expense_id) {

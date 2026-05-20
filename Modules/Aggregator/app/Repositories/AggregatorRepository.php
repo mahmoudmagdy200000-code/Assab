@@ -2,10 +2,8 @@
 
 namespace Modules\Aggregator\Repositories;
 
-
-
-use Modules\Aggregator\Models\Aggregator;
 use Illuminate\Support\Collection;
+use Modules\Aggregator\Models\Aggregator;
 
 class AggregatorRepository implements AggregatorRepositoryInterface
 {
@@ -37,6 +35,7 @@ class AggregatorRepository implements AggregatorRepositoryInterface
     public function update(Aggregator $aggregator, array $data): Aggregator
     {
         $aggregator->update($data);
+
         return $aggregator;
     }
 

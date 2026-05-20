@@ -26,7 +26,7 @@ class DeliveryProofController extends BaseController
 
             $proof = $this->deliveryProofService->getProof($order, $supplier);
 
-            if (!$proof) {
+            if (! $proof) {
                 return $this->notFoundResponse('Delivery proof not found');
             }
 
@@ -50,7 +50,7 @@ class DeliveryProofController extends BaseController
 
             $proof = $this->deliveryProofService->getProof($order, $supplier);
 
-            if (!$proof) {
+            if (! $proof) {
                 return $this->notFoundResponse('Delivery proof not found');
             }
 
@@ -65,4 +65,3 @@ class DeliveryProofController extends BaseController
         }
     }
 }
-

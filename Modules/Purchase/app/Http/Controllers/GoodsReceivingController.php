@@ -12,7 +12,6 @@ use Modules\Purchase\Http\Requests\AddUnlistedItemRequest;
 use Modules\Purchase\Http\Requests\CreateDeliveryNoteRequest;
 use Modules\Purchase\Http\Requests\CreateInvoiceRequest;
 use Modules\Purchase\Http\Requests\InspectItemRequest;
-use Modules\Purchase\Http\Requests\ReceiveGoodsRequest;
 use Modules\Purchase\Http\Requests\ReceiveWithoutOrderRequest;
 use Modules\Purchase\Http\Requests\StartReceivingRequest;
 use Modules\Purchase\Http\Requests\SupplierResponseRequest;
@@ -20,7 +19,6 @@ use Modules\Purchase\Http\Requests\UpdateDeliveryDetailsRequest;
 use Modules\Purchase\Http\Requests\VarianceActionRequest;
 use Modules\Purchase\Models\GoodsReceipt;
 use Modules\Purchase\Models\GoodsReceiptItem;
-use Modules\Purchase\Models\PurchaseVariance;
 use Modules\Purchase\Repositories\PurchaseOrderRepository;
 use Modules\Purchase\Services\GoodsReceiptService;
 use Modules\Purchase\Services\PurchaseOrderService;
@@ -28,7 +26,6 @@ use Modules\Purchase\Services\SupplierCommunicationService;
 use Modules\Purchase\Services\VarianceService;
 use Modules\Purchase\Transformers\GoodsReceiptResource;
 use Modules\Purchase\Transformers\OrderTrackingResource;
-use Modules\Purchase\Transformers\ReceiptSummaryResource;
 use Modules\Purchase\Transformers\SupplierCommunicationResource;
 use Modules\Purchase\Transformers\VarianceResource;
 
@@ -100,11 +97,11 @@ class GoodsReceivingController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($orderId, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
-            if (!$order->can_receive) {
+            if (! $order->can_receive) {
                 return $this->errorResponse('Order cannot be received in current status', 400);
             }
 
@@ -125,7 +122,7 @@ class GoodsReceivingController extends BaseController
             }
 
             $invalidItems = array_diff($requestItemIds, $orderItemIds);
-            if (!empty($invalidItems)) {
+            if (! empty($invalidItems)) {
                 return $this->errorResponse('Some items do not belong to this order', 400);
             }
 
@@ -235,7 +232,7 @@ class GoodsReceivingController extends BaseController
         try {
             $receipt = GoodsReceipt::find($id);
 
-            if (!$receipt) {
+            if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
             }
 
@@ -270,7 +267,7 @@ class GoodsReceivingController extends BaseController
                 ->where('id', $itemId)
                 ->first();
 
-            if (!$item) {
+            if (! $item) {
                 return $this->notFoundResponse('Item not found');
             }
 
@@ -303,7 +300,7 @@ class GoodsReceivingController extends BaseController
         try {
             $receipt = GoodsReceipt::find($id);
 
-            if (!$receipt) {
+            if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
             }
 
@@ -336,7 +333,7 @@ class GoodsReceivingController extends BaseController
         try {
             $receipt = GoodsReceipt::find($id);
 
-            if (!$receipt) {
+            if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
             }
 
@@ -362,7 +359,7 @@ class GoodsReceivingController extends BaseController
         try {
             $receipt = GoodsReceipt::find($id);
 
-            if (!$receipt) {
+            if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
             }
 
@@ -387,7 +384,7 @@ class GoodsReceivingController extends BaseController
         try {
             $receipt = GoodsReceipt::find($id);
 
-            if (!$receipt) {
+            if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
             }
 
@@ -412,7 +409,7 @@ class GoodsReceivingController extends BaseController
         try {
             $receipt = GoodsReceipt::find($id);
 
-            if (!$receipt) {
+            if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
             }
 
@@ -462,7 +459,7 @@ class GoodsReceivingController extends BaseController
         try {
             $receipt = $this->receiptService->getDraftDetails($id);
 
-            if (!$receipt) {
+            if (! $receipt) {
                 return $this->notFoundResponse('Draft receipt not found');
             }
 
@@ -490,13 +487,13 @@ class GoodsReceivingController extends BaseController
         try {
             $receipt = GoodsReceipt::find($id);
 
-            if (!$receipt) {
+            if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
             }
 
             $success = $this->receiptService->deleteDraft($receipt);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot delete non-draft receipt', 400);
             }
 
@@ -537,7 +534,7 @@ class GoodsReceivingController extends BaseController
         try {
             $receipt = $this->receiptService->getMissingGoodsDetails($id);
 
-            if (!$receipt) {
+            if (! $receipt) {
                 return $this->notFoundResponse('Missing goods receipt not found');
             }
 
@@ -618,7 +615,7 @@ class GoodsReceivingController extends BaseController
         try {
             $receipt = $this->receiptService->getCompleteGoodsDetails($id);
 
-            if (!$receipt) {
+            if (! $receipt) {
                 return $this->notFoundResponse('Complete goods receipt not found');
             }
 
@@ -678,7 +675,7 @@ class GoodsReceivingController extends BaseController
         try {
             $variance = $this->varianceService->getVarianceDetails($varianceId);
 
-            if (!$variance) {
+            if (! $variance) {
                 return $this->notFoundResponse('Variance not found');
             }
 
@@ -737,7 +734,7 @@ class GoodsReceivingController extends BaseController
         try {
             $receipt = $this->receiptService->getReceiptDetails($id);
 
-            if (!$receipt) {
+            if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
             }
 
@@ -802,7 +799,7 @@ class GoodsReceivingController extends BaseController
         try {
             $order = $this->purchaseOrderRepository->findWithRelations($orderId, []);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -827,7 +824,7 @@ class GoodsReceivingController extends BaseController
         try {
             $details = $this->receiptService->getInspectionDetailsByOrderId($orderId, $request->all());
 
-            if (!$details) {
+            if (! $details) {
                 return $this->notFoundResponse('Order or receipt not found');
             }
 
@@ -850,7 +847,7 @@ class GoodsReceivingController extends BaseController
         try {
             $receipt = GoodsReceipt::find($id);
 
-            if (!$receipt) {
+            if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
             }
 
@@ -875,7 +872,7 @@ class GoodsReceivingController extends BaseController
         try {
             $receipt = GoodsReceipt::find($id);
 
-            if (!$receipt) {
+            if (! $receipt) {
                 return $this->notFoundResponse('Receipt not found');
             }
 
@@ -905,7 +902,7 @@ class GoodsReceivingController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($orderId, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -922,9 +919,9 @@ class GoodsReceivingController extends BaseController
                 'partial_confirmation',
             ];
 
-            if (!in_array($order->status?->value, $receivableStatuses)) {
+            if (! in_array($order->status?->value, $receivableStatuses)) {
                 return $this->errorResponse(
-                    'Order must be approved (fully or partially) or confirmed before receiving. Current status: ' . ($order->status?->value ?? 'unknown'),
+                    'Order must be approved (fully or partially) or confirmed before receiving. Current status: '.($order->status?->value ?? 'unknown'),
                     400
                 );
             }
@@ -957,7 +954,7 @@ class GoodsReceivingController extends BaseController
         try {
             $variance = $this->varianceService->getVarianceDetails($varianceId);
 
-            if (!$variance) {
+            if (! $variance) {
                 return $this->notFoundResponse('Variance not found');
             }
 
@@ -996,7 +993,7 @@ class GoodsReceivingController extends BaseController
         try {
             $variance = $this->varianceService->getVarianceDetails($varianceId);
 
-            if (!$variance) {
+            if (! $variance) {
                 return $this->notFoundResponse('Variance not found');
             }
 
@@ -1025,7 +1022,7 @@ class GoodsReceivingController extends BaseController
         try {
             $variance = $this->varianceService->getVarianceDetails($varianceId);
 
-            if (!$variance) {
+            if (! $variance) {
                 return $this->notFoundResponse('Variance not found');
             }
 

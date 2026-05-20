@@ -4,13 +4,12 @@ namespace Modules\Purchase\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
-use Modules\Purchase\Enums\ReturnRequiredAction;
+use Modules\Purchase\Enums\DocumentType;
 use Modules\Purchase\Enums\ReturnStatus;
 use Modules\Purchase\Models\OrderDocument;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\ReturnOrder;
 use Modules\Purchase\Models\ReturnOrderItem;
-use Modules\Purchase\Enums\DocumentType;
 use Modules\Purchase\Support\PurchaseFileHelper;
 
 class ReturnManagementService
@@ -99,7 +98,7 @@ class ReturnManagementService
             $returnOrder->calculateTotalReturnAmount();
 
             $this->timelineService->logReturnCreated($returnOrder);
-            if (!$isDraft) {
+            if (! $isDraft) {
                 $this->timelineService->logReturnSubmitted($returnOrder);
             }
 
@@ -114,19 +113,19 @@ class ReturnManagementService
     {
         // Get purchase order item details
         $purchaseOrderItem = \Modules\Purchase\Models\PurchaseOrderItem::find($data['purchase_order_item_id']);
-        
-        if (!$purchaseOrderItem) {
+
+        if (! $purchaseOrderItem) {
             throw new \InvalidArgumentException("Purchase order item not found: {$data['purchase_order_item_id']}");
         }
-        
+
         // Verify the item belongs to the same purchase order
         if ($purchaseOrderItem->purchase_order_id !== $returnOrder->purchase_order_id) {
-            throw new \InvalidArgumentException("Purchase order item does not belong to the specified purchase order");
+            throw new \InvalidArgumentException('Purchase order item does not belong to the specified purchase order');
         }
-        
+
         // Calculate return amount using unit price from purchase order item
         $returnAmount = ($data['return_quantity'] ?? 0) * ($purchaseOrderItem->unit_price ?? 0);
-        
+
         $uploadedFiles = [];
         if ($request && $request->hasFile("items.{$itemIndex}.files")) {
             $files = $request->file("items.{$itemIndex}.files");
@@ -178,9 +177,9 @@ class ReturnManagementService
             ]);
 
             // Update items if provided
-            if (!empty($data['items'])) {
+            if (! empty($data['items'])) {
                 foreach ($data['items'] as $index => $itemData) {
-                    if (!empty($itemData['id'])) {
+                    if (! empty($itemData['id'])) {
                         $item = ReturnOrderItem::find($itemData['id']);
                         if ($item && $item->return_order_id === $returnOrder->id) {
                             $uploadedFiles = [];
@@ -214,10 +213,11 @@ class ReturnManagementService
                             );
 
                             $deletedIds = $itemData['deleted_files'] ?? [];
-                            if (is_array($deletedIds) && !empty($deletedIds)) {
+                            if (is_array($deletedIds) && ! empty($deletedIds)) {
                                 $allFiles = array_values(array_filter($allFiles, function ($f) use ($deletedIds) {
                                     $id = is_array($f) ? ($f['id'] ?? null) : null;
-                                    return !$id || !in_array($id, $deletedIds, true);
+
+                                    return ! $id || ! in_array($id, $deletedIds, true);
                                 }));
                                 foreach ($deletedIds as $docId) {
                                     OrderDocument::find($docId)?->delete();
@@ -249,12 +249,12 @@ class ReturnManagementService
      */
     public function submitReturn(ReturnOrder $returnOrder): bool
     {
-        if (!$returnOrder->submit()) {
+        if (! $returnOrder->submit()) {
             return false;
         }
 
         $this->timelineService->logReturnSubmitted($returnOrder);
-        
+
         return true;
     }
 
@@ -321,6 +321,7 @@ class ReturnManagementService
         return DB::transaction(function () use ($returnOrder, $brandOwnerId, $notes) {
             $returnOrder->approveEscalation($brandOwnerId, $notes);
             $this->timelineService->logEscalationApproved($returnOrder, $notes);
+
             return $returnOrder->fresh();
         });
     }
@@ -337,6 +338,7 @@ class ReturnManagementService
         return DB::transaction(function () use ($returnOrder, $brandOwnerId, $reason) {
             $returnOrder->rejectEscalation($brandOwnerId, $reason);
             $this->timelineService->logEscalationRejected($returnOrder, $reason);
+
             return $returnOrder->fresh();
         });
     }
@@ -367,6 +369,7 @@ class ReturnManagementService
     public function saveDraft(PurchaseOrder $order, array $data, $request = null): ReturnOrder
     {
         $data['status'] = ReturnStatus::DRAFT;
+
         return $this->createReturn($order, $data, $request);
     }
 
@@ -375,7 +378,7 @@ class ReturnManagementService
      */
     public function deleteDraft(ReturnOrder $returnOrder): bool
     {
-        if (!$returnOrder->is_draft) {
+        if (! $returnOrder->is_draft) {
             return false;
         }
 
@@ -405,7 +408,7 @@ class ReturnManagementService
     public function getReturnTimeline(string $returnId): \Illuminate\Database\Eloquent\Collection
     {
         $returnOrder = ReturnOrder::find($returnId);
+
         return $returnOrder?->timelines ?? collect();
     }
 }
-

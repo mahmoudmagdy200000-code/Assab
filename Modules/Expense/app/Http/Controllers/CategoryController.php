@@ -34,7 +34,6 @@ class CategoryController extends BaseController
         );
     }
 
-
     /**
      * Get all parent categories (categories without parent)
      * GET /api/branch-manager/expenses/categories/parent-categories
@@ -53,7 +52,7 @@ class CategoryController extends BaseController
             );
         } catch (\Exception $e) {
             return $this->errorResponse(
-                'Failed to retrieve parent categories: ' . $e->getMessage(),
+                'Failed to retrieve parent categories: '.$e->getMessage(),
                 500
             );
         }
@@ -86,7 +85,7 @@ class CategoryController extends BaseController
 
         return response()->json([
             'success' => true,
-            'data' => new CategoryResource($categoryModel)
+            'data' => new CategoryResource($categoryModel),
         ]);
     }
 

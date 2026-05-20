@@ -18,15 +18,15 @@ class AuthService
         $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
         $owner = BrandOwner::where($field, $identifier)->first();
 
-        if (!$owner || !Hash::check($password, $owner->password)) {
+        if (! $owner || ! Hash::check($password, $owner->password)) {
             throw new \Exception('Invalid credentials');
         }
 
-        if (!$owner->isActive()) {
+        if (! $owner->isActive()) {
             throw new \Exception('Account is inactive');
         }
 
-        if (!$owner->isFirstLogin()) {
+        if (! $owner->isFirstLogin()) {
             throw new \Exception('Account is already activated. Please use regular login.');
         }
 
@@ -44,7 +44,7 @@ class AuthService
     public function resetPasswordFirstLogin(BrandOwner $owner, string $newPassword): BrandOwner
     {
         $owner->update([
-            'password'       => Hash::make($newPassword),
+            'password' => Hash::make($newPassword),
             'is_first_login' => false,
         ]);
 
@@ -60,11 +60,11 @@ class AuthService
 
         $owner = BrandOwner::where($field, $identifier)->first();
 
-        if (!$owner || !Hash::check($password, $owner->password)) {
+        if (! $owner || ! Hash::check($password, $owner->password)) {
             throw new \Exception('Invalid credentials');
         }
 
-        if (!$owner->isActive()) {
+        if (! $owner->isActive()) {
             throw new \Exception('Account is inactive');
         }
 
@@ -91,10 +91,10 @@ class AuthService
 
         $otpRecord = BrandOwnerOtp::create([
             'identifier' => $identifier,
-            'otp'        => Hash::make($otp),
-            'type'       => $type,
+            'otp' => Hash::make($otp),
+            'type' => $type,
             'expires_at' => Carbon::now()->addMinutes(10),
-            'is_used'    => false,
+            'is_used' => false,
         ]);
 
         if ($type === 'email') {
@@ -116,11 +116,11 @@ class AuthService
             ->latest()
             ->first();
 
-        if (!$otpRecord) {
+        if (! $otpRecord) {
             throw new \Exception('Invalid or expired OTP');
         }
 
-        if (!Hash::check($otp, $otpRecord->otp)) {
+        if (! Hash::check($otp, $otpRecord->otp)) {
             throw new \Exception('Invalid OTP');
         }
 
@@ -136,10 +136,10 @@ class AuthService
 
         BrandOwnerOtp::create([
             'identifier' => $identifier,
-            'otp'        => $resetToken,
-            'type'       => 'reset_token',
+            'otp' => $resetToken,
+            'type' => 'reset_token',
             'expires_at' => Carbon::now()->addHour(),
-            'is_used'    => false,
+            'is_used' => false,
         ]);
 
         return $resetToken;
@@ -157,14 +157,14 @@ class AuthService
             ->where('is_used', false)
             ->first();
 
-        if (!$otpRecord) {
+        if (! $otpRecord) {
             throw new \Exception('Invalid or expired reset token');
         }
 
         $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
         $owner = BrandOwner::where($field, $identifier)->first();
 
-        if (!$owner) {
+        if (! $owner) {
             throw new \Exception('Brand Owner not found');
         }
 

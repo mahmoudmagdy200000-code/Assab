@@ -13,10 +13,10 @@ return new class extends Migration
     {
         if (Schema::hasTable('branch_item')) {
             Schema::table('branch_item', function (Blueprint $table) {
-                if (!Schema::hasColumn('branch_item', 'category')) {
+                if (! Schema::hasColumn('branch_item', 'category')) {
                     $table->string('category')->nullable()->after('item_code');
                 }
-                if (!Schema::hasColumn('branch_item', 'subcategory')) {
+                if (! Schema::hasColumn('branch_item', 'subcategory')) {
                     $table->string('subcategory')->nullable()->after('category');
                 }
             });
@@ -40,4 +40,3 @@ return new class extends Migration
         }
     }
 };
-

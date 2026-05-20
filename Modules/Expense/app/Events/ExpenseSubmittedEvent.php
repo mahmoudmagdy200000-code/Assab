@@ -14,4 +14,3 @@ class ExpenseSubmittedEvent
         public Expense $expense
     ) {}
 }
-

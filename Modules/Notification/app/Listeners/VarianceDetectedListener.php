@@ -39,4 +39,3 @@ class VarianceDetectedListener implements ShouldQueue
         // }
     }
 }
-

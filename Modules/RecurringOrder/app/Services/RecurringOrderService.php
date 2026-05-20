@@ -80,6 +80,7 @@ class RecurringOrderService
             ]);
 
             $this->syncItems($order, $normalized['items']);
+
             return $order->fresh(['items.item', 'sourceable']);
         });
     }
@@ -107,6 +108,7 @@ class RecurringOrderService
             }
         }
         $list = array_keys($canonical);
+
         return $list !== [] ? array_values($list) : null;
     }
 
@@ -115,12 +117,13 @@ class RecurringOrderService
      */
     private function normalizeCreatePayload(array $data): array
     {
-        if (!empty($data['direct_supplier'])) {
+        if (! empty($data['direct_supplier'])) {
             $ds = $data['direct_supplier'];
             $supplier = \Modules\Supplier\Models\Supplier::find($ds['supplier_id']);
             $orderName = $data['order_name'] ?? ($supplier
-                ? 'Recurring - ' . ($supplier->name ?? $supplier->company_name ?? 'Supplier') . ' - ' . ($data['start_date'] ?? '')
+                ? 'Recurring - '.($supplier->name ?? $supplier->company_name ?? 'Supplier').' - '.($data['start_date'] ?? '')
                 : 'Recurring order');
+
             return [
                 'order_name' => $orderName,
                 'order_source_type' => OrderSourceType::DIRECT_SUPPLIER->value,
@@ -132,12 +135,13 @@ class RecurringOrderService
             ];
         }
 
-        if (!empty($data['purchase_officer'])) {
+        if (! empty($data['purchase_officer'])) {
             $po = $data['purchase_officer'];
             $officer = BranchManager::find($po['purchasing_officer_id'] ?? null);
             $orderName = $data['order_name'] ?? ($officer
-                ? 'Recurring - ' . $officer->name . ' - ' . ($data['start_date'] ?? '')
+                ? 'Recurring - '.$officer->name.' - '.($data['start_date'] ?? '')
                 : 'Recurring order');
+
             return [
                 'order_name' => $orderName,
                 'order_source_type' => OrderSourceType::VIA_PURCHASING_OFFICER->value,
@@ -225,6 +229,7 @@ class RecurringOrderService
             'next_run_at' => null,
             'paused_at' => now(),
         ]);
+
         return $recurringOrder->fresh(['items.item', 'sourceable']);
     }
 
@@ -239,6 +244,7 @@ class RecurringOrderService
             'next_run_at' => $nextRun,
             'paused_at' => null,
         ]);
+
         return $recurringOrder->fresh(['items.item', 'sourceable']);
     }
 
@@ -268,15 +274,15 @@ class RecurringOrderService
                 ?? $data['direct_supplier']['items']
                 ?? $data['purchase_officer']['items']
                 ?? null;
-            if (!empty($itemsToSync)) {
+            if (! empty($itemsToSync)) {
                 $this->syncItems($recurringOrder, $itemsToSync);
             }
 
-            if (!empty($update)) {
+            if (! empty($update)) {
                 $this->repository->update($recurringOrder, $update);
             }
 
-            if ($recurringOrder->status === RecurringOrderStatus::PENDING && !$recurringOrder->paused_at) {
+            if ($recurringOrder->status === RecurringOrderStatus::PENDING && ! $recurringOrder->paused_at) {
                 $recurringOrder->next_run_at = $this->computeNextRunAtFromModel($recurringOrder->fresh());
                 $recurringOrder->save();
             }
@@ -291,6 +297,7 @@ class RecurringOrderService
     public function delete(RecurringOrder $recurringOrder): bool
     {
         $recurringOrder->items()->delete();
+
         return $recurringOrder->forceDelete();
     }
 
@@ -308,6 +315,7 @@ class RecurringOrderService
             'end_date' => $this->formatDateForCompute($model->end_date),
         ];
         $after = $model->next_run_at ?? ($model->start_date ? Carbon::parse($model->start_date)->startOfDay() : null);
+
         return $this->computeNextRunAt($data, $after);
     }
 
@@ -322,6 +330,7 @@ class RecurringOrderService
         if (is_string($value)) {
             return substr($value, 0, 5);
         }
+
         return $value->format('H:i');
     }
 
@@ -336,6 +345,7 @@ class RecurringOrderService
         if (is_string($value)) {
             return $value;
         }
+
         return $value->format('Y-m-d');
     }
 
@@ -359,6 +369,7 @@ class RecurringOrderService
             $dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
             $next = $recurringOrder->next_run_at;
             $dayName = $dayNames[(int) $next->format('w')];
+
             return "Your next order will be automatically generated on {$dayName}, {$next->format('F jS')} at {$timeStr}.";
         }
 
@@ -366,6 +377,7 @@ class RecurringOrderService
             $repeatType = $config['repeat_type'] ?? 'by_date';
             if ($repeatType === 'by_date') {
                 $next = $recurringOrder->next_run_at;
+
                 return "Your next order is scheduled for {$next->format('l, F jS, Y')} at {$timeStr}.";
             }
             $occurrence = $config['occurrence'] ?? 1;
@@ -375,6 +387,7 @@ class RecurringOrderService
             $next = $recurringOrder->next_run_at;
             $monthYear = $next->format('F Y');
             $dayName = $dayNames[$dayOfWeek];
+
             return "Your next order will be generated on the {$ordinals[$occurrence]} {$dayName} of {$monthYear} ({$next->format('l, F jS')})";
         }
 
@@ -383,6 +396,7 @@ class RecurringOrderService
             if ($ratio === 'custom' && isset($config['custom_threshold'])) {
                 $ratio = $config['custom_threshold'];
             }
+
             return "Your next order will be triggered when stock levels drop below {$ratio}% of the total available quantity";
         }
 
@@ -396,7 +410,7 @@ class RecurringOrderService
         if ($after->lt($startDate)) {
             $after = $startDate->copy();
         }
-        $endDate = !empty($data['end_date']) ? Carbon::parse($data['end_date']) : null;
+        $endDate = ! empty($data['end_date']) ? Carbon::parse($data['end_date']) : null;
         $config = $data['repeat_config'] ?? [];
         $frequency = $data['repeat_frequency'] ?? 'weekly';
 
@@ -415,10 +429,12 @@ class RecurringOrderService
                     if ($endDate && $cursor->gt($endDate)) {
                         return null;
                     }
+
                     return $cursor;
                 }
                 $cursor->addDay();
             }
+
             return null;
         }
 
@@ -436,6 +452,7 @@ class RecurringOrderService
                             if ($endDate && $c->gt($endDate)) {
                                 return null;
                             }
+
                             return $c;
                         }
                     }
@@ -457,6 +474,7 @@ class RecurringOrderService
                                     if ($endDate && $c->gt($endDate)) {
                                         return null;
                                     }
+
                                     return $c;
                                 }
                             }
@@ -464,6 +482,7 @@ class RecurringOrderService
                     }
                 }
             }
+
             return null;
         }
 
@@ -483,7 +502,7 @@ class RecurringOrderService
 
         foreach ($items as $row) {
             $item = $itemsData->get($row['item_id'] ?? null);
-            if (!$item) {
+            if (! $item) {
                 continue;
             }
             $unitPrice = isset($row['unit_price']) && (float) $row['unit_price'] > 0

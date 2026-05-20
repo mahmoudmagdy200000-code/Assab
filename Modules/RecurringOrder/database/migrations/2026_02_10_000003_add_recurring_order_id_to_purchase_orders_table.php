@@ -11,12 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (!Schema::hasTable('purchase_orders')) {
+        if (! Schema::hasTable('purchase_orders')) {
             return;
         }
 
         Schema::table('purchase_orders', function (Blueprint $table) {
-            if (!Schema::hasColumn('purchase_orders', 'recurring_order_id')) {
+            if (! Schema::hasColumn('purchase_orders', 'recurring_order_id')) {
                 $table->uuid('recurring_order_id')->nullable()->after('parent_order_id');
                 $table->index('recurring_order_id');
                 $table->foreign('recurring_order_id')
@@ -32,7 +32,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        if (!Schema::hasTable('purchase_orders')) {
+        if (! Schema::hasTable('purchase_orders')) {
             return;
         }
 

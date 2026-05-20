@@ -43,4 +43,3 @@ return new class extends Migration
         Schema::dropIfExists('delivery_proofs');
     }
 };
-

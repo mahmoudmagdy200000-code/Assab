@@ -35,8 +35,8 @@ class SupplierCommunicationService
     public function getContactMethods(string $orderId): array
     {
         $order = PurchaseOrder::with('timelines')->find($orderId);
-        
-        if (!$order) {
+
+        if (! $order) {
             return [];
         }
 
@@ -105,8 +105,8 @@ class SupplierCommunicationService
     public function getSupplierInfo(string $supplierId, string $orderId): array
     {
         $order = PurchaseOrder::with('supplier')->find($orderId);
-        
-        if (!$order || !$order->supplier) {
+
+        if (! $order || ! $order->supplier) {
             return [];
         }
 
@@ -119,9 +119,9 @@ class SupplierCommunicationService
             'supplier_image' => $supplier->image ?? null,
             'supplier_status' => $this->getSupplierStatus($supplier), // online, away, offline
             'available_contact_methods' => [
-                'whatsapp' => !empty($supplier->whatsapp),
-                'sms' => !empty($supplier->phone),
-                'email' => !empty($supplier->email),
+                'whatsapp' => ! empty($supplier->whatsapp),
+                'sms' => ! empty($supplier->phone),
+                'email' => ! empty($supplier->email),
                 'in_app_chat' => true, // Always available
             ],
             'response_statistics' => $performance,

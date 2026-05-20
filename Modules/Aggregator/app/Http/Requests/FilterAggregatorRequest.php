@@ -2,7 +2,6 @@
 
 namespace Modules\Aggregator\Http\Requests;
 
-
 use Illuminate\Foundation\Http\FormRequest;
 
 class FilterAggregatorRequest extends FormRequest
@@ -25,4 +24,3 @@ class FilterAggregatorRequest extends FormRequest
         ];
     }
 }
-

@@ -3,8 +3,8 @@
 namespace Modules\BranchManagers\Notifications;
 
 use Illuminate\Bus\Queueable;
-use Illuminate\Notifications\Notification;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Notification;
 
 class ResetPasswordNotification extends Notification
 {
@@ -21,11 +21,11 @@ class ResetPasswordNotification extends Notification
 
     public function toMail($notifiable): MailMessage
     {
-        $url = config('app.frontend_url') . '/branch-manager/reset-password?token=' . $this->token . '&email=' . urlencode($notifiable->email);
+        $url = config('app.frontend_url').'/branch-manager/reset-password?token='.$this->token.'&email='.urlencode($notifiable->email);
 
         return (new MailMessage)
             ->subject('Reset Password - Assab')
-            ->greeting('Hello ' . $notifiable->name . '!')
+            ->greeting('Hello '.$notifiable->name.'!')
             ->line('You are receiving this email because we received a password reset request for your account.')
             ->action('Reset Password', $url)
             ->line('This password reset link will expire in 60 minutes.')

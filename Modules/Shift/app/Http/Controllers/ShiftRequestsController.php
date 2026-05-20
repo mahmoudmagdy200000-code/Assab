@@ -31,14 +31,13 @@ class ShiftRequestsController extends BaseController
      * Cashier: handovers where they are the shift cashier or next cashier.
      * Branch Manager: handovers for shifts in their branch.
      *
-     * @param Request $request optional ?status=pending|approved|rejected|rejected_final
-     * @return JsonResponse
+     * @param  Request  $request  optional ?status=pending|approved|rejected|rejected_final
      */
     public function handovers(Request $request): JsonResponse
     {
         try {
             $user = auth()->user();
-            if (!$user) {
+            if (! $user) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthenticated',
@@ -63,14 +62,13 @@ class ShiftRequestsController extends BaseController
      * GET /api/branch-manager/requests/variances (or shared prefix).
      * Cashier: variances for their shifts. Branch Manager: variances for their branch.
      *
-     * @param Request $request optional ?status=pending|approved|rejected
-     * @return JsonResponse
+     * @param  Request  $request  optional ?status=pending|approved|rejected
      */
     public function variances(Request $request): JsonResponse
     {
         try {
             $user = auth()->user();
-            if (!$user) {
+            if (! $user) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthenticated',
@@ -94,21 +92,19 @@ class ShiftRequestsController extends BaseController
      * 3 - All reassigned shifts for the authenticated cashier (shifts reassigned TO them).
      * GET /api/cashier/requests/reassigned-shifts
      * Only for cashiers; returns 403 if user is not a cashier.
-     *
-     * @return JsonResponse
      */
     public function reassignedShifts(Request $request): JsonResponse
     {
         try {
             $user = auth()->user();
-            if (!$user) {
+            if (! $user) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthenticated',
                 ], 401);
             }
 
-            if (!$user instanceof Cashier) {
+            if (! $user instanceof Cashier) {
                 return response()->json([
                     'success' => false,
                     'message' => 'This endpoint is only available for cashiers',

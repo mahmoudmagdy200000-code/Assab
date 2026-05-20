@@ -2,16 +2,13 @@
 
 namespace Modules\Cashier\Http\Controllers;
 
-
-
+use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Routing\Controller;
-use Modules\Cashier\Services\ProfileService;
 use Modules\Cashier\Http\Requests\UpdateProfileRequest;
 use Modules\Cashier\Http\Requests\UploadImageRequest;
-use Modules\Cashier\Transformers\CashierDetailResource;
-use App\Http\Controllers\BaseController;
 use Modules\Cashier\Models\Cashier;
+use Modules\Cashier\Services\ProfileService;
+use Modules\Cashier\Transformers\CashierDetailResource;
 
 class ProfileController extends BaseController
 {
@@ -31,7 +28,7 @@ class ProfileController extends BaseController
 
         $profileData = $this->profileService->getProfile($cashier->id);
 
-        return  $this->successResponse(
+        return $this->successResponse(
             new CashierDetailResource($profileData),
             'Profile retrieved successfully'
         );
@@ -47,7 +44,7 @@ class ProfileController extends BaseController
         $data = $request->validated();
         $updatedCashier = $this->profileService->updateProfile($cashier, $data);
 
-        return  $this->successResponse(
+        return $this->successResponse(
             new CashierDetailResource($updatedCashier),
             'Profile updated successfully'
         );
@@ -65,8 +62,8 @@ class ProfileController extends BaseController
             image: $request->file('image')
         );
 
-        return  $this->successResponse([
-            'image_url' => asset('storage/' . $imagePath),
+        return $this->successResponse([
+            'image_url' => asset('storage/'.$imagePath),
         ], 'Profile image uploaded successfully');
     }
 
@@ -92,7 +89,7 @@ class ProfileController extends BaseController
         $cashier->load(['branch.branchManager']);
 
         $branch = $cashier->branch;
-        if (!$branch) {
+        if (! $branch) {
             return $this->errorResponse('Cashier is not assigned to any branch', 400);
         }
 
@@ -100,13 +97,13 @@ class ProfileController extends BaseController
 
         $googleMapsUrl = null;
         if ($branch->lat && $branch->lng) {
-            $googleMapsUrl = 'https://www.google.com/maps?q=' . (float) $branch->lat . ',' . (float) $branch->lng;
+            $googleMapsUrl = 'https://www.google.com/maps?q='.(float) $branch->lat.','.(float) $branch->lng;
         }
 
         return $this->successResponse([
             'id' => $branch->id,
             'name' => $branch->name,
-            'image' => $branch->image ? asset('storage/' . $branch->image) : null,
+            'image' => $branch->image ? asset('storage/'.$branch->image) : null,
             'location' => $branch->location ?? null,
             'lat' => $branch->lat ? (float) $branch->lat : null,
             'lng' => $branch->lng ? (float) $branch->lng : null,
@@ -116,7 +113,7 @@ class ProfileController extends BaseController
             'branch_manager' => $manager ? [
                 'id' => $manager->id,
                 'name' => $manager->name,
-                'image' => $manager->image ? asset('storage/' . $manager->image) : null,
+                'image' => $manager->image ? asset('storage/'.$manager->image) : null,
             ] : null,
         ], 'Branch info retrieved successfully');
     }
@@ -223,7 +220,7 @@ class ProfileController extends BaseController
 
         // Get distinct days of the week from the cashier's most recent week of shifts
         $latestDate = $cashier->shifts()->max('shift_date');
-        if (!$latestDate) {
+        if (! $latestDate) {
             return null;
         }
 
@@ -249,7 +246,7 @@ class ProfileController extends BaseController
             ($daysList[count($daysList) - 1] - $daysList[0]) === (count($daysList) - 1);
 
         if ($isConsecutive) {
-            return $dayNames[$daysList[0]] . ' - ' . $dayNames[$daysList[count($daysList) - 1]];
+            return $dayNames[$daysList[0]].' - '.$dayNames[$daysList[count($daysList) - 1]];
         }
 
         return $days->map(fn ($d) => $dayNames[$d])->implode(', ');

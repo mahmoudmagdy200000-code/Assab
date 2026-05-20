@@ -29,8 +29,9 @@ class RecurringOrderTestDataSeeder extends Seeder
         $branchExists = \Modules\Branch\Models\Branch::where('id', $this->branchId)->exists();
         $managerExists = BranchManager::where('id', $this->branchManagerId)->exists();
 
-        if (!$branchExists || !$managerExists) {
+        if (! $branchExists || ! $managerExists) {
             $this->command->warn('Branch or Branch Manager not found. Ensure IDs exist in branches and branch_managers tables.');
+
             return;
         }
 
@@ -44,6 +45,7 @@ class RecurringOrderTestDataSeeder extends Seeder
 
         if ($items->isEmpty()) {
             $this->command->warn('No items found for branch. Add items (items + branch_item) first.');
+
             return;
         }
 
@@ -164,6 +166,7 @@ class RecurringOrderTestDataSeeder extends Seeder
         return Item::limit(5)->get()->map(function ($item) {
             $logo = $item->logo;
             $logoStr = is_array($logo) ? ($logo[0] ?? null) : $logo;
+
             return [
                 'item_id' => $item->id,
                 'item_name' => $item->name,
@@ -216,6 +219,7 @@ class RecurringOrderTestDataSeeder extends Seeder
         if ($value === null) {
             return null;
         }
+
         return $value instanceof Carbon ? $value : Carbon::parse($value);
     }
 }

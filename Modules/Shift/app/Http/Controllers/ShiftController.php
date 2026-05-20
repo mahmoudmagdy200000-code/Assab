@@ -24,7 +24,6 @@ class ShiftController extends BaseController
 {
     // Controller methods will go here
 
-
     /**
      * Get all shifts
      * OPTIMIZED: Select only required fields and add authorization check
@@ -35,7 +34,7 @@ class ShiftController extends BaseController
             $manager = auth()->user();
 
             // Ensure the user is a branch manager
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return $this->errorResponse('Unauthorized', 403);
             }
 
@@ -44,7 +43,7 @@ class ShiftController extends BaseController
                 ->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active', 'created_at', 'updated_at'])
                 ->withCount(['cashierShifts as active_assignments_count' => function ($q) {
                     $q->whereDate('shift_date', today())
-                      ->whereIn('status', ['not_started', 'in_progress']);
+                        ->whereIn('status', ['not_started', 'in_progress']);
                 }])
                 ->orderBy('start_time')
                 ->paginate(10);
@@ -53,8 +52,9 @@ class ShiftController extends BaseController
         } catch (\Exception $e) {
             Log::error('Error retrieving shifts', [
                 'user_id' => auth()->id(),
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
+
             return $this->errorResponse('An error occurred while retrieving shifts', 500);
         }
     }
@@ -68,7 +68,7 @@ class ShiftController extends BaseController
         try {
             $manager = auth()->user();
 
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return $this->errorResponse('Unauthorized', 403);
             }
 
@@ -103,7 +103,7 @@ class ShiftController extends BaseController
                     'handover_notes',
                     'next_cashier_id',
                     'created_at',
-                    'updated_at'
+                    'updated_at',
                 ])
                 ->with([
                     'cashier:id,name,branch_id',
@@ -114,7 +114,7 @@ class ShiftController extends BaseController
                     'assignedBy:id,name',
                     'originalCashier:id,name,branch_id',
                     'reassignedBy:id,name,email,phone',
-                    'nextCashier:id,name,email,phone'
+                    'nextCashier:id,name,email,phone',
                 ]);
 
             // Apply filters: date_filter, status (same keys as filter endpoint)
@@ -144,8 +144,9 @@ class ShiftController extends BaseController
         } catch (\Exception $e) {
             Log::error('Error retrieving cashiers shifts', [
                 'user_id' => auth()->id(),
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
+
             return $this->errorResponse('An error occurred while retrieving cashiers shifts', 500);
         }
     }
@@ -159,7 +160,7 @@ class ShiftController extends BaseController
         try {
             $manager = auth()->user();
 
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return $this->errorResponse('Unauthorized', 403);
             }
 
@@ -194,7 +195,7 @@ class ShiftController extends BaseController
                     'handover_notes',
                     'next_cashier_id',
                     'created_at',
-                    'updated_at'
+                    'updated_at',
                 ])
                 ->with([
                     'cashier:id,name,branch_id',
@@ -205,7 +206,7 @@ class ShiftController extends BaseController
                     'assignedBy:id,name',
                     'originalCashier:id,name,branch_id',
                     'reassignedBy:id,name,email,phone',
-                    'nextCashier:id,name,email,phone'
+                    'nextCashier:id,name,email,phone',
                 ]);
 
             // Apply filters using helper method
@@ -224,8 +225,9 @@ class ShiftController extends BaseController
         } catch (\Exception $e) {
             Log::error('Error filtering cashier shifts', [
                 'user_id' => auth()->id(),
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
+
             return $this->errorResponse('An error occurred while filtering cashier shifts', 500);
         }
     }
@@ -239,7 +241,7 @@ class ShiftController extends BaseController
         try {
             $manager = auth()->user();
 
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return $this->errorResponse('Unauthorized', 403);
             }
 
@@ -249,7 +251,7 @@ class ShiftController extends BaseController
                 ->where('branch_id', $manager->branch_id)
                 ->first();
 
-            if (!$shift) {
+            if (! $shift) {
                 return $this->errorResponse('Shift not found', 404);
             }
 
@@ -258,8 +260,9 @@ class ShiftController extends BaseController
             Log::error('Error retrieving shift', [
                 'user_id' => auth()->id(),
                 'shift_id' => $id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
+
             return $this->errorResponse('An error occurred while retrieving shift', 500);
         }
     }
@@ -273,7 +276,7 @@ class ShiftController extends BaseController
         try {
             $manager = auth()->user();
 
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return $this->errorResponse('Unauthorized', 403);
             }
 
@@ -306,7 +309,7 @@ class ShiftController extends BaseController
                 'reassignment_reason',
                 'reassigned_at',
                 'created_at',
-                'updated_at'
+                'updated_at',
             ])
                 ->with([
                     'cashier:id,name,branch_id',
@@ -322,20 +325,21 @@ class ShiftController extends BaseController
                     },
                     'handoverStatus.reviewedBy:id,name',
                     'salesBreakdown.aggregator:id,name',
-                    'varianceDetails.responsibleCashier:id,name'
+                    'varianceDetails.responsibleCashier:id,name',
                 ])
                 ->find($id);
 
-            if (!$cashierShift) {
+            if (! $cashierShift) {
                 return $this->errorResponse('Cashier Shift not found', 404);
             }
 
             // Verify cashier belongs to manager's branch
-            if (!$cashierShift->cashier) {
+            if (! $cashierShift->cashier) {
                 Log::warning('Cashier shift found but cashier relationship is missing', [
                     'shift_id' => $id,
-                    'cashier_id' => $cashierShift->cashier_id
+                    'cashier_id' => $cashierShift->cashier_id,
                 ]);
+
                 return $this->errorResponse('Cashier information not found for this shift', 404);
             }
 
@@ -355,7 +359,7 @@ class ShiftController extends BaseController
                 Log::error('Error in CashierShiftResource transformation', [
                     'shift_id' => $id,
                     'error' => $resourceException->getMessage(),
-                    'trace' => $resourceException->getTraceAsString()
+                    'trace' => $resourceException->getTraceAsString(),
                 ]);
                 throw $resourceException;
             }
@@ -369,9 +373,10 @@ class ShiftController extends BaseController
                 'error' => $e->getMessage(),
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
-            return $this->errorResponse('An error occurred while retrieving cashier shift: ' . $e->getMessage(), 500);
+
+            return $this->errorResponse('An error occurred while retrieving cashier shift: '.$e->getMessage(), 500);
         }
     }
 
@@ -384,7 +389,7 @@ class ShiftController extends BaseController
         try {
             $manager = auth()->user();
 
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return $this->errorResponse('Unauthorized', 403);
             }
 
@@ -392,7 +397,7 @@ class ShiftController extends BaseController
                 ->where('branch_id', $manager->branch_id)
                 ->first(['id', 'branch_id']);
 
-            if (!$cashier) {
+            if (! $cashier) {
                 return $this->errorResponse('Cashier not found or does not belong to your branch', 404);
             }
 
@@ -408,7 +413,7 @@ class ShiftController extends BaseController
                 'status',
                 'assigned_by',
                 'created_at',
-                'updated_at'
+                'updated_at',
             ])
                 ->where('cashier_id', $cashier->id)
                 ->whereDate('shift_date', '>=', $start)
@@ -420,7 +425,7 @@ class ShiftController extends BaseController
                     },
                     'shift.branch:id,name,location',
                     'assignedBy:id,name',
-                    'nextCashier:id,name,email,phone'
+                    'nextCashier:id,name,email,phone',
                 ])
                 ->orderBy('shift_date', 'asc')
                 ->get();
@@ -442,8 +447,9 @@ class ShiftController extends BaseController
             Log::error('Error retrieving shifts by cashier', [
                 'user_id' => auth()->id(),
                 'cashier_id' => $id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
+
             return $this->errorResponse('An error occurred while retrieving cashier shifts', 500);
         }
     }
@@ -457,7 +463,7 @@ class ShiftController extends BaseController
         try {
             $manager = auth()->user();
 
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return $this->errorResponse('Unauthorized', 403);
             }
 
@@ -466,7 +472,7 @@ class ShiftController extends BaseController
                 ->select(['id', 'name', 'email', 'phone', 'branch_id', 'is_active', 'created_by_id', 'created_at', 'updated_at'])
                 ->with([
                     'branch:id,name,location',
-                    'creator:id,name'
+                    'creator:id,name',
                 ])
                 ->withCount('shifts')
                 ->paginate($request->input('per_page', 10));
@@ -494,12 +500,12 @@ class ShiftController extends BaseController
         } catch (\Exception $e) {
             Log::error('Error retrieving cashiers and branch managers', [
                 'user_id' => auth()->id(),
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
+
             return $this->errorResponse('An error occurred while retrieving cashiers and branch managers', 500);
         }
     }
-
 
     /**
      * Start shift by manager
@@ -510,10 +516,10 @@ class ShiftController extends BaseController
         try {
             $branchManager = auth()->user();
 
-            if (!$branchManager || !$branchManager->branch_id) {
+            if (! $branchManager || ! $branchManager->branch_id) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Unauthorized'
+                    'message' => 'Unauthorized',
                 ], 403);
             }
 
@@ -525,7 +531,7 @@ class ShiftController extends BaseController
                 'shift_id',
                 'status',
                 'created_at',
-                'updated_at'
+                'updated_at',
             ])
                 ->with([
                     'shift' => function ($q) {
@@ -533,7 +539,7 @@ class ShiftController extends BaseController
                     },
                     'shift.branch:id,name',
                     'cashier:id,name,branch_id',
-                    'nextCashier:id,name'
+                    'nextCashier:id,name',
                 ])
                 ->findOrFail($shiftId);
 
@@ -541,14 +547,14 @@ class ShiftController extends BaseController
             if ($shiftModel->cashier->branch_id !== $branchManager->branch_id) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Unauthorized: This cashier does not belong to your branch'
+                    'message' => 'Unauthorized: This cashier does not belong to your branch',
                 ], 403);
             }
 
             if ($shiftModel->status->value !== 'not_started') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Shift has already been started'
+                    'message' => 'Shift has already been started',
                 ], 400);
             }
 
@@ -564,7 +570,7 @@ class ShiftController extends BaseController
                 return response()->json([
                     'success' => true,
                     'message' => 'Shift started successfully by branch manager',
-                    'data' => new \Modules\Shift\Transformers\ShiftDetailResource($shiftModel)
+                    'data' => new \Modules\Shift\Transformers\ShiftDetailResource($shiftModel),
                 ]);
             } catch (\Exception $e) {
                 DB::rollBack();
@@ -573,17 +579,18 @@ class ShiftController extends BaseController
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Shift not found'
+                'message' => 'Shift not found',
             ], 404);
         } catch (\Exception $e) {
             Log::error('Error starting shift by manager', [
                 'user_id' => auth()->id(),
                 'shift_id' => $shiftId,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
+
             return response()->json([
                 'success' => false,
-                'message' => 'An error occurred while starting the shift'
+                'message' => 'An error occurred while starting the shift',
             ], 500);
         }
     }
@@ -644,7 +651,7 @@ class ShiftController extends BaseController
         if ($search = $request->input('search')) {
             // Sanitize search input to prevent SQL injection
             $search = trim(strip_tags($search));
-            if (!empty($search)) {
+            if (! empty($search)) {
                 $searchPattern = "%{$search}%";
                 $query->where(function ($q) use ($searchPattern) {
                     // Use parameter binding for security

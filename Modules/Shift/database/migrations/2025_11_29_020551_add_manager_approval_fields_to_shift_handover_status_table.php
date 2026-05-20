@@ -45,7 +45,7 @@ return new class extends Migration
                 'first_rejected_at',
                 'second_rejected_at',
                 'was_edited_after_rejection',
-                'edited_at'
+                'edited_at',
             ]);
         });
     }

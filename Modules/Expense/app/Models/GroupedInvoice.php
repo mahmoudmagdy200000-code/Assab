@@ -3,8 +3,8 @@
 namespace Modules\Expense\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * Grouped Invoice Model
@@ -46,6 +46,7 @@ class GroupedInvoice extends Model
     {
         return $this->belongsTo(Supplier::class, 'payment_supplier_id');
     }
+
     public function defaultSupplier()
     {
         return $this->belongsTo(Supplier::class, 'default_supplier_id');

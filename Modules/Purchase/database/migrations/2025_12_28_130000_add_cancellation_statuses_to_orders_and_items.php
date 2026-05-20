@@ -11,7 +11,7 @@ return new class extends Migration
     public function up(): void
     {
         $driver = DB::getDriverName();
-        
+
         // SQLite doesn't support MODIFY COLUMN or ENUM
         if ($driver === 'sqlite') {
             return;
@@ -30,7 +30,7 @@ return new class extends Migration
     public function down(): void
     {
         $driver = DB::getDriverName();
-        
+
         // SQLite doesn't support MODIFY COLUMN or ENUM
         if ($driver === 'sqlite') {
             return;
@@ -52,4 +52,3 @@ return new class extends Migration
         DB::statement("ALTER TABLE purchase_orders MODIFY COLUMN status ENUM('draft', 'pending', 'pending_confirmation', 'pending_approval', 'partial_confirmation', 'confirmed', 'preparing', 'on_the_way', 'delivered', 'closed', 'canceled', 'rejected', 'delayed', 'fully_approved', 'partial_approved', 'partial_confirmed') DEFAULT 'draft'");
     }
 };
-

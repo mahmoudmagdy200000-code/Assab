@@ -7,8 +7,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-use Modules\Expense\Services\GroupedInvoiceExpenseService;
 use Modules\Expense\Models\Expense;
+use Modules\Expense\Services\GroupedInvoiceExpenseService;
 use Modules\Expense\Transformers\ExpenseDetailResource;
 
 /**
@@ -96,6 +96,7 @@ class GroupedInvoiceExpenseController extends BaseController
             );
         } catch (\Exception $e) {
             DB::rollBack();
+
             return $this->errorResponse(
                 'Failed to create grouped invoice expense',
                 500,

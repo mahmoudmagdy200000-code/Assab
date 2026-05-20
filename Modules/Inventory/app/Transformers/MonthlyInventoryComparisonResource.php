@@ -14,6 +14,7 @@ class MonthlyInventoryComparisonResource extends JsonResource
     public function toArray($request): array
     {
         $data = $this->resource;
+
         return [
             'period' => $data['period'] ?? [],
             'items' => $data['items'] ?? [],

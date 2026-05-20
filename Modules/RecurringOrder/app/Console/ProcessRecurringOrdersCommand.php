@@ -42,8 +42,8 @@ class ProcessRecurringOrdersCommand extends Command
     private function runDebug(): int
     {
         $now = now();
-        $this->info('Server time (app timezone): ' . $now->format('Y-m-d H:i:s T'));
-        $this->info('App timezone: ' . config('app.timezone'));
+        $this->info('Server time (app timezone): '.$now->format('Y-m-d H:i:s T'));
+        $this->info('App timezone: '.config('app.timezone'));
         $this->newLine();
 
         $inProgress = RecurringOrder::whereIn('status', [
@@ -71,14 +71,14 @@ class ProcessRecurringOrdersCommand extends Command
         if ($inProgress->count() > 0) {
             $this->info('In-progress orders (these should appear in API for their branch):');
             foreach ($inProgress->groupBy('branch_id') as $branchId => $orders) {
-                $this->line("  Branch {$branchId}: " . $orders->count() . ' order(s)');
+                $this->line("  Branch {$branchId}: ".$orders->count().' order(s)');
             }
         }
 
         if ($dueNow->count() > 0) {
             $this->info('Orders due now (would be processed by job):');
             foreach ($dueNow->groupBy('branch_id') as $branchId => $orders) {
-                $this->line("  Branch {$branchId}: " . $orders->count() . ' order(s)');
+                $this->line("  Branch {$branchId}: ".$orders->count().' order(s)');
             }
         }
 

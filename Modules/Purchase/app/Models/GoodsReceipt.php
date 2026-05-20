@@ -170,6 +170,7 @@ class GoodsReceipt extends Model
     {
         $date = now()->format('Ymd');
         $random = strtoupper(Str::random(4));
+
         return "GR-{$date}-{$random}";
     }
 
@@ -184,7 +185,7 @@ class GoodsReceipt extends Model
     public function completeInspection(): void
     {
         $this->calculateSummary();
-        
+
         $this->update([
             'status' => $this->hasVariances ? 'has_variance' : 'completed',
             'inspection_completed_at' => now(),
@@ -194,14 +195,14 @@ class GoodsReceipt extends Model
     public function calculateSummary(): void
     {
         $items = $this->items;
-        
+
         $quantityVariances = $items->filter(fn ($item) => $item->quantity_variance != 0)->count();
         $qualityVariances = $items->filter(fn ($item) => $item->has_quality_variance)->count();
-        
+
         $expectedAmount = $items->sum('expected_total');
         $receivedAmount = $items->sum('received_total');
         $varianceAmount = $expectedAmount - $receivedAmount;
-        
+
         $this->update([
             'total_items_expected' => $items->count(),
             'total_items_received' => $items->whereNotNull('quantity_received')->count(),
@@ -223,4 +224,3 @@ class GoodsReceipt extends Model
         $this->update(['status' => 'draft']);
     }
 }
-

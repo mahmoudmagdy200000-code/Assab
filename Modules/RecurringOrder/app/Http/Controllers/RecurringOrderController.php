@@ -30,6 +30,7 @@ class RecurringOrderController extends BaseController
             $filters = $request->only(['search']);
             $perPage = $request->get('per_page', 15);
             $list = $this->service->getInProgressList($branchManager->branch_id, $filters, $perPage);
+
             return $this->paginatedResponse(
                 RecurringOrderListResource::collection($list),
                 'Recurring orders (in progress) retrieved successfully'
@@ -49,6 +50,7 @@ class RecurringOrderController extends BaseController
             $filters = $request->only(['search']);
             $perPage = $request->get('per_page', 15);
             $list = $this->service->getNextSchedulingList($branchManager->branch_id, $filters, $perPage);
+
             return $this->paginatedResponse(
                 RecurringOrderListResource::collection($list),
                 'Recurring orders (next scheduling) retrieved successfully'
@@ -68,6 +70,7 @@ class RecurringOrderController extends BaseController
             $filters = $request->only(['search']);
             $perPage = $request->get('per_page', 15);
             $list = $this->service->getPausedList($branchManager->branch_id, $filters, $perPage);
+
             return $this->paginatedResponse(
                 RecurringOrderListResource::collection($list),
                 'Recurring orders (paused) retrieved successfully'
@@ -85,6 +88,7 @@ class RecurringOrderController extends BaseController
         try {
             $branchManager = $this->branchManager();
             $order = $this->service->create($branchManager, $request->validated());
+
             return $this->createdResponse(
                 new RecurringOrderDetailResource($order),
                 'Recurring order created and activated successfully'
@@ -102,7 +106,7 @@ class RecurringOrderController extends BaseController
         try {
             $branchManager = $this->branchManager();
             $order = $this->service->getDetails($id, $branchManager->branch_id);
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Recurring order not found');
             }
             $order->setAttribute('include_item_availability', true);
@@ -112,6 +116,7 @@ class RecurringOrderController extends BaseController
                 'total_canceled_orders' => $history['total_canceled_orders'],
                 'list' => RecurringOrderHistoryItemResource::collection($history['list'])->resolve(),
             ]);
+
             return $this->successResponse(
                 new RecurringOrderDetailResource($order),
                 'Recurring order details retrieved successfully'
@@ -128,10 +133,11 @@ class RecurringOrderController extends BaseController
     {
         try {
             $order = $this->findForBranch($id);
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Recurring order not found');
             }
             $updated = $this->service->pause($order);
+
             return $this->successResponse(
                 new RecurringOrderDetailResource($updated),
                 'Recurring order paused successfully'
@@ -148,10 +154,11 @@ class RecurringOrderController extends BaseController
     {
         try {
             $order = $this->findForBranch($id);
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Recurring order not found');
             }
             $updated = $this->service->resume($order);
+
             return $this->successResponse(
                 new RecurringOrderDetailResource($updated),
                 'Recurring order resumed successfully'
@@ -168,10 +175,11 @@ class RecurringOrderController extends BaseController
     {
         try {
             $order = $this->findForBranch($id);
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Recurring order not found');
             }
             $updated = $this->service->update($order, $request->validated());
+
             return $this->successResponse(
                 new RecurringOrderDetailResource($updated),
                 'Recurring order updated successfully'
@@ -188,10 +196,11 @@ class RecurringOrderController extends BaseController
     {
         try {
             $order = $this->findForBranch($id);
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Recurring order not found');
             }
             $this->service->delete($order);
+
             return $this->deletedResponse('Recurring order deleted successfully');
         } catch (\Exception $e) {
             return $this->handleException($e, 'deleting recurring order');
@@ -206,8 +215,8 @@ class RecurringOrderController extends BaseController
         try {
             $query = \Modules\Supplier\Models\Supplier::query()->active();
             if ($request->filled('search')) {
-                $query->where('name', 'like', '%' . $request->search . '%')
-                    ->orWhere('company_name', 'like', '%' . $request->search . '%');
+                $query->where('name', 'like', '%'.$request->search.'%')
+                    ->orWhere('company_name', 'like', '%'.$request->search.'%');
             }
             if ($request->filled('status')) {
                 $query->where('status', $request->status);
@@ -215,7 +224,8 @@ class RecurringOrderController extends BaseController
             $perPage = $request->get('per_page', 20);
             $suppliers = $query->orderBy('name')->paginate($perPage);
             $items = $suppliers->getCollection()->map(function ($s) {
-                $image = $s->image ? asset('storage/' . $s->image) : null;
+                $image = $s->image ? asset('storage/'.$s->image) : null;
+
                 return [
                     'id' => $s->id,
                     'name' => $s->name ?? $s->company_name,
@@ -230,6 +240,7 @@ class RecurringOrderController extends BaseController
                 $suppliers->currentPage(),
                 ['path' => $suppliers->path()]
             );
+
             return $this->paginatedResponse($paginator, 'Suppliers retrieved successfully');
         } catch (\Throwable $e) {
             return $this->handleException($e, 'fetching suppliers');
@@ -247,13 +258,14 @@ class RecurringOrderController extends BaseController
                 ->where('id', '!=', $branchManager->id)
                 ->active();
             if ($request->filled('search')) {
-                $query->where('name', 'like', '%' . $request->search . '%')
-                    ->orWhere('email', 'like', '%' . $request->search . '%');
+                $query->where('name', 'like', '%'.$request->search.'%')
+                    ->orWhere('email', 'like', '%'.$request->search.'%');
             }
             $perPage = $request->get('per_page', 20);
             $officers = $query->orderBy('name')->paginate($perPage);
             $items = $officers->getCollection()->map(function ($o) {
-                $image = $o->image ? asset('storage/' . $o->image) : null;
+                $image = $o->image ? asset('storage/'.$o->image) : null;
+
                 return [
                     'id' => $o->id,
                     'name' => $o->name,
@@ -268,6 +280,7 @@ class RecurringOrderController extends BaseController
                 $officers->currentPage(),
                 ['path' => $officers->path()]
             );
+
             return $this->paginatedResponse($paginator, 'Purchasing officers retrieved successfully');
         } catch (\Throwable $e) {
             return $this->handleException($e, 'fetching purchasing officers');
@@ -277,15 +290,17 @@ class RecurringOrderController extends BaseController
     private function branchManager(): BranchManager
     {
         $user = auth()->user();
-        if (!$user instanceof BranchManager) {
+        if (! $user instanceof BranchManager) {
             throw new \Illuminate\Auth\Access\AuthorizationException('Branch Manager authentication required.');
         }
+
         return $user;
     }
 
     private function findForBranch(string $id): ?RecurringOrder
     {
         $branchManager = $this->branchManager();
+
         return RecurringOrder::where('id', $id)
             ->where('branch_id', $branchManager->branch_id)
             ->first();

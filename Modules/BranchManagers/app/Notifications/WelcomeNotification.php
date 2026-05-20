@@ -3,8 +3,8 @@
 namespace Modules\BranchManagers\Notifications;
 
 use Illuminate\Bus\Queueable;
-use Illuminate\Notifications\Notification;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Notification;
 
 class WelcomeNotification extends Notification
 {
@@ -21,15 +21,15 @@ class WelcomeNotification extends Notification
 
     public function toMail($notifiable): MailMessage
     {
-        $loginUrl = config('app.frontend_url') . '/branch-manager/login';
+        $loginUrl = config('app.frontend_url').'/branch-manager/login';
 
         return (new MailMessage)
             ->subject('Welcome to Assab - Branch Manager')
-            ->greeting('Welcome ' . $notifiable->name . '!')
+            ->greeting('Welcome '.$notifiable->name.'!')
             ->line('Your Branch Manager account has been created successfully.')
-            ->line('**Branch:** ' . $notifiable->branch->name)
-            ->line('**Email:** ' . $notifiable->email)
-            ->line('**Temporary Password:** ' . $this->defaultPassword)
+            ->line('**Branch:** '.$notifiable->branch->name)
+            ->line('**Email:** '.$notifiable->email)
+            ->line('**Temporary Password:** '.$this->defaultPassword)
             ->line('Please login and change your password immediately.')
             ->action('Login Now', $loginUrl)
             ->line('For security reasons, you will be required to change your password on first login.')

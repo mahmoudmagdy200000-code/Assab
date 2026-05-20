@@ -3,8 +3,8 @@
 namespace Modules\Settings\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * User Settings Model
@@ -48,7 +48,7 @@ class UserSetting extends Model
     public function scopeForBranchManager($query, string $userId)
     {
         return $query->where('userable_type', \Modules\BranchManagers\Models\BranchManager::class)
-                     ->where('userable_id', $userId);
+            ->where('userable_id', $userId);
     }
 
     /**
@@ -57,6 +57,6 @@ class UserSetting extends Model
     public function scopeForCashier($query, string $userId)
     {
         return $query->where('userable_type', \Modules\Cashier\Models\Cashier::class)
-                     ->where('userable_id', $userId);
+            ->where('userable_id', $userId);
     }
 }

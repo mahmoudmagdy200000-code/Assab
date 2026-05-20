@@ -16,12 +16,12 @@ class UpdateRecurringOrderWhenPurchaseOrderEnded
     public function handle(OrderStatusChanged $event): void
     {
         $order = $event->order;
-        if (!$order->recurring_order_id) {
+        if (! $order->recurring_order_id) {
             return;
         }
 
         $recurring = \Modules\RecurringOrder\Models\RecurringOrder::find($order->recurring_order_id);
-        if (!$recurring) {
+        if (! $recurring) {
             return;
         }
 
@@ -29,6 +29,7 @@ class UpdateRecurringOrderWhenPurchaseOrderEnded
             if ($recurring->status === RecurringOrderStatus::GENERATED) {
                 $recurring->update(['status' => RecurringOrderStatus::IN_PROGRESS]);
             }
+
             return;
         }
 
@@ -40,11 +41,11 @@ class UpdateRecurringOrderWhenPurchaseOrderEnded
             PurchaseOrderStatus::REJECTED,
         ];
 
-        if (!in_array($event->newStatus, $terminalStatuses)) {
+        if (! in_array($event->newStatus, $terminalStatuses)) {
             return;
         }
 
-        if (!in_array($recurring->status, [RecurringOrderStatus::GENERATED, RecurringOrderStatus::IN_PROGRESS])) {
+        if (! in_array($recurring->status, [RecurringOrderStatus::GENERATED, RecurringOrderStatus::IN_PROGRESS])) {
             return;
         }
 

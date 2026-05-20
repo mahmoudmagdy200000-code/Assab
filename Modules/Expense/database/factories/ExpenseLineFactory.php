@@ -3,9 +3,9 @@
 namespace Modules\Expense\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
-use Modules\Expense\Models\ExpenseLine;
-use Modules\Expense\Models\Expense;
 use Modules\Expense\Models\Category;
+use Modules\Expense\Models\Expense;
+use Modules\Expense\Models\ExpenseLine;
 
 class ExpenseLineFactory extends Factory
 {

@@ -6,8 +6,8 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Modules\BranchManagers\Models\BranchManager;
 use Modules\Branch\Models\Branch;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Expense\Models\Expense;
 
 class CustodyTransaction extends Model

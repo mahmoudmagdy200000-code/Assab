@@ -23,7 +23,7 @@ use Modules\Purchase\Enums\QualityLevel;
 
 class PurchaseOrder extends Model
 {
-    use HasFactory, HasUuids, SoftDeletes, \Illuminate\Notifications\Notifiable;
+    use HasFactory, HasUuids, \Illuminate\Notifications\Notifiable, SoftDeletes;
 
     protected $fillable = [
         'order_number',
@@ -361,6 +361,7 @@ class PurchaseOrder extends Model
         if ($to) {
             $query->whereDate('created_at', '<=', $to);
         }
+
         return $query;
     }
 
@@ -404,7 +405,7 @@ class PurchaseOrder extends Model
 
     public function transitionTo(OrderStatus $newStatus): bool
     {
-        if (!$this->canTransitionTo($newStatus)) {
+        if (! $this->canTransitionTo($newStatus)) {
             return false;
         }
 
@@ -463,7 +464,7 @@ class PurchaseOrder extends Model
     {
         // Only check if order is in a status that can transition to CONFIRMED when all items are decided
         $transitionableStatuses = [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
-        if (!in_array($this->status, $transitionableStatuses)) {
+        if (! in_array($this->status, $transitionableStatuses)) {
             return false;
         }
 
@@ -551,7 +552,7 @@ class PurchaseOrder extends Model
 
     public function cancel(?string $reason = null, bool $byBranch = false, bool $bySupplier = false): bool
     {
-        if (!$this->status->isActive()) {
+        if (! $this->status->isActive()) {
             return false;
         }
 
@@ -597,7 +598,7 @@ class PurchaseOrder extends Model
 
     public function reject(?string $reason = null): bool
     {
-        if (!$this->status->isActive()) {
+        if (! $this->status->isActive()) {
             return false;
         }
 
@@ -657,6 +658,7 @@ class PurchaseOrder extends Model
     public function reportDelay(string $reason): bool
     {
         $this->delay_reason = $reason;
+
         return $this->transitionTo(OrderStatus::DELAYED);
     }
 }

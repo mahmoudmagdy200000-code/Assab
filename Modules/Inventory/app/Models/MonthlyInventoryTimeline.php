@@ -64,13 +64,13 @@ class MonthlyInventoryTimeline extends Model
 
     public function getActorImageUrlAttribute(): ?string
     {
-        if (!$this->actor_image) {
+        if (! $this->actor_image) {
             return null;
         }
 
         return str_starts_with($this->actor_image, 'http')
             ? $this->actor_image
-            : asset('storage/' . $this->actor_image);
+            : asset('storage/'.$this->actor_image);
     }
 
     public static function log(

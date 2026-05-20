@@ -11,7 +11,6 @@ use Illuminate\Support\Str;
 use Modules\Cashier\Models\Cashier;
 use Modules\Cashier\Repositories\CashierRepositoryInterface;
 use Modules\Shift\Enums\ShiftStatus;
-use Modules\Shift\Helpers\ShiftHelper;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 
@@ -33,19 +32,19 @@ class CashierService
         $query = Cashier::with(['branch', 'creator'])
             ->where('branch_id', $branchId);
 
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             $query->where('status', $filters['status']);
         }
 
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $query->search($filters['search']);
         }
 
-        if (!empty($filters['date_from'])) {
+        if (! empty($filters['date_from'])) {
             $query->whereDate('created_at', '>=', $filters['date_from']);
         }
 
-        if (!empty($filters['date_to'])) {
+        if (! empty($filters['date_to'])) {
             $query->whereDate('created_at', '<=', $filters['date_to']);
         }
 
@@ -77,7 +76,7 @@ class CashierService
                 'created_by' => $data['created_by'],
             ]);
 
-            if (!empty($data['shift_ids'])) {
+            if (! empty($data['shift_ids'])) {
                 $this->assignShiftsToCashier(
                     cashierId: $cashier->id,
                     shiftIds: $data['shift_ids'],
@@ -89,13 +88,13 @@ class CashierService
             $this->activationService->sendActivationLink($cashier, $defaultPassword);
 
             DB::commit();
+
             return $cashier->fresh(['branch', 'creator']);
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;
         }
     }
-
 
     /**
      * Update cashier
@@ -116,6 +115,7 @@ class CashierService
             }
 
             DB::commit();
+
             return $cashier->fresh(['branch', 'creator']);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -139,6 +139,7 @@ class CashierService
             $cashier->delete();
 
             DB::commit();
+
             return true;
         } catch (\Exception $e) {
             DB::rollBack();
@@ -173,7 +174,7 @@ class CashierService
             'shifts' => function ($query) {
                 $query->whereDate('shift_date', '>=', now()->subDays(30))
                     ->orderBy('shift_date', 'desc');
-            }
+            },
         ])->findOrFail($cashierId);
     }
 
@@ -232,10 +233,9 @@ class CashierService
                 'created_by',
                 'activated_at',
                 'created_at',
-                'updated_at'
+                'updated_at',
             ]);
     }
-
 
     /**
      * Assign shifts to cashier.
@@ -293,7 +293,7 @@ class CashierService
     /**
      * Set next_cashier_id on created CashierShifts from the chronologically next shift (same day, same branch).
      *
-     * @param array<int, CashierShift> $created
+     * @param  array<int, CashierShift>  $created
      */
     private function setNextCashierIdsForCreatedShifts(array $created): void
     {
@@ -307,8 +307,6 @@ class CashierService
         }
     }
 
-
-
     /**
      * Update cashier shifts: remove pending shifts not in new list (target work week),
      * then assign for full work week. Uses next work week when current week has already ended.
@@ -319,7 +317,7 @@ class CashierService
         try {
             Cashier::findOrFail($cashierId);
             $start = Carbon::today();
-            $end   = $start->copy()->addDays(6);
+            $end = $start->copy()->addDays(6);
 
             CashierShift::where('cashier_id', $cashierId)
                 ->where('status', ShiftStatus::NOT_STARTED)
@@ -336,12 +334,14 @@ class CashierService
             );
 
             DB::commit();
+
             return $result;
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;
         }
     }
+
     /**
      * Resend activation link
      */

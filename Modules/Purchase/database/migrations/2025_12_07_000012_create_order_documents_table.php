@@ -28,7 +28,7 @@ return new class extends Migration
                 'receipt_without_document',
                 'quality_certificate',
                 'photo',
-                'other'
+                'other',
             ]);
 
             // File information

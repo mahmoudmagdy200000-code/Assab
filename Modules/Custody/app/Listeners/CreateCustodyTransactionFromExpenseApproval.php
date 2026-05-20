@@ -4,9 +4,9 @@ namespace Modules\Custody\Listeners;
 
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Custody\Models\CustodyTransaction;
 use Modules\Expense\Events\ExpenseApprovedEvent;
-use Modules\BranchManagers\Models\BranchManager;
 
 /**
  * When an expense with payment_method = 'custody' is approved,
@@ -17,11 +17,13 @@ class CreateCustodyTransactionFromExpenseApproval implements ShouldQueue
     use InteractsWithQueue;
 
     public $afterCommit = true;
+
     public $tries = 3;
 
     public function backoff(): array
     {
         $jitter = random_int(1, 4);
+
         return [10 + $jitter, 30 + $jitter, 90 + $jitter];
     }
 
@@ -37,7 +39,7 @@ class CreateCustodyTransactionFromExpenseApproval implements ShouldQueue
         }
 
         $branchManager = BranchManager::find($expense->branch_manager_id);
-        if (!$branchManager || !$branchManager->branch_id) {
+        if (! $branchManager || ! $branchManager->branch_id) {
             return;
         }
 

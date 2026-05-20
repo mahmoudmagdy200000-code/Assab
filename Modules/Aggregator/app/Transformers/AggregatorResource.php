@@ -2,7 +2,6 @@
 
 namespace Modules\Aggregator\Transformers;
 
-
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class AggregatorResource extends JsonResource
@@ -30,4 +29,3 @@ class AggregatorResource extends JsonResource
         ];
     }
 }
-

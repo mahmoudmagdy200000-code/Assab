@@ -12,7 +12,7 @@ class OverloadSheddingMiddleware
 {
     public function handle(Request $request, Closure $next, string $scope = 'utility'): Response
     {
-        if (!$this->isOverloaded()) {
+        if (! $this->isOverloaded()) {
             return $next($request);
         }
 

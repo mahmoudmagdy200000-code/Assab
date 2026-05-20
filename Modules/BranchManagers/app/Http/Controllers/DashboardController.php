@@ -2,14 +2,15 @@
 
 namespace Modules\BranchManagers\Http\Controllers;
 
+use App\ApiResponse as ApiResponseTrait;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 use Modules\BranchManagers\Services\DashboardService;
-use App\ApiResponse as ApiResponseTrait;
 
 class DashboardController extends Controller
 {
     use ApiResponseTrait;
+
     public function __construct(
         private DashboardService $dashboardService
     ) {
@@ -26,7 +27,7 @@ class DashboardController extends Controller
 
         $dashboardData = $this->dashboardService->getDashboardData($manager);
 
-        return $this->successResponse('Dashboard data retrieved successfully',$dashboardData );
+        return $this->successResponse('Dashboard data retrieved successfully', $dashboardData);
     }
 
     /**
@@ -38,7 +39,7 @@ class DashboardController extends Controller
 
         $summary = $this->dashboardService->getTodaySummary($manager);
 
-        return $this->successResponse('Today\'s summary retrieved successfully',$summary );
+        return $this->successResponse('Today\'s summary retrieved successfully', $summary);
     }
 
     /**
@@ -50,7 +51,7 @@ class DashboardController extends Controller
 
         $stats = $this->dashboardService->getQuickStats($manager);
 
-        return $this->successResponse('Statistics retrieved successfully',$stats );
+        return $this->successResponse('Statistics retrieved successfully', $stats);
     }
 
     /**
@@ -62,6 +63,6 @@ class DashboardController extends Controller
 
         $activities = $this->dashboardService->getRecentActivities($manager);
 
-        return $this->successResponse('Recent activities retrieved successfully',$activities );
+        return $this->successResponse('Recent activities retrieved successfully', $activities);
     }
 }

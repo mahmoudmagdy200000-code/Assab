@@ -2,19 +2,19 @@
 
 namespace Modules\BranchManagers\Http\Controllers;
 
+use App\ApiResponse as ApiResponseTrait;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
-
-use Modules\BranchManagers\Http\Requests\UploadImageRequest;
 use Modules\BranchManagers\Http\Requests\ChangePasswordRequest;
-use Modules\BranchManagers\Http\Requests\UpdateProfileRequest ;
-use Modules\BranchManagers\Transformers\BranchManagerDetailResource;
+use Modules\BranchManagers\Http\Requests\UpdateProfileRequest;
+use Modules\BranchManagers\Http\Requests\UploadImageRequest;
 use Modules\BranchManagers\Services\ProfileService;
-use App\ApiResponse as ApiResponseTrait;
+use Modules\BranchManagers\Transformers\BranchManagerDetailResource;
 
 class ProfileController extends Controller
 {
     use ApiResponseTrait;
+
     public function __construct(
         private ProfileService $profileService
     ) {
@@ -66,7 +66,7 @@ class ProfileController extends Controller
         );
 
         return $this->successResponse([
-            'image_url' => asset('storage/' . $imagePath),
+            'image_url' => asset('storage/'.$imagePath),
         ], 'Profile image uploaded successfully');
     }
 

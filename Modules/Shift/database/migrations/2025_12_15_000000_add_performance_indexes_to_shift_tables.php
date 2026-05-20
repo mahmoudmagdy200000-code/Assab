@@ -16,22 +16,22 @@ return new class extends Migration
         // Indexes for branch_manager_shifts table
         Schema::table('branch_manager_shifts', function (Blueprint $table) {
             // Composite index for most common query pattern (branch_manager_id + shift_date)
-            if (!$this->indexExists('branch_manager_shifts', 'idx_bms_manager_date')) {
+            if (! $this->indexExists('branch_manager_shifts', 'idx_bms_manager_date')) {
                 $table->index(['branch_manager_id', 'shift_date'], 'idx_bms_manager_date');
             }
 
             // Index for status filtering
-            if (!$this->indexExists('branch_manager_shifts', 'idx_bms_status')) {
+            if (! $this->indexExists('branch_manager_shifts', 'idx_bms_status')) {
                 $table->index('status', 'idx_bms_status');
             }
 
             // Composite index for branch queries
-            if (!$this->indexExists('branch_manager_shifts', 'idx_bms_branch_date')) {
+            if (! $this->indexExists('branch_manager_shifts', 'idx_bms_branch_date')) {
                 $table->index(['branch_id', 'shift_date'], 'idx_bms_branch_date');
             }
 
             // Composite index for status + date filtering
-            if (!$this->indexExists('branch_manager_shifts', 'idx_bms_status_date')) {
+            if (! $this->indexExists('branch_manager_shifts', 'idx_bms_status_date')) {
                 $table->index(['status', 'shift_date'], 'idx_bms_status_date');
             }
         });
@@ -39,22 +39,22 @@ return new class extends Migration
         // Indexes for cashier_shift_handovers table
         Schema::table('cashier_shift_handovers', function (Blueprint $table) {
             // Composite index for handover queries (most common pattern)
-            if (!$this->indexExists('cashier_shift_handovers', 'idx_csh_to_type_id_status')) {
+            if (! $this->indexExists('cashier_shift_handovers', 'idx_csh_to_type_id_status')) {
                 $table->index(['handover_to_type', 'handover_to_id', 'status'], 'idx_csh_to_type_id_status');
             }
 
             // Composite index for cashier shift + handover to queries
-            if (!$this->indexExists('cashier_shift_handovers', 'idx_csh_shift_to_id')) {
+            if (! $this->indexExists('cashier_shift_handovers', 'idx_csh_shift_to_id')) {
                 $table->index(['cashier_shift_id', 'handover_to_id'], 'idx_csh_shift_to_id');
             }
 
             // Index for status + date filtering
-            if (!$this->indexExists('cashier_shift_handovers', 'idx_csh_status_date')) {
+            if (! $this->indexExists('cashier_shift_handovers', 'idx_csh_status_date')) {
                 $table->index(['status', 'handover_date'], 'idx_csh_status_date');
             }
 
             // Index for handover_date filtering
-            if (!$this->indexExists('cashier_shift_handovers', 'idx_csh_date')) {
+            if (! $this->indexExists('cashier_shift_handovers', 'idx_csh_date')) {
                 $table->index('handover_date', 'idx_csh_date');
             }
         });
@@ -62,12 +62,12 @@ return new class extends Migration
         // Indexes for cashier_shifts table
         Schema::table('cashier_shifts', function (Blueprint $table) {
             // Composite index for cashier + date queries
-            if (!$this->indexExists('cashier_shifts', 'idx_cs_cashier_date')) {
+            if (! $this->indexExists('cashier_shifts', 'idx_cs_cashier_date')) {
                 $table->index(['cashier_id', 'shift_date'], 'idx_cs_cashier_date');
             }
 
             // Index for shift_date filtering
-            if (!$this->indexExists('cashier_shifts', 'idx_cs_date')) {
+            if (! $this->indexExists('cashier_shifts', 'idx_cs_date')) {
                 $table->index('shift_date', 'idx_cs_date');
             }
         });
@@ -75,7 +75,7 @@ return new class extends Migration
         // Indexes for shift_sales_breakdown table
         Schema::table('shift_sales_breakdown', function (Blueprint $table) {
             // Index for cashier_shift_id (used in aggregate queries)
-            if (!$this->indexExists('shift_sales_breakdown', 'idx_ssb_shift_id')) {
+            if (! $this->indexExists('shift_sales_breakdown', 'idx_ssb_shift_id')) {
                 $table->index('cashier_shift_id', 'idx_ssb_shift_id');
             }
         });
@@ -123,17 +123,18 @@ return new class extends Migration
                 "SELECT name FROM sqlite_master WHERE type='index' AND name=? AND tbl_name=?",
                 [$index, $table]
             );
+
             return count($result) > 0;
         } elseif ($driver === 'mysql' || $driver === 'mariadb') {
             // MySQL/MariaDB: Use information_schema
             $databaseName = DB::getDatabaseName();
 
             $result = DB::select(
-                "SELECT COUNT(*) as count
+                'SELECT COUNT(*) as count
                  FROM information_schema.statistics
                  WHERE table_schema = ?
                  AND table_name = ?
-                 AND index_name = ?",
+                 AND index_name = ?',
                 [$databaseName, $table, $index]
             );
 
@@ -142,9 +143,10 @@ return new class extends Migration
             // PostgreSQL and others: Query pg_indexes
             try {
                 $result = DB::select(
-                    "SELECT indexname FROM pg_indexes WHERE tablename = ? AND indexname = ?",
+                    'SELECT indexname FROM pg_indexes WHERE tablename = ? AND indexname = ?',
                     [$table, $index]
                 );
+
                 return count($result) > 0;
             } catch (\Exception $e) {
                 // Fallback: return false and let it attempt to create

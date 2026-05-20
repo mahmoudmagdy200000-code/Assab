@@ -3,7 +3,6 @@
 namespace Modules\Purchase\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class StoreMultipleOrdersRequest extends FormRequest
 {
@@ -75,7 +74,7 @@ class StoreMultipleOrdersRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         // Backward-compatibility alias used by some clients.
-        if (!$this->has('purchase_officer') && $this->has('purchasing_officer')) {
+        if (! $this->has('purchase_officer') && $this->has('purchasing_officer')) {
             $this->merge([
                 'purchase_officer' => $this->input('purchasing_officer'),
             ]);
@@ -131,11 +130,11 @@ class StoreMultipleOrdersRequest extends FormRequest
             $data = $this->all();
 
             // At least one order type must be provided
-            $hasBranches = !empty($data['branches']) && is_array($data['branches']) && count($data['branches']) > 0;
-            $hasDirectSupplier = !empty($data['direct_supplier']) && is_array($data['direct_supplier']) && count($data['direct_supplier']) > 0;
-            $hasPurchaseOfficer = !empty($data['purchase_officer']) && is_array($data['purchase_officer']) && count($data['purchase_officer']) > 0;
+            $hasBranches = ! empty($data['branches']) && is_array($data['branches']) && count($data['branches']) > 0;
+            $hasDirectSupplier = ! empty($data['direct_supplier']) && is_array($data['direct_supplier']) && count($data['direct_supplier']) > 0;
+            $hasPurchaseOfficer = ! empty($data['purchase_officer']) && is_array($data['purchase_officer']) && count($data['purchase_officer']) > 0;
 
-            if (!$hasBranches && !$hasDirectSupplier && !$hasPurchaseOfficer) {
+            if (! $hasBranches && ! $hasDirectSupplier && ! $hasPurchaseOfficer) {
                 $validator->errors()->add(
                     'orders',
                     'At least one order type must be provided (branches, direct_supplier, or purchase_officer).'

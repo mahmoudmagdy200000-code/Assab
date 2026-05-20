@@ -3,9 +3,9 @@
 namespace Modules\BranchManagers\Database\Seeders;
 
 use Illuminate\Database\Seeder;
-use Modules\BranchManagers\Models\BranchManager;
-use Modules\Branch\Models\Branch;
 use Illuminate\Support\Facades\Hash;
+use Modules\Branch\Models\Branch;
+use Modules\BranchManagers\Models\BranchManager;
 
 class BranchManagerSeeder extends Seeder
 {
@@ -13,8 +13,9 @@ class BranchManagerSeeder extends Seeder
     {
         $branch = Branch::first();
 
-        if (!$branch) {
+        if (! $branch) {
             $this->command->warn('Please seed branches first.');
+
             return;
         }
 

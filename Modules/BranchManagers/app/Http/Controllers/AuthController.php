@@ -2,19 +2,16 @@
 
 namespace Modules\BranchManagers\Http\Controllers;
 
-use Illuminate\Routing\Controller;
-use Modules\BranchManagers\Http\Requests\{
-    FirstLoginRequest,
-    ResetPasswordFirstLoginRequest,
-    LoginRequest,
-    ForgotPasswordRequest,
-    VerifyOtpRequest,
-    ResetPasswordRequest
-};
-use Modules\BranchManagers\Services\AuthService;
-use Modules\BranchManagers\Transformers\BranchManagerResource;
-use Illuminate\Http\JsonResponse;
 use App\ApiResponse as ApiResponseTrait;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Routing\Controller;
+use Modules\BranchManagers\Http\Requests\FirstLoginRequest;
+use Modules\BranchManagers\Http\Requests\ForgotPasswordRequest;
+use Modules\BranchManagers\Http\Requests\LoginRequest;
+use Modules\BranchManagers\Http\Requests\ResetPasswordFirstLoginRequest;
+use Modules\BranchManagers\Http\Requests\ResetPasswordRequest;
+use Modules\BranchManagers\Http\Requests\VerifyOtpRequest;
+use Modules\BranchManagers\Services\AuthService;
 
 class AuthController extends Controller
 {
@@ -63,7 +60,7 @@ class AuthController extends Controller
         try {
             $manager = auth('sanctum')->user();
 
-            if (!$manager || !$manager->isFirstLogin()) {
+            if (! $manager || ! $manager->isFirstLogin()) {
                 return $this->errorResponse('Invalid request', 400);
             }
 
@@ -103,7 +100,6 @@ class AuthController extends Controller
             return $this->handleException($e, 401);
         }
     }
-
 
     public function forgotPassword(ForgotPasswordRequest $request): JsonResponse
     {
@@ -172,7 +168,7 @@ class AuthController extends Controller
         try {
             $manager = auth('sanctum')->user();
 
-            if (!$manager) {
+            if (! $manager) {
                 return $this->unauthorizedResponse('Not authenticated');
             }
 

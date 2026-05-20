@@ -16,7 +16,7 @@ class GoodsReceiptResource extends JsonResource
             'document_type' => $this->document_type?->value,
 
             // Purchase Order
-            'purchase_order' => $this->whenLoaded('purchaseOrder', fn() => new PurchaseOrderResource($this->purchaseOrder)),
+            'purchase_order' => $this->whenLoaded('purchaseOrder', fn () => new PurchaseOrderResource($this->purchaseOrder)),
 
             // Delivery details
             'delivery_details' => [
@@ -67,7 +67,7 @@ class GoodsReceiptResource extends JsonResource
 
             // Related data
             'items' => GoodsReceiptItemResource::collection($this->whenLoaded('items')),
-            'invoice' => $this->whenLoaded('invoice', fn() => new InvoiceResource($this->invoice)),
+            'invoice' => $this->whenLoaded('invoice', fn () => new InvoiceResource($this->invoice)),
             'variances' => VarianceResource::collection($this->whenLoaded('variances')),
 
             // Document summary
@@ -88,6 +88,7 @@ class GoodsReceiptResource extends JsonResource
                                 'uploaded_at' => $inv->created_at?->format('Y-m-d H:i:s'),
                             ]);
                         }
+
                         return [
                             'invoice_number' => $inv->invoice_number,
                             'invoice_date' => $inv->invoice_date?->format('Y-m-d'),
@@ -116,10 +117,11 @@ class GoodsReceiptResource extends JsonResource
             // Supplier (from order, same shape as Return details)
             'supplier' => $this->whenLoaded('purchaseOrder', function () {
                 $order = $this->purchaseOrder;
-                if (!$order?->relationLoaded('supplier') || !$order->supplier) {
+                if (! $order?->relationLoaded('supplier') || ! $order->supplier) {
                     return null;
                 }
                 $s = $order->supplier;
+
                 return [
                     'id' => $s->id,
                     'name' => $s->name,
@@ -137,7 +139,7 @@ class GoodsReceiptResource extends JsonResource
             }),
 
             // Timelines
-            'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn () => UnifiedTimelineResource::collection($this->timelines)),
         ];
     }
 }

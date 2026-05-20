@@ -19,4 +19,3 @@ class VerifyOTPRequest extends FormRequest
         ];
     }
 }
-

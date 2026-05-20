@@ -7,12 +7,12 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use Modules\Shift\Services\HandoverService;
-use Modules\Shift\Models\CashierShift;
-use Modules\Shift\Models\CashierShiftHandover;
-use Modules\Shift\Transformers\ShiftDetailResource;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\HandoverStatus;
+use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\CashierShiftHandover;
+use Modules\Shift\Services\HandoverService;
+use Modules\Shift\Transformers\ShiftDetailResource;
 
 class ShiftHandoverController extends Controller
 {
@@ -50,7 +50,7 @@ class ShiftHandoverController extends Controller
             if ((string) $recipientId !== (string) $cashier->id) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Unauthorized: This handover is not for you'
+                    'message' => 'Unauthorized: This handover is not for you',
                 ], 403);
             }
 
@@ -62,13 +62,13 @@ class ShiftHandoverController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Handover accepted successfully'
+                'message' => 'Handover accepted successfully',
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to accept handover',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -88,7 +88,7 @@ class ShiftHandoverController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -99,7 +99,7 @@ class ShiftHandoverController extends Controller
             $isCashier = $user instanceof \Modules\Cashier\Models\Cashier;
             $isManager = $user instanceof \Modules\BranchManagers\Models\BranchManager;
 
-            if (!$isCashier && !$isManager) {
+            if (! $isCashier && ! $isManager) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -180,15 +180,15 @@ class ShiftHandoverController extends Controller
                             'next_cashier' => $nextCashier->name,
                             'handover_notes' => $request->handover_notes,
                             'status' => 'pending',
-                        ]
-                    ]
-                ]
+                        ],
+                    ],
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to record handover',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -202,7 +202,7 @@ class ShiftHandoverController extends Controller
             $manager = auth()->user();
 
             // Ensure the user is a branch manager
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -219,10 +219,10 @@ class ShiftHandoverController extends Controller
                 ], 403);
             }
 
-            if (!$shiftModel->handoverStatus) {
+            if (! $shiftModel->handoverStatus) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'No handover found for this shift'
+                    'message' => 'No handover found for this shift',
                 ], 404);
             }
 
@@ -250,20 +250,20 @@ class ShiftHandoverController extends Controller
                         'approved_by' => $manager->name,
                         'approved_at' => now()->format('Y-m-d H:i:s'),
                         'manager_comment' => $request->get('manager_comment') ?? null,
-                    ]
-                ]
+                    ],
+                ],
             ]);
         } catch (\Exception $e) {
             Log::error('Handover approval failed', [
                 'shift_id' => $shift,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to approve handover',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -286,7 +286,7 @@ class ShiftHandoverController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -323,7 +323,7 @@ class ShiftHandoverController extends Controller
                     ], 403);
                 }
 
-                if (!$shiftModel->handoverStatus) {
+                if (! $shiftModel->handoverStatus) {
                     return response()->json([
                         'success' => false,
                         'message' => 'No handover found for this shift',
@@ -345,27 +345,27 @@ class ShiftHandoverController extends Controller
                     'data' => [
                         'shift' => new ShiftDetailResource($fresh),
                         'rejection_details' => [
-                            'status'           => $fresh->handoverStatus?->manager_approval_status ?? 'rejected',
-                            'rejected_by'      => $user->name,
+                            'status' => $fresh->handoverStatus?->manager_approval_status ?? 'rejected',
+                            'rejected_by' => $user->name,
                             'rejection_reason' => $request->rejection_reason ?? null,
-                            'manager_comment'  => null,
-                            'rejected_at'      => now()->format('Y-m-d H:i:s'),
-                            'rejection_count'  => $fresh->handoverStatus?->rejection_count ?? 1,
+                            'manager_comment' => null,
+                            'rejected_at' => now()->format('Y-m-d H:i:s'),
+                            'rejection_count' => $fresh->handoverStatus?->rejection_count ?? 1,
                             'is_final_rejection' => false,
-                            'cashier_can_edit'   => true,
+                            'cashier_can_edit' => true,
                         ],
                         'next_actions' => [
-                            'cashier_can_resubmit'    => true,
+                            'cashier_can_resubmit' => true,
                             'manager_can_reject_again' => true,
                         ],
-                    ]
+                    ],
                 ]);
             }
 
             // ── Manager path: branch manager rejects with 2-rejection rule ──
             $manager = $user;
 
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -382,14 +382,14 @@ class ShiftHandoverController extends Controller
                 ], 403);
             }
 
-            if (!$shiftModel->handoverStatus) {
+            if (! $shiftModel->handoverStatus) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No handover found for this shift',
                 ], 404);
             }
 
-            if (!$shiftModel->handoverStatus->canBeRejected()) {
+            if (! $shiftModel->handoverStatus->canBeRejected()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Handover cannot be rejected. Either already permanently rejected or not in correct state.',
@@ -425,10 +425,10 @@ class ShiftHandoverController extends Controller
                         'cashier_can_edit' => $result['can_cashier_edit'],
                     ],
                     'next_actions' => [
-                        'cashier_can_resubmit' => !$result['is_final_rejection'],
-                        'manager_can_reject_again' => !$result['is_final_rejection'],
-                    ]
-                ]
+                        'cashier_can_resubmit' => ! $result['is_final_rejection'],
+                        'manager_can_reject_again' => ! $result['is_final_rejection'],
+                    ],
+                ],
             ]);
         } catch (\Exception $e) {
             Log::error('Handover rejection failed', [
@@ -439,7 +439,7 @@ class ShiftHandoverController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to reject handover',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -458,7 +458,7 @@ class ShiftHandoverController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -475,7 +475,7 @@ class ShiftHandoverController extends Controller
             }
 
             // Check if can edit
-            if (!$shiftModel->handoverStatus->canCashierEdit()) {
+            if (! $shiftModel->handoverStatus->canCashierEdit()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Handover cannot be edited. Either not rejected or permanently rejected.',
@@ -501,13 +501,13 @@ class ShiftHandoverController extends Controller
                     'warning' => $updatedShift->handoverStatus->rejection_count === 1
                         ? 'This is your last chance. One more rejection will be permanent.'
                         : null,
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to edit handover',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -524,7 +524,7 @@ class ShiftHandoverController extends Controller
                 'handover.handoverTo',
                 'handover.approvedBy',
                 'cashier',
-                'nextCashier'
+                'nextCashier',
             ])->findOrFail($shift);
 
             // Cashier must be the shift owner or the designated receiving cashier (from shift or handover record)
@@ -532,7 +532,7 @@ class ShiftHandoverController extends Controller
                 $isOwner = (string) $shiftModel->cashier_id === (string) $user->id;
                 $isReceiver = (string) $shiftModel->next_cashier_id === (string) $user->id
                     || ($shiftModel->handover && $shiftModel->handover->handover_to_type === 'cashier' && (string) $shiftModel->handover->handover_to_id === (string) $user->id);
-                if (!$isOwner && !$isReceiver) {
+                if (! $isOwner && ! $isReceiver) {
                     return response()->json([
                         'success' => false,
                         'message' => 'Unauthorized: You do not have access to this shift handover',
@@ -540,7 +540,7 @@ class ShiftHandoverController extends Controller
                 }
             }
 
-            if (!$shiftModel->handoverStatus) {
+            if (! $shiftModel->handoverStatus) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No handover found for this shift',
@@ -602,7 +602,7 @@ class ShiftHandoverController extends Controller
                         'can_cashier_edit' => $handoverStatus->canCashierEdit(),
                         'rejection_files' => $handoverStatus->rejection_files
                             ? collect($handoverStatus->rejection_files)->map(function ($file) {
-                                return asset('storage/' . $file);
+                                return asset('storage/'.$file);
                             })
                             : [],
                     ],
@@ -610,13 +610,13 @@ class ShiftHandoverController extends Controller
                     'was_edited_after_rejection' => $handoverStatus->was_edited_after_rejection,
                     'edited_at' => $handoverStatus->edited_at?->format('Y-m-d H:i:s'),
                     'correction_details' => $this->getCorrectionDetails($handoverStatus),
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve handover status',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -647,7 +647,7 @@ class ShiftHandoverController extends Controller
             if ($user instanceof Cashier) {
                 $isShiftOwner = $shiftModel->cashier_id === $user->id;
                 $isResponsibleParty = $shiftModel->varianceDetails->contains('responsible_cashier_id', $user->id);
-                if (!$isShiftOwner && !$isResponsibleParty) {
+                if (! $isShiftOwner && ! $isResponsibleParty) {
                     return response()->json([
                         'success' => false,
                         'message' => 'Unauthorized: This shift does not belong to you',
@@ -676,7 +676,7 @@ class ShiftHandoverController extends Controller
                 // This cashier is not the shift owner — they may be a responsible_cashier_id
                 $myDetail = $shiftModel->varianceDetails->firstWhere('responsible_cashier_id', $user->id);
 
-                if (!$myDetail) {
+                if (! $myDetail) {
                     return response()->json([
                         'success' => false,
                         'message' => 'No responsibility record assigned to you on this shift',
@@ -687,44 +687,44 @@ class ShiftHandoverController extends Controller
                     'success' => true,
                     'message' => 'Responsibility details retrieved successfully',
                     'data' => [
-                        'shift_id'              => $shiftModel->id,
-                        'cashier_name'          => $user->name,
-                        'branch_name'           => $shiftModel->shift?->branch?->name ?? null,
-                        'variance_amount'       => $variance,
-                        'variance_type'         => $varianceType,
-                        'shift_date'            => $shiftModel->shift_date?->format('Y-m-d'),
-                        'assigned_amount'       => (float) $myDetail->assigned_amount,
+                        'shift_id' => $shiftModel->id,
+                        'cashier_name' => $user->name,
+                        'branch_name' => $shiftModel->shift?->branch?->name ?? null,
+                        'variance_amount' => $variance,
+                        'variance_type' => $varianceType,
+                        'shift_date' => $shiftModel->shift_date?->format('Y-m-d'),
+                        'assigned_amount' => (float) $myDetail->assigned_amount,
                         'responsibility_status' => $myDetail->responsibility_status,
-                        'rejection_reason'      => $myDetail->rejection_reason,
-                        'reviewed_at'           => $myDetail->reviewed_at?->format('Y-m-d H:i:s'),
+                        'rejection_reason' => $myDetail->rejection_reason,
+                        'reviewed_at' => $myDetail->reviewed_at?->format('Y-m-d H:i:s'),
                     ],
                 ]);
             }
 
             // Shift owner (cashier) or branch manager — show overall shift responsibility status
             $varianceDetail = $shiftModel->varianceDetails->first();
-            if (!$varianceDetail) {
+            if (! $varianceDetail) {
                 $responsibilityStatus = 'not_submitted';
-                $rejectionReason      = null;
-                $reviewedAt           = null;
+                $rejectionReason = null;
+                $reviewedAt = null;
             } else {
                 $responsibilityStatus = $varianceDetail->responsibility_status;
-                $rejectionReason      = $varianceDetail->rejection_reason;
-                $reviewedAt           = $varianceDetail->reviewed_at?->format('Y-m-d H:i:s');
+                $rejectionReason = $varianceDetail->rejection_reason;
+                $reviewedAt = $varianceDetail->reviewed_at?->format('Y-m-d H:i:s');
             }
 
             // For manager: also include per-cashier breakdown when multiple cashiers are responsible
             $responsibleCashiers = null;
-            if (!$isCashierUser && $shiftModel->varianceDetails->isNotEmpty()) {
+            if (! $isCashierUser && $shiftModel->varianceDetails->isNotEmpty()) {
                 $responsibleCashiers = $shiftModel->varianceDetails
                     ->whereNotNull('responsible_cashier_id')
-                    ->map(fn($d) => [
-                        'cashier_id'            => $d->responsible_cashier_id,
-                        'cashier_name'          => $d->responsibleCashier?->name ?? null,
-                        'assigned_amount'       => (float) $d->assigned_amount,
+                    ->map(fn ($d) => [
+                        'cashier_id' => $d->responsible_cashier_id,
+                        'cashier_name' => $d->responsibleCashier?->name ?? null,
+                        'assigned_amount' => (float) $d->assigned_amount,
                         'responsibility_status' => $d->responsibility_status,
-                        'rejection_reason'      => $d->rejection_reason,
-                        'reviewed_at'           => $d->reviewed_at?->format('Y-m-d H:i:s'),
+                        'rejection_reason' => $d->rejection_reason,
+                        'reviewed_at' => $d->reviewed_at?->format('Y-m-d H:i:s'),
                     ])
                     ->values();
             }
@@ -733,17 +733,17 @@ class ShiftHandoverController extends Controller
                 'success' => true,
                 'message' => 'Responsibility details retrieved successfully',
                 'data' => array_filter([
-                    'shift_id'               => $shiftModel->id,
-                    'cashier_name'           => $shiftModel->cashier?->name ?? null,
-                    'branch_name'            => $shiftModel->shift?->branch?->name ?? null,
-                    'variance_amount'        => $variance,
-                    'variance_type'          => $varianceType,
-                    'shift_date'             => $shiftModel->shift_date?->format('Y-m-d'),
-                    'responsibility_status'  => $responsibilityStatus,
-                    'rejection_reason'       => $rejectionReason,
-                    'reviewed_at'            => $reviewedAt,
-                    'responsible_cashiers'   => $responsibleCashiers,
-                ], fn($v) => $v !== null),
+                    'shift_id' => $shiftModel->id,
+                    'cashier_name' => $shiftModel->cashier?->name ?? null,
+                    'branch_name' => $shiftModel->shift?->branch?->name ?? null,
+                    'variance_amount' => $variance,
+                    'variance_type' => $varianceType,
+                    'shift_date' => $shiftModel->shift_date?->format('Y-m-d'),
+                    'responsibility_status' => $responsibilityStatus,
+                    'rejection_reason' => $rejectionReason,
+                    'reviewed_at' => $reviewedAt,
+                    'responsible_cashiers' => $responsibleCashiers,
+                ], fn ($v) => $v !== null),
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -763,8 +763,7 @@ class ShiftHandoverController extends Controller
      * Get correction details (request corrections information)
      * Returns details about who requested corrections, when, and the comment
      *
-     * @param ShiftHandoverStatus $handoverStatus
-     * @return array|null
+     * @param  ShiftHandoverStatus  $handoverStatus
      */
     private function getCorrectionDetails($handoverStatus): ?array
     {
@@ -772,7 +771,7 @@ class ShiftHandoverController extends Controller
         // 1. manager_comment exists (correction was requested)
         // 2. reviewed_at exists (correction was processed)
         // 3. Status is rejected (not approved or permanently rejected)
-        if (!$handoverStatus->manager_comment || !$handoverStatus->reviewed_at) {
+        if (! $handoverStatus->manager_comment || ! $handoverStatus->reviewed_at) {
             return null;
         }
 
@@ -798,13 +797,10 @@ class ShiftHandoverController extends Controller
 
     /**
      * Get reviewer type in readable format
-     *
-     * @param string|null $reviewerType
-     * @return string|null
      */
     private function getReviewerTypeLabel(?string $reviewerType): ?string
     {
-        if (!$reviewerType) {
+        if (! $reviewerType) {
             return null;
         }
 
@@ -835,6 +831,7 @@ class ShiftHandoverController extends Controller
         if (str_contains($type, 'Cashier') || $type === 'cashier') {
             return 'cashier';
         }
+
         return $type;
     }
 
@@ -848,7 +845,7 @@ class ShiftHandoverController extends Controller
             $shiftModel = CashierShift::with([
                 'shift' => function ($q) {
                     $q->select(['id', 'name', 'branch_id']);
-                }
+                },
             ])->findOrFail($shift);
 
             // Cashier caller must own this shift
@@ -873,7 +870,7 @@ class ShiftHandoverController extends Controller
                     'id' => $cashier->id,
                     'name' => $cashier->name,
                     'email' => $cashier->email,
-                    'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
+                    'image' => $cashier->image ? asset('storage/'.$cashier->image) : null,
                     'type' => 'cashier',
                     'is_available' => true,
                     'disabled' => false,
@@ -890,9 +887,9 @@ class ShiftHandoverController extends Controller
             $branchManagerEntries = $branchManagers->map(function ($manager) {
                 return [
                     'id' => $manager->id,
-                    'name' => $manager->name . ' (Branch Manager)',
+                    'name' => $manager->name.' (Branch Manager)',
                     'email' => $manager->email ?? null,
-                    'image' => $manager->image ? asset('storage/' . $manager->image) : null,
+                    'image' => $manager->image ? asset('storage/'.$manager->image) : null,
                     'type' => 'branch_manager',
                     'is_available' => true,
                     'disabled' => false,
@@ -928,7 +925,7 @@ class ShiftHandoverController extends Controller
             $user = auth()->user();
             $branchId = $user->branch_id;
 
-            if (!$branchId) {
+            if (! $branchId) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Branch manager is not assigned to any branch',
@@ -936,24 +933,24 @@ class ShiftHandoverController extends Controller
             }
 
             $summaries = $this->handoverService->getHandoverSummaries([
-                'branch_id' => $branchId
+                'branch_id' => $branchId,
             ]);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Handover summaries retrieved successfully',
-                'data' => $summaries
+                'data' => $summaries,
             ]);
         } catch (\Exception $e) {
             Log::error('Failed to retrieve handover summaries', [
                 'user_id' => auth()->id(),
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve handover summaries',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -972,7 +969,7 @@ class ShiftHandoverController extends Controller
                 'handoverStatus',
                 'shift' => function ($q) {
                     $q->select(['id', 'name', 'branch_id']);
-                }
+                },
             ])->findOrFail($shift);
 
             // Verify shift belongs to manager's branch
@@ -985,14 +982,14 @@ class ShiftHandoverController extends Controller
 
             $handoverStatus = $shiftModel->handoverStatus;
 
-            if (!$handoverStatus) {
+            if (! $handoverStatus) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No handover found for this shift',
                 ], 404);
             }
 
-            if (!$handoverStatus->isManagerRejected()) {
+            if (! $handoverStatus->isManagerRejected()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'This handover is not rejected',
@@ -1017,7 +1014,7 @@ class ShiftHandoverController extends Controller
                         'reviewed_by' => $handoverStatus->reviewedBy?->name,
                         'reviewed_at' => $handoverStatus->reviewed_at?->format('Y-m-d H:i:s'),
                     ],
-                    'can_approve_rejection' => !$handoverStatus->isPermanentlyRejected(),
+                    'can_approve_rejection' => ! $handoverStatus->isPermanentlyRejected(),
                     'can_request_corrections' => $handoverStatus->rejection_count === 1,
                 ],
             ]);
@@ -1025,7 +1022,7 @@ class ShiftHandoverController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve rejection details',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -1038,7 +1035,7 @@ class ShiftHandoverController extends Controller
     {
         // Get request data - prioritize JSON if available
         $jsonData = $request->json()->all();
-        $requestData = !empty($jsonData) ? $jsonData : $request->all();
+        $requestData = ! empty($jsonData) ? $jsonData : $request->all();
 
         $validator = Validator::make($requestData, [
             'decision' => 'nullable|in:approve_rejection,request_corrections',
@@ -1055,7 +1052,7 @@ class ShiftHandoverController extends Controller
                     'json_data' => $request->json()->all(),
                     'all_data' => $request->all(),
                     'content_type' => $request->header('Content-Type'),
-                ]
+                ],
             ], 422);
         }
 
@@ -1067,7 +1064,7 @@ class ShiftHandoverController extends Controller
                 'handoverStatus',
                 'shift' => function ($q) {
                     $q->select(['id', 'name', 'branch_id']);
-                }
+                },
             ])->findOrFail($shift);
 
             // Verify shift belongs to manager's branch
@@ -1080,14 +1077,14 @@ class ShiftHandoverController extends Controller
 
             $handoverStatus = $shiftModel->handoverStatus;
 
-            if (!$handoverStatus) {
+            if (! $handoverStatus) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No handover found for this shift',
                 ], 404);
             }
 
-            if (!$handoverStatus->isManagerRejected()) {
+            if (! $handoverStatus->isManagerRejected()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'This handover is not rejected',
@@ -1179,7 +1176,7 @@ class ShiftHandoverController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to process rejection decision',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }

@@ -10,7 +10,6 @@ class SupplierItemResource extends JsonResource
      * Transform the resource into an array.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @return array
      */
     public function toArray($request): array
     {
@@ -29,7 +28,7 @@ class SupplierItemResource extends JsonResource
             if ($logo) {
                 $itemLogo = str_starts_with($logo, 'http')
                     ? $logo
-                    : asset('storage/' . $logo);
+                    : asset('storage/'.$logo);
             }
         }
 

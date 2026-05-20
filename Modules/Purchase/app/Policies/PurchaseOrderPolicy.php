@@ -23,7 +23,7 @@ class PurchaseOrderPolicy
      */
     public function view(BranchManager $user, PurchaseOrder $order): bool
     {
-        return $user->branch_id === $order->branch_id || 
+        return $user->branch_id === $order->branch_id ||
                $user->id === $order->requested_by;
     }
 
@@ -40,7 +40,7 @@ class PurchaseOrderPolicy
      */
     public function update(BranchManager $user, PurchaseOrder $order): bool
     {
-        return ($user->branch_id === $order->branch_id || $user->id === $order->requested_by) 
+        return ($user->branch_id === $order->branch_id || $user->id === $order->requested_by)
                && $order->status->isActive();
     }
 
@@ -69,7 +69,7 @@ class PurchaseOrderPolicy
         if ($order->order_type->isTransfer()) {
             return $user->branch_id === $order->from_branch_id;
         }
-        
+
         return false;
     }
 
@@ -97,4 +97,3 @@ class PurchaseOrderPolicy
         return $user->branch_id === $order->branch_id && $order->can_receive;
     }
 }
-

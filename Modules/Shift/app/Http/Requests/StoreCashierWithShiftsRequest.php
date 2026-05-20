@@ -3,12 +3,12 @@
 namespace Modules\Shift\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Models\CashierShift;
 
 /**
  * Form Request for creating a cashier with shift assignments
- * 
+ *
  * Business Rules:
  * - Store name, number of branches, branch assignments → Admin ONLY
  * - Number of shifts, schedules, working hours → Admin ONLY
@@ -30,7 +30,7 @@ class StoreCashierWithShiftsRequest extends FormRequest
             // Cashier Information
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:cashiers,email',
-            
+
             // Branch assignment (from admin-managed list)
             'store_branch_id' => [
                 'required',
@@ -43,7 +43,7 @@ class StoreCashierWithShiftsRequest extends FormRequest
                     }
                 },
             ],
-            
+
             // Working Shifts Assignment (multi-select)
             'shift_ids' => 'required|array|min:1',
             'shift_ids.*' => [
@@ -76,10 +76,10 @@ class StoreCashierWithShiftsRequest extends FormRequest
     private function validateShiftNotOccupied($shiftId, $fail): void
     {
         $branchId = $this->input('store_branch_id');
-        
+
         // Check if any cashier is already assigned to this shift for future dates
         $occupied = CashierShift::where('shift_id', $shiftId)
-            ->whereHas('shift', fn($q) => $q->where('branch_id', $branchId))
+            ->whereHas('shift', fn ($q) => $q->where('branch_id', $branchId))
             ->whereDate('shift_date', '>=', today())
             ->whereIn('status', [
                 ShiftStatus::NOT_STARTED->value,
@@ -117,4 +117,3 @@ class StoreCashierWithShiftsRequest extends FormRequest
         return $this->shift_ids;
     }
 }
-

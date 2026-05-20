@@ -9,7 +9,7 @@ enum ProcessingTime: string
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::STANDARD => 'Standard (3-5 days)',
             self::URGENT => 'Urgent (1-2 days)',
         };
@@ -17,7 +17,7 @@ enum ProcessingTime: string
 
     public function minDays(): int
     {
-        return match($this) {
+        return match ($this) {
             self::STANDARD => 3,
             self::URGENT => 1,
         };
@@ -25,10 +25,9 @@ enum ProcessingTime: string
 
     public function maxDays(): int
     {
-        return match($this) {
+        return match ($this) {
             self::STANDARD => 5,
             self::URGENT => 2,
         };
     }
 }
-

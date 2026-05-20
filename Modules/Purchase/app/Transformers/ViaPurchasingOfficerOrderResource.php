@@ -4,7 +4,6 @@ namespace Modules\Purchase\Transformers;
 
 use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
 
 class ViaPurchasingOfficerOrderResource extends JsonResource
@@ -45,13 +44,14 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
 
             // Store/Branch Information
             'store' => $this->whenLoaded('branch', function () {
-                if (!$this->branch) {
+                if (! $this->branch) {
                     return null;
                 }
+
                 return [
                     'id' => $this->branch->id,
                     'name' => $this->branch->name,
-                    'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
+                    'image' => $this->branch->image ? asset('storage/'.$this->branch->image) : null,
                     'lat' => $this->branch->lat ? (float) $this->branch->lat : null,
                     'lng' => $this->branch->lng ? (float) $this->branch->lng : null,
                     'opening_hours' => $this->branch->opening_hours ? $this->branch->opening_hours->format('Y-m-d H:i:s') : null,
@@ -90,7 +90,7 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
         ];
 
         $data['supplier'] = null;
-        $data['timelines'] = $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines));
+        $data['timelines'] = $this->whenLoaded('timelines', fn () => UnifiedTimelineResource::collection($this->timelines));
 
         return $data;
     }
@@ -136,7 +136,7 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
             'confirmed' => [
                 'confirmed_at' => $this->confirmed_at?->format('Y-m-d H:i:s'),
                 'all_items_confirmed' => $this->relationLoaded('items')
-                    ? $this->items->every(fn($item) => $item->quantity_confirmed !== null)
+                    ? $this->items->every(fn ($item) => $item->quantity_confirmed !== null)
                     : false,
             ],
             'draft' => [
@@ -156,7 +156,7 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
             return null;
         }
 
-        if (!$this->relationLoaded('items') || $this->items->isEmpty()) {
+        if (! $this->relationLoaded('items') || $this->items->isEmpty()) {
             return null;
         }
 
@@ -198,7 +198,7 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
                 ];
             }
 
-            if (!empty($itemModifications)) {
+            if (! empty($itemModifications)) {
                 $modifications[] = array_merge([
                     'item_id' => $item->id,
                     'item_name' => $item->item_name,
@@ -206,7 +206,7 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
             }
         }
 
-        return !empty($modifications) ? $modifications : null;
+        return ! empty($modifications) ? $modifications : null;
     }
 
     /**
@@ -261,7 +261,7 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
      */
     private function hasModifications(): bool
     {
-        if (!$this->relationLoaded('items')) {
+        if (! $this->relationLoaded('items')) {
             return false;
         }
 
@@ -277,7 +277,7 @@ class ViaPurchasingOfficerOrderResource extends JsonResource
      */
     private function getModificationCount(): int
     {
-        if (!$this->relationLoaded('items')) {
+        if (! $this->relationLoaded('items')) {
             return 0;
         }
 

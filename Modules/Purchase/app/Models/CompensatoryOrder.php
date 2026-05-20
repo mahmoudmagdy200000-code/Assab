@@ -86,13 +86,13 @@ class CompensatoryOrder extends Model
     // Accessors
     public function getItemLogoUrlAttribute(): ?string
     {
-        if (!$this->item_logo) {
+        if (! $this->item_logo) {
             return null;
         }
-        
-        return str_starts_with($this->item_logo, 'http') 
-            ? $this->item_logo 
-            : asset('storage/' . $this->item_logo);
+
+        return str_starts_with($this->item_logo, 'http')
+            ? $this->item_logo
+            : asset('storage/'.$this->item_logo);
     }
 
     public function getIsPendingAttribute(): bool
@@ -131,6 +131,7 @@ class CompensatoryOrder extends Model
     {
         $date = now()->format('Ymd');
         $random = strtoupper(Str::random(4));
+
         return "CO-{$date}-{$random}";
     }
 
@@ -155,7 +156,7 @@ class CompensatoryOrder extends Model
     public function complete(): void
     {
         $this->update(['status' => 'completed']);
-        
+
         // Also resolve the variance
         $this->variance->resolve(auth()->id(), 'Compensatory order completed');
     }
@@ -165,4 +166,3 @@ class CompensatoryOrder extends Model
         $this->update(['status' => 'cancelled']);
     }
 }
-

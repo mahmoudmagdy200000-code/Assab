@@ -2,10 +2,8 @@
 
 namespace Modules\Custody\Services;
 
-use Illuminate\Support\Facades\DB;
 use Modules\Custody\Models\PersonalLedgerTransaction;
 use Modules\Shift\Models\CashierShiftHandover;
-use Modules\Shift\Models\BranchManagerShift;
 
 class PersonalLedgerService
 {
@@ -17,9 +15,9 @@ class PersonalLedgerService
         $query = PersonalLedgerTransaction::where('branch_manager_id', $branchManagerId);
 
         // Apply month and year filter if provided
-        if (!empty($month) && !empty($year)) {
+        if (! empty($month) && ! empty($year)) {
             $query->whereYear('transaction_date', $year)
-                  ->whereMonth('transaction_date', $month);
+                ->whereMonth('transaction_date', $month);
         }
 
         $transactions = $query->orderBy('transaction_date', 'desc')->get();
@@ -53,7 +51,6 @@ class PersonalLedgerService
         return round($totalCashIn - $totalCashOut, 2);
     }
 
-
     /**
      * Get transaction history with filters
      */
@@ -68,21 +65,21 @@ class PersonalLedgerService
         }
 
         // Month and Year filter (for Personal Ledger Transactions)
-        if (!empty($filters['month']) && !empty($filters['year'])) {
+        if (! empty($filters['month']) && ! empty($filters['year'])) {
             $month = (int) $filters['month'];
             $year = (int) $filters['year'];
             $query->whereYear('transaction_date', $year)
-                  ->whereMonth('transaction_date', $month);
+                ->whereMonth('transaction_date', $month);
         }
 
         // Time period filter (for PDF export)
-        if (!empty($filters['timePeriod'])) {
+        if (! empty($filters['timePeriod'])) {
             $startDate = $this->getTimePeriodStartDate($filters['timePeriod']);
             $query->where('transaction_date', '>=', $startDate);
         }
 
         // Transaction type filter
-        if (!empty($filters['transactionType'])) {
+        if (! empty($filters['transactionType'])) {
             $query->where('transaction_type', $filters['transactionType']);
         }
 
@@ -137,8 +134,8 @@ class PersonalLedgerService
     private function formatTransactionForActivity(PersonalLedgerTransaction $transaction): array
     {
         $amount = $transaction->is_cash_in
-            ? '+' . number_format($transaction->amount, 2, '.', '')
-            : '-' . number_format($transaction->amount, 2, '.', '');
+            ? '+'.number_format($transaction->amount, 2, '.', '')
+            : '-'.number_format($transaction->amount, 2, '.', '');
 
         $data = [
             'transactionType' => $transaction->transaction_type,
@@ -164,8 +161,8 @@ class PersonalLedgerService
     private function formatTransactionForList(PersonalLedgerTransaction $transaction): array
     {
         $amount = $transaction->is_cash_in
-            ? '+' . number_format($transaction->amount, 2, '.', '')
-            : '-' . number_format($transaction->amount, 2, '.', '');
+            ? '+'.number_format($transaction->amount, 2, '.', '')
+            : '-'.number_format($transaction->amount, 2, '.', '');
 
         $data = [
             'id' => $transaction->id,

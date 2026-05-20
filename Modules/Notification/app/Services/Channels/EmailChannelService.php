@@ -3,8 +3,8 @@
 namespace Modules\Notification\Services\Channels;
 
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Modules\Notification\Mail\NotificationMail;
 
 class EmailChannelService
@@ -15,19 +15,21 @@ class EmailChannelService
     public function send(Notifiable $notifiable, string $title, string $message, array $data = []): bool
     {
         try {
-            if (!method_exists($notifiable, 'routeNotificationForMail')) {
+            if (! method_exists($notifiable, 'routeNotificationForMail')) {
                 Log::warning('Notifiable does not have email route', [
                     'notifiable_id' => $notifiable->id ?? null,
                 ]);
+
                 return false;
             }
 
             $email = $notifiable->routeNotificationForMail();
 
-            if (!$email) {
+            if (! $email) {
                 Log::warning('No email address found for notifiable', [
                     'notifiable_id' => $notifiable->id ?? null,
                 ]);
+
                 return false;
             }
 
@@ -44,4 +46,3 @@ class EmailChannelService
         }
     }
 }
-

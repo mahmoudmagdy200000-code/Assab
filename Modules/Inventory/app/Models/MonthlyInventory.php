@@ -110,7 +110,7 @@ class MonthlyInventory extends Model
 
     public function getTimeTakenFormattedAttribute(): ?string
     {
-        if (!$this->time_taken) {
+        if (! $this->time_taken) {
             return null;
         }
 

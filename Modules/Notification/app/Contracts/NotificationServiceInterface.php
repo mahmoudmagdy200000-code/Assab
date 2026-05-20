@@ -2,8 +2,8 @@
 
 namespace Modules\Notification\Contracts;
 
-use Modules\Notification\Enums\NotificationType;
 use Modules\Notification\Enums\NotificationPriority;
+use Modules\Notification\Enums\NotificationType;
 
 interface NotificationServiceInterface
 {
@@ -37,4 +37,3 @@ interface NotificationServiceInterface
         ?NotificationPriority $priority = null
     ): void;
 }
-

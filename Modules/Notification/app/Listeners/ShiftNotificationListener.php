@@ -24,14 +24,14 @@ class ShiftNotificationListener implements ShouldQueue
     {
         $shift = $event->shift;
 
-        if (!$event->hasHandover) {
+        if (! $event->hasHandover) {
             return;
         }
 
         // Resolve the designated receiving cashier from the authoritative handover record first,
         // then fall back to the next_cashier_id column on the shift.
         $shift->loadMissing(['handover', 'nextCashier', 'cashier']);
-        $handover    = $shift->handover;
+        $handover = $shift->handover;
         $nextCashier = null;
 
         if ($handover && $handover->handover_to_type === 'cashier' && $handover->handover_to_id) {
@@ -45,8 +45,8 @@ class ShiftNotificationListener implements ShouldQueue
                 $nextCashier,
                 NotificationType::SHIFT_HANDOVER_PENDING,
                 [
-                    'shift_id'     => $shift->id,
-                    'shift_date'   => $shift->shift_date->toDateString(),
+                    'shift_id' => $shift->id,
+                    'shift_date' => $shift->shift_date->toDateString(),
                     'cashier_name' => $shift->cashier->name ?? 'Cashier',
                 ],
                 NotificationPriority::MEDIUM
@@ -54,4 +54,3 @@ class ShiftNotificationListener implements ShouldQueue
         }
     }
 }
-

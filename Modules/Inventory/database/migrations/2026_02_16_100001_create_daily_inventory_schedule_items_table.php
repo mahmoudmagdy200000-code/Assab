@@ -30,11 +30,12 @@ return new class extends Migration
                 $table->foreign('daily_inventory_schedule_id', self::FK_SCHEDULE)->references('id')->on('daily_inventory_schedules')->cascadeOnDelete();
                 $table->foreign('item_id', self::FK_ITEM)->references('id')->on('items')->cascadeOnDelete();
             });
+
             return;
         }
 
         // Table exists from a previous failed run; add missing unique and foreign keys
-        $hasUnique = collect(DB::select("SHOW INDEX FROM daily_inventory_schedule_items WHERE Key_name = ?", [self::UNIQUE_INDEX]))->isNotEmpty();
+        $hasUnique = collect(DB::select('SHOW INDEX FROM daily_inventory_schedule_items WHERE Key_name = ?', [self::UNIQUE_INDEX]))->isNotEmpty();
         if (! $hasUnique) {
             Schema::table('daily_inventory_schedule_items', function (Blueprint $table) {
                 $table->unique(['daily_inventory_schedule_id', 'item_id'], self::UNIQUE_INDEX);

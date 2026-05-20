@@ -1,20 +1,18 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Modules\Shift\Http\Controllers\{
-    PendingShiftController,
-    InProgressShiftController,
-    CompletedShiftController,
-    ReassignmentShiftController,
-    ShiftController,
-    ShiftEndController,
-    ShiftHandoverController,
-    ShiftVarianceController,
-    ShiftRequestsController,
-    BranchManagerShiftController,
-    CashierShiftController,
-    CashierManagementController,
-};
+use Modules\Shift\Http\Controllers\BranchManagerShiftController;
+use Modules\Shift\Http\Controllers\CashierManagementController;
+use Modules\Shift\Http\Controllers\CashierShiftController;
+use Modules\Shift\Http\Controllers\CompletedShiftController;
+use Modules\Shift\Http\Controllers\InProgressShiftController;
+use Modules\Shift\Http\Controllers\PendingShiftController;
+use Modules\Shift\Http\Controllers\ReassignmentShiftController;
+use Modules\Shift\Http\Controllers\ShiftController;
+use Modules\Shift\Http\Controllers\ShiftEndController;
+use Modules\Shift\Http\Controllers\ShiftHandoverController;
+use Modules\Shift\Http\Controllers\ShiftRequestsController;
+use Modules\Shift\Http\Controllers\ShiftVarianceController;
 
 /*
 |--------------------------------------------------------------------------
@@ -25,7 +23,6 @@ use Modules\Shift\Http\Controllers\{
 Route::prefix('branch-manager')
     ->middleware(['auth:sanctum', 'branch.manager.or.cashier', 'log.throttle'])
     ->group(function () {
-
 
         /*
         |----------------------------------------------------------------------
@@ -164,7 +161,6 @@ Route::prefix('branch-manager')
             Route::prefix('{shift}')->group(function () {
                 // View shift details
                 Route::get('/', [ShiftController::class, 'getCashierShiftById'])->name('shifts.getCashierShiftById');
-
 
                 // Reassignment
                 Route::post('reassign', [ReassignmentShiftController::class, 'reassign'])

@@ -42,4 +42,3 @@ enum ModificationType: string
         };
     }
 }
-

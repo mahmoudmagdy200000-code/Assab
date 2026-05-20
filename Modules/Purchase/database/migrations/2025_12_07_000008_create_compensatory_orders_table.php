@@ -44,7 +44,7 @@ return new class extends Migration
                 'confirmed',
                 'delivered',
                 'completed',
-                'canceled'
+                'canceled',
             ])->default('pending');
 
             $table->uuid('created_by');

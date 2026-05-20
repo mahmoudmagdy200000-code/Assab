@@ -3,9 +3,9 @@
 namespace Modules\Expense\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
-use Modules\Expense\Models\ExpenseTimeline;
-use Modules\Expense\Models\Expense;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Expense\Models\Expense;
+use Modules\Expense\Models\ExpenseTimeline;
 
 class ExpenseTimelineFactory extends Factory
 {

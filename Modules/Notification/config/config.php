@@ -36,4 +36,3 @@ return [
         'timeout_seconds' => env('NOTIFICATION_DELIVERY_TIMEOUT', 2),
     ],
 ];
-

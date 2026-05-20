@@ -20,7 +20,7 @@ class ActivationController extends BaseController
         $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
         $cashier = Cashier::where($field, $identifier)->first();
 
-        if (!$cashier) {
+        if (! $cashier) {
             return $this->errorResponse('Cashier not found.', 404);
         }
 
@@ -28,7 +28,7 @@ class ActivationController extends BaseController
             return $this->errorResponse('Account is already activated. Please log in.', 400);
         }
 
-        if (!Hash::check($request->default_password, $cashier->password)) {
+        if (! Hash::check($request->default_password, $cashier->password)) {
             return $this->errorResponse('Invalid default password. Please use the password provided by your branch manager.', 401);
         }
 

@@ -145,11 +145,11 @@ class AnalyticsService
             ->with(['purchaseOrder', 'branch'])
             ->orderBy('created_at', 'desc');
 
-        if (!empty($filters['branch_id'])) {
+        if (! empty($filters['branch_id'])) {
             $query->where('branch_id', $filters['branch_id']);
         }
 
-        if (!empty($filters['order_id'])) {
+        if (! empty($filters['order_id'])) {
             $query->where('purchase_order_id', $filters['order_id']);
         }
 
@@ -160,4 +160,3 @@ class AnalyticsService
         return $query->paginate($perPage);
     }
 }
-

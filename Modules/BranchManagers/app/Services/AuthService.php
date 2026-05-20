@@ -2,13 +2,12 @@
 
 namespace Modules\BranchManagers\Services;
 
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Models\BranchManagerOtp;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Notification;
-use Carbon\Carbon;
-use Illuminate\Support\Facades\Log;
 
 class AuthService
 {
@@ -21,19 +20,20 @@ class AuthService
         $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
         $manager = BranchManager::where($field, $identifier)->first();
 
-        if (!$manager || !Hash::check($password, $manager->password)) {
+        if (! $manager || ! Hash::check($password, $manager->password)) {
             throw new \Exception('Invalid credentials ');
         }
 
-        if (!$manager->isActive()) {
+        if (! $manager->isActive()) {
             throw new \Exception('Account is inactive');
         }
 
-        if (!$manager->isFirstLogin()) {
+        if (! $manager->isFirstLogin()) {
             throw new \Exception('Account is already acctivated. Please use regular login.');
         }
 
         $token = $manager->createToken('first-login-token')->plainTextToken;
+
         return [
             'manager' => $manager,
             'token' => $token,
@@ -63,11 +63,11 @@ class AuthService
 
         $manager = BranchManager::where($field, $identifier)->first();
 
-        if (!$manager || !Hash::check($password, $manager->password)) {
+        if (! $manager || ! Hash::check($password, $manager->password)) {
             throw new \Exception('Invalid credentials');
         }
 
-        if (!$manager->isActive()) {
+        if (! $manager->isActive()) {
             throw new \Exception('Account is inactive');
         }
 
@@ -124,11 +124,11 @@ class AuthService
             ->latest()
             ->first();
 
-        if (!$otpRecord) {
+        if (! $otpRecord) {
             throw new \Exception('Invalid or expired OTP');
         }
 
-        if (!Hash::check($otp, $otpRecord->otp)) {
+        if (! Hash::check($otp, $otpRecord->otp)) {
             throw new \Exception('Invalid OTP');
         }
 
@@ -142,7 +142,7 @@ class AuthService
     {
         // Generate a random token
         $resetToken = bin2hex(random_bytes(32));
-        
+
         // Store reset token in OTP table as a new record
         BranchManagerOtp::create([
             'identifier' => $identifier,
@@ -168,7 +168,7 @@ class AuthService
             ->where('is_used', false)
             ->first();
 
-        if (!$otpRecord) {
+        if (! $otpRecord) {
             throw new \Exception('Invalid or expired reset token');
         }
 
@@ -176,7 +176,7 @@ class AuthService
         $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
         $manager = BranchManager::where($field, $identifier)->first();
 
-        if (!$manager) {
+        if (! $manager) {
             throw new \Exception('Branch Manager not found');
         }
 

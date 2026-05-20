@@ -26,12 +26,12 @@ class PendingShiftController extends BaseController
     {
         try {
             $manager = auth()->user();
-            
+
             // Ensure the user is a branch manager
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return $this->errorResponse('Unauthorized', 403);
             }
-            
+
             $managerBranchId = $manager->branch_id;
             $cashierId = $request->input('cashier_id');
 
@@ -57,12 +57,12 @@ class PendingShiftController extends BaseController
     {
         try {
             $manager = auth()->user();
-            
+
             // Ensure the user is a branch manager
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return $this->errorResponse('Unauthorized', 403);
             }
-            
+
             $managerBranchId = $manager->branch_id;
 
             $shiftDetails = $this->cashierShiftRepository->findForManagerShow($shift, $managerBranchId);
@@ -86,8 +86,8 @@ class PendingShiftController extends BaseController
                         'view_details' => true,
                         'reassign_shift' => true,
                         'start_shift' => $shiftDetails->shift_date->isToday(),
-                    ]
-                ]
+                    ],
+                ],
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -98,7 +98,7 @@ class PendingShiftController extends BaseController
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve shift details',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -112,7 +112,7 @@ class PendingShiftController extends BaseController
         try {
             $manager = auth()->user();
 
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return $this->errorResponse('Unauthorized', 403);
             }
 

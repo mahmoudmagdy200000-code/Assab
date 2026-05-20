@@ -14,9 +14,8 @@ class UpdateAccountSettingsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'phone' => 'sometimes|string|max:20|unique:suppliers,phone,' . auth()->id(),
-            'email' => 'sometimes|email|max:255|unique:suppliers,email,' . auth()->id(),
+            'phone' => 'sometimes|string|max:20|unique:suppliers,phone,'.auth()->id(),
+            'email' => 'sometimes|email|max:255|unique:suppliers,email,'.auth()->id(),
         ];
     }
 }
-

@@ -4,8 +4,8 @@ namespace Modules\Supplier\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
-use Modules\Supplier\Http\Requests\QualityAssurance\UploadDocumentRequest;
 use Modules\Supplier\Http\Requests\QualityAssurance\LogIncidentRequest;
+use Modules\Supplier\Http\Requests\QualityAssurance\UploadDocumentRequest;
 use Modules\Supplier\Services\QualityAssuranceService;
 use Modules\Supplier\Transformers\QualityDocumentResource;
 
@@ -72,4 +72,3 @@ class QualityAssuranceController extends BaseController
         }
     }
 }
-

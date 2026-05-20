@@ -12,7 +12,7 @@ use Laravel\Sanctum\HasApiTokens;
 
 class Supplier extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable, SoftDeletes, HasUuids;
+    use HasApiTokens, HasFactory, HasUuids, Notifiable, SoftDeletes;
 
     /**
      * The attributes that are mass assignable.
@@ -99,7 +99,7 @@ class Supplier extends Authenticatable
      */
     public function getImageUrlAttribute(): ?string
     {
-        return $this->image ? asset('storage/' . $this->image) : null;
+        return $this->image ? asset('storage/'.$this->image) : null;
     }
 
     /**
@@ -107,7 +107,7 @@ class Supplier extends Authenticatable
      */
     public function getStatusLabelAttribute(): string
     {
-        return match($this->status) {
+        return match ($this->status) {
             'online' => 'Online',
             'offline' => 'Offline',
             'away' => 'Away',
@@ -120,7 +120,7 @@ class Supplier extends Authenticatable
      */
     public function getStatusColorAttribute(): string
     {
-        return match($this->status) {
+        return match ($this->status) {
             'online' => 'green',
             'offline' => 'gray',
             'away' => 'yellow',

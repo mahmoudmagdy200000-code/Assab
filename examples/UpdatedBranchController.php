@@ -167,7 +167,7 @@ class BranchRequest extends BaseRequest
         } elseif ($this->isUpdating()) {
             $branchId = $this->getRouteParam('branch');
             $rules = array_merge($rules, [
-                'name' => 'sometimes|required|string|max:255|unique:branches,name,' . $branchId,
+                'name' => 'sometimes|required|string|max:255|unique:branches,name,'.$branchId,
                 'location' => 'sometimes|required|string|max:500',
                 'opening_hours' => 'sometimes|required|string|max:100',
                 'map_coordinates' => 'sometimes|string|max:100',

@@ -44,4 +44,3 @@ class UpdateInventorySessionRequest extends FormRequest
         ];
     }
 }
-

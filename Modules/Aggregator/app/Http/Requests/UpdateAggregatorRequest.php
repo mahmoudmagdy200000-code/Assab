@@ -2,8 +2,6 @@
 
 namespace Modules\Aggregator\Http\Requests;
 
-
-
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -47,4 +45,3 @@ class UpdateAggregatorRequest extends FormRequest
         ];
     }
 }
-

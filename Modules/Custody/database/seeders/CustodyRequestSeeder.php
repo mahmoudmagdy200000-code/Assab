@@ -2,11 +2,11 @@
 
 namespace Modules\Custody\Database\Seeders;
 
+use Carbon\Carbon;
 use Illuminate\Database\Seeder;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Custody\Models\CustodyRequest;
 use Modules\Custody\Models\CustodyRequestTimeline;
-use Modules\BranchManagers\Models\BranchManager;
-use Carbon\Carbon;
 
 class CustodyRequestSeeder extends Seeder
 {
@@ -19,6 +19,7 @@ class CustodyRequestSeeder extends Seeder
 
         if ($branchManagers->isEmpty()) {
             $this->command->warn('⚠️  No branch managers found. Please seed branch managers first.');
+
             return;
         }
 
@@ -46,7 +47,7 @@ class CustodyRequestSeeder extends Seeder
             'Staff training program',
             'Technology upgrade',
             'Emergency funds',
-            'Seasonal inventory preparation'
+            'Seasonal inventory preparation',
         ];
 
         // Create 5-10 requests per manager

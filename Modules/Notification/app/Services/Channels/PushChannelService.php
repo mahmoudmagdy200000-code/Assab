@@ -10,7 +10,7 @@ class PushChannelService
 {
     /**
      * Send push notification via Pusher
-     * 
+     *
      * This triggers the broadcast of the notification to the user's private channel
      */
     public function send(Notifiable $notifiable, string $title, string $message, array $data = []): bool
@@ -30,4 +30,3 @@ class PushChannelService
         }
     }
 }
-

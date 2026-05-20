@@ -22,6 +22,7 @@ class CalculationService
     public function calculateVAT(float $amount, ?float $rate = null): float
     {
         $vatRate = $rate ?? self::VAT_RATE;
+
         return round($amount * ($vatRate / 100), 2);
     }
 
@@ -44,11 +45,11 @@ class CalculationService
     /**
      * Calculate due date based on invoice date and payment terms
      */
-    public function calculateDueDate($invoiceDate, int $days = null): Carbon
+    public function calculateDueDate($invoiceDate, ?int $days = null): Carbon
     {
         $date = $invoiceDate instanceof Carbon ? $invoiceDate : Carbon::parse($invoiceDate);
         $paymentDays = $days ?? self::DEFAULT_PAYMENT_TERMS;
-        
+
         return $date->addDays($paymentDays);
     }
 
@@ -58,6 +59,7 @@ class CalculationService
     public function calculateVarianceAmount(float $orderedQty, float $receivedQty, float $unitPrice): float
     {
         $variance = $orderedQty - $receivedQty;
+
         return round(abs($variance) * $unitPrice, 2);
     }
 
@@ -75,12 +77,12 @@ class CalculationService
     public function calculateOrderTotals(array $items, float $discountAmount = 0, ?float $taxRate = null): array
     {
         $subtotal = 0;
-        
+
         foreach ($items as $item) {
             $quantity = $item['quantity'] ?? $item['quantity_ordered'] ?? 0;
             $unitPrice = $item['unit_price'] ?? 0;
             $itemDiscount = $item['discount'] ?? 0;
-            
+
             $subtotal += ($quantity * $unitPrice) - $itemDiscount;
         }
 
@@ -104,8 +106,8 @@ class CalculationService
     public function calculateSavings(float $originalPrice, float $newPrice): array
     {
         $savingsAmount = $originalPrice - $newPrice;
-        $savingsPercentage = $originalPrice > 0 
-            ? ($savingsAmount / $originalPrice) * 100 
+        $savingsPercentage = $originalPrice > 0
+            ? ($savingsAmount / $originalPrice) * 100
             : 0;
 
         return [
@@ -132,6 +134,7 @@ class CalculationService
         return collect($items)->sum(function ($item) {
             $quantity = $item['return_quantity'] ?? $item['quantity'] ?? 0;
             $unitPrice = $item['unit_price'] ?? 0;
+
             return $quantity * $unitPrice;
         });
     }
@@ -178,6 +181,7 @@ class CalculationService
         return collect($items)->sum(function ($item) {
             $quantity = $item['quantity_ordered'] ?? $item['quantity'] ?? 0;
             $unitPrice = $item['unit_price'] ?? 0;
+
             return $quantity * $unitPrice;
         });
     }
@@ -190,6 +194,7 @@ class CalculationService
         return collect($items)->sum(function ($item) {
             $quantity = $item['quantity_received'] ?? 0;
             $unitPrice = $item['unit_price'] ?? 0;
+
             return $quantity * $unitPrice;
         });
     }
@@ -199,7 +204,7 @@ class CalculationService
      */
     public function formatCurrency(float $amount, string $currency = 'SAR'): string
     {
-        return $currency . ' ' . number_format($amount, 2);
+        return $currency.' '.number_format($amount, 2);
     }
 
     /**
@@ -207,7 +212,7 @@ class CalculationService
      */
     public function getPriceByQuality(float $basePrice, string $quality): float
     {
-        $multiplier = match($quality) {
+        $multiplier = match ($quality) {
             'economy' => 0.85,
             'premium' => 1.25,
             default => 1.0, // standard
@@ -216,4 +221,3 @@ class CalculationService
         return round($basePrice * $multiplier, 2);
     }
 }
-

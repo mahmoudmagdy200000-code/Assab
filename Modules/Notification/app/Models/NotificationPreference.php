@@ -47,11 +47,10 @@ class NotificationPreference extends Model
 
     public function shouldReceive(NotificationPriority $priority): bool
     {
-        if (!$this->enabled) {
+        if (! $this->enabled) {
             return false;
         }
 
         return $priority->numericValue() >= $this->priority_level->numericValue();
     }
 }
-

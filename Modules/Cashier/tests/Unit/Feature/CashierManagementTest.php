@@ -2,17 +2,18 @@
 
 namespace Modules\Cashier\Tests\Unit\Feature;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Modules\Cashier\Models\Cashier;
-use Modules\BranchManagers\Models\BranchManager;
 use Modules\Branch\Models\Branch;
+use Modules\BranchManagers\Models\BranchManager;
+use Modules\Cashier\Models\Cashier;
+use Tests\TestCase;
 
 class CashierManagementTest extends TestCase
 {
     use RefreshDatabase;
 
     protected BranchManager $manager;
+
     protected Branch $branch;
 
     protected function setUp(): void
@@ -46,8 +47,8 @@ class CashierManagementTest extends TestCase
                         'name',
                         'email',
                         'status',
-                    ]
-                ]
+                    ],
+                ],
             ]);
     }
 
@@ -71,7 +72,7 @@ class CashierManagementTest extends TestCase
                     'name',
                     'email',
                     'status',
-                ]
+                ],
             ]);
 
         $this->assertDatabaseHas('cashiers', [

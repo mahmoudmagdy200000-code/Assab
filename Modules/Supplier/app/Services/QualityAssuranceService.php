@@ -3,7 +3,6 @@
 namespace Modules\Supplier\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\Storage;
 use Modules\Supplier\Models\Supplier;
 use Modules\Supplier\Models\SupplierQualityDocument;
 
@@ -43,15 +42,15 @@ class QualityAssuranceService
         $query = SupplierQualityDocument::where('supplier_id', $supplier->id)
             ->orderBy('created_at', 'desc');
 
-        if (!empty($filters['document_type'])) {
+        if (! empty($filters['document_type'])) {
             $query->where('document_type', $filters['document_type']);
         }
 
-        if (!empty($filters['order_id'])) {
+        if (! empty($filters['order_id'])) {
             $query->where('order_id', $filters['order_id']);
         }
 
-        if (!empty($filters['product_id'])) {
+        if (! empty($filters['product_id'])) {
             $query->where('product_id', $filters['product_id']);
         }
 
@@ -80,4 +79,3 @@ class QualityAssuranceService
         ]);
     }
 }
-

@@ -19,7 +19,7 @@ class InventoryTest extends TestCase
         $supplier = Supplier::factory()->create();
         $token = $supplier->createToken('test-token')->plainTextToken;
 
-        $response = $this->withHeader('Authorization', 'Bearer ' . $token)
+        $response = $this->withHeader('Authorization', 'Bearer '.$token)
             ->postJson('/api/v1/supplier/inventory/products', [
                 'item_id' => \Modules\Purchase\Models\Item::factory()->create()->id,
                 'name' => 'Test Product',
@@ -47,7 +47,7 @@ class InventoryTest extends TestCase
             'supplier_id' => $supplier->id,
         ]);
 
-        $response = $this->withHeader('Authorization', 'Bearer ' . $token)
+        $response = $this->withHeader('Authorization', 'Bearer '.$token)
             ->putJson("/api/v1/supplier/inventory/stock/{$product->id}", [
                 'quantity' => 100,
             ]);
@@ -55,4 +55,3 @@ class InventoryTest extends TestCase
         $response->assertStatus(200);
     }
 }
-

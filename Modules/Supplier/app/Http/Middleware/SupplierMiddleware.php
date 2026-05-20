@@ -18,26 +18,26 @@ class SupplierMiddleware
         $user = auth()->user();
 
         // Check authentication
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
-                'message' => 'Unauthenticated'
+                'message' => 'Unauthenticated',
             ], 401);
         }
 
         // Check if user is a Supplier instance
-        if (!$user instanceof Supplier) {
+        if (! $user instanceof Supplier) {
             return response()->json([
                 'success' => false,
-                'message' => 'Unauthorized. Supplier access required.'
+                'message' => 'Unauthorized. Supplier access required.',
             ], 403);
         }
 
         // Check account status
-        if (!$user->is_active) {
+        if (! $user->is_active) {
             return response()->json([
                 'success' => false,
-                'message' => 'Your account is inactive. Please contact administrator.'
+                'message' => 'Your account is inactive. Please contact administrator.',
             ], 403);
         }
 
@@ -47,4 +47,3 @@ class SupplierMiddleware
         return $next($request);
     }
 }
-

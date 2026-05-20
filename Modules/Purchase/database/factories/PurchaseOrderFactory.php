@@ -19,14 +19,14 @@ class PurchaseOrderFactory extends Factory
         // Automatically create dependencies if they don't exist
         $branch = Branch::first() ?? Branch::factory()->create();
         $manager = BranchManager::first() ?? BranchManager::factory()->create(['branch_id' => $branch->id]);
-        
+
         // For sourceable, we'll default to a supplier if available, otherwise use branch manager
         $supplier = Supplier::first();
         $sourceableType = $supplier ? Supplier::class : BranchManager::class;
         $sourceableId = $supplier ? $supplier->id : $manager->id;
 
         return [
-            'order_number' => 'PO-' . strtoupper(uniqid()),
+            'order_number' => 'PO-'.strtoupper(uniqid()),
             'order_type' => OrderType::DIRECT_SUPPLIER,
             'status' => OrderStatus::DRAFT,
             'branch_id' => $branch->id,
@@ -85,7 +85,7 @@ class PurchaseOrderFactory extends Factory
         $toBranch = Branch::factory()->create();
         $manager = BranchManager::factory()->create(['branch_id' => $toBranch->id]);
 
-        return $this->state(fn(array $attributes) => [
+        return $this->state(fn (array $attributes) => [
             'order_type' => OrderType::INTERNAL_TRANSFER,
             'from_branch_id' => $fromBranch->id,
             'to_branch_id' => $toBranch->id,
@@ -101,7 +101,7 @@ class PurchaseOrderFactory extends Factory
      */
     public function pending(): static
     {
-        return $this->state(fn(array $attributes) => [
+        return $this->state(fn (array $attributes) => [
             'status' => OrderStatus::PENDING,
         ]);
     }
@@ -111,10 +111,9 @@ class PurchaseOrderFactory extends Factory
      */
     public function confirmed(): static
     {
-        return $this->state(fn(array $attributes) => [
+        return $this->state(fn (array $attributes) => [
             'status' => OrderStatus::CONFIRMED,
             'confirmed_at' => now(),
         ]);
     }
 }
-

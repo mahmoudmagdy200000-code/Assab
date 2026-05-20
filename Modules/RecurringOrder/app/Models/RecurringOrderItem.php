@@ -47,11 +47,12 @@ class RecurringOrderItem extends Model
 
     public function getItemLogoUrlAttribute(): ?string
     {
-        if (!$this->item_logo) {
+        if (! $this->item_logo) {
             return $this->item?->logo_url ?? null;
         }
+
         return str_starts_with($this->item_logo, 'http')
             ? $this->item_logo
-            : asset('storage/' . $this->item_logo);
+            : asset('storage/'.$this->item_logo);
     }
 }

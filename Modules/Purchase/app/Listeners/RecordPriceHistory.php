@@ -10,12 +10,15 @@ use Modules\Purchase\Models\PriceHistory;
 class RecordPriceHistory implements ShouldQueue
 {
     use InteractsWithQueue;
+
     public $afterCommit = true;
+
     public $tries = 3;
 
     public function backoff(): array
     {
         $jitter = random_int(1, 3);
+
         return [8 + $jitter, 25 + $jitter, 75 + $jitter];
     }
 
@@ -23,10 +26,10 @@ class RecordPriceHistory implements ShouldQueue
     {
         $receipt = $event->receipt;
         $order = $receipt->purchaseOrder;
-        
+
         // Record price for each item
         foreach ($receipt->items as $item) {
-            if (!$item->is_unlisted && $item->item_id) {
+            if (! $item->is_unlisted && $item->item_id) {
                 PriceHistory::recordPrice(
                     $item->item_id,
                     $item->item_name,
@@ -43,4 +46,3 @@ class RecordPriceHistory implements ShouldQueue
         }
     }
 }
-

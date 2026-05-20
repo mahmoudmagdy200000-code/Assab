@@ -2,10 +2,8 @@
 
 namespace Modules\Shift\Transformers;
 
-use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\Log;
-use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Services\ShiftService;
 
 class CashierShiftResource extends JsonResource
@@ -66,8 +64,8 @@ class CashierShiftResource extends JsonResource
             'handover_notes' => $this->handover_notes,
             'handover_amount' => $this->when(
                 $this->relationLoaded('handover') && $this->handover,
-                fn() => (float) ($this->handover->handover_amount ?? 0),
-                fn() => $this->handover_amount ? (float) $this->handover_amount : null
+                fn () => (float) ($this->handover->handover_amount ?? 0),
+                fn () => $this->handover_amount ? (float) $this->handover_amount : null
             ),
             'handover_status' => $this->getHandoverStatusArray(),
             // Detailed Handover Info
@@ -75,6 +73,7 @@ class CashierShiftResource extends JsonResource
                 $this->relationLoaded('handover') && $this->handover,
                 function () {
                     $handover = $this->handover;
+
                     return [
                         'handover_from' => $this->cashier?->name ?? null,
                         'handover_from_id' => $this->cashier_id ?? null,
@@ -109,19 +108,19 @@ class CashierShiftResource extends JsonResource
             'handover_approved_or_rejected_by' => $this->getHandoverApprovedOrRejectedBy(),
 
             // ---------- Unified for all statuses (same keys, null/empty when N/A) ----------
-            'reassignment'              => $this->getReassignmentOrNull(),
-            'is_mid_reassign'           => $this->isMidReassign(),
-            'can_be_accepted'           => $this->canBeAccepted(),
-            'is_shift_reassigned_to_me'  => $this->isShiftReassignedToMe(),
-            'cash_given'         => $this->getCashGivenValue(),
-            'previous_cashier'   => $this->getPreviousCashierName(),
-            'cash_from'          => $this->getCashFromUnified(),
-            'reassign_reason'    => $this->reassignment_reason,
-            'variance_reason'    => $this->getVarianceReasonValue(),
+            'reassignment' => $this->getReassignmentOrNull(),
+            'is_mid_reassign' => $this->isMidReassign(),
+            'can_be_accepted' => $this->canBeAccepted(),
+            'is_shift_reassigned_to_me' => $this->isShiftReassignedToMe(),
+            'cash_given' => $this->getCashGivenValue(),
+            'previous_cashier' => $this->getPreviousCashierName(),
+            'cash_from' => $this->getCashFromUnified(),
+            'reassign_reason' => $this->reassignment_reason,
+            'variance_reason' => $this->getVarianceReasonValue(),
 
             // Always array (empty when no breakdown)
             'sales_breakdown' => $this->relationLoaded('salesBreakdown')
-                ? $this->salesBreakdown->map(fn($item) => [
+                ? $this->salesBreakdown->map(fn ($item) => [
                     'id' => $item->id,
                     'aggregator' => $item->aggregator?->name,
                     'amount' => (float) $item->amount,
@@ -146,9 +145,10 @@ class CashierShiftResource extends JsonResource
     private function getReassignmentOrNull(): ?array
     {
         $status = $this->status?->value ?? $this->status;
-        if ($status !== 'reassigned' && !$this->original_cashier_id && !$this->reassigned_by) {
+        if ($status !== 'reassigned' && ! $this->original_cashier_id && ! $this->reassigned_by) {
             return null;
         }
+
         return $this->getReassignmentArray();
     }
 
@@ -158,6 +158,7 @@ class CashierShiftResource extends JsonResource
         if ($this->relationLoaded('handover') && $this->handover && $this->handover->handover_amount !== null) {
             return (float) $this->handover->handover_amount;
         }
+
         return (float) ($this->opening_balance ?? 0);
     }
 
@@ -169,8 +170,10 @@ class CashierShiftResource extends JsonResource
         }
         if ($this->original_cashier_id) {
             $this->loadMissing('originalCashier');
+
             return $this->originalCashier?->name ?? null;
         }
+
         return null;
     }
 
@@ -179,15 +182,17 @@ class CashierShiftResource extends JsonResource
     {
         $status = $this->status?->value ?? $this->status;
         if ($status === 'reassigned' && $this->reassigned_by) {
-            if (!$this->relationLoaded('reassignedBy')) {
+            if (! $this->relationLoaded('reassignedBy')) {
                 $this->loadMissing('reassignedBy');
             }
+
             return $this->reassignedBy ? [
                 'id' => $this->reassignedBy->id,
                 'name' => $this->reassignedBy->name,
                 'user_type' => 'branch_manager',
             ] : null;
         }
+
         return $this->getCashFrom();
     }
 
@@ -196,18 +201,20 @@ class CashierShiftResource extends JsonResource
     {
         if ($this->relationLoaded('varianceDetails') && $this->varianceDetails->isNotEmpty()) {
             $reason = $this->varianceDetails->first()->reason ?? null;
+
             return $reason && trim((string) $reason) !== '' ? trim($reason) : null;
         }
-        if ($this->relationLoaded('handover') && $this->handover && !empty(trim((string) ($this->handover->variance_reason ?? '')))) {
+        if ($this->relationLoaded('handover') && $this->handover && ! empty(trim((string) ($this->handover->variance_reason ?? '')))) {
             return trim($this->handover->variance_reason);
         }
+
         return null;
     }
 
     /** Variance details object or null; key always present in response. */
     private function getVarianceDetailsOrNull(): ?array
     {
-        if (!$this->hasVariance() || !$this->relationLoaded('varianceDetails') || $this->varianceDetails->isEmpty()) {
+        if (! $this->hasVariance() || ! $this->relationLoaded('varianceDetails') || $this->varianceDetails->isEmpty()) {
             return null;
         }
         try {
@@ -218,6 +225,7 @@ class CashierShiftResource extends JsonResource
                 'shift_id' => $this->id,
                 'error' => $e->getMessage(),
             ]);
+
             return null;
         }
     }
@@ -227,10 +235,11 @@ class CashierShiftResource extends JsonResource
      */
     private function getHandoverStatusArray(): ?array
     {
-        if (!$this->relationLoaded('handoverStatus') || !$this->handoverStatus) {
+        if (! $this->relationLoaded('handoverStatus') || ! $this->handoverStatus) {
             return null;
         }
         $hs = $this->handoverStatus;
+
         return [
             'id' => $hs->id,
             'status' => $hs->status?->value ?? $hs->manager_approval_status ?? null,
@@ -245,13 +254,14 @@ class CashierShiftResource extends JsonResource
      */
     private function getHandoverApprovedOrRejectedBy(): ?array
     {
-        if (!$this->relationLoaded('handoverStatus') || !$this->handoverStatus) {
+        if (! $this->relationLoaded('handoverStatus') || ! $this->handoverStatus) {
             return null;
         }
         $hs = $this->handoverStatus;
-        if (!$hs->reviewed_by_id && !$hs->reviewedBy) {
+        if (! $hs->reviewed_by_id && ! $hs->reviewedBy) {
             return null;
         }
+
         return [
             'id' => $hs->reviewed_by_id,
             'name' => $hs->reviewedBy?->name ?? null,
@@ -266,10 +276,10 @@ class CashierShiftResource extends JsonResource
      */
     private function getReassignmentArray(): array
     {
-        if (!$this->relationLoaded('originalCashier') && $this->original_cashier_id) {
+        if (! $this->relationLoaded('originalCashier') && $this->original_cashier_id) {
             $this->loadMissing('originalCashier');
         }
-        if (!$this->relationLoaded('reassignedBy') && $this->reassigned_by) {
+        if (! $this->relationLoaded('reassignedBy') && $this->reassigned_by) {
             $this->loadMissing('reassignedBy');
         }
 
@@ -309,9 +319,10 @@ class CashierShiftResource extends JsonResource
             return false;
         }
         $user = auth()->user();
-        if (!$user) {
+        if (! $user) {
             return false;
         }
+
         return (string) $this->cashier_id === (string) $user->getKey();
     }
 
@@ -323,9 +334,10 @@ class CashierShiftResource extends JsonResource
         if (($this->status?->value ?? '') !== 'reassigned') {
             return false;
         }
-        if (!$this->relationLoaded('handoverStatus')) {
+        if (! $this->relationLoaded('handoverStatus')) {
             $this->loadMissing('handoverStatus');
         }
+
         return $this->handoverStatus
             && ($this->handoverStatus->manager_approval_status ?? '') === 'pending';
     }
@@ -335,17 +347,18 @@ class CashierShiftResource extends JsonResource
      */
     private function canBeAccepted(): bool
     {
-        if (!$this->isMidReassign()) {
+        if (! $this->isMidReassign()) {
             return false;
         }
         $user = auth()->user();
-        if (!$user) {
+        if (! $user) {
             return true; // let frontend decide by cashier_id
         }
         $cashierId = $user->getKey();
         if ($user->getMorphClass() === \Modules\Cashier\Models\Cashier::class) {
             return $this->cashier_id === $cashierId;
         }
+
         return false;
     }
 
@@ -361,6 +374,7 @@ class CashierShiftResource extends JsonResource
                 'user_type' => 'branch_manager',
             ];
         }
+
         return null;
     }
 
@@ -373,16 +387,17 @@ class CashierShiftResource extends JsonResource
         if ($recipient !== null) {
             return $recipient;
         }
+
         return $this->computed_next_cashier ?? $this->nextCashier ?? null;
     }
 
     /**
-     * @param \Modules\Cashier\Models\Cashier|\Modules\BranchManagers\Models\BranchManager|null $recipient
+     * @param  \Modules\Cashier\Models\Cashier|\Modules\BranchManagers\Models\BranchManager|null  $recipient
      * @return array<string, mixed>|null
      */
     private function formatNextRecipient($recipient): ?array
     {
-        if (!$recipient) {
+        if (! $recipient) {
             return null;
         }
 
@@ -394,16 +409,15 @@ class CashierShiftResource extends JsonResource
         ];
         if ($recipient instanceof \Modules\BranchManagers\Models\BranchManager) {
             $arr['type'] = 'branch_manager';
-            $arr['name'] = $recipient->name . ' (Branch Manager)';
+            $arr['name'] = $recipient->name.' (Branch Manager)';
         }
+
         return $arr;
     }
 
     /**
      * Get handover_to information (who received the handover)
      * Supports both cashier and branch_manager handovers
-     *
-     * @return array|null
      */
     private function getHandoverTo(): ?array
     {
@@ -412,7 +426,7 @@ class CashierShiftResource extends JsonResource
             $handover = $this->handover;
 
             // Load handoverTo relationship if not loaded
-            if (!$handover->relationLoaded('handoverTo')) {
+            if (! $handover->relationLoaded('handoverTo')) {
                 $handover->load('handoverTo');
             }
 
@@ -461,8 +475,9 @@ class CashierShiftResource extends JsonResource
             $type = $recipient instanceof \Modules\BranchManagers\Models\BranchManager ? 'branch_manager' : 'cashier';
             $name = $recipient->name;
             if ($recipient instanceof \Modules\BranchManagers\Models\BranchManager) {
-                $name = $recipient->name . ' (Branch Manager)';
+                $name = $recipient->name.' (Branch Manager)';
             }
+
             return [
                 'id' => $recipient->id,
                 'name' => $name,
@@ -489,6 +504,7 @@ class CashierShiftResource extends JsonResource
         if (str_contains($type, 'Cashier') || $type === 'cashier') {
             return 'cashier';
         }
+
         return $type;
     }
 }

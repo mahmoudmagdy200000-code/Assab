@@ -10,12 +10,11 @@ use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Transformers\BranchManagerResource;
 use Modules\Cashier\Models\Cashier;
 use Modules\Cashier\Transformers\CashierResource;
-use Modules\Shift\Models\CashierShift;
-use Modules\Shift\Models\Shift;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Http\Requests\CheckCashierEmailRequest;
+use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\Shift;
 use Modules\Shift\Services\ShiftService;
-use Carbon\Carbon;
 
 class CashierManagementController extends BaseController
 {
@@ -33,7 +32,7 @@ class CashierManagementController extends BaseController
             $manager = auth()->user();
             $branchId = $manager->branch_id;
 
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse('Branch manager is not assigned to any branch', 400);
             }
 
@@ -90,7 +89,7 @@ class CashierManagementController extends BaseController
                     ->filter()
                     ->unique('id')
                     ->values()
-                    ->map(fn($shift) => [
+                    ->map(fn ($shift) => [
                         'id' => $shift->id,
                         'name' => $shift->name,
                         'start_time' => $shift->start_time?->format('H:i'),
@@ -103,7 +102,7 @@ class CashierManagementController extends BaseController
                     'id' => $cashier->id,
                     'name' => $cashier->name,
                     'email' => $cashier->email,
-                    'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
+                    'image' => $cashier->image ? asset('storage/'.$cashier->image) : null,
                     'store_branch_name' => $cashier->branch->name ?? 'N/A',
                     'store_branch_id' => $cashier->branch_id,
                     'created_by_name' => $cashier->creator?->name ?? 'N/A',
@@ -184,9 +183,9 @@ class CashierManagementController extends BaseController
 
             // Check if shifts are already occupied
             $occupiedShifts = $this->checkOccupiedShifts($request->shift_ids, $request->store_branch_id);
-            if (!empty($occupiedShifts)) {
+            if (! empty($occupiedShifts)) {
                 return $this->errorResponse(
-                    'Some shifts are already occupied by other cashiers: ' . implode(', ', $occupiedShifts),
+                    'Some shifts are already occupied by other cashiers: '.implode(', ', $occupiedShifts),
                     400
                 );
             }
@@ -282,7 +281,7 @@ class CashierManagementController extends BaseController
                     'id' => $cashierModel->id,
                     'name' => $cashierModel->name,
                     'email' => $cashierModel->email,
-                    'image' => $cashierModel->image ? asset('storage/' . $cashierModel->image) : null,
+                    'image' => $cashierModel->image ? asset('storage/'.$cashierModel->image) : null,
                     'status' => $cashierModel->status,
                     'status_label' => $cashierModel->status_label,
                     'role' => 'Cashier',
@@ -308,7 +307,7 @@ class CashierManagementController extends BaseController
     {
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|string|max:255',
-            'email' => 'sometimes|email|unique:cashiers,email,' . $cashier,
+            'email' => 'sometimes|email|unique:cashiers,email,'.$cashier,
             'store_branch_id' => 'sometimes|exists:branches,id',
             'status' => 'sometimes|in:active,deactivated',
             'shift_ids' => 'sometimes|array|min:1',
@@ -339,7 +338,7 @@ class CashierManagementController extends BaseController
                 $updateData['status'] = $request->status;
             }
 
-            if (!empty($updateData)) {
+            if (! empty($updateData)) {
                 $cashierModel->update($updateData);
             }
 
@@ -347,9 +346,9 @@ class CashierManagementController extends BaseController
             if ($request->has('shift_ids')) {
                 // Check if shifts are already occupied
                 $occupiedShifts = $this->checkOccupiedShifts($request->shift_ids, $cashierModel->branch_id, $cashier);
-                if (!empty($occupiedShifts)) {
+                if (! empty($occupiedShifts)) {
                     return $this->errorResponse(
-                        'Some shifts are already occupied by other cashiers: ' . implode(', ', $occupiedShifts),
+                        'Some shifts are already occupied by other cashiers: '.implode(', ', $occupiedShifts),
                         400
                     );
                 }
@@ -406,7 +405,7 @@ class CashierManagementController extends BaseController
                         'id' => $cashier->id,
                         'name' => $cashier->name,
                         'email' => $cashier->email,
-                        'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
+                        'image' => $cashier->image ? asset('storage/'.$cashier->image) : null,
                         'store_branch_name' => $cashier->branch->name ?? 'N/A',
                         'status' => $cashier->status,
                         'status_label' => $cashier->status_label,
@@ -467,7 +466,7 @@ class CashierManagementController extends BaseController
                         'id' => $cashier->id,
                         'name' => $cashier->name,
                         'email' => $cashier->email,
-                        'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
+                        'image' => $cashier->image ? asset('storage/'.$cashier->image) : null,
                         'store_branch_name' => $cashier->branch->name ?? 'N/A',
                         'status' => $cashier->status,
                         'status_label' => $cashier->status_label,
@@ -523,7 +522,7 @@ class CashierManagementController extends BaseController
             $manager = auth()->user();
             $branchId = $manager->branch_id;
 
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse('Branch manager is not assigned to any branch', 400);
             }
 
@@ -537,7 +536,7 @@ class CashierManagementController extends BaseController
                 $shiftModel = CashierShift::with([
                     'shift' => function ($q) {
                         $q->select(['id', 'name', 'branch_id']);
-                    }
+                    },
                 ])->find($shiftId);
 
                 if ($shiftModel) {
@@ -571,16 +570,16 @@ class CashierManagementController extends BaseController
 
             // Transform and filter available cashiers
             $transformedCashiers = $cashiers->through(function ($cashier) use ($busyCashierIds) {
-                $isAvailable = !in_array($cashier->id, $busyCashierIds);
+                $isAvailable = ! in_array($cashier->id, $busyCashierIds);
 
                 return [
                     'id' => $cashier->id,
                     'name' => $cashier->name,
                     'email' => $cashier->email,
-                    'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
+                    'image' => $cashier->image ? asset('storage/'.$cashier->image) : null,
                     'is_available' => $isAvailable,
-                    'disabled' => !$isAvailable,
-                    'reason_disabled' => !$isAvailable ? 'Already assigned to this shift' : null,
+                    'disabled' => ! $isAvailable,
+                    'reason_disabled' => ! $isAvailable ? 'Already assigned to this shift' : null,
                 ];
             });
 
@@ -612,7 +611,7 @@ class CashierManagementController extends BaseController
             $user = auth()->user();
             $branchId = $user->branch_id;
 
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse('User is not assigned to any branch', 400);
             }
 
@@ -635,7 +634,7 @@ class CashierManagementController extends BaseController
                 ->unique()
                 ->values();
             $existingIds = $branchManagers->pluck('id')->map(fn ($id) => (string) $id)->all();
-            $missingCreatorIds = $creatorIds->filter(fn ($id) => !in_array((string) $id, $existingIds, true))->values();
+            $missingCreatorIds = $creatorIds->filter(fn ($id) => ! in_array((string) $id, $existingIds, true))->values();
             if ($missingCreatorIds->isNotEmpty()) {
                 $extra = BranchManager::withTrashed()
                     ->with('branch:id,name,location')
@@ -647,7 +646,7 @@ class CashierManagementController extends BaseController
 
             // Always put current user (branch manager) first so they can hand over to themselves
             if ($user instanceof BranchManager) {
-                if (!$user->relationLoaded('branch')) {
+                if (! $user->relationLoaded('branch')) {
                     $user->load('branch:id,name,location');
                 }
                 $currentId = (string) $user->getKey();
@@ -661,7 +660,7 @@ class CashierManagementController extends BaseController
             $responseData = $response->getData(true);
             $responseData['data'] = [
                 'branch_managers' => BranchManagerResource::collection($branchManagers),
-                'cashiers'        => $responseData['data'],
+                'cashiers' => $responseData['data'],
             ];
 
             return response()->json($responseData, 200);

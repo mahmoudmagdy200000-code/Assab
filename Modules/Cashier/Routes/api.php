@@ -1,17 +1,13 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Modules\Cashier\Http\Controllers\{
-    CashierController,
-    CashierManagementController,
-    CashierSettingsController,
-    ProfileController
-};
-use Modules\Cashier\Http\Controllers\Auth\{
-    LoginController,
-    ActivationController,
-    PasswordResetController
-};
+use Modules\Cashier\Http\Controllers\Auth\ActivationController;
+use Modules\Cashier\Http\Controllers\Auth\LoginController;
+use Modules\Cashier\Http\Controllers\Auth\PasswordResetController;
+use Modules\Cashier\Http\Controllers\CashierController;
+use Modules\Cashier\Http\Controllers\CashierManagementController;
+use Modules\Cashier\Http\Controllers\CashierSettingsController;
+use Modules\Cashier\Http\Controllers\ProfileController;
 
 /*
 |--------------------------------------------------------------------------
@@ -66,7 +62,6 @@ Route::prefix('branch-manager/cashiers')
         Route::get('/search', [CashierManagementController::class, 'search']);
         Route::get('/statistics', [CashierManagementController::class, 'statistics']);
     });
-
 
 /*
 |--------------------------------------------------------------------------

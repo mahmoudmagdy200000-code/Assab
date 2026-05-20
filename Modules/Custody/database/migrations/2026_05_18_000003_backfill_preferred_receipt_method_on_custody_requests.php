@@ -12,7 +12,5 @@ return new class extends Migration
             ->update(['preferred_receipt_method' => 'Cash Handover']);
     }
 
-    public function down(): void
-    {
-    }
+    public function down(): void {}
 };

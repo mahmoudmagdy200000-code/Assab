@@ -44,4 +44,3 @@ class EmergencyOrderService
         return $order->fresh();
     }
 }
-

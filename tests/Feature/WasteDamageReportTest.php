@@ -5,13 +5,13 @@ namespace Tests\Feature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Cashier\Models\Cashier;
 use Modules\Inventory\Enums\ProblemType;
 use Modules\Inventory\Enums\WasteDamageReason;
 use Modules\Inventory\Models\WasteDamageReport;
 use Modules\Inventory\Models\WasteDamageReportItem;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
-use Modules\Cashier\Models\Cashier;
 use Tests\TestCase;
 
 class WasteDamageReportTest extends TestCase
@@ -19,6 +19,7 @@ class WasteDamageReportTest extends TestCase
     use RefreshDatabase;
 
     private Branch $branch;
+
     private BranchManager $manager;
 
     protected function setUp(): void

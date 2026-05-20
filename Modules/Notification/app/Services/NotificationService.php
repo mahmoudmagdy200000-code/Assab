@@ -2,14 +2,12 @@
 
 namespace Modules\Notification\Services;
 
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Modules\Notification\Contracts\NotificationServiceInterface;
 use Modules\Notification\Contracts\ChannelServiceInterface;
+use Modules\Notification\Contracts\NotificationServiceInterface;
 use Modules\Notification\Enums\NotificationChannel;
 use Modules\Notification\Enums\NotificationPriority;
 use Modules\Notification\Enums\NotificationType;
-use Modules\Notification\Models\NotificationPreference;
 use Modules\Notification\Models\NotificationLog;
 use Modules\Notification\Repositories\NotificationPreferenceRepositoryInterface;
 
@@ -29,7 +27,7 @@ class NotificationService implements NotificationServiceInterface
         array $data,
         ?NotificationPriority $priority = null
     ): void {
-        if (!$this->isNotifiable($notifiable)) {
+        if (! $this->isNotifiable($notifiable)) {
             throw new \InvalidArgumentException('Provided entity is not notifiable.');
         }
 
@@ -38,7 +36,7 @@ class NotificationService implements NotificationServiceInterface
         // Check user preferences
         $preference = $this->preferenceRepository->getPreference($notifiable, $type);
 
-        if (!$preference || !$preference->shouldReceive($priority)) {
+        if (! $preference || ! $preference->shouldReceive($priority)) {
             return;
         }
 
@@ -177,9 +175,9 @@ class NotificationService implements NotificationServiceInterface
     {
         // Generate message based on type and data
         $message = match ($type) {
-            NotificationType::SHIFT_START_REMINDER => "Your shift starts in 15 minutes",
-            NotificationType::SHIFT_HANDOVER_APPROVED => "Handover has been approved",
-            NotificationType::EXPENSE_APPROVED => "Your expense has been approved",
+            NotificationType::SHIFT_START_REMINDER => 'Your shift starts in 15 minutes',
+            NotificationType::SHIFT_HANDOVER_APPROVED => 'Handover has been approved',
+            NotificationType::EXPENSE_APPROVED => 'Your expense has been approved',
             default => $type->label(),
         };
 
@@ -195,7 +193,7 @@ class NotificationService implements NotificationServiceInterface
         string $status,
         ?string $errorMessage = null
     ): void {
-        if (!$notificationId) {
+        if (! $notificationId) {
             return;
         }
 
@@ -213,4 +211,3 @@ class NotificationService implements NotificationServiceInterface
         return method_exists($entity, 'notify') && method_exists($entity, 'notifications');
     }
 }
-

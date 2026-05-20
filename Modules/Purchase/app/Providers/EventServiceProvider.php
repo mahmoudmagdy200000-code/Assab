@@ -24,15 +24,15 @@ class EventServiceProvider extends ServiceProvider
         OrderCreated::class => [
             // Add listeners for order creation
         ],
-        
+
         OrderStatusChanged::class => [
             SendOrderNotification::class,
         ],
-        
+
         GoodsReceived::class => [
             RecordPriceHistory::class,
         ],
-        
+
         ReturnOrderSubmitted::class => [
             // Add listeners for return submission
         ],
@@ -40,7 +40,7 @@ class EventServiceProvider extends ServiceProvider
         ReturnOrderApproved::class => [
             SendReturnApprovedNotification::class,
         ],
-        
+
         VarianceDetected::class => [
             // Add listeners for variance detection
         ],

@@ -3,7 +3,6 @@
 namespace Modules\Inventory\Services;
 
 use Illuminate\Support\Facades\View;
-use Modules\Inventory\Models\MonthlyInventory;
 
 class MonthlyInventoryExportService
 {
@@ -52,12 +51,14 @@ class MonthlyInventoryExportService
         if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($html);
             $pdf->setPaper('A4', 'portrait');
+
             return $pdf->output();
         }
 
         if (app()->bound('dompdf.wrapper')) {
             $pdf = app('dompdf.wrapper')->loadHTML($html);
             $pdf->setPaper('A4', 'portrait');
+
             return $pdf->output();
         }
 
@@ -79,7 +80,7 @@ class MonthlyInventoryExportService
         $lines[] = [$inventory->inventory_date?->format('F Y') ?? '', $inventory->branch?->name ?? ''];
         $lines[] = [];
         $lines[] = ['Status', $inventory->status?->label() ?? ''];
-        $lines[] = ['Products Complete', ($summary['products_complete'] ?? 0) . ' / ' . ($summary['products_total'] ?? 0)];
+        $lines[] = ['Products Complete', ($summary['products_complete'] ?? 0).' / '.($summary['products_total'] ?? 0)];
         $lines[] = ['Time Taken', $summary['time_taken_formatted'] ?? ''];
         $lines[] = ['Participants', $summary['participants_count'] ?? 0];
         $lines[] = ['Total Value', $summary['total_value'] ?? 0];

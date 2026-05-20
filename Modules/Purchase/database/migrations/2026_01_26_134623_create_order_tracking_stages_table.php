@@ -25,7 +25,7 @@ return new class extends Migration
                 'out_for_delivery',
                 'delivered',
                 'order_confirmation',
-                'variance_logged'
+                'variance_logged',
             ]);
 
             // Stage data stored as JSON to preserve all information

@@ -4,19 +4,16 @@ namespace Modules\Cashier\Observers;
 
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Modules\Cashier\Events\CashierActivatedEvent;
+use Modules\Cashier\Events\CashierDeactivatedEvent;
 use Modules\Cashier\Models\Cashier;
-use Modules\Cashier\Events\{
-    CashierCreatedEvent,
-    CashierActivatedEvent,
-    CashierDeactivatedEvent
-};
 
 class CashierObserver
 {
     public function creating(Cashier $cashier): void
     {
         // Set default values
-        if (!$cashier->status) {
+        if (! $cashier->status) {
             $cashier->status = 'pending';
         }
     }

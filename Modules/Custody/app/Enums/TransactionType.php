@@ -17,7 +17,7 @@ enum TransactionType: string
      */
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::TOTAL_SALES => 'Total Sales',
             self::HANDOVER_TO_BRAND_OWNER => 'Handover to Brand Owner',
             self::TRANSFER_TO_CUSTODY => 'Transfer to Custody',
@@ -38,7 +38,7 @@ enum TransactionType: string
      */
     public function isCashOut(): bool
     {
-        return !$this->isCashIn();
+        return ! $this->isCashIn();
     }
 
     /**
@@ -56,7 +56,7 @@ enum TransactionType: string
     {
         return array_filter(
             self::cases(),
-            fn($type) => $type->isCashIn()
+            fn ($type) => $type->isCashIn()
         );
     }
 
@@ -67,7 +67,7 @@ enum TransactionType: string
     {
         return array_filter(
             self::cases(),
-            fn($type) => $type->isCashOut()
+            fn ($type) => $type->isCashOut()
         );
     }
 }

@@ -22,8 +22,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('grouped_invoices', function (Blueprint $table) {
-
-        });
+        Schema::table('grouped_invoices', function (Blueprint $table) {});
     }
 };

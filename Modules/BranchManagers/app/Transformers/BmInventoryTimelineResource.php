@@ -18,7 +18,7 @@ class BmInventoryTimelineResource extends JsonResource
             'event_type' => $eventType,
             'name' => $this->actor_name ?? $this->title,
             'image' => $this->actor_image
-                ? (str_starts_with($this->actor_image, 'http') ? $this->actor_image : asset('storage/' . $this->actor_image))
+                ? (str_starts_with($this->actor_image, 'http') ? $this->actor_image : asset('storage/'.$this->actor_image))
                 : null,
             'occurred_at' => $this->occurred_at?->toIso8601String(),
         ];

@@ -2,9 +2,9 @@
 
 namespace Modules\Shift\Policies;
 
+use Illuminate\Auth\Access\HandlesAuthorization;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Shift\Models\CashierShift;
-use Illuminate\Auth\Access\HandlesAuthorization;
 
 class ShiftPolicy
 {

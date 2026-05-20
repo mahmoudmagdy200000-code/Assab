@@ -12,7 +12,7 @@ enum VarianceType: string
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::OVER => 'Over (زيادة)',
             self::SHORT => 'Short (نقص)',
         };
@@ -20,7 +20,7 @@ enum VarianceType: string
 
     public function color(): string
     {
-        return match($this) {
+        return match ($this) {
             self::OVER => 'green',
             self::SHORT => 'red',
         };
@@ -28,10 +28,9 @@ enum VarianceType: string
 
     public function icon(): string
     {
-        return match($this) {
+        return match ($this) {
             self::OVER => '↑',
             self::SHORT => '↓',
         };
     }
 }
-

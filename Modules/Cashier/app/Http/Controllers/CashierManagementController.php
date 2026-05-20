@@ -2,14 +2,12 @@
 
 namespace Modules\Cashier\Http\Controllers;
 
-
+use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Controller;
 use Modules\Cashier\Services\CashierService;
 use Modules\Cashier\Transformers\AvailableForShiftResource;
 use Modules\Cashier\Transformers\CashierResource;
-use App\Http\Controllers\BaseController;
 
 class CashierManagementController extends BaseController
 {
@@ -48,7 +46,7 @@ class CashierManagementController extends BaseController
 
         $stats = $this->cashierService->getCashierStatistics($branchId);
 
-        return  $this->paginatedResponse(
+        return $this->paginatedResponse(
             CashierResource::collection($stats),
             'Statistics retrieved successfully',
         );
@@ -94,7 +92,7 @@ class CashierManagementController extends BaseController
             shiftDate: $request->shift_date
         );
 
-        return  $this->successResponse($result, 'Shifts assigned successfully');
+        return $this->successResponse($result, 'Shifts assigned successfully');
     }
 
     /**
@@ -113,7 +111,7 @@ class CashierManagementController extends BaseController
             shiftIds: $request->shift_ids
         );
 
-        return  $this->successResponse($result, 'Shifts updated successfully');
+        return $this->successResponse($result, 'Shifts updated successfully');
     }
 
     /**
@@ -127,7 +125,7 @@ class CashierManagementController extends BaseController
 
         $cashier = $this->cashierService->resendActivationLink($request->cashier_id);
 
-        return  $this->successResponse(
+        return $this->successResponse(
             new CashierResource($cashier),
             'Activation link resent successfully'
         );

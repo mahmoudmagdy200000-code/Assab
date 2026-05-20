@@ -4,12 +4,10 @@ namespace Modules\Notification\Listeners;
 
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
+use Modules\Expense\Events\ExpenseSubmittedEvent;
 use Modules\Notification\Contracts\NotificationServiceInterface;
 use Modules\Notification\Enums\NotificationPriority;
 use Modules\Notification\Enums\NotificationType;
-use Modules\Expense\Events\ExpenseSubmittedEvent;
-use Modules\Expense\Events\ExpenseApprovedEvent;
-use Modules\Expense\Events\ExpenseRejectedEvent;
 
 class ExpenseNotificationListener implements ShouldQueue
 {
@@ -42,6 +40,4 @@ class ExpenseNotificationListener implements ShouldQueue
         //     );
         // }
     }
-
 }
-

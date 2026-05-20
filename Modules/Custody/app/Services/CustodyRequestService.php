@@ -18,24 +18,24 @@ class CustodyRequestService
     public function createRequest(array $data): CustodyRequest
     {
         return DB::transaction(function () use ($data) {
-            $isBrandOwner = !empty($data['created_by_brand_owner_id']);
+            $isBrandOwner = ! empty($data['created_by_brand_owner_id']);
 
             $request = CustodyRequest::create([
-                'branch_manager_id'         => $data['branch_manager_id'] ?? null,
-                'branch_id'                 => $data['branch_id'] ?? null,
+                'branch_manager_id' => $data['branch_manager_id'] ?? null,
+                'branch_id' => $data['branch_id'] ?? null,
                 'created_by_brand_owner_id' => $data['created_by_brand_owner_id'] ?? null,
-                'requested_amount'          => $data['requestedAmount'],
-                'purpose'                   => $data['purpose'],
-                'preferred_receipt_method'  => $data['preferredReceiptMethod'],
-                'additional_notes'          => $data['additionalNotes'] ?? null,
-                'status'                    => 'Pending',
+                'requested_amount' => $data['requestedAmount'],
+                'purpose' => $data['purpose'],
+                'preferred_receipt_method' => $data['preferredReceiptMethod'],
+                'additional_notes' => $data['additionalNotes'] ?? null,
+                'status' => 'Pending',
             ]);
 
-            if (!empty($data['attachments'])) {
+            if (! empty($data['attachments'])) {
                 $this->storeAttachments($request, $data['attachments']);
             }
 
-            $actorId   = $isBrandOwner ? $data['created_by_brand_owner_id'] : $data['branch_manager_id'];
+            $actorId = $isBrandOwner ? $data['created_by_brand_owner_id'] : $data['branch_manager_id'];
             $actorType = $isBrandOwner ? 'brand_owner' : 'branch_manager';
             $this->createTimelineEntry($request, 'Submit Case', 'Submitted', $actorId, $actorType);
 
@@ -78,37 +78,37 @@ class CustodyRequestService
 
         return [
             'requestId' => $request->id,
-            'status'    => strtolower((string) $request->status),
-            'details'   => [
-                'requestedAmount'        => (float) $request->requested_amount,
-                'purpose'                => $request->purpose,
+            'status' => strtolower((string) $request->status),
+            'details' => [
+                'requestedAmount' => (float) $request->requested_amount,
+                'purpose' => $request->purpose,
                 'preferredReceiptMethod' => $this->methodToSnake($request->preferred_receipt_method),
-                'attachments'            => $request->attachments->map(function ($attachment) {
+                'attachments' => $request->attachments->map(function ($attachment) {
                     return [
-                        'filename'   => $attachment->original_name,
-                        'url'        => $attachment->url,
+                        'filename' => $attachment->original_name,
+                        'url' => $attachment->url,
                         'uploadedAt' => $attachment->created_at->toIso8601String(),
                     ];
                 })->values(),
-                'additionalNotes'        => $request->additional_notes,
+                'additionalNotes' => $request->additional_notes,
             ],
-            'timelines'    => $timeline,
-            'timeline'     => $timeline,
-            'approval'     => $approval,
+            'timelines' => $timeline,
+            'timeline' => $timeline,
+            'approval' => $approval,
             'cancellation' => $this->buildCancellationBlock($request),
         ];
     }
 
     private function methodToSnake(?string $value): ?string
     {
-        if (!$value) {
+        if (! $value) {
             return null;
         }
 
         return match ($value) {
             'Cash Handover' => 'cash_handover',
             'Bank Transfer' => 'bank_transfer',
-            default         => strtolower(str_replace(' ', '_', $value)),
+            default => strtolower(str_replace(' ', '_', $value)),
         };
     }
 
@@ -122,9 +122,9 @@ class CustodyRequestService
 
         return [
             'cancellation_reason' => $request->rejection_reason,
-            'cancelled_at'        => $request->rejected_at?->toIso8601String(),
-            'cancelled_by'        => [
-                'id'   => $request->rejected_by,
+            'cancelled_at' => $request->rejected_at?->toIso8601String(),
+            'cancelled_by' => [
+                'id' => $request->rejected_by,
                 'name' => $actor['name'] ?? null,
                 'type' => $request->rejected_by_type,
             ],
@@ -137,11 +137,11 @@ class CustodyRequestService
             $actor = $this->resolveActor($request->approved_by, $request->approved_by_type);
 
             return [
-                'status'      => 'approved',
-                'approvedBy'  => $actor['name'] ?? null,
+                'status' => 'approved',
+                'approvedBy' => $actor['name'] ?? null,
                 'profileImage' => $actor['image'] ?? null,
-                'approvedAt'  => $request->approved_at?->toIso8601String(),
-                'dateTime'    => $request->approved_at?->toIso8601String(),
+                'approvedAt' => $request->approved_at?->toIso8601String(),
+                'dateTime' => $request->approved_at?->toIso8601String(),
                 'rejectedReason' => null,
             ];
         }
@@ -150,11 +150,11 @@ class CustodyRequestService
             $actor = $this->resolveActor($request->rejected_by, $request->rejected_by_type);
 
             return [
-                'status'         => 'rejected',
-                'approvedBy'     => $actor['name'] ?? null,
-                'profileImage'   => $actor['image'] ?? null,
-                'approvedAt'     => $request->rejected_at?->toIso8601String(),
-                'dateTime'       => $request->rejected_at?->toIso8601String(),
+                'status' => 'rejected',
+                'approvedBy' => $actor['name'] ?? null,
+                'profileImage' => $actor['image'] ?? null,
+                'approvedAt' => $request->rejected_at?->toIso8601String(),
+                'dateTime' => $request->rejected_at?->toIso8601String(),
                 'rejectedReason' => $request->rejection_reason,
             ];
         }
@@ -164,22 +164,24 @@ class CustodyRequestService
 
     private function resolveActor(?string $actorId, ?string $actorType): array
     {
-        if (!$actorId) {
+        if (! $actorId) {
             return ['name' => null, 'image' => null];
         }
 
         if ($actorType === 'brand_owner') {
             $bo = BrandOwner::find($actorId);
+
             return [
-                'name'  => $bo?->name,
-                'image' => $bo?->image ? asset('storage/' . $bo->image) : null,
+                'name' => $bo?->name,
+                'image' => $bo?->image ? asset('storage/'.$bo->image) : null,
             ];
         }
 
         $bm = BranchManager::find($actorId);
+
         return [
-            'name'  => $bm?->name,
-            'image' => $bm?->image ? asset('storage/' . $bm->image) : null,
+            'name' => $bm?->name,
+            'image' => $bm?->image ? asset('storage/'.$bm->image) : null,
         ];
     }
 
@@ -198,12 +200,12 @@ class CustodyRequestService
             : CustodyRequest::where('branch_manager_id', $branchManagerId);
 
         // Status filter
-        if (!empty($status)) {
+        if (! empty($status)) {
             $query->where('status', $status);
         }
 
         // Preferred receipt method filter
-        if (!empty($preferredReceiptMethod)) {
+        if (! empty($preferredReceiptMethod)) {
             // Normalize the value to match database values exactly
             $preferredReceiptMethod = trim($preferredReceiptMethod);
             // Use exact match to ensure we get the right records
@@ -211,7 +213,7 @@ class CustodyRequestService
         }
 
         // Time period filter
-        if (!empty($timePeriod)) {
+        if (! empty($timePeriod)) {
             $startDate = $this->getTimePeriodStartDate($timePeriod);
             $query->where('created_at', '>=', $startDate);
         }
@@ -234,14 +236,14 @@ class CustodyRequestService
                 : 'Me (Branch Manager)';
 
             return [
-                'id'                     => $request->id,
-                'type'                   => 'Custody Request',
-                'submittedBy'            => $submittedBy,
-                'dateTime'               => $request->created_at->toIso8601String(),
-                'status'                 => strtolower((string) $request->status),
-                'amount'                 => (float) $request->requested_amount,
+                'id' => $request->id,
+                'type' => 'Custody Request',
+                'submittedBy' => $submittedBy,
+                'dateTime' => $request->created_at->toIso8601String(),
+                'status' => strtolower((string) $request->status),
+                'amount' => (float) $request->requested_amount,
                 'preferredReceiptMethod' => $request->preferred_receipt_method,
-                'purpose'                => $request->purpose,
+                'purpose' => $request->purpose,
             ];
         })->toArray();
     }
@@ -267,8 +269,8 @@ class CustodyRequestService
     private function storeAttachments(CustodyRequest $request, array $files): void
     {
         foreach ($files as $file) {
-            $filename = 'custody_request_' . $request->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
-            $path = $file->storeAs('custody-requests/' . $request->id, $filename, 'public');
+            $filename = 'custody_request_'.$request->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
+            $path = $file->storeAs('custody-requests/'.$request->id, $filename, 'public');
 
             CustodyRequestAttachment::create([
                 'custody_request_id' => $request->id,
@@ -302,14 +304,14 @@ class CustodyRequestService
         }
 
         CustodyRequestTimeline::create([
-            'custody_request_id'  => $request->id,
-            'stage'               => $stage,
-            'status'              => $status,
-            'actor_id'            => $actorId,
-            'actor_type'          => $actorType,
-            'actor_name'          => $actorName ?? $actor->name ?? 'Unknown',
+            'custody_request_id' => $request->id,
+            'stage' => $stage,
+            'status' => $status,
+            'actor_id' => $actorId,
+            'actor_type' => $actorType,
+            'actor_name' => $actorName ?? $actor->name ?? 'Unknown',
             'actor_profile_image' => $actorProfileImage ?? $actor->image ?? null,
-            'action_date'         => now(),
+            'action_date' => now(),
         ]);
     }
 
@@ -325,14 +327,14 @@ class CustodyRequestService
 
         return $requests->map(function ($request) {
             return [
-                'id'                     => $request->id,
-                'requestedAmount'        => (float) $request->requested_amount,
-                'amount'                 => (float) $request->requested_amount,
-                'purpose'                => $request->purpose,
+                'id' => $request->id,
+                'requestedAmount' => (float) $request->requested_amount,
+                'amount' => (float) $request->requested_amount,
+                'purpose' => $request->purpose,
                 'preferredReceiptMethod' => $request->preferred_receipt_method,
-                'handoverDate'           => $request->handover_date?->toIso8601String(),
-                'status'                 => strtolower((string) $request->status),
-                'createdAt'              => $request->created_at->toIso8601String(),
+                'handoverDate' => $request->handover_date?->toIso8601String(),
+                'status' => strtolower((string) $request->status),
+                'createdAt' => $request->created_at->toIso8601String(),
             ];
         })->toArray();
     }
@@ -350,10 +352,10 @@ class CustodyRequestService
             }
 
             $request->update([
-                'status'           => 'Approved',
-                'approved_by'      => $actor->id,
+                'status' => 'Approved',
+                'approved_by' => $actor->id,
                 'approved_by_type' => 'brand_owner',
-                'approved_at'      => now(),
+                'approved_at' => now(),
             ]);
 
             $this->createTimelineEntry($request, 'Approve Case', 'Approved', $actor->id, 'brand_owner');
@@ -375,10 +377,10 @@ class CustodyRequestService
             }
 
             $request->update([
-                'status'           => 'Rejected',
-                'rejected_by'      => $actor->id,
+                'status' => 'Rejected',
+                'rejected_by' => $actor->id,
                 'rejected_by_type' => 'brand_owner',
-                'rejected_at'      => now(),
+                'rejected_at' => now(),
                 'rejection_reason' => $reason,
             ]);
 

@@ -1,9 +1,8 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -16,7 +15,7 @@ return new class extends Migration
     public function up(): void
     {
         // Only run if old backup table exists
-        if (!Schema::hasTable('branch_item_old_backup')) {
+        if (! Schema::hasTable('branch_item_old_backup')) {
             return; // No data to migrate
         }
 
@@ -61,7 +60,7 @@ return new class extends Migration
                 ]);
             }
 
-            $key = ($itemData->item_name ?? '') . '|' . ($itemData->item_code ?? '');
+            $key = ($itemData->item_name ?? '').'|'.($itemData->item_code ?? '');
             $itemMap[$key] = $itemId;
         }
 
@@ -69,7 +68,7 @@ return new class extends Migration
         $branchItems = DB::table('branch_item_old_backup')->get();
 
         foreach ($branchItems as $branchItem) {
-            $key = ($branchItem->item_name ?? '') . '|' . ($branchItem->item_code ?? '');
+            $key = ($branchItem->item_name ?? '').'|'.($branchItem->item_code ?? '');
             $itemId = $itemMap[$key] ?? null;
 
             if ($itemId) {
@@ -79,7 +78,7 @@ return new class extends Migration
                     ->where('item_id', $itemId)
                     ->exists();
 
-                if (!$exists) {
+                if (! $exists) {
                     DB::table('branch_item')->insert([
                         'id' => (string) \Illuminate\Support\Str::uuid(),
                         'branch_id' => $branchItem->branch_id,
@@ -102,7 +101,7 @@ return new class extends Migration
             ->get();
 
         foreach ($inventories as $inv) {
-            $key = ($inv->item_name ?? '') . '|' . ($inv->item_code ?? '');
+            $key = ($inv->item_name ?? '').'|'.($inv->item_code ?? '');
             $itemId = $itemMap[$key] ?? null;
 
             if ($itemId) {

@@ -2,8 +2,8 @@
 
 namespace App\Providers;
 
-use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Response;
+use Illuminate\Support\ServiceProvider;
 
 class ApiResponseServiceProvider extends ServiceProvider
 {
@@ -37,7 +37,7 @@ class ApiResponseServiceProvider extends ServiceProvider
                 'data' => $data,
             ];
 
-            if (!empty($meta)) {
+            if (! empty($meta)) {
                 $response['meta'] = $meta;
             }
 
@@ -55,7 +55,7 @@ class ApiResponseServiceProvider extends ServiceProvider
                 $response['errors'] = $errors;
             }
 
-            if (!empty($meta)) {
+            if (! empty($meta)) {
                 $response['meta'] = $meta;
             }
 
@@ -113,7 +113,7 @@ class ApiResponseServiceProvider extends ServiceProvider
                     'from' => $data->firstItem(),
                     'to' => $data->lastItem(),
                     'has_more_pages' => $data->hasMorePages(),
-                ]
+                ],
             ];
 
             return Response::success($data->items(), $message, 200, $meta);

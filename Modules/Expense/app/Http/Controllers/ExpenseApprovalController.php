@@ -64,7 +64,7 @@ class ExpenseApprovalController extends BaseController
 
             return response()->json([
                 'success' => true,
-                'message' => 'Expense marked as viewed'
+                'message' => 'Expense marked as viewed',
             ]);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage());
@@ -78,7 +78,7 @@ class ExpenseApprovalController extends BaseController
      */
     public function approve(string $expense): JsonResponse
     {
-        if (!(auth()->user() instanceof \Modules\BrandOwner\Models\BrandOwner)) {
+        if (! (auth()->user() instanceof \Modules\BrandOwner\Models\BrandOwner)) {
             return $this->errorResponse('Only brand owners can approve expenses', 403);
         }
 
@@ -94,7 +94,7 @@ class ExpenseApprovalController extends BaseController
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => $e->getMessage()
+                'message' => $e->getMessage(),
             ], 400);
         }
     }
@@ -105,7 +105,7 @@ class ExpenseApprovalController extends BaseController
      */
     public function reject(Request $request, string $expense): JsonResponse
     {
-        if (!(auth()->user() instanceof \Modules\BrandOwner\Models\BrandOwner)) {
+        if (! (auth()->user() instanceof \Modules\BrandOwner\Models\BrandOwner)) {
             return $this->errorResponse('Only brand owners can reject expenses', 403);
         }
 

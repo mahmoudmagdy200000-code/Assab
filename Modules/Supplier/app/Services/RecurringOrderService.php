@@ -43,4 +43,3 @@ class RecurringOrderService
         return $order->fresh();
     }
 }
-

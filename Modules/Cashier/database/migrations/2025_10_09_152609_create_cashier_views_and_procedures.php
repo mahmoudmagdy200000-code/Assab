@@ -15,19 +15,19 @@ return new class extends Migration
             return;
         }
 
-        if (!Schema::hasTable('cashiers') ||
-        !Schema::hasTable('branches') ||
-        !Schema::hasTable('branch_managers') ||
-        !Schema::hasTable('cashier_shifts')) {
-        return; // skip if tables not ready
-    }
+        if (! Schema::hasTable('cashiers') ||
+        ! Schema::hasTable('branches') ||
+        ! Schema::hasTable('branch_managers') ||
+        ! Schema::hasTable('cashier_shifts')) {
+            return; // skip if tables not ready
+        }
         // ================================
         // VIEWS
         // ================================
         // Drop view if exists (SQLite-compatible approach)
-        DB::statement("DROP VIEW IF EXISTS vw_cashier_summary;");
-        
-        DB::statement("
+        DB::statement('DROP VIEW IF EXISTS vw_cashier_summary;');
+
+        DB::statement('
             CREATE VIEW vw_cashier_summary AS
             SELECT
                 c.id,
@@ -48,13 +48,13 @@ return new class extends Migration
             LEFT JOIN cashier_shifts cs ON c.id = cs.cashier_id
             GROUP BY c.id, c.name, c.email, c.phone, c.image, c.status,
                     b.name, b.id, bm.name, c.created_at, c.activated_at;
-        ");
+        ');
 
-        DB::statement("DROP VIEW IF EXISTS vw_pending_shifts;");
-        
+        DB::statement('DROP VIEW IF EXISTS vw_pending_shifts;');
+
         // Use database-specific date function
         $dateFunction = $driver === 'mysql' ? 'CURDATE()' : 'DATE("now")';
-        
+
         DB::statement("
             CREATE VIEW vw_pending_shifts AS
             SELECT
@@ -88,9 +88,9 @@ return new class extends Migration
         // STORED PROCEDURES (MySQL/MariaDB only)
         // ================================
         if ($driver === 'mysql' || $driver === 'mariadb') {
-            DB::unprepared("
+            DB::unprepared('
                 DROP PROCEDURE IF EXISTS GetNextCashier;
-            ");
+            ');
 
             DB::unprepared("
                 CREATE PROCEDURE GetNextCashier(
@@ -120,9 +120,9 @@ return new class extends Migration
                 END;
             ");
 
-            DB::unprepared("
+            DB::unprepared('
                 DROP PROCEDURE IF EXISTS CheckShiftAvailability;
-            ");
+            ');
 
             DB::unprepared("
                 CREATE PROCEDURE CheckShiftAvailability(
@@ -151,9 +151,9 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::statement("DROP VIEW IF EXISTS vw_cashier_summary;");
-        DB::statement("DROP VIEW IF EXISTS vw_pending_shifts;");
-        DB::unprepared("DROP PROCEDURE IF EXISTS GetNextCashier;");
-        DB::unprepared("DROP PROCEDURE IF EXISTS CheckShiftAvailability;");
+        DB::statement('DROP VIEW IF EXISTS vw_cashier_summary;');
+        DB::statement('DROP VIEW IF EXISTS vw_pending_shifts;');
+        DB::unprepared('DROP PROCEDURE IF EXISTS GetNextCashier;');
+        DB::unprepared('DROP PROCEDURE IF EXISTS CheckShiftAvailability;');
     }
 };

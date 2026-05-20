@@ -17,81 +17,81 @@ return new class extends Migration
                 // Add password column if it doesn't exist
                 // Make it nullable initially since existing records won't have passwords
                 // The migrate_expense_suppliers_data migration will set default passwords
-                if (!Schema::hasColumn('suppliers', 'password')) {
+                if (! Schema::hasColumn('suppliers', 'password')) {
                     $table->string('password')->nullable()->after('tax_id');
                 }
 
                 // Add other missing columns from Supplier module structure
-                if (!Schema::hasColumn('suppliers', 'is_first_login')) {
+                if (! Schema::hasColumn('suppliers', 'is_first_login')) {
                     $table->boolean('is_first_login')->default(true)->after('is_active');
                 }
-                if (!Schema::hasColumn('suppliers', 'email_verified_at')) {
+                if (! Schema::hasColumn('suppliers', 'email_verified_at')) {
                     $table->timestamp('email_verified_at')->nullable()->after('is_first_login');
                 }
-                if (!Schema::hasColumn('suppliers', 'phone_verified_at')) {
+                if (! Schema::hasColumn('suppliers', 'phone_verified_at')) {
                     $table->timestamp('phone_verified_at')->nullable()->after('email_verified_at');
                 }
-                if (!Schema::hasColumn('suppliers', 'remember_token')) {
+                if (! Schema::hasColumn('suppliers', 'remember_token')) {
                     $table->rememberToken();
                 }
-                if (!Schema::hasColumn('suppliers', 'company_name')) {
+                if (! Schema::hasColumn('suppliers', 'company_name')) {
                     $table->string('company_name')->nullable()->after('remember_token');
                 }
-                if (!Schema::hasColumn('suppliers', 'service_areas')) {
+                if (! Schema::hasColumn('suppliers', 'service_areas')) {
                     $table->json('service_areas')->nullable();
                 }
-                if (!Schema::hasColumn('suppliers', 'working_hours')) {
+                if (! Schema::hasColumn('suppliers', 'working_hours')) {
                     $table->json('working_hours')->nullable();
                 }
-                if (!Schema::hasColumn('suppliers', 'holiday_schedules')) {
+                if (! Schema::hasColumn('suppliers', 'holiday_schedules')) {
                     $table->json('holiday_schedules')->nullable();
                 }
-                if (!Schema::hasColumn('suppliers', 'language')) {
+                if (! Schema::hasColumn('suppliers', 'language')) {
                     $table->enum('language', ['ar', 'en'])->default('ar');
                 }
-                if (!Schema::hasColumn('suppliers', 'theme')) {
+                if (! Schema::hasColumn('suppliers', 'theme')) {
                     $table->enum('theme', ['light', 'dark'])->default('light');
                 }
-                if (!Schema::hasColumn('suppliers', 'notification_preferences')) {
+                if (! Schema::hasColumn('suppliers', 'notification_preferences')) {
                     $table->json('notification_preferences')->nullable();
                 }
-                if (!Schema::hasColumn('suppliers', 'status')) {
+                if (! Schema::hasColumn('suppliers', 'status')) {
                     $table->enum('status', ['online', 'offline', 'away'])->default('offline');
                 }
-                if (!Schema::hasColumn('suppliers', 'contact_methods')) {
+                if (! Schema::hasColumn('suppliers', 'contact_methods')) {
                     $table->json('contact_methods')->nullable();
                 }
-                if (!Schema::hasColumn('suppliers', 'default_delivery_hours')) {
+                if (! Schema::hasColumn('suppliers', 'default_delivery_hours')) {
                     $table->integer('default_delivery_hours')->nullable();
                 }
-                if (!Schema::hasColumn('suppliers', 'min_order_amount')) {
+                if (! Schema::hasColumn('suppliers', 'min_order_amount')) {
                     $table->decimal('min_order_amount', 12, 2)->nullable();
                 }
-                if (!Schema::hasColumn('suppliers', 'average_response_time_hours')) {
+                if (! Schema::hasColumn('suppliers', 'average_response_time_hours')) {
                     $table->decimal('average_response_time_hours', 8, 2)->nullable();
                 }
-                if (!Schema::hasColumn('suppliers', 'response_rate_percentage')) {
+                if (! Schema::hasColumn('suppliers', 'response_rate_percentage')) {
                     $table->decimal('response_rate_percentage', 5, 2)->nullable();
                 }
-                if (!Schema::hasColumn('suppliers', 'rating')) {
+                if (! Schema::hasColumn('suppliers', 'rating')) {
                     $table->decimal('rating', 3, 2)->nullable();
                 }
-                if (!Schema::hasColumn('suppliers', 'total_orders')) {
+                if (! Schema::hasColumn('suppliers', 'total_orders')) {
                     $table->integer('total_orders')->default(0);
                 }
-                if (!Schema::hasColumn('suppliers', 'completed_orders')) {
+                if (! Schema::hasColumn('suppliers', 'completed_orders')) {
                     $table->integer('completed_orders')->default(0);
                 }
-                if (!Schema::hasColumn('suppliers', 'categories')) {
+                if (! Schema::hasColumn('suppliers', 'categories')) {
                     $table->json('categories')->nullable();
                 }
-                if (!Schema::hasColumn('suppliers', 'created_by_admin_at')) {
+                if (! Schema::hasColumn('suppliers', 'created_by_admin_at')) {
                     $table->timestamp('created_by_admin_at')->nullable();
                 }
-                if (!Schema::hasColumn('suppliers', 'last_seen_at')) {
+                if (! Schema::hasColumn('suppliers', 'last_seen_at')) {
                     $table->timestamp('last_seen_at')->nullable();
                 }
-                if (!Schema::hasColumn('suppliers', 'deleted_at')) {
+                if (! Schema::hasColumn('suppliers', 'deleted_at')) {
                     $table->softDeletes();
                 }
 
@@ -129,6 +129,7 @@ return new class extends Migration
                     // Index might already exist
                 }
             });
+
             return;
         }
 
@@ -142,7 +143,6 @@ return new class extends Migration
             $table->string('image')->nullable();
             $table->text('address')->nullable();
             $table->string('tax_id')->nullable();
-            
 
             // Account Information
             $table->string('password');

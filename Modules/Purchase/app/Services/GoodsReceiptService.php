@@ -7,7 +7,6 @@ use Illuminate\Support\Facades\DB;
 use Modules\Purchase\Enums\DocumentType;
 use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
-use Modules\Purchase\Enums\VarianceType;
 use Modules\Purchase\Models\CompensatoryOrder;
 use Modules\Purchase\Models\GoodsReceipt;
 use Modules\Purchase\Models\GoodsReceiptItem;
@@ -41,7 +40,7 @@ class GoodsReceiptService
             ->paginate($perPage);
 
         // Use Resource class through paginator
-        return $paginator->through(fn($receipt) => new GoodsReceiptListResource($receipt));
+        return $paginator->through(fn ($receipt) => new GoodsReceiptListResource($receipt));
     }
 
     /**
@@ -63,7 +62,7 @@ class GoodsReceiptService
         $paginator = $query->orderBy('updated_at', 'desc')->paginate($perPage);
 
         // Use Resource class through paginator
-        return $paginator->through(fn($receipt) => new GoodsReceiptListResource($receipt));
+        return $paginator->through(fn ($receipt) => new GoodsReceiptListResource($receipt));
     }
 
     /**
@@ -85,7 +84,7 @@ class GoodsReceiptService
         $paginator = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
         // Use Resource class through paginator
-        return $paginator->through(fn($receipt) => new GoodsReceiptListResource($receipt));
+        return $paginator->through(fn ($receipt) => new GoodsReceiptListResource($receipt));
     }
 
     /**
@@ -107,20 +106,17 @@ class GoodsReceiptService
         $paginator = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
         // Use Resource class through paginator
-        return $paginator->through(fn($receipt) => new GoodsReceiptListResource($receipt));
+        return $paginator->through(fn ($receipt) => new GoodsReceiptListResource($receipt));
     }
 
     /**
      * Start receiving an order with items inspection data, document type, and variance actions
      *
-     * @param PurchaseOrder $order
-     * @param string $receivedBy
-     * @param array $itemsData Array of items with inspection details: item_id, quantity_received, quality, temperature, expiration_date, photo, notes
-     * @param string|null $documentType Optional: invoice, delivery_note, receipt_without_document
-     * @param array|null $documentData Optional: Data for document type (invoice_data or delivery_note_data)
-     * @param array|null $varianceData Optional: Single variance action object for all items with variance (action, note, photo, compensatory_order_data, deduct_data)
-     * @param array $unlistedItems Optional: Unlisted items (gifts from supplier)
-     * @return GoodsReceipt
+     * @param  array  $itemsData  Array of items with inspection details: item_id, quantity_received, quality, temperature, expiration_date, photo, notes
+     * @param  string|null  $documentType  Optional: invoice, delivery_note, receipt_without_document
+     * @param  array|null  $documentData  Optional: Data for document type (invoice_data or delivery_note_data)
+     * @param  array|null  $varianceData  Optional: Single variance action object for all items with variance (action, note, photo, compensatory_order_data, deduct_data)
+     * @param  array  $unlistedItems  Optional: Unlisted items (gifts from supplier)
      */
     public function startReceiving(
         PurchaseOrder $order,
@@ -234,15 +230,15 @@ class GoodsReceiptService
             // Create variance records ONLY if varianceData is provided
             // This ensures variances are only created when user explicitly reports them
             $variancesMap = [];
-            if (!empty($varianceData)) {
+            if (! empty($varianceData)) {
                 // If compensatory_order, create variances only for items in variance.items
-                if ($varianceData['action'] === 'compensatory_order' && !empty($varianceData['items'])) {
+                if ($varianceData['action'] === 'compensatory_order' && ! empty($varianceData['items'])) {
                     $varianceItemIds = collect($varianceData['items'])->pluck('item_id')->toArray();
                     foreach ($receipt->items as $item) {
                         if (in_array($item->purchase_order_item_id, $varianceItemIds)) {
                             // Check if variance already exists
                             $variance = $item->variance;
-                            if (!$variance) {
+                            if (! $variance) {
                                 $variance = $this->varianceService->createVariance($receipt, $item);
                             }
                             $variancesMap[$item->purchase_order_item_id] = $variance;
@@ -259,7 +255,7 @@ class GoodsReceiptService
                         if ($hasVariance) {
                             // Check if variance already exists
                             $variance = $item->variance;
-                            if (!$variance) {
+                            if (! $variance) {
                                 $variance = $this->varianceService->createVariance($receipt, $item);
                             }
                             $variancesMap[$item->purchase_order_item_id] = $variance;
@@ -270,7 +266,7 @@ class GoodsReceiptService
 
             // Process variance action if provided (applies to all items with variance)
             // IMPORTANT: Variances are already created above, so even if action fails, variances will be saved
-            if (!empty($varianceData) && !empty($variancesMap)) {
+            if (! empty($varianceData) && ! empty($variancesMap)) {
                 $action = $varianceData['action'];
                 $varianceNote = $varianceData['note'] ?? null;
                 $variancePhoto = $varianceData['photo'] ?? null;
@@ -312,7 +308,7 @@ class GoodsReceiptService
                             ->where('id', $variance->id)
                             ->update([
                                 'status' => 'pending',
-                                'additional_notes' => ($variance->additional_notes ?? '') . "\n[Error processing action: " . $e->getMessage() . ']',
+                                'additional_notes' => ($variance->additional_notes ?? '')."\n[Error processing action: ".$e->getMessage().']',
                                 'updated_at' => now(),
                             ]);
                     }
@@ -320,7 +316,7 @@ class GoodsReceiptService
             }
 
             // Log variance creation for debugging
-            if (!empty($variancesMap)) {
+            if (! empty($variancesMap)) {
                 \Log::info('GoodsReceipt: Variances created', [
                     'receipt_id' => $receipt->id,
                     'variances_count' => count($variancesMap),
@@ -367,7 +363,7 @@ class GoodsReceiptService
             $receipt->load('items');
 
             // If no variances after processing, complete inspection and close order
-            if (!$receipt->hasVariances) {
+            if (! $receipt->hasVariances) {
                 // Complete inspection
                 $receipt->completeInspection();
 
@@ -513,7 +509,7 @@ class GoodsReceiptService
         ]);
 
         // Handle photo upload (photo is already stored as path string)
-        if (!empty($data['photo'])) {
+        if (! empty($data['photo'])) {
             // Create document record for the photo
             OrderDocument::create([
                 'documentable_type' => get_class($invoice),
@@ -585,6 +581,7 @@ class GoodsReceiptService
     public function saveDraft(GoodsReceipt $receipt): GoodsReceipt
     {
         $receipt->saveDraft();
+
         return $receipt->fresh();
     }
 
@@ -603,7 +600,7 @@ class GoodsReceiptService
      */
     public function deleteDraft(GoodsReceipt $receipt): bool
     {
-        if (!$receipt->is_draft) {
+        if (! $receipt->is_draft) {
             return false;
         }
 
@@ -712,7 +709,7 @@ class GoodsReceiptService
         $receipt->setDocumentType(DocumentType::DELIVERY_NOTE);
 
         // Handle file upload if provided
-        if (!empty($data['file'])) {
+        if (! empty($data['file'])) {
             OrderDocument::upload($receipt, $data['file'], DocumentType::DELIVERY_NOTE, 'Delivery Note');
         }
 
@@ -754,7 +751,7 @@ class GoodsReceiptService
             'branch',
         ])->find($orderId);
 
-        if (!$order) {
+        if (! $order) {
             return null;
         }
 
@@ -830,8 +827,8 @@ class GoodsReceiptService
 
         // Add unit_price and order_number from request if supplier_name and order_number are in request
         if (
-            !empty($requestData['supplier_name']) &&
-            !empty($requestData['order_number'])
+            ! empty($requestData['supplier_name']) &&
+            ! empty($requestData['order_number'])
         ) {
             if (isset($requestData['unit_price'])) {
                 $response['unit_price'] = $requestData['unit_price'];
@@ -858,9 +855,9 @@ class GoodsReceiptService
 
             $varianceMessage = match ($varianceType) {
                 'short' => "Item delivered is {$varianceAmount}{$varianceUnit} lower than requested & Confirmed Qty.",
-                'damage' => "Item quality variance detected.",
+                'damage' => 'Item quality variance detected.',
                 'both' => "Item delivered is {$varianceAmount}{$varianceUnit} lower than requested & Confirmed Qty with quality issues.",
-                default => "Variance detected for this item.",
+                default => 'Variance detected for this item.',
             };
 
             $varianceDetails = [
@@ -906,7 +903,7 @@ class GoodsReceiptService
             'receivedBy',
         ])->find($receiptId);
 
-        if (!$receipt) {
+        if (! $receipt) {
             return [];
         }
 
@@ -1077,7 +1074,7 @@ class GoodsReceiptService
     {
         $order = PurchaseOrder::find($orderId);
 
-        if (!$order) {
+        if (! $order) {
             return [];
         }
 
@@ -1091,7 +1088,7 @@ class GoodsReceiptService
         }
 
         // Add variance summary to variance_logged stage when present
-        if (!empty($stages['variance_logged'])) {
+        if (! empty($stages['variance_logged'])) {
             $order->loadMissing('latestGoodsReceipt');
             $receiptId = $order->latestGoodsReceipt?->id;
             if ($receiptId) {
@@ -1173,13 +1170,13 @@ class GoodsReceiptService
             }
 
             // Add delivery_photos from order if available
-            if ($order->delivery_photos && is_array($order->delivery_photos) && !empty($order->delivery_photos)) {
+            if ($order->delivery_photos && is_array($order->delivery_photos) && ! empty($order->delivery_photos)) {
                 $uploadedAt = $order->actual_delivery_at?->format('Y-m-d H:i:s')
                     ?? $order->received_at?->format('Y-m-d H:i:s')
                     ?? null;
 
                 $deliveredStage['delivery_photos'] = array_map(function ($photoPath) use ($uploadedAt) {
-                    if (!is_string($photoPath)) {
+                    if (! is_string($photoPath)) {
                         return FileResource::makeOrNull($photoPath)?->toArray(request());
                     }
 
@@ -1231,7 +1228,7 @@ class GoodsReceiptService
                             ?? $order->expected_delivery_at?->format('Y-m-d H:i:s'),
                     ],
                     'goods_inspections' => $latestReceipt->items
-                        ->filter(fn($item) => $item->variance_type !== null)
+                        ->filter(fn ($item) => $item->variance_type !== null)
                         ->map(function ($item) {
                             return [
                                 'item_name' => $item->item_name,
@@ -1339,7 +1336,7 @@ class GoodsReceiptService
             $quantity = $varianceItem['quantity'] ?? $orderItem->quantity_ordered;
 
             // Validate quantity exists and is greater than 0
-            if (!isset($quantity) || $quantity <= 0) {
+            if (! isset($quantity) || $quantity <= 0) {
                 throw new \InvalidArgumentException(
                     "Quantity is required and must be greater than 0 for item {$orderItem->item_name}"
                 );
@@ -1389,7 +1386,7 @@ class GoodsReceiptService
                 ->where('id', $originalOrder->supplier_id)
                 ->exists();
 
-            if (!$supplierExists) {
+            if (! $supplierExists) {
                 // Log warning if supplier doesn't exist in purchase_suppliers
                 // The supplier might be in the new suppliers table, but the FK constraint
                 // still references purchase_suppliers (needs migration fix)

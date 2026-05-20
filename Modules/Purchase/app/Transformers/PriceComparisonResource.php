@@ -87,7 +87,7 @@ class PriceComparisonResource extends JsonResource
         }
 
         $normalized = is_array($source) && array_is_list($source)
-            ? collect($source)->sortBy(fn($item) => $item['unit_price'] ?? $item['price'] ?? PHP_FLOAT_MAX)->first()
+            ? collect($source)->sortBy(fn ($item) => $item['unit_price'] ?? $item['price'] ?? PHP_FLOAT_MAX)->first()
             : $source;
 
         $price = $normalized['unit_price'] ?? $normalized['price'] ?? null;
@@ -107,7 +107,7 @@ class PriceComparisonResource extends JsonResource
 
     private function formatUseRecommendation(?array $bestOption): ?array
     {
-        if (!$bestOption) {
+        if (! $bestOption) {
             return null;
         }
 
@@ -130,7 +130,7 @@ class PriceComparisonResource extends JsonResource
 
     private function mapFactor(?array $factor, string $valueKey): ?array
     {
-        if (!$factor) {
+        if (! $factor) {
             return null;
         }
 

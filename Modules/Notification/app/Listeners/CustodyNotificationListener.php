@@ -4,10 +4,10 @@ namespace Modules\Notification\Listeners;
 
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
+use Modules\Custody\Events\HandoverApproved;
 use Modules\Notification\Contracts\NotificationServiceInterface;
 use Modules\Notification\Enums\NotificationPriority;
 use Modules\Notification\Enums\NotificationType;
-use Modules\Custody\Events\HandoverApproved;
 
 class CustodyNotificationListener implements ShouldQueue
 {
@@ -38,4 +38,3 @@ class CustodyNotificationListener implements ShouldQueue
         }
     }
 }
-

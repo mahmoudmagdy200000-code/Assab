@@ -60,6 +60,7 @@ class PriceHistory extends Model
     public function scopeLastThreeMonths($query)
     {
         $threeMonthsAgo = now()->subMonths(3)->startOfMonth();
+
         return $query->where('recorded_date', '>=', $threeMonthsAgo);
     }
 
@@ -108,16 +109,16 @@ class PriceHistory extends Model
             ->orderBy('period_month')
             ->get()
             ->groupBy('source_type');
-        
+
         $comparison = [];
-        
+
         foreach (OrderType::cases() as $type) {
             if ($type->hasCost()) {
                 $sourceData = $prices->get($type->value, collect());
-                
+
                 if ($sourceData->isNotEmpty()) {
                     $latestPrice = $sourceData->sortByDesc('period_month')->first();
-                    
+
                     $comparison[$type->value] = [
                         'type' => $type->value,
                         'type_label' => $type->label(),
@@ -131,7 +132,7 @@ class PriceHistory extends Model
                 }
             }
         }
-        
+
         return $comparison;
     }
 
@@ -141,17 +142,17 @@ class PriceHistory extends Model
     public static function getBestOption(string $itemId): ?array
     {
         $comparison = static::getPriceComparison($itemId);
-        
+
         if (empty($comparison)) {
             return null;
         }
-        
+
         // Calculate score for each option (lower is better for price and delivery, higher is better for rating)
         $scored = collect($comparison)->map(function ($option) {
             $priceScore = $option['current_price'];
             $deliveryScore = $option['delivery_days'] ?? PHP_INT_MAX;
             $ratingScore = 100 - (($option['rating'] ?? 0) * 20); // Convert 5-star to score (0-100)
-            
+
             return array_merge($option, [
                 'composite_score' => ($priceScore * 0.5) + ($deliveryScore * 10) + $ratingScore,
                 'is_lowest_price' => false,
@@ -159,13 +160,13 @@ class PriceHistory extends Model
                 'is_best_rating' => false,
             ]);
         });
-        
+
         // Find best in each category
         $lowestPrice = $scored->sortBy('current_price')->first();
         $fastestDelivery = $scored->sortBy('delivery_days')->first();
         $bestRating = $scored->sortByDesc('rating')->first();
         $bestOverall = $scored->sortBy('composite_score')->first();
-        
+
         return [
             'best_option' => $bestOverall['type'],
             'lowest_price' => $lowestPrice['type'],
@@ -175,4 +176,3 @@ class PriceHistory extends Model
         ];
     }
 }
-

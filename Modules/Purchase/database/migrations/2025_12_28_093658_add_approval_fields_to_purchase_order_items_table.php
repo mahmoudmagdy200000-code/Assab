@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -27,7 +27,7 @@ return new class extends Migration
             } else {
                 $table->enum('approval_type', ['partial', 'time_change', 'alternative'])->nullable()->after('status');
             }
-            
+
             // Add approval_data JSON field for storing request details
             $table->json('approval_data')->nullable()->after('approval_type');
         });

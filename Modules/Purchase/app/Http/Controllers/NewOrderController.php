@@ -5,30 +5,26 @@ namespace Modules\Purchase\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Http\Requests\ComparePricesRequest;
-use Modules\Purchase\Http\Requests\StoreDirectSupplierOrderRequest;
-use Modules\Purchase\Http\Requests\StoreInternalTransferRequest;
-use Modules\Purchase\Http\Requests\StorePurchasingOfficerOrderRequest;
+use Modules\Purchase\Http\Requests\FilterBranchItemsRequest;
+use Modules\Purchase\Http\Requests\FilterOrdersRequest;
+use Modules\Purchase\Http\Requests\GetDirectSupplierItemsRequest;
+use Modules\Purchase\Http\Requests\GetPurchasingOfficerItemsRequest;
+use Modules\Purchase\Http\Requests\GetSupplierItemsRequest;
+use Modules\Purchase\Http\Requests\GetTransferItemsRequest;
+use Modules\Purchase\Http\Requests\StoreMultipleOrdersRequest;
+use Modules\Purchase\Notifications\PurchaseOrderCreated;
 use Modules\Purchase\Services\OrderDataService;
 use Modules\Purchase\Services\PriceComparisonService;
 use Modules\Purchase\Services\PurchaseOrderService;
-use Modules\Purchase\Http\Requests\FilterBranchItemsRequest;
-use Modules\Purchase\Http\Requests\FilterOrdersRequest;
-use Modules\Purchase\Http\Requests\StorePurchaseOrderRequest;
-use Modules\Purchase\Http\Requests\StoreMultipleOrdersRequest;
 use Modules\Purchase\Transformers\BranchItemResource;
 use Modules\Purchase\Transformers\OrderSummaryResource;
 use Modules\Purchase\Transformers\PriceComparisonResource;
 use Modules\Purchase\Transformers\PurchaseOrderResource;
-use Modules\Purchase\Http\Requests\GetTransferItemsRequest;
-use Modules\Purchase\Http\Requests\GetDirectSupplierItemsRequest;
-use Modules\Purchase\Http\Requests\GetPurchasingOfficerItemsRequest;
-use Modules\Purchase\Http\Requests\GetSupplierItemsRequest;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\ValidationException;
-use Modules\BranchManagers\Models\BranchManager;
-use Modules\Purchase\Notifications\PurchaseOrderCreated;
 
 class NewOrderController extends BaseController
 {
@@ -37,9 +33,6 @@ class NewOrderController extends BaseController
         private readonly PriceComparisonService $priceService,
         private readonly OrderDataService $dataService
     ) {}
-
-
-
 
     /**
      * Get list of purchase orders with filters
@@ -89,7 +82,7 @@ class NewOrderController extends BaseController
         try {
             $branchId = $request->get('branch_id', auth()->user()->branch_id);
 
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse('Branch ID is required', 400);
             }
 
@@ -109,6 +102,7 @@ class NewOrderController extends BaseController
                 'branch_id' => $request->get('branch_id', auth()->user()->branch_id ?? null),
                 'filters' => $request->validated(),
             ]);
+
             return $this->handleException($e, 'fetching branch items');
         }
     }
@@ -204,7 +198,7 @@ class NewOrderController extends BaseController
             // Convert availability filter to min_availability
             // If "All" or empty, no filter. Otherwise use the percentage value
             $minAvailability = null;
-            if (!empty($availability) && $availability !== 'All' && $availability !== 'all') {
+            if (! empty($availability) && $availability !== 'All' && $availability !== 'all') {
                 // Remove % sign if present and convert to float
                 $availabilityValue = is_numeric($availability)
                     ? (float) $availability
@@ -225,17 +219,17 @@ class NewOrderController extends BaseController
             ];
 
             // Validate response_time filter
-            if (!empty($filters['response_time']) && !in_array($filters['response_time'], ['fast', 'normal', 'slow'])) {
+            if (! empty($filters['response_time']) && ! in_array($filters['response_time'], ['fast', 'normal', 'slow'])) {
                 return $this->errorResponse('Invalid response_time filter. Must be: fast, normal, or slow', 400);
             }
 
             // Validate max_distance_km
-            if (!empty($filters['max_distance_km']) && $filters['max_distance_km'] < 0) {
+            if (! empty($filters['max_distance_km']) && $filters['max_distance_km'] < 0) {
                 return $this->errorResponse('max_distance_km must be a positive number', 400);
             }
 
             // Validate availability filter
-            if ($minAvailability !== null && !in_array($minAvailability, [60, 70, 80, 90, 100])) {
+            if ($minAvailability !== null && ! in_array($minAvailability, [60, 70, 80, 90, 100])) {
                 return $this->errorResponse('Invalid availability filter. Must be: All, 60, 70, 80, 90, or 100', 400);
             }
 
@@ -282,12 +276,12 @@ class NewOrderController extends BaseController
             if ($isMultipleOrders) {
                 // Validate user and branch
                 $user = auth()->user();
-                if (!$user) {
+                if (! $user) {
                     return $this->unauthorizedResponse('User not authenticated');
                 }
 
                 $branchId = $user->branch_id;
-                if (!$branchId) {
+                if (! $branchId) {
                     return $this->errorResponse(
                         'User must be associated with a branch to create orders',
                         400
@@ -295,7 +289,7 @@ class NewOrderController extends BaseController
                 }
 
                 $requestedBy = auth()->id();
-                if (!$requestedBy) {
+                if (! $requestedBy) {
                     return $this->unauthorizedResponse('User ID not found');
                 }
 
@@ -307,12 +301,12 @@ class NewOrderController extends BaseController
                     'user_id' => $requestedBy,
                     'branch_id' => $branchId,
                     'is_draft' => $isDraft,
-                    'has_branches' => !empty($data['branches']),
-                    'has_direct_supplier' => !empty($data['direct_supplier']),
-                    'has_purchase_officer' => !empty($data['purchase_officer']),
-                    'branches_count' => !empty($data['branches']) ? count($data['branches']) : 0,
-                    'direct_supplier_count' => !empty($data['direct_supplier']) ? count($data['direct_supplier']) : 0,
-                    'purchase_officer_count' => !empty($data['purchase_officer']) ? count($data['purchase_officer']) : 0,
+                    'has_branches' => ! empty($data['branches']),
+                    'has_direct_supplier' => ! empty($data['direct_supplier']),
+                    'has_purchase_officer' => ! empty($data['purchase_officer']),
+                    'branches_count' => ! empty($data['branches']) ? count($data['branches']) : 0,
+                    'direct_supplier_count' => ! empty($data['direct_supplier']) ? count($data['direct_supplier']) : 0,
+                    'purchase_officer_count' => ! empty($data['purchase_officer']) ? count($data['purchase_officer']) : 0,
                     'is_emergency' => $isEmergency,
                 ]);
                 $orders = $this->orderService->createMultipleOrders($data, $branchId, $requestedBy, $isDraft, $isEmergency);
@@ -329,12 +323,13 @@ class NewOrderController extends BaseController
                     $orderType = is_string($order->order_type)
                         ? OrderType::from($order->order_type)
                         : $order->order_type;
+
                     return $orderType->label();
                 })->unique()->values()->toArray();
 
                 $statusMessage = $isDraft
-                    ? "Successfully saved {$orderCount} order(s) as draft: " . implode(', ', $orderTypes)
-                    : "Successfully created {$orderCount} order(s): " . implode(', ', $orderTypes);
+                    ? "Successfully saved {$orderCount} order(s) as draft: ".implode(', ', $orderTypes)
+                    : "Successfully created {$orderCount} order(s): ".implode(', ', $orderTypes);
 
                 if ($user instanceof BranchManager) {
                     $user->notify(new PurchaseOrderCreated($orders));
@@ -360,6 +355,7 @@ class NewOrderController extends BaseController
                 'trace' => $e->getTraceAsString(),
                 'request_data' => $request->all(),
             ]);
+
             return $this->errorResponse($e->getMessage(), 400);
         } catch (\Exception $e) {
             Log::error('Error creating purchase order(s)', [
@@ -371,6 +367,7 @@ class NewOrderController extends BaseController
                 'user_id' => auth()->id(),
                 'branch_id' => auth()->user()->branch_id ?? null,
             ]);
+
             return $this->handleException($e, 'creating purchase order(s)');
         }
     }
@@ -387,19 +384,19 @@ class NewOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
             $items = $request->input('items', []);
-            if (!empty($items)) {
+            if (! empty($items)) {
                 $this->orderService->updateItems($order, $items);
                 $order->refresh();
             }
 
             $success = $this->orderService->submitOrder($order);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot submit order in current status', 400);
             }
 
@@ -423,13 +420,13 @@ class NewOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
             $success = $this->orderService->deleteDraftOrder($order);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot delete order. Only draft orders can be deleted.', 400);
             }
 
@@ -450,7 +447,7 @@ class NewOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->dataService->getOrderSummary($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -475,7 +472,7 @@ class NewOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -501,8 +498,6 @@ class NewOrderController extends BaseController
      * - Cooling status (transfer ready)
      * - Transport details (method, estimated time, driver, temperature)
      *
-     * @param GetTransferItemsRequest $request
-     * @return JsonResponse
      *
      * @group New Order
      */
@@ -547,14 +542,14 @@ class NewOrderController extends BaseController
                 'errors' => $e->errors(),
             ], 422);
         } catch (\Exception $e) {
-            Log::error('Error fetching transfer items: ' . $e->getMessage(), [
+            Log::error('Error fetching transfer items: '.$e->getMessage(), [
                 'exception' => $e,
                 'request' => $request->all(),
-                'user_id' => auth()->id()
+                'user_id' => auth()->id(),
             ]);
 
             return $this->errorResponse(
-                'Error in fetching transfer items: ' . $e->getMessage(),
+                'Error in fetching transfer items: '.$e->getMessage(),
                 500
             );
         }
@@ -591,11 +586,11 @@ class NewOrderController extends BaseController
             }
 
             // Validate filters
-            if (!empty($validated['max_delivery_hours']) && $validated['max_delivery_hours'] < 1) {
+            if (! empty($validated['max_delivery_hours']) && $validated['max_delivery_hours'] < 1) {
                 return $this->errorResponse('max_delivery_hours must be a positive number', 400);
             }
 
-            if (!empty($validated['max_distance_km']) && $validated['max_distance_km'] < 0) {
+            if (! empty($validated['max_distance_km']) && $validated['max_distance_km'] < 0) {
                 return $this->errorResponse('max_distance_km must be a positive number', 400);
             }
 
@@ -608,20 +603,17 @@ class NewOrderController extends BaseController
         } catch (\InvalidArgumentException $e) {
             return $this->errorResponse($e->getMessage(), 404);
         } catch (\Exception $e) {
-            Log::error('Error fetching direct supplier items: ' . $e->getMessage(), [
+            Log::error('Error fetching direct supplier items: '.$e->getMessage(), [
                 'exception' => $e,
                 'request' => $request->all(),
             ]);
 
             return $this->errorResponse(
-                'Error in fetching direct supplier items: ' . $e->getMessage(),
+                'Error in fetching direct supplier items: '.$e->getMessage(),
                 500
             );
         }
     }
-
-
-
 
     /**
      * Get Purchasing Officer Items with price comparison
@@ -655,13 +647,13 @@ class NewOrderController extends BaseController
 
             return response()->json($responseData, 200);
         } catch (\Exception $e) {
-            Log::error('Error fetching purchasing officer items: ' . $e->getMessage(), [
+            Log::error('Error fetching purchasing officer items: '.$e->getMessage(), [
                 'exception' => $e,
                 'request' => $request->all(),
             ]);
 
             return $this->errorResponse(
-                'Error in fetching purchasing officer items: ' . $e->getMessage(),
+                'Error in fetching purchasing officer items: '.$e->getMessage(),
                 500
             );
         }
@@ -710,13 +702,13 @@ class NewOrderController extends BaseController
         } catch (\InvalidArgumentException $e) {
             return $this->errorResponse($e->getMessage(), 404);
         } catch (\Exception $e) {
-            Log::error('Error fetching supplier items: ' . $e->getMessage(), [
+            Log::error('Error fetching supplier items: '.$e->getMessage(), [
                 'exception' => $e,
                 'request' => $request->all(),
             ]);
 
             return $this->errorResponse(
-                'Error in fetching supplier items: ' . $e->getMessage(),
+                'Error in fetching supplier items: '.$e->getMessage(),
                 500
             );
         }

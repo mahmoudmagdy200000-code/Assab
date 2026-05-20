@@ -28,7 +28,7 @@ class CustodyRequestController extends BaseController
             $timePeriod = $request->input('timePeriod');
 
             $validTimePeriods = ['last_24_hours', 'last_7_days', 'last_30_days', 'last_90_days', 'last_365_days'];
-            if (!empty($timePeriod) && !in_array($timePeriod, $validTimePeriods)) {
+            if (! empty($timePeriod) && ! in_array($timePeriod, $validTimePeriods)) {
                 return $this->errorResponse(
                     'Invalid timePeriod. Must be: last_24_hours, last_7_days, last_30_days, last_90_days, or last_365_days',
                     400
@@ -38,7 +38,7 @@ class CustodyRequestController extends BaseController
             $status = $request->input('status');
             $preferredReceiptMethod = null;
 
-            if (!empty($status)) {
+            if (! empty($status)) {
                 $status = trim(str_replace(['+', '_'], ' ', $status));
                 $validStatuses = ['Pending', 'Approved', 'Rejected', 'Completed', 'Cancelled'];
                 $validMethods = ['Cash Handover', 'Bank Transfer'];
@@ -53,7 +53,7 @@ class CustodyRequestController extends BaseController
                     $status = null;
                 } else {
                     return $this->errorResponse(
-                        'Invalid status. Must be one of: ' . implode(', ', array_merge($validStatuses, $validMethods)),
+                        'Invalid status. Must be one of: '.implode(', ', array_merge($validStatuses, $validMethods)),
                         400
                     );
                 }
@@ -64,12 +64,12 @@ class CustodyRequestController extends BaseController
                     ?? $request->input('preferred_receipt_method')
                     ?? $request->input('preferredReceipt');
 
-                if (!empty($preferredReceiptMethod)) {
+                if (! empty($preferredReceiptMethod)) {
                     $preferredReceiptMethod = trim(str_replace(['+', '_'], ' ', $preferredReceiptMethod));
                     $validMethods = ['Cash Handover', 'Bank Transfer'];
-                    if (!in_array($preferredReceiptMethod, $validMethods)) {
+                    if (! in_array($preferredReceiptMethod, $validMethods)) {
                         return $this->errorResponse(
-                            'Invalid preferredReceiptMethod. Must be one of: ' . implode(', ', $validMethods),
+                            'Invalid preferredReceiptMethod. Must be one of: '.implode(', ', $validMethods),
                             400
                         );
                     }
@@ -127,13 +127,13 @@ class CustodyRequestController extends BaseController
     {
         $reuseId = $request->input('reuseRequestId');
         $rules = [
-            'requestedAmount'        => 'required_without:reuseRequestId|numeric|min:1|max:1000000',
-            'purpose'                => 'required_without:reuseRequestId|string|min:3|max:500',
+            'requestedAmount' => 'required_without:reuseRequestId|numeric|min:1|max:1000000',
+            'purpose' => 'required_without:reuseRequestId|string|min:3|max:500',
             'preferredReceiptMethod' => 'required_without:reuseRequestId|in:cash_handover,bank_transfer,Cash Handover,Bank Transfer',
-            'attachments'            => 'nullable|array|max:5',
-            'attachments.*'          => 'file|mimes:pdf,jpg,jpeg,png,docx|max:5120',
-            'additionalNotes'        => 'nullable|string|max:1000',
-            'reuseRequestId'         => 'nullable|exists:custody_requests,id',
+            'attachments' => 'nullable|array|max:5',
+            'attachments.*' => 'file|mimes:pdf,jpg,jpeg,png,docx|max:5120',
+            'additionalNotes' => 'nullable|string|max:1000',
+            'reuseRequestId' => 'nullable|exists:custody_requests,id',
         ];
 
         $validator = Validator::make($request->all(), $rules);
@@ -150,30 +150,30 @@ class CustodyRequestController extends BaseController
             $normalizedMethod = $this->normalizeReceiptMethod($method);
 
             $data = [
-                'branch_manager_id'         => $isBrandOwner ? null : $user->id,
-                'branch_id'                 => $isBrandOwner ? null : ($user->branch_id ?? null),
+                'branch_manager_id' => $isBrandOwner ? null : $user->id,
+                'branch_id' => $isBrandOwner ? null : ($user->branch_id ?? null),
                 'created_by_brand_owner_id' => $isBrandOwner ? $user->id : null,
-                'requestedAmount'           => $request->input('requestedAmount'),
-                'purpose'                   => $request->input('purpose'),
-                'preferredReceiptMethod'    => $normalizedMethod,
-                'additionalNotes'           => $request->input('additionalNotes'),
-                'attachments'               => $request->file('attachments', []),
+                'requestedAmount' => $request->input('requestedAmount'),
+                'purpose' => $request->input('purpose'),
+                'preferredReceiptMethod' => $normalizedMethod,
+                'additionalNotes' => $request->input('additionalNotes'),
+                'attachments' => $request->file('attachments', []),
             ];
 
             if ($reuseId) {
                 $previousRequest = \Modules\Custody\Models\CustodyRequest::find($reuseId);
-                if (!$previousRequest) {
+                if (! $previousRequest) {
                     return $this->errorResponse('Previous request not found.', 404);
                 }
                 $owns = $isBrandOwner
                     ? $previousRequest->created_by_brand_owner_id === $user->id
                     : $previousRequest->branch_manager_id === $user->id;
-                if (!$owns) {
+                if (! $owns) {
                     return $this->errorResponse('You are not allowed to reuse this request.', 403);
                 }
 
                 $data['requestedAmount'] = $request->input('requestedAmount', $previousRequest->requested_amount);
-                $data['purpose']         = $request->input('purpose', $previousRequest->purpose);
+                $data['purpose'] = $request->input('purpose', $previousRequest->purpose);
                 $data['preferredReceiptMethod'] = $normalizedMethod ?: $previousRequest->preferred_receipt_method;
                 if ($request->input('additionalNotes') === null || $request->input('additionalNotes') === '') {
                     $data['additionalNotes'] = $previousRequest->additional_notes;
@@ -183,8 +183,8 @@ class CustodyRequestController extends BaseController
             $custodyRequest = $this->requestService->createRequest($data);
 
             return $this->createdResponse([
-                'requestId'   => $custodyRequest->id,
-                'status'      => $this->normalizeStatus($custodyRequest->status),
+                'requestId' => $custodyRequest->id,
+                'status' => $this->normalizeStatus($custodyRequest->status),
                 'submittedAt' => $custodyRequest->created_at?->toIso8601String(),
             ], 'Cash-in request submitted successfully');
         } catch (\Exception $e) {
@@ -194,14 +194,14 @@ class CustodyRequestController extends BaseController
 
     private function normalizeReceiptMethod(?string $value): ?string
     {
-        if (!$value) {
+        if (! $value) {
             return null;
         }
 
         return match (strtolower($value)) {
             'cash_handover', 'cash handover' => 'Cash Handover',
             'bank_transfer', 'bank transfer' => 'Bank Transfer',
-            default                          => $value,
+            default => $value,
         };
     }
 
@@ -232,7 +232,7 @@ class CustodyRequestController extends BaseController
     public function approve(string $requestId): JsonResponse
     {
         $user = auth()->user();
-        if (!($user instanceof BrandOwner)) {
+        if (! ($user instanceof BrandOwner)) {
             return $this->errorResponse('Only brand owners can approve custody requests', 403);
         }
 
@@ -241,7 +241,7 @@ class CustodyRequestController extends BaseController
 
             return $this->successResponse([
                 'requestId' => $request->id,
-                'status'    => $this->normalizeStatus($request->status),
+                'status' => $this->normalizeStatus($request->status),
             ], 'Custody request approved');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 400);
@@ -255,7 +255,7 @@ class CustodyRequestController extends BaseController
     public function reject(Request $request, string $requestId): JsonResponse
     {
         $user = auth()->user();
-        if (!($user instanceof BrandOwner)) {
+        if (! ($user instanceof BrandOwner)) {
             return $this->errorResponse('Only brand owners can reject custody requests', 403);
         }
 
@@ -271,7 +271,7 @@ class CustodyRequestController extends BaseController
 
             return $this->successResponse([
                 'requestId' => $custodyRequest->id,
-                'status'    => $this->normalizeStatus($custodyRequest->status),
+                'status' => $this->normalizeStatus($custodyRequest->status),
             ], 'Custody request rejected');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 400);

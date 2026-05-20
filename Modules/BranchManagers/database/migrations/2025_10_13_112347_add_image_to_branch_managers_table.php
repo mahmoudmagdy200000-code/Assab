@@ -22,8 +22,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('branch_managers', function (Blueprint $table) {
-
-        });
+        Schema::table('branch_managers', function (Blueprint $table) {});
     }
 };

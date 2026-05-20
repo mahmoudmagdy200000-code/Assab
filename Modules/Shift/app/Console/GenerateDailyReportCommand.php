@@ -3,13 +3,14 @@
 namespace Modules\Shift\Console;
 
 use Illuminate\Console\Command;
-use Modules\Shift\Models\CashierShift;
-use Modules\Shift\Enums\ShiftStatus;
 use Illuminate\Support\Facades\Mail;
+use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Models\CashierShift;
 
 class GenerateDailyReportCommand extends Command
 {
     protected $signature = 'shifts:generate-daily-report {--date=}';
+
     protected $description = 'Generate daily shift report and send to branch managers';
 
     public function handle(): int
@@ -23,6 +24,7 @@ class GenerateDailyReportCommand extends Command
 
         if ($shifts->isEmpty()) {
             $this->warn('No shifts found for this date.');
+
             return Command::SUCCESS;
         }
 
@@ -48,6 +50,7 @@ class GenerateDailyReportCommand extends Command
         }
 
         $this->info('Daily reports generated successfully!');
+
         return Command::SUCCESS;
     }
 
@@ -58,7 +61,7 @@ class GenerateDailyReportCommand extends Command
             'completed_shifts' => $shifts->where('status', ShiftStatus::COMPLETED)->count(),
             'total_sales' => $shifts->sum('total_sales'),
             'total_variance' => $shifts->sum('variance'),
-            'shifts_with_variance' => $shifts->filter(fn($s) => abs($s->variance) > 0)->count(),
+            'shifts_with_variance' => $shifts->filter(fn ($s) => abs($s->variance) > 0)->count(),
         ];
     }
 

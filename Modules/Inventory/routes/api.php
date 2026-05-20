@@ -1,10 +1,10 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Modules\Inventory\Http\Controllers\DailyInventoryScheduleController;
+use Modules\Inventory\Http\Controllers\DailyQuickInventoryController;
 use Modules\Inventory\Http\Controllers\InventoryController;
 use Modules\Inventory\Http\Controllers\InventoryTaskController;
-use Modules\Inventory\Http\Controllers\DailyQuickInventoryController;
-use Modules\Inventory\Http\Controllers\DailyInventoryScheduleController;
 use Modules\Inventory\Http\Controllers\MonthlyInventoryController;
 use Modules\Inventory\Http\Controllers\WasteDamageReportController;
 

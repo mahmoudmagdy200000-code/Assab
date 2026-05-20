@@ -35,7 +35,7 @@ class FileResource extends JsonResource
      */
     private static function uploadedAtFromPath(?string $path): ?string
     {
-        if (!$path || str_starts_with($path, 'http')) {
+        if (! $path || str_starts_with($path, 'http')) {
             return null;
         }
         try {
@@ -54,7 +54,7 @@ class FileResource extends JsonResource
     /**
      * Transform the resource into an array.
      *
-     * @param \Illuminate\Http\Request $request
+     * @param  \Illuminate\Http\Request  $request
      * @return array<string, mixed>
      */
     public function toArray($request): array
@@ -159,8 +159,8 @@ class FileResource extends JsonResource
         $filePath = $this->resource['file_path'] ?? null;
 
         // Resolve file_type and file_size from path/storage when missing
-        if ($filePath && is_string($filePath) && !str_starts_with($filePath, 'http')) {
-            if (!$fileType) {
+        if ($filePath && is_string($filePath) && ! str_starts_with($filePath, 'http')) {
+            if (! $fileType) {
                 $ext = pathinfo($filePath, PATHINFO_EXTENSION);
                 $fileType = $ext !== '' ? strtolower($ext) : null;
             }
@@ -219,7 +219,7 @@ class FileResource extends JsonResource
 
         // Resolve file_size and uploaded_at from storage only for relative storage paths
         $uploadedAt = null;
-        if (!str_starts_with($path, 'http')) {
+        if (! str_starts_with($path, 'http')) {
             try {
                 if (Storage::disk('public')->exists($path)) {
                     $fileSize = (int) Storage::disk('public')->size($path);
@@ -259,13 +259,10 @@ class FileResource extends JsonResource
 
     /**
      * Convert file path to URL.
-     *
-     * @param string|null $path
-     * @return string|null
      */
     private function getUrlFromPath(?string $path): ?string
     {
-        if (!$path) {
+        if (! $path) {
             return null;
         }
 
@@ -275,14 +272,14 @@ class FileResource extends JsonResource
         }
 
         // Convert storage path to URL
-        return asset('storage/' . ltrim($path, '/'));
+        return asset('storage/'.ltrim($path, '/'));
     }
 
     /**
      * Create a FileResource from various input types, returning null if file is null.
      * Use this method when you need to handle null values gracefully.
      *
-     * @param mixed $file
+     * @param  mixed  $file
      * @return static|null
      */
     public static function makeOrNull($file): ?self

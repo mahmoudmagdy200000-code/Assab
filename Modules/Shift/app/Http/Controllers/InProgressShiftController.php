@@ -24,12 +24,12 @@ class InProgressShiftController extends BaseController
     {
         try {
             $manager = auth()->user();
-            
+
             // Ensure the user is a branch manager
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return $this->errorResponse('Unauthorized', 403);
             }
-            
+
             $managerBranchId = $manager->branch_id;
             $cashierId = $request->input('cashier_id');
 
@@ -43,7 +43,7 @@ class InProgressShiftController extends BaseController
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve shifts',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -55,12 +55,12 @@ class InProgressShiftController extends BaseController
     {
         try {
             $manager = auth()->user();
-            
+
             // Ensure the user is a branch manager
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return $this->errorResponse('Unauthorized', 403);
             }
-            
+
             $managerBranchId = $manager->branch_id;
 
             $shiftDetails = $this->cashierShiftRepository->findForManagerShow($shift, $managerBranchId);
@@ -92,7 +92,7 @@ class InProgressShiftController extends BaseController
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve shift details',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }

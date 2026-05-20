@@ -12,7 +12,7 @@ class CashierDetailResource extends JsonResource
         $openingFormatted = $this->formatBranchHours($branch);
         $googleMapsUrl = null;
         if ($branch && $branch->lat && $branch->lng) {
-            $googleMapsUrl = 'https://www.google.com/maps?q=' . (float) $branch->lat . ',' . (float) $branch->lng;
+            $googleMapsUrl = 'https://www.google.com/maps?q='.(float) $branch->lat.','.(float) $branch->lng;
         }
 
         return [
@@ -34,7 +34,7 @@ class CashierDetailResource extends JsonResource
                 'location' => $branch->location ?? null,
                 'lat' => $branch->lat ? (float) $branch->lat : null,
                 'lng' => $branch->lng ? (float) $branch->lng : null,
-                'image' => $branch->image ? asset('storage/' . $branch->image) : null,
+                'image' => $branch->image ? asset('storage/'.$branch->image) : null,
                 'opening_hours' => $openingFormatted,
                 'google_maps_url' => $googleMapsUrl,
             ]),
@@ -53,6 +53,7 @@ class CashierDetailResource extends JsonResource
                 'completed' => $this->getCompletedShiftsCount(),
                 'current' => $this->when($this->getCurrentShift(), function () {
                     $shift = $this->getCurrentShift();
+
                     return [
                         'id' => $shift->id,
                         'shift_name' => $shift->shift->name,
@@ -62,6 +63,7 @@ class CashierDetailResource extends JsonResource
                 }),
                 'next' => $this->when($this->getNextShift(), function () {
                     $shift = $this->getNextShift();
+
                     return [
                         'id' => $shift->id,
                         'shift_name' => $shift->shift->name,
@@ -88,7 +90,7 @@ class CashierDetailResource extends JsonResource
 
     private function formatBranchHours($branch): ?string
     {
-        if (!$branch) {
+        if (! $branch) {
             return null;
         }
         $open = $branch->opening_hours instanceof \Illuminate\Support\Carbon
@@ -100,6 +102,7 @@ class CashierDetailResource extends JsonResource
         if ($open && $close) {
             return "Mon–Fri / {$open} – {$close}";
         }
+
         return is_string($branch->opening_hours ?? null)
             ? $branch->opening_hours
             : (($open && $close) ? "{$open} – {$close}" : null);

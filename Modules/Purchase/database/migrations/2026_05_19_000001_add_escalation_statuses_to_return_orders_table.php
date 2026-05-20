@@ -34,7 +34,7 @@ return new class extends Migration
                 'escalation_rejected'
             ) NULL");
         } catch (\Exception $e) {
-            Log::warning('Migration add_escalation_statuses_to_return_orders_table: ' . $e->getMessage());
+            Log::warning('Migration add_escalation_statuses_to_return_orders_table: '.$e->getMessage());
             throw $e;
         }
     }
@@ -71,7 +71,7 @@ return new class extends Migration
                 'refund'
             ) NULL");
         } catch (\Exception $e) {
-            Log::warning('Migration rollback add_escalation_statuses_to_return_orders_table: ' . $e->getMessage());
+            Log::warning('Migration rollback add_escalation_statuses_to_return_orders_table: '.$e->getMessage());
             throw $e;
         }
     }

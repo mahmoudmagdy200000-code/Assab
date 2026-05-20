@@ -81,4 +81,3 @@ class AuthenticationTest extends TestCase
         // Note: OTP verification and reset would require mocking OTP service
     }
 }
-

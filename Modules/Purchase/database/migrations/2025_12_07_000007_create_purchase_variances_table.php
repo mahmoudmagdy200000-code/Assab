@@ -45,7 +45,7 @@ return new class extends Migration
             $table->enum('action', [
                 'accept',
                 'compensatory_order',
-                'deduct_from_invoice'
+                'deduct_from_invoice',
             ])->nullable();
 
             // Status
@@ -56,7 +56,7 @@ return new class extends Migration
                 'supplier_rejected',
                 'escalated',
                 'resolved',
-                'closed'
+                'closed',
             ])->default('pending');
 
             // Supplier response

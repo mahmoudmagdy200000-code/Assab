@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         $driver = DB::getDriverName();
-        
+
         // SQLite doesn't support MODIFY COLUMN or ENUM
         if ($driver === 'sqlite') {
             return;
@@ -21,7 +21,7 @@ return new class extends Migration
         try {
             // Step 1: First, update ENUM definitions to include both 'canceled' and 'cancelled' (temporarily)
             // This allows us to update the data without errors
-            
+
             // Update purchase_orders.status ENUM - add 'cancelled' while keeping 'canceled'
             DB::statement("ALTER TABLE purchase_orders MODIFY COLUMN status ENUM('draft', 'pending', 'pending_confirmation', 'pending_approval', 'partial_confirmation', 'confirmed', 'preparing', 'on_the_way', 'delivered', 'closed', 'canceled', 'cancelled', 'cancelled_by_branch', 'cancelled_by_supplier', 'rejected', 'delayed', 'fully_approved', 'partial_approved', 'partial_confirmed') DEFAULT 'draft'");
 
@@ -36,7 +36,7 @@ return new class extends Migration
             $purchaseOrdersCount = DB::table('purchase_orders')
                 ->where('status', 'canceled')
                 ->count();
-            
+
             if ($purchaseOrdersCount > 0) {
                 DB::table('purchase_orders')
                     ->where('status', 'canceled')
@@ -46,7 +46,7 @@ return new class extends Migration
             $purchaseOrderItemsCount = DB::table('purchase_order_items')
                 ->where('status', 'canceled_modification')
                 ->count();
-            
+
             if ($purchaseOrderItemsCount > 0) {
                 DB::table('purchase_order_items')
                     ->where('status', 'canceled_modification')
@@ -56,7 +56,7 @@ return new class extends Migration
             $compensatoryOrdersCount = DB::table('compensatory_orders')
                 ->where('status', 'canceled')
                 ->count();
-            
+
             if ($compensatoryOrdersCount > 0) {
                 DB::table('compensatory_orders')
                     ->where('status', 'canceled')
@@ -74,7 +74,7 @@ return new class extends Migration
             DB::statement("ALTER TABLE compensatory_orders MODIFY COLUMN status ENUM('pending', 'ordered', 'confirmed', 'delivered', 'completed', 'cancelled') DEFAULT 'pending'");
         } catch (\Exception $e) {
             // If migration fails, log the error but don't stop
-            \Log::warning('Migration update_canceled_to_cancelled failed: ' . $e->getMessage());
+            \Log::warning('Migration update_canceled_to_cancelled failed: '.$e->getMessage());
             throw $e;
         }
     }
@@ -86,7 +86,7 @@ return new class extends Migration
     public function down(): void
     {
         $driver = DB::getDriverName();
-        
+
         // SQLite doesn't support MODIFY COLUMN or ENUM
         if ($driver === 'sqlite') {
             return;
@@ -106,7 +106,7 @@ return new class extends Migration
             ->update(['status' => 'canceled']);
 
         // Revert ENUM definitions to use 'canceled' instead of 'cancelled'
-        
+
         // Revert purchase_orders.status ENUM
         DB::statement("ALTER TABLE purchase_orders MODIFY COLUMN status ENUM('draft', 'pending', 'pending_confirmation', 'pending_approval', 'partial_confirmation', 'confirmed', 'preparing', 'on_the_way', 'delivered', 'closed', 'canceled', 'cancelled_by_branch', 'cancelled_by_supplier', 'rejected', 'delayed', 'fully_approved', 'partial_approved', 'partial_confirmed') DEFAULT 'draft'");
 

@@ -18,15 +18,15 @@ class FixClosedOrderItemsCommand extends Command
     public function handle(): int
     {
         $isDryRun = (bool) $this->option('dry-run');
-        $chunk    = (int) $this->option('chunk');
+        $chunk = (int) $this->option('chunk');
 
         if ($isDryRun) {
             $this->warn('DRY RUN — no changes will be saved.');
         }
 
-        $closedValue  = OrderItemStatus::CLOSED->value;
-        $totalOrders  = 0;
-        $totalItems   = 0;
+        $closedValue = OrderItemStatus::CLOSED->value;
+        $totalOrders = 0;
+        $totalItems = 0;
 
         PurchaseOrder::query()
             ->where('status', OrderStatus::CLOSED->value)
@@ -44,7 +44,7 @@ class FixClosedOrderItemsCommand extends Command
 
                     $this->line("Order [{$order->order_number}] → {$affected} item(s) to fix");
 
-                    if (!$isDryRun) {
+                    if (! $isDryRun) {
                         $order->items()
                             ->where('status', '!=', $closedValue)
                             ->update(['status' => $closedValue]);

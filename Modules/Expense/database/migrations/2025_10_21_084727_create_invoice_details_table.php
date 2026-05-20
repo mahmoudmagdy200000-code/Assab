@@ -23,7 +23,6 @@ return new class extends Migration
             $table->boolean('is_tax_invoice')->default(false);
             $table->string('tax_id', 50)->nullable();
 
-
             $table->string('tax_supplier_name')->nullable();
             $table->decimal('tax_net_amount', 12, 2)->nullable();
             $table->decimal('tax_vat_amount', 12, 2)->nullable();

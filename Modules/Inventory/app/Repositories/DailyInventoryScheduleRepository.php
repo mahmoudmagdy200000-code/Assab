@@ -19,18 +19,20 @@ class DailyInventoryScheduleRepository
     public function find(string $id, array $relations = []): ?DailyInventorySchedule
     {
         $query = DailyInventorySchedule::query();
-        if (!empty($relations)) {
+        if (! empty($relations)) {
             $query->with($relations);
         }
+
         return $query->find($id);
     }
 
     public function findByBranch(string $branchId, array $relations = []): ?DailyInventorySchedule
     {
         $query = DailyInventorySchedule::byBranch($branchId)->active();
-        if (!empty($relations)) {
+        if (! empty($relations)) {
             $query->with($relations);
         }
+
         return $query->first();
     }
 

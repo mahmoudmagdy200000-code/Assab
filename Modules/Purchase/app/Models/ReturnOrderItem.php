@@ -53,13 +53,13 @@ class ReturnOrderItem extends Model
     // Accessors
     public function getItemLogoUrlAttribute(): ?string
     {
-        if (!$this->item_logo) {
+        if (! $this->item_logo) {
             return null;
         }
-        
-        return str_starts_with($this->item_logo, 'http') 
-            ? $this->item_logo 
-            : asset('storage/' . $this->item_logo);
+
+        return str_starts_with($this->item_logo, 'http')
+            ? $this->item_logo
+            : asset('storage/'.$this->item_logo);
     }
 
     public function getQualityReasonLabelAttribute(): ?string
@@ -72,8 +72,7 @@ class ReturnOrderItem extends Model
     {
         $this->return_amount = $this->return_quantity * $this->unit_price;
         $this->save();
-        
+
         return $this->return_amount;
     }
 }
-

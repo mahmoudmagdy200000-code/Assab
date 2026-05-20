@@ -29,7 +29,7 @@ class VarianceSummaryResource extends JsonResource
             'shift_date' => $this->shift_date?->format('M j, Y'),
             'shift_date_iso' => $this->shift_date?->format('Y-m-d'),
             'status' => $status,
-            'responsibility_status'      => $this->getResponsibilityStatus(),
+            'responsibility_status' => $this->getResponsibilityStatus(),
             'responsibility_reviewed_at' => $this->getResponsibilityReviewedAt(),
             'hand_over_from' => $handoverFrom,
             'hand_over_to' => $handoverTo,
@@ -55,6 +55,7 @@ class VarianceSummaryResource extends JsonResource
                 return \Modules\BranchManagers\Models\BranchManager::find($h->handover_to_id)?->name ?? null;
             }
         }
+
         return $this->nextCashier?->name ?? null;
     }
 
@@ -62,11 +63,13 @@ class VarianceSummaryResource extends JsonResource
     {
         if ($this->relationLoaded('varianceDetails') && $this->varianceDetails->isNotEmpty()) {
             $first = $this->varianceDetails->first();
+
             return (float) ($first->variance_amount ?? $this->variance ?? 0);
         }
         if (is_array($this->variance) && isset($this->variance['total_variance_amount'])) {
             return (float) $this->variance['total_variance_amount'];
         }
+
         return (float) ($this->variance ?? 0);
     }
 
@@ -79,15 +82,17 @@ class VarianceSummaryResource extends JsonResource
         if ($amount < 0) {
             return 'Short';
         }
+
         return 'None';
     }
 
     private function getStatusLabel(): string
     {
         $status = $this->handoverStatus?->manager_approval_status ?? null;
-        if (!$status) {
+        if (! $status) {
             return 'Pending';
         }
+
         return match ($status) {
             'approved' => 'Approved',
             'rejected', 'rejected_final' => 'Rejected',
@@ -104,6 +109,7 @@ class VarianceSummaryResource extends JsonResource
         if ($this->relationLoaded('varianceDetails') && $this->varianceDetails->isNotEmpty()) {
             return $this->varianceDetails->first()->responsibility_status ?? 'pending';
         }
+
         return 'not_submitted';
     }
 
@@ -115,6 +121,7 @@ class VarianceSummaryResource extends JsonResource
         if ($this->relationLoaded('varianceDetails') && $this->varianceDetails->isNotEmpty()) {
             return $this->varianceDetails->first()->reviewed_at?->format('Y-m-d H:i:s');
         }
+
         return null;
     }
 
@@ -126,6 +133,7 @@ class VarianceSummaryResource extends JsonResource
         if (is_array($this->variance) && isset($this->variance['reason'])) {
             return $this->variance['reason'];
         }
+
         return null;
     }
 
@@ -139,7 +147,7 @@ class VarianceSummaryResource extends JsonResource
             return null;
         }
         $reviewedAt = $this->handoverStatus?->reviewed_at ?? $this->handover?->approved_at ?? null;
-        if (!$reviewedAt) {
+        if (! $reviewedAt) {
             return null;
         }
         $dt = $reviewedAt instanceof \Carbon\Carbon ? $reviewedAt : Carbon::parse($reviewedAt);
@@ -150,7 +158,7 @@ class VarianceSummaryResource extends JsonResource
             3, 23 => 'rd',
             default => 'th',
         };
-        $datePart = $dt->format('F') . ' ' . $day . $suffix . ', ' . $dt->format('Y');
+        $datePart = $dt->format('F').' '.$day.$suffix.', '.$dt->format('Y');
         $timePart = $dt->format('g:i A');
 
         return "You accepted your part in the variance on: {$datePart} - {$timePart}";

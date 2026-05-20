@@ -22,19 +22,19 @@ class CashierHelper
     public static function getStatusBadge(string $status): array
     {
         return [
-            'text' => match($status) {
+            'text' => match ($status) {
                 'active' => 'Active',
                 'pending' => 'Pending',
                 'deactivated' => 'Deactivated',
                 default => 'Unknown',
             },
-            'color' => match($status) {
+            'color' => match ($status) {
                 'active' => 'green',
                 'pending' => 'yellow',
                 'deactivated' => 'red',
                 default => 'gray',
             },
-            'icon' => match($status) {
+            'icon' => match ($status) {
                 'active' => 'check-circle',
                 'pending' => 'clock',
                 'deactivated' => 'x-circle',
@@ -59,7 +59,7 @@ class CashierHelper
         $password .= $numbers[random_int(0, strlen($numbers) - 1)];
         $password .= $special[random_int(0, strlen($special) - 1)];
 
-        $all = $uppercase . $lowercase . $numbers . $special;
+        $all = $uppercase.$lowercase.$numbers.$special;
         for ($i = 4; $i < $length; $i++) {
             $password .= $all[random_int(0, strlen($all) - 1)];
         }
@@ -78,15 +78,15 @@ class CashierHelper
             $errors[] = 'Password must be at least 8 characters';
         }
 
-        if (!preg_match('/[A-Z]/', $password)) {
+        if (! preg_match('/[A-Z]/', $password)) {
             $errors[] = 'Password must contain at least one uppercase letter';
         }
 
-        if (!preg_match('/[a-z]/', $password)) {
+        if (! preg_match('/[a-z]/', $password)) {
             $errors[] = 'Password must contain at least one lowercase letter';
         }
 
-        if (!preg_match('/[0-9]/', $password)) {
+        if (! preg_match('/[0-9]/', $password)) {
             $errors[] = 'Password must contain at least one number';
         }
 
@@ -101,12 +101,12 @@ class CashierHelper
      */
     public static function canAssignToShift(Cashier $cashier, string $shiftDate): bool
     {
-        if (!$cashier->isActive()) {
+        if (! $cashier->isActive()) {
             return false;
         }
 
         // Check if cashier already has a shift on this date
-        return !$cashier->shifts()
+        return ! $cashier->shifts()
             ->whereDate('shift_date', $shiftDate)
             ->whereIn('status', ['not_started', 'in_progress'])
             ->exists();
@@ -117,7 +117,7 @@ class CashierHelper
      */
     public static function getPerformanceMetrics(Cashier $cashier, ?string $period = 'month'): array
     {
-        $startDate = match($period) {
+        $startDate = match ($period) {
             'week' => now()->subWeek(),
             'month' => now()->subMonth(),
             'year' => now()->subYear(),

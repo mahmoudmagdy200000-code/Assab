@@ -34,11 +34,11 @@ class CommunicationService
         $query = SupplierMessage::where('supplier_id', $supplier->id)
             ->orderBy('created_at', 'desc');
 
-        if (!empty($filters['branch_id'])) {
+        if (! empty($filters['branch_id'])) {
             $query->where('branch_id', $filters['branch_id']);
         }
 
-        if (!empty($filters['order_id'])) {
+        if (! empty($filters['order_id'])) {
             $query->where('order_id', $filters['order_id']);
         }
 
@@ -75,7 +75,7 @@ class CommunicationService
         $query = SupplierNotification::where('supplier_id', $supplier->id)
             ->orderBy('created_at', 'desc');
 
-        if (!empty($filters['type'])) {
+        if (! empty($filters['type'])) {
             $query->where('type', $filters['type']);
         }
 
@@ -113,7 +113,7 @@ class CommunicationService
             ->with('branch')
             ->orderBy('created_at', 'desc');
 
-        if (!empty($filters['branch_id'])) {
+        if (! empty($filters['branch_id'])) {
             $query->where('branch_id', $filters['branch_id']);
         }
 
@@ -121,7 +121,7 @@ class CommunicationService
             $query->where('is_after_hours', $filters['is_after_hours']);
         }
 
-        if (!empty($filters['escalation_level'])) {
+        if (! empty($filters['escalation_level'])) {
             $query->where('escalation_level', $filters['escalation_level']);
         }
 
@@ -153,7 +153,7 @@ class CommunicationService
     {
         // Find appropriate emergency contact based on escalation level
         $escalationLevel = $data['escalation_level'] ?? 'high';
-        
+
         $emergencyContact = EmergencyContact::where('supplier_id', $supplier->id)
             ->where('escalation_level', $escalationLevel)
             ->first();
@@ -175,4 +175,3 @@ class CommunicationService
         }
     }
 }
-

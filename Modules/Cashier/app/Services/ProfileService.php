@@ -2,10 +2,10 @@
 
 namespace Modules\Cashier\Services;
 
-use Modules\Cashier\Models\Cashier;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Http\UploadedFile;
+use Modules\Cashier\Models\Cashier;
 
 class ProfileService
 {
@@ -20,7 +20,7 @@ class ProfileService
             'shifts' => function ($query) {
                 $query->whereDate('shift_date', '>=', now()->subDays(7))
                     ->orderBy('shift_date', 'desc');
-            }
+            },
         ])->findOrFail($cashierId);
     }
 
@@ -35,9 +35,9 @@ class ProfileService
         ];
 
         // Update password if provided
-        if (!empty($data['new_password'])) {
+        if (! empty($data['new_password'])) {
             // Verify current password
-            if (!Hash::check($data['current_password'], $cashier->password)) {
+            if (! Hash::check($data['current_password'], $cashier->password)) {
                 throw new \Exception('Current password is incorrect');
             }
 
@@ -60,7 +60,7 @@ class ProfileService
         }
 
         // Store new image
-        $filename = 'cashier_' . $cashier->id . '_' . time() . '.' . $image->getClientOriginalExtension();
+        $filename = 'cashier_'.$cashier->id.'_'.time().'.'.$image->getClientOriginalExtension();
         $path = $image->storeAs('profiles/cashiers', $filename, 'public');
 
         // Update cashier record

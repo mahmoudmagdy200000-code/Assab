@@ -2,17 +2,17 @@
 
 namespace Tests\NFR\Scalability;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
+use Tests\TestCase;
 
 /**
  * Scalability Requirements Test: Data Growth
- * 
+ *
  * Tests data growth scalability requirements:
  * - Support for 5TB of data storage
  * - Efficient data archiving strategies
@@ -29,7 +29,7 @@ class DataGrowthTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->manager = BranchManager::factory()->create([
             'email' => 'data-growth-test-manager@assab.com',
             'password' => Hash::make('password123'),
@@ -54,9 +54,9 @@ class DataGrowthTest extends TestCase
         DB::flushQueryLog();
 
         $startTime = microtime(true);
-        
+
         $response = $this->actingAs($this->manager, 'sanctum')
-            ->getJson('/api/v1/purchase/history?' . http_build_query([
+            ->getJson('/api/v1/purchase/history?'.http_build_query([
                 'per_page' => 50,
             ]));
 
@@ -65,7 +65,7 @@ class DataGrowthTest extends TestCase
         $queries = DB::getQueryLog();
 
         $response->assertStatus(200);
-        
+
         // Should complete in reasonable time even with large dataset
         $this->assertLessThan(
             2000, // 2 seconds
@@ -77,7 +77,7 @@ class DataGrowthTest extends TestCase
         $this->assertLessThan(
             20,
             count($queries),
-            "Query count should be optimized. Actual: " . count($queries) . " queries"
+            'Query count should be optimized. Actual: '.count($queries).' queries'
         );
     }
 
@@ -96,7 +96,7 @@ class DataGrowthTest extends TestCase
         $page = 1;
 
         $startTime = microtime(true);
-        
+
         $response = $this->actingAs($this->manager, 'sanctum')
             ->getJson("/api/v1/purchase/history?page={$page}&per_page={$perPage}");
 
@@ -119,7 +119,7 @@ class DataGrowthTest extends TestCase
             $this->assertLessThanOrEqual(
                 $perPage,
                 count($items),
-                "Pagination should limit results to per_page value"
+                'Pagination should limit results to per_page value'
             );
         }
     }
@@ -137,7 +137,7 @@ class DataGrowthTest extends TestCase
 
         // Query with filter (should use index)
         $startTime = microtime(true);
-        
+
         $response = $this->actingAs($this->manager, 'sanctum')
             ->getJson('/api/v1/purchase/orders');
 
@@ -169,7 +169,7 @@ class DataGrowthTest extends TestCase
 
         // Fetch paginated data
         $response = $this->actingAs($this->manager, 'sanctum')
-            ->getJson('/api/v1/purchase/history?' . http_build_query([
+            ->getJson('/api/v1/purchase/history?'.http_build_query([
                 'per_page' => 100,
             ]));
 
@@ -208,7 +208,7 @@ class DataGrowthTest extends TestCase
         DB::flushQueryLog();
 
         $response = $this->actingAs($this->manager, 'sanctum')
-            ->getJson('/api/v1/purchase/history?' . http_build_query([
+            ->getJson('/api/v1/purchase/history?'.http_build_query([
                 'per_page' => 50,
             ]));
 
@@ -239,7 +239,7 @@ class DataGrowthTest extends TestCase
 
         // Query should still work with old data
         $response = $this->actingAs($this->manager, 'sanctum')
-            ->getJson('/api/v1/purchase/history?' . http_build_query([
+            ->getJson('/api/v1/purchase/history?'.http_build_query([
                 'start_date' => now()->subYears(3)->format('Y-m-d'),
                 'end_date' => now()->format('Y-m-d'),
             ]));
@@ -247,7 +247,7 @@ class DataGrowthTest extends TestCase
         $response->assertStatus(200);
 
         // System should handle historical data efficiently
-        $this->assertTrue(true, "Data archiving strategies should be implemented for old data");
+        $this->assertTrue(true, 'Data archiving strategies should be implemented for old data');
     }
 
     /**
@@ -279,7 +279,7 @@ class DataGrowthTest extends TestCase
         }
 
         $successRate = ($successCount / $concurrentWrites) * 100;
-        
+
         $this->assertGreaterThan(
             80,
             $successRate,

@@ -33,11 +33,13 @@ class CleanBulkPurchaseOrdersCommand extends Command
 
         if ($total === 0) {
             $this->info('No purchase orders found. Nothing to delete.');
+
             return Command::SUCCESS;
         }
 
         if (! $this->option('force') && ! $this->confirm("This will permanently delete {$total} purchase order(s) and all related data. Continue?")) {
             $this->info('Aborted.');
+
             return Command::SUCCESS;
         }
 

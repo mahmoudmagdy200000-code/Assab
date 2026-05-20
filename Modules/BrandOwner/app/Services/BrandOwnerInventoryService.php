@@ -192,7 +192,7 @@ class BrandOwnerInventoryService
             InventorySessionStatus::PENDING_YOUR_CONFIRMATION,
         ], true);
 
-        if (!$actionable) {
+        if (! $actionable) {
             throw ValidationException::withMessages([
                 'status' => 'Request is not pending and cannot be acted on.',
             ]);
@@ -206,7 +206,7 @@ class BrandOwnerInventoryService
             WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION,
         ], true);
 
-        if (!$actionable) {
+        if (! $actionable) {
             throw ValidationException::withMessages([
                 'status' => 'Request is not pending and cannot be acted on.',
             ]);

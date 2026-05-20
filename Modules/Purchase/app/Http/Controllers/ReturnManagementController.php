@@ -3,6 +3,7 @@
 namespace Modules\Purchase\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\BrandOwner\Models\BrandOwner;
@@ -14,7 +15,6 @@ use Modules\Purchase\Repositories\PurchaseOrderRepository;
 use Modules\Purchase\Services\ReturnManagementService;
 use Modules\Purchase\Transformers\ReturnOrderListResource;
 use Modules\Purchase\Transformers\ReturnOrderResource;
-use App\Http\Resources\UnifiedTimelineResource;
 
 class ReturnManagementController extends BaseController
 {
@@ -106,13 +106,13 @@ class ReturnManagementController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->purchaseOrderRepository->findByBranch($request->purchase_order_id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Purchase order not found');
             }
 
             if ($order->status !== \Modules\Purchase\Enums\OrderStatus::CLOSED) {
                 return $this->errorResponse(
-                    'Returns can only be created for closed orders. Current order status: ' . $order->status->label(),
+                    'Returns can only be created for closed orders. Current order status: '.$order->status->label(),
                     400
                 );
             }
@@ -141,11 +141,11 @@ class ReturnManagementController extends BaseController
         try {
             $return = ReturnOrder::find($id);
 
-            if (!$return) {
+            if (! $return) {
                 return $this->notFoundResponse('Return order not found');
             }
 
-            if (!$return->is_draft) {
+            if (! $return->is_draft) {
                 return $this->errorResponse('Can only update draft returns', 400);
             }
 
@@ -177,13 +177,13 @@ class ReturnManagementController extends BaseController
         try {
             $return = ReturnOrder::find($id);
 
-            if (!$return) {
+            if (! $return) {
                 return $this->notFoundResponse('Return order not found');
             }
 
             $success = $this->returnService->submitReturn($return);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot submit return in current status', 400);
             }
 
@@ -206,7 +206,7 @@ class ReturnManagementController extends BaseController
         try {
             $return = ReturnOrder::find($id);
 
-            if (!$return) {
+            if (! $return) {
                 return $this->notFoundResponse('Return order not found');
             }
 
@@ -231,7 +231,7 @@ class ReturnManagementController extends BaseController
         try {
             $return = ReturnOrder::find($id);
 
-            if (!$return) {
+            if (! $return) {
                 return $this->notFoundResponse('Return order not found');
             }
 
@@ -244,7 +244,7 @@ class ReturnManagementController extends BaseController
             }
 
             // Validate that we have a valid non-empty string
-            if (empty($escalatedTo) || !is_string($escalatedTo)) {
+            if (empty($escalatedTo) || ! is_string($escalatedTo)) {
                 return $this->errorResponse(
                     'Brand owner ID is required for escalation. Please configure BRAND_OWNER_ID in your .env file or provide escalated_to in the request.',
                     400
@@ -273,13 +273,13 @@ class ReturnManagementController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->purchaseOrderRepository->findByBranch($request->purchase_order_id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Purchase order not found');
             }
 
             if ($order->status !== \Modules\Purchase\Enums\OrderStatus::CLOSED) {
                 return $this->errorResponse(
-                    'Returns can only be created for closed orders. Current order status: ' . $order->status->label(),
+                    'Returns can only be created for closed orders. Current order status: '.$order->status->label(),
                     400
                 );
             }
@@ -308,13 +308,13 @@ class ReturnManagementController extends BaseController
         try {
             $return = ReturnOrder::find($id);
 
-            if (!$return) {
+            if (! $return) {
                 return $this->notFoundResponse('Return order not found');
             }
 
             $success = $this->returnService->deleteDraft($return);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot delete non-draft return', 400);
             }
 
@@ -334,7 +334,7 @@ class ReturnManagementController extends BaseController
         try {
             $return = $this->returnService->getReturnDetails($id);
 
-            if (!$return) {
+            if (! $return) {
                 return $this->notFoundResponse('Return order not found');
             }
 
@@ -346,7 +346,7 @@ class ReturnManagementController extends BaseController
                     ReturnStatus::ESCALATED_RESOLVED,
                     ReturnStatus::ESCALATED_REJECTED,
                 ];
-                if (!in_array($return->status, $allowed, true)) {
+                if (! in_array($return->status, $allowed, true)) {
                     return $this->errorResponse('Unauthorized access to this return order', 403);
                 }
             } else {

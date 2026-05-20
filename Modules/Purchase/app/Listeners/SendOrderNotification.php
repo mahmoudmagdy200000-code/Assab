@@ -10,12 +10,15 @@ use Modules\Purchase\Events\OrderStatusChanged;
 class SendOrderNotification implements ShouldQueue
 {
     use InteractsWithQueue;
+
     public $afterCommit = true;
+
     public $tries = 4;
 
     public function backoff(): array
     {
         $jitter = random_int(1, 4);
+
         return [5 + $jitter, 20 + $jitter, 60 + $jitter, 120 + $jitter];
     }
 
@@ -23,16 +26,16 @@ class SendOrderNotification implements ShouldQueue
     {
         $order = $event->order;
         $newStatus = $event->newStatus;
-        
+
         Log::info("Order {$order->order_number} status changed to {$newStatus->value}");
-        
+
         // Send notifications based on order type and channels
         $channels = $order->notification_channels ?? [];
-        
+
         foreach ($channels as $channel) {
             // Dispatch notification based on channel
             // This would integrate with your notification system
-            match($channel) {
+            match ($channel) {
                 'email' => $this->sendEmail($order, $newStatus),
                 'whatsapp' => $this->sendWhatsApp($order, $newStatus),
                 'app' => $this->sendInAppNotification($order, $newStatus),
@@ -66,4 +69,3 @@ class SendOrderNotification implements ShouldQueue
         Log::info("Sending SMS notification for order {$order->order_number}");
     }
 }
-

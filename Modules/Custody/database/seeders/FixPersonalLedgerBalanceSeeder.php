@@ -2,11 +2,10 @@
 
 namespace Modules\Custody\Database\Seeders;
 
-use Illuminate\Database\Seeder;
-use Modules\Custody\Models\PersonalLedgerTransaction;
-use Modules\BranchManagers\Models\BranchManager;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Seeder;
+use Modules\BranchManagers\Models\BranchManager;
+use Modules\Custody\Models\PersonalLedgerTransaction;
 
 class FixPersonalLedgerBalanceSeeder extends Seeder
 {
@@ -20,6 +19,7 @@ class FixPersonalLedgerBalanceSeeder extends Seeder
 
         if ($branchManagers->isEmpty()) {
             $this->command->warn('⚠️  No branch managers found. Please seed branch managers first.');
+
             return;
         }
 
@@ -44,17 +44,17 @@ class FixPersonalLedgerBalanceSeeder extends Seeder
         $totalCashOut = $transactions->where('is_cash_in', false)->sum('amount');
         $currentBalance = $totalCashIn - $totalCashOut;
 
-        $this->command->info("   📊 {$branchManager->name}: Current Balance = " . number_format($currentBalance, 2));
+        $this->command->info("   📊 {$branchManager->name}: Current Balance = ".number_format($currentBalance, 2));
 
         // If balance is negative or zero, add cash-in transactions to make it positive
         if ($currentBalance <= 0) {
             // Calculate how much we need to add (make balance at least 10000 positive)
             $amountNeeded = abs($currentBalance) + 10000;
-            
+
             // Split into 2-3 transactions for realism
             $numberOfTransactions = rand(2, 3);
             $amountPerTransaction = round($amountNeeded / $numberOfTransactions, 2);
-            
+
             // Add small random variation to each transaction
             $variation = $amountPerTransaction * 0.1; // 10% variation
 
@@ -86,7 +86,7 @@ class FixPersonalLedgerBalanceSeeder extends Seeder
             $newTotalCashOut = $newTransactions->where('is_cash_in', false)->sum('amount');
             $newBalance = $newTotalCashIn - $newTotalCashOut;
 
-            $this->command->info("   ✅ {$branchManager->name}: Added {$numberOfTransactions} transactions, New Balance = " . number_format($newBalance, 2));
+            $this->command->info("   ✅ {$branchManager->name}: Added {$numberOfTransactions} transactions, New Balance = ".number_format($newBalance, 2));
         } else {
             $this->command->info("   ✓ {$branchManager->name}: Balance is already positive, no changes needed");
         }

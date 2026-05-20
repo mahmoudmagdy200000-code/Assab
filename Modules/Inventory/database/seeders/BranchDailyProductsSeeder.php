@@ -85,7 +85,7 @@ class BranchDailyProductsSeeder extends Seeder
             ]);
         }
 
-        $this->command?->info("Set " . count($itemIds) . " daily product(s) in branch schedule.");
+        $this->command?->info('Set '.count($itemIds).' daily product(s) in branch schedule.');
 
         $this->resetMonthlyInventory($branchId);
     }

@@ -20,7 +20,7 @@ class BrandOwnerReturnController extends BaseController
     public function approveEscalation(Request $request, string $returnId): JsonResponse
     {
         $owner = $this->resolveBrandOwner();
-        if (!$owner) {
+        if (! $owner) {
             return $this->forbiddenResponse('Only brand owners can access this resource.');
         }
 
@@ -33,7 +33,7 @@ class BrandOwnerReturnController extends BaseController
         }
 
         $return = ReturnOrder::find($returnId);
-        if (!$return) {
+        if (! $return) {
             return $this->notFoundResponse('Return order not found');
         }
 
@@ -54,7 +54,7 @@ class BrandOwnerReturnController extends BaseController
     public function rejectEscalation(Request $request, string $returnId): JsonResponse
     {
         $owner = $this->resolveBrandOwner();
-        if (!$owner) {
+        if (! $owner) {
             return $this->forbiddenResponse('Only brand owners can access this resource.');
         }
 
@@ -67,7 +67,7 @@ class BrandOwnerReturnController extends BaseController
         }
 
         $return = ReturnOrder::find($returnId);
-        if (!$return) {
+        if (! $return) {
             return $this->notFoundResponse('Return order not found');
         }
 
@@ -88,6 +88,7 @@ class BrandOwnerReturnController extends BaseController
     private function resolveBrandOwner(): ?BrandOwner
     {
         $user = auth()->user();
+
         return $user instanceof BrandOwner ? $user : null;
     }
 }

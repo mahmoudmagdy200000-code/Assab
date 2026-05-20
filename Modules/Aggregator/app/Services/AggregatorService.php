@@ -2,12 +2,12 @@
 
 namespace Modules\Aggregator\Services;
 
-use Modules\Aggregator\Models\Aggregator;
-use Modules\Aggregator\Repositories\AggregatorRepositoryInterface;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Http\UploadedFile;
+use Modules\Aggregator\Models\Aggregator;
+use Modules\Aggregator\Repositories\AggregatorRepositoryInterface;
 
 class AggregatorService
 {
@@ -17,28 +17,25 @@ class AggregatorService
 
     /**
      * Get aggregators with filters
-     *
-     * @param array $filters
-     * @return LengthAwarePaginator
      */
     public function getAggregators(array $filters = []): LengthAwarePaginator
     {
         $query = Aggregator::query();
 
         // Apply filters
-        if (!empty($filters['is_active'])) {
+        if (! empty($filters['is_active'])) {
             $query->where('is_active', $filters['is_active']);
         }
 
-        if (!empty($filters['integration_type'])) {
+        if (! empty($filters['integration_type'])) {
             $query->where('integration_type', $filters['integration_type']);
         }
 
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $query->search($filters['search']);
         }
 
-        if (!empty($filters['has_integration'])) {
+        if (! empty($filters['has_integration'])) {
             if ($filters['has_integration'] === 'true') {
                 $query->hasIntegration();
             }
@@ -75,6 +72,7 @@ class AggregatorService
             $aggregator = Aggregator::create($data);
 
             DB::commit();
+
             return $aggregator->fresh();
 
         } catch (\Exception $e) {
@@ -102,6 +100,7 @@ class AggregatorService
             $aggregator->update($data);
 
             DB::commit();
+
             return $aggregator->fresh();
 
         } catch (\Exception $e) {
@@ -126,6 +125,7 @@ class AggregatorService
             $aggregator->delete();
 
             DB::commit();
+
             return true;
 
         } catch (\Exception $e) {
@@ -146,7 +146,7 @@ class AggregatorService
                 $query->whereHas('cashierShift', function ($q) {
                     $q->whereDate('shift_date', '>=', now()->subDays(30));
                 })->limit(50);
-            }
+            },
         ])->findOrFail($aggregatorId);
     }
 
@@ -155,7 +155,8 @@ class AggregatorService
      */
     public function uploadLogo(?Aggregator $aggregator, UploadedFile $logo): string
     {
-        $filename = 'aggregator_' . ($aggregator?->id ?? 'new') . '_' . time() . '.' . $logo->getClientOriginalExtension();
+        $filename = 'aggregator_'.($aggregator?->id ?? 'new').'_'.time().'.'.$logo->getClientOriginalExtension();
+
         return $logo->storeAs('aggregators', $filename, 'public');
     }
 
@@ -169,7 +170,7 @@ class AggregatorService
         $originalCode = $code;
 
         while (Aggregator::where('code', $code)->exists()) {
-            $code = $originalCode . $counter;
+            $code = $originalCode.$counter;
             $counter++;
         }
 
@@ -187,4 +188,3 @@ class AggregatorService
             ->get();
     }
 }
-

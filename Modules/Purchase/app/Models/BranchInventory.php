@@ -90,11 +90,13 @@ class BranchInventory extends Model
     {
         if ($value === null || $value === '') {
             $this->attributes['quality'] = null;
+
             return;
         }
 
         if ($value instanceof QualityLevel) {
             $this->attributes['quality'] = $value->value;
+
             return;
         }
 
@@ -125,6 +127,7 @@ class BranchInventory extends Model
     public function scopeWithMinAvailability($query, float $percentage, float $requiredQuantity)
     {
         $minQuantity = $requiredQuantity * ($percentage / 100);
+
         return $query->whereRaw('(available_quantity - reserved_quantity) >= ?', [$minQuantity]);
     }
 
@@ -136,6 +139,7 @@ class BranchInventory extends Model
         }
 
         $this->increment('reserved_quantity', $quantity);
+
         return true;
     }
 

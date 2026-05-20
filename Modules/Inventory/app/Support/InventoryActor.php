@@ -40,7 +40,6 @@ final readonly class InventoryActor
         return $this->actor instanceof BranchManager ? $this->actor : null;
     }
 
-    /** @return \Modules\Cashier\Models\Cashier|null */
     public function getCashier(): ?Cashier
     {
         return $this->actor instanceof Cashier ? $this->actor : null;
@@ -53,6 +52,7 @@ final readonly class InventoryActor
 
     /**
      * Resolve the current authenticated user as an InventoryActor.
+     *
      * @throws \Illuminate\Auth\Access\AuthorizationException when user is not BranchManager or Cashier
      */
     public static function resolve(): self
@@ -68,6 +68,7 @@ final readonly class InventoryActor
 
     /**
      * Require the actor to be a Branch Manager. Use for manager-only endpoints.
+     *
      * @throws \Illuminate\Auth\Access\AuthorizationException when user is not BranchManager
      */
     public function requireManager(): BranchManager
@@ -80,6 +81,7 @@ final readonly class InventoryActor
 
     /**
      * Require the actor to be a Cashier. Use for cashier-only logic.
+     *
      * @throws \Illuminate\Auth\Access\AuthorizationException when user is not Cashier
      */
     public function requireCashier(): Cashier

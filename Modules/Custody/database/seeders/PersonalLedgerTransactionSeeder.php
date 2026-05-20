@@ -2,10 +2,10 @@
 
 namespace Modules\Custody\Database\Seeders;
 
-use Illuminate\Database\Seeder;
-use Modules\Custody\Models\PersonalLedgerTransaction;
-use Modules\BranchManagers\Models\BranchManager;
 use Carbon\Carbon;
+use Illuminate\Database\Seeder;
+use Modules\BranchManagers\Models\BranchManager;
+use Modules\Custody\Models\PersonalLedgerTransaction;
 
 class PersonalLedgerTransactionSeeder extends Seeder
 {
@@ -18,6 +18,7 @@ class PersonalLedgerTransactionSeeder extends Seeder
 
         if ($branchManagers->isEmpty()) {
             $this->command->warn('⚠️  No branch managers found. Please seed branch managers first.');
+
             return;
         }
 
@@ -36,7 +37,7 @@ class PersonalLedgerTransactionSeeder extends Seeder
         $transactionTypes = [
             'Total Sales',
             'Handover to Brand Owner',
-            'Transfer to Custody'
+            'Transfer to Custody',
         ];
 
         $cashierNames = ['Ahmed Ali', 'Mohamed Hassan', 'Sara Ibrahim', 'Fatima Mohamed', 'Omar Khaled'];

@@ -2,10 +2,10 @@
 
 namespace Modules\BranchManagers\Tests\Unit\Feature;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Modules\BranchManagers\Models\BranchManager;
 use Illuminate\Support\Facades\Hash;
+use Modules\BranchManagers\Models\BranchManager;
+use Tests\TestCase;
 
 class AuthenticationTest extends TestCase
 {
@@ -33,7 +33,7 @@ class AuthenticationTest extends TestCase
                     'manager',
                     'token',
                     'token_type',
-                ]
+                ],
             ]);
     }
 
@@ -75,7 +75,7 @@ class AuthenticationTest extends TestCase
                 'success' => true,
                 'data' => [
                     'first_login' => true,
-                ]
+                ],
             ]);
     }
 

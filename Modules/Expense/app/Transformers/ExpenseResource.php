@@ -2,7 +2,6 @@
 
 namespace Modules\Expense\Transformers;
 
-use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class ExpenseResource extends JsonResource
@@ -36,7 +35,7 @@ class ExpenseResource extends JsonResource
         return match ($this->expense_type) {
             'quick_cash' => $this->quickCashExpense?->expense_name ?? 'Quick Cash Expense',
             'single_invoice' => $this->invoiceDetails->first()?->invoice_number ?? 'Single Invoice',
-            'grouped_invoice' => 'Grouped Invoices (' . $this->groupedInvoice?->invoiceDetails->count() . ')',
+            'grouped_invoice' => 'Grouped Invoices ('.$this->groupedInvoice?->invoiceDetails->count().')',
             'pre_approval' => $this->preApprovalRequest?->purpose ?? 'Pre-Approval Request',
             default => 'Expense',
         };

@@ -46,9 +46,9 @@ class ExpenseAttachmentController extends BaseController
         }
 
         // Only allow adding attachments to draft or pending expenses
-        if (!in_array($expenseModel->status, ['draft', 'pending'])) {
+        if (! in_array($expenseModel->status, ['draft', 'pending'])) {
             return $this->errorResponse(
-                'Cannot add attachments to expenses with status: ' . $expenseModel->status,
+                'Cannot add attachments to expenses with status: '.$expenseModel->status,
                 400
             );
         }
@@ -88,7 +88,7 @@ class ExpenseAttachmentController extends BaseController
         // Get invoices from files (FormData sends files not input)
         $invoicesData = $request->file('invoices');
 
-        if (!$invoicesData || !is_array($invoicesData)) {
+        if (! $invoicesData || ! is_array($invoicesData)) {
             return $this->errorResponse(
                 'No invoices data provided',
                 400
@@ -104,7 +104,7 @@ class ExpenseAttachmentController extends BaseController
             ->toArray();
 
         $invalidInvoices = array_diff($invoiceIds, $validInvoices);
-        if (!empty($invalidInvoices)) {
+        if (! empty($invalidInvoices)) {
             return $this->errorResponse(
                 'Some invoice IDs do not belong to this expense',
                 400,
@@ -129,7 +129,7 @@ class ExpenseAttachmentController extends BaseController
                 [
                     'current_count' => $currentAttachmentsCount,
                     'trying_to_add' => $totalNewAttachments,
-                    'max_allowed' => 15
+                    'max_allowed' => 15,
                 ]
             );
         }
@@ -140,7 +140,7 @@ class ExpenseAttachmentController extends BaseController
             $uploadCountPerInvoice = [];
 
             foreach ($invoicesData as $invoiceId => $invoiceData) {
-                if (!isset($invoiceData['attachments']) || empty($invoiceData['attachments'])) {
+                if (! isset($invoiceData['attachments']) || empty($invoiceData['attachments'])) {
                     continue;
                 }
 
@@ -149,7 +149,7 @@ class ExpenseAttachmentController extends BaseController
                 foreach ($invoiceData['attachments'] as $file) {
                     $attachment = $this->uploadAttachment($expenseModel, $file, $invoiceId);
 
-                    if (!isset($uploadedAttachments[$invoiceId])) {
+                    if (! isset($uploadedAttachments[$invoiceId])) {
                         $uploadedAttachments[$invoiceId] = [];
                     }
 
@@ -175,13 +175,13 @@ class ExpenseAttachmentController extends BaseController
                     'total_uploaded' => $totalUploaded,
                     'upload_per_invoice' => $uploadCountPerInvoice,
                     'attachments' => $uploadedAttachments,
-                    'expense' => new ExpenseDetailResource($expenseModel->fresh(['attachments', 'invoiceDetails.attachments']))
+                    'expense' => new ExpenseDetailResource($expenseModel->fresh(['attachments', 'invoiceDetails.attachments'])),
                 ],
                 'Attachments uploaded successfully to grouped invoices'
             );
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Failed to upload grouped invoice attachments: ' . $e->getMessage());
+            Log::error('Failed to upload grouped invoice attachments: '.$e->getMessage());
 
             return $this->errorResponse(
                 'Failed to upload attachments',
@@ -237,7 +237,7 @@ class ExpenseAttachmentController extends BaseController
                 [
                     'current_count' => $currentAttachmentsCount,
                     'trying_to_add' => $newAttachmentsCount,
-                    'max_allowed' => 15
+                    'max_allowed' => 15,
                 ]
             );
         }
@@ -248,7 +248,7 @@ class ExpenseAttachmentController extends BaseController
                 ->where('id', $request->invoice_detail_id)
                 ->exists();
 
-            if (!$invoiceExists) {
+            if (! $invoiceExists) {
                 return $this->errorResponse(
                     'Invoice detail does not belong to this expense',
                     400
@@ -269,7 +269,7 @@ class ExpenseAttachmentController extends BaseController
             $this->createTimelineEntry(
                 $expenseModel,
                 'attachments_added',
-                count($uploadedAttachments) . ' attachment(s) added'
+                count($uploadedAttachments).' attachment(s) added'
             );
 
             DB::commit();
@@ -278,13 +278,13 @@ class ExpenseAttachmentController extends BaseController
                 [
                     'uploaded_count' => count($uploadedAttachments),
                     'attachments' => $uploadedAttachments,
-                    'expense' => new ExpenseDetailResource($expenseModel->fresh(['attachments']))
+                    'expense' => new ExpenseDetailResource($expenseModel->fresh(['attachments'])),
                 ],
                 'Attachments uploaded successfully'
             );
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Failed to upload attachments: ' . $e->getMessage());
+            Log::error('Failed to upload attachments: '.$e->getMessage());
 
             return $this->errorResponse(
                 'Failed to upload attachments',
@@ -357,7 +357,7 @@ class ExpenseAttachmentController extends BaseController
                     $attachment->delete();
                     $deletedCount++;
                 } catch (\Exception $e) {
-                    Log::warning('Failed to delete attachment: ' . $e->getMessage());
+                    Log::warning('Failed to delete attachment: '.$e->getMessage());
                 }
             }
 
@@ -365,7 +365,7 @@ class ExpenseAttachmentController extends BaseController
             $this->createTimelineEntry(
                 $expenseModel,
                 'attachments_deleted',
-                $deletedCount . ' attachment(s) deleted'
+                $deletedCount.' attachment(s) deleted'
             );
 
             DB::commit();
@@ -373,13 +373,13 @@ class ExpenseAttachmentController extends BaseController
             return $this->successResponse(
                 [
                     'deleted_count' => $deletedCount,
-                    'expense' => new ExpenseDetailResource($expenseModel->fresh(['attachments']))
+                    'expense' => new ExpenseDetailResource($expenseModel->fresh(['attachments'])),
                 ],
                 'Attachments deleted successfully'
             );
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Failed to delete attachments: ' . $e->getMessage());
+            Log::error('Failed to delete attachments: '.$e->getMessage());
 
             return $this->errorResponse(
                 'Failed to delete attachments',
@@ -423,14 +423,14 @@ class ExpenseAttachmentController extends BaseController
                                 'file_url' => Storage::disk('public')->url($attachment->file_path),
                                 'created_at' => $attachment->created_at,
                             ];
-                        })
+                        }),
                     ];
                 }
 
                 return $this->successResponse(
                     [
                         'total_count' => $expenseModel->attachments->count(),
-                        'attachments_by_invoice' => $attachmentsByInvoice
+                        'attachments_by_invoice' => $attachmentsByInvoice,
                     ],
                     'Grouped invoice attachments retrieved successfully'
                 );
@@ -453,7 +453,7 @@ class ExpenseAttachmentController extends BaseController
             return $this->successResponse(
                 [
                     'total_count' => $attachments->count(),
-                    'attachments' => $attachments
+                    'attachments' => $attachments,
                 ],
                 'Attachments retrieved successfully'
             );
@@ -479,7 +479,7 @@ class ExpenseAttachmentController extends BaseController
             default => 'expenses/attachments'
         };
 
-        $filename = 'expense_' . $expense->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+        $filename = 'expense_'.$expense->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
         $path = $this->streamUpload->storeFromUpload($file, $folderPath, $filename, 'public');
 
         $attachment = $expense->attachments()->create([
@@ -505,7 +505,7 @@ class ExpenseAttachmentController extends BaseController
     /**
      * Create timeline entry
      */
-    private function createTimelineEntry(Expense $expense, string $action, string $notes = null): void
+    private function createTimelineEntry(Expense $expense, string $action, ?string $notes = null): void
     {
         $expense->timelines()->create([
             'action' => $action,
@@ -522,10 +522,11 @@ class ExpenseAttachmentController extends BaseController
     private function formatFileSize(int $bytes): string
     {
         if ($bytes >= 1048576) {
-            return number_format($bytes / 1048576, 2) . ' MB';
+            return number_format($bytes / 1048576, 2).' MB';
         } elseif ($bytes >= 1024) {
-            return number_format($bytes / 1024, 2) . ' KB';
+            return number_format($bytes / 1024, 2).' KB';
         }
-        return $bytes . ' B';
+
+        return $bytes.' B';
     }
 }

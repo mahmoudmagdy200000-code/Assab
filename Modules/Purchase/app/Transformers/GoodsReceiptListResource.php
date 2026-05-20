@@ -10,7 +10,6 @@ class GoodsReceiptListResource extends JsonResource
      * Transform the resource into an array for list views
      *
      * @param  \Illuminate\Http\Request  $request
-     * @return array
      */
     public function toArray($request): array
     {
@@ -68,6 +67,7 @@ class GoodsReceiptListResource extends JsonResource
             } catch (\Exception $e) {
                 // If check fails, use receipt status
             }
+
             return 'closed';
         }
 

@@ -3,9 +3,9 @@
 namespace Modules\Settings\Services;
 
 use Illuminate\Support\Facades\Storage;
-use Modules\Settings\Models\UserSetting;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
+use Modules\Settings\Models\UserSetting;
 
 /**
  * Settings Service
@@ -57,10 +57,10 @@ class SettingsService
         $branch = $cashier->branch;
         $openingFormatted = 'Mon–Fri / 9:00 AM – 8:00 PM';
         if ($branch && $branch->opening_hours instanceof \Carbon\Carbon && $branch->closing_hours instanceof \Carbon\Carbon) {
-            $openingFormatted = 'Mon–Fri / ' . $branch->opening_hours->format('g:i A') . ' – ' . $branch->closing_hours->format('g:i A');
+            $openingFormatted = 'Mon–Fri / '.$branch->opening_hours->format('g:i A').' – '.$branch->closing_hours->format('g:i A');
         }
         $googleMapsUrl = $branch && $branch->lat && $branch->lng
-            ? 'https://www.google.com/maps?q=' . (float) $branch->lat . ',' . (float) $branch->lng
+            ? 'https://www.google.com/maps?q='.(float) $branch->lat.','.(float) $branch->lng
             : null;
 
         return [
@@ -69,7 +69,7 @@ class SettingsService
                 'name' => $cashier->name,
                 'email' => $cashier->email,
                 'phone' => $cashier->phone,
-                'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
+                'image' => $cashier->image ? asset('storage/'.$cashier->image) : null,
                 'position' => 'Cashier',
                 'created_at' => $cashier->created_at->format('Y-m-d H:i:s'),
                 'created_by' => $cashier->creator ? ['id' => $cashier->creator->id, 'name' => $cashier->creator->name] : null,
@@ -77,7 +77,7 @@ class SettingsService
             'branch' => $branch ? [
                 'id' => $branch->id,
                 'name' => $branch->name,
-                'image' => $branch->image ? asset('storage/' . $branch->image) : null,
+                'image' => $branch->image ? asset('storage/'.$branch->image) : null,
                 'opening_hours' => $openingFormatted,
                 'google_maps_url' => $googleMapsUrl,
                 'location' => $branch->location ?? null,
@@ -107,7 +107,7 @@ class SettingsService
             }
 
             // Upload new image
-            $filename = 'profile_' . $userId . '_' . time() . '.' . $data['image']->getClientOriginalExtension();
+            $filename = 'profile_'.$userId.'_'.time().'.'.$data['image']->getClientOriginalExtension();
             $path = $data['image']->storeAs('profiles', $filename, 'public');
             $user->image = $path;
         }
@@ -182,14 +182,14 @@ class SettingsService
                 'name' => $manager->name,
                 'email' => $manager->email,
                 'phone' => $manager->phone,
-                'image' => $manager->image ? asset('storage/' . $manager->image) : null,
+                'image' => $manager->image ? asset('storage/'.$manager->image) : null,
                 'position' => 'Branch Manager',
                 'created_at' => $manager->created_at->format('Y-m-d H:i:s'),
             ],
             'branch' => [
                 'id' => $manager->branch->id,
                 'name' => $manager->branch->name,
-                'image' => $manager->branch->image ? asset('storage/' . $manager->branch->image) : null,
+                'image' => $manager->branch->image ? asset('storage/'.$manager->branch->image) : null,
                 'opening_hours' => $manager->branch->opening_hours ?? 'Mon-Fri / 9:00 AM - 8:00 PM',
                 'location' => [
                     'latitude' => $manager->branch->latitude,

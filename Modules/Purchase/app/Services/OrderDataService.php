@@ -8,22 +8,19 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Modules\Branch\Models\Branch;
 use Modules\Purchase\Constants\PurchaseConstants;
-use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
-use Modules\Supplier\Models\Supplier;
-use Modules\Supplier\Models\SupplierProduct;
+use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\SupplierItem;
-use Modules\Purchase\Transformers\BranchItemResource;
-use Modules\Purchase\Transformers\OrderSummaryResource;
+use Modules\Purchase\Traits\ItemHelperTrait;
 use Modules\Purchase\Transformers\PurchaseOrderListResource;
 use Modules\Purchase\Transformers\PurchasingOfficerItemResource;
 use Modules\Purchase\Transformers\SupplierItemResource;
 use Modules\Purchase\Transformers\SupplierResource;
 use Modules\Purchase\Transformers\TransferItemResource;
-use Modules\Purchase\Models\PurchaseOrder;
-use Modules\Purchase\Traits\ItemHelperTrait;
+use Modules\Supplier\Models\Supplier;
+use Modules\Supplier\Models\SupplierProduct;
 
 class OrderDataService
 {
@@ -37,7 +34,7 @@ class OrderDataService
     /**
      * Get orders list with inventory data
      */
-    public function getOrdersList(array $filters, int $perPage = null): array
+    public function getOrdersList(array $filters, ?int $perPage = null): array
     {
         $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
         $orders = $this->orderService->getOrders($filters, $perPage);
@@ -168,7 +165,7 @@ class OrderDataService
             'driver_name',
             'temperature',
             'created_at',
-            'updated_at'
+            'updated_at',
         ])->where('branch_id', $branchId)
             ->find($id);
     }
@@ -219,18 +216,18 @@ class OrderDataService
                 ->where('is_active', true);
 
             // Apply filters
-            if (!empty($validated['search'])) {
+            if (! empty($validated['search'])) {
                 $query->where(function ($q) use ($validated) {
-                    $q->where('name', 'like', '%' . $validated['search'] . '%')
-                        ->orWhere('code', 'like', '%' . $validated['search'] . '%');
+                    $q->where('name', 'like', '%'.$validated['search'].'%')
+                        ->orWhere('code', 'like', '%'.$validated['search'].'%');
                 });
             }
 
-            if (!empty($validated['category'])) {
+            if (! empty($validated['category'])) {
                 $query->byCategory($validated['category']);
             }
 
-            if (!empty($validated['subcategory'])) {
+            if (! empty($validated['subcategory'])) {
                 $query->bySubcategory($validated['subcategory']);
             }
 
@@ -296,7 +293,7 @@ class OrderDataService
             ->where('item_id', $itemId)
             ->first();
 
-        if (!$branchItem) {
+        if (! $branchItem) {
             throw new \InvalidArgumentException('Item not found in your branch');
         }
 
@@ -313,21 +310,21 @@ class OrderDataService
         $supplierProducts = SupplierProduct::where('item_id', $itemId)
             ->with('supplier')
             ->available()
-            ->whereHas('supplier', fn($q) => $q->active());
+            ->whereHas('supplier', fn ($q) => $q->active());
 
         // Apply status filter
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             $statusEnum = \Modules\Purchase\Enums\SupplierStatus::from($filters['status']);
-            $supplierProducts->whereHas('supplier', fn($q) => $q->byStatus($statusEnum));
+            $supplierProducts->whereHas('supplier', fn ($q) => $q->byStatus($statusEnum));
         }
 
         // Apply filters
-        if (!empty($filters['max_delivery_hours'])) {
+        if (! empty($filters['max_delivery_hours'])) {
             $supplierProducts->where('delivery_hours', '<=', $filters['max_delivery_hours']);
         }
 
-        if (!empty($filters['search'])) {
-            $supplierProducts->whereHas('supplier', fn($q) => $q->search($filters['search']));
+        if (! empty($filters['search'])) {
+            $supplierProducts->whereHas('supplier', fn ($q) => $q->search($filters['search']));
         }
 
         $supplierProducts = $supplierProducts->get();
@@ -337,21 +334,21 @@ class OrderDataService
             $query = SupplierItem::where('item_id', $itemId)
                 ->with('supplier')
                 ->available()
-                ->whereHas('supplier', fn($q) => $q->active());
+                ->whereHas('supplier', fn ($q) => $q->active());
 
             // Apply status filter
-            if (!empty($filters['status'])) {
+            if (! empty($filters['status'])) {
                 $statusEnum = \Modules\Purchase\Enums\SupplierStatus::from($filters['status']);
-                $query->whereHas('supplier', fn($q) => $q->byStatus($statusEnum));
+                $query->whereHas('supplier', fn ($q) => $q->byStatus($statusEnum));
             }
 
             // Apply filters
-            if (!empty($filters['max_delivery_hours'])) {
+            if (! empty($filters['max_delivery_hours'])) {
                 $query->byDeliveryTime($filters['max_delivery_hours']);
             }
 
-            if (!empty($filters['search'])) {
-                $query->whereHas('supplier', fn($q) => $q->search($filters['search']));
+            if (! empty($filters['search'])) {
+                $query->whereHas('supplier', fn ($q) => $q->search($filters['search']));
             }
 
             $supplierItems = $query->get();
@@ -376,7 +373,6 @@ class OrderDataService
             });
         }
 
-
         // Get item logo URL using helper method
         $itemLogo = $this->getItemLogoUrl($branchItem->item_logo);
 
@@ -394,7 +390,7 @@ class OrderDataService
             $currentCoordinates
         ) {
             $supplier = $supplierItem->supplier;
-            if (!$supplier) {
+            if (! $supplier) {
                 return null;
             }
 
@@ -411,7 +407,7 @@ class OrderDataService
             }
 
             // Apply distance filter
-            if (!empty($filters['max_distance_km']) && $distanceKm && $distanceKm > $filters['max_distance_km']) {
+            if (! empty($filters['max_distance_km']) && $distanceKm && $distanceKm > $filters['max_distance_km']) {
                 return null;
             }
 
@@ -488,11 +484,11 @@ class OrderDataService
             ->with('item:id,name,code,unit,logo,category,subcategory');
 
         // Apply filters using scopes (which use whereHas on item relationship)
-        if (!empty($validated['search'])) {
+        if (! empty($validated['search'])) {
             $query->search($validated['search']);
         }
 
-        if (!empty($validated['category'])) {
+        if (! empty($validated['category'])) {
             $query->byCategory($validated['category']);
         }
 
@@ -517,11 +513,11 @@ class OrderDataService
 
         // Performance optimization: Get direct supplier prices for all items in batch
         $supplierPricesMap = [];
-        if (!empty($itemIds)) {
+        if (! empty($itemIds)) {
             $supplierItems = SupplierItem::whereIn('item_id', $itemIds)
                 ->with('supplier')
                 ->available()
-                ->whereHas('supplier', fn($q) => $q->active())
+                ->whereHas('supplier', fn ($q) => $q->active())
                 ->get()
                 ->groupBy('item_id');
 
@@ -620,13 +616,13 @@ class OrderDataService
 
         // Get supplier with details (using new Supplier model)
         $supplier = \Modules\Supplier\Models\Supplier::find($supplierId);
-        if (!$supplier) {
+        if (! $supplier) {
             throw new \InvalidArgumentException('Supplier not found');
         }
 
         // Get items from BOTH SupplierProduct and SupplierItem (same logic as getDirectSupplierItems)
         // so that items shown when choosing source appear in supplier-items list
-        $itemIdFilter = !empty($validated['item_id']) ? $validated['item_id'] : null;
+        $itemIdFilter = ! empty($validated['item_id']) ? $validated['item_id'] : null;
 
         $supplierProducts = SupplierProduct::where('supplier_id', $supplierId)
             ->available();
@@ -678,6 +674,7 @@ class OrderDataService
                 ];
             }
             $legacy = $legacyByItemId->get($itemId);
+
             return $legacy ?: null;
         })->filter()->values();
 
@@ -689,11 +686,11 @@ class OrderDataService
             ->whereIn('item_id', $supplierItemIds);
 
         // Apply filters using scopes (which use whereHas on item relationship)
-        if (!empty($validated['search'])) {
+        if (! empty($validated['search'])) {
             $branchItemsQuery->search($validated['search']);
         }
 
-        if (!empty($validated['category'])) {
+        if (! empty($validated['category'])) {
             $branchItemsQuery->byCategory($validated['category']);
         }
 
@@ -708,7 +705,7 @@ class OrderDataService
             // Match by item_id (both SupplierItem and SupplierProduct use item_id from items table)
             $supplierItem = $supplierItemsByItemIdMap[$branchItem->item_id] ?? null;
 
-            if (!$supplierItem) {
+            if (! $supplierItem) {
                 return null;
             }
 
@@ -750,14 +747,16 @@ class OrderDataService
             return $branches->sortBy(function ($item) {
                 $distance = $item['distance'] ?? null;
                 $value = is_array($distance) ? ($distance['distance_km'] ?? null) : ($item['distance_km'] ?? null);
+
                 return $value ?? PHP_FLOAT_MAX;
             })->values();
         }
 
-        if ($sortKey === 'distance_km' && !$isAscending) {
+        if ($sortKey === 'distance_km' && ! $isAscending) {
             return $branches->sortByDesc(function ($item) {
                 $distance = $item['distance'] ?? null;
                 $value = is_array($distance) ? ($distance['distance_km'] ?? null) : ($item['distance_km'] ?? null);
+
                 return $value ?? PHP_FLOAT_MIN;
             })->values();
         }
@@ -766,10 +765,12 @@ class OrderDataService
         $sorted = $isAscending
             ? $branches->sortBy(function ($item) use ($sortKey) {
                 $value = $item[$sortKey] ?? null;
+
                 return $value ?? ($sortKey === 'distance_km' ? PHP_FLOAT_MAX : PHP_FLOAT_MIN);
             })
             : $branches->sortByDesc(function ($item) use ($sortKey) {
                 $value = $item[$sortKey] ?? null;
+
                 return $value ?? ($sortKey === 'distance_km' ? PHP_FLOAT_MIN : PHP_FLOAT_MAX);
             });
 
@@ -817,7 +818,7 @@ class OrderDataService
             $fromBranch = $branches[$fromBranchId] ?? null;
             $toBranch = $branches[$toBranchId] ?? null;
 
-            if (!$fromBranch || !$toBranch) {
+            if (! $fromBranch || ! $toBranch) {
                 return [
                     'method' => 'Vehicle (Free)',
                     'cost' => 'Free',
@@ -825,7 +826,7 @@ class OrderDataService
                     'driver' => null,
                     'recommended_temperature' => null,
                     'distance_km' => 0,
-                    'notes' => 'Branch information not available'
+                    'notes' => 'Branch information not available',
                 ];
             }
 
@@ -859,10 +860,10 @@ class OrderDataService
                     'location' => $toBranch->location ?? null,
                     'address' => $toBranch->location ?? null, // Keep for backward compatibility
                 ],
-                'notes' => 'Transport details are estimated and may vary'
+                'notes' => 'Transport details are estimated and may vary',
             ];
         } catch (\Exception $e) {
-            Log::error('Error calculating transport details: ' . $e->getMessage());
+            Log::error('Error calculating transport details: '.$e->getMessage());
 
             return [
                 'method' => 'Vehicle (Free)',
@@ -871,7 +872,7 @@ class OrderDataService
                 'driver' => null,
                 'recommended_temperature' => null,
                 'distance_km' => 0,
-                'notes' => 'Error calculating transport details'
+                'notes' => 'Error calculating transport details',
             ];
         }
     }
@@ -922,7 +923,7 @@ class OrderDataService
                 ->select('id', 'name', 'phone', 'email', 'vehicle_number', 'vehicle_type', 'vehicle_capacity')
                 ->first();
 
-            if (!$driver) {
+            if (! $driver) {
                 // Try to find any available driver in the system
                 $driver = User::where('role', 'driver')
                     ->where('status', 'active')
@@ -933,7 +934,7 @@ class OrderDataService
                     ->first();
             }
 
-            if (!$driver) {
+            if (! $driver) {
                 return null;
             }
 
@@ -947,7 +948,8 @@ class OrderDataService
                 'capacity_kg' => $driver->vehicle_capacity ?? PurchaseConstants::CHUNK_SIZE_LARGE,
             ];
         } catch (\Exception $e) {
-            Log::error('Error auto-assigning driver: ' . $e->getMessage());
+            Log::error('Error auto-assigning driver: '.$e->getMessage());
+
             return null;
         }
     }
@@ -977,7 +979,7 @@ class OrderDataService
      */
     private function calculateDistanceFromCoordinates(?array $from, ?array $to): ?array
     {
-        if (!$from || !$to) {
+        if (! $from || ! $to) {
             return null;
         }
 

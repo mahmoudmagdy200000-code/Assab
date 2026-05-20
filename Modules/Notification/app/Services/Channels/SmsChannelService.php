@@ -22,26 +22,29 @@ class SmsChannelService
     {
         try {
             // Check rate limit
-            if (!$this->checkRateLimit($notifiable)) {
+            if (! $this->checkRateLimit($notifiable)) {
                 Log::warning('SMS rate limit exceeded', [
                     'notifiable_id' => $notifiable->id ?? null,
                 ]);
+
                 return false;
             }
 
-            if (!method_exists($notifiable, 'routeNotificationForSms')) {
+            if (! method_exists($notifiable, 'routeNotificationForSms')) {
                 Log::warning('Notifiable does not have SMS route', [
                     'notifiable_id' => $notifiable->id ?? null,
                 ]);
+
                 return false;
             }
 
             $phoneNumber = $notifiable->routeNotificationForSms();
 
-            if (!$phoneNumber) {
+            if (! $phoneNumber) {
                 Log::warning('No phone number found for notifiable', [
                     'notifiable_id' => $notifiable->id ?? null,
                 ]);
+
                 return false;
             }
 
@@ -97,4 +100,3 @@ class SmsChannelService
         $rateLimit->incrementCount();
     }
 }
-

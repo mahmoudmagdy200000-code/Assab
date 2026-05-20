@@ -46,7 +46,7 @@ class PurchaseOrderListResource extends JsonResource
      */
     private function getSourceName(): ?string
     {
-        if (!$this->order_type) {
+        if (! $this->order_type) {
             return null;
         }
 

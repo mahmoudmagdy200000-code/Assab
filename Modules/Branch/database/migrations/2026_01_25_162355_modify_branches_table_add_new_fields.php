@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -15,15 +15,15 @@ return new class extends Migration
         // Step 1: Add new columns first (before modifying existing ones)
         Schema::table('branches', function (Blueprint $table) {
             // Add latitude and longitude as separate columns (only if they don't exist)
-            if (!Schema::hasColumn('branches', 'lat')) {
+            if (! Schema::hasColumn('branches', 'lat')) {
                 $table->decimal('lat', 10, 8)->nullable()->after('name');
             }
-            if (!Schema::hasColumn('branches', 'lng')) {
+            if (! Schema::hasColumn('branches', 'lng')) {
                 $table->decimal('lng', 11, 8)->nullable()->after('lat');
             }
-            
+
             // Add closing_hours as string first (we'll convert it later)
-            if (!Schema::hasColumn('branches', 'closing_hours')) {
+            if (! Schema::hasColumn('branches', 'closing_hours')) {
                 $table->string('closing_hours')->nullable()->after('opening_hours');
             }
         });
@@ -33,38 +33,39 @@ return new class extends Migration
         // Only process if opening_hours is still a string (contains dash or is not in time format)
         DB::table('branches')->whereNotNull('opening_hours')->get()->each(function ($branch) {
             $openingHours = $branch->opening_hours;
-            
+
             // Check if it's already in time format (HH:MM:SS or HH:MM)
             if (preg_match('/^\d{1,2}:\d{2}(:\d{2})?$/', $openingHours)) {
                 // Already in time format, just normalize it
                 $openingTime = $this->normalizeTime($openingHours);
                 $updateData = ['opening_hours' => $openingTime];
-                
+
                 // Only update closing_hours if it doesn't exist or is null
                 if (Schema::hasColumn('branches', 'closing_hours') && empty($branch->closing_hours)) {
                     $updateData['closing_hours'] = null;
                 }
-                
+
                 DB::table('branches')
                     ->where('id', $branch->id)
                     ->update($updateData);
+
                 return;
             }
-            
+
             // Parse format like "08:00 - 22:00" or "08:00-22:00"
             if (preg_match('/(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})/', $openingHours, $matches)) {
                 $openingTime = $matches[1];
                 $closingTime = $matches[2];
-                
+
                 // Ensure time format is HH:MM:SS
                 $openingTime = $this->normalizeTime($openingTime);
                 $closingTime = $this->normalizeTime($closingTime);
-                
+
                 $updateData = ['opening_hours' => $openingTime];
                 if (Schema::hasColumn('branches', 'closing_hours')) {
                     $updateData['closing_hours'] = $closingTime;
                 }
-                
+
                 DB::table('branches')
                     ->where('id', $branch->id)
                     ->update($updateData);
@@ -73,11 +74,11 @@ return new class extends Migration
                 // and set closing_hours to null
                 $openingTime = $this->normalizeTime($openingHours);
                 $updateData = ['opening_hours' => $openingTime];
-                
+
                 if (Schema::hasColumn('branches', 'closing_hours')) {
                     $updateData['closing_hours'] = null;
                 }
-                
+
                 DB::table('branches')
                     ->where('id', $branch->id)
                     ->update($updateData);
@@ -86,8 +87,8 @@ return new class extends Migration
 
         // Step 3: Extract lat/lng from map_coordinates if exists
         // Only update if lat/lng are null or empty
-        if (Schema::hasColumn('branches', 'map_coordinates') && 
-            Schema::hasColumn('branches', 'lat') && 
+        if (Schema::hasColumn('branches', 'map_coordinates') &&
+            Schema::hasColumn('branches', 'lat') &&
             Schema::hasColumn('branches', 'lng')) {
             DB::table('branches')
                 ->whereNotNull('map_coordinates')
@@ -100,12 +101,12 @@ return new class extends Migration
                 ->get()
                 ->each(function ($branch) {
                     $coordinates = $branch->map_coordinates;
-                    
+
                     // Parse format like "24.7136,46.6753" or "24.7136, 46.6753"
                     if (preg_match('/([\d.]+)\s*,\s*([\d.]+)/', $coordinates, $matches)) {
                         $lat = (float) $matches[1];
                         $lng = (float) $matches[2];
-                        
+
                         DB::table('branches')
                             ->where('id', $branch->id)
                             ->update([
@@ -126,7 +127,7 @@ return new class extends Migration
             if (Schema::hasColumn('branches', 'opening_hours')) {
                 $table->time('opening_hours')->nullable()->change();
             }
-            
+
             // Change closing_hours from string to time (only if it exists and is string)
             if (Schema::hasColumn('branches', 'closing_hours')) {
                 $table->time('closing_hours')->nullable()->change();
@@ -136,16 +137,16 @@ return new class extends Migration
         // Step 5: Remove old columns after data migration (only if they exist)
         Schema::table('branches', function (Blueprint $table) {
             $columnsToDrop = [];
-            
+
             if (Schema::hasColumn('branches', 'location')) {
                 $columnsToDrop[] = 'location';
             }
-            
+
             if (Schema::hasColumn('branches', 'map_coordinates')) {
                 $columnsToDrop[] = 'map_coordinates';
             }
-            
-            if (!empty($columnsToDrop)) {
+
+            if (! empty($columnsToDrop)) {
                 $table->dropColumn($columnsToDrop);
             }
         });
@@ -159,26 +160,27 @@ return new class extends Migration
         if (empty($time)) {
             return null;
         }
-        
+
         // Remove any extra spaces
         $time = trim($time);
-        
+
         if (empty($time)) {
             return null;
         }
-        
+
         // If already in HH:MM:SS format, return as is
         if (preg_match('/^\d{2}:\d{2}:\d{2}$/', $time)) {
             return $time;
         }
-        
+
         // If in HH:MM format, add :00 for seconds
         if (preg_match('/^(\d{1,2}):(\d{2})$/', $time, $matches)) {
             $hours = str_pad($matches[1], 2, '0', STR_PAD_LEFT);
             $minutes = $matches[2];
+
             return "{$hours}:{$minutes}:00";
         }
-        
+
         // If can't parse, return null
         return null;
     }
@@ -189,7 +191,7 @@ return new class extends Migration
     public function down(): void
     {
         // Step 1: Change opening_hours and closing_hours back to string first
-        if (!$this->isSqlite()) {
+        if (! $this->isSqlite()) {
             Schema::table('branches', function (Blueprint $table) {
                 if (Schema::hasColumn('branches', 'opening_hours')) {
                     $table->string('opening_hours')->nullable()->change();
@@ -202,10 +204,10 @@ return new class extends Migration
 
         // Step 2: Add back old columns first (before updating data)
         Schema::table('branches', function (Blueprint $table) {
-            if (!Schema::hasColumn('branches', 'location')) {
+            if (! Schema::hasColumn('branches', 'location')) {
                 $table->string('location')->nullable()->after('name');
             }
-            if (!Schema::hasColumn('branches', 'map_coordinates')) {
+            if (! Schema::hasColumn('branches', 'map_coordinates')) {
                 $table->string('map_coordinates')->nullable()->after('location');
             }
         });
@@ -214,14 +216,14 @@ return new class extends Migration
         DB::table('branches')->whereNotNull('opening_hours')->get()->each(function ($branch) {
             $openingTime = $branch->opening_hours;
             $closingTime = $branch->closing_hours;
-            
+
             // Combine opening and closing times into "08:00 - 22:00" format
             if ($openingTime && $closingTime) {
                 // Extract time part (remove seconds if present)
                 $opening = preg_replace('/:\d{2}$/', '', $openingTime);
                 $closing = preg_replace('/:\d{2}$/', '', $closingTime);
                 $combined = "{$opening} - {$closing}";
-                
+
                 DB::table('branches')
                     ->where('id', $branch->id)
                     ->update(['opening_hours' => $combined]);
@@ -238,7 +240,7 @@ return new class extends Migration
         if (Schema::hasColumn('branches', 'lat') && Schema::hasColumn('branches', 'lng')) {
             DB::table('branches')->whereNotNull('lat')->whereNotNull('lng')->get()->each(function ($branch) {
                 $coordinates = "{$branch->lat},{$branch->lng}";
-                
+
                 DB::table('branches')
                     ->where('id', $branch->id)
                     ->update(['map_coordinates' => $coordinates]);
@@ -248,7 +250,7 @@ return new class extends Migration
         // Step 5: Drop new columns
         Schema::table('branches', function (Blueprint $table) {
             $columnsToDrop = [];
-            
+
             if (Schema::hasColumn('branches', 'lat')) {
                 $columnsToDrop[] = 'lat';
             }
@@ -258,8 +260,8 @@ return new class extends Migration
             if (Schema::hasColumn('branches', 'closing_hours')) {
                 $columnsToDrop[] = 'closing_hours';
             }
-            
-            if (!empty($columnsToDrop)) {
+
+            if (! empty($columnsToDrop)) {
                 $table->dropColumn($columnsToDrop);
             }
         });

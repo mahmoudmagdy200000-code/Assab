@@ -3,6 +3,7 @@
 namespace Modules\Purchase\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\JsonResponse;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
@@ -11,17 +12,15 @@ use Modules\Purchase\Http\Requests\ApproveTransferRequest;
 use Modules\Purchase\Http\Requests\FilterPendingOrdersRequest;
 use Modules\Purchase\Http\Requests\RejectOrderRequest;
 use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Services\TimelineService;
 use Modules\Purchase\Transformers\DirectSupplierOrderResource;
 use Modules\Purchase\Transformers\InternalTransferOrderResource;
 use Modules\Purchase\Transformers\ModificationDetailResource;
-use Modules\Purchase\Transformers\PendingOrderListResource;
 use Modules\Purchase\Transformers\PurchaseOrderListResource;
 use Modules\Purchase\Transformers\PurchaseOrderResource;
-use App\Http\Resources\UnifiedTimelineResource;
 use Modules\Purchase\Transformers\ViaPurchasingOfficerOrderResource;
-use Modules\Purchase\Models\PurchaseOrderItem;
 
 class PendingOrderController extends BaseController
 {
@@ -121,7 +120,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -152,7 +151,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -166,7 +165,7 @@ class PendingOrderController extends BaseController
             try {
                 $success = $this->orderService->confirmOrder($order, $request->get('items'), $readyTime);
 
-                if (!$success) {
+                if (! $success) {
                     return $this->errorResponse('Cannot approve order in current status', 400);
                 }
 
@@ -203,7 +202,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -217,7 +216,7 @@ class PendingOrderController extends BaseController
             try {
                 $success = $this->orderService->partialConfirmOrder($order, $request->get('items'), $readyTime);
 
-                if (!$success) {
+                if (! $success) {
                     return $this->errorResponse('Cannot partially approve order', 400);
                 }
 
@@ -254,7 +253,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -265,7 +264,7 @@ class PendingOrderController extends BaseController
 
             $success = $this->orderService->rejectOrder($order, $request->reason);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot reject order in current status', 400);
             }
 
@@ -296,14 +295,14 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
             // Branch manager is canceling (from Purchase module)
             $success = $this->orderService->cancelOrder($order, $request->reason, byBranch: true);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot cancel order in current status', 400);
             }
 
@@ -333,7 +332,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -347,7 +346,7 @@ class PendingOrderController extends BaseController
                 default => false,
             };
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot process transfer request', 400);
             }
 
@@ -449,13 +448,13 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
             $success = $this->orderService->approveModifications($order);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot approve modifications', 400);
             }
 
@@ -480,13 +479,13 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
             $success = $this->orderService->rejectModifications($order, $request->reason);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot reject modifications', 400);
             }
 
@@ -534,7 +533,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -567,7 +566,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -578,7 +577,7 @@ class PendingOrderController extends BaseController
             // Approve delay: status → delayed_confirmed, Track becomes available
             $success = $this->orderService->approveDelayRequest($order);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot approve delay', 400);
             }
 
@@ -605,7 +604,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -616,7 +615,7 @@ class PendingOrderController extends BaseController
             // Reject delay: status → delayed_canceled, moves to Purchase History
             $success = $this->orderService->rejectDelayRequest($order, $request->reason);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot reject delay', 400);
             }
 
@@ -671,7 +670,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -736,7 +735,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -768,7 +767,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -776,7 +775,7 @@ class PendingOrderController extends BaseController
 
             $success = $this->orderService->approveItemRequest($order, $itemId, $additionalData);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Failed to approve item request', 400);
             }
 
@@ -802,7 +801,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -810,7 +809,7 @@ class PendingOrderController extends BaseController
 
             $success = $this->orderService->rejectItemRequest($order, $itemId, $reason);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Failed to reject item request', 400);
             }
 
@@ -836,7 +835,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -844,7 +843,7 @@ class PendingOrderController extends BaseController
 
             $success = $this->orderService->cancelItem($order, $itemId, $reason);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Failed to cancel item', 400);
             }
 
@@ -870,7 +869,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -882,7 +881,7 @@ class PendingOrderController extends BaseController
                 ->with('purchaseOrder')
                 ->first();
 
-            if (!$item) {
+            if (! $item) {
                 return $this->notFoundResponse('Item not found');
             }
 
@@ -894,7 +893,7 @@ class PendingOrderController extends BaseController
 
             $isCancelled = $item->status->isCancelled();
 
-            if (!$hasModifications && !$isCancelled) {
+            if (! $hasModifications && ! $isCancelled) {
                 return $this->errorResponse('No modifications found for this item', 404);
             }
 
@@ -950,7 +949,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -959,14 +958,14 @@ class PendingOrderController extends BaseController
                 ->where('id', $itemId)
                 ->first();
 
-            if (!$purchaseOrderItem) {
+            if (! $purchaseOrderItem) {
                 return $this->notFoundResponse('Item not found');
             }
 
             $additionalData = request()->only(['new_delivery_time']);
             $success = $this->orderService->approveItemRequest($order, $purchaseOrderItem->item_id, $additionalData);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Failed to approve modification', 400);
             }
 
@@ -992,7 +991,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -1001,14 +1000,14 @@ class PendingOrderController extends BaseController
                 ->where('id', $itemId)
                 ->first();
 
-            if (!$purchaseOrderItem) {
+            if (! $purchaseOrderItem) {
                 return $this->notFoundResponse('Item not found');
             }
 
             $reason = $request->validated()['reason'] ?? null;
             $success = $this->orderService->rejectItemRequest($order, $purchaseOrderItem->item_id, $reason);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Failed to reject modification', 400);
             }
 
@@ -1034,7 +1033,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -1045,11 +1044,11 @@ class PendingOrderController extends BaseController
                 ->where('id', $itemId)
                 ->first();
 
-            if (!$item) {
+            if (! $item) {
                 return $this->notFoundResponse('Item not found');
             }
 
-            if (!$item->status->isCancelled()) {
+            if (! $item->status->isCancelled()) {
                 return $this->errorResponse('Item is not cancelled', 400);
             }
 
@@ -1102,7 +1101,7 @@ class PendingOrderController extends BaseController
             \Modules\Purchase\Enums\OrderItemStatus::DELAYED_CANCELED, // Branch rejected delay request
         ])) {
             // Load relationship if not already loaded
-            if (!$order->relationLoaded('requestedBy')) {
+            if (! $order->relationLoaded('requestedBy')) {
                 $order->load('requestedBy');
             }
 
@@ -1119,7 +1118,7 @@ class PendingOrderController extends BaseController
         // Check if cancelled by supplier
         if ($status === \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_SUPPLIER) {
             // Load relationship if not already loaded
-            if (!$order->relationLoaded('supplier')) {
+            if (! $order->relationLoaded('supplier')) {
                 $order->load('supplier');
             }
 
@@ -1136,7 +1135,7 @@ class PendingOrderController extends BaseController
         // Default: cancelled by branch manager (for CANCELLED status)
         if ($status === \Modules\Purchase\Enums\OrderItemStatus::CANCELLED) {
             // Load relationship if not already loaded
-            if (!$order->relationLoaded('requestedBy')) {
+            if (! $order->relationLoaded('requestedBy')) {
                 $order->load('requestedBy');
             }
 
@@ -1165,7 +1164,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -1176,7 +1175,7 @@ class PendingOrderController extends BaseController
 
             $success = $this->orderService->approveOrderDelay($order);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Failed to approve order delay', 400);
             }
 
@@ -1203,7 +1202,7 @@ class PendingOrderController extends BaseController
             $userBranchId = auth()->user()->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -1215,7 +1214,7 @@ class PendingOrderController extends BaseController
             $reason = $request->validated()['reason'] ?? null;
             $success = $this->orderService->rejectOrderDelay($order, $reason);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Failed to reject order delay', 400);
             }
 

@@ -56,4 +56,3 @@ return new class extends Migration
         Schema::dropIfExists('supplier_feedbacks');
     }
 };
-

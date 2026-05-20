@@ -2,14 +2,15 @@
 
 namespace Modules\Cashier\Console;
 
+use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Modules\Cashier\Models\Cashier;
 use Modules\Cashier\Services\CashierActivationService;
-use Carbon\Carbon;
 
 class SendPendingActivationRemindersCommand extends Command
 {
     protected $signature = 'cashiers:send-activation-reminders';
+
     protected $description = 'Send activation reminders to cashiers who haven\'t activated their accounts';
 
     public function __construct(
@@ -30,6 +31,7 @@ class SendPendingActivationRemindersCommand extends Command
 
         if ($cashiers->isEmpty()) {
             $this->info('No pending cashiers found.');
+
             return Command::SUCCESS;
         }
 
@@ -53,6 +55,7 @@ class SendPendingActivationRemindersCommand extends Command
         }
 
         $this->info("Successfully sent {$count} activation reminders.");
+
         return Command::SUCCESS;
     }
 }

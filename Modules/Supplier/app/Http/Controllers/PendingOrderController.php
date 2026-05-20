@@ -4,18 +4,17 @@ namespace Modules\Supplier\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\DB;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Services\TimelineService;
+use Modules\Purchase\Transformers\ModificationDetailResource;
 use Modules\Supplier\Http\Requests\Orders\AcceptOrderRequest;
 use Modules\Supplier\Http\Requests\Orders\FilterPendingOrdersRequest;
-use Modules\Supplier\Http\Requests\Orders\RejectOrderRequest;
 use Modules\Supplier\Http\Requests\Orders\RejectItemRequest;
+use Modules\Supplier\Http\Requests\Orders\RejectOrderRequest;
 use Modules\Supplier\Http\Requests\Orders\RequestModificationRequest;
-use Modules\Purchase\Models\PurchaseOrderItem;
-use Modules\Purchase\Transformers\ModificationDetailResource;
 use Modules\Supplier\Services\NotificationService;
 use Modules\Supplier\Services\OrderService;
 use Modules\Supplier\Transformers\OrderResource;
@@ -73,7 +72,7 @@ class PendingOrderController extends BaseController
             $supplier = auth('supplier')->user();
             $order = $this->orderService->getOrderDetails($id, $supplier);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -112,7 +111,7 @@ class PendingOrderController extends BaseController
             $readyTime = $request->validated()['ready_time'] ?? null;
             $success = $this->purchaseOrderService->confirmOrder($order, $request->get('items'), $readyTime);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot approve order in current status', 400);
             }
 
@@ -145,7 +144,7 @@ class PendingOrderController extends BaseController
             }
 
             $allowedStatuses = [OrderStatus::PENDING, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
-            if (!in_array($order->status, $allowedStatuses)) {
+            if (! in_array($order->status, $allowedStatuses)) {
                 return $this->errorResponse(
                     "Order is not in pending, emergency or variance status. Current status: {$order->status->label()}",
                     400
@@ -207,7 +206,7 @@ class PendingOrderController extends BaseController
 
             $success = $this->purchaseOrderService->approveModifications($order);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot approve modifications', 400);
             }
 
@@ -243,7 +242,7 @@ class PendingOrderController extends BaseController
             $validated = $request->validated();
             $success = $this->purchaseOrderService->rejectOrder($order, $validated['reason'] ?? '');
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot reject modifications', 400);
             }
 
@@ -255,7 +254,6 @@ class PendingOrderController extends BaseController
             return $this->handleException($e, 'rejecting modifications');
         }
     }
-
 
     /**
      * Mark order as preparing
@@ -275,7 +273,7 @@ class PendingOrderController extends BaseController
 
             $success = $this->purchaseOrderService->markAsPreparing($order);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot mark order as preparing in current status', 400);
             }
 
@@ -315,7 +313,7 @@ class PendingOrderController extends BaseController
 
             $success = $this->purchaseOrderService->markAsOnTheWay($order, $deliveryDetails);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot mark order as on the way in current status', 400);
             }
 
@@ -354,7 +352,7 @@ class PendingOrderController extends BaseController
 
             $success = $this->purchaseOrderService->reportDelay($order, $reason, $newDeliveryDate);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Cannot report delay in current status', 400);
             }
 
@@ -389,7 +387,7 @@ class PendingOrderController extends BaseController
 
             $validated = $request->validated();
 
-            if (!isset($validated['new_delivery_time'])) {
+            if (! isset($validated['new_delivery_time'])) {
                 return $this->errorResponse('new_delivery_time is required for time change requests', 422);
             }
 
@@ -595,7 +593,7 @@ class PendingOrderController extends BaseController
 
             $success = $this->purchaseOrderService->approveItemRequest($order, $itemId, $additionalData);
 
-            if (!$success) {
+            if (! $success) {
                 return $this->errorResponse('Failed to approve item request', 400);
             }
 
@@ -654,7 +652,7 @@ class PendingOrderController extends BaseController
                 ->with('purchaseOrder')
                 ->first();
 
-            if (!$item) {
+            if (! $item) {
                 return $this->notFoundResponse('Item not found');
             }
 
@@ -666,7 +664,7 @@ class PendingOrderController extends BaseController
 
             $isCancelled = $item->status->isCancelled();
 
-            if (!$hasModifications && !$isCancelled) {
+            if (! $hasModifications && ! $isCancelled) {
                 return $this->errorResponse('No modifications found for this item', 404);
             }
 
@@ -733,11 +731,11 @@ class PendingOrderController extends BaseController
                 ->where('id', $itemId)
                 ->first();
 
-            if (!$item) {
+            if (! $item) {
                 return $this->notFoundResponse('Item not found');
             }
 
-            if (!$item->status->isCancelled()) {
+            if (! $item->status->isCancelled()) {
                 return $this->errorResponse('Item is not cancelled', 400);
             }
 
@@ -790,7 +788,7 @@ class PendingOrderController extends BaseController
             \Modules\Purchase\Enums\OrderItemStatus::DELAYED_CANCELED, // Branch rejected delay request
         ])) {
             // Load relationship if not already loaded
-            if (!$order->relationLoaded('requestedBy')) {
+            if (! $order->relationLoaded('requestedBy')) {
                 $order->load('requestedBy');
             }
 
@@ -807,7 +805,7 @@ class PendingOrderController extends BaseController
         // Check if cancelled by supplier
         if ($status === \Modules\Purchase\Enums\OrderItemStatus::CANCELLED_BY_SUPPLIER) {
             // Load relationship if not already loaded
-            if (!$order->relationLoaded('supplier')) {
+            if (! $order->relationLoaded('supplier')) {
                 $order->load('supplier');
             }
 
@@ -824,7 +822,7 @@ class PendingOrderController extends BaseController
         // Default: cancelled by branch manager (for CANCELLED status)
         if ($status === \Modules\Purchase\Enums\OrderItemStatus::CANCELLED) {
             // Load relationship if not already loaded
-            if (!$order->relationLoaded('requestedBy')) {
+            if (! $order->relationLoaded('requestedBy')) {
                 $order->load('requestedBy');
             }
 

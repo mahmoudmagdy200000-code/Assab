@@ -13,7 +13,7 @@ enum HandoverStatus: string
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::PENDING => 'Pending',
             self::ACCEPTED => 'Accepted',
             self::REJECTED => 'Rejected',
@@ -22,7 +22,7 @@ enum HandoverStatus: string
 
     public function color(): string
     {
-        return match($this) {
+        return match ($this) {
             self::PENDING => 'yellow',
             self::ACCEPTED => 'green',
             self::REJECTED => 'red',

@@ -4,15 +4,13 @@ namespace Modules\Shift\Models;
 
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
-use Modules\BranchManagers\Models\BranchManager;
 use Modules\Branch\Models\Branch;
-use Modules\Shift\Enums\ShiftStatus;
-use Modules\Shift\Models\CashierShiftHandover;
+use Modules\BranchManagers\Models\BranchManager;
 
 class BranchManagerShift extends Model
 {
@@ -158,9 +156,9 @@ class BranchManagerShift extends Model
         return CashierShift::whereHas('shift', function ($query) {
             $query->where('branch_id', $this->branch_id);
         })
-        ->whereDate('shift_date', $this->shift_date)
-        ->with(['cashier', 'shift', 'salesBreakdown.aggregator', 'varianceDetails'])
-        ->get();
+            ->whereDate('shift_date', $this->shift_date)
+            ->with(['cashier', 'shift', 'salesBreakdown.aggregator', 'varianceDetails'])
+            ->get();
     }
 
     /**
@@ -193,7 +191,7 @@ class BranchManagerShift extends Model
 
     public function scopeWithCashierHandovers($query)
     {
-        return $query->with(['cashierHandovers' => function($q) {
+        return $query->with(['cashierHandovers' => function ($q) {
             $q->with(['cashierShift.cashier', 'cashierShift.shift', 'approvedBy']);
         }]);
     }
@@ -236,7 +234,9 @@ class BranchManagerShift extends Model
 
     public function getProgressPercentage(): float
     {
-        if (!$this->actual_start_time) return 0;
+        if (! $this->actual_start_time) {
+            return 0;
+        }
 
         $totalMinutes = 8 * 60; // 8 hours shift
         $elapsedMinutes = Carbon::now()->diffInMinutes($this->actual_start_time);

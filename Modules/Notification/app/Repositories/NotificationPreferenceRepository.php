@@ -164,4 +164,3 @@ class NotificationPreferenceRepository implements NotificationPreferenceReposito
         ];
     }
 }
-

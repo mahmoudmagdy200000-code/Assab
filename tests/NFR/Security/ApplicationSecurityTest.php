@@ -2,15 +2,15 @@
 
 namespace Tests\NFR\Security;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
 use Modules\BranchManagers\Models\BranchManager;
-use Illuminate\Support\Facades\File;
+use Tests\TestCase;
 
 /**
  * Security Requirements Test: Application Security
- * 
+ *
  * Tests application security requirements:
  * - OWASP Top 10 compliance
  * - Regular security penetration testing (quarterly)
@@ -47,25 +47,25 @@ class ApplicationSecurityTest extends TestCase
 
         $response->assertStatus(200);
         $responseData = $response->json();
-        
-        // Response structure from ProfileController: 
+
+        // Response structure from ProfileController:
         // $this->successResponse(new BranchManagerDetailResource($profile), 'Profile retrieved successfully')
         // But ApiResponse trait signature is: successResponse($data, $message)
         // So response should be: { success: true, message: "Profile retrieved successfully", data: {...} }
         // However, there might be a parameter order issue - let's check both possibilities
         $profile1 = $responseData['data'] ?? $responseData['message'] ?? null;
-        
+
         // If profile1 is a string (the message), then data and message are swapped
         if (is_string($profile1)) {
             $profile1 = $responseData['message'] ?? $responseData['data'] ?? null;
         }
-        
-        $this->assertNotNull($profile1, "Profile data should be returned. Full response: " . json_encode($responseData));
-        $this->assertIsArray($profile1, "Profile should be an array. Got: " . gettype($profile1) . " - " . json_encode($profile1));
-        
+
+        $this->assertNotNull($profile1, 'Profile data should be returned. Full response: '.json_encode($responseData));
+        $this->assertIsArray($profile1, 'Profile should be an array. Got: '.gettype($profile1).' - '.json_encode($profile1));
+
         // Verify Manager1 sees their own data, not Manager2's
         $profileId = $profile1['id'] ?? null;
-        $this->assertEquals($manager1->id, $profileId, "User should only see their own data. Got profile: " . json_encode($profile1));
+        $this->assertEquals($manager1->id, $profileId, 'User should only see their own data. Got profile: '.json_encode($profile1));
     }
 
     /**
@@ -75,15 +75,15 @@ class ApplicationSecurityTest extends TestCase
     public function test_owasp_a02_cryptographic_failures(): void
     {
         $plainPassword = 'password123';
-        
+
         $manager = BranchManager::factory()->create([
             'email' => 'crypto-test@assab.com',
             'password' => Hash::make($plainPassword),
         ]);
 
         // Password should be hashed, not plain text
-        $this->assertNotEquals($plainPassword, $manager->password, "Passwords must be hashed");
-        $this->assertTrue(Hash::check($plainPassword, $manager->password), "Password verification should work");
+        $this->assertNotEquals($plainPassword, $manager->password, 'Passwords must be hashed');
+        $this->assertTrue(Hash::check($plainPassword, $manager->password), 'Password verification should work');
     }
 
     /**
@@ -99,15 +99,15 @@ class ApplicationSecurityTest extends TestCase
 
         // SQL injection attempt
         $sqlInjection = "1' OR '1'='1";
-        
+
         $response = $this->actingAs($manager, 'sanctum')
-            ->getJson('/api/v1/purchase/orders?' . http_build_query(['search' => $sqlInjection]));
+            ->getJson('/api/v1/purchase/orders?'.http_build_query(['search' => $sqlInjection]));
 
         // Should handle safely, not crash
         $this->assertContains(
             $response->status(),
             [200, 400, 422, 500],
-            "SQL injection should be handled safely"
+            'SQL injection should be handled safely'
         );
 
         // Response should not contain SQL error messages
@@ -116,7 +116,7 @@ class ApplicationSecurityTest extends TestCase
             $this->assertStringNotContainsString(
                 'SQL',
                 $responseData['message'],
-                "SQL errors should not be exposed"
+                'SQL errors should not be exposed'
             );
         }
     }
@@ -129,8 +129,8 @@ class ApplicationSecurityTest extends TestCase
     {
         // Verify authentication is required for protected endpoints
         $response = $this->getJson('/api/v1/branch-manager/profile');
-        
-        $this->assertEquals(401, $response->status(), "Protected endpoints should require authentication");
+
+        $this->assertEquals(401, $response->status(), 'Protected endpoints should require authentication');
     }
 
     /**
@@ -149,7 +149,7 @@ class ApplicationSecurityTest extends TestCase
         foreach ($sensitiveFiles as $file) {
             // These should not be accessible via web
             $response = $this->get("/{$file}");
-            
+
             // Should return 404 or 403, not 200
             $this->assertContains(
                 $response->status(),
@@ -167,14 +167,14 @@ class ApplicationSecurityTest extends TestCase
     {
         // Check if composer.lock exists (indicates dependency locking)
         $composerLockPath = base_path('composer.lock');
-        
+
         $this->assertTrue(
             File::exists($composerLockPath),
-            "composer.lock should exist to lock dependency versions"
+            'composer.lock should exist to lock dependency versions'
         );
 
         // In production, should run: composer audit
-        $this->assertTrue(true, "Dependencies should be regularly audited for vulnerabilities");
+        $this->assertTrue(true, 'Dependencies should be regularly audited for vulnerabilities');
     }
 
     /**
@@ -195,7 +195,7 @@ class ApplicationSecurityTest extends TestCase
             'password' => 'wrongpassword',
         ]);
 
-        $this->assertEquals(401, $response->status(), "Invalid credentials should be rejected");
+        $this->assertEquals(401, $response->status(), 'Invalid credentials should be rejected');
 
         // Valid credentials should work
         $response = $this->postJson('/api/v1/branch-manager/auth/login', [
@@ -203,7 +203,7 @@ class ApplicationSecurityTest extends TestCase
             'password' => 'password123',
         ]);
 
-        $this->assertEquals(200, $response->status(), "Valid credentials should be accepted");
+        $this->assertEquals(200, $response->status(), 'Valid credentials should be accepted');
     }
 
     /**
@@ -219,12 +219,12 @@ class ApplicationSecurityTest extends TestCase
 
         // Test that data modifications are tracked
         $originalEmail = $manager->email;
-        
+
         $manager->update(['email' => 'new-email@assab.com']);
-        
+
         $manager->refresh();
-        $this->assertNotEquals($originalEmail, $manager->email, "Data modifications should be persisted");
-        $this->assertNotNull($manager->updated_at, "Modification timestamp should be tracked");
+        $this->assertNotEquals($originalEmail, $manager->email, 'Data modifications should be persisted');
+        $this->assertNotNull($manager->updated_at, 'Modification timestamp should be tracked');
     }
 
     /**
@@ -245,7 +245,7 @@ class ApplicationSecurityTest extends TestCase
         ]);
 
         // Should log failed attempt (in production)
-        $this->assertEquals(401, $response->status(), "Failed login should be logged");
+        $this->assertEquals(401, $response->status(), 'Failed login should be logged');
     }
 
     /**
@@ -256,14 +256,14 @@ class ApplicationSecurityTest extends TestCase
     {
         // If system makes external requests, SSRF protection should be in place
         // This test verifies the concept
-        
+
         $manager = BranchManager::factory()->create([
             'email' => 'ssrf-test@assab.com',
             'password' => Hash::make('password123'),
         ]);
 
         // If endpoint accepts URLs, they should be validated
-        $this->assertTrue(true, "SSRF protection should be implemented if external requests are made");
+        $this->assertTrue(true, 'SSRF protection should be implemented if external requests are made');
     }
 
     /**
@@ -284,8 +284,8 @@ class ApplicationSecurityTest extends TestCase
         ]);
 
         $token = $response->json('data.token');
-        $this->assertNotNull($token, "Token should be provided");
-        $this->assertTrue(strlen($token) > 20, "Token should be long enough");
+        $this->assertNotNull($token, 'Token should be provided');
+        $this->assertTrue(strlen($token) > 20, 'Token should be long enough');
     }
 
     /**
@@ -317,7 +317,7 @@ class ApplicationSecurityTest extends TestCase
         $this->assertContains(
             $response->status(),
             [400, 422],
-            "Invalid input should be rejected"
+            'Invalid input should be rejected'
         );
     }
 
@@ -337,19 +337,19 @@ class ApplicationSecurityTest extends TestCase
             ->getJson('/api/v1/nonexistent-endpoint');
 
         $responseData = $response->json();
-        
+
         // Error messages should not expose system internals
         if (isset($responseData['message'])) {
             $message = $responseData['message'];
             $this->assertStringNotContainsString(
                 '/var/www',
                 $message,
-                "Error messages should not expose file paths"
+                'Error messages should not expose file paths'
             );
             $this->assertStringNotContainsString(
                 'SQL',
                 $message,
-                "Error messages should not expose SQL details"
+                'Error messages should not expose SQL details'
             );
         }
     }

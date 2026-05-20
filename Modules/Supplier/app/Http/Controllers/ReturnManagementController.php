@@ -6,11 +6,11 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Modules\Purchase\Models\ReturnOrder;
-use Modules\Supplier\Http\Requests\Returns\ApproveReturnRequest;
-use Modules\Supplier\Http\Requests\Returns\RejectReturnRequest;
-use Modules\Supplier\Http\Requests\Returns\ProcessReturnRequest;
-use Modules\Supplier\Services\ReturnManagementService;
 use Modules\Purchase\Transformers\ReturnOrderResource;
+use Modules\Supplier\Http\Requests\Returns\ApproveReturnRequest;
+use Modules\Supplier\Http\Requests\Returns\ProcessReturnRequest;
+use Modules\Supplier\Http\Requests\Returns\RejectReturnRequest;
+use Modules\Supplier\Services\ReturnManagementService;
 use Modules\Supplier\Transformers\ReturnDetailResource;
 
 class ReturnManagementController extends BaseController
@@ -54,7 +54,7 @@ class ReturnManagementController extends BaseController
             $supplier = auth()->user();
             $return = $this->returnService->getReturnDetails($id, $supplier);
 
-            if (!$return) {
+            if (! $return) {
                 return $this->notFoundResponse('Return request not found');
             }
 
@@ -127,4 +127,3 @@ class ReturnManagementController extends BaseController
         }
     }
 }
-

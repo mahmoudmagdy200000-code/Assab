@@ -18,4 +18,3 @@ interface ChannelServiceInterface
         array $data = []
     ): bool;
 }
-

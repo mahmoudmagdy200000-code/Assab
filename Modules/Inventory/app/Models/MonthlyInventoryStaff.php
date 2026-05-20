@@ -21,6 +21,7 @@ class MonthlyInventoryStaff extends Model
     ];
 
     public const ROLE_TEAM_LEADER = 'team_leader';
+
     public const ROLE_STAFF = 'staff';
 
     public function monthlyInventory(): BelongsTo

@@ -2,7 +2,6 @@
 
 namespace Modules\Expense\Transformers;
 
-use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
@@ -37,7 +36,7 @@ class ExpenseDetailResource extends JsonResource
             'submitted_at' => $this->submitted_at?->format('Y-m-d H:i:s'),
             'approval' => $this->getApprovalFragment(),
             'cancellation' => $this->getCancellationFragment(),
-            'timelines' => $this->whenLoaded('timelines', fn() => \App\Http\Resources\UnifiedTimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn () => \App\Http\Resources\UnifiedTimelineResource::collection($this->timelines)),
         ];
 
         // Add type-specific details
@@ -129,15 +128,14 @@ class ExpenseDetailResource extends JsonResource
         if ($invoice->is_tax_invoice) {
             $data['single_invoice']['tax_invoice_details'] = [
                 'supplier_name' => $invoice->supplier?->name,
-                'net_amount'    => (float) $invoice->tax_net_amount,
-                'vat_amount'    => (float) $invoice->tax_vat_amount,
-                'total_amount'  => (float) $invoice->tax_total_amount,
+                'net_amount' => (float) $invoice->tax_net_amount,
+                'vat_amount' => (float) $invoice->tax_vat_amount,
+                'total_amount' => (float) $invoice->tax_total_amount,
             ];
         }
 
         return $data;
     }
-
 
     private function getGroupedInvoiceDetails(): array
     {
@@ -146,7 +144,7 @@ class ExpenseDetailResource extends JsonResource
         return [
             'data' => [
                 'number_of_suppliers' => $grouped->invoiceDetails->pluck('supplier_id')->unique()->count(),
-                'supplier_names' => $grouped->invoiceDetails->map(fn($inv) => $inv->supplier->name)->unique()->values(),
+                'supplier_names' => $grouped->invoiceDetails->map(fn ($inv) => $inv->supplier->name)->unique()->values(),
                 'payment_type' => $grouped->payment_type,
                 'payment_supplier' => $this->when($grouped->payment_supplier_id, [
                     'id' => $grouped->paymentSupplier?->id,
@@ -251,7 +249,7 @@ class ExpenseDetailResource extends JsonResource
                 'file_name' => $attachment->file_name,
                 'file_type' => $attachment->file_type,
                 'file_size' => $attachment->file_size,
-                'url' => asset('storage/' . $attachment->file_path),
+                'url' => asset('storage/'.$attachment->file_path),
                 'uploaded_at' => $attachment->created_at->format('Y-m-d H:i:s'),
             ];
         })->toArray();
@@ -271,7 +269,7 @@ class ExpenseDetailResource extends JsonResource
                 'file_name' => $attachment->file_name,
                 'file_type' => $attachment->file_type,
                 'file_size' => $attachment->file_size,
-                'url' => asset('storage/' . $attachment->file_path),
+                'url' => asset('storage/'.$attachment->file_path),
                 'uploaded_at' => $attachment->created_at->format('Y-m-d H:i:s'),
             ];
         })->values()->toArray();
@@ -280,24 +278,24 @@ class ExpenseDetailResource extends JsonResource
     private function getApprovalFragment(): ?array
     {
         $actorId = $this->approved_by ?? $this->rejected_by;
-        if (!$actorId) {
+        if (! $actorId) {
             return null;
         }
 
         $brandOwner = \Modules\BrandOwner\Models\BrandOwner::find($actorId);
 
         return [
-            'id'       => $actorId,
-            'name'     => $brandOwner?->name ?? 'Brand Owner',
-            'role'     => 'brand_owner',
+            'id' => $actorId,
+            'name' => $brandOwner?->name ?? 'Brand Owner',
+            'role' => 'brand_owner',
             'imageUrl' => $brandOwner?->image_url,
-            'status'   => $this->approved_by ? 'approved' : 'rejected',
+            'status' => $this->approved_by ? 'approved' : 'rejected',
         ];
     }
 
     private function getCancellationFragment(): ?array
     {
-        if ($this->status !== 'rejected' || !$this->rejected_by) {
+        if ($this->status !== 'rejected' || ! $this->rejected_by) {
             return null;
         }
 
@@ -305,9 +303,9 @@ class ExpenseDetailResource extends JsonResource
 
         return [
             'cancellation_reason' => $this->rejection_reason,
-            'cancelled_at'        => $this->rejected_at?->toIso8601String(),
-            'cancelled_by'        => [
-                'id'   => $this->rejected_by,
+            'cancelled_at' => $this->rejected_at?->toIso8601String(),
+            'cancelled_by' => [
+                'id' => $this->rejected_by,
                 'name' => $brandOwner?->name,
                 'type' => 'brand_owner',
             ],

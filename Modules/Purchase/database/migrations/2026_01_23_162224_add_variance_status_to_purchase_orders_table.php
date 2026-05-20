@@ -8,7 +8,7 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
-     * 
+     *
      * Adds 'variance' status to purchase_orders status enum
      */
     public function up(): void
@@ -46,7 +46,7 @@ return new class extends Migration
             ) DEFAULT 'draft'");
         } catch (\Exception $e) {
             // If enum modification fails, log and continue
-            Log::warning('Migration add_variance_status: ' . $e->getMessage());
+            Log::warning('Migration add_variance_status: '.$e->getMessage());
         }
     }
 
@@ -91,7 +91,7 @@ return new class extends Migration
                 'partial_confirmed'
             ) DEFAULT 'draft'");
         } catch (\Exception $e) {
-            Log::warning('Migration rollback add_variance_status: ' . $e->getMessage());
+            Log::warning('Migration rollback add_variance_status: '.$e->getMessage());
         }
     }
 };

@@ -2,12 +2,12 @@
 
 namespace Modules\BranchManagers\Tests\Unit\Feature;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Modules\BranchManagers\Models\BranchManager;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Modules\BranchManagers\Models\BranchManager;
+use Tests\TestCase;
 
 class ProfileTest extends TestCase
 {
@@ -38,7 +38,7 @@ class ProfileTest extends TestCase
                     'email',
                     'branch',
                     'statistics',
-                ]
+                ],
             ]);
     }
 
@@ -78,10 +78,10 @@ class ProfileTest extends TestCase
                 'message',
                 'data' => [
                     'image_url',
-                ]
+                ],
             ]);
 
-        Storage::disk('public')->assertExists('profiles/managers/' . $file->hashName());
+        Storage::disk('public')->assertExists('profiles/managers/'.$file->hashName());
     }
 
     /** @test */

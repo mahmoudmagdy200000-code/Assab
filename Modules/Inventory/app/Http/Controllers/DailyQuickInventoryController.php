@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
+use Modules\Inventory\Enums\InventorySessionStatus;
 use Modules\Inventory\Http\Controllers\Concerns\ResolvesInventoryActor;
 use Modules\Inventory\Http\Requests\AddInventoryItemRequest;
 use Modules\Inventory\Http\Requests\ApproveInventorySessionRequest;
@@ -14,7 +15,6 @@ use Modules\Inventory\Http\Requests\CreateInventorySessionRequest;
 use Modules\Inventory\Http\Requests\RejectInventorySessionRequest;
 use Modules\Inventory\Http\Requests\UpdateInventoryItemRequest;
 use Modules\Inventory\Http\Requests\UpdateInventorySessionRequest;
-use Modules\Inventory\Enums\InventorySessionStatus;
 use Modules\Inventory\Models\InventorySession;
 use Modules\Inventory\Services\InventorySessionService;
 use Modules\Inventory\Transformers\InventoryItemResource;
@@ -39,6 +39,7 @@ class DailyQuickInventoryController extends BaseController
         if ($actor instanceof Cashier) {
             $query->where('assigned_to_type', 'staff')->where('assigned_to_id', $actor->id);
         }
+
         return $query;
     }
 
@@ -50,7 +51,7 @@ class DailyQuickInventoryController extends BaseController
     {
         try {
             $manager = $this->resolveInventoryActor()->requireManager();
-            if (!$manager->branch_id) {
+            if (! $manager->branch_id) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -61,7 +62,7 @@ class DailyQuickInventoryController extends BaseController
             $dailyItems = [];
             if ($schedule) {
                 $schedule->load('scheduleItems.item');
-                $dailyItems = $schedule->scheduleItems->map(fn($si) => [
+                $dailyItems = $schedule->scheduleItems->map(fn ($si) => [
                     'item_id' => $si->item_id,
                     'item_name' => $si->item?->name,
                     'unit' => $si->item?->unit,
@@ -129,7 +130,7 @@ class DailyQuickInventoryController extends BaseController
     {
         try {
             $manager = $this->resolveInventoryActor()->requireManager();
-            if (!$manager->branch_id) {
+            if (! $manager->branch_id) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -154,7 +155,7 @@ class DailyQuickInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $branchId = $actor->getBranchId();
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -179,7 +180,7 @@ class DailyQuickInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $user = $actor->getActor();
-            if (!$user->branch_id) {
+            if (! $user->branch_id) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
@@ -350,23 +351,23 @@ class DailyQuickInventoryController extends BaseController
     {
         try {
             $actor = $this->resolveInventoryActor();
-            if (!$actor->getBranchId()) {
+            if (! $actor->getBranchId()) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
             $statusFilter = request()->query('status');
-            $validStatuses = array_map(fn(InventorySessionStatus $s) => $s->value, InventorySessionStatus::cases());
+            $validStatuses = array_map(fn (InventorySessionStatus $s) => $s->value, InventorySessionStatus::cases());
             $hasStatusFilter = $statusFilter !== null && $statusFilter !== '';
 
-            if ($hasStatusFilter && !in_array($statusFilter, $validStatuses, true)) {
+            if ($hasStatusFilter && ! in_array($statusFilter, $validStatuses, true)) {
                 return $this->errorResponse(
-                    'Invalid status. Valid values: ' . implode(', ', $validStatuses),
+                    'Invalid status. Valid values: '.implode(', ', $validStatuses),
                     422
                 );
             }
 
             $sessions = $this->sessionsQueryForActor($actor->getActor())
-                ->when($hasStatusFilter, fn($q) => $q->where('status', $statusFilter))
+                ->when($hasStatusFilter, fn ($q) => $q->where('status', $statusFilter))
                 ->with([
                     'items.item',
                     'items.purchaseOrderItem.purchaseOrder',
@@ -563,10 +564,11 @@ class DailyQuickInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $branchId = $actor->getBranchId();
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
             $quantities = $this->sessionService->getLastQuantitiesForProduct($branchId, $itemId);
+
             return $this->successResponse(['quantities' => $quantities], 'Last quantities retrieved successfully');
         } catch (\Exception $e) {
             return $this->handleException($e, 'fetching last quantities');
@@ -581,6 +583,7 @@ class DailyQuickInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $session = $this->sessionService->startSession($id, $actor->getActor());
+
             return $this->successResponse(
                 new InventorySessionResource($session),
                 'Session started successfully'

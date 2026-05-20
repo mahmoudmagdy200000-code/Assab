@@ -69,7 +69,7 @@ class SupplierOtp extends Model
      */
     public function isValid(): bool
     {
-        return !$this->is_used && !$this->isExpired();
+        return ! $this->is_used && ! $this->isExpired();
     }
 
     /**
@@ -85,7 +85,7 @@ class SupplierOtp extends Model
      */
     public function verify(string $otp): bool
     {
-        if (!$this->isValid()) {
+        if (! $this->isValid()) {
             return false;
         }
 
@@ -125,7 +125,7 @@ class SupplierOtp extends Model
             ->latest()
             ->first();
 
-        if (!$record) {
+        if (! $record) {
             return null;
         }
 

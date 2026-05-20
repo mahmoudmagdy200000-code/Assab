@@ -19,4 +19,3 @@ class UpdateSystemSettingsRequest extends FormRequest
         ];
     }
 }
-

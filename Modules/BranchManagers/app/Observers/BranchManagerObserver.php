@@ -4,23 +4,23 @@ namespace Modules\BranchManagers\Observers;
 
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Events\BranchManagerSuspendedEvent;
+use Modules\BranchManagers\Models\BranchManager;
 
 class BranchManagerObserver
 {
     public function creating(BranchManager $manager): void
     {
         // Set default values
-        if (!isset($manager->status)) {
+        if (! isset($manager->status)) {
             $manager->status = 'active';
         }
 
-        if (!isset($manager->is_active)) {
+        if (! isset($manager->is_active)) {
             $manager->is_active = true;
         }
 
-        if (!isset($manager->is_first_login)) {
+        if (! isset($manager->is_first_login)) {
             $manager->is_first_login = true;
         }
     }
@@ -51,7 +51,7 @@ class BranchManagerObserver
             $oldActive = $manager->getOriginal('is_active');
             $newActive = $manager->is_active;
 
-            if (!$newActive && $oldActive) {
+            if (! $newActive && $oldActive) {
                 // Manager deactivated
                 Log::warning('Branch Manager deactivated', [
                     'manager_id' => $manager->id,

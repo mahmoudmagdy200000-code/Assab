@@ -21,4 +21,3 @@ class StartPreparationRequest extends FormRequest
         ];
     }
 }
-

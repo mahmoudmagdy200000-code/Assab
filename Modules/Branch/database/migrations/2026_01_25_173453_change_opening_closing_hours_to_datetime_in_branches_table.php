@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -19,7 +19,7 @@ return new class extends Migration
                     ->orWhereNotNull('closing_hours');
             })->get()->each(function ($branch) {
                 $updates = [];
-                
+
                 // Convert opening_hours from time to datetime
                 if ($branch->opening_hours) {
                     $time = $branch->opening_hours;
@@ -29,11 +29,11 @@ return new class extends Migration
                         $minutes = $matches[2];
                         $seconds = $matches[4] ?? '00';
                         // Use today's date with the time
-                        $datetime = now()->setTime((int)$hours, (int)$minutes, (int)$seconds)->format('Y-m-d H:i:s');
+                        $datetime = now()->setTime((int) $hours, (int) $minutes, (int) $seconds)->format('Y-m-d H:i:s');
                         $updates['opening_hours'] = $datetime;
                     }
                 }
-                
+
                 // Convert closing_hours from time to datetime
                 if ($branch->closing_hours) {
                     $time = $branch->closing_hours;
@@ -43,12 +43,12 @@ return new class extends Migration
                         $minutes = $matches[2];
                         $seconds = $matches[4] ?? '00';
                         // Use today's date with the time
-                        $datetime = now()->setTime((int)$hours, (int)$minutes, (int)$seconds)->format('Y-m-d H:i:s');
+                        $datetime = now()->setTime((int) $hours, (int) $minutes, (int) $seconds)->format('Y-m-d H:i:s');
                         $updates['closing_hours'] = $datetime;
                     }
                 }
-                
-                if (!empty($updates)) {
+
+                if (! empty($updates)) {
                     DB::table('branches')
                         ->where('id', $branch->id)
                         ->update($updates);
@@ -65,7 +65,7 @@ return new class extends Migration
             if (Schema::hasColumn('branches', 'opening_hours')) {
                 $table->datetime('opening_hours')->nullable()->change();
             }
-            
+
             if (Schema::hasColumn('branches', 'closing_hours')) {
                 $table->datetime('closing_hours')->nullable()->change();
             }
@@ -84,7 +84,7 @@ return new class extends Migration
                     ->orWhereNotNull('closing_hours');
             })->get()->each(function ($branch) {
                 $updates = [];
-                
+
                 // Convert opening_hours from datetime to time
                 if ($branch->opening_hours) {
                     try {
@@ -94,7 +94,7 @@ return new class extends Migration
                         // If parsing fails, keep as is
                     }
                 }
-                
+
                 // Convert closing_hours from datetime to time
                 if ($branch->closing_hours) {
                     try {
@@ -104,8 +104,8 @@ return new class extends Migration
                         // If parsing fails, keep as is
                     }
                 }
-                
-                if (!empty($updates)) {
+
+                if (! empty($updates)) {
                     DB::table('branches')
                         ->where('id', $branch->id)
                         ->update($updates);
@@ -122,7 +122,7 @@ return new class extends Migration
             if (Schema::hasColumn('branches', 'opening_hours')) {
                 $table->time('opening_hours')->nullable()->change();
             }
-            
+
             if (Schema::hasColumn('branches', 'closing_hours')) {
                 $table->time('closing_hours')->nullable()->change();
             }

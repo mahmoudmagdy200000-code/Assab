@@ -52,7 +52,7 @@ class AuthController extends Controller
         try {
             $owner = auth('sanctum')->user();
 
-            if (!$owner || !$owner->isFirstLogin()) {
+            if (! $owner || ! $owner->isFirstLogin()) {
                 return $this->errorResponse('Invalid request', 400);
             }
 
@@ -152,7 +152,7 @@ class AuthController extends Controller
         try {
             $owner = auth('sanctum')->user();
 
-            if (!$owner) {
+            if (! $owner) {
                 return $this->errorResponse('Not authenticated', 401);
             }
 
@@ -167,11 +167,11 @@ class AuthController extends Controller
     private function userPayload($owner): array
     {
         return [
-            'id'         => $owner->id,
-            'name'       => $owner->name,
-            'email'      => $owner->email,
-            'phone'      => $owner->phone,
-            'image'      => $owner->image_url,
+            'id' => $owner->id,
+            'name' => $owner->name,
+            'email' => $owner->email,
+            'phone' => $owner->phone,
+            'image' => $owner->image_url,
             'created_at' => $owner->created_at?->format('Y-m-d H:i:s'),
         ];
     }

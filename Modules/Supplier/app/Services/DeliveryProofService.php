@@ -26,7 +26,7 @@ class DeliveryProofService
             }
 
             $deliveryPhotos = [];
-            if (!empty($data['delivery_photos'])) {
+            if (! empty($data['delivery_photos'])) {
                 foreach ($data['delivery_photos'] as $photo) {
                     if ($photo && is_object($photo) && method_exists($photo, 'isValid') && $photo->isValid()) {
                         $photoPath = $photo->store('supplier/deliveries/photos', 'public');
@@ -87,7 +87,7 @@ class DeliveryProofService
                 $updateData['recipient_signature'] = $data['recipient_signature']->store('supplier/deliveries/signatures', 'public');
             }
 
-            if (!empty($data['delivery_photos'])) {
+            if (! empty($data['delivery_photos'])) {
                 // Delete old photos if exists
                 if ($proof->delivery_photos) {
                     foreach ($proof->delivery_photos as $oldPhoto) {
@@ -111,4 +111,3 @@ class DeliveryProofService
         });
     }
 }
-

@@ -21,7 +21,6 @@ class FilterBranchItemsRequest extends FormRequest
             'category' => ['nullable', 'string', 'max:100'],
             'subcategory' => ['nullable', 'string', 'max:100'],
 
-
             'supplier_id' => ['nullable', 'uuid', 'exists:suppliers,id'],
 
             // Pagination

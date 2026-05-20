@@ -15,7 +15,7 @@ class VerifyOtpRequest extends FormRequest
     {
         return [
             'identifier' => 'required|string',
-            'otp'        => 'required|string|size:6',
+            'otp' => 'required|string|size:6',
         ];
     }
 }

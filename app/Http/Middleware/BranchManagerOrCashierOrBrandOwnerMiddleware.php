@@ -20,7 +20,7 @@ class BranchManagerOrCashierOrBrandOwnerMiddleware
     {
         $user = auth()->user();
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
                 'message' => 'Unauthenticated',
@@ -28,37 +28,40 @@ class BranchManagerOrCashierOrBrandOwnerMiddleware
         }
 
         if ($user instanceof BranchManager) {
-            if (!$user->is_active) {
+            if (! $user->is_active) {
                 return response()->json(['success' => false, 'message' => 'Your account is inactive.'], 403);
             }
             if (method_exists($user, 'isSuspended') && $user->isSuspended()) {
                 return response()->json(['success' => false, 'message' => 'Your account has been suspended.'], 403);
             }
-            if (!$user->branch_id) {
+            if (! $user->branch_id) {
                 return response()->json(['success' => false, 'message' => 'Branch manager is not assigned to any branch.'], 403);
             }
             $request->merge(['manager_branch_id' => $user->branch_id]);
+
             return $next($request);
         }
 
         if ($user instanceof Cashier) {
-            if (method_exists($user, 'isActive') ? !$user->isActive() : empty($user->is_active)) {
+            if (method_exists($user, 'isActive') ? ! $user->isActive() : empty($user->is_active)) {
                 return response()->json(['success' => false, 'message' => 'Your account is not active.'], 403);
             }
-            if (!$user->branch_id) {
+            if (! $user->branch_id) {
                 return response()->json(['success' => false, 'message' => 'Cashier is not assigned to any branch.'], 403);
             }
             $request->merge(['manager_branch_id' => $user->branch_id]);
+
             return $next($request);
         }
 
         if ($user instanceof BrandOwner) {
-            if (!$user->is_active) {
+            if (! $user->is_active) {
                 return response()->json(['success' => false, 'message' => 'Your account is inactive.'], 403);
             }
             if ($user->isSuspended()) {
                 return response()->json(['success' => false, 'message' => 'Your account has been suspended.'], 403);
             }
+
             return $next($request);
         }
 

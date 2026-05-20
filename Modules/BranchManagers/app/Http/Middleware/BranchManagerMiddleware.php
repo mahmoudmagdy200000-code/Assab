@@ -4,8 +4,8 @@ namespace Modules\BranchManagers\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpFoundation\Response;
 use Modules\BranchManagers\Models\BranchManager;
+use Symfony\Component\HttpFoundation\Response;
 
 class BranchManagerMiddleware
 {
@@ -17,26 +17,26 @@ class BranchManagerMiddleware
         $user = auth()->user();
 
         // تحقق من المصادقة
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
-                'message' => 'Unauthenticated'
+                'message' => 'Unauthenticated',
             ], 401);
         }
 
         // تحقق من نوع المستخدم
-        if (!$user instanceof BranchManager) {
+        if (! $user instanceof BranchManager) {
             return response()->json([
                 'success' => false,
-                'message' => 'Unauthorized. Branch Manager access required.'
+                'message' => 'Unauthorized. Branch Manager access required.',
             ], 403);
         }
 
         // تحقق من حالة الحساب
-        if (!$user->is_active) {
+        if (! $user->is_active) {
             return response()->json([
                 'success' => false,
-                'message' => 'Your account is inactive. Please contact administrator.'
+                'message' => 'Your account is inactive. Please contact administrator.',
             ], 403);
         }
 
@@ -44,15 +44,15 @@ class BranchManagerMiddleware
         if (method_exists($user, 'isSuspended') && $user->isSuspended()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Your account has been suspended. Please contact administrator.'
+                'message' => 'Your account has been suspended. Please contact administrator.',
             ], 403);
         }
 
         // ✅ تحقق من ارتباط Branch Manager بفرع
-        if (!$user->branch_id) {
+        if (! $user->branch_id) {
             return response()->json([
                 'success' => false,
-                'message' => 'Branch manager is not assigned to any branch. Please contact administrator.'
+                'message' => 'Branch manager is not assigned to any branch. Please contact administrator.',
             ], 403);
         }
 

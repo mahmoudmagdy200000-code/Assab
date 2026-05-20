@@ -47,6 +47,7 @@ class MonthlyInventoryProduct extends Model
     ];
 
     public const COUNT_METHOD_SIMPLE = 'simple';
+
     public const COUNT_METHOD_SLIDER = 'slider';
 
     public function monthlyInventory(): BelongsTo
@@ -104,6 +105,7 @@ class MonthlyInventoryProduct extends Model
                 return self::COUNT_METHOD_SLIDER;
             }
         }
+
         return self::COUNT_METHOD_SIMPLE;
     }
 }

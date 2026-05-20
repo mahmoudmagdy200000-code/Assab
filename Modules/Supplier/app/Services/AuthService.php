@@ -16,20 +16,20 @@ class AuthService
         $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
         $supplier = Supplier::where($field, $identifier)->first();
 
-        if (!$supplier || !Hash::check($password, $supplier->password)) {
+        if (! $supplier || ! Hash::check($password, $supplier->password)) {
             throw new \Exception('Invalid credentials');
         }
 
-        if (!$supplier->isActive()) {
+        if (! $supplier->isActive()) {
             throw new \Exception('Account is inactive');
         }
 
-        if (!$supplier->isFirstLogin()) {
+        if (! $supplier->isFirstLogin()) {
             throw new \Exception('Account is already activated. Please use regular login.');
         }
 
         $token = $supplier->createToken('first-login-token')->plainTextToken;
-        
+
         return [
             'supplier' => $supplier,
             'token' => $token,
@@ -57,7 +57,7 @@ class AuthService
         $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
         $supplier = Supplier::where($field, $identifier)->first();
 
-        if (!$supplier) {
+        if (! $supplier) {
             Log::warning('Supplier login attempt with non-existent identifier', [
                 'identifier' => $identifier,
                 'field' => $field,
@@ -66,7 +66,7 @@ class AuthService
         }
 
         // Check password - note: password is cast as 'hashed' in model, so $supplier->password is already hashed
-        if (!Hash::check($password, $supplier->password)) {
+        if (! Hash::check($password, $supplier->password)) {
             Log::warning('Supplier login attempt with invalid password', [
                 'supplier_id' => $supplier->id,
                 'identifier' => $identifier,
@@ -74,7 +74,7 @@ class AuthService
             throw new \Exception('Invalid credentials');
         }
 
-        if (!$supplier->isActive()) {
+        if (! $supplier->isActive()) {
             throw new \Exception('Account is inactive');
         }
 
@@ -117,7 +117,7 @@ class AuthService
     public function changePassword(Supplier $supplier, string $currentPassword, string $newPassword): void
     {
         // Verify current password
-        if (!Hash::check($currentPassword, $supplier->password)) {
+        if (! Hash::check($currentPassword, $supplier->password)) {
             throw new \Exception('Current password is incorrect');
         }
 
@@ -133,4 +133,3 @@ class AuthService
         }
     }
 }
-

@@ -2,12 +2,12 @@
 
 namespace Modules\Custody\Database\Seeders;
 
-use Illuminate\Database\Seeder;
-use Modules\Custody\Models\CustodyTransaction;
-use Modules\Custody\Models\CustodyRequest;
-use Modules\Expense\Models\Expense;
-use Modules\BranchManagers\Models\BranchManager;
 use Carbon\Carbon;
+use Illuminate\Database\Seeder;
+use Modules\BranchManagers\Models\BranchManager;
+use Modules\Custody\Models\CustodyRequest;
+use Modules\Custody\Models\CustodyTransaction;
+use Modules\Expense\Models\Expense;
 
 class CustodyTransactionSeeder extends Seeder
 {
@@ -20,6 +20,7 @@ class CustodyTransactionSeeder extends Seeder
 
         if ($branchManagers->isEmpty()) {
             $this->command->warn('⚠️  No branch managers found. Please seed branch managers first.');
+
             return;
         }
 
@@ -38,7 +39,7 @@ class CustodyTransactionSeeder extends Seeder
             'Cash Transfer',
             'Cash Handover',
             'Bank Transfer',
-            'Expenses Deduction'
+            'Expenses Deduction',
         ];
 
         // Get approved custody requests for this manager

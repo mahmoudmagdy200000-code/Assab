@@ -20,4 +20,3 @@ class BranchFactory extends Factory
         return [];
     }
 }
-

@@ -6,16 +6,14 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
-use Modules\Shift\Services\ShiftEndService;
-use Modules\Shift\Services\HandoverService;
-use Modules\Shift\Services\VarianceCalculationService;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Services\HandoverService;
+use Modules\Shift\Services\ShiftEndService;
+use Modules\Shift\Services\VarianceCalculationService;
 use Modules\Shift\Transformers\ShiftDetailResource;
-use Modules\Shift\Http\Requests\EndShiftRequest;
 
 /**
  * ShiftEndController
@@ -77,7 +75,7 @@ class ShiftEndController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -86,7 +84,7 @@ class ShiftEndController extends Controller
             $user = auth()->user();
             $shiftModel = $this->getShiftForUser($shift, $user);
 
-            if (!$shiftModel) {
+            if (! $shiftModel) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Shift not found or you do not have access to it',
@@ -96,7 +94,7 @@ class ShiftEndController extends Controller
             if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'This shift is not in progress. Current status: ' . $shiftModel->status->value,
+                    'message' => 'This shift is not in progress. Current status: '.$shiftModel->status->value,
                 ], 400);
             }
 
@@ -167,8 +165,8 @@ class ShiftEndController extends Controller
                     'next_actions' => [
                         'handover_cash_now' => true,
                         'view_details' => true,
-                    ]
-                ]
+                    ],
+                ],
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -181,10 +179,11 @@ class ShiftEndController extends Controller
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to end shift',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -240,7 +239,7 @@ class ShiftEndController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -248,7 +247,7 @@ class ShiftEndController extends Controller
             $user = auth()->user();
             $shiftModel = $this->getShiftForUser($shift, $user);
 
-            if (!$shiftModel) {
+            if (! $shiftModel) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Shift not found or you do not have access to it',
@@ -271,7 +270,7 @@ class ShiftEndController extends Controller
             if ($request->filled('branch_manager_id')) {
                 $branchManager = \Modules\BranchManagers\Models\BranchManager::find($request->branch_manager_id);
 
-                if (!$branchManager) {
+                if (! $branchManager) {
                     return response()->json([
                         'success' => false,
                         'message' => 'Branch manager not found',
@@ -297,7 +296,7 @@ class ShiftEndController extends Controller
                     ->where('is_active', true)
                     ->first();
 
-                if (!$branchManager) {
+                if (! $branchManager) {
                     return response()->json([
                         'success' => false,
                         'message' => 'No active branch manager found for this branch',
@@ -311,7 +310,7 @@ class ShiftEndController extends Controller
             else {
                 $handoverToType = 'cashier';
 
-                if (!$request->has('next_cashier_id')) {
+                if (! $request->has('next_cashier_id')) {
                     return response()->json([
                         'success' => false,
                         'message' => 'next_cashier_id is required when handing over to cashier',
@@ -320,7 +319,7 @@ class ShiftEndController extends Controller
 
                 // Handover to next cashier
                 $nextCashier = Cashier::find($request->next_cashier_id);
-                if (!$nextCashier) {
+                if (! $nextCashier) {
                     return response()->json([
                         'success' => false,
                         'message' => 'Next cashier not found',
@@ -374,7 +373,7 @@ class ShiftEndController extends Controller
                 'shift.branch',
                 'salesBreakdown.aggregator',
                 'handoverStatus',
-                'varianceDetails.responsibleCashier'
+                'varianceDetails.responsibleCashier',
             ])->findOrFail($updatedShift->id);
 
             // Get variance if exists
@@ -419,9 +418,9 @@ class ShiftEndController extends Controller
                             'next_cashier' => $handoverToType === 'cashier' ? $handoverToName : null,
                             'handover_notes' => $request->handover_notes,
                             'status' => $handoverStatus,
-                        ]
-                    ]
-                ]
+                        ],
+                    ],
+                ],
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -434,10 +433,11 @@ class ShiftEndController extends Controller
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to end shift with handover',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -466,7 +466,7 @@ class ShiftEndController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -474,7 +474,7 @@ class ShiftEndController extends Controller
             $user = auth()->user();
             $shiftModel = $this->getShiftForUser($shift, $user);
 
-            if (!$shiftModel) {
+            if (! $shiftModel) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Shift not found',
@@ -482,7 +482,7 @@ class ShiftEndController extends Controller
             }
 
             // Check if shift can have handover recorded
-            if (!$shiftModel->total_sales) {
+            if (! $shiftModel->total_sales) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Shift sales must be recorded before handover',
@@ -498,7 +498,7 @@ class ShiftEndController extends Controller
             if ($request->filled('branch_manager_id')) {
                 $branchManager = \Modules\BranchManagers\Models\BranchManager::find($request->branch_manager_id);
 
-                if (!$branchManager) {
+                if (! $branchManager) {
                     return response()->json([
                         'success' => false,
                         'message' => 'Branch manager not found',
@@ -523,7 +523,7 @@ class ShiftEndController extends Controller
                     ->where('is_active', true)
                     ->first();
 
-                if (!$branchManager) {
+                if (! $branchManager) {
                     return response()->json([
                         'success' => false,
                         'message' => 'No active branch manager found',
@@ -537,7 +537,7 @@ class ShiftEndController extends Controller
             else {
                 $handoverToType = 'cashier';
 
-                if (!$request->has('next_cashier_id')) {
+                if (! $request->has('next_cashier_id')) {
                     return response()->json([
                         'success' => false,
                         'message' => 'next_cashier_id is required when handing over to cashier',
@@ -545,7 +545,7 @@ class ShiftEndController extends Controller
                 }
 
                 $nextCashier = Cashier::find($request->next_cashier_id);
-                if (!$nextCashier) {
+                if (! $nextCashier) {
                     return response()->json([
                         'success' => false,
                         'message' => 'Next cashier not found',
@@ -603,18 +603,19 @@ class ShiftEndController extends Controller
                         'handover_to_type' => $handoverToType,
                         'handover_to' => $handoverToName,
                         'status' => $handoverStatus,
-                    ]
-                ]
+                    ],
+                ],
             ]);
         } catch (\Exception $e) {
             Log::error('Start handover failed', [
                 'shift_id' => $shift,
                 'error' => $e->getMessage(),
             ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to record handover',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -632,7 +633,7 @@ class ShiftEndController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -640,7 +641,7 @@ class ShiftEndController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $calculation
+            'data' => $calculation,
         ]);
     }
 
@@ -654,7 +655,7 @@ class ShiftEndController extends Controller
                 'shift' => function ($q) {
                     $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
                 },
-                'shift.branch:id,name'
+                'shift.branch:id,name',
             ])->findOrFail($shift);
 
             // Cashier caller must own this shift
@@ -695,7 +696,7 @@ class ShiftEndController extends Controller
                 return [
                     'id' => $cashier->id,
                     'name' => $cashier->name,
-                    'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
+                    'image' => $cashier->image ? asset('storage/'.$cashier->image) : null,
                     'type' => 'cashier',
                     'is_available' => true,
                     'disabled' => false,
@@ -712,8 +713,8 @@ class ShiftEndController extends Controller
             foreach ($branchManagers as $branchManager) {
                 $recipients[] = [
                     'id' => $branchManager->id,
-                    'name' => $branchManager->name . ' (Branch Manager)',
-                    'image' => $branchManager->image ? asset('storage/' . $branchManager->image) : null,
+                    'name' => $branchManager->name.' (Branch Manager)',
+                    'image' => $branchManager->image ? asset('storage/'.$branchManager->image) : null,
                     'type' => 'branch_manager',
                     'is_available' => true,
                     'disabled' => false,
@@ -731,8 +732,8 @@ class ShiftEndController extends Controller
                 && empty($recipientIds[(string) $authUser->id])) {
                 $recipients[] = [
                     'id' => $authUser->id,
-                    'name' => $authUser->name . ' (Branch Manager)',
-                    'image' => $authUser->image ? asset('storage/' . $authUser->image) : null,
+                    'name' => $authUser->name.' (Branch Manager)',
+                    'image' => $authUser->image ? asset('storage/'.$authUser->image) : null,
                     'type' => 'branch_manager',
                     'is_available' => true,
                     'disabled' => false,
@@ -747,15 +748,15 @@ class ShiftEndController extends Controller
                 'message' => 'Available recipients retrieved successfully',
                 'data' => [
                     'recipients' => $recipients,
-                    'auto_handover_enabled' => !is_null($suggestedCashierId),
+                    'auto_handover_enabled' => ! is_null($suggestedCashierId),
                     'has_branch_manager' => $branchManagers->isNotEmpty(),
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve available recipients',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -805,7 +806,7 @@ class ShiftEndController extends Controller
             },
             'shift.branch:id,name,location',
             'cashier:id,name,branch_id',
-            'nextCashier:id,name'
+            'nextCashier:id,name',
         ]);
 
         // If user is cashier, only show their shifts

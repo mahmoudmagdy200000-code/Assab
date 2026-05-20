@@ -45,11 +45,12 @@ class MonthlyInventoryController extends BaseController
     private function findInventoryForActor(string $id, InventoryActor $actor, array $relations = []): ?MonthlyInventory
     {
         $branchId = $actor->getBranchId();
-        if (!$branchId) {
+        if (! $branchId) {
             return null;
         }
         $createdBy = $actor->isManager() ? $actor->getActorId() : null;
         $staffCashierId = $actor->isCashier() ? $actor->getActorId() : null;
+
         return $this->service->findForBranchOrStaff($id, $branchId, $createdBy, $staffCashierId, $relations);
     }
 
@@ -57,10 +58,11 @@ class MonthlyInventoryController extends BaseController
     {
         try {
             $manager = $this->manager();
-            if (!$manager->branch_id) {
+            if (! $manager->branch_id) {
                 return $this->errorResponse('Branch manager is not assigned to any branch', 400);
             }
             $info = $this->service->getSetupInfo($manager->branch_id);
+
             return $this->successResponse(
                 new MonthlyInventorySetupInfoResource($info),
                 'Setup info retrieved successfully'
@@ -74,10 +76,11 @@ class MonthlyInventoryController extends BaseController
     {
         try {
             $manager = $this->manager();
-            if (!$manager->branch_id) {
+            if (! $manager->branch_id) {
                 return $this->errorResponse('Branch manager is not assigned to any branch', 400);
             }
             $staff = $this->service->getStaffOptions($manager->branch_id);
+
             return $this->successResponse($staff, 'Staff options retrieved successfully');
         } catch (\Throwable $e) {
             return $this->handleException($e, 'fetching staff options');
@@ -88,10 +91,11 @@ class MonthlyInventoryController extends BaseController
     {
         try {
             $manager = $this->manager();
-            if (!$manager->branch_id) {
+            if (! $manager->branch_id) {
                 return $this->errorResponse('Branch manager is not assigned to any branch', 400);
             }
             $team = $this->service->getLastTeam($manager->branch_id);
+
             return $this->successResponse($team, 'Last team retrieved successfully');
         } catch (\Throwable $e) {
             return $this->handleException($e, 'fetching last team');
@@ -103,10 +107,11 @@ class MonthlyInventoryController extends BaseController
         try {
             $this->authorize('create', MonthlyInventory::class);
             $manager = $this->manager();
-            if (!$manager->branch_id) {
+            if (! $manager->branch_id) {
                 return $this->errorResponse('Branch manager is not assigned to any branch', 400);
             }
             $inventory = $this->service->create($request->validated(), $manager);
+
             return $this->createdResponse(
                 new MonthlyInventoryResource($inventory),
                 'Monthly inventory created successfully'
@@ -123,7 +128,7 @@ class MonthlyInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $branchId = $actor->getBranchId();
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse('Not assigned to any branch', 400);
             }
             $status = $request->query('status');
@@ -138,6 +143,7 @@ class MonthlyInventoryController extends BaseController
             } else {
                 $paginator = $this->service->listByStatusForStaff($branchId, $actor->getActorId(), $status, $filters, $perPage);
             }
+
             return $this->paginatedResponse(
                 MonthlyInventoryListResource::collection($paginator),
                 'Monthly inventories retrieved successfully'
@@ -152,12 +158,13 @@ class MonthlyInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $branchId = $actor->getBranchId();
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse('Not assigned to any branch', 400);
             }
             $counts = $actor->isManager()
                 ? $this->service->getStatusCounts(['branch_id' => $branchId, 'created_by' => $actor->getActorId()])
                 : $this->service->getStatusCountsForStaff($branchId, $actor->getActorId());
+
             return $this->successResponse($counts, 'Status counts retrieved successfully');
         } catch (\Throwable $e) {
             return $this->handleException($e, 'fetching status counts');
@@ -175,10 +182,11 @@ class MonthlyInventoryController extends BaseController
                 'products',
                 'timelines' => fn ($q) => $q->orderBy('occurred_at', 'asc'),
             ]);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $this->authorize('view', $inventory);
+
             return $this->successResponse(
                 new MonthlyInventoryResource($inventory->loadCount('products')),
                 'Monthly inventory retrieved successfully'
@@ -193,7 +201,7 @@ class MonthlyInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $inventory = $this->findInventoryForActor($id, $actor);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $search = $request->query('search');
@@ -201,6 +209,7 @@ class MonthlyInventoryController extends BaseController
                 || $request->boolean('counted_only')
                 || $request->boolean('inventoried_only');
             $products = $this->service->getProducts($id, $search, $completedOnly);
+
             return $this->successResponse(
                 MonthlyInventoryProductResource::collection($products),
                 'Products retrieved successfully'
@@ -218,11 +227,12 @@ class MonthlyInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $inventory = $this->findInventoryForActor($id, $actor);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $data = $request->validated();
             $product = $this->service->updateProductQuantity($id, $productId, $data, $actor->getActor());
+
             return $this->successResponse(
                 new MonthlyInventoryProductResource($product),
                 'Product quantity updated successfully'
@@ -241,10 +251,11 @@ class MonthlyInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $inventory = $this->findInventoryForActor($id, $actor);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $product = $this->service->claimProduct($id, $productId, $actor->getActor());
+
             return $this->successResponse(new MonthlyInventoryProductResource($product), 'Product claimed successfully');
         } catch (\InvalidArgumentException $e) {
             return $this->errorResponse($e->getMessage(), 409);
@@ -258,10 +269,11 @@ class MonthlyInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $inventory = $this->findInventoryForActor($id, $actor);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $product = $this->service->releaseProduct($id, $productId, $actor->getActor());
+
             return $this->successResponse(new MonthlyInventoryProductResource($product), 'Product released successfully');
         } catch (\InvalidArgumentException $e) {
             return $this->errorResponse($e->getMessage(), 400);
@@ -277,11 +289,12 @@ class MonthlyInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $inventory = $this->findInventoryForActor($id, $actor);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $search = $request->query('search');
             $progress = $this->service->getProgress($id, $search);
+
             return $this->successResponse(
                 new MonthlyInventoryProgressResource($progress),
                 'Progress retrieved successfully'
@@ -299,11 +312,12 @@ class MonthlyInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $inventory = $this->findInventoryForActor($id, $actor);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $moveToDraft = $request->boolean('move_to_draft');
             $updated = $this->service->saveProgress($id, $moveToDraft);
+
             return $this->successResponse(
                 new MonthlyInventoryResource($updated),
                 $moveToDraft ? 'Progress saved and moved to draft' : 'Progress saved successfully'
@@ -320,10 +334,11 @@ class MonthlyInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $inventory = $this->findInventoryForActor($id, $actor);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $updated = $this->service->markForReview($id);
+
             return $this->successResponse(
                 new MonthlyInventoryResource($updated),
                 'Inventory marked for review successfully'
@@ -340,11 +355,12 @@ class MonthlyInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $inventory = $this->findInventoryForActor($id, $actor);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $this->authorize('submit', $inventory);
             $updated = $this->service->submitForApproval($id, $actor->getActor());
+
             return $this->successResponse(
                 new MonthlyInventoryResource($updated),
                 'Inventory submitted for approval successfully'
@@ -366,6 +382,7 @@ class MonthlyInventoryController extends BaseController
             }
             $this->authorize('confirmSubmission', $inventory);
             $updated = $this->service->confirmStaffSubmission($id, $manager);
+
             return $this->successResponse(
                 new MonthlyInventoryResource($updated),
                 'Staff submission confirmed successfully'
@@ -382,11 +399,12 @@ class MonthlyInventoryController extends BaseController
         try {
             $manager = $this->manager();
             $inventory = $this->service->findForBranch($id, $manager->branch_id);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $this->authorize('approve', $inventory);
             $updated = $this->service->approve($id);
+
             return $this->successResponse(
                 new MonthlyInventoryResource($updated),
                 'Inventory approved successfully'
@@ -403,12 +421,13 @@ class MonthlyInventoryController extends BaseController
         try {
             $manager = $this->manager();
             $inventory = $this->service->findForBranch($id, $manager->branch_id);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $this->authorize('returnToDraft', $inventory);
             $validated = $request->validated();
             $updated = $this->service->returnToDraft($id, $validated['feedback'], $manager);
+
             return $this->successResponse(
                 new MonthlyInventoryResource($updated),
                 'Inventory returned to draft successfully'
@@ -425,10 +444,11 @@ class MonthlyInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $inventory = $this->findInventoryForActor($id, $actor);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $data = $this->service->getReport($id);
+
             return $this->successResponse(
                 new MonthlyInventoryReportResource($data),
                 'Report retrieved successfully'
@@ -442,29 +462,31 @@ class MonthlyInventoryController extends BaseController
     {
         try {
             $manager = $this->manager();
-            if (!$manager->branch_id) {
+            if (! $manager->branch_id) {
                 return $this->errorResponse('Branch manager is not assigned to any branch', 400);
             }
             $inventory = $this->service->findForBranch($id, $manager->branch_id);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $format = $request->validated()['format'];
             $date = $inventory->inventory_date?->format('Y-m') ?? now()->format('Y-m');
-            $filename = "monthly-inventory-{$date}-{$id}." . ($format === 'excel' ? 'csv' : 'pdf');
+            $filename = "monthly-inventory-{$date}-{$id}.".($format === 'excel' ? 'csv' : 'pdf');
 
             if ($format === 'pdf') {
                 $content = $this->exportService->generatePdf($id);
+
                 return response()->streamDownload(
-                    fn () => print($content),
+                    fn () => print ($content),
                     $filename,
                     ['Content-Type' => 'application/pdf']
                 );
             }
 
             $content = $this->exportService->generateCsv($id);
+
             return response()->streamDownload(
-                fn () => print($content),
+                fn () => print ($content),
                 $filename,
                 ['Content-Type' => 'text/csv']
             );
@@ -480,13 +502,14 @@ class MonthlyInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $branchId = $actor->getBranchId();
-            if (!$branchId) {
+            if (! $branchId) {
                 return $this->errorResponse('Not assigned to any branch', 400);
             }
             $branchId = $request->query('branch_id', $branchId);
             $year = (int) $request->query('year', now()->year);
             $month = (int) $request->query('month', now()->month);
             $data = $this->service->getMonthlyComparison($branchId, $year, $month);
+
             return $this->successResponse(
                 new MonthlyInventoryComparisonResource($data),
                 'Comparison retrieved successfully'
@@ -501,10 +524,11 @@ class MonthlyInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $inventory = $this->findInventoryForActor($id, $actor);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $timelines = $this->service->getTimelines($id);
+
             return $this->successResponse(
                 MonthlyInventoryTimelineResource::collection($timelines),
                 'Timelines retrieved successfully'
@@ -519,10 +543,11 @@ class MonthlyInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $inventory = $this->findInventoryForActor($id, $actor);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $feedback = $this->service->getFeedback($id);
+
             return $this->successResponse(
                 MonthlyInventoryFeedbackResource::collection($feedback),
                 'Feedback retrieved successfully'
@@ -537,10 +562,11 @@ class MonthlyInventoryController extends BaseController
         try {
             $actor = $this->resolveInventoryActor();
             $inventory = $this->findInventoryForActor($id, $actor);
-            if (!$inventory) {
+            if (! $inventory) {
                 return $this->notFoundResponse('Monthly inventory not found');
             }
             $feedback = $this->service->addFeedback($id, $request->validated()['message'], $actor->getActor());
+
             return $this->createdResponse(
                 new MonthlyInventoryFeedbackResource($feedback),
                 'Feedback added successfully'

@@ -24,7 +24,7 @@ class DailyInventoryScheduleController extends BaseController
         $this->authorize('viewAny', DailyInventorySchedule::class);
 
         $schedule = $this->scheduleService->getForBranch($branchId);
-        if (!$schedule) {
+        if (! $schedule) {
             return $this->errorResponse('No daily inventory schedule found for this branch', 404);
         }
 

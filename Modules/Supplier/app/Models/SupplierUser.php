@@ -12,7 +12,7 @@ use Laravel\Sanctum\HasApiTokens;
 
 class SupplierUser extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable, SoftDeletes, HasUuids;
+    use HasApiTokens, HasFactory, HasUuids, Notifiable, SoftDeletes;
 
     /**
      * The attributes that are mass assignable.

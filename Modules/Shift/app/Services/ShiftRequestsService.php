@@ -3,14 +3,14 @@
 namespace Modules\Shift\Services;
 
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator as LengthAwarePaginatorConcrete;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
-use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Models\CashierShift;
 
 /**
  * ShiftRequestsService
@@ -25,15 +25,15 @@ class ShiftRequestsService
      * Cashier: handovers where they are the shift cashier or next cashier.
      * Branch Manager: handovers for shifts in their branch.
      *
-     * @param string|null $status pending|approved|rejected|rejected_final
-     * @param int|null $perPage when set, returns LengthAwarePaginator; otherwise Collection
+     * @param  string|null  $status  pending|approved|rejected|rejected_final
+     * @param  int|null  $perPage  when set, returns LengthAwarePaginator; otherwise Collection
      * @return Collection|LengthAwarePaginator
      */
     public function getHandoversForAuthUser(?string $status = null, ?int $perPage = null)
     {
         /** @var Cashier|BranchManager|null $user */
         $user = Auth::user();
-        if (!$user) {
+        if (! $user) {
             return $perPage ? new LengthAwarePaginatorConcrete([], 0, $perPage, 1, ['path' => request()->url()]) : collect();
         }
 
@@ -60,15 +60,15 @@ class ShiftRequestsService
                 // Pending: I must be the recipient (not the sender)
                 $q->where(function ($pending) use ($userId) {
                     $pending->whereHas('handoverStatus', fn ($s) => $s->where('manager_approval_status', 'pending'))
-                            ->where('cashier_id', '!=', $userId);
+                        ->where('cashier_id', '!=', $userId);
                 })
                 // Non-pending: visible to both parties
-                ->orWhereHas('handoverStatus', fn ($s) => $s->where('manager_approval_status', '!=', 'pending'));
+                    ->orWhereHas('handoverStatus', fn ($s) => $s->where('manager_approval_status', '!=', 'pending'));
             });
         }
 
         if ($status !== null && $status !== '') {
-            $query->whereHas('handoverStatus', fn($q) => $q->where('manager_approval_status', $status));
+            $query->whereHas('handoverStatus', fn ($q) => $q->where('manager_approval_status', $status));
         }
 
         $query->orderByDesc('handed_over_at')->orderByDesc('shift_date');
@@ -82,15 +82,15 @@ class ShiftRequestsService
      *          in shift_variance_details (self_and_others / mixed).
      * Branch Manager: all shifts in their branch that have variance.
      *
-     * @param string|null $status optional filter by responsibility_status (pending|approved|rejected)
-     * @param int|null $perPage when set, returns LengthAwarePaginator; otherwise Collection
+     * @param  string|null  $status  optional filter by responsibility_status (pending|approved|rejected)
+     * @param  int|null  $perPage  when set, returns LengthAwarePaginator; otherwise Collection
      * @return Collection|LengthAwarePaginator
      */
     public function getVariancesForAuthUser(?string $status = null, ?int $perPage = null)
     {
         /** @var Cashier|BranchManager|null $user */
         $user = Auth::user();
-        if (!$user) {
+        if (! $user) {
             return $perPage ? new LengthAwarePaginatorConcrete([], 0, $perPage, 1, ['path' => request()->url()]) : collect();
         }
 
@@ -114,12 +114,12 @@ class ShiftRequestsService
         // For cashiers: filter by responsibility_status on their specific detail record
         if ($status !== null && $status !== '' && $user instanceof Cashier) {
             $cashierId = $user->id;
-            $query->whereHas('varianceDetails', fn($q) => $q
+            $query->whereHas('varianceDetails', fn ($q) => $q
                 ->where('responsible_cashier_id', $cashierId)
                 ->where('responsibility_status', $status)
             );
         } elseif ($status !== null && $status !== '') {
-            $query->whereHas('handoverStatus', fn($q) => $q->where('manager_approval_status', $status));
+            $query->whereHas('handoverStatus', fn ($q) => $q->where('manager_approval_status', $status));
         }
 
         $query->orderByDesc('shift_date')->orderByDesc('handed_over_at');
@@ -131,14 +131,14 @@ class ShiftRequestsService
      * Get all reassigned shifts for the authenticated cashier (shifts reassigned TO them).
      * Only for cashiers; returns empty if user is not a cashier.
      *
-     * @param int|null $perPage when set, returns LengthAwarePaginator; otherwise Collection
+     * @param  int|null  $perPage  when set, returns LengthAwarePaginator; otherwise Collection
      * @return Collection|LengthAwarePaginator
      */
     public function getReassignedShiftsForCashier(?int $perPage = null)
     {
         /** @var Cashier|BranchManager|null $user */
         $user = Auth::user();
-        if (!$user instanceof Cashier) {
+        if (! $user instanceof Cashier) {
             return $perPage ? new LengthAwarePaginatorConcrete([], 0, $perPage, 1, ['path' => request()->url()]) : collect();
         }
 
@@ -172,6 +172,7 @@ class ShiftRequestsService
                     ->orWhere('next_cashier_id', $user->id)
                     ->orWhereHas('handover', fn (Builder $h) => $h->where('handover_to_type', 'cashier')->where('handover_to_id', $user->id));
             });
+
             return;
         }
 
@@ -191,8 +192,9 @@ class ShiftRequestsService
             $cashierId = $user->id;
             $query->where(function (Builder $q) use ($cashierId) {
                 $q->where('cashier_id', $cashierId)
-                  ->orWhereHas('varianceDetails', fn (Builder $vd) => $vd->where('responsible_cashier_id', $cashierId));
+                    ->orWhereHas('varianceDetails', fn (Builder $vd) => $vd->where('responsible_cashier_id', $cashierId));
             });
+
             return;
         }
 

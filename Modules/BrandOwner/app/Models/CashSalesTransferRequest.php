@@ -33,9 +33,9 @@ class CashSalesTransferRequest extends Model
 
     protected $casts = [
         'handover_amount' => 'decimal:2',
-        'handover_date'   => 'datetime',
-        'approved_at'     => 'datetime',
-        'rejected_at'     => 'datetime',
+        'handover_date' => 'datetime',
+        'approved_at' => 'datetime',
+        'rejected_at' => 'datetime',
     ];
 
     public function branch(): BelongsTo

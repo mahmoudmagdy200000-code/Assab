@@ -1,11 +1,11 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Modules\Supplier\Http\Controllers\SupplierController;
 use Modules\Supplier\Http\Controllers\Auth\AuthController;
 use Modules\Supplier\Http\Controllers\Auth\PasswordResetController;
 use Modules\Supplier\Http\Controllers\OrderController;
 use Modules\Supplier\Http\Controllers\PendingOrderController;
+use Modules\Supplier\Http\Controllers\SupplierController;
 
 /*
 |--------------------------------------------------------------------------

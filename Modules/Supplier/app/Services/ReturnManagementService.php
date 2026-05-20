@@ -15,6 +15,7 @@ class ReturnManagementService
     public function __construct(
         private readonly PurchaseTimelineService $timelineService
     ) {}
+
     /**
      * Get return requests for supplier
      */
@@ -30,12 +31,12 @@ class ReturnManagementService
             ->where('supplier_id', $supplier->id)
             ->orderBy('created_at', 'desc');
 
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             $query->where('status', $filters['status']);
         }
 
-        if (!empty($filters['search'])) {
-            $query->where('return_number', 'like', '%' . $filters['search'] . '%');
+        if (! empty($filters['search'])) {
+            $query->where('return_number', 'like', '%'.$filters['search'].'%');
         }
 
         return $query->paginate($perPage);
@@ -146,4 +147,3 @@ class ReturnManagementService
         });
     }
 }
-

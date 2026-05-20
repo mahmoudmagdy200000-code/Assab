@@ -2,8 +2,8 @@
 
 namespace Modules\BranchManagers\Policies;
 
-use Modules\BranchManagers\Models\BranchManager;
 use Illuminate\Auth\Access\HandlesAuthorization;
+use Modules\BranchManagers\Models\BranchManager;
 
 class BranchManagerPolicy
 {
@@ -30,7 +30,7 @@ class BranchManagerPolicy
      */
     public function manageCashiers(BranchManager $manager): bool
     {
-        return $manager->is_active && !$manager->isSuspended();
+        return $manager->is_active && ! $manager->isSuspended();
     }
 
     /**
@@ -38,7 +38,7 @@ class BranchManagerPolicy
      */
     public function manageShifts(BranchManager $manager): bool
     {
-        return $manager->is_active && !$manager->isSuspended();
+        return $manager->is_active && ! $manager->isSuspended();
     }
 
     /**
@@ -46,7 +46,7 @@ class BranchManagerPolicy
      */
     public function manageExpenses(BranchManager $manager): bool
     {
-        return $manager->is_active && !$manager->isSuspended();
+        return $manager->is_active && ! $manager->isSuspended();
     }
 
     /**

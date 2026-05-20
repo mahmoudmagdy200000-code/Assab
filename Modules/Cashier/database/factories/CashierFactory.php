@@ -22,10 +22,10 @@ class CashierFactory extends Factory
         $managerId = BranchManager::first()?->id ?? BranchManager::factory()->create(['branch_id' => $branchId])->id;
 
         return [
-            'name' => 'Cashier ' . $counter,
-            'email' => 'cashier' . $counter . time() . '@example.com',
+            'name' => 'Cashier '.$counter,
+            'email' => 'cashier'.$counter.time().'@example.com',
             'password' => Hash::make('password123'),
-            'phone' => '+9665' . str_pad((time() + $counter), 8, '0', STR_PAD_LEFT),
+            'phone' => '+9665'.str_pad((time() + $counter), 8, '0', STR_PAD_LEFT),
             'image' => null,
             'branch_id' => $branchId, // Automatically create branch if none exists
             'status' => 'active',
@@ -40,7 +40,7 @@ class CashierFactory extends Factory
      */
     public function pending(): static
     {
-        return $this->state(fn(array $attributes) => [
+        return $this->state(fn (array $attributes) => [
             'status' => 'pending',
             'activated_at' => null,
         ]);
@@ -51,7 +51,7 @@ class CashierFactory extends Factory
      */
     public function deactivated(): static
     {
-        return $this->state(fn(array $attributes) => [
+        return $this->state(fn (array $attributes) => [
             'status' => 'deactivated',
             'deactivated_at' => now(),
         ]);
@@ -62,7 +62,7 @@ class CashierFactory extends Factory
      */
     public function active(): static
     {
-        return $this->state(fn(array $attributes) => [
+        return $this->state(fn (array $attributes) => [
             'status' => 'active',
             'activated_at' => now(),
             'deactivated_at' => null,

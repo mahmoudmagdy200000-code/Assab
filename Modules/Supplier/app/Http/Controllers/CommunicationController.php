@@ -165,4 +165,3 @@ class CommunicationController extends BaseController
         }
     }
 }
-

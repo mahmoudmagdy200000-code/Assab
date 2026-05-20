@@ -8,7 +8,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Branch\Models\Branch;
-use Modules\Inventory\Models\InventorySession;
 use Modules\Purchase\Models\Item;
 use Modules\Purchase\Models\PurchaseOrderItem;
 

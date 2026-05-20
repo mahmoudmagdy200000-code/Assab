@@ -64,8 +64,8 @@ class PurchaseOrderItemResource extends JsonResource
             // Balance Quantity: Automatically calculated as (Original Quantity - New Quantity)
             'balance_quantity' => $this->when(
                 $this->original_quantity !== null && $this->new_quantity !== null,
-                fn() => (float) max(0, $this->original_quantity - $this->new_quantity),
-                fn() => 0.0
+                fn () => (float) max(0, $this->original_quantity - $this->new_quantity),
+                fn () => 0.0
             ),
 
             // Available in Store: Updated based on new quantity
@@ -111,7 +111,7 @@ class PurchaseOrderItemResource extends JsonResource
                     $this->purchaseOrder &&
                     $this->purchaseOrder->order_type?->isTransfer() &&
                     in_array($this->purchaseOrder->status?->value, ['confirmed', 'partial_confirmation']),
-                fn() => $this->cooling_status === true
+                fn () => $this->cooling_status === true
             ),
 
             // Status
@@ -126,19 +126,19 @@ class PurchaseOrderItemResource extends JsonResource
             // Approval Information (if item needs approval, has approval data, or is canceled modification)
             'approval_type' => $this->when(
                 $this->status?->needsApproval() || $this->approval_type || $this->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION,
-                fn() => $this->approval_type
+                fn () => $this->approval_type
             ),
             'approval_data' => $this->when(
                 $this->status?->needsApproval() || $this->approval_type || $this->status === \Modules\Purchase\Enums\OrderItemStatus::CANCELED_MODIFICATION,
-                fn() => $this->approval_data
+                fn () => $this->approval_data
             ),
             'can_approve' => $this->when(
-                $this->status?->needsApproval() || ($this->approval_type && !$this->status?->isCancelled()),
-                fn() => true // Branch manager can approve
+                $this->status?->needsApproval() || ($this->approval_type && ! $this->status?->isCancelled()),
+                fn () => true // Branch manager can approve
             ),
             'can_reject' => $this->when(
-                $this->status?->needsApproval() || ($this->approval_type && !$this->status?->isCancelled()),
-                fn() => true // Branch manager can reject
+                $this->status?->needsApproval() || ($this->approval_type && ! $this->status?->isCancelled()),
+                fn () => true // Branch manager can reject
             ),
 
             // Modifications
@@ -169,7 +169,7 @@ class PurchaseOrderItemResource extends JsonResource
      */
     private function getQualityReceivedFromReceipt(): ?string
     {
-        if (!$this->relationLoaded('goodsReceiptItems') || $this->goodsReceiptItems->isEmpty()) {
+        if (! $this->relationLoaded('goodsReceiptItems') || $this->goodsReceiptItems->isEmpty()) {
             return null;
         }
 

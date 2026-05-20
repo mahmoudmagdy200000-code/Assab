@@ -4,7 +4,6 @@ namespace Modules\Shift\Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Modules\Branch\Models\Branch;
-
 use Modules\Shift\Models\Shift;
 
 class ShiftSeeder extends Seeder
@@ -14,16 +13,17 @@ class ShiftSeeder extends Seeder
      */
     public function run(): void
     {
-         $branches = Branch::all();
+        $branches = Branch::all();
 
         if ($branches->isEmpty()) {
             $this->command->warn('⚠️ No branches found. Please seed branches first.');
+
             return;
         }
 
         foreach ($branches as $branch) {
             Shift::create([
-                'name' => 'Morning Shift - ' . $branch->name,
+                'name' => 'Morning Shift - '.$branch->name,
                 'start_time' => '08:00',
                 'end_time' => '16:00',
                 'branch_id' => $branch->id,
@@ -33,7 +33,7 @@ class ShiftSeeder extends Seeder
             ]);
 
             Shift::create([
-                'name' => 'Evening Shift - ' . $branch->name,
+                'name' => 'Evening Shift - '.$branch->name,
                 'start_time' => '16:00',
                 'end_time' => '00:00',
                 'branch_id' => $branch->id,

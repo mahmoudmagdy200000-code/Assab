@@ -2,9 +2,11 @@
 
 namespace Modules\Expense\Services;
 
-use Modules\Expense\Models\{Expense, QuickCashExpense, QuickCashItem};
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Modules\Expense\Models\Expense;
+use Modules\Expense\Models\QuickCashExpense;
+use Modules\Expense\Models\QuickCashItem;
 
 class QuickCashExpenseService
 {
@@ -41,7 +43,7 @@ class QuickCashExpenseService
             'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
         ]);
 
-        if (!empty($data['items']) && is_array($data['items'])) {
+        if (! empty($data['items']) && is_array($data['items'])) {
             foreach ($data['items'] as $item) {
                 QuickCashItem::create([
                     'quick_cash_expense_id' => $quickCash->id,
@@ -102,8 +104,7 @@ class QuickCashExpenseService
 
             $expenseUpdateData['status'] = $data['is_draft'] ? 'draft' : 'pending';
 
-
-            if (!$data['is_draft'] && !$expense->submitted_at) {
+            if (! $data['is_draft'] && ! $expense->submitted_at) {
                 $expenseUpdateData['submitted_at'] = now();
             }
         }
@@ -172,7 +173,7 @@ class QuickCashExpenseService
                 // Delete database record
                 $attachment->delete();
             } catch (\Exception $e) {
-                Log::warning('Failed to delete attachment: ' . $e->getMessage());
+                Log::warning('Failed to delete attachment: '.$e->getMessage());
             }
         }
     }
@@ -206,7 +207,7 @@ class QuickCashExpenseService
         $totalAmount = $data['total_amount'] ?? $data['vat_total_amount'] ?? 0;
         $hasVAT = $data['has_vat'] ?? $hasVAT;
 
-        if (!empty($data['vat_total_amount'])) {
+        if (! empty($data['vat_total_amount'])) {
             $vatAmount = $data['vat_amount'] ?? 0;
             $netAmount = $data['net_amount'] ?? ($totalAmount - $vatAmount);
         } else {
@@ -231,12 +232,14 @@ class QuickCashExpenseService
     {
         try {
             $custodyBalanceService = app(\Modules\Custody\Services\CustodyBalanceService::class);
+
             return $custodyBalanceService->getCustodyBalance($branchManagerId);
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to get custody balance', [
                 'branch_manager_id' => $branchManagerId,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
+
             return 0.00;
         }
     }
@@ -246,7 +249,7 @@ class QuickCashExpenseService
      */
     private function uploadInvoiceReceipt(Expense $expense, $file): void
     {
-        $filename = 'expense_' . $expense->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+        $filename = 'expense_'.$expense->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
         $path = $file->storeAs('expenses/receipts', $filename, 'public');
 
         $expense->attachments()->create([
@@ -257,7 +260,7 @@ class QuickCashExpenseService
         ]);
     }
 
-    private function createTimelineEntry(Expense $expense, string $action, string $status = null): void
+    private function createTimelineEntry(Expense $expense, string $action, ?string $status = null): void
     {
         $expense->timelines()->create([
             'action' => $action,

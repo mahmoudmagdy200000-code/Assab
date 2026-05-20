@@ -2,7 +2,6 @@
 
 namespace Modules\Notification\Events;
 
-use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
@@ -27,7 +26,7 @@ class NotificationBroadcasted implements ShouldBroadcast
     public function broadcastOn(): array
     {
         return [
-            new PrivateChannel('user.' . $this->notifiable->id),
+            new PrivateChannel('user.'.$this->notifiable->id),
         ];
     }
 
@@ -47,4 +46,3 @@ class NotificationBroadcasted implements ShouldBroadcast
         return $this->data;
     }
 }
-

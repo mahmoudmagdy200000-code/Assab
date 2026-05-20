@@ -3,16 +3,12 @@
 namespace Modules\Cashier\Providers;
 
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
-use Modules\Cashier\Events\{
-    CashierCreatedEvent,
-    CashierActivatedEvent,
-    CashierDeactivatedEvent
-};
-use Modules\Cashier\Listeners\{
-    SendActivationNotificationListener,
-    LogCashierActivationListener,
-    HandleCashierDeactivationListener
-};
+use Modules\Cashier\Events\CashierActivatedEvent;
+use Modules\Cashier\Events\CashierCreatedEvent;
+use Modules\Cashier\Events\CashierDeactivatedEvent;
+use Modules\Cashier\Listeners\HandleCashierDeactivationListener;
+use Modules\Cashier\Listeners\LogCashierActivationListener;
+use Modules\Cashier\Listeners\SendActivationNotificationListener;
 
 class EventServiceProvider extends ServiceProvider
 {

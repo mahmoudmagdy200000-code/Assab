@@ -8,8 +8,8 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Modules\Purchase\Http\Requests\FilterPurchaseHistoryRequest;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Services\TimelineService;
-use Modules\Purchase\Transformers\PurchaseOrderResource;
 use Modules\Purchase\Transformers\PurchaseHistoryDetailsResource;
+use Modules\Purchase\Transformers\PurchaseOrderResource;
 
 class PurchaseHistoryController extends BaseController
 {
@@ -59,7 +59,7 @@ class PurchaseHistoryController extends BaseController
             $userBranchId = $user->branch_id;
             $order = $this->orderService->getOrderDetails($id, $userBranchId);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 

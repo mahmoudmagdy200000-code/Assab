@@ -5,18 +5,17 @@ namespace Modules\Notification\Providers;
 use Illuminate\Support\ServiceProvider;
 use Modules\Notification\Contracts\ChannelServiceInterface;
 use Modules\Notification\Contracts\NotificationServiceInterface;
-use Modules\Notification\Repositories\NotificationPreferenceRepositoryInterface;
 use Modules\Notification\Repositories\NotificationPreferenceRepository;
+use Modules\Notification\Repositories\NotificationPreferenceRepositoryInterface;
 use Modules\Notification\Services\ChannelService;
 use Modules\Notification\Services\NotificationService;
-use Modules\Notification\Services\Channels\EmailChannelService;
-use Modules\Notification\Services\Channels\SmsChannelService;
-use Modules\Notification\Services\SmsProviders\SmsProviderInterface;
 use Modules\Notification\Services\SmsProviders\SaudiTelecomSmsProvider;
+use Modules\Notification\Services\SmsProviders\SmsProviderInterface;
 
 class NotificationServiceProvider extends ServiceProvider
 {
     protected string $moduleName = 'Notification';
+
     protected string $moduleNameLower = 'notification';
 
     public function boot(): void
@@ -42,7 +41,7 @@ class NotificationServiceProvider extends ServiceProvider
     protected function registerConfig(): void
     {
         $this->publishes([
-            module_path($this->moduleName, 'config/config.php') => config_path($this->moduleNameLower . '.php'),
+            module_path($this->moduleName, 'config/config.php') => config_path($this->moduleNameLower.'.php'),
         ], 'config');
 
         $this->mergeConfigFrom(
@@ -53,19 +52,19 @@ class NotificationServiceProvider extends ServiceProvider
 
     protected function registerViews(): void
     {
-        $viewPath = resource_path('views/modules/' . $this->moduleNameLower);
+        $viewPath = resource_path('views/modules/'.$this->moduleNameLower);
         $sourcePath = module_path($this->moduleName, 'resources/views');
 
         $this->publishes([
-            $sourcePath => $viewPath
-        ], ['views', $this->moduleNameLower . '-module-views']);
+            $sourcePath => $viewPath,
+        ], ['views', $this->moduleNameLower.'-module-views']);
 
         $this->loadViewsFrom(array_merge($this->getPublishableViewPaths(), [$sourcePath]), $this->moduleNameLower);
     }
 
     protected function registerTranslations(): void
     {
-        $langPath = resource_path('lang/modules/' . $this->moduleNameLower);
+        $langPath = resource_path('lang/modules/'.$this->moduleNameLower);
 
         if (is_dir($langPath)) {
             $this->loadTranslationsFrom($langPath, $this->moduleNameLower);
@@ -78,11 +77,11 @@ class NotificationServiceProvider extends ServiceProvider
     {
         $paths = [];
         foreach (config('view.paths') as $path) {
-            if (is_dir($path . '/modules/' . $this->moduleNameLower)) {
-                $paths[] = $path . '/modules/' . $this->moduleNameLower;
+            if (is_dir($path.'/modules/'.$this->moduleNameLower)) {
+                $paths[] = $path.'/modules/'.$this->moduleNameLower;
             }
         }
+
         return $paths;
     }
 }
-

@@ -4,12 +4,11 @@ namespace Modules\Supplier\Http\Controllers\Auth;
 
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
-use Modules\Supplier\Http\Requests\Auth\FirstLoginRequest;
-use Modules\Supplier\Http\Requests\Auth\ResetPasswordFirstLoginRequest;
-use Modules\Supplier\Http\Requests\Auth\LoginRequest;
 use Modules\Supplier\Http\Requests\Auth\ChangePasswordRequest;
+use Modules\Supplier\Http\Requests\Auth\FirstLoginRequest;
+use Modules\Supplier\Http\Requests\Auth\LoginRequest;
+use Modules\Supplier\Http\Requests\Auth\ResetPasswordFirstLoginRequest;
 use Modules\Supplier\Services\AuthService;
-use Modules\Supplier\Transformers\SupplierResource;
 
 class AuthController extends BaseController
 {
@@ -55,7 +54,7 @@ class AuthController extends BaseController
         try {
             $supplier = auth('supplier')->user();
 
-            if (!$supplier || !$supplier->isFirstLogin()) {
+            if (! $supplier || ! $supplier->isFirstLogin()) {
                 return $this->errorResponse('Invalid request', 400);
             }
 
@@ -80,7 +79,7 @@ class AuthController extends BaseController
             );
 
             $supplier = $result['supplier'];
-            
+
             return $this->successResponse([
                 'user' => [
                     'id' => $supplier->id,
@@ -104,7 +103,7 @@ class AuthController extends BaseController
     {
         try {
             $supplier = auth('supplier')->user();
-            
+
             if ($supplier) {
                 $this->authService->logout($supplier);
             }
@@ -123,7 +122,7 @@ class AuthController extends BaseController
         try {
             $supplier = auth('supplier')->user();
 
-            if (!$supplier) {
+            if (! $supplier) {
                 return $this->unauthorizedResponse('Not authenticated');
             }
 
@@ -150,7 +149,7 @@ class AuthController extends BaseController
         try {
             $supplier = auth('supplier')->user();
 
-            if (!$supplier) {
+            if (! $supplier) {
                 return $this->unauthorizedResponse('Not authenticated');
             }
 
@@ -166,4 +165,3 @@ class AuthController extends BaseController
         }
     }
 }
-

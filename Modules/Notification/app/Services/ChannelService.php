@@ -3,7 +3,6 @@
 namespace Modules\Notification\Services;
 
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Support\Facades\Log;
 use Modules\Notification\Contracts\ChannelServiceInterface;
 use Modules\Notification\Enums\NotificationChannel;
 use Modules\Notification\Services\Channels\EmailChannelService;
@@ -36,4 +35,3 @@ class ChannelService implements ChannelServiceInterface
         };
     }
 }
-

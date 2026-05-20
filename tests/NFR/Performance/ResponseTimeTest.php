@@ -2,17 +2,16 @@
 
 namespace Tests\NFR\Performance;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Purchase\Models\PurchaseOrder;
-use Illuminate\Support\Facades\Hash;
+use Tests\TestCase;
 
 /**
  * Performance Requirements Test: Response Time
- * 
+ *
  * Tests API response time requirements:
  * - API response time: ≤ 500ms for 95% of requests
  * - Report generation: ≤ 30 seconds for complex financial reports
@@ -24,12 +23,13 @@ class ResponseTimeTest extends TestCase
     use RefreshDatabase;
 
     protected BranchManager $manager;
+
     protected Cashier $cashier;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->manager = BranchManager::factory()->create([
             'email' => 'perf-test-manager@assab.com',
             'password' => Hash::make('password123'),
@@ -53,7 +53,7 @@ class ResponseTimeTest extends TestCase
         ]);
 
         $startTime = microtime(true);
-        
+
         $response = $this->actingAs($this->manager, 'sanctum')
             ->getJson('/api/v1/purchase/orders');
 
@@ -61,7 +61,7 @@ class ResponseTimeTest extends TestCase
         $responseTime = ($endTime - $startTime) * 1000; // Convert to milliseconds
 
         $response->assertStatus(200);
-        
+
         $this->assertLessThan(
             500,
             $responseTime,
@@ -93,7 +93,7 @@ class ResponseTimeTest extends TestCase
     public function test_cashier_operations_response_time(): void
     {
         $startTime = microtime(true);
-        
+
         $response = $this->actingAs($this->cashier, 'sanctum')
             ->getJson('/api/v1/cashier/my-shifts');
 
@@ -117,9 +117,9 @@ class ResponseTimeTest extends TestCase
         ]);
 
         $startTime = microtime(true);
-        
+
         $response = $this->actingAs($this->manager, 'sanctum')
-            ->getJson('/api/v1/purchase/history?' . http_build_query([
+            ->getJson('/api/v1/purchase/history?'.http_build_query([
                 'start_date' => now()->subMonths(3)->format('Y-m-d'),
                 'end_date' => now()->format('Y-m-d'),
             ]));
@@ -144,21 +144,21 @@ class ResponseTimeTest extends TestCase
         // Test export performance with smaller dataset to avoid memory exhaustion
         // Note: Creating 10,000 records in test environment may cause memory issues
         // This test verifies export capability with a manageable dataset
-        
+
         // Create smaller dataset for testing (1000 records instead of 10000)
         $testRecords = 1000;
-        
+
         try {
             PurchaseOrder::factory()->count($testRecords)->create([
                 'branch_id' => $this->manager->branch_id,
             ]);
 
             $startTime = microtime(true);
-            
+
             // Simulate export endpoint (adjust endpoint if different)
             // Use pagination to avoid loading all records at once
             $response = $this->actingAs($this->manager, 'sanctum')
-                ->getJson('/api/v1/purchase/history?' . http_build_query([
+                ->getJson('/api/v1/purchase/history?'.http_build_query([
                     'per_page' => 100, // Use max per_page to test pagination performance
                     'page' => 1,
                 ]));
@@ -173,17 +173,17 @@ class ResponseTimeTest extends TestCase
                 $responseTime,
                 "Data retrieval exceeded 60 seconds. Actual: {$responseTime}s"
             );
-            
+
             // Verify export capability exists (endpoint responds)
             $this->assertContains(
                 $response->status(),
                 [200, 400, 422, 500],
-                "Export endpoint should respond with appropriate status"
+                'Export endpoint should respond with appropriate status'
             );
         } catch (\Exception $e) {
             // If memory issues occur, skip test but verify capability exists
             if (strpos(strtolower($e->getMessage()), 'memory') !== false) {
-                $this->markTestSkipped("Memory limitations in test environment - export capability verified in other tests");
+                $this->markTestSkipped('Memory limitations in test environment - export capability verified in other tests');
             } else {
                 throw $e;
             }
@@ -207,7 +207,7 @@ class ResponseTimeTest extends TestCase
 
         foreach ($endpoints as $endpoint) {
             $startTime = microtime(true);
-            
+
             $response = $this->actingAs($this->manager, 'sanctum')
                 ->getJson($endpoint);
 
@@ -220,7 +220,7 @@ class ResponseTimeTest extends TestCase
 
         // Calculate 95th percentile
         sort($responseTimes);
-        $percentile95Index = (int)(count($responseTimes) * 0.95);
+        $percentile95Index = (int) (count($responseTimes) * 0.95);
         $percentile95 = $responseTimes[$percentile95Index] ?? end($responseTimes);
 
         $this->assertLessThan(
@@ -237,7 +237,7 @@ class ResponseTimeTest extends TestCase
     public function test_dashboard_loading_time(): void
     {
         $startTime = microtime(true);
-        
+
         $response = $this->actingAs($this->manager, 'sanctum')
             ->getJson('/api/v1/branch-manager/dashboard');
 
@@ -260,6 +260,7 @@ class ResponseTimeTest extends TestCase
         $startTime = microtime(true);
         $callback();
         $endTime = microtime(true);
+
         return ($endTime - $startTime) * 1000; // Return in milliseconds
     }
 }

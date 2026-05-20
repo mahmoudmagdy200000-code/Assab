@@ -28,4 +28,3 @@ class SubmitInvoiceRequest extends FormRequest
         ];
     }
 }
-

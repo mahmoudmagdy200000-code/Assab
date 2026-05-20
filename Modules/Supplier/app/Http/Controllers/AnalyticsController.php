@@ -85,4 +85,3 @@ class AnalyticsController extends BaseController
         }
     }
 }
-

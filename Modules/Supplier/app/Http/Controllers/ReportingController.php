@@ -52,4 +52,3 @@ class ReportingController extends BaseController
         }
     }
 }
-

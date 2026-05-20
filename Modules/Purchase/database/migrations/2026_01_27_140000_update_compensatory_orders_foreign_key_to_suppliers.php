@@ -27,12 +27,12 @@ return new class extends Migration
                     AND COLUMN_NAME = 'reorder_supplier_id' 
                     AND REFERENCED_TABLE_NAME IS NOT NULL
                 ");
-                
-                if (!empty($foreignKeys)) {
+
+                if (! empty($foreignKeys)) {
                     $foreignKeyName = $foreignKeys[0]->CONSTRAINT_NAME;
                 }
             }
-            
+
             if ($foreignKeyName) {
                 DB::statement("ALTER TABLE compensatory_orders DROP FOREIGN KEY {$foreignKeyName}");
             } else {
@@ -75,12 +75,12 @@ return new class extends Migration
                         AND COLUMN_NAME = 'reorder_supplier_id' 
                         AND REFERENCED_TABLE_NAME IS NOT NULL
                     ");
-                    
-                    if (!empty($foreignKeys)) {
+
+                    if (! empty($foreignKeys)) {
                         $foreignKeyName = $foreignKeys[0]->CONSTRAINT_NAME;
                     }
                 }
-                
+
                 if ($foreignKeyName) {
                     DB::statement("ALTER TABLE compensatory_orders DROP FOREIGN KEY {$foreignKeyName}");
                 } else {

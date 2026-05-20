@@ -5,7 +5,6 @@ namespace Modules\RecurringOrder\Transformers;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Purchase\Models\BranchItem;
-use Modules\RecurringOrder\Enums\OrderSourceType;
 use Modules\RecurringOrder\Enums\RecurringOrderStatus;
 use Modules\RecurringOrder\Enums\RepeatFrequency;
 use Modules\RecurringOrder\Services\RecurringOrderService;
@@ -20,8 +19,8 @@ class RecurringOrderDetailResource extends JsonResource
         $source = $this->sourceable;
         $sourceName = $source ? ($source->name ?? $source->company_name ?? '') : '';
         $sourceImage = $source && isset($source->image_url) ? $source->image_url : ($source->image ?? null);
-        if ($sourceImage && !str_starts_with((string) $sourceImage, 'http')) {
-            $sourceImage = asset('storage/' . $sourceImage);
+        if ($sourceImage && ! str_starts_with((string) $sourceImage, 'http')) {
+            $sourceImage = asset('storage/'.$sourceImage);
         }
         $orderType = $this->order_source_type?->value ?? $this->order_source_type ?? null;
 
@@ -92,6 +91,7 @@ class RecurringOrderDetailResource extends JsonResource
             $days = $config['repeat_days'] ?? [];
             // Store is 0-6 (Sunday=0). API exposes Sunday=1 .. Saturday=7.
             $base['repeat_days'] = array_values(array_map(fn ($d) => (int) $d + 1, $days));
+
             return $base;
         }
 
@@ -101,6 +101,7 @@ class RecurringOrderDetailResource extends JsonResource
 
             if ($type === 'by_date') {
                 $base['dates'] = array_map('intval', $config['dates'] ?? []);
+
                 return $base;
             }
 
@@ -109,12 +110,14 @@ class RecurringOrderDetailResource extends JsonResource
             $base['every'] = (int) ($config['occurrence'] ?? 1);
             $dow = (int) ($config['day_of_week'] ?? 0);
             $base['day_of_week'] = $dow + 1; // 0-6 -> 1-7
+
             return $base;
         }
 
         if ($freq === RepeatFrequency::BASED_ON_INVENTORY->value) {
             $base['level_ratio'] = $config['level_ratio'] ?? null;
             $base['custom_threshold'] = isset($config['custom_threshold']) ? (int) $config['custom_threshold'] : null;
+
             return $base;
         }
 
@@ -127,7 +130,7 @@ class RecurringOrderDetailResource extends JsonResource
     private function buildSchedulingTimeAndMeridiem(): array
     {
         $time = $this->scheduling_time_am ?? $this->scheduling_time_pm;
-        if (!$time) {
+        if (! $time) {
             return [null, null, null];
         }
         $carbon = \Carbon\Carbon::parse($time);
@@ -135,6 +138,7 @@ class RecurringOrderDetailResource extends JsonResource
         $meridiem = $h < 12 ? 'am' : 'pm';
         $schedulingTimeValue = $carbon->format('H:i:s');
         $displayStr = $carbon->format('g:i A');
+
         return [$displayStr, $schedulingTimeValue, $meridiem];
     }
 
@@ -158,6 +162,7 @@ class RecurringOrderDetailResource extends JsonResource
         if ($statusValue === RecurringOrderStatus::PENDING->value) {
             $service = app(RecurringOrderService::class);
             $message = $service->getNextOrderMessage($this->resource) ?? 'Your next order is scheduled.';
+
             return [
                 'status' => 'Pending',
                 'status_value' => 'pending',
@@ -171,6 +176,7 @@ class RecurringOrderDetailResource extends JsonResource
                 'message' => 'This recurring order is paused.',
             ];
         }
+
         return [
             'status' => $this->status?->label(),
             'status_value' => $statusValue,
@@ -186,24 +192,29 @@ class RecurringOrderDetailResource extends JsonResource
             $days = $config['repeat_days'] ?? [];
             $names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
             $list = array_map(fn ($d) => $names[$d] ?? (string) $d, $days);
-            return 'Weekly: ' . implode(', ', $list);
+
+            return 'Weekly: '.implode(', ', $list);
         }
         if ($freq === RepeatFrequency::MONTHLY->value) {
             $type = $config['repeat_type'] ?? 'by_date';
             if ($type === 'by_date') {
                 $dates = $config['dates'] ?? [];
-                return 'Monthly (by date): ' . implode(', ', $dates);
+
+                return 'Monthly (by date): '.implode(', ', $dates);
             }
             $occ = $config['occurrence'] ?? 1;
             $dow = $config['day_of_week'] ?? 0;
             $names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
             $ord = ['', 'first', 'second', 'third', 'fourth', 'fifth'];
-            return 'Monthly: ' . ($ord[$occ] ?? $occ) . ' ' . ($names[$dow] ?? '');
+
+            return 'Monthly: '.($ord[$occ] ?? $occ).' '.($names[$dow] ?? '');
         }
         if ($freq === RepeatFrequency::BASED_ON_INVENTORY->value) {
             $ratio = $config['level_ratio'] ?? $config['custom_threshold'] ?? 28;
-            return 'Based on Inventory: ' . (is_numeric($ratio) ? "{$ratio}%" : $ratio);
+
+            return 'Based on Inventory: '.(is_numeric($ratio) ? "{$ratio}%" : $ratio);
         }
+
         return $this->repeat_frequency?->label() ?? '';
     }
 
@@ -226,7 +237,7 @@ class RecurringOrderDetailResource extends JsonResource
                 $dow = $config['day_of_week'] ?? 0;
                 $names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
                 $ord = ['', '1st', '2nd', '3rd', '4th', '5th'];
-                $repeatFrequency['monthly'] = ['by_pattern' => ($ord[$occ] ?? $occ) . ' ' . ($names[$dow] ?? '')];
+                $repeatFrequency['monthly'] = ['by_pattern' => ($ord[$occ] ?? $occ).' '.($names[$dow] ?? '')];
             }
         } elseif ($freq === RepeatFrequency::BASED_ON_INVENTORY->value) {
             $ratio = $config['level_ratio'] ?? $config['custom_threshold'] ?? null;
@@ -258,6 +269,7 @@ class RecurringOrderDetailResource extends JsonResource
             $arr = (new RecurringOrderItemResource($item))->toArray($request);
             $stored = (float) $item->unit_price;
             $arr['unit_price'] = $stored > 0 ? $stored : (float) ($branchPrices->get($item->item_id)?->price ?? 0);
+
             return $arr;
         })->all();
     }
@@ -291,6 +303,7 @@ class RecurringOrderDetailResource extends JsonResource
                 'quantity_in_stock' => $quantityInStock,
             ];
         }
+
         return $out;
     }
 
@@ -311,6 +324,7 @@ class RecurringOrderDetailResource extends JsonResource
             $actions[] = 'update_recurring_order';
             $actions[] = 'delete_recurring_order';
         }
+
         return $actions;
     }
 }

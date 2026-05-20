@@ -3,8 +3,8 @@
 namespace Modules\Custody\Services;
 
 use Illuminate\Support\Facades\DB;
-use Modules\Custody\Models\CustodyTransaction;
 use Modules\Custody\Models\CustodyRequest;
+use Modules\Custody\Models\CustodyTransaction;
 
 class CustodyTransactionService
 {
@@ -16,14 +16,14 @@ class CustodyTransactionService
         $query = CustodyTransaction::where('branch_manager_id', $branchManagerId);
 
         // Type filter
-        if (!empty($filters['type'])) {
+        if (! empty($filters['type'])) {
             // Normalize the value to match database values exactly
             $type = trim($filters['type']);
             $query->where('type', '=', $type);
         }
 
         // Time period filter
-        if (!empty($filters['timePeriod'])) {
+        if (! empty($filters['timePeriod'])) {
             $startDate = $this->getTimePeriodStartDate($filters['timePeriod']);
             $query->where('transaction_date', '>=', $startDate);
         }
@@ -135,8 +135,8 @@ class CustodyTransactionService
     private function formatTransaction(CustodyTransaction $transaction): array
     {
         $amount = $transaction->is_cash_in
-            ? '+' . number_format($transaction->amount, 2, '.', '')
-            : '-' . number_format($transaction->amount, 2, '.', '');
+            ? '+'.number_format($transaction->amount, 2, '.', '')
+            : '-'.number_format($transaction->amount, 2, '.', '');
 
         $data = [
             'id' => $transaction->id,

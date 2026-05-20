@@ -19,4 +19,3 @@ class RespondToEmergencyRequest extends FormRequest
         ];
     }
 }
-

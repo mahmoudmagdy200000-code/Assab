@@ -3,8 +3,8 @@
 namespace Modules\Expense\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
-use Modules\Expense\Models\PreApprovalRequest;
 use Modules\Expense\Models\Expense;
+use Modules\Expense\Models\PreApprovalRequest;
 
 class PreApprovalRequestFactory extends Factory
 {

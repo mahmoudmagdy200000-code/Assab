@@ -13,21 +13,21 @@ class BrandOwnerMiddleware
     {
         $user = auth()->user();
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
                 'message' => 'Unauthenticated',
             ], 401);
         }
 
-        if (!$user instanceof BrandOwner) {
+        if (! $user instanceof BrandOwner) {
             return response()->json([
                 'success' => false,
                 'message' => 'Unauthorized. Brand Owner access required.',
             ], 403);
         }
 
-        if (!$user->is_active) {
+        if (! $user->is_active) {
             return response()->json([
                 'success' => false,
                 'message' => 'Your account is inactive. Please contact administrator.',

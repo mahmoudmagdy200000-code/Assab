@@ -2,10 +2,9 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
-use Illuminate\Http\JsonResponse;
 
 abstract class BaseRequest extends FormRequest
 {
@@ -32,7 +31,7 @@ abstract class BaseRequest extends FormRequest
                 'meta' => [
                     'validation_failed' => true,
                     'error_count' => count($errors),
-                ]
+                ],
             ], 422)
         );
     }
@@ -126,7 +125,7 @@ abstract class BaseRequest extends FormRequest
     protected function getIdRules(): array
     {
         return [
-            'id' => 'required|integer|exists:' . $this->getTableName() . ',id',
+            'id' => 'required|integer|exists:'.$this->getTableName().',id',
         ];
     }
 

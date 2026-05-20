@@ -6,7 +6,6 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Modules\Purchase\Models\Item;
 
 class SupplierItem extends Model
 {
@@ -73,7 +72,7 @@ class SupplierItem extends Model
     // Methods
     public function getPriceByQuality(string $quality): float
     {
-        return match($quality) {
+        return match ($quality) {
             'economy' => $this->economy_price ?? $this->unit_price,
             'premium' => $this->premium_price ?? $this->unit_price,
             default => $this->standard_price ?? $this->unit_price,
@@ -85,12 +84,11 @@ class SupplierItem extends Model
         if ($this->min_order_quantity && $quantity < $this->min_order_quantity) {
             return false;
         }
-        
+
         if ($this->max_order_quantity && $quantity > $this->max_order_quantity) {
             return false;
         }
-        
+
         return true;
     }
 }
-

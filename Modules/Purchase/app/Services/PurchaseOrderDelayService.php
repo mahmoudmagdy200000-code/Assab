@@ -83,10 +83,10 @@ class PurchaseOrderDelayService
                 OrderItemStatus::DELAYED,
             ])->get();
 
-            if (!$delayedItems->isEmpty()) {
+            if (! $delayedItems->isEmpty()) {
                 foreach ($delayedItems as $item) {
-                    $item->status      = OrderItemStatus::DELAYED_CANCELED;
-                    $approvalData      = $item->approval_data ?? [];
+                    $item->status = OrderItemStatus::DELAYED_CANCELED;
+                    $approvalData = $item->approval_data ?? [];
                     $approvalData['cancellation_reason'] = $reason;
                     $item->approval_data = $approvalData;
                     $item->save();
@@ -121,8 +121,8 @@ class PurchaseOrderDelayService
             }
 
             foreach ($delayedItems as $item) {
-                $item->status        = OrderItemStatus::DELAYED_CANCELED;
-                $approvalData        = $item->approval_data ?? [];
+                $item->status = OrderItemStatus::DELAYED_CANCELED;
+                $approvalData = $item->approval_data ?? [];
                 $approvalData['cancellation_reason'] = $reason;
                 $item->approval_data = $approvalData;
                 $item->save();

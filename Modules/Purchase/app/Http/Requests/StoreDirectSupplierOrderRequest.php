@@ -3,8 +3,6 @@
 namespace Modules\Purchase\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Modules\Purchase\Enums\NotificationChannel;
-use Modules\Purchase\Enums\QualityLevel;
 
 class StoreDirectSupplierOrderRequest extends FormRequest
 {

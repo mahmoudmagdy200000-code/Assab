@@ -105,7 +105,7 @@ class UpdateRecurringOrderRequest extends FormRequest
                     'Cannot select both "Review before sending" and "Send automatically without review".'
                 );
             }
-            if ($this->input('end_type') === 'date' && !$this->filled('end_date')) {
+            if ($this->input('end_type') === 'date' && ! $this->filled('end_date')) {
                 $validator->errors()->add('end_date', 'End date is required when end type is date.');
             }
             if ($this->filled('start_date') && $this->filled('end_date') && strtotime($this->input('end_date')) <= strtotime($this->input('start_date'))) {
@@ -149,7 +149,7 @@ class UpdateRecurringOrderRequest extends FormRequest
     private function normalizePurchaseOfficerId(): void
     {
         $po = $this->input('purchase_officer');
-        if (!is_array($po)) {
+        if (! is_array($po)) {
             return;
         }
         $id = $po['purchasing_officer_id'] ?? $po['branch_manager_id'] ?? $po['officer_id'] ?? null;

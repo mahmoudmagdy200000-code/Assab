@@ -2,11 +2,11 @@
 
 namespace Modules\Expense\Database\Factories;
 
-use Illuminate\Database\Eloquent\Factories\Factory;
-use Modules\Expense\Models\Expense;
-use Modules\BranchManagers\Models\BranchManager;
-use Modules\Expense\Models\Supplier;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Factories\Factory;
+use Modules\BranchManagers\Models\BranchManager;
+use Modules\Expense\Models\Expense;
+use Modules\Expense\Models\Supplier;
 
 class ExpenseFactory extends Factory
 {

@@ -31,10 +31,9 @@ return new class extends Migration
             $table->text('handover_notes')->nullable();
 
             $table->foreignUuid('original_cashier_id')->nullable()->constrained('cashiers')->nullOnDelete();
-            $table->foreignUuid('reassigned_by')->nullable()->constrained('branch_managers')->nullOnDelete();;
+            $table->foreignUuid('reassigned_by')->nullable()->constrained('branch_managers')->nullOnDelete();
             $table->text('reassignment_reason')->nullable();
             $table->timestamp('reassigned_at')->nullable();
-
 
             $table->decimal('total_sales', 12, 2)->default(0.00);
             $table->decimal('net_sales', 12, 2)->default(0.00);

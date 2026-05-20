@@ -21,11 +21,11 @@ class OwnerPaymentLogService
 {
     public function listForBrandOwner(BrandOwner $brandOwner, array $filters, int $page, int $pageSize): array
     {
-        $type       = $this->normalizeMethod($filters['type'] ?? null);
+        $type = $this->normalizeMethod($filters['type'] ?? null);
         $sortByDate = $filters['sortByDate'] ?? null;
-        $branchId   = $filters['branchId'] ?? null;
+        $branchId = $filters['branchId'] ?? null;
 
-        $payments  = $this->fetchPaymentForm($brandOwner, $type, $sortByDate, $branchId);
+        $payments = $this->fetchPaymentForm($brandOwner, $type, $sortByDate, $branchId);
         $transfers = $this->fetchCashSalesTransfers($brandOwner, $type, $sortByDate, $branchId);
 
         $items = $payments->merge($transfers)
@@ -36,20 +36,20 @@ class OwnerPaymentLogService
         $offset = ($page - 1) * $pageSize;
         $paged = $items->slice($offset, $pageSize)->values()->map(fn ($i) => $this->mapForApi($i))->all();
 
-        $totalCashIn  = $items->where('isIncome', true)->sum('amount');
+        $totalCashIn = $items->where('isIncome', true)->sum('amount');
         $totalCashOut = $items->where('isIncome', false)->sum('amount');
 
         return [
             'summary' => [
-                'totalCashIn'  => (float) $totalCashIn,
+                'totalCashIn' => (float) $totalCashIn,
                 'totalCashOut' => (float) $totalCashOut,
             ],
             'data' => $paged,
             'meta' => [
                 'current_page' => $page,
-                'per_page'     => $pageSize,
-                'total'        => $total,
-                'last_page'    => (int) ceil(max($total, 1) / max($pageSize, 1)),
+                'per_page' => $pageSize,
+                'total' => $total,
+                'last_page' => (int) ceil(max($total, 1) / max($pageSize, 1)),
             ],
         ];
     }
@@ -91,14 +91,14 @@ class OwnerPaymentLogService
 
         return $query->get()->map(function (CustodyRequest $r) {
             return [
-                'id'           => $r->id,
-                'title'        => 'Owner Payment',
-                'branchName'   => $r->branch?->name ?? $r->branchManager?->branch?->name,
-                'amount'       => (float) $r->requested_amount,
-                'dateTimeRaw'  => $r->created_at,
-                'isIncome'     => false,
-                'methodLabel'  => $this->methodLabel($r->preferred_receipt_method),
-                'submittedBy'  => 'Brand Owner',
+                'id' => $r->id,
+                'title' => 'Owner Payment',
+                'branchName' => $r->branch?->name ?? $r->branchManager?->branch?->name,
+                'amount' => (float) $r->requested_amount,
+                'dateTimeRaw' => $r->created_at,
+                'isIncome' => false,
+                'methodLabel' => $this->methodLabel($r->preferred_receipt_method),
+                'submittedBy' => 'Brand Owner',
             ];
         });
     }
@@ -121,14 +121,14 @@ class OwnerPaymentLogService
             $sender = $this->resolveSenderName($t->sender_id, $t->sender_type);
 
             return [
-                'id'           => $t->id,
-                'title'        => 'Cash Sales Transfer',
-                'branchName'   => $t->branch?->name,
-                'amount'       => (float) $t->handover_amount,
-                'dateTimeRaw'  => $t->created_at,
-                'isIncome'     => true,
-                'methodLabel'  => $this->methodLabel($t->handover_method),
-                'submittedBy'  => $sender ?? 'Branch',
+                'id' => $t->id,
+                'title' => 'Cash Sales Transfer',
+                'branchName' => $t->branch?->name,
+                'amount' => (float) $t->handover_amount,
+                'dateTimeRaw' => $t->created_at,
+                'isIncome' => true,
+                'methodLabel' => $this->methodLabel($t->handover_method),
+                'submittedBy' => $sender ?? 'Branch',
             ];
         });
     }
@@ -136,12 +136,12 @@ class OwnerPaymentLogService
     private function mapForApi(array $item): array
     {
         return [
-            'id'          => $item['id'],
-            'title'       => $item['title'],
-            'branchName'  => $item['branchName'],
-            'amount'      => $item['amount'],
-            'dateTime'    => $item['dateTimeRaw']?->toIso8601String(),
-            'isIncome'    => $item['isIncome'],
+            'id' => $item['id'],
+            'title' => $item['title'],
+            'branchName' => $item['branchName'],
+            'amount' => $item['amount'],
+            'dateTime' => $item['dateTimeRaw']?->toIso8601String(),
+            'isIncome' => $item['isIncome'],
             'methodLabel' => $item['methodLabel'],
             'submittedBy' => $item['submittedBy'],
         ];
@@ -150,15 +150,15 @@ class OwnerPaymentLogService
     private function paymentFormDetails(CustodyRequest $r): array
     {
         return [
-            'id'          => $r->id,
-            'title'       => 'Owner Payment',
+            'id' => $r->id,
+            'title' => 'Owner Payment',
             'description' => $r->purpose ?? $r->additional_notes,
-            'amount'      => (float) $r->requested_amount,
-            'branchName'  => $r->branch?->name ?? $r->branchManager?->branch?->name,
+            'amount' => (float) $r->requested_amount,
+            'branchName' => $r->branch?->name ?? $r->branchManager?->branch?->name,
             'managerName' => $r->branchManager?->name,
-            'dateTime'    => $r->created_at?->toIso8601String(),
+            'dateTime' => $r->created_at?->toIso8601String(),
             'methodLabel' => $this->methodLabel($r->preferred_receipt_method),
-            'isIncome'    => false,
+            'isIncome' => false,
         ];
     }
 
@@ -167,31 +167,32 @@ class OwnerPaymentLogService
         $sender = $this->resolveSenderName($t->sender_id, $t->sender_type);
 
         return [
-            'id'          => $t->id,
-            'title'       => 'Cash Sales Transfer',
+            'id' => $t->id,
+            'title' => 'Cash Sales Transfer',
             'description' => $t->additional_notes,
-            'amount'      => (float) $t->handover_amount,
-            'branchName'  => $t->branch?->name,
+            'amount' => (float) $t->handover_amount,
+            'branchName' => $t->branch?->name,
             'managerName' => $sender,
-            'dateTime'    => $t->created_at?->toIso8601String(),
+            'dateTime' => $t->created_at?->toIso8601String(),
             'methodLabel' => $this->methodLabel($t->handover_method),
-            'isIncome'    => true,
+            'isIncome' => true,
         ];
     }
 
     private function applyTimeFilter(Builder $query, ?string $sortByDate): void
     {
-        if (!$sortByDate) {
+        if (! $sortByDate) {
             $query->orderBy('created_at', 'desc');
+
             return;
         }
 
         $start = match ($sortByDate) {
             'last_24_hours' => now()->subDay(),
-            'last_7_days'   => now()->subDays(7),
-            'last_30_days'  => now()->subDays(30),
+            'last_7_days' => now()->subDays(7),
+            'last_30_days' => now()->subDays(30),
             'last_6_months' => now()->subMonths(6),
-            default         => null,
+            default => null,
         };
         if ($start) {
             $query->where('created_at', '>=', $start);
@@ -201,33 +202,33 @@ class OwnerPaymentLogService
 
     private function normalizeMethod(?string $value): ?string
     {
-        if (!$value) {
+        if (! $value) {
             return null;
         }
 
         return match (strtolower($value)) {
             'cash_handover', 'cash handover' => 'Cash Handover',
             'bank_transfer', 'bank transfer' => 'Bank Transfer',
-            default                          => null,
+            default => null,
         };
     }
 
     private function methodLabel(?string $value): ?string
     {
-        if (!$value) {
+        if (! $value) {
             return null;
         }
 
         return match ($value) {
             'Cash Handover' => 'cash_handover',
             'Bank Transfer' => 'bank_transfer',
-            default         => strtolower(str_replace(' ', '_', $value)),
+            default => strtolower(str_replace(' ', '_', $value)),
         };
     }
 
     private function resolveSenderName(?string $senderId, ?string $senderType): ?string
     {
-        if (!$senderId) {
+        if (! $senderId) {
             return null;
         }
 
