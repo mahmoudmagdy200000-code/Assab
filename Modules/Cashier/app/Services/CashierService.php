@@ -192,18 +192,26 @@ class CashierService
      */
     public function getCashierStatistics(string $branchId): array
     {
-        $cashiers = Cashier::where('branch_id', $branchId);
+        // Single query for the status breakdown instead of four separate counts.
+        $counts = Cashier::where('branch_id', $branchId)
+            ->selectRaw('COUNT(*) as total')
+            ->selectRaw("COUNT(CASE WHEN status = 'active' THEN 1 END) as active")
+            ->selectRaw("COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending")
+            ->selectRaw("COUNT(CASE WHEN status = 'deactivated' THEN 1 END) as deactivated")
+            ->first();
+
+        $withActiveShifts = Cashier::where('branch_id', $branchId)
+            ->whereHas('shifts', function ($q) {
+                $q->whereDate('shift_date', today())
+                    ->whereIn('status', ['not_started', 'in_progress']);
+            })->count();
 
         return [
-            'total' => $cashiers->count(),
-            'active' => $cashiers->clone()->where('status', 'active')->count(),
-            'pending' => $cashiers->clone()->where('status', 'pending')->count(),
-            'deactivated' => $cashiers->clone()->where('status', 'deactivated')->count(),
-            'with_active_shifts' => Cashier::where('branch_id', $branchId)
-                ->whereHas('shifts', function ($q) {
-                    $q->whereDate('shift_date', today())
-                        ->whereIn('status', ['not_started', 'in_progress']);
-                })->count(),
+            'total' => (int) $counts->total,
+            'active' => (int) $counts->active,
+            'pending' => (int) $counts->pending,
+            'deactivated' => (int) $counts->deactivated,
+            'with_active_shifts' => $withActiveShifts,
         ];
     }
 
