@@ -46,10 +46,7 @@ class CashierManagementController extends BaseController
 
         $stats = $this->cashierService->getCashierStatistics($branchId);
 
-        return $this->paginatedResponse(
-            CashierResource::collection($stats),
-            'Statistics retrieved successfully',
-        );
+        return $this->successResponse($stats, 'Statistics retrieved successfully');
     }
 
     /**

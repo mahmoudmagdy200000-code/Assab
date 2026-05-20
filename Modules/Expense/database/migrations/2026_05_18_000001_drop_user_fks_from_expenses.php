@@ -9,8 +9,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('expenses', function (Blueprint $table) {
-            $table->dropForeign('expenses_approved_by_foreign');
-            $table->dropForeign('expenses_rejected_by_foreign');
+            // Column-array form so the drop works on both MySQL and SQLite;
+            // the conventional names resolve to expenses_{column}_foreign.
+            $table->dropForeign(['approved_by']);
+            $table->dropForeign(['rejected_by']);
         });
     }
 
