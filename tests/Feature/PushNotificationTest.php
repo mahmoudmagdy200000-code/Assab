@@ -20,12 +20,13 @@ class PushNotificationTest extends TestCase
     use RefreshDatabase;
 
     private NotificationService $notificationService;
+
     private User $user;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->notificationService = $this->app->make(NotificationService::class);
         $this->user = User::factory()->create();
     }
@@ -70,7 +71,7 @@ class PushNotificationTest extends TestCase
     {
         // Arrange: Fake events and create preference
         Event::fake([NotificationBroadcasted::class]);
-        
+
         NotificationPreference::create([
             'notifiable_type' => User::class,
             'notifiable_id' => $this->user->id,
@@ -101,7 +102,7 @@ class PushNotificationTest extends TestCase
     {
         // Arrange
         Event::fake([NotificationBroadcasted::class]);
-        
+
         NotificationPreference::create([
             'notifiable_type' => User::class,
             'notifiable_id' => $this->user->id,
@@ -135,7 +136,7 @@ class PushNotificationTest extends TestCase
     {
         // Arrange
         Event::fake([NotificationBroadcasted::class]);
-        
+
         NotificationPreference::create([
             'notifiable_type' => User::class,
             'notifiable_id' => $this->user->id,
@@ -163,7 +164,7 @@ class PushNotificationTest extends TestCase
     {
         // Arrange
         Event::fake([NotificationBroadcasted::class]);
-        
+
         NotificationPreference::create([
             'notifiable_type' => User::class,
             'notifiable_id' => $this->user->id,
@@ -209,7 +210,7 @@ class PushNotificationTest extends TestCase
         $reflection = new \ReflectionClass($notificationWithPush);
         $property = $reflection->getProperty('shouldBroadcast');
         $property->setAccessible(true);
-        
+
         $this->assertTrue($property->getValue($notificationWithPush));
 
         // Test without push channel
@@ -230,7 +231,7 @@ class PushNotificationTest extends TestCase
     {
         // Arrange
         Event::fake([NotificationBroadcasted::class]);
-        
+
         NotificationPreference::create([
             'notifiable_type' => User::class,
             'notifiable_id' => $this->user->id,
@@ -250,8 +251,9 @@ class PushNotificationTest extends TestCase
         // Assert: Event broadcasts on correct private channel
         Event::assertDispatched(NotificationBroadcasted::class, function ($event) {
             $channels = $event->broadcastOn();
+
             return count($channels) === 1
-                && $channels[0]->name === 'private-user.' . $this->user->id;
+                && $channels[0]->name === 'private-user.'.$this->user->id;
         });
     }
 
@@ -262,7 +264,7 @@ class PushNotificationTest extends TestCase
     {
         // Arrange
         Event::fake([NotificationBroadcasted::class]);
-        
+
         NotificationPreference::create([
             'notifiable_type' => User::class,
             'notifiable_id' => $this->user->id,
@@ -285,4 +287,3 @@ class PushNotificationTest extends TestCase
         });
     }
 }
-

@@ -6,7 +6,6 @@ use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Branch\Transformers\BranchResource;
 use Modules\BranchManagers\Transformers\BranchManagerResource;
-use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
 
 class InternalTransferOrderResource extends JsonResource
@@ -50,9 +49,10 @@ class InternalTransferOrderResource extends JsonResource
 
             // From: Branch Location and Name
             'from' => $this->whenLoaded('fromBranch', function () {
-                if (!$this->fromBranch) {
+                if (! $this->fromBranch) {
                     return null;
                 }
+
                 return [
                     'id' => $this->fromBranch->id,
                     'name' => $this->fromBranch->name,
@@ -69,12 +69,13 @@ class InternalTransferOrderResource extends JsonResource
 
             // Requested BY: Branch Manager Name (Me)
             'requested_by' => $this->whenLoaded('requestedBy', function () {
-                if (!$this->requestedBy) {
+                if (! $this->requestedBy) {
                     return [
                         'name' => 'Me',
                         'image' => null,
                     ];
                 }
+
                 return [
                     'id' => $this->requestedBy->id,
                     'name' => $this->requestedBy->name,
@@ -111,7 +112,7 @@ class InternalTransferOrderResource extends JsonResource
         ];
 
         $data['supplier'] = null;
-        $data['timelines'] = $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines));
+        $data['timelines'] = $this->whenLoaded('timelines', fn () => UnifiedTimelineResource::collection($this->timelines));
 
         return $data;
     }
@@ -129,8 +130,8 @@ class InternalTransferOrderResource extends JsonResource
 
         return match ($status) {
             'rejected' => [
-                'branch_manager_name' => $this->whenLoaded('requestedBy', fn() => $this->requestedBy->name) ?? null,
-                'branch_manager_image' => $this->whenLoaded('requestedBy', fn() => $this->requestedBy->image_url) ?? null,
+                'branch_manager_name' => $this->whenLoaded('requestedBy', fn () => $this->requestedBy->name) ?? null,
+                'branch_manager_image' => $this->whenLoaded('requestedBy', fn () => $this->requestedBy->image_url) ?? null,
                 'rejection_reason' => $this->rejection_reason,
                 'rejected_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
                 'rejected_by' => $this->whenLoaded('requestedBy', function () {
@@ -151,7 +152,7 @@ class InternalTransferOrderResource extends JsonResource
                 'arrival_date_time' => $this->expected_delivery_at?->format('Y-m-d H:i:s')
                     ?? $this->confirmed_at?->format('Y-m-d H:i:s'),
                 'all_items_confirmed' => $this->relationLoaded('items')
-                    ? $this->items->every(fn($item) => $item->quantity_confirmed !== null)
+                    ? $this->items->every(fn ($item) => $item->quantity_confirmed !== null)
                     : false,
             ],
             'draft' => [

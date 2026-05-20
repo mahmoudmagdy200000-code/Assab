@@ -110,7 +110,7 @@ class TimelineService
             $order,
             TimelineEventType::ORDER_CANCELED,
             'Order Canceled',
-            $reason ? "Order was canceled: {$reason}" : "Order was canceled",
+            $reason ? "Order was canceled: {$reason}" : 'Order was canceled',
             $order->status->value,
             'cancelled',
             ['reason' => $reason]
@@ -123,7 +123,7 @@ class TimelineService
             $order,
             TimelineEventType::ORDER_MODIFIED,
             'Order Modified',
-            "Order items were modified",
+            'Order items were modified',
             null,
             'pending_approval',
             ['modifications' => $modifications]
@@ -136,7 +136,7 @@ class TimelineService
             $order,
             TimelineEventType::APPROVAL_GRANTED,
             'Modifications Approved',
-            "Order modifications were approved",
+            'Order modifications were approved',
             'pending_approval',
             'confirmed'
         );
@@ -263,7 +263,7 @@ class TimelineService
             $order,
             TimelineEventType::PREPARATION_STARTED,
             'Preparation Started',
-            "Order preparation has started",
+            'Order preparation has started',
             'confirmed',
             'preparing'
         );
@@ -288,7 +288,7 @@ class TimelineService
             $order,
             TimelineEventType::DELIVERED,
             'Order Delivered',
-            "Order was delivered",
+            'Order was delivered',
             'on_the_way',
             'delivered'
         );
@@ -300,7 +300,7 @@ class TimelineService
             $order,
             TimelineEventType::ORDER_CONFIRMED,
             'Order Closed',
-            "Order was closed successfully",
+            'Order was closed successfully',
             $order->status->value,
             'closed'
         );
@@ -338,7 +338,7 @@ class TimelineService
             $receipt,
             TimelineEventType::INSPECTION_COMPLETED,
             'Inspection Completed',
-            "Goods inspection completed",
+            'Goods inspection completed',
             'in_progress',
             $receipt->status,
             [
@@ -387,7 +387,7 @@ class TimelineService
             $variance,
             TimelineEventType::VARIANCE_ACCEPTED,
             'Variance Accepted',
-            "Variance was accepted as is"
+            'Variance was accepted as is'
         );
     }
 
@@ -423,7 +423,7 @@ class TimelineService
             $variance,
             TimelineEventType::APPROVAL_GRANTED,
             'Variance Approved',
-            "Variance claim was approved by supplier"
+            'Variance claim was approved by supplier'
         );
     }
 
@@ -446,7 +446,7 @@ class TimelineService
             $model,
             TimelineEventType::ORDER_CONFIRMED,
             'Rejection Accepted',
-            "Rejection was accepted by branch manager"
+            'Rejection was accepted by branch manager'
         );
     }
 
@@ -456,7 +456,7 @@ class TimelineService
             $variance,
             TimelineEventType::RETURN_ESCALATED,
             'Variance Escalated',
-            "Variance was escalated to Brand Owner",
+            'Variance was escalated to Brand Owner',
             null,
             'escalated',
             ['reason' => $reason]
@@ -469,7 +469,7 @@ class TimelineService
             $variance,
             TimelineEventType::RETURN_RESOLVED,
             'Variance Resolved',
-            "Variance was resolved"
+            'Variance was resolved'
         );
     }
 
@@ -490,7 +490,7 @@ class TimelineService
             $return,
             TimelineEventType::RETURN_SUBMITTED,
             'Return Submitted',
-            "Return order was submitted for review",
+            'Return order was submitted for review',
             'draft',
             'pending'
         );
@@ -502,7 +502,7 @@ class TimelineService
             $return,
             TimelineEventType::RETURN_APPROVED,
             'Return Approved',
-            "Return order was approved",
+            'Return order was approved',
             'pending',
             'approved'
         );
@@ -527,7 +527,7 @@ class TimelineService
             $return,
             TimelineEventType::RETURN_ESCALATED,
             'Return Escalated',
-            "Return was escalated to Brand Owner",
+            'Return was escalated to Brand Owner',
             null,
             'escalated',
             ['reason' => $reason]
@@ -740,7 +740,7 @@ class TimelineService
             $variance,
             TimelineEventType::ORDER_VIEWED,
             'Variance Viewed',
-            "Variance was viewed by supplier",
+            'Variance was viewed by supplier',
             null,
             null,
             [

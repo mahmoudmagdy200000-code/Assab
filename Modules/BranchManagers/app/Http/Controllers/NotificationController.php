@@ -2,13 +2,15 @@
 
 namespace Modules\BranchManagers\Http\Controllers;
 
+use App\ApiResponse as ApiResponseTrait;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use App\ApiResponse as ApiResponseTrait;
+
 class NotificationController extends Controller
 {
     use ApiResponseTrait;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');

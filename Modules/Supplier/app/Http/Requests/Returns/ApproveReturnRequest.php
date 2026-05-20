@@ -20,4 +20,3 @@ class ApproveReturnRequest extends FormRequest
         ];
     }
 }
-

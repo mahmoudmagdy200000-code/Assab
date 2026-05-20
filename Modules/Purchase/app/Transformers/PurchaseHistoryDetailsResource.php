@@ -3,17 +3,16 @@
 namespace Modules\Purchase\Transformers;
 
 use App\Http\Resources\UnifiedTimelineResource;
-use Illuminate\Http\Resources\Json\JsonResource;
-use Modules\Purchase\Models\BranchInventory;
-use Modules\Purchase\Enums\OrderType;
-use Modules\Purchase\Enums\OrderStatus;
-use Modules\Purchase\Enums\DocumentType;
-use Modules\Purchase\Enums\TimelineEventType;
 use Carbon\Carbon;
+use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\Purchase\Enums\DocumentType;
+use Modules\Purchase\Enums\OrderStatus;
+use Modules\Purchase\Enums\OrderType;
+use Modules\Purchase\Enums\TimelineEventType;
+use Modules\Purchase\Models\BranchInventory;
 
 class PurchaseHistoryDetailsResource extends JsonResource
 {
-
     /**
      * Transform the resource into an array.
      *
@@ -46,14 +45,12 @@ class PurchaseHistoryDetailsResource extends JsonResource
      * Get reason for rejected/cancelled order
      * Returns full object with cancellation/rejection details, null otherwise
      * Only returns cancellation_reason if cancelled by branch or supplier
-     *
-     * @return array|null
      */
     private function getReasonForRejected(): ?array
     {
         $status = $this->status;
 
-        if (!$status) {
+        if (! $status) {
             return null;
         }
 
@@ -74,6 +71,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
         // Delay rejected by branch (same structure as cancellation)
         if ($status === OrderStatus::DELAYED_CANCELED) {
             $cancelledBy = $this->getDelayBranchManagerForRejection();
+
             return [
                 'cancellation_reason' => $this->cancellation_reason ?? null,
                 'cancelled_at' => $this->canceled_at?->format('Y-m-d\TH:i:s\Z'),
@@ -149,8 +147,10 @@ class PurchaseHistoryDetailsResource extends JsonResource
         $branchManager = $this->getDelayBranchManager();
         if ($branchManager) {
             $branchManager['type'] = 'branch_manager';
+
             return $branchManager;
         }
+
         return $this->getCancelledByInfo(OrderStatus::DELAYED_CANCELED);
     }
 
@@ -179,9 +179,10 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'delay_details' => $this->getDelayDetails(),
             ],
             'product_details' => $this->whenLoaded('items', function () {
-                if (!$this->items) {
+                if (! $this->items) {
                     return [];
                 }
+
                 return $this->items->map(function ($item) {
                     $hasVariance = $item->quantity_received !== null && (float) ($item->quantity_variance ?? 0) != 0;
                     $effectiveTotal = $hasVariance && $item->quantity_received !== null
@@ -221,7 +222,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 })->all();
             }) ?? [],
             'supplier' => $this->supplierFragment(),
-            'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn () => UnifiedTimelineResource::collection($this->timelines)),
         ];
     }
 
@@ -249,9 +250,10 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'delay_details' => $this->getDelayDetails(),
             ],
             'product_details' => $this->whenLoaded('items', function () {
-                if (!$this->items) {
+                if (! $this->items) {
                     return [];
                 }
+
                 return $this->items->map(function ($item) {
                     $hasVariance = $item->quantity_received !== null && (float) ($item->quantity_variance ?? 0) != 0;
                     $effectiveTotal = $hasVariance && $item->quantity_received !== null
@@ -281,7 +283,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 })->all();
             }) ?? [],
             'supplier' => null,
-            'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn () => UnifiedTimelineResource::collection($this->timelines)),
         ];
     }
 
@@ -323,7 +325,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 $inventories = collect();
                 if ($fromBranchId && $this->items->isNotEmpty()) {
                     $itemIds = $this->items->pluck('item_id')->filter()->unique()->toArray();
-                    if (!empty($itemIds)) {
+                    if (! empty($itemIds)) {
                         $inventories = BranchInventory::where('branch_id', $fromBranchId)
                             ->whereIn('item_id', $itemIds)
                             ->get()
@@ -387,7 +389,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 })->all();
             }) ?? [],
             'supplier' => null,
-            'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn () => UnifiedTimelineResource::collection($this->timelines)),
         ];
     }
 
@@ -396,9 +398,10 @@ class PurchaseHistoryDetailsResource extends JsonResource
      */
     private function supplierFragment(): ?array
     {
-        if (!$this->relationLoaded('supplier') || !$this->supplier) {
+        if (! $this->relationLoaded('supplier') || ! $this->supplier) {
             return null;
         }
+
         return [
             'id' => $this->supplier->id,
             'name' => $this->supplier->name,
@@ -418,15 +421,14 @@ class PurchaseHistoryDetailsResource extends JsonResource
     /**
      * Calculate price comparison for a single item in Via Purchasing Officer orders
      *
-     * @param mixed $item
-     * @return array
+     * @param  mixed  $item
      */
     private function calculatePriceComparisonForItem($item): array
     {
         $itemId = $item->item_id;
         $quantity = (float) $item->quantity_ordered;
 
-        if (!$itemId) {
+        if (! $itemId) {
             return [
                 'direct_supplier_price_same_item' => 'n/a',
                 'VIA_PURCHASING_OFFICER_same_item' => 'n/a',
@@ -459,7 +461,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
         // Get the best direct supplier price for this item
         $supplierItem = \Modules\Purchase\Models\SupplierItem::with('supplier')
             ->where('item_id', $itemId)
-            ->whereHas('supplier', fn($q) => $q->active())
+            ->whereHas('supplier', fn ($q) => $q->active())
             ->where('is_available', true)
             ->orderBy('unit_price')
             ->first();
@@ -494,12 +496,10 @@ class PurchaseHistoryDetailsResource extends JsonResource
      * - For INTERNAL_TRANSFER: Branch information (id, name, location)
      * - For DIRECT_SUPPLIER: Supplier information (id, name, image, status)
      * - For VIA_PURCHASING_OFFICER: null (no source branch/supplier)
-     *
-     * @return array|string
      */
     private function getFromData(): array|string
     {
-        if (!$this->order_type) {
+        if (! $this->order_type) {
             return 'n/a';
         }
 
@@ -513,8 +513,6 @@ class PurchaseHistoryDetailsResource extends JsonResource
 
     /**
      * Get from branch data for internal transfer orders
-     *
-     * @return array|string
      */
     private function getFromBranchData(): array|string
     {
@@ -535,8 +533,6 @@ class PurchaseHistoryDetailsResource extends JsonResource
 
     /**
      * Get supplier data for direct supplier orders
-     *
-     * @return array|string
      */
     private function getSupplierData(): array|string
     {
@@ -556,13 +552,11 @@ class PurchaseHistoryDetailsResource extends JsonResource
 
     /**
      * Get delay details if order is delayed
-     *
-     * @return array|null
      */
     private function getDelayDetails(): ?array
     {
         // Only return delay details if order status is DELAYED, DELAYED_CONFIRMED, or DELAYED_CANCELED
-        if (!in_array($this->status, [
+        if (! in_array($this->status, [
             OrderStatus::DELAYED,
             OrderStatus::DELAYED_CONFIRMED,
             OrderStatus::DELAYED_CANCELED,
@@ -584,74 +578,69 @@ class PurchaseHistoryDetailsResource extends JsonResource
 
     /**
      * When did supplier report the delay (from first DELIVERY_DELAYED timeline event).
-     *
-     * @return string|null
      */
     private function getDelayReportedAt(): ?string
     {
-        if (!$this->relationLoaded('timelines')) {
+        if (! $this->relationLoaded('timelines')) {
             return null;
         }
         $event = $this->timelines
             ->where('event_type', TimelineEventType::DELIVERY_DELAYED)
             ->sortBy('occurred_at')
             ->first();
+
         return $event?->occurred_at?->format('Y-m-d H:i:s');
     }
 
     /**
      * When did branch manager approve the delay (from first delay approval timeline event).
-     *
-     * @return string|null
      */
     private function getDelayApprovedAt(): ?string
     {
-        if (!$this->relationLoaded('timelines')) {
+        if (! $this->relationLoaded('timelines')) {
             return null;
         }
         $event = $this->timelines
-            ->filter(fn($t) => $t->event_type === TimelineEventType::APPROVAL_GRANTED
+            ->filter(fn ($t) => $t->event_type === TimelineEventType::APPROVAL_GRANTED
                 && ($t->metadata['approval_type'] ?? null) === 'delay')
             ->sortBy('occurred_at')
             ->first();
+
         return $event?->occurred_at?->format('Y-m-d H:i:s');
     }
 
     /**
      * When did branch manager reject the delay (from first delay rejection timeline event).
-     *
-     * @return string|null
      */
     private function getDelayRejectedAt(): ?string
     {
-        if (!$this->relationLoaded('timelines')) {
+        if (! $this->relationLoaded('timelines')) {
             return null;
         }
         $event = $this->timelines
-            ->filter(fn($t) => $t->event_type === TimelineEventType::APPROVAL_DENIED
+            ->filter(fn ($t) => $t->event_type === TimelineEventType::APPROVAL_DENIED
                 && ($t->metadata['approval_type'] ?? null) === 'delay')
             ->sortBy('occurred_at')
             ->first();
+
         return $event?->occurred_at?->format('Y-m-d H:i:s');
     }
 
     /**
      * Branch manager who approved or rejected the delay (from timeline actor).
-     *
-     * @return array|null
      */
     private function getDelayBranchManager(): ?array
     {
-        if (!$this->relationLoaded('timelines')) {
+        if (! $this->relationLoaded('timelines')) {
             return $this->getDelayBranchManagerFromRequestedBy();
         }
         $approveEvent = $this->timelines
-            ->filter(fn($t) => $t->event_type === TimelineEventType::APPROVAL_GRANTED
+            ->filter(fn ($t) => $t->event_type === TimelineEventType::APPROVAL_GRANTED
                 && ($t->metadata['approval_type'] ?? null) === 'delay')
             ->sortByDesc('occurred_at')
             ->first();
         $rejectEvent = $this->timelines
-            ->filter(fn($t) => $t->event_type === TimelineEventType::APPROVAL_DENIED
+            ->filter(fn ($t) => $t->event_type === TimelineEventType::APPROVAL_DENIED
                 && ($t->metadata['approval_type'] ?? null) === 'delay')
             ->sortByDesc('occurred_at')
             ->first();
@@ -663,19 +652,19 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'image' => $event->actor_image_url ?? null,
             ];
         }
+
         return $this->getDelayBranchManagerFromRequestedBy();
     }
 
     /**
      * Fallback: branch manager from order requestedBy (when timeline actor not available).
-     *
-     * @return array|null
      */
     private function getDelayBranchManagerFromRequestedBy(): ?array
     {
-        if (!$this->relationLoaded('requestedBy') || !$this->requestedBy) {
+        if (! $this->relationLoaded('requestedBy') || ! $this->requestedBy) {
             return null;
         }
+
         return [
             'id' => $this->requestedBy->id,
             'name' => $this->requestedBy->name,
@@ -686,8 +675,6 @@ class PurchaseHistoryDetailsResource extends JsonResource
     /**
      * Get delay reason as message only (not JSON map).
      * If delay_reason is stored as JSON with "message" key, return that; otherwise return as-is.
-     *
-     * @return string|null
      */
     private function getDelayReasonMessage(): ?string
     {
@@ -699,6 +686,7 @@ class PurchaseHistoryDetailsResource extends JsonResource
         if (is_array($decoded) && isset($decoded['message'])) {
             return (string) $decoded['message'];
         }
+
         return $reason;
     }
 
@@ -707,28 +695,27 @@ class PurchaseHistoryDetailsResource extends JsonResource
      * Uses FileResource structure (id, file_name, file_type, file_size, url, uploaded_at).
      * First checks delay_reason JSON for photo path; otherwise delay-related documents.
      * No null values: strings default to '', file_size to 0.
-     *
-     * @return array|null
      */
     private function getDelayAttachment(): ?array
     {
         $reason = $this->delay_reason ?? null;
         if (is_string($reason)) {
             $decoded = json_decode($reason, true);
-            if (is_array($decoded) && !empty($decoded['photo'])) {
+            if (is_array($decoded) && ! empty($decoded['photo'])) {
                 $photoPath = $decoded['photo'];
                 $fileResource = FileResource::make($photoPath)->toArray(request());
+
                 return $this->fileResourceWithoutNulls($fileResource);
             }
         }
 
-        if (!$this->relationLoaded('documents')) {
+        if (! $this->relationLoaded('documents')) {
             return null;
         }
 
         $delayDocument = $this->documents
             ->filter(function ($doc) {
-                if (!in_array($doc->type, [DocumentType::PHOTO, DocumentType::OTHER])) {
+                if (! in_array($doc->type, [DocumentType::PHOTO, DocumentType::OTHER])) {
                     return false;
                 }
                 $title = strtolower($doc->title ?? '');
@@ -739,22 +726,24 @@ class PurchaseHistoryDetailsResource extends JsonResource
                         return true;
                     }
                 }
+
                 return false;
             })
             ->first();
 
-        if (!$delayDocument) {
+        if (! $delayDocument) {
             return null;
         }
 
         $fileResource = FileResource::make($delayDocument)->toArray(request());
+
         return $this->fileResourceWithoutNulls($fileResource);
     }
 
     /**
      * Ensure FileResource-shaped array has no null values (same object contract).
      *
-     * @param array<string, mixed> $arr
+     * @param  array<string, mixed>  $arr
      * @return array<string, mixed>
      */
     private function fileResourceWithoutNulls(array $arr): array
@@ -771,15 +760,13 @@ class PurchaseHistoryDetailsResource extends JsonResource
 
     /**
      * Get contact methods with their details (email, phone, etc.)
-     *
-     * @return array
      */
     private function getContactMethodsWithDetails(): array
     {
         // Get contact methods from order or supplier
         $contactMethods = $this->notification_channels ?? $this->supplier?->contact_methods ?? [];
 
-        if (empty($contactMethods) || !is_array($contactMethods)) {
+        if (empty($contactMethods) || ! is_array($contactMethods)) {
             return [];
         }
 

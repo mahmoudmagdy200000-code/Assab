@@ -14,7 +14,7 @@ enum ResponsibilityType: string
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::I_WAS_RESPONSIBLE => 'I Was Responsible (أنا المسؤول)',
             self::ME_AND_OTHER_FACTORS => 'Me and Other Factors (أنا وعوامل أخرى)',
             self::OTHER_FACTORS => 'Other Factors (عوامل أخرى)',
@@ -24,7 +24,7 @@ enum ResponsibilityType: string
 
     public function description(): string
     {
-        return match($this) {
+        return match ($this) {
             self::I_WAS_RESPONSIBLE => 'The cashier accepts full responsibility for the variance',
             self::ME_AND_OTHER_FACTORS => 'The variance is shared between the cashier and other cashiers',
             self::OTHER_FACTORS => 'The variance is due to external factors (not cashier responsibility)',

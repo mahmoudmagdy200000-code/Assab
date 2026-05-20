@@ -5,8 +5,8 @@ declare(strict_types=1);
 // Scans Modules/**/*.php for cross-module `use Modules\...` edges (for CODE_REVIEW_GRAPH.md).
 
 $root = dirname(__DIR__);
-$modulesDir = $root . DIRECTORY_SEPARATOR . 'Modules';
-$statusFile = $root . DIRECTORY_SEPARATOR . 'modules_statuses.json';
+$modulesDir = $root.DIRECTORY_SEPARATOR.'Modules';
+$statusFile = $root.DIRECTORY_SEPARATOR.'modules_statuses.json';
 
 if (! is_dir($modulesDir)) {
     fwrite(STDERR, "Modules directory not found.\n");

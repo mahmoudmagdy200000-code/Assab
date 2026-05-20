@@ -10,7 +10,7 @@ enum InspectionQuality: string
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::EXCELLENT => 'Excellent',
             self::NORMAL => 'Normal',
             self::POOR => 'Poor',
@@ -19,7 +19,7 @@ enum InspectionQuality: string
 
     public function score(): int
     {
-        return match($this) {
+        return match ($this) {
             self::EXCELLENT => 100,
             self::NORMAL => 70,
             self::POOR => 30,
@@ -28,11 +28,10 @@ enum InspectionQuality: string
 
     public function color(): string
     {
-        return match($this) {
+        return match ($this) {
             self::EXCELLENT => '#22C55E',
             self::NORMAL => '#F59E0B',
             self::POOR => '#EF4444',
         };
     }
 }
-

@@ -26,11 +26,11 @@ class PasswordResetController extends BaseController
             ->orWhere('phone', $request->identifier)
             ->first();
 
-        if (!$cashier) {
+        if (! $cashier) {
             return $this->errorResponse('Cashier not found.', 404);
         }
 
-        if (!$cashier->isActive()) {
+        if (! $cashier->isActive()) {
             return $this->errorResponse('Your account is not active. Please contact your manager.', 403);
         }
 
@@ -61,7 +61,7 @@ class PasswordResetController extends BaseController
             type: $type
         );
 
-        if (!$isValid) {
+        if (! $isValid) {
             return $this->errorResponse('Invalid or expired OTP.', 400);
         }
 
@@ -77,7 +77,7 @@ class PasswordResetController extends BaseController
      */
     public function resetPassword(ResetPasswordRequest $request): JsonResponse
     {
-        if (!$this->otpService->verifyResetToken($request->identifier, $request->reset_token)) {
+        if (! $this->otpService->verifyResetToken($request->identifier, $request->reset_token)) {
             return $this->errorResponse('Invalid or expired reset token.', 400);
         }
 
@@ -85,7 +85,7 @@ class PasswordResetController extends BaseController
             ->orWhere('phone', $request->identifier)
             ->first();
 
-        if (!$cashier) {
+        if (! $cashier) {
             return $this->errorResponse('Cashier not found.', 404);
         }
 

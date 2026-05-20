@@ -2,11 +2,10 @@
 
 namespace Modules\Purchase\Transformers;
 
+use Carbon\Carbon;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Models\BranchInventory;
-use Modules\Purchase\Services\PriceComparisonService;
-use Carbon\Carbon;
 
 class OrderSummaryResource extends JsonResource
 {
@@ -14,7 +13,6 @@ class OrderSummaryResource extends JsonResource
      * Transform the resource into an array.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @return array
      */
     public function toArray($request): array
     {
@@ -43,9 +41,10 @@ class OrderSummaryResource extends JsonResource
         return [
             'request_summary' => [
                 'supplier' => $this->whenLoaded('supplier', function () {
-                    if (!$this->supplier) {
+                    if (! $this->supplier) {
                         return null;
                     }
+
                     return [
                         'id' => $this->supplier->id,
                         'name' => $this->supplier->name,
@@ -105,9 +104,10 @@ class OrderSummaryResource extends JsonResource
                     'lng' => $this->branch?->lng ? (float) $this->branch->lng : null,
                 ],
                 'requested_by' => $this->whenLoaded('requestedBy', function () {
-                    if (!$this->requestedBy) {
+                    if (! $this->requestedBy) {
                         return ['name' => 'Me', 'image' => null];
                     }
+
                     return [
                         'id' => $this->requestedBy->id,
                         'name' => $this->requestedBy->name,
@@ -162,9 +162,10 @@ class OrderSummaryResource extends JsonResource
                     'lng' => $this->fromBranch?->lng ? (float) $this->fromBranch->lng : null,
                 ],
                 'requested_by' => $this->whenLoaded('requestedBy', function () {
-                    if (!$this->requestedBy) {
+                    if (! $this->requestedBy) {
                         return ['name' => 'Me', 'image' => null];
                     }
+
                     return [
                         'id' => $this->requestedBy->id,
                         'name' => $this->requestedBy->name,
@@ -176,7 +177,7 @@ class OrderSummaryResource extends JsonResource
             'items' => $this->getInternalTransferItems(),
             'transport_details' => [
                 'method' => $this->transport_method ?? 'Vehicle (Free)',
-                'estimated_time' => $this->estimated_transport_hours ? round($this->estimated_transport_hours, 1) . ' Hours' : null,
+                'estimated_time' => $this->estimated_transport_hours ? round($this->estimated_transport_hours, 1).' Hours' : null,
                 'driver' => $this->driver_name ?? 'Auto-assigned',
                 'temperature' => $this->temperature,
             ],
@@ -197,7 +198,7 @@ class OrderSummaryResource extends JsonResource
         $inventories = collect();
         if ($fromBranchId && $this->items->isNotEmpty()) {
             $itemIds = $this->items->pluck('item_id')->filter()->unique()->toArray();
-            if (!empty($itemIds)) {
+            if (! empty($itemIds)) {
                 $inventories = BranchInventory::where('branch_id', $fromBranchId)
                     ->whereIn('item_id', $itemIds)
                     ->get()
@@ -264,7 +265,6 @@ class OrderSummaryResource extends JsonResource
         })->toArray();
     }
 
-
     /**
      * Calculate price comparison for Via Purchasing Officer orders
      */
@@ -319,7 +319,7 @@ class OrderSummaryResource extends JsonResource
         // Get the best direct supplier price for this item
         $supplierItem = \Modules\Purchase\Models\SupplierItem::with('supplier')
             ->where('item_id', $itemId)
-            ->whereHas('supplier', fn($q) => $q->active())
+            ->whereHas('supplier', fn ($q) => $q->active())
             ->where('is_available', true)
             ->orderBy('unit_price')
             ->first();

@@ -3,17 +3,17 @@
 namespace Modules\Branch\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Modules\Aggregator\Models\Aggregator;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
-use Modules\Shift\Models\Shift;
 use Modules\Purchase\Models\BranchItem;
+use Modules\Shift\Models\Shift;
+
 class Branch extends Model
 {
     use HasFactory, HasUuids;
-
 
     protected $fillable = [
         'name',

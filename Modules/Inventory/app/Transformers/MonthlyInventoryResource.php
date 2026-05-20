@@ -46,6 +46,7 @@ class MonthlyInventoryResource extends JsonResource
             'staff' => $this->whenLoaded('staff', function () use ($inventoriedProducts) {
                 return $this->staff->map(function ($s) use ($inventoriedProducts) {
                     $user = $s->user;
+
                     return [
                         'id' => $s->id,
                         'user_id' => $s->user_id,

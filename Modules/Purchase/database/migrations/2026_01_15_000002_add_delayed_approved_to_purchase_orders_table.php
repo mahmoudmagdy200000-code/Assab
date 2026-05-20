@@ -8,13 +8,13 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
-     * 
+     *
      * Adds delayed_approved status to purchase_orders table
      */
     public function up(): void
     {
         $driver = DB::getDriverName();
-        
+
         // SQLite doesn't support MODIFY COLUMN or ENUM
         if ($driver === 'sqlite') {
             return;
@@ -45,7 +45,7 @@ return new class extends Migration
             ) DEFAULT 'draft'");
         } catch (\Exception $e) {
             // If enum modification fails, log and continue
-            Log::warning('Migration add_delayed_approved_to_purchase_orders: ' . $e->getMessage());
+            Log::warning('Migration add_delayed_approved_to_purchase_orders: '.$e->getMessage());
         }
     }
 
@@ -55,7 +55,7 @@ return new class extends Migration
     public function down(): void
     {
         $driver = DB::getDriverName();
-        
+
         // SQLite doesn't support MODIFY COLUMN or ENUM
         if ($driver === 'sqlite') {
             return;
@@ -89,9 +89,7 @@ return new class extends Migration
                 'partial_confirmed'
             ) DEFAULT 'draft'");
         } catch (\Exception $e) {
-            Log::warning('Migration rollback add_delayed_approved_to_purchase_orders: ' . $e->getMessage());
+            Log::warning('Migration rollback add_delayed_approved_to_purchase_orders: '.$e->getMessage());
         }
     }
 };
-
-

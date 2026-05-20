@@ -94,7 +94,7 @@ class StoreRecurringOrderRequest extends FormRequest
         $validator->after(function (Validator $validator) {
             $hasDirect = $this->filled('direct_supplier');
             $hasOfficer = $this->filled('purchase_officer');
-            if (!$hasDirect && !$hasOfficer) {
+            if (! $hasDirect && ! $hasOfficer) {
                 $validator->errors()->add(
                     'direct_supplier',
                     'Either direct_supplier or purchase_officer must be provided.'
@@ -117,7 +117,7 @@ class StoreRecurringOrderRequest extends FormRequest
                     'Cannot select both "Review before sending" and "Send automatically without review".'
                 );
             }
-            if ($this->input('end_type') === 'date' && !$this->filled('end_date')) {
+            if ($this->input('end_type') === 'date' && ! $this->filled('end_date')) {
                 $validator->errors()->add('end_date', 'End date is required when end type is date.');
             }
             $this->validateLatestDeliveryDates($validator);
@@ -158,7 +158,7 @@ class StoreRecurringOrderRequest extends FormRequest
     private function normalizePurchaseOfficerId(): void
     {
         $po = $this->input('purchase_officer');
-        if (!is_array($po)) {
+        if (! is_array($po)) {
             return;
         }
         $id = $po['purchasing_officer_id'] ?? $po['branch_manager_id'] ?? $po['officer_id'] ?? null;

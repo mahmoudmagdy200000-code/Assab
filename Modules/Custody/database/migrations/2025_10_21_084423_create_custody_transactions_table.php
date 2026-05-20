@@ -17,7 +17,7 @@ return new class extends Migration
                 'Cash Transfer',
                 'Cash Handover',
                 'Bank Transfer',
-                'Expenses Deduction'
+                'Expenses Deduction',
             ]);
 
             $table->decimal('amount', 12, 2);

@@ -2,9 +2,9 @@
 
 namespace Modules\Cashier\Policies;
 
+use Illuminate\Auth\Access\HandlesAuthorization;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
-use Illuminate\Auth\Access\HandlesAuthorization;
 
 class CashierPolicy
 {
@@ -48,7 +48,7 @@ class CashierPolicy
     public function delete(BranchManager $manager, Cashier $cashier): bool
     {
         return $manager->branch_id === $cashier->branch_id
-            && !$cashier->hasActiveShift();
+            && ! $cashier->hasActiveShift();
     }
 
     /**

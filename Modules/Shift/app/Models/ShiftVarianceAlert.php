@@ -3,8 +3,8 @@
 namespace Modules\Shift\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Shift\Enums\AlertType;
 
@@ -33,6 +33,7 @@ class ShiftVarianceAlert extends Model
         'is_acknowledged' => 'boolean',
         'acknowledged_at' => 'datetime',
     ];
+
     public $timestamps = false;
 
     // Relationships

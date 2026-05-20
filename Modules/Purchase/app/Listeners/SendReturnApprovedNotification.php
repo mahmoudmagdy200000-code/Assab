@@ -10,12 +10,15 @@ use Modules\Purchase\Events\ReturnOrderApproved;
 class SendReturnApprovedNotification implements ShouldQueue
 {
     use InteractsWithQueue;
+
     public $afterCommit = true;
+
     public $tries = 4;
 
     public function backoff(): array
     {
         $jitter = random_int(1, 4);
+
         return [5 + $jitter, 20 + $jitter, 60 + $jitter, 120 + $jitter];
     }
 

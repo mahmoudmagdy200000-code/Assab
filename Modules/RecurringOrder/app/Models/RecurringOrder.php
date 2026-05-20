@@ -115,6 +115,7 @@ class RecurringOrder extends Model
         if (empty($search)) {
             return $query;
         }
+
         return $query->where('order_name', 'like', "%{$search}%");
     }
 }

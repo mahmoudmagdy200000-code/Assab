@@ -19,16 +19,16 @@ class CashSalesTransferService
         $query = CashSalesTransferRequest::query()
             ->where('brand_owner_id', $brandOwnerId);
 
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             $query->where('status', $filters['status']);
         }
-        if (!empty($filters['storeId'])) {
+        if (! empty($filters['storeId'])) {
             $query->where('branch_id', $filters['storeId']);
         }
-        if (!empty($filters['fromDate'])) {
+        if (! empty($filters['fromDate'])) {
             $query->whereDate('handover_date', '>=', $filters['fromDate']);
         }
-        if (!empty($filters['toDate'])) {
+        if (! empty($filters['toDate'])) {
             $query->whereDate('handover_date', '<=', $filters['toDate']);
         }
 
@@ -38,11 +38,11 @@ class CashSalesTransferService
             $sender = $this->resolveSender($t->sender_id, $t->sender_type);
 
             return [
-                'id'          => $t->id,
+                'id' => $t->id,
                 'submittedBy' => $sender['name'] ?? null,
-                'amount'      => (float) $t->handover_amount,
-                'dateTime'    => $t->created_at?->toIso8601String(),
-                'status'      => $t->status,
+                'amount' => (float) $t->handover_amount,
+                'dateTime' => $t->created_at?->toIso8601String(),
+                'status' => $t->status,
             ];
         })->values()->all();
 
@@ -50,9 +50,9 @@ class CashSalesTransferService
             'data' => $data,
             'meta' => [
                 'current_page' => $paginator->currentPage(),
-                'per_page'     => $paginator->perPage(),
-                'total'        => $paginator->total(),
-                'last_page'    => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'last_page' => $paginator->lastPage(),
             ],
         ];
     }
@@ -68,28 +68,28 @@ class CashSalesTransferService
 
         return [
             'requestId' => $request->id,
-            'status'    => $request->status,
-            'summary'   => [
-                'transferFrom'   => $sender['name'] ?? null,
-                'recipient'      => $request->brandOwner?->name,
+            'status' => $request->status,
+            'summary' => [
+                'transferFrom' => $sender['name'] ?? null,
+                'recipient' => $request->brandOwner?->name,
                 'handOverAmount' => (float) $request->handover_amount,
                 'handoverMethod' => $request->handover_method,
-                'handoverDate'   => $request->handover_date?->toIso8601String(),
+                'handoverDate' => $request->handover_date?->toIso8601String(),
             ],
             'senderDetails' => [
-                'name'       => $sender['name'] ?? null,
-                'image'      => $sender['image'] ?? null,
+                'name' => $sender['name'] ?? null,
+                'image' => $sender['image'] ?? null,
                 'branchName' => $request->branch?->name,
             ],
-            'timelines'    => [],
-            'approval'     => $this->buildApprovalBlock($request),
+            'timelines' => [],
+            'approval' => $this->buildApprovalBlock($request),
             'cancellation' => $this->buildCancellationBlock($request),
         ];
     }
 
     private function buildCancellationBlock(CashSalesTransferRequest $request): ?array
     {
-        if (strcasecmp((string) $request->status, 'rejected') !== 0 || !$request->rejected_by) {
+        if (strcasecmp((string) $request->status, 'rejected') !== 0 || ! $request->rejected_by) {
             return null;
         }
 
@@ -97,9 +97,9 @@ class CashSalesTransferService
 
         return [
             'cancellation_reason' => $request->rejection_reason,
-            'cancelled_at'        => $request->rejected_at?->toIso8601String(),
-            'cancelled_by'        => [
-                'id'   => $request->rejected_by,
+            'cancelled_at' => $request->rejected_at?->toIso8601String(),
+            'cancelled_by' => [
+                'id' => $request->rejected_by,
                 'name' => $brandOwner?->name,
                 'type' => 'brand_owner',
             ],
@@ -111,12 +111,12 @@ class CashSalesTransferService
         return DB::transaction(function () use ($id, $actor) {
             $request = CashSalesTransferRequest::lockForUpdate()->findOrFail($id);
 
-            if (!$request->isPending()) {
+            if (! $request->isPending()) {
                 throw new \RuntimeException('Only pending cash sales transfer requests can be approved.');
             }
 
             $request->update([
-                'status'      => 'approved',
+                'status' => 'approved',
                 'approved_by' => $actor->id,
                 'approved_at' => now(),
             ]);
@@ -130,14 +130,14 @@ class CashSalesTransferService
         return DB::transaction(function () use ($id, $actor, $reason) {
             $request = CashSalesTransferRequest::lockForUpdate()->findOrFail($id);
 
-            if (!$request->isPending()) {
+            if (! $request->isPending()) {
                 throw new \RuntimeException('Only pending cash sales transfer requests can be rejected.');
             }
 
             $request->update([
-                'status'           => 'rejected',
-                'rejected_by'      => $actor->id,
-                'rejected_at'      => now(),
+                'status' => 'rejected',
+                'rejected_by' => $actor->id,
+                'rejected_at' => now(),
                 'rejection_reason' => $reason,
             ]);
 
@@ -154,21 +154,21 @@ class CashSalesTransferService
         $actorId = match ($request->status) {
             'approved' => $request->approved_by,
             'rejected' => $request->rejected_by,
-            default    => null,
+            default => null,
         };
 
-        if (!$actorId) {
+        if (! $actorId) {
             return [];
         }
 
         $brandOwner = BrandOwner::find($actorId);
 
         return [[
-            'id'       => $actorId,
-            'name'     => $brandOwner?->name,
-            'role'     => 'brand_owner',
-            'imageUrl' => $brandOwner?->image ? asset('storage/' . $brandOwner->image) : null,
-            'status'   => $request->status,
+            'id' => $actorId,
+            'name' => $brandOwner?->name,
+            'role' => 'brand_owner',
+            'imageUrl' => $brandOwner?->image ? asset('storage/'.$brandOwner->image) : null,
+            'status' => $request->status,
         ]];
     }
 
@@ -176,16 +176,18 @@ class CashSalesTransferService
     {
         if ($senderType === 'cashier') {
             $c = Cashier::find($senderId);
+
             return [
-                'name'  => $c?->name,
-                'image' => $c?->image ? asset('storage/' . $c->image) : null,
+                'name' => $c?->name,
+                'image' => $c?->image ? asset('storage/'.$c->image) : null,
             ];
         }
 
         $bm = BranchManager::find($senderId);
+
         return [
-            'name'  => $bm?->name,
-            'image' => $bm?->image ? asset('storage/' . $bm->image) : null,
+            'name' => $bm?->name,
+            'image' => $bm?->image ? asset('storage/'.$bm->image) : null,
         ];
     }
 }

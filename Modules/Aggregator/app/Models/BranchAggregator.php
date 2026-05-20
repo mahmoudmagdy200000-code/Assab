@@ -10,6 +10,7 @@ use Modules\Branch\Models\Branch;
 class BranchAggregator extends Model
 {
     use HasUuids;
+
     protected $table = 'branch_aggregators';
 
     protected $fillable = [
@@ -56,4 +57,3 @@ class BranchAggregator extends Model
         return $query->where('aggregator_id', $aggregatorId);
     }
 }
-

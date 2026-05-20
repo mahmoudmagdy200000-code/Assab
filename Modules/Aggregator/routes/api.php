@@ -1,10 +1,9 @@
 <?php
+
 use Illuminate\Support\Facades\Route;
-use Modules\Aggregator\Http\Controllers\{
-    AggregatorController,
-    BranchAggregatorController,
-    AggregatorReportController
-};
+use Modules\Aggregator\Http\Controllers\AggregatorController;
+use Modules\Aggregator\Http\Controllers\AggregatorReportController;
+use Modules\Aggregator\Http\Controllers\BranchAggregatorController;
 
 /*
 |--------------------------------------------------------------------------

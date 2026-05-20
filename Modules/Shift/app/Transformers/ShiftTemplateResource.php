@@ -13,7 +13,7 @@ class ShiftTemplateResource extends JsonResource
         $isTaken = ($this->active_assignments_count ?? 0) > 0;
 
         // is_active = false when the shift is already taken by a cashier today
-        $isActive = !$isTaken && (bool) ($this->is_active ?? true);
+        $isActive = ! $isTaken && (bool) ($this->is_active ?? true);
 
         return [
             'id' => $this->id,

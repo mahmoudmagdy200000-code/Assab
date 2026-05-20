@@ -24,7 +24,7 @@ class ReturnOrderPolicy
      */
     public function view(BranchManager $user, ReturnOrder $return): bool
     {
-        return $user->branch_id === $return->branch_id || 
+        return $user->branch_id === $return->branch_id ||
                $user->id === $return->created_by;
     }
 
@@ -65,7 +65,7 @@ class ReturnOrderPolicy
      */
     public function escalate(BranchManager $user, ReturnOrder $return): bool
     {
-        return $user->id === $return->created_by && 
+        return $user->id === $return->created_by &&
                $return->status === ReturnStatus::REJECTED;
     }
 
@@ -74,8 +74,7 @@ class ReturnOrderPolicy
      */
     public function acceptRejection(BranchManager $user, ReturnOrder $return): bool
     {
-        return $user->id === $return->created_by && 
+        return $user->id === $return->created_by &&
                $return->status === ReturnStatus::REJECTED;
     }
 }
-

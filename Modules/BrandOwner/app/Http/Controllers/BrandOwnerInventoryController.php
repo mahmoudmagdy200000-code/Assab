@@ -23,7 +23,7 @@ class BrandOwnerInventoryController extends BaseController
 
     public function dailyIndex(Request $request): JsonResponse
     {
-        if (!$this->resolveBrandOwner()) {
+        if (! $this->resolveBrandOwner()) {
             return $this->forbiddenResponse('Only brand owners can access this resource.');
         }
 
@@ -37,7 +37,7 @@ class BrandOwnerInventoryController extends BaseController
 
     public function wasteDamageIndex(Request $request): JsonResponse
     {
-        if (!$this->resolveBrandOwner()) {
+        if (! $this->resolveBrandOwner()) {
             return $this->forbiddenResponse('Only brand owners can access this resource.');
         }
 
@@ -51,7 +51,7 @@ class BrandOwnerInventoryController extends BaseController
 
     public function dailyShow(string $requestId): JsonResponse
     {
-        if (!$this->resolveBrandOwner()) {
+        if (! $this->resolveBrandOwner()) {
             return $this->forbiddenResponse('Only brand owners can access this resource.');
         }
 
@@ -69,7 +69,7 @@ class BrandOwnerInventoryController extends BaseController
 
     public function wasteDamageShow(string $requestId): JsonResponse
     {
-        if (!$this->resolveBrandOwner()) {
+        if (! $this->resolveBrandOwner()) {
             return $this->forbiddenResponse('Only brand owners can access this resource.');
         }
 
@@ -88,7 +88,7 @@ class BrandOwnerInventoryController extends BaseController
     public function dailyApprove(string $requestId): JsonResponse
     {
         $owner = $this->resolveBrandOwner();
-        if (!$owner) {
+        if (! $owner) {
             return $this->forbiddenResponse('Only brand owners can access this resource.');
         }
 
@@ -106,7 +106,7 @@ class BrandOwnerInventoryController extends BaseController
     public function dailyReject(Request $request, string $requestId): JsonResponse
     {
         $owner = $this->resolveBrandOwner();
-        if (!$owner) {
+        if (! $owner) {
             return $this->forbiddenResponse('Only brand owners can access this resource.');
         }
 
@@ -124,7 +124,7 @@ class BrandOwnerInventoryController extends BaseController
     public function wasteDamageApprove(string $requestId): JsonResponse
     {
         $owner = $this->resolveBrandOwner();
-        if (!$owner) {
+        if (! $owner) {
             return $this->forbiddenResponse('Only brand owners can access this resource.');
         }
 
@@ -142,7 +142,7 @@ class BrandOwnerInventoryController extends BaseController
     public function wasteDamageReject(Request $request, string $requestId): JsonResponse
     {
         $owner = $this->resolveBrandOwner();
-        if (!$owner) {
+        if (! $owner) {
             return $this->forbiddenResponse('Only brand owners can access this resource.');
         }
 
@@ -160,6 +160,7 @@ class BrandOwnerInventoryController extends BaseController
     private function resolveBrandOwner(): ?BrandOwner
     {
         $user = auth()->user();
+
         return $user instanceof BrandOwner ? $user : null;
     }
 

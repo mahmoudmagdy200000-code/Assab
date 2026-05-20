@@ -14,7 +14,7 @@ class WasteDamageReportResource extends JsonResource
      */
     private function resolveReportType(): string
     {
-        if (!$this->relationLoaded('items') || $this->items->isEmpty()) {
+        if (! $this->relationLoaded('items') || $this->items->isEmpty()) {
             return 'waste_and_damage';
         }
         $types = $this->items->pluck('problem_type')->unique()->filter()->values();
@@ -26,6 +26,7 @@ class WasteDamageReportResource extends JsonResource
         if ($hasWaste && $hasDamage) {
             return 'waste_and_damage';
         }
+
         return $hasWaste ? 'waste' : 'damage';
     }
 
@@ -95,6 +96,7 @@ class WasteDamageReportResource extends JsonResource
         $name = $this->relationLoaded('createdBy') && $this->createdBy
             ? ($this->createdBy->name ?? 'Branch Manager')
             : 'Branch Manager';
+
         return "Your report has been successfully submitted by {$name} to management for review.";
     }
 

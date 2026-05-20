@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::table('branches', function (Blueprint $table) {
             // Add location column if it doesn't exist
-            if (!Schema::hasColumn('branches', 'location')) {
+            if (! Schema::hasColumn('branches', 'location')) {
                 $table->string('location')->nullable()->after('name');
             }
         });

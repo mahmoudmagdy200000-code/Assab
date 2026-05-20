@@ -5,20 +5,18 @@ namespace Modules\Shift\Services;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
+use Modules\Custody\Models\PersonalLedgerTransaction;
+use Modules\Shift\Enums\HandoverStatus;
+use Modules\Shift\Enums\ShiftHistoryAction;
+use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Exceptions\HandoverException;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
-use Modules\Shift\Services\BranchManagerShiftService;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\ShiftHandoverStatus;
 use Modules\Shift\Models\ShiftSalesBreakdown;
 use Modules\Shift\Models\ShiftVarianceAlert;
 use Modules\Shift\Models\ShiftVarianceDetail;
-use Modules\Shift\Enums\HandoverStatus;
-use Modules\Shift\Enums\ShiftHistoryAction;
-use Modules\Shift\Enums\ShiftStatus;
-use Modules\Shift\Exceptions\HandoverException;
-use Modules\Custody\Models\PersonalLedgerTransaction;
 
 /**
  * HandoverService
@@ -36,10 +34,6 @@ class HandoverService
     /**
      * Record a new handover
      * Supports both cashier-to-cashier and cashier-to-manager handovers
-     *
-     * @param CashierShift $shift
-     * @param array $data
-     * @return CashierShift
      */
     public function recordHandover(CashierShift $shift, array $data): CashierShift
     {
@@ -78,7 +72,7 @@ class HandoverService
 
             // Handle variance files upload
             $varianceFiles = null;
-            if (!empty($data['variance_files'])) {
+            if (! empty($data['variance_files'])) {
                 $varianceFiles = $this->uploadVarianceFiles($data['variance_files'], $shift->id);
             }
 
@@ -137,13 +131,13 @@ class HandoverService
                         ->where('transaction_type', 'Total Sales')
                         ->exists();
 
-                    if (!$alreadyHasTotalSales) {
+                    if (! $alreadyHasTotalSales) {
                         app(\Modules\Custody\Services\CashierCustodyService::class)
                             ->recordCashCollected($handover, $shift->cashier);
                     }
                 } catch (\Exception $e) {
                     Log::warning('Failed to create Total Sales entry', [
-                        'error'       => $e->getMessage(),
+                        'error' => $e->getMessage(),
                         'handover_id' => $handover->id,
                     ]);
                 }
@@ -190,12 +184,6 @@ class HandoverService
      * Approve a handover (by Branch Manager)
      *
      * Business Rule: Changes status from Pending → Approved
-     *
-     * @param CashierShift $shift
-     * @param string $reviewerId
-     * @param string $reviewerType
-     * @param string|null $managerComment
-     * @return CashierShift
      */
     public function approveHandover(
         CashierShift $shift,
@@ -207,7 +195,7 @@ class HandoverService
         try {
             // Ensure handoverStatus exists
             // Use updateOrCreate to avoid duplicate entry errors
-            if (!$shift->handoverStatus) {
+            if (! $shift->handoverStatus) {
                 ShiftHandoverStatus::updateOrCreate(
                     ['cashier_shift_id' => $shift->id],
                     [
@@ -361,7 +349,7 @@ class HandoverService
     {
         $shift->loadMissing('shift');
         $branchId = $shift->shift?->branch_id;
-        if (!$branchId) {
+        if (! $branchId) {
             return;
         }
 
@@ -434,14 +422,6 @@ class HandoverService
      * Business Rules:
      * - First rejection: Cashier can edit and resubmit
      * - Second rejection: Status permanently changes to 'rejected_final'
-     *
-     * @param CashierShift $shift
-     * @param string $reviewerId
-     * @param string $reviewerType
-     * @param string $reason
-     * @param array $files
-     * @param string|null $comment
-     * @return array
      */
     public function rejectHandover(
         CashierShift $shift,
@@ -456,7 +436,7 @@ class HandoverService
             $shift->loadMissing('handoverStatus');
             $handoverStatus = $shift->handoverStatus;
 
-            if (!$handoverStatus) {
+            if (! $handoverStatus) {
                 ShiftHandoverStatus::updateOrCreate(
                     ['cashier_shift_id' => $shift->id],
                     [
@@ -468,13 +448,13 @@ class HandoverService
                 $handoverStatus = $shift->handoverStatus;
             }
 
-            if (!$handoverStatus->canBeRejected()) {
+            if (! $handoverStatus->canBeRejected()) {
                 throw HandoverException::cannotBeRejected($handoverStatus->manager_approval_status);
             }
 
             $uploadedFiles = [];
             foreach ($files as $file) {
-                $filename = 'rejection_' . $shift->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+                $filename = 'rejection_'.$shift->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
                 $path = $file->storeAs('handover_rejections', $filename, 'public');
                 $uploadedFiles[] = $path;
             }
@@ -488,7 +468,7 @@ class HandoverService
                     'rejection_count' => $result['rejection_count'],
                 ]);
 
-            if (!$result['is_final_rejection']) {
+            if (! $result['is_final_rejection']) {
                 $this->revertCashierShiftAfterHandoverRejection($shift->fresh(), [
                     'rejection_reason' => $reason,
                     'manager_comment' => $comment,
@@ -540,10 +520,6 @@ class HandoverService
      * Edit handover after rejection (by Cashier)
      *
      * Business Rule: If cashier edits rejected handover → Can be re-approved or rejected again
-     *
-     * @param CashierShift $shift
-     * @param array $data
-     * @return CashierShift
      */
     public function recordHandoverEdit(CashierShift $shift, array $data): CashierShift
     {
@@ -551,7 +527,7 @@ class HandoverService
         try {
             $handoverStatus = $shift->handoverStatus;
 
-            if (!$handoverStatus->canCashierEdit()) {
+            if (! $handoverStatus->canCashierEdit()) {
                 throw HandoverException::cannotBeEdited();
             }
 
@@ -595,6 +571,7 @@ class HandoverService
             );
 
             DB::commit();
+
             return $shift->fresh(['handoverStatus', 'nextCashier']);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -606,11 +583,6 @@ class HandoverService
      * Accept a handover (by receiving Cashier)
      *
      * Used when next cashier accepts the handover from previous cashier
-     *
-     * @param CashierShift $shift
-     * @param string $cashierId
-     * @param string|null $comment
-     * @return void
      */
     public function acceptHandoverByCashier(
         CashierShift $shift,
@@ -623,11 +595,11 @@ class HandoverService
             $handover = CashierShiftHandover::where('cashier_shift_id', $shift->id)->first();
             $isRecipient = $shift->next_cashier_id === $cashierId
                 || ($handover && $handover->handover_to_type === 'cashier' && $handover->handover_to_id === $cashierId);
-            if (!$isRecipient) {
+            if (! $isRecipient) {
                 throw HandoverException::notAuthorizedToAccept();
             }
 
-            if (!$shift->handoverStatus) {
+            if (! $shift->handoverStatus) {
                 ShiftHandoverStatus::updateOrCreate(
                     ['cashier_shift_id' => $shift->id],
                     [
@@ -686,10 +658,11 @@ class HandoverService
                     ->where('cashier_shift_id', $shift->id)
                     ->first();
 
-                if (!$handover) {
+                if (! $handover) {
                     Log::error('Custody entries skipped: handover record not found after accept', [
                         'shift_id' => $shift->id,
                     ]);
+
                     return;
                 }
 
@@ -708,16 +681,16 @@ class HandoverService
                 }
 
                 Log::info('Custody entries created on handover accept', [
-                    'shift_id'     => $shift->id,
-                    'handover_id'  => $handover->id,
-                    'sender_id'    => $sendingCashier?->id,
-                    'receiver_id'  => $cashierId,
+                    'shift_id' => $shift->id,
+                    'handover_id' => $handover->id,
+                    'sender_id' => $sendingCashier?->id,
+                    'receiver_id' => $cashierId,
                 ]);
             } catch (\Exception $e) {
                 Log::error('Failed to create custody entries on handover accept', [
-                    'error'      => $e->getMessage(),
+                    'error' => $e->getMessage(),
                     'cashier_id' => $cashierId,
-                    'shift_id'   => $shift->id,
+                    'shift_id' => $shift->id,
                 ]);
             }
         } catch (\Exception $e) {
@@ -728,12 +701,6 @@ class HandoverService
 
     /**
      * Reject a handover (by receiving Cashier)
-     *
-     * @param CashierShift $shift
-     * @param string $cashierId
-     * @param string $reason
-     * @param array $files
-     * @return void
      */
     public function rejectHandoverByCashier(
         CashierShift $shift,
@@ -747,14 +714,14 @@ class HandoverService
             $handover = CashierShiftHandover::where('cashier_shift_id', $shift->id)->first();
             $isRecipient = $shift->next_cashier_id === $cashierId
                 || ($handover && $handover->handover_to_type === 'cashier' && $handover->handover_to_id === $cashierId);
-            if (!$isRecipient) {
+            if (! $isRecipient) {
                 throw HandoverException::notAuthorizedToReject();
             }
 
             // Upload rejection files
             $uploadedFiles = [];
             foreach ($files as $file) {
-                $filename = 'cashier_rejection_' . $shift->id . '_' . time() . '.' . $file->getClientOriginalExtension();
+                $filename = 'cashier_rejection_'.$shift->id.'_'.time().'.'.$file->getClientOriginalExtension();
                 $path = $file->storeAs('handover_rejections', $filename, 'public');
                 $uploadedFiles[] = $path;
             }
@@ -779,10 +746,6 @@ class HandoverService
     /**
      * Accept a reassigned shift (by the cashier the shift was reassigned to).
      * Used when manager reassigns a shift and the new cashier accepts.
-     *
-     * @param CashierShift $shift
-     * @param string $cashierId
-     * @return CashierShift
      */
     public function acceptReassignedShift(CashierShift $shift, string $cashierId): CashierShift
     {
@@ -796,7 +759,7 @@ class HandoverService
             }
 
             // Reassign without handover: no handover record; treat as already accepted.
-            if (!$shift->handoverStatus) {
+            if (! $shift->handoverStatus) {
                 $shift->update(['status' => ShiftStatus::NOT_STARTED]);
                 $shift->recordHistory(
                     'reassigned_shift_accepted_without_handover',
@@ -804,6 +767,7 @@ class HandoverService
                     ['status' => ShiftStatus::NOT_STARTED->value, 'accepted_by_cashier_id' => $cashierId]
                 );
                 DB::commit();
+
                 return $shift->fresh(['cashier', 'shift', 'originalCashier', 'reassignedBy']);
             }
 
@@ -832,6 +796,7 @@ class HandoverService
             );
 
             DB::commit();
+
             return $shift->fresh(['handoverStatus.reviewedBy', 'cashier', 'shift', 'originalCashier', 'reassignedBy']);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -847,12 +812,6 @@ class HandoverService
     /**
      * Reject a reassigned shift (by the cashier the shift was reassigned to).
      * Reverts the shift back to the original cashier with status in_progress.
-     *
-     * @param CashierShift $shift
-     * @param string $cashierId
-     * @param string $reason
-     * @param array $files
-     * @return CashierShift
      */
     public function rejectReassignedShift(
         CashierShift $shift,
@@ -868,13 +827,13 @@ class HandoverService
             if ($shift->cashier_id !== $cashierId) {
                 throw HandoverException::notAuthorizedForReassignment();
             }
-            if (!$shift->handoverStatus) {
+            if (! $shift->handoverStatus) {
                 throw HandoverException::rejectionOnlyForHandoverReassignment();
             }
             if (($shift->handoverStatus->manager_approval_status ?? '') !== 'pending') {
                 throw HandoverException::reassignedShiftNotPending();
             }
-            if (!$shift->original_cashier_id) {
+            if (! $shift->original_cashier_id) {
                 throw HandoverException::noOriginalCashier();
             }
 
@@ -882,7 +841,7 @@ class HandoverService
             foreach ($files as $file) {
                 $path = $file->storeAs(
                     'handover_rejections/reassign',
-                    'reassign_reject_' . $shift->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension(),
+                    'reassign_reject_'.$shift->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension(),
                     'public'
                 );
                 $uploadedFiles[] = $path;
@@ -894,7 +853,7 @@ class HandoverService
                 'reviewed_by_id' => $cashierId,
                 'reviewed_by_type' => \Modules\Cashier\Models\Cashier::class,
                 'rejection_reason' => $reason,
-                'rejection_files' => !empty($uploadedFiles) ? array_merge($shift->handoverStatus->rejection_files ?? [], $uploadedFiles) : ($shift->handoverStatus->rejection_files ?? null),
+                'rejection_files' => ! empty($uploadedFiles) ? array_merge($shift->handoverStatus->rejection_files ?? [], $uploadedFiles) : ($shift->handoverStatus->rejection_files ?? null),
                 'reviewed_at' => now(),
             ]);
 
@@ -918,6 +877,7 @@ class HandoverService
             );
 
             DB::commit();
+
             return $shift->fresh(['handoverStatus.reviewedBy', 'cashier', 'shift', 'originalCashier', 'reassignedBy']);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -935,9 +895,6 @@ class HandoverService
      *
      * Business Rule: System automatically ensures handover from Cashier 1 to Cashier 2
      * when shifts are consecutive (e.g., 9 AM – 6 PM → 6 PM – 12 AM)
-     *
-     * @param CashierShift $endedShift
-     * @return CashierShift|null
      */
     public function autoHandover(CashierShift $endedShift): ?CashierShift
     {
@@ -951,17 +908,17 @@ class HandoverService
 
             $recorded = $this->recordHandover($endedShift, [
                 'handover_to_type' => 'cashier',
-                'handover_to_id'   => $nextShift->cashier_id,
-                'next_cashier_id'  => $nextShift->cashier_id,
-                'handover_amount'  => $handoverAmount,
-                'handover_notes'   => 'Auto handover executed by system',
+                'handover_to_id' => $nextShift->cashier_id,
+                'next_cashier_id' => $nextShift->cashier_id,
+                'handover_amount' => $handoverAmount,
+                'handover_notes' => 'Auto handover executed by system',
             ]);
 
             $nextShift->update(['opening_balance' => $handoverAmount]);
 
             Log::info('Auto handover completed successfully', [
-                'shift_id'        => $endedShift->id,
-                'next_shift_id'   => $nextShift->id,
+                'shift_id' => $endedShift->id,
+                'next_shift_id' => $nextShift->id,
                 'next_cashier_id' => $nextShift->cashier_id,
                 'handover_amount' => $handoverAmount,
             ]);
@@ -970,8 +927,9 @@ class HandoverService
         } catch (\Exception $e) {
             Log::error('Auto handover failed', [
                 'shift_id' => $endedShift->id,
-                'error'    => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
+
             return null;
         }
     }
@@ -984,6 +942,7 @@ class HandoverService
         if ($variance > 0) {
             return 'Over';
         }
+
         return $variance < 0 ? 'Short' : 'None';
     }
 
@@ -995,6 +954,7 @@ class HandoverService
     {
         if ($endedShift->handoverStatus?->status === HandoverStatus::ACCEPTED) {
             Log::warning('Auto handover skipped: shift already handed over', ['shift_id' => $endedShift->id]);
+
             return null;
         }
 
@@ -1007,7 +967,7 @@ class HandoverService
             ->orderBy('shift_id')
             ->first();
 
-        if (!$nextShift) {
+        if (! $nextShift) {
             Log::info('No next shift found for auto handover', ['shift_id' => $endedShift->id]);
         }
 
@@ -1016,9 +976,6 @@ class HandoverService
 
     /**
      * Get handover summaries with statistics
-     *
-     * @param array $filters
-     * @return array
      */
     public function getHandoverSummaries(array $filters = []): array
     {
@@ -1027,31 +984,31 @@ class HandoverService
                 'handoverStatus',
                 'cashier',
                 'nextCashier',
-                'shift.branch'
+                'shift.branch',
             ])->whereHas('handoverStatus');
 
             // Apply filters
-            if (!empty($filters['branch_id'])) {
+            if (! empty($filters['branch_id'])) {
                 $query->whereHas('shift', function ($q) use ($filters) {
                     $q->where('branch_id', $filters['branch_id']);
                 });
             }
 
-            if (!empty($filters['date_from'])) {
+            if (! empty($filters['date_from'])) {
                 $query->where('shift_date', '>=', $filters['date_from']);
             }
 
-            if (!empty($filters['date_to'])) {
+            if (! empty($filters['date_to'])) {
                 $query->where('shift_date', '<=', $filters['date_to']);
             }
 
-            if (!empty($filters['status'])) {
+            if (! empty($filters['status'])) {
                 $query->whereHas('handoverStatus', function ($q) use ($filters) {
                     $q->where('manager_approval_status', $filters['status']);
                 });
             }
 
-            if (!empty($filters['cashier_id'])) {
+            if (! empty($filters['cashier_id'])) {
                 $query->where('cashier_id', $filters['cashier_id']);
             }
 
@@ -1059,17 +1016,17 @@ class HandoverService
 
             // Calculate statistics
             $totalHandovers = $shifts->count();
-            $pendingHandovers = $shifts->filter(fn($s) => $s->handoverStatus?->manager_approval_status === 'pending')->count();
-            $acceptedHandovers = $shifts->filter(fn($s) => $s->handoverStatus?->manager_approval_status === 'approved')->count();
-            $rejectedHandovers = $shifts->filter(fn($s) => in_array($s->handoverStatus?->manager_approval_status, ['rejected', 'rejected_final']))->count();
-            $finalRejectedHandovers = $shifts->filter(fn($s) => $s->handoverStatus?->manager_approval_status === 'rejected_final')->count();
+            $pendingHandovers = $shifts->filter(fn ($s) => $s->handoverStatus?->manager_approval_status === 'pending')->count();
+            $acceptedHandovers = $shifts->filter(fn ($s) => $s->handoverStatus?->manager_approval_status === 'approved')->count();
+            $rejectedHandovers = $shifts->filter(fn ($s) => in_array($s->handoverStatus?->manager_approval_status, ['rejected', 'rejected_final']))->count();
+            $finalRejectedHandovers = $shifts->filter(fn ($s) => $s->handoverStatus?->manager_approval_status === 'rejected_final')->count();
 
             // Variance statistics
             $totalVariance = $shifts->sum('variance');
             $avgVariance = $totalHandovers > 0 ? $shifts->avg('variance') : 0;
 
-            $overages = $shifts->filter(fn($s) => $s->variance > 0);
-            $shortages = $shifts->filter(fn($s) => $s->variance < 0);
+            $overages = $shifts->filter(fn ($s) => $s->variance > 0);
+            $shortages = $shifts->filter(fn ($s) => $s->variance < 0);
 
             $totalOverage = $overages->sum('variance');
             $totalShortage = abs($shortages->sum('variance'));
@@ -1088,12 +1045,12 @@ class HandoverService
                         'cashier_name' => $shift->cashier?->name,
                         'next_cashier_name' => $shift->nextCashier?->name,
                         'handover_amount' => (float) $shift->closing_balance,
-                        'variance'        => (float) $shift->variance,
-                        'variance_type'   => $this->resolveVarianceType((float) $shift->variance),
-                        'status'          => $shift->handoverStatus?->manager_approval_status,
+                        'variance' => (float) $shift->variance,
+                        'variance_type' => $this->resolveVarianceType((float) $shift->variance),
+                        'status' => $shift->handoverStatus?->manager_approval_status,
                         'rejection_count' => $shift->handoverStatus?->rejection_count ?? 0,
-                        'handed_over_at'  => $shift->handed_over_at?->format(self::DATETIME_FORMAT),
-                        'branch_name'     => $shift->shift?->branch?->name,
+                        'handed_over_at' => $shift->handed_over_at?->format(self::DATETIME_FORMAT),
+                        'branch_name' => $shift->shift?->branch?->name,
                     ];
                 })
                 ->values();
@@ -1118,7 +1075,7 @@ class HandoverService
                     'variance_breakdown' => [
                         'overages_count' => $overages->count(),
                         'shortages_count' => $shortages->count(),
-                        'exact_matches' => $shifts->filter(fn($s) => $s->variance == 0)->count(),
+                        'exact_matches' => $shifts->filter(fn ($s) => $s->variance == 0)->count(),
                     ],
                 ],
                 'recent_handovers' => $recentHandovers,
@@ -1137,17 +1094,13 @@ class HandoverService
 
     /**
      * Upload variance files
-     *
-     * @param array $files
-     * @param string $shiftId
-     * @return array
      */
     private function uploadVarianceFiles(array $files, string $shiftId): array
     {
         $uploadedFiles = [];
 
         foreach ($files as $file) {
-            $filename = 'variance_' . $shiftId . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+            $filename = 'variance_'.$shiftId.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
             $path = $file->storeAs('variance/files', $filename, 'public');
             $uploadedFiles[] = $path;
         }

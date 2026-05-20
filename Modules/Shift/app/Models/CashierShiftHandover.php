@@ -7,7 +7,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Modules\Cashier\Models\Cashier;
-use Modules\BranchManagers\Models\BranchManager;
 
 class CashierShiftHandover extends Model
 {
@@ -87,6 +86,7 @@ class CashierShiftHandover extends Model
         if ($this->handover_to_type === 'branch_manager') {
             return $this->handoverTo;
         }
+
         return null;
     }
 
@@ -160,6 +160,7 @@ class CashierShiftHandover extends Model
         } elseif ($this->variance_amount < 0) {
             return 'Short';
         }
+
         return 'None';
     }
 

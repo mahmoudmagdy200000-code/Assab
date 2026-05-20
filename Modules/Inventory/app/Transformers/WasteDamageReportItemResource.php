@@ -20,7 +20,7 @@ class WasteDamageReportItemResource extends JsonResource
         $productName = $this->whenLoaded('item', fn () => $this->item?->name)
             ?? $this->whenLoaded('purchaseOrderItem', fn () => $this->purchaseOrderItem?->item_name);
         $requiresPhoto = $problemType && $item->requiresPhoto();
-        $hasPhoto = !empty($this->photo_path);
+        $hasPhoto = ! empty($this->photo_path);
 
         return [
             'id' => $this->id,
@@ -44,9 +44,9 @@ class WasteDamageReportItemResource extends JsonResource
             'justification_text' => $this->justification_text,
             'justification_note' => $this->justification_text,
             'photo_path' => $this->photo_path,
-            'photo_url' => $this->photo_path ? asset('storage/' . ltrim($this->photo_path, '/')) : null,
-            'explanatory_photo_url' => $this->photo_path ? asset('storage/' . ltrim($this->photo_path, '/')) : null,
-            'explanatory_photo_warning' => $requiresPhoto && !$hasPhoto ? 'Required For Damage >20 SAR' : null,
+            'photo_url' => $this->photo_path ? asset('storage/'.ltrim($this->photo_path, '/')) : null,
+            'explanatory_photo_url' => $this->photo_path ? asset('storage/'.ltrim($this->photo_path, '/')) : null,
+            'explanatory_photo_warning' => $requiresPhoto && ! $hasPhoto ? 'Required For Damage >20 SAR' : null,
             'responsible_employees' => WasteDamageReportItemEmployeeResource::collection(
                 $this->whenLoaded('responsibleEmployees')
             ),

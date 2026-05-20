@@ -5,11 +5,11 @@ namespace Modules\Shift\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Services\VarianceCalculationService;
 use Modules\Shift\Transformers\CashierShiftResource;
 use Modules\Shift\Transformers\ShiftDetailResource;
-use Modules\Shift\Models\CashierShift;
 
 class CompletedShiftController extends BaseController
 {
@@ -25,12 +25,12 @@ class CompletedShiftController extends BaseController
     {
         try {
             $manager = auth()->user();
-            
+
             // Ensure the user is a branch manager
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return $this->errorResponse('Unauthorized', 403);
             }
-            
+
             $managerBranchId = $manager->branch_id;
             $filters = $request->only(['date_from', 'date_to', 'cashier_id']);
             $filters['branch_id'] = $managerBranchId;
@@ -56,12 +56,12 @@ class CompletedShiftController extends BaseController
     {
         try {
             $manager = auth()->user();
-            
+
             // Ensure the user is a branch manager
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return $this->errorResponse('Unauthorized', 403);
             }
-            
+
             $managerBranchId = $manager->branch_id;
 
             $shift = CashierShift::with([
@@ -75,15 +75,15 @@ class CompletedShiftController extends BaseController
                 'handover',
                 'varianceDetails.responsibleCashier',
                 'varianceAlerts',
-                'history'
+                'history',
             ])
-            ->whereHas('shift', function($q) use ($managerBranchId) {
-                $q->where('branch_id', $managerBranchId);
-            })
-            ->whereHas('cashier', function($q) use ($managerBranchId) {
-                $q->where('branch_id', $managerBranchId);
-            })
-            ->findOrFail($shiftId);
+                ->whereHas('shift', function ($q) use ($managerBranchId) {
+                    $q->where('branch_id', $managerBranchId);
+                })
+                ->whereHas('cashier', function ($q) use ($managerBranchId) {
+                    $q->where('branch_id', $managerBranchId);
+                })
+                ->findOrFail($shiftId);
 
             $progress = $this->shiftService->getShiftProgress($shiftId);
 
@@ -99,7 +99,7 @@ class CompletedShiftController extends BaseController
                     'shift' => new ShiftDetailResource($shift),
                     'progress' => $progress,
                     'variance' => $variance,
-                ]
+                ],
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -110,7 +110,7 @@ class CompletedShiftController extends BaseController
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve shift details',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }

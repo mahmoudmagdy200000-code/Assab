@@ -14,8 +14,7 @@ class WasteDamageProductService
     /**
      * Get products from closed orders for the branch with Product Information.
      *
-     * @param string $branchId
-     * @param array{search?: string, category?: string, subcategory?: string, per_page?: int} $filters
+     * @param  array{search?: string, category?: string, subcategory?: string, per_page?: int}  $filters
      * @return Collection<int, array>
      */
     public function getProductsFromClosedOrdersForBranch(string $branchId, array $filters = []): Collection
@@ -29,7 +28,7 @@ class WasteDamageProductService
                     ->where('status', OrderStatus::CLOSED);
             });
 
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $search = $filters['search'];
             $query->where(function ($q) use ($search) {
                 $q->where('item_name', 'like', "%{$search}%")
@@ -40,11 +39,11 @@ class WasteDamageProductService
             });
         }
 
-        if (!empty($filters['category'])) {
+        if (! empty($filters['category'])) {
             $query->where('category', $filters['category']);
         }
 
-        if (!empty($filters['subcategory'])) {
+        if (! empty($filters['subcategory'])) {
             $query->where('subcategory', $filters['subcategory']);
         }
 
@@ -54,7 +53,7 @@ class WasteDamageProductService
 
         $branchInventoryByItem = [];
         $branchItemByItem = [];
-        if (!empty($itemIds)) {
+        if (! empty($itemIds)) {
             BranchInventory::query()
                 ->where('branch_id', $branchId)
                 ->whereIn('item_id', $itemIds)
@@ -117,8 +116,6 @@ class WasteDamageProductService
     /**
      * Get assignment context for the current branch (for collapsible Assignment Information).
      *
-     * @param string $branchId
-     * @param string|null $creatorName
      * @return array{branch_id: string, branch_name: string, branch_location: string|null, creator_name: string|null}
      */
     public function getAssignmentInfo(string $branchId, ?string $creatorName = null): array

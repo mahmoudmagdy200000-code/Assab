@@ -19,9 +19,12 @@ use Modules\Shift\Transformers\BranchManagerShiftResource;
 
 class BranchManagerShiftController extends BaseController
 {
-    private const DATETIME_FORMAT   = 'Y-m-d H:i:s';
-    private const DATE_FORMAT       = 'Y-m-d';
-    private const TIME_FORMAT       = 'H:i:s';
+    private const DATETIME_FORMAT = 'Y-m-d H:i:s';
+
+    private const DATE_FORMAT = 'Y-m-d';
+
+    private const TIME_FORMAT = 'H:i:s';
+
     private const TIME_SHORT_FORMAT = 'H:i';
 
     public function __construct(
@@ -43,21 +46,21 @@ class BranchManagerShiftController extends BaseController
                 ->whereDate('shift_date', today())
                 ->firstOrFail();
 
-            if (!$managerShift->canStart()) {
-                return $this->errorResponse('Cannot start shift. Current status: ' . $managerShift->status, 400);
+            if (! $managerShift->canStart()) {
+                return $this->errorResponse('Cannot start shift. Current status: '.$managerShift->status, 400);
             }
 
             $managerShift->update([
-                'status'            => 'in_progress',
+                'status' => 'in_progress',
                 'actual_start_time' => now(),
             ]);
 
             $progress = $this->shiftService->calculateShiftProgress($managerShift);
 
             return $this->successResponse([
-                'shift'    => new BranchManagerShiftResource($managerShift),
+                'shift' => new BranchManagerShiftResource($managerShift),
                 'progress' => $progress,
-                'message'  => 'Shift started successfully',
+                'message' => 'Shift started successfully',
             ], 'Shift started successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
@@ -101,18 +104,18 @@ class BranchManagerShiftController extends BaseController
                 ->firstOrFail();
 
             $details = [
-                'assigned_to'      => 'Me (Branch Manager)',
-                'assigned_by'      => 'Brand Owner',
-                'store_branch'     => $managerShift->branch->name,
-                'start_time'       => $managerShift->actual_start_time?->format(self::TIME_SHORT_FORMAT),
-                'end_time'         => $managerShift->actual_end_time?->format(self::TIME_SHORT_FORMAT),
-                'final_approval_by'=> $managerShift->approvedBy?->name ?? 'Pending',
-                'status'           => $managerShift->status,
-                'shift_date'       => $managerShift->shift_date->format(self::DATE_FORMAT),
+                'assigned_to' => 'Me (Branch Manager)',
+                'assigned_by' => 'Brand Owner',
+                'store_branch' => $managerShift->branch->name,
+                'start_time' => $managerShift->actual_start_time?->format(self::TIME_SHORT_FORMAT),
+                'end_time' => $managerShift->actual_end_time?->format(self::TIME_SHORT_FORMAT),
+                'final_approval_by' => $managerShift->approvedBy?->name ?? 'Pending',
+                'status' => $managerShift->status,
+                'shift_date' => $managerShift->shift_date->format(self::DATE_FORMAT),
             ];
 
             return $this->successResponse([
-                'shift'   => new BranchManagerShiftResource($managerShift),
+                'shift' => new BranchManagerShiftResource($managerShift),
                 'details' => $details,
             ], 'Shift details retrieved successfully');
         } catch (\Exception $e) {
@@ -162,36 +165,36 @@ class BranchManagerShiftController extends BaseController
             $managerShift = BranchManagerShift::firstOrCreate(
                 ['branch_manager_id' => $manager->id, 'shift_date' => today()],
                 [
-                    'branch_id'       => $manager->branch_id,
-                    'status'          => 'not_started',
+                    'branch_id' => $manager->branch_id,
+                    'status' => 'not_started',
                     'opening_balance' => $this->shiftService->resolveBranchManagerOpeningBalance($manager->branch_id),
                 ]
             );
 
             $managerShift->load(['branch:id,name', 'nextManager:id,name']);
 
-            $progress          = $this->shiftService->calculateShiftProgress($managerShift);
-            $handoversSummary  = $managerShift->getHandoverSummary();
+            $progress = $this->shiftService->calculateShiftProgress($managerShift);
+            $handoversSummary = $managerShift->getHandoverSummary();
             $handoversToManager = $this->shiftService->getShiftHandovers($managerShift, 'to_manager', true);
-            $handoffsToManager  = $handoversToManager->map(fn ($h) => $this->shiftService->transformHandover($h));
+            $handoffsToManager = $handoversToManager->map(fn ($h) => $this->shiftService->transformHandover($h));
 
             return $this->successResponse([
-                'shift'            => new BranchManagerShiftResource($managerShift),
-                'shift_progress'   => [
-                    'title'               => $progress['title'],
-                    'description'         => $progress['description'],
-                    'status'              => $progress['status'],
-                    'start_time'          => $progress['start_time'],
-                    'end_time'            => $progress['end_time'],
-                    'number_of_hours'     => $progress['elapsed_hours'],
+                'shift' => new BranchManagerShiftResource($managerShift),
+                'shift_progress' => [
+                    'title' => $progress['title'],
+                    'description' => $progress['description'],
+                    'status' => $progress['status'],
+                    'start_time' => $progress['start_time'],
+                    'end_time' => $progress['end_time'],
+                    'number_of_hours' => $progress['elapsed_hours'],
                     'progress_percentage' => $progress['progress_percentage'],
                 ],
                 'handovers_summary' => $handoversSummary,
                 'handovers_details' => [
                     'to_branch_manager' => $handoffsToManager,
                 ],
-                'can_start'         => $managerShift->canStart(),
-                'can_end'           => $managerShift->canEnd(),
+                'can_start' => $managerShift->canStart(),
+                'can_end' => $managerShift->canEnd(),
                 'pending_handovers' => $handoversSummary['pending'],
             ], 'Current shift retrieved successfully');
         } catch (\Exception $e) {
@@ -213,18 +216,18 @@ class BranchManagerShiftController extends BaseController
                 ->whereDate('shift_date', today())
                 ->firstOrFail();
 
-            $handoversToManager   = $this->shiftService->getShiftHandovers($managerShift, 'to_manager');
-            $cashierToCashier     = $this->shiftService->getShiftHandovers($managerShift, 'between_cashiers');
-            $handoffsToManager    = $handoversToManager->map(fn ($h) => $this->shiftService->transformHandover($h));
+            $handoversToManager = $this->shiftService->getShiftHandovers($managerShift, 'to_manager');
+            $cashierToCashier = $this->shiftService->getShiftHandovers($managerShift, 'between_cashiers');
+            $handoffsToManager = $handoversToManager->map(fn ($h) => $this->shiftService->transformHandover($h));
             $cashierToCashierXfrm = $cashierToCashier->map(fn ($h) => $this->shiftService->transformHandover($h));
-            $summary              = $managerShift->getHandoverSummary();
+            $summary = $managerShift->getHandoverSummary();
 
             return $this->successResponse([
                 'handoffs' => [
                     'to_branch_manager' => $handoffsToManager,
-                    'between_cashiers'  => $cashierToCashierXfrm,
+                    'between_cashiers' => $cashierToCashierXfrm,
                 ],
-                'summary'       => $summary,
+                'summary' => $summary,
                 'can_end_shift' => $managerShift->canEnd(),
             ], 'Handoffs retrieved successfully');
         } catch (\Exception $e) {
@@ -247,12 +250,12 @@ class BranchManagerShiftController extends BaseController
             $manager = Auth::user();
             $handover = CashierShiftHandover::with('handoverTo')->findOrFail($request->handover_id);
 
-            if (!$handover->handoverTo || $handover->handover_to_id !== $manager->id) {
+            if (! $handover->handoverTo || $handover->handover_to_id !== $manager->id) {
                 return $this->errorResponse('Unauthorized to approve this handover', 403);
             }
 
-            if (!$handover->canApprove()) {
-                return $this->errorResponse('Handover cannot be approved. Current status: ' . $handover->status, 400);
+            if (! $handover->canApprove()) {
+                return $this->errorResponse('Handover cannot be approved. Current status: '.$handover->status, 400);
             }
 
             $cashierShift = CashierShift::with(['handoverStatus', 'shift', 'cashier', 'varianceDetails'])
@@ -274,7 +277,7 @@ class BranchManagerShiftController extends BaseController
 
             return $this->successResponse([
                 'handover' => array_merge($handover->toArray(), ['status' => $normalizedStatus]),
-                'message'  => 'Handoff approved successfully',
+                'message' => 'Handoff approved successfully',
             ], 'Handoff approved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
@@ -284,7 +287,7 @@ class BranchManagerShiftController extends BaseController
     public function rejectHandoff(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'handover_id'      => 'required|exists:cashier_shift_handovers,id',
+            'handover_id' => 'required|exists:cashier_shift_handovers,id',
             'rejection_reason' => 'required|string|max:500',
         ]);
 
@@ -297,12 +300,12 @@ class BranchManagerShiftController extends BaseController
             $manager = Auth::user();
             $handover = CashierShiftHandover::with('handoverTo')->findOrFail($request->handover_id);
 
-            if (!$handover->handoverTo || $handover->handover_to_id !== $manager->id) {
+            if (! $handover->handoverTo || $handover->handover_to_id !== $manager->id) {
                 return $this->errorResponse('Unauthorized to reject this handover', 403);
             }
 
-            if (!$handover->canReject()) {
-                return $this->errorResponse('Handover cannot be rejected. Current status: ' . $handover->status, 400);
+            if (! $handover->canReject()) {
+                return $this->errorResponse('Handover cannot be rejected. Current status: '.$handover->status, 400);
             }
 
             $cashierShift = CashierShift::with(['handoverStatus', 'shift'])
@@ -333,10 +336,10 @@ class BranchManagerShiftController extends BaseController
                 ];
 
             return $this->successResponse([
-                'handover'            => $handoverPayload,
-                'rejection_count'     => $result['rejection_count'],
-                'is_final_rejection'  => $result['is_final_rejection'],
-                'message'             => $result['is_final_rejection']
+                'handover' => $handoverPayload,
+                'rejection_count' => $result['rejection_count'],
+                'is_final_rejection' => $result['is_final_rejection'],
+                'message' => $result['is_final_rejection']
                     ? 'Handoff rejected permanently (2nd rejection)'
                     : 'Handoff rejected. Shift reverted to in progress; cashier must end shift again.',
             ], 'Handoff rejected successfully');
@@ -366,31 +369,31 @@ class BranchManagerShiftController extends BaseController
 
             $handoverStatus = $shiftModel->handoverStatus;
 
-            if (!$handoverStatus) {
+            if (! $handoverStatus) {
                 return $this->errorResponse('No handover found for this shift', 404);
             }
 
-            if (!$handoverStatus->isManagerRejected()) {
+            if (! $handoverStatus->isManagerRejected()) {
                 return $this->errorResponse('This handover is not rejected', 400);
             }
 
             return $this->successResponse([
                 'rejection_details' => [
-                    'cashier_name'        => $shiftModel->cashier->name,
-                    'cashier_id'          => $shiftModel->cashier_id,
-                    'shift_id'            => $shiftModel->id,
-                    'rejection_reason'    => $handoverStatus->rejection_reason,
-                    'rejection_count'     => $handoverStatus->rejection_count,
-                    'is_final_rejection'  => $handoverStatus->isPermanentlyRejected(),
-                    'rejection_files'     => $handoverStatus->rejection_file_urls,
-                    'first_rejected_at'   => $handoverStatus->first_rejected_at?->format(self::DATETIME_FORMAT),
-                    'second_rejected_at'  => $handoverStatus->second_rejected_at?->format(self::DATETIME_FORMAT),
-                    'manager_comment'     => $handoverStatus->manager_comment,
-                    'reviewed_by'         => $handoverStatus->reviewedBy?->name,
-                    'reviewed_at'         => $handoverStatus->reviewed_at?->format(self::DATETIME_FORMAT),
+                    'cashier_name' => $shiftModel->cashier->name,
+                    'cashier_id' => $shiftModel->cashier_id,
+                    'shift_id' => $shiftModel->id,
+                    'rejection_reason' => $handoverStatus->rejection_reason,
+                    'rejection_count' => $handoverStatus->rejection_count,
+                    'is_final_rejection' => $handoverStatus->isPermanentlyRejected(),
+                    'rejection_files' => $handoverStatus->rejection_file_urls,
+                    'first_rejected_at' => $handoverStatus->first_rejected_at?->format(self::DATETIME_FORMAT),
+                    'second_rejected_at' => $handoverStatus->second_rejected_at?->format(self::DATETIME_FORMAT),
+                    'manager_comment' => $handoverStatus->manager_comment,
+                    'reviewed_by' => $handoverStatus->reviewedBy?->name,
+                    'reviewed_at' => $handoverStatus->reviewed_at?->format(self::DATETIME_FORMAT),
                 ],
-                'can_approve_rejection'  => !$handoverStatus->isPermanentlyRejected(),
-                'can_request_corrections'=> $handoverStatus->rejection_count === 1,
+                'can_approve_rejection' => ! $handoverStatus->isPermanentlyRejected(),
+                'can_request_corrections' => $handoverStatus->rejection_count === 1,
             ], 'Rejection details retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
@@ -399,11 +402,11 @@ class BranchManagerShiftController extends BaseController
 
     public function processRejectionDecision(Request $request, string $shift): JsonResponse
     {
-        $jsonData    = $request->json()->all();
-        $requestData = !empty($jsonData) ? $jsonData : $request->all();
+        $jsonData = $request->json()->all();
+        $requestData = ! empty($jsonData) ? $jsonData : $request->all();
 
         $validator = Validator::make($requestData, [
-            'decision'        => 'nullable|in:approve_rejection,request_corrections',
+            'decision' => 'nullable|in:approve_rejection,request_corrections',
             'manager_comment' => 'nullable|string|max:1000',
         ]);
 
@@ -429,11 +432,11 @@ class BranchManagerShiftController extends BaseController
 
             $handoverStatus = $shiftModel->handoverStatus;
 
-            if (!$handoverStatus) {
+            if (! $handoverStatus) {
                 return $this->errorResponse('No handover found for this shift', 404);
             }
 
-            if (!$handoverStatus->isManagerRejected()) {
+            if (! $handoverStatus->isManagerRejected()) {
                 return $this->errorResponse('This handover is not rejected', 400);
             }
 
@@ -442,7 +445,7 @@ class BranchManagerShiftController extends BaseController
             }
 
             $decision = $requestData['decision'] ?? $request->decision;
-            $comment  = $requestData['manager_comment'] ?? $request->manager_comment;
+            $comment = $requestData['manager_comment'] ?? $request->manager_comment;
 
             if ($decision === 'approve_rejection') {
                 return $this->applyApproveRejection($handoverStatus, $shiftModel, $comment, $manager);
@@ -461,21 +464,21 @@ class BranchManagerShiftController extends BaseController
     public function endShift(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'handover_to'                            => 'nullable|exists:branch_managers,id',
-            'handover_amount'                        => 'nullable|numeric|min:0',
-            'handover_timing'                        => 'required|in:today,yesterday',
-            'handover_notes'                         => 'nullable|string|max:500',
-            'total_sales'                            => 'nullable|numeric',
-            'cash_collected'                         => 'nullable|numeric|min:0',
-            'card_payments'                          => 'nullable|numeric|min:0',
-            'aggregator_payments'                    => 'nullable|numeric|min:0',
-            'cashier_breakdown'                      => 'nullable|array',
-            'cashier_breakdown.*.cashier_id'         => 'required_with:cashier_breakdown|exists:cashiers,id',
-            'cashier_breakdown.*.cash_collected'     => 'nullable|numeric|min:0',
-            'cashier_breakdown.*.card_payments'      => 'nullable|numeric|min:0',
+            'handover_to' => 'nullable|exists:branch_managers,id',
+            'handover_amount' => 'nullable|numeric|min:0',
+            'handover_timing' => 'required|in:today,yesterday',
+            'handover_notes' => 'nullable|string|max:500',
+            'total_sales' => 'nullable|numeric',
+            'cash_collected' => 'nullable|numeric|min:0',
+            'card_payments' => 'nullable|numeric|min:0',
+            'aggregator_payments' => 'nullable|numeric|min:0',
+            'cashier_breakdown' => 'nullable|array',
+            'cashier_breakdown.*.cashier_id' => 'required_with:cashier_breakdown|exists:cashiers,id',
+            'cashier_breakdown.*.cash_collected' => 'nullable|numeric|min:0',
+            'cashier_breakdown.*.card_payments' => 'nullable|numeric|min:0',
             'cashier_breakdown.*.delivery_app_payments' => 'nullable|numeric|min:0',
-            'cashier_breakdown.*.variance'           => 'nullable|numeric',
-            'cashier_breakdown.*.sales'              => 'nullable|numeric',
+            'cashier_breakdown.*.variance' => 'nullable|numeric',
+            'cashier_breakdown.*.sales' => 'nullable|numeric',
         ]);
 
         if ($validator->fails()) {
@@ -490,7 +493,7 @@ class BranchManagerShiftController extends BaseController
                 ->whereDate('shift_date', today())
                 ->firstOrFail();
 
-            if (!$managerShift->canEnd()) {
+            if (! $managerShift->canEnd()) {
                 return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved.', 400);
             }
 
@@ -501,29 +504,29 @@ class BranchManagerShiftController extends BaseController
                     $this->shiftService->bulkUpdateCashierShifts($request->cashier_breakdown, $managerShift);
                 }
 
-                $financialSummary  = $this->shiftService->calculateFinancialSummary($managerShift);
-                $updatedHandovers  = $this->shiftService->getShiftHandovers($managerShift, 'to_manager');
-                $financial         = $this->shiftService->resolveFinancialValues($request, $financialSummary, $managerShift);
-                $handoverAmount    = $request->handover_amount !== null
+                $financialSummary = $this->shiftService->calculateFinancialSummary($managerShift);
+                $updatedHandovers = $this->shiftService->getShiftHandovers($managerShift, 'to_manager');
+                $financial = $this->shiftService->resolveFinancialValues($request, $financialSummary, $managerShift);
+                $handoverAmount = $request->handover_amount !== null
                     ? (float) $request->handover_amount
                     : $this->shiftService->sumApprovedHandoverAmount($managerShift, $manager->id);
-                $closingBalance    = $handoverAmount;
-                $handoverTime      = $request->handover_timing === 'yesterday' ? now()->subDay() : now();
+                $closingBalance = $handoverAmount;
+                $handoverTime = $request->handover_timing === 'yesterday' ? now()->subDay() : now();
 
                 $updateData = [
-                    'status'              => 'completed',
-                    'actual_end_time'     => now(),
-                    'handover_date'       => $handoverTime->format(self::DATE_FORMAT),
-                    'handover_time'       => $handoverTime,
-                    'handover_timing'     => $request->handover_timing,
-                    'handover_status'     => 'pending',
-                    'handover_amount'     => $handoverAmount,
-                    'closing_balance'     => $closingBalance,
-                    'total_sales'         => $financial['total_sales'],
-                    'net_sales'           => $financial['net_sales'],
-                    'vat_amount'          => $financial['vat_amount'],
-                    'cash_collected'      => $financial['cash_collected'],
-                    'card_payments'       => $financial['card_payments'],
+                    'status' => 'completed',
+                    'actual_end_time' => now(),
+                    'handover_date' => $handoverTime->format(self::DATE_FORMAT),
+                    'handover_time' => $handoverTime,
+                    'handover_timing' => $request->handover_timing,
+                    'handover_status' => 'pending',
+                    'handover_amount' => $handoverAmount,
+                    'closing_balance' => $closingBalance,
+                    'total_sales' => $financial['total_sales'],
+                    'net_sales' => $financial['net_sales'],
+                    'vat_amount' => $financial['vat_amount'],
+                    'cash_collected' => $financial['cash_collected'],
+                    'card_payments' => $financial['card_payments'],
                     'aggregator_payments' => $financial['aggregator_payments'],
                 ];
 
@@ -538,7 +541,7 @@ class BranchManagerShiftController extends BaseController
                 $managerShift->update($updateData);
 
                 $handoverStatus = $this->shiftService->normalizeHandoverStatus($managerShift->handover_status);
-                $currentTime    = $handoverTime->format(self::DATETIME_FORMAT);
+                $currentTime = $handoverTime->format(self::DATETIME_FORMAT);
 
                 $this->shiftService->clearShiftCaches($managerShift);
                 $managerShift->refresh();
@@ -549,29 +552,29 @@ class BranchManagerShiftController extends BaseController
                 DB::commit();
 
                 return $this->successResponse([
-                    'shift'         => new BranchManagerShiftResource($managerShift),
-                    'final_handover'=> [
-                        'handover_amount'       => (float) ($managerShift->handover_amount ?? $closingBalance),
-                        'status'                => $handoverStatus,
-                        'status_options'        => ['pending', 'accepted', 'rejected'],
-                        'handover_from'         => $manager->name,
-                        'handover_to'           => $managerShift->nextManager?->name ?? 'Not specified',
-                        'handover_date'         => $managerShift->handover_date?->format(self::DATE_FORMAT) ?? now()->format(self::DATE_FORMAT),
-                        'handover_time'         => $managerShift->handover_time?->format(self::TIME_FORMAT) ?? now()->format(self::TIME_FORMAT),
-                        'current_time'          => $currentTime,
-                        'current_time_setting'  => $request->handover_timing,
-                        'handover_notes'        => $managerShift->handover_notes,
+                    'shift' => new BranchManagerShiftResource($managerShift),
+                    'final_handover' => [
+                        'handover_amount' => (float) ($managerShift->handover_amount ?? $closingBalance),
+                        'status' => $handoverStatus,
+                        'status_options' => ['pending', 'accepted', 'rejected'],
+                        'handover_from' => $manager->name,
+                        'handover_to' => $managerShift->nextManager?->name ?? 'Not specified',
+                        'handover_date' => $managerShift->handover_date?->format(self::DATE_FORMAT) ?? now()->format(self::DATE_FORMAT),
+                        'handover_time' => $managerShift->handover_time?->format(self::TIME_FORMAT) ?? now()->format(self::TIME_FORMAT),
+                        'current_time' => $currentTime,
+                        'current_time_setting' => $request->handover_timing,
+                        'handover_notes' => $managerShift->handover_notes,
                     ],
                     'daily_totals' => [
                         'total_cash_collected' => $financial['cash_collected'],
-                        'total_card_payments'  => $financial['card_payments'],
-                        'total_delivery_apps'  => $financial['aggregator_payments'],
-                        'total_variance'       => $financial['total_variance'],
-                        'total_sales'          => $financial['total_sales'],
-                        'shift_date'           => $managerShift->shift_date->format(self::DATE_FORMAT),
+                        'total_card_payments' => $financial['card_payments'],
+                        'total_delivery_apps' => $financial['aggregator_payments'],
+                        'total_variance' => $financial['total_variance'],
+                        'total_sales' => $financial['total_sales'],
+                        'shift_date' => $managerShift->shift_date->format(self::DATE_FORMAT),
                     ],
                     'cashier_breakdown' => $cashierBreakdownResponse,
-                    'message'           => 'Shift ended and handover recorded successfully',
+                    'message' => 'Shift ended and handover recorded successfully',
                 ], 'Shift ended successfully');
             } catch (\Exception $e) {
                 DB::rollBack();
@@ -603,13 +606,13 @@ class BranchManagerShiftController extends BaseController
             $dailyClose = $this->shiftService->prepareDailyCloseSummary($managerShift);
 
             return $this->successResponse([
-                'shift'              => new BranchManagerShiftResource($managerShift),
-                'cashier_breakdown'  => $dailyClose['cashier_breakdown'],
-                'aggregators'        => $dailyClose['aggregators'] ?? [],
-                'totals'             => $dailyClose['totals'],
+                'shift' => new BranchManagerShiftResource($managerShift),
+                'cashier_breakdown' => $dailyClose['cashier_breakdown'],
+                'aggregators' => $dailyClose['aggregators'] ?? [],
+                'totals' => $dailyClose['totals'],
                 'daily_close_status' => $this->shiftService->buildDailyCloseStatusArray($managerShift),
-                'manager_summary'    => $dailyClose['manager_summary'] ?? null,
-                'shift_info'         => $dailyClose['shift_info'] ?? null,
+                'manager_summary' => $dailyClose['manager_summary'] ?? null,
+                'shift_info' => $dailyClose['shift_info'] ?? null,
             ], 'Final daily close summary retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
@@ -619,20 +622,20 @@ class BranchManagerShiftController extends BaseController
     public function updateFinalDailyClose(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'handover_to'                            => 'nullable|exists:branch_managers,id',
-            'handover_amount'                        => 'nullable|numeric|min:0',
-            'handover_notes'                         => 'nullable|string|max:500',
-            'total_sales'                            => 'nullable|numeric',
-            'cash_collected'                         => 'nullable|numeric|min:0',
-            'card_payments'                          => 'nullable|numeric|min:0',
-            'aggregator_payments'                    => 'nullable|numeric|min:0',
-            'cashier_breakdown'                      => 'nullable|array',
-            'cashier_breakdown.*.cashier_id'         => 'required_with:cashier_breakdown|exists:cashiers,id',
-            'cashier_breakdown.*.cash_collected'     => 'nullable|numeric|min:0',
-            'cashier_breakdown.*.card_payments'      => 'nullable|numeric|min:0',
+            'handover_to' => 'nullable|exists:branch_managers,id',
+            'handover_amount' => 'nullable|numeric|min:0',
+            'handover_notes' => 'nullable|string|max:500',
+            'total_sales' => 'nullable|numeric',
+            'cash_collected' => 'nullable|numeric|min:0',
+            'card_payments' => 'nullable|numeric|min:0',
+            'aggregator_payments' => 'nullable|numeric|min:0',
+            'cashier_breakdown' => 'nullable|array',
+            'cashier_breakdown.*.cashier_id' => 'required_with:cashier_breakdown|exists:cashiers,id',
+            'cashier_breakdown.*.cash_collected' => 'nullable|numeric|min:0',
+            'cashier_breakdown.*.card_payments' => 'nullable|numeric|min:0',
             'cashier_breakdown.*.delivery_app_payments' => 'nullable|numeric|min:0',
-            'cashier_breakdown.*.variance'           => 'nullable|numeric',
-            'cashier_breakdown.*.sales'              => 'nullable|numeric',
+            'cashier_breakdown.*.variance' => 'nullable|numeric',
+            'cashier_breakdown.*.sales' => 'nullable|numeric',
         ]);
 
         if ($validator->fails()) {
@@ -660,8 +663,8 @@ class BranchManagerShiftController extends BaseController
 
                 $financialSummary = $this->shiftService->calculateFinancialSummary($managerShift);
                 $updatedHandovers = $this->shiftService->getShiftHandovers($managerShift, 'to_manager');
-                $financial        = $this->shiftService->resolveFinancialValues($request, $financialSummary, $managerShift);
-                $handoverAmount   = $request->handover_amount ?? $managerShift->handover_amount;
+                $financial = $this->shiftService->resolveFinancialValues($request, $financialSummary, $managerShift);
+                $handoverAmount = $request->handover_amount ?? $managerShift->handover_amount;
 
                 if ($handoverAmount === null) {
                     $handoverAmount = $this->shiftService->sumApprovedHandoverAmount($managerShift, $manager->id);
@@ -670,13 +673,13 @@ class BranchManagerShiftController extends BaseController
                 $closingBalance = (float) $handoverAmount;
 
                 $updateData = [
-                    'handover_amount'     => $handoverAmount,
-                    'closing_balance'     => $closingBalance,
-                    'total_sales'         => $financial['total_sales'],
-                    'net_sales'           => $financial['net_sales'],
-                    'vat_amount'          => $financial['vat_amount'],
-                    'cash_collected'      => $financial['cash_collected'],
-                    'card_payments'       => $financial['card_payments'],
+                    'handover_amount' => $handoverAmount,
+                    'closing_balance' => $closingBalance,
+                    'total_sales' => $financial['total_sales'],
+                    'net_sales' => $financial['net_sales'],
+                    'vat_amount' => $financial['vat_amount'],
+                    'cash_collected' => $financial['cash_collected'],
+                    'card_payments' => $financial['card_payments'],
                     'aggregator_payments' => $financial['aggregator_payments'],
                 ];
 
@@ -698,18 +701,18 @@ class BranchManagerShiftController extends BaseController
                 DB::commit();
 
                 return $this->successResponse([
-                    'shift'              => new BranchManagerShiftResource($managerShift),
-                    'cashier_breakdown'  => $cashierBreakdownResponse,
-                    'daily_totals'       => [
+                    'shift' => new BranchManagerShiftResource($managerShift),
+                    'cashier_breakdown' => $cashierBreakdownResponse,
+                    'daily_totals' => [
                         'total_cash_collected' => $financial['cash_collected'],
-                        'total_card_payments'  => $financial['card_payments'],
-                        'total_delivery_apps'  => $financial['aggregator_payments'],
-                        'total_variance'       => $financial['total_variance'],
-                        'total_sales'          => $financial['total_sales'],
-                        'shift_date'           => $managerShift->shift_date->format(self::DATE_FORMAT),
+                        'total_card_payments' => $financial['card_payments'],
+                        'total_delivery_apps' => $financial['aggregator_payments'],
+                        'total_variance' => $financial['total_variance'],
+                        'total_sales' => $financial['total_sales'],
+                        'shift_date' => $managerShift->shift_date->format(self::DATE_FORMAT),
                     ],
                     'daily_close_status' => $this->shiftService->buildDailyCloseStatusArray($managerShift),
-                    'message'            => 'Final daily close updated successfully',
+                    'message' => 'Final daily close updated successfully',
                 ], 'Final daily close updated successfully');
             } catch (\Exception $e) {
                 DB::rollBack();
@@ -745,15 +748,15 @@ class BranchManagerShiftController extends BaseController
 
             DB::transaction(function () use ($managerShift, $request) {
                 $managerShift->update([
-                    'daily_report_submitted'    => true,
+                    'daily_report_submitted' => true,
                     'daily_report_submitted_at' => now(),
-                    'daily_report_notes'        => $request->final_notes,
-                    'can_reopen'                => true,
+                    'daily_report_notes' => $request->final_notes,
+                    'can_reopen' => true,
                 ]);
             });
 
             return $this->successResponse([
-                'shift'   => new BranchManagerShiftResource($managerShift),
+                'shift' => new BranchManagerShiftResource($managerShift),
                 'message' => 'Daily report submitted successfully. Waiting for Sales Team approval.',
             ], 'Daily report submitted successfully');
         } catch (\Exception $e) {
@@ -779,26 +782,26 @@ class BranchManagerShiftController extends BaseController
                 ->whereDate('shift_date', today())
                 ->firstOrFail();
 
-            if (!$managerShift->can_reopen) {
+            if (! $managerShift->can_reopen) {
                 return $this->errorResponse('This shift cannot be reopened', 400);
             }
 
-            if (!$managerShift->daily_report_submitted) {
+            if (! $managerShift->daily_report_submitted) {
                 return $this->errorResponse('Shift must be submitted first', 400);
             }
 
             DB::transaction(function () use ($managerShift, $request) {
                 $managerShift->update([
-                    'daily_report_submitted'    => false,
+                    'daily_report_submitted' => false,
                     'daily_report_submitted_at' => null,
-                    'reopened_at'               => now(),
-                    'reopen_reason'             => $request->reopen_reason,
-                    'can_reopen'                => false,
+                    'reopened_at' => now(),
+                    'reopen_reason' => $request->reopen_reason,
+                    'can_reopen' => false,
                 ]);
             });
 
             return $this->successResponse([
-                'shift'   => new BranchManagerShiftResource($managerShift),
+                'shift' => new BranchManagerShiftResource($managerShift),
                 'message' => 'Shift reopened successfully. You can now make changes and resubmit.',
             ], 'Shift reopened successfully');
         } catch (\Exception $e) {
@@ -839,7 +842,7 @@ class BranchManagerShiftController extends BaseController
                 ->firstOrFail();
 
             $cashierShift = $handover->cashierShift;
-            $shift        = $cashierShift->shift;
+            $shift = $cashierShift->shift;
 
             $authError = $this->authorizeHandoverAccess($handover, $shift, $manager);
             if ($authError !== null) {
@@ -852,40 +855,40 @@ class BranchManagerShiftController extends BaseController
 
             return $this->successResponse([
                 'handover' => [
-                    'handover_id'         => $handover->id,
-                    'cashier_shift_id'    => $handover->cashier_shift_id,
-                    'cashier_name'        => $cashierShift->cashier->name,
-                    'cashier_id'          => $cashierShift->cashier_id,
-                    'shift_time'          => $shift ? $shift->name : 'N/A',
-                    'shift_id'            => $shift ? $shift->id : null,
-                    'handover_amount'     => (float) $handover->handover_amount,
-                    'total_sales'         => (float) $cashierShift->total_sales,
-                    'net_sales'           => (float) ($cashierShift->net_sales ?? 0),
-                    'vat_amount'          => (float) ($cashierShift->vat_amount ?? 0),
-                    'cash_collected'      => (float) ($cashierShift->cash_collected ?? 0),
-                    'card_payments'       => (float) ($cashierShift->card_payments ?? 0),
+                    'handover_id' => $handover->id,
+                    'cashier_shift_id' => $handover->cashier_shift_id,
+                    'cashier_name' => $cashierShift->cashier->name,
+                    'cashier_id' => $cashierShift->cashier_id,
+                    'shift_time' => $shift ? $shift->name : 'N/A',
+                    'shift_id' => $shift ? $shift->id : null,
+                    'handover_amount' => (float) $handover->handover_amount,
+                    'total_sales' => (float) $cashierShift->total_sales,
+                    'net_sales' => (float) ($cashierShift->net_sales ?? 0),
+                    'vat_amount' => (float) ($cashierShift->vat_amount ?? 0),
+                    'cash_collected' => (float) ($cashierShift->cash_collected ?? 0),
+                    'card_payments' => (float) ($cashierShift->card_payments ?? 0),
                     'delivery_app_payments' => (float) $deliveryApps,
-                    'variance_amount'     => (float) $handover->variance_amount,
-                    'variance_type'       => $this->shiftService->normalizeVarianceType((float) $handover->variance_amount),
-                    'variance_reason'     => $handover->variance_reason,
-                    'attached_files'      => $handover->variance_files ?? [],
-                    'status'              => $handover->status,
-                    'rejection_reason'    => $handover->rejection_reason,
-                    'rejection_count'     => $handover->rejection_count,
-                    'handed_over_at'      => $handover->handed_over_at?->format(self::DATETIME_FORMAT),
-                    'approved_at'         => $handover->approved_at?->format(self::DATETIME_FORMAT),
-                    'approved_by'         => $handover->approvedBy?->name,
-                    'approved_by_id'      => $handover->approved_by_id,
-                    'can_approve'         => $handover->canApprove(),
-                    'can_reject'          => $handover->canReject(),
-                    'variance_details'    => $varianceDetails,
-                    'handover_to_type'    => $handover->handover_to_type,
-                    'handover_to'         => $handover->handoverTo?->name ?? 'N/A',
-                    'handover_to_id'      => $handover->handover_to_id,
-                    'handover_date'       => $handover->handover_date?->format(self::DATE_FORMAT),
-                    'handover_time'       => $handover->handover_time?->format(self::TIME_FORMAT),
-                    'handover_notes'      => $handover->handover_notes,
-                    'correction_details'  => $cashierShift->handoverStatus
+                    'variance_amount' => (float) $handover->variance_amount,
+                    'variance_type' => $this->shiftService->normalizeVarianceType((float) $handover->variance_amount),
+                    'variance_reason' => $handover->variance_reason,
+                    'attached_files' => $handover->variance_files ?? [],
+                    'status' => $handover->status,
+                    'rejection_reason' => $handover->rejection_reason,
+                    'rejection_count' => $handover->rejection_count,
+                    'handed_over_at' => $handover->handed_over_at?->format(self::DATETIME_FORMAT),
+                    'approved_at' => $handover->approved_at?->format(self::DATETIME_FORMAT),
+                    'approved_by' => $handover->approvedBy?->name,
+                    'approved_by_id' => $handover->approved_by_id,
+                    'can_approve' => $handover->canApprove(),
+                    'can_reject' => $handover->canReject(),
+                    'variance_details' => $varianceDetails,
+                    'handover_to_type' => $handover->handover_to_type,
+                    'handover_to' => $handover->handoverTo?->name ?? 'N/A',
+                    'handover_to_id' => $handover->handover_to_id,
+                    'handover_date' => $handover->handover_date?->format(self::DATE_FORMAT),
+                    'handover_time' => $handover->handover_time?->format(self::TIME_FORMAT),
+                    'handover_notes' => $handover->handover_notes,
+                    'correction_details' => $cashierShift->handoverStatus
                         ? $this->shiftService->getCorrectionDetails($cashierShift->handoverStatus)
                         : null,
                 ],
@@ -919,60 +922,60 @@ class BranchManagerShiftController extends BaseController
                 ->firstOrFail();
 
             $financialSummary = $this->shiftService->calculateFinancialSummary($managerShift);
-            $handovers        = $this->shiftService->getShiftHandovers($managerShift, 'to_manager');
+            $handovers = $this->shiftService->getShiftHandovers($managerShift, 'to_manager');
             $cashierBreakdown = $this->shiftService->buildCashierBreakdownFromHandovers($handovers);
 
-            $totalSales         = (float) ($managerShift->total_sales > 0 ? $managerShift->total_sales : ($financialSummary['total_sales'] ?? 0));
-            $cashCollected      = (float) ($managerShift->cash_collected > 0 ? $managerShift->cash_collected : ($financialSummary['cash_collected'] ?? 0));
-            $cardPayments       = (float) ($managerShift->card_payments > 0 ? $managerShift->card_payments : ($financialSummary['card_payments'] ?? 0));
+            $totalSales = (float) ($managerShift->total_sales > 0 ? $managerShift->total_sales : ($financialSummary['total_sales'] ?? 0));
+            $cashCollected = (float) ($managerShift->cash_collected > 0 ? $managerShift->cash_collected : ($financialSummary['cash_collected'] ?? 0));
+            $cardPayments = (float) ($managerShift->card_payments > 0 ? $managerShift->card_payments : ($financialSummary['card_payments'] ?? 0));
             $aggregatorPayments = (float) ($managerShift->aggregator_payments > 0 ? $managerShift->aggregator_payments : ($financialSummary['delivery_app_payments'] ?? 0));
-            $vatAmount          = (float) ($managerShift->vat_amount > 0 ? $managerShift->vat_amount : ($totalSales * 0.15));
-            $netSales           = (float) ($managerShift->net_sales > 0 ? $managerShift->net_sales : ($totalSales - $vatAmount));
-            $closingBalance     = (float) ($managerShift->handover_amount ?? $managerShift->closing_balance ?? 0);
-            $variance           = $totalSales - $closingBalance;
-            $handoverStatus     = $this->shiftService->normalizeHandoverStatus($managerShift->handover_status);
-            $currentTime        = $managerShift->handover_timing === 'yesterday'
+            $vatAmount = (float) ($managerShift->vat_amount > 0 ? $managerShift->vat_amount : ($totalSales * 0.15));
+            $netSales = (float) ($managerShift->net_sales > 0 ? $managerShift->net_sales : ($totalSales - $vatAmount));
+            $closingBalance = (float) ($managerShift->handover_amount ?? $managerShift->closing_balance ?? 0);
+            $variance = $totalSales - $closingBalance;
+            $handoverStatus = $this->shiftService->normalizeHandoverStatus($managerShift->handover_status);
+            $currentTime = $managerShift->handover_timing === 'yesterday'
                 ? now()->subDay()->format(self::DATETIME_FORMAT)
                 : now()->format(self::DATETIME_FORMAT);
 
             return $this->successResponse([
                 'shift' => [
-                    'id'           => $managerShift->id,
-                    'shift_date'   => $managerShift->shift_date->format(self::DATE_FORMAT),
-                    'status'       => $managerShift->status,
+                    'id' => $managerShift->id,
+                    'shift_date' => $managerShift->shift_date->format(self::DATE_FORMAT),
+                    'status' => $managerShift->status,
                     'manager_name' => $managerShift->branchManager->name,
-                    'manager_id'   => $managerShift->branch_manager_id,
-                    'branch_name'  => $managerShift->branch->name,
-                    'branch_id'    => $managerShift->branch_id,
+                    'manager_id' => $managerShift->branch_manager_id,
+                    'branch_name' => $managerShift->branch->name,
+                    'branch_id' => $managerShift->branch_id,
                 ],
                 'handover' => [
-                    'handover_amount'      => (float) ($managerShift->handover_amount ?? 0),
-                    'status'               => $handoverStatus,
-                    'status_options'       => ['pending', 'accepted', 'rejected'],
-                    'handover_from'        => $managerShift->branchManager->name,
-                    'handover_to'          => $managerShift->nextManager?->name ?? 'Not specified',
-                    'handover_to_id'       => $managerShift->next_manager_id,
-                    'handover_date'        => $managerShift->handover_date?->format(self::DATE_FORMAT) ?? now()->format(self::DATE_FORMAT),
-                    'handover_time'        => $managerShift->handover_time?->format(self::TIME_FORMAT) ?? now()->format(self::TIME_FORMAT),
-                    'current_time'         => $currentTime,
+                    'handover_amount' => (float) ($managerShift->handover_amount ?? 0),
+                    'status' => $handoverStatus,
+                    'status_options' => ['pending', 'accepted', 'rejected'],
+                    'handover_from' => $managerShift->branchManager->name,
+                    'handover_to' => $managerShift->nextManager?->name ?? 'Not specified',
+                    'handover_to_id' => $managerShift->next_manager_id,
+                    'handover_date' => $managerShift->handover_date?->format(self::DATE_FORMAT) ?? now()->format(self::DATE_FORMAT),
+                    'handover_time' => $managerShift->handover_time?->format(self::TIME_FORMAT) ?? now()->format(self::TIME_FORMAT),
+                    'current_time' => $currentTime,
                     'current_time_setting' => $managerShift->handover_timing ?? 'today',
-                    'handover_notes'       => $managerShift->handover_notes,
-                    'opening_balance'      => (float) ($managerShift->opening_balance ?? 0),
-                    'closing_balance'      => $closingBalance,
-                    'expected_balance'     => $totalSales,
-                    'variance'             => $variance,
-                    'variance_type'        => $this->shiftService->normalizeVarianceType($variance),
+                    'handover_notes' => $managerShift->handover_notes,
+                    'opening_balance' => (float) ($managerShift->opening_balance ?? 0),
+                    'closing_balance' => $closingBalance,
+                    'expected_balance' => $totalSales,
+                    'variance' => $variance,
+                    'variance_type' => $this->shiftService->normalizeVarianceType($variance),
                 ],
                 'financial_summary' => [
-                    'total_sales'         => $totalSales,
-                    'net_sales'           => $netSales,
-                    'vat_amount'          => $vatAmount,
-                    'cash_collected'      => $cashCollected,
-                    'card_payments'       => $cardPayments,
+                    'total_sales' => $totalSales,
+                    'net_sales' => $netSales,
+                    'vat_amount' => $vatAmount,
+                    'cash_collected' => $cashCollected,
+                    'card_payments' => $cardPayments,
                     'aggregator_payments' => $aggregatorPayments,
-                    'total_variance'      => (float) ($financialSummary['total_variance'] ?? 0),
+                    'total_variance' => (float) ($financialSummary['total_variance'] ?? 0),
                 ],
-                'cashier_breakdown'  => $cashierBreakdown,
+                'cashier_breakdown' => $cashierBreakdown,
                 'daily_close_status' => $this->shiftService->buildDailyCloseStatusArray($managerShift),
             ], 'Manager final handover details retrieved successfully');
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
@@ -1015,12 +1018,12 @@ class BranchManagerShiftController extends BaseController
 
         $handoverStatus->update([
             'manager_approval_status' => 'rejected_final',
-            'rejection_count'         => 2,
-            'second_rejected_at'      => now(),
-            'manager_comment'         => $comment,
-            'reviewed_by_id'          => $manager->id,
-            'reviewed_by_type'        => get_class($manager),
-            'reviewed_at'             => now(),
+            'rejection_count' => 2,
+            'second_rejected_at' => now(),
+            'manager_comment' => $comment,
+            'reviewed_by_id' => $manager->id,
+            'reviewed_by_type' => get_class($manager),
+            'reviewed_at' => now(),
         ]);
 
         CashierShiftHandover::where('cashier_shift_id', $shiftModel->id)
@@ -1028,13 +1031,13 @@ class BranchManagerShiftController extends BaseController
 
         return $this->successResponse([
             'decision' => 'approve_rejection',
-            'message'  => 'Rejection approved and finalized. Cashier cannot edit anymore.',
+            'message' => 'Rejection approved and finalized. Cashier cannot edit anymore.',
             'rejection_details' => [
-                'cashier_name'      => $shiftModel->cashier->name,
-                'rejection_count'   => 2,
-                'is_final_rejection'=> true,
-                'manager_comment'   => $comment,
-                'processed_at'      => now()->format(self::DATETIME_FORMAT),
+                'cashier_name' => $shiftModel->cashier->name,
+                'rejection_count' => 2,
+                'is_final_rejection' => true,
+                'manager_comment' => $comment,
+                'processed_at' => now()->format(self::DATETIME_FORMAT),
             ],
         ], 'Rejection approved successfully');
     }
@@ -1048,7 +1051,7 @@ class BranchManagerShiftController extends BaseController
         $isManagerHandover = $handover->handover_to_type === 'branch_manager';
         $isCashierHandover = $handover->handover_to_type === 'cashier';
 
-        if (!$isManagerHandover && !$isCashierHandover) {
+        if (! $isManagerHandover && ! $isCashierHandover) {
             return $this->errorResponse('Invalid handover type', 403);
         }
 
@@ -1069,22 +1072,22 @@ class BranchManagerShiftController extends BaseController
     private function applyRequestCorrections($handoverStatus, CashierShift $shiftModel, ?string $comment, BranchManager $manager): JsonResponse
     {
         $handoverStatus->update([
-            'manager_comment'  => $comment,
-            'reviewed_by_id'   => $manager->id,
+            'manager_comment' => $comment,
+            'reviewed_by_id' => $manager->id,
             'reviewed_by_type' => get_class($manager),
-            'reviewed_at'      => now(),
+            'reviewed_at' => now(),
         ]);
 
         return $this->successResponse([
             'decision' => 'request_corrections',
-            'message'  => 'Corrections requested. Cashier can edit and resubmit.',
+            'message' => 'Corrections requested. Cashier can edit and resubmit.',
             'rejection_details' => [
-                'cashier_name'      => $shiftModel->cashier->name,
-                'rejection_count'   => $handoverStatus->rejection_count,
-                'is_final_rejection'=> false,
-                'manager_comment'   => $comment,
-                'can_cashier_edit'  => true,
-                'processed_at'      => now()->format(self::DATETIME_FORMAT),
+                'cashier_name' => $shiftModel->cashier->name,
+                'rejection_count' => $handoverStatus->rejection_count,
+                'is_final_rejection' => false,
+                'manager_comment' => $comment,
+                'can_cashier_edit' => true,
+                'processed_at' => now()->format(self::DATETIME_FORMAT),
             ],
         ], 'Corrections requested successfully');
     }

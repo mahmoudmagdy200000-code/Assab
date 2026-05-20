@@ -4,9 +4,9 @@ namespace Modules\Shift\Observers;
 
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Events\ShiftEndedEvent;
 use Modules\Shift\Listeners\BranchManagerShiftListener;
+use Modules\Shift\Models\CashierShift;
 
 class CashierShiftObserver
 {
@@ -14,7 +14,7 @@ class CashierShiftObserver
 
     public function __construct()
     {
-        $this->managerShiftListener = new BranchManagerShiftListener();
+        $this->managerShiftListener = new BranchManagerShiftListener;
     }
 
     /**
@@ -51,7 +51,7 @@ class CashierShiftObserver
     {
         // Check if status changed to completed
         if ($shift->isDirty('status') && $shift->status->value === 'completed') {
-            event(new ShiftEndedEvent($shift, !is_null($shift->next_cashier_id)));
+            event(new ShiftEndedEvent($shift, ! is_null($shift->next_cashier_id)));
         }
     }
 

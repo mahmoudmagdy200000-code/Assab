@@ -12,7 +12,7 @@ enum OrderType: string
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::DIRECT_SUPPLIER => 'Direct Supplier Order',
             self::VIA_PURCHASING_OFFICER => 'Via Purchasing Officer',
             self::INTERNAL_TRANSFER => 'Internal Transfer from Another Branch',
@@ -23,7 +23,7 @@ enum OrderType: string
 
     public function shortLabel(): string
     {
-        return match($this) {
+        return match ($this) {
             self::DIRECT_SUPPLIER => 'Direct Supplier',
             self::VIA_PURCHASING_OFFICER => 'Via PO',
             self::INTERNAL_TRANSFER => 'Internal Transfer',
@@ -34,7 +34,7 @@ enum OrderType: string
 
     public function icon(): string
     {
-        return match($this) {
+        return match ($this) {
             self::DIRECT_SUPPLIER => 'supplier',
             self::VIA_PURCHASING_OFFICER => 'officer',
             self::INTERNAL_TRANSFER => 'transfer',
@@ -70,33 +70,33 @@ enum OrderType: string
      */
     public function hasCost(): bool
     {
-        return !$this->isTransfer();
+        return ! $this->isTransfer();
     }
 
     /**
      * Get OrderType from label (case-insensitive)
-     * 
-     * @param string $label The label to search for
+     *
+     * @param  string  $label  The label to search for
      * @return OrderType|null Returns the matching OrderType or null if not found
      */
     public static function fromLabel(string $label): ?OrderType
     {
         $label = trim($label);
-        
+
         // Try to match by label (case-insensitive)
         foreach (self::cases() as $case) {
             if (strcasecmp($case->label(), $label) === 0) {
                 return $case;
             }
         }
-        
+
         // Try to match by short label (case-insensitive)
         foreach (self::cases() as $case) {
             if (strcasecmp($case->shortLabel(), $label) === 0) {
                 return $case;
             }
         }
-        
+
         // Try to match by enum value (case-insensitive)
         try {
             return self::from(strtolower($label));
@@ -110,8 +110,7 @@ enum OrderType: string
                 }
             }
         }
-        
+
         return null;
     }
 }
-

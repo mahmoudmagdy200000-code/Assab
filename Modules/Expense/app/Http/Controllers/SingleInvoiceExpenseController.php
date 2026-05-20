@@ -2,20 +2,18 @@
 
 namespace Modules\Expense\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Validator;
-use Modules\Expense\Services\SingleInvoiceExpenseService;
-use Modules\Expense\Models\Expense;
-use Modules\Expense\Transformers\ExpenseDetailResource;
-use Modules\Expense\Transformers\ExpenseDetailWithoutTimelinesResource;
-use Modules\Expense\Transformers\PreviousInvoiceResource;
-use App\Http\Controllers\BaseController;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Modules\Expense\Transformers\ExpenseResource;
+use Illuminate\Support\Facades\Validator;
+use Modules\Expense\Models\Expense;
+use Modules\Expense\Services\SingleInvoiceExpenseService;
+use Modules\Expense\Transformers\ExpenseDetailResource;
+use Modules\Expense\Transformers\ExpenseDetailWithoutTimelinesResource;
 
 /**
  * Single Invoice Expense Controller
@@ -112,6 +110,7 @@ class SingleInvoiceExpenseController extends BaseController
             );
         } catch (\Exception $e) {
             DB::rollBack();
+
             return $this->errorResponse(
                 'Failed to create single invoice expense',
                 500,
@@ -218,6 +217,7 @@ class SingleInvoiceExpenseController extends BaseController
             );
         } catch (\Exception $e) {
             DB::rollBack();
+
             return $this->errorResponse(
                 'Failed to update single invoice expense',
                 500,
@@ -279,7 +279,7 @@ class SingleInvoiceExpenseController extends BaseController
                 'items',
                 'expenseLines',
                 'supplier',
-                'attachments'
+                'attachments',
             ])
                 ->where('expense_type', 'single_invoice')
                 ->findOrFail($expense);
@@ -314,7 +314,7 @@ class SingleInvoiceExpenseController extends BaseController
 
             $duplicateData = [
                 'supplier_id' => $request->input('supplier_id', $originalExpense->supplier_id),
-                'invoice_number' => $request->input('invoice_number', $invoiceDetails->invoice_number . '_نسخة'),
+                'invoice_number' => $request->input('invoice_number', $invoiceDetails->invoice_number.'_نسخة'),
                 'total_amount' => $originalExpense->total_amount,
                 'issue_date' => $request->input('issue_date', now()->format('Y-m-d')),
                 'is_tax_invoice' => $invoiceDetails->is_tax_invoice,
@@ -381,6 +381,7 @@ class SingleInvoiceExpenseController extends BaseController
             );
         } catch (\Exception $e) {
             DB::rollBack();
+
             return $this->errorResponse(
                 'Failed to duplicate invoice',
                 500,
@@ -395,13 +396,13 @@ class SingleInvoiceExpenseController extends BaseController
     private function duplicateAttachment(Expense $newExpense, $originalAttachment): void
     {
         try {
-            if (!Storage::disk('public')->exists($originalAttachment->file_path)) {
+            if (! Storage::disk('public')->exists($originalAttachment->file_path)) {
                 return;
             }
 
             $extension = pathinfo($originalAttachment->file_path, PATHINFO_EXTENSION);
-            $newFilename = 'expense_' . $newExpense->id . '_' . time() . '_' . uniqid() . '.' . $extension;
-            $newPath = 'expenses/receipts/' . $newFilename;
+            $newFilename = 'expense_'.$newExpense->id.'_'.time().'_'.uniqid().'.'.$extension;
+            $newPath = 'expenses/receipts/'.$newFilename;
 
             Storage::disk('public')->copy(
                 $originalAttachment->file_path,
@@ -415,7 +416,7 @@ class SingleInvoiceExpenseController extends BaseController
                 'file_size' => $originalAttachment->file_size,
             ]);
         } catch (\Exception $e) {
-            Log::warning('Failed to duplicate invoice receipt: ' . $e->getMessage());
+            Log::warning('Failed to duplicate invoice receipt: '.$e->getMessage());
         }
     }
 }

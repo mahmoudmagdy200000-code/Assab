@@ -2,7 +2,6 @@
 
 namespace Modules\Expense\Transformers;
 
-use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
@@ -35,7 +34,7 @@ class ExpenseTimelineResource extends JsonResource
 
     private function getActionLabel(): string
     {
-        return match($this->action) {
+        return match ($this->action) {
             'created' => 'Created',
             'updated' => 'Updated',
             'submit' => 'Submitted',
@@ -52,6 +51,7 @@ class ExpenseTimelineResource extends JsonResource
     {
         if ($this->performed_by_type === 'branch_manager') {
             $manager = \Modules\BranchManagers\Models\BranchManager::find($this->performed_by);
+
             return $manager?->name ?? 'Unknown';
         }
 
@@ -67,6 +67,7 @@ class ExpenseTimelineResource extends JsonResource
     {
         if ($this->performed_by_type === 'branch_manager') {
             $manager = \Modules\BranchManagers\Models\BranchManager::find($this->performed_by);
+
             return $manager?->image;
         }
 

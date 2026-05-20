@@ -1,6 +1,7 @@
 <?php
 
 namespace Modules\BranchManagers\Http\Requests;
+
 use Illuminate\Foundation\Http\FormRequest;
 
 class UpdateNotificationSettingsRequest extends FormRequest

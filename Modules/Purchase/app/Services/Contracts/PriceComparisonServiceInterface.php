@@ -6,7 +6,7 @@ use Illuminate\Support\Collection;
 
 /**
  * Interface for Price Comparison Service
- * 
+ *
  * Defines contract for price comparison operations
  */
 interface PriceComparisonServiceInterface
@@ -41,4 +41,3 @@ interface PriceComparisonServiceInterface
      */
     public function getInternalTransferOptions(string $itemId, float $quantity, ?string $excludeBranchId = null): Collection;
 }
-

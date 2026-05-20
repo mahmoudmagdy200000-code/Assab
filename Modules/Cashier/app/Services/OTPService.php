@@ -8,7 +8,9 @@ use Illuminate\Support\Str;
 class OTPService
 {
     private const OTP_LENGTH = 6;
+
     private const OTP_EXPIRY_MINUTES = 10;
+
     private const MAX_ATTEMPTS = 3;
 
     /**
@@ -37,13 +39,14 @@ class OTPService
         $key = "otp_{$type}_{$identifier}";
         $data = Cache::get($key);
 
-        if (!$data) {
+        if (! $data) {
             return false;
         }
 
         // Check attempts
         if ($data['attempts'] >= self::MAX_ATTEMPTS) {
             Cache::forget($key);
+
             return false;
         }
 
@@ -55,6 +58,7 @@ class OTPService
         if ($data['otp'] === $otp) {
             // Mark as verified
             $this->markOTPAsVerified($identifier, $type);
+
             return true;
         }
 
@@ -76,6 +80,7 @@ class OTPService
     public function isOTPVerified(string $identifier, string $type = 'email'): bool
     {
         $key = "otp_verified_{$type}_{$identifier}";
+
         return Cache::get($key, false);
     }
 
@@ -101,6 +106,7 @@ class OTPService
     public function verifyResetToken(string $identifier, string $token): bool
     {
         $cachedToken = Cache::get("reset_token_{$identifier}");
+
         return $cachedToken === $token;
     }
 

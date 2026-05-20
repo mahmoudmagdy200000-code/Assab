@@ -2,15 +2,16 @@
 
 namespace Modules\Shift\Console;
 
+use Carbon\Carbon;
 use Illuminate\Console\Command;
-use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Jobs\SendShiftStartReminderJob;
-use Carbon\Carbon;
+use Modules\Shift\Models\CashierShift;
 
 class SendShiftRemindersCommand extends Command
 {
     protected $signature = 'shifts:send-reminders';
+
     protected $description = 'Send shift start reminders to cashiers';
 
     public function handle(): int
@@ -24,6 +25,7 @@ class SendShiftRemindersCommand extends Command
             ->filter(function ($shift) {
                 $shiftStart = Carbon::parse($shift->shift->start_time);
                 $minutesUntilStart = now()->diffInMinutes($shiftStart, false);
+
                 return $minutesUntilStart > 0 && $minutesUntilStart <= 15;
             });
 

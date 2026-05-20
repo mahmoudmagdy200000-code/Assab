@@ -15,7 +15,7 @@ class PurchaseOrderItemFactory extends Factory
     {
         // Automatically create purchase order if not provided
         $order = PurchaseOrder::first() ?? PurchaseOrder::factory()->create();
-        
+
         $quantity = $this->faker->randomFloat(3, 1, 100);
         $unitPrice = $this->faker->randomFloat(2, 10, 1000);
         $totalPrice = ($quantity * $unitPrice);
@@ -65,7 +65,7 @@ class PurchaseOrderItemFactory extends Factory
      */
     public function confirmed(): static
     {
-        return $this->state(fn(array $attributes) => [
+        return $this->state(fn (array $attributes) => [
             'status' => OrderItemStatus::CONFIRMED,
             'quantity_confirmed' => $attributes['quantity_ordered'],
         ]);
@@ -78,6 +78,7 @@ class PurchaseOrderItemFactory extends Factory
     {
         return $this->state(function (array $attributes) {
             $quantityReceived = $attributes['quantity_ordered'] ?? $this->faker->randomFloat(3, 1, 100);
+
             return [
                 'status' => OrderItemStatus::RECEIVED,
                 'quantity_confirmed' => $quantityReceived,
@@ -86,4 +87,3 @@ class PurchaseOrderItemFactory extends Factory
         });
     }
 }
-

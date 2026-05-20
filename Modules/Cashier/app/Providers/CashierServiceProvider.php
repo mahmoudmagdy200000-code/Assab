@@ -2,19 +2,18 @@
 
 namespace Modules\Cashier\Providers;
 
-use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\ServiceProvider;
 use Modules\Cashier\Models\Cashier;
 use Modules\Cashier\Observers\CashierObserver;
 use Modules\Cashier\Policies\CashierPolicy;
-use Modules\Cashier\Repositories\{
-    CashierRepository,
-    CashierRepositoryInterface
-};
+use Modules\Cashier\Repositories\CashierRepository;
+use Modules\Cashier\Repositories\CashierRepositoryInterface;
 
 class CashierServiceProvider extends ServiceProvider
 {
     protected string $moduleName = 'Cashier';
+
     protected string $moduleNameLower = 'cashier';
 
     public function boot(): void
@@ -54,7 +53,7 @@ class CashierServiceProvider extends ServiceProvider
     protected function registerConfig(): void
     {
         $this->publishes([
-            module_path($this->moduleName, 'config/config.php') => config_path($this->moduleNameLower . '.php'),
+            module_path($this->moduleName, 'config/config.php') => config_path($this->moduleNameLower.'.php'),
         ], 'config');
 
         $this->mergeConfigFrom(
@@ -65,27 +64,27 @@ class CashierServiceProvider extends ServiceProvider
 
     protected function registerViews(): void
     {
-        $viewPath = resource_path('views/modules/' . $this->moduleNameLower);
-        
+        $viewPath = resource_path('views/modules/'.$this->moduleNameLower);
+
         // Try both Resources/views and resources/views to handle case sensitivity
         $sourcePath = null;
         $possiblePaths = [
             module_path($this->moduleName, 'Resources/views'),
             module_path($this->moduleName, 'resources/views'),
         ];
-        
+
         foreach ($possiblePaths as $path) {
             if (is_dir($path)) {
                 $sourcePath = $path;
                 break;
             }
         }
-        
+
         // Only register views if the directory exists
         if ($sourcePath && is_dir($sourcePath)) {
             $this->publishes([
-                $sourcePath => $viewPath
-            ], ['views', $this->moduleNameLower . '-module-views']);
+                $sourcePath => $viewPath,
+            ], ['views', $this->moduleNameLower.'-module-views']);
 
             $this->loadViewsFrom(array_merge($this->getPublishableViewPaths(), [$sourcePath]), $this->moduleNameLower);
         }
@@ -93,7 +92,7 @@ class CashierServiceProvider extends ServiceProvider
 
     protected function registerTranslations(): void
     {
-        $langPath = resource_path('lang/modules/' . $this->moduleNameLower);
+        $langPath = resource_path('lang/modules/'.$this->moduleNameLower);
 
         if (is_dir($langPath)) {
             $this->loadTranslationsFrom($langPath, $this->moduleNameLower);
@@ -111,10 +110,11 @@ class CashierServiceProvider extends ServiceProvider
     {
         $paths = [];
         foreach (config('view.paths') as $path) {
-            if (is_dir($path . '/modules/' . $this->moduleNameLower)) {
-                $paths[] = $path . '/modules/' . $this->moduleNameLower;
+            if (is_dir($path.'/modules/'.$this->moduleNameLower)) {
+                $paths[] = $path.'/modules/'.$this->moduleNameLower;
             }
         }
+
         return $paths;
     }
 

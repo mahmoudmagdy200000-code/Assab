@@ -27,7 +27,7 @@ class HandoverQrCodeService
             margin: 16,
         );
 
-        $result = (new PngWriter())->write($qrCode);
+        $result = (new PngWriter)->write($qrCode);
 
         $path = "fixed-assets/handover-qr/{$handoverId}.png";
         Storage::disk('public')->put($path, $result->getString());

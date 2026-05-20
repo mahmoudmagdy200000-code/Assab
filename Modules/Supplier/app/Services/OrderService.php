@@ -10,7 +10,6 @@ use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
 use Modules\Purchase\Models\PurchaseOrder;
-use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Purchase\Services\TimelineService;
 use Modules\Supplier\Models\Supplier;
 
@@ -56,7 +55,7 @@ class OrderService
             ->orderBy('created_at', 'desc');
 
         // Filter by status
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             $statusFilter = $this->mapStatusFilter($filters['status']);
 
             if ($statusFilter === 'alternative_product') {
@@ -71,16 +70,16 @@ class OrderService
         }
 
         // Filter by date range
-        if (!empty($filters['date_from'])) {
+        if (! empty($filters['date_from'])) {
             $query->whereDate('created_at', '>=', $filters['date_from']);
         }
-        if (!empty($filters['date_to'])) {
+        if (! empty($filters['date_to'])) {
             $query->whereDate('created_at', '<=', $filters['date_to']);
         }
 
         // Search by order number
-        if (!empty($filters['search'])) {
-            $query->where('order_number', 'like', '%' . $filters['search'] . '%');
+        if (! empty($filters['search'])) {
+            $query->where('order_number', 'like', '%'.$filters['search'].'%');
         }
 
         return $query->paginate($perPage);
@@ -88,9 +87,6 @@ class OrderService
 
     /**
      * Map status filter string to OrderStatus enum value
-     *
-     * @param string $status
-     * @return string|OrderStatus
      */
     private function mapStatusFilter(string $status): string|OrderStatus
     {
@@ -111,7 +107,6 @@ class OrderService
     public function getOrders(Supplier $supplier, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
 
-
         $query = PurchaseOrder::with([
             'items:id,purchase_order_id,item_id,item_name,item_logo,quantity_ordered,quantity_confirmed,unit_of_measurement,unit_price,total_price,quality_ordered,quality_received,status,approval_type,approval_data',
             'branch:id,name,lat,lng,opening_hours,closing_hours,image',
@@ -125,21 +120,21 @@ class OrderService
         $query->where('status', '!=', OrderStatus::DRAFT);
 
         // Filter by status
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             $query->where('status', $filters['status']);
         }
 
         // Filter by date range
-        if (!empty($filters['date_from'])) {
+        if (! empty($filters['date_from'])) {
             $query->whereDate('created_at', '>=', $filters['date_from']);
         }
-        if (!empty($filters['date_to'])) {
+        if (! empty($filters['date_to'])) {
             $query->whereDate('created_at', '<=', $filters['date_to']);
         }
 
         // Search by order number
-        if (!empty($filters['search'])) {
-            $query->where('order_number', 'like', '%' . $filters['search'] . '%');
+        if (! empty($filters['search'])) {
+            $query->where('order_number', 'like', '%'.$filters['search'].'%');
         }
 
         return $query->paginate($perPage);
@@ -173,7 +168,7 @@ class OrderService
         }
 
         $allowedStatuses = [OrderStatus::PENDING, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
-        if (!in_array($order->status, $allowedStatuses)) {
+        if (! in_array($order->status, $allowedStatuses)) {
             throw new \Exception('Order cannot be accepted in current status');
         }
 
@@ -222,7 +217,7 @@ class OrderService
             throw new \Exception('Unauthorized access to this order');
         }
 
-        if (!$order->status->isActive()) {
+        if (! $order->status->isActive()) {
             throw new \Exception('Order cannot be rejected in current status');
         }
 
@@ -242,7 +237,7 @@ class OrderService
             // Cancel order by supplier - this will:
             // 1. Set order status to CANCELLED_BY_SUPPLIER
             // 2. Cancel all items (set status to CANCELLED)
-            if (!$order->cancel($cancellationReason, byBranch: false, bySupplier: true)) {
+            if (! $order->cancel($cancellationReason, byBranch: false, bySupplier: true)) {
                 throw new \Exception('Failed to cancel order');
             }
 
@@ -295,7 +290,7 @@ class OrderService
         }
 
         $allowedStatuses = [OrderStatus::PENDING, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
-        if (!in_array($order->status, $allowedStatuses)) {
+        if (! in_array($order->status, $allowedStatuses)) {
             throw new \Exception('Order must be in pending, emergency or variance status to request partial approval');
         }
 
@@ -304,7 +299,7 @@ class OrderService
             foreach ($itemRequests as $request) {
                 $item = $order->items()->where('item_id', $request['item_id'])->first();
 
-                if (!$item) {
+                if (! $item) {
                     continue;
                 }
 
@@ -344,7 +339,7 @@ class OrderService
             // Get the item first to check its status
             $item = $order->items()->where('item_id', $itemId)->first();
 
-            if (!$item) {
+            if (! $item) {
                 throw new \Exception('Item not found in order');
             }
 
@@ -369,7 +364,7 @@ class OrderService
                 OrderStatus::CANCELED, // Allow if item is still pending
             ];
 
-            if (!in_array($order->status, $allowedStatuses)) {
+            if (! in_array($order->status, $allowedStatuses)) {
                 throw new \Exception('Order must be in pending, emergency, variance or partial confirmation status to request time change');
             }
 
@@ -397,7 +392,7 @@ class OrderService
         }
 
         $allowedStatuses = [OrderStatus::PENDING, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
-        if (!in_array($order->status, $allowedStatuses)) {
+        if (! in_array($order->status, $allowedStatuses)) {
             throw new \Exception('Order must be in pending, emergency or variance status to request alternative');
         }
 
@@ -405,7 +400,7 @@ class OrderService
             $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             $item = $order->items()->where('item_id', $itemId)->first();
 
-            if (!$item) {
+            if (! $item) {
                 throw new \Exception('Item not found in order');
             }
 
@@ -415,7 +410,7 @@ class OrderService
 
             // Get alternative item details
             $alternativeItem = Item::find($alternativeItemId);
-            if (!$alternativeItem) {
+            if (! $alternativeItem) {
                 throw new \Exception('Alternative item not found');
             }
 
@@ -457,7 +452,7 @@ class OrderService
         }
 
         $allowedStatuses = [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
-        if (!in_array($order->status, $allowedStatuses)) {
+        if (! in_array($order->status, $allowedStatuses)) {
             throw new \InvalidArgumentException('Order must be in pending, partial confirmation, emergency or variance status to confirm item');
         }
 
@@ -465,7 +460,7 @@ class OrderService
             $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             $item = $order->items()->where('item_id', $itemId)->first();
 
-            if (!$item) {
+            if (! $item) {
                 throw new \InvalidArgumentException('Item not found in order');
             }
 
@@ -503,7 +498,7 @@ class OrderService
         }
 
         $allowedStatuses = [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
-        if (!in_array($order->status, $allowedStatuses)) {
+        if (! in_array($order->status, $allowedStatuses)) {
             throw new \InvalidArgumentException('Order must be in pending, partial confirmation, emergency or variance status to reject item');
         }
 
@@ -511,7 +506,7 @@ class OrderService
             $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             $item = $order->items()->where('item_id', $itemId)->first();
 
-            if (!$item) {
+            if (! $item) {
                 throw new \InvalidArgumentException('Item not found in order');
             }
 
@@ -558,7 +553,7 @@ class OrderService
         }
 
         $allowedStatuses = [OrderStatus::PENDING, OrderStatus::PARTIAL_CONFIRMATION, OrderStatus::EMERGENCY, OrderStatus::VARIANCE];
-        if (!in_array($order->status, $allowedStatuses)) {
+        if (! in_array($order->status, $allowedStatuses)) {
             throw new \InvalidArgumentException('Order must be in pending, partial confirmation, emergency or variance status to cancel item');
         }
 
@@ -566,7 +561,7 @@ class OrderService
             $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             $item = $order->items()->where('item_id', $itemId)->first();
 
-            if (!$item) {
+            if (! $item) {
                 throw new \InvalidArgumentException('Item not found in order');
             }
 

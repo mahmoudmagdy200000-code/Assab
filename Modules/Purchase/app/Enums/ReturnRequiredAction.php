@@ -10,7 +10,7 @@ enum ReturnRequiredAction: string
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::REPLACEMENT => 'Replacement with Good Product',
             self::CASH_REFUND => 'Cash Refund',
             self::CREDIT_FUTURE_ORDER => 'Credit for Future Order',
@@ -19,11 +19,10 @@ enum ReturnRequiredAction: string
 
     public function shortLabel(): string
     {
-        return match($this) {
+        return match ($this) {
             self::REPLACEMENT => 'Replacement',
             self::CASH_REFUND => 'Refund',
             self::CREDIT_FUTURE_ORDER => 'Credit',
         };
     }
 }
-

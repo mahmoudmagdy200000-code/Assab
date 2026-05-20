@@ -2,9 +2,9 @@
 
 namespace Modules\Cashier\Services;
 
-use Modules\Cashier\Models\Cashier;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Modules\Cashier\Models\Cashier;
 use Modules\Cashier\Notifications\CashierActivationNotification;
 
 class CashierActivationService

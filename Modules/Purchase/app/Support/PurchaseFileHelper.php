@@ -34,6 +34,7 @@ final class PurchaseFileHelper
         }
 
         $path = $file['file_path'] ?? $file['url'] ?? null;
+
         return [
             'id' => $file['id'] ?? null,
             'file_name' => $file['file_name'] ?? null,
@@ -61,9 +62,10 @@ final class PurchaseFileHelper
 
     private static function pathToUrl(?string $path): ?string
     {
-        if (!$path) {
+        if (! $path) {
             return null;
         }
-        return str_starts_with($path, 'http') ? $path : asset('storage/' . $path);
+
+        return str_starts_with($path, 'http') ? $path : asset('storage/'.$path);
     }
 }

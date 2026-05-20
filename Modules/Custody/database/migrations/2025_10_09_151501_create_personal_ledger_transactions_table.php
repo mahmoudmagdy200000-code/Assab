@@ -14,7 +14,7 @@ return new class extends Migration
             $table->enum('transaction_type', [
                 'Total Sales',
                 'Handover to Brand Owner',
-                'Transfer to Custody'
+                'Transfer to Custody',
             ]);
             $table->decimal('amount', 12, 2);
             $table->boolean('is_cash_in')->default(true);

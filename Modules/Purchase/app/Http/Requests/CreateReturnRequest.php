@@ -42,4 +42,3 @@ class CreateReturnRequest extends FormRequest
         ];
     }
 }
-

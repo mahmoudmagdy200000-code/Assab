@@ -84,4 +84,3 @@ class NotificationController extends BaseController
         return $this->successResponse(null, 'Notification deleted successfully');
     }
 }
-

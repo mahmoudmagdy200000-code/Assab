@@ -8,7 +8,6 @@ use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Inventory\Events\MonthlyInventorySessionUpdated;
-use Modules\Inventory\Models\MonthlyInventoryStaff;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
 use Tests\TestCase;
@@ -113,7 +112,7 @@ class MonthlyInventoryRealtimeParityTest extends TestCase
 
         $inventoryId = $create->json('data.id');
         $productId = $this->actingAs($manager, 'sanctum')
-            ->getJson('/api/v1/inventory/monthly/' . $inventoryId . '/products')
+            ->getJson('/api/v1/inventory/monthly/'.$inventoryId.'/products')
             ->json('data.0.id');
 
         $claimOne = $this->actingAs($cashierOne, 'sanctum')

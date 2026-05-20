@@ -2,13 +2,10 @@
 
 namespace Modules\Shift\Services;
 
+use Modules\Notification\Notifications\HandoverPendingNotification;
+use Modules\Notification\Notifications\ShiftReassignedNotification;
+use Modules\Notification\Notifications\ShiftVarianceAlertNotification;
 use Modules\Shift\Models\CashierShift;
-use Modules\Notification\Notifications\{
-    ShiftReassignedNotification,
-    ShiftVarianceAlertNotification,
-    HandoverPendingNotification
-};
-use Illuminate\Support\Facades\Notification;
 
 class ShiftNotificationService
 {

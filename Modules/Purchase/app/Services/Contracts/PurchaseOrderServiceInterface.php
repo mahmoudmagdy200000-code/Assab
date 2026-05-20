@@ -9,7 +9,7 @@ use Modules\Purchase\Models\PurchaseOrderItem;
 
 /**
  * Interface for Purchase Order Service
- * 
+ *
  * Defines contract for purchase order operations
  */
 interface PurchaseOrderServiceInterface
@@ -17,28 +17,28 @@ interface PurchaseOrderServiceInterface
     /**
      * Get branch items with filters
      */
-    public function getBranchItems(string $branchId, array $filters = [], int $perPage = null): LengthAwarePaginator;
+    public function getBranchItems(string $branchId, array $filters = [], ?int $perPage = null): LengthAwarePaginator;
 
     /**
      * Get purchase history with filters
      */
-    public function getHistory(array $filters, int $perPage = null): LengthAwarePaginator;
+    public function getHistory(array $filters, ?int $perPage = null): LengthAwarePaginator;
 
     /**
      * Get orders with filters
      */
-    public function getOrders(array $filters, int $perPage = null): LengthAwarePaginator;
+    public function getOrders(array $filters, ?int $perPage = null): LengthAwarePaginator;
 
     /**
      * Get pending orders with filters
      */
-    public function getPendingOrders(array $filters, int $perPage = null): LengthAwarePaginator;
+    public function getPendingOrders(array $filters, ?int $perPage = null): LengthAwarePaginator;
 
     /**
      * Get orders for receiving grouped by expected delivery date
      * Returns only orders with DELIVERED status
      */
-    public function getOrdersForReceiving(array $filters, int $perPage = null): LengthAwarePaginator;
+    public function getOrdersForReceiving(array $filters, ?int $perPage = null): LengthAwarePaginator;
 
     /**
      * Create a new purchase order
@@ -75,4 +75,3 @@ interface PurchaseOrderServiceInterface
      */
     public function getOrderDetails(string $orderId, ?string $branchId = null): ?PurchaseOrder;
 }
-

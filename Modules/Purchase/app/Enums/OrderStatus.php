@@ -14,20 +14,20 @@ enum OrderStatus: string
     case CANCELLED_BY_BRANCH = 'cancelled_by_branch';
     case CANCELLED_BY_SUPPLIER = 'cancelled_by_supplier';
 
-        // Execution Phase Statuses
+    // Execution Phase Statuses
     case PREPARING = 'preparing';
     case ON_THE_WAY = 'on_the_way';
     case DELIVERED = 'delivered';
     case CLOSED = 'closed';
 
-        // Special Status (temporary during execution)
+    // Special Status (temporary during execution)
     case DELAYED = 'delayed';
     case DELAYED_APPROVED = 'delayed_approved';
     case DELAYED_CONFIRMED = 'delayed_confirmed';   // Branch Manager accepted delay → Track available
     case DELAYED_CANCELED = 'delayed_canceled';     // Branch Manager rejected delay → Purchase History
     case VARIANCE = 'variance';
 
-        // Deprecated Statuses (for backward compatibility - will be migrated)
+    // Deprecated Statuses (for backward compatibility - will be migrated)
     case PENDING_CONFIRMATION = 'pending_confirmation';
     case PENDING_APPROVAL = 'pending_approval';
     case PARTIAL_CONFIRMATION = 'partial_confirmation';
@@ -173,7 +173,7 @@ enum OrderStatus: string
      */
     public function isActive(): bool
     {
-        return !in_array($this, [
+        return ! in_array($this, [
             self::CLOSED,
             self::CANCELED,
             self::CANCELLED_BY_BRANCH,

@@ -21,7 +21,7 @@ class BranchManagerResource extends JsonResource
                     'location' => $this->branch->location ?? null,
                     'lat' => $this->branch->lat ? (float) $this->branch->lat : null,
                     'lng' => $this->branch->lng ? (float) $this->branch->lng : null,
-                    'image' => $this->branch->image ? asset('storage/' . $this->branch->image) : null,
+                    'image' => $this->branch->image ? asset('storage/'.$this->branch->image) : null,
                 ];
             }),
             'status' => [

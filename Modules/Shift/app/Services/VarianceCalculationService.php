@@ -2,14 +2,13 @@
 
 namespace Modules\Shift\Services;
 
-use Modules\Shift\Models\CashierShift;
-use Modules\Shift\Models\ShiftVarianceDetail;
-use Modules\Shift\Models\ShiftVarianceAlert;
-use Modules\Shift\Enums\VarianceType;
-use Modules\Shift\Enums\ResponsibilityType;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
+use Modules\Shift\Enums\ResponsibilityType;
+use Modules\Shift\Enums\VarianceType;
+use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\ShiftVarianceAlert;
+use Modules\Shift\Models\ShiftVarianceDetail;
 
 class VarianceCalculationService
 {
@@ -59,7 +58,7 @@ class VarianceCalculationService
                 default:
                     Log::warning('Unknown responsibility type', [
                         'shift_id' => $shift->id,
-                        'responsibility_type' => $varianceData['responsibility_type']
+                        'responsibility_type' => $varianceData['responsibility_type'],
                     ]);
                     break;
             }
@@ -75,7 +74,7 @@ class VarianceCalculationService
             Log::error('Variance recording failed', [
                 'shift_id' => $shift->id,
                 'error' => $e->getMessage(),
-                'variance_data' => $varianceData
+                'variance_data' => $varianceData,
             ]);
             throw $e;
         }
@@ -112,7 +111,7 @@ class VarianceCalculationService
 
         // Current cashier's portion = total variance minus what was assigned to others
         // (user only enters other_cashiers amounts; remainder is automatically the current cashier's)
-        $currentCashierAmount = !empty($otherCashiers)
+        $currentCashierAmount = ! empty($otherCashiers)
             ? $amount - $otherCashiersSum
             : (float) ($data['current_cashier_amount'] ?? 0);
 
@@ -121,7 +120,7 @@ class VarianceCalculationService
 
         // Handle supporting files if provided
         $supportingFiles = null;
-        if (!empty($data['supporting_files'])) {
+        if (! empty($data['supporting_files'])) {
             $supportingFiles = $this->uploadSupportingFiles($data['supporting_files'], $shift->id);
         }
 
@@ -137,7 +136,7 @@ class VarianceCalculationService
         ]);
 
         // Record for other cashiers
-        if (!empty($otherCashiers)) {
+        if (! empty($otherCashiers)) {
             foreach ($otherCashiers as $otherCashier) {
                 ShiftVarianceDetail::create([
                     'cashier_shift_id' => $shift->id,
@@ -160,7 +159,7 @@ class VarianceCalculationService
         array $data
     ): void {
         $supportingFiles = null;
-        if (!empty($data['supporting_files'])) {
+        if (! empty($data['supporting_files'])) {
             $supportingFiles = $this->uploadSupportingFiles($data['supporting_files'], $shift->id);
         }
 
@@ -183,7 +182,7 @@ class VarianceCalculationService
         array $data
     ): void {
         $supportingFiles = null;
-        if (!empty($data['supporting_files'])) {
+        if (! empty($data['supporting_files'])) {
             $supportingFiles = $this->uploadSupportingFiles($data['supporting_files'], $shift->id);
         }
 
@@ -194,11 +193,11 @@ class VarianceCalculationService
             'shift_id' => $shift->id,
             'cashiers_count' => count($cashiers),
             'has_other_cashiers' => isset($data['other_cashiers']),
-            'has_cashiers' => isset($data['cashiers'])
+            'has_cashiers' => isset($data['cashiers']),
         ]);
 
         // Record cashier responsibilities
-        if (!empty($cashiers)) {
+        if (! empty($cashiers)) {
             foreach ($cashiers as $cashier) {
                 ShiftVarianceDetail::create([
                     'cashier_shift_id' => $shift->id,
@@ -266,7 +265,7 @@ class VarianceCalculationService
         $uploadedFiles = [];
 
         foreach ($files as $file) {
-            $filename = 'variance_' . $shiftId . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+            $filename = 'variance_'.$shiftId.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
             $path = $file->storeAs('variance/supporting-files', $filename, 'public');
             $uploadedFiles[] = $path;
         }
@@ -287,7 +286,7 @@ class VarianceCalculationService
      */
     public function getVarianceFormatted(CashierShift $shift): ?array
     {
-        if (!$shift->hasVariance()) {
+        if (! $shift->hasVariance()) {
             return null;
         }
 
@@ -345,36 +344,36 @@ class VarianceCalculationService
 
         // Get supporting files from any detail (prefer current cashier, then external, then any other)
         $supportingFilesDetail = null;
-        if ($currentCashierDetail && !empty($currentCashierDetail->supporting_files)) {
+        if ($currentCashierDetail && ! empty($currentCashierDetail->supporting_files)) {
             $supportingFilesDetail = $currentCashierDetail;
         } else {
             $externalDetail = $details->firstWhere('responsible_cashier_id', null);
-            if ($externalDetail && !empty($externalDetail->supporting_files)) {
+            if ($externalDetail && ! empty($externalDetail->supporting_files)) {
                 $supportingFilesDetail = $externalDetail;
             } else {
                 // Try to find any detail with supporting files
                 $supportingFilesDetail = $details->first(function ($detail) {
-                    return !empty($detail->supporting_files);
+                    return ! empty($detail->supporting_files);
                 });
             }
         }
 
-        if ($supportingFilesDetail && !empty($supportingFilesDetail->supporting_files)) {
+        if ($supportingFilesDetail && ! empty($supportingFilesDetail->supporting_files)) {
             // supporting_files is cast to array in model, so it should already be an array
             $files = $supportingFilesDetail->supporting_files;
 
             // Handle both array (from cast) and JSON string (legacy)
-            if (is_array($files) && !empty($files)) {
+            if (is_array($files) && ! empty($files)) {
                 $result['supporting_files'] = array_map(
-                    fn($file) => asset('storage/' . $file),
+                    fn ($file) => asset('storage/'.$file),
                     $files
                 );
             } elseif (is_string($files)) {
                 // Fallback: if it's still a string (JSON), decode it
                 $decoded = json_decode($files, true);
-                if ($decoded && is_array($decoded) && !empty($decoded)) {
+                if ($decoded && is_array($decoded) && ! empty($decoded)) {
                     $result['supporting_files'] = array_map(
-                        fn($file) => asset('storage/' . $file),
+                        fn ($file) => asset('storage/'.$file),
                         $decoded
                     );
                 }

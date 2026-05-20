@@ -50,4 +50,3 @@ return new class extends Migration
         Schema::dropIfExists('emergency_contacts');
     }
 };
-

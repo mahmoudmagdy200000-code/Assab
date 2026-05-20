@@ -34,4 +34,3 @@ class NotificationLog extends Model
         );
     }
 }
-

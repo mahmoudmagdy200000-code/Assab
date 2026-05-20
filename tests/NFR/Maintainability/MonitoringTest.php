@@ -2,16 +2,16 @@
 
 namespace Tests\NFR\Maintainability;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\DB;
 use Modules\BranchManagers\Models\BranchManager;
+use Tests\TestCase;
 
 /**
  * Maintainability Requirements Test: Monitoring and Logging
- * 
+ *
  * Tests monitoring and logging requirements:
  * - Real-time performance metrics collection
  * - Error tracking and alerting
@@ -31,7 +31,7 @@ class MonitoringTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->manager = BranchManager::factory()->create([
             'email' => 'monitoring-test-manager@assab.com',
             'password' => Hash::make('password123'),
@@ -48,7 +48,7 @@ class MonitoringTest extends TestCase
         // Test that error scenarios return proper error responses
         // Note: Actual logging verification would require inspecting log files
         // This test verifies error handling capability
-        
+
         // Trigger an error scenario (validation error)
         $response = $this->actingAs($this->manager, 'sanctum')
             ->postJson('/api/v1/purchase/orders', [
@@ -56,12 +56,12 @@ class MonitoringTest extends TestCase
             ]);
 
         // Error should return proper status code (validation errors are logged at info/warning level, not error)
-        $this->assertContains($response->status(), [400, 422, 500], "Error should return proper status code");
-        
+        $this->assertContains($response->status(), [400, 422, 500], 'Error should return proper status code');
+
         // Response should indicate error
         $data = $response->json();
         $hasErrors = isset($data['errors']) || isset($data['message']) || isset($data['success']);
-        $this->assertTrue($hasErrors, "Error response should indicate the error occurred");
+        $this->assertTrue($hasErrors, 'Error response should indicate the error occurred');
     }
 
     /**
@@ -71,9 +71,9 @@ class MonitoringTest extends TestCase
     public function test_log_channel_configuration(): void
     {
         $logChannels = config('logging.channels');
-        
-        $this->assertIsArray($logChannels, "Log channels should be configured");
-        $this->assertNotEmpty($logChannels, "At least one log channel should be configured");
+
+        $this->assertIsArray($logChannels, 'Log channels should be configured');
+        $this->assertNotEmpty($logChannels, 'At least one log channel should be configured');
     }
 
     /**
@@ -84,7 +84,7 @@ class MonitoringTest extends TestCase
     {
         // This test verifies the concept - actual log content checking requires log inspection
         $plainPassword = 'password123';
-        
+
         $manager = BranchManager::factory()->create([
             'email' => 'log-test@assab.com',
             'password' => Hash::make($plainPassword),
@@ -98,7 +98,7 @@ class MonitoringTest extends TestCase
 
         // In production, logs should not contain passwords
         // This serves as a reminder to implement log sanitization
-        $this->assertTrue(true, "Logs should exclude sensitive data like passwords");
+        $this->assertTrue(true, 'Logs should exclude sensitive data like passwords');
     }
 
     /**
@@ -110,10 +110,10 @@ class MonitoringTest extends TestCase
         // Check if logging configuration supports structured format
         $logChannel = config('logging.default');
         $logChannels = config('logging.channels');
-        
+
         if (isset($logChannels[$logChannel])) {
             $driver = $logChannels[$logChannel]['driver'] ?? null;
-            
+
             // Stack driver can include multiple channels including JSON-capable ones
             $this->assertTrue(
                 true,
@@ -129,7 +129,7 @@ class MonitoringTest extends TestCase
     public function test_performance_metrics_collection(): void
     {
         $startTime = microtime(true);
-        
+
         $response = $this->actingAs($this->manager, 'sanctum')
             ->getJson('/api/v1/branch-manager/dashboard');
 
@@ -139,8 +139,8 @@ class MonitoringTest extends TestCase
         $response->assertStatus(200);
 
         // Response time should be measurable
-        $this->assertIsFloat($responseTime, "Performance metrics should be collectible");
-        $this->assertGreaterThan(0, $responseTime, "Response time should be measurable");
+        $this->assertIsFloat($responseTime, 'Performance metrics should be collectible');
+        $this->assertGreaterThan(0, $responseTime, 'Response time should be measurable');
     }
 
     /**
@@ -158,7 +158,7 @@ class MonitoringTest extends TestCase
         $queries = DB::getQueryLog();
 
         $response->assertStatus(200);
-        $this->assertIsArray($queries, "Database queries should be loggable");
+        $this->assertIsArray($queries, 'Database queries should be loggable');
     }
 
     /**
@@ -175,7 +175,7 @@ class MonitoringTest extends TestCase
 
         // Verify timestamps exist (basic audit trail)
         // Full audit trail would require audit log table
-        $this->assertTrue(true, "Financial transactions should be logged in audit trail");
+        $this->assertTrue(true, 'Financial transactions should be logged in audit trail');
     }
 
     /**
@@ -196,7 +196,7 @@ class MonitoringTest extends TestCase
         $hasSuccess = isset($data['success']);
         $hasMessage = isset($data['message']);
         $hasErrors = isset($data['errors']);
-        
+
         $this->assertTrue(
             $hasSuccess || $hasMessage || $hasErrors,
             "Error response should have 'success', 'message', or 'errors' field for monitoring"
@@ -210,12 +210,12 @@ class MonitoringTest extends TestCase
     public function test_log_level_configuration(): void
     {
         $logLevel = config('logging.level', 'debug');
-        
+
         $validLevels = ['emergency', 'alert', 'critical', 'error', 'warning', 'notice', 'info', 'debug'];
         $this->assertContains(
             $logLevel,
             $validLevels,
-            "Log level should be a valid PSR-3 level"
+            'Log level should be a valid PSR-3 level'
         );
     }
 
@@ -228,20 +228,20 @@ class MonitoringTest extends TestCase
         // Check if health endpoint exists
         try {
             $response = $this->getJson('/health');
-            
+
             if ($response->status() !== 404) {
-                $this->assertEquals(200, $response->status(), "Health endpoint should return 200");
+                $this->assertEquals(200, $response->status(), 'Health endpoint should return 200');
                 // If health endpoint exists, verify it returns proper response
                 $data = $response->json();
-                $this->assertNotNull($data, "Health endpoint should return response data");
+                $this->assertNotNull($data, 'Health endpoint should return response data');
             } else {
                 // Health endpoint doesn't exist - verify 404 is returned (acceptable if not implemented)
-                $this->assertEquals(404, $response->status(), "Health endpoint may not be implemented (404 is acceptable)");
+                $this->assertEquals(404, $response->status(), 'Health endpoint may not be implemented (404 is acceptable)');
             }
         } catch (\Exception $e) {
             // Health endpoint may not exist or be accessible
             // Verify exception provides error information
-            $this->assertNotNull($e->getMessage(), "Health/monitoring endpoint error should provide message");
+            $this->assertNotNull($e->getMessage(), 'Health/monitoring endpoint error should provide message');
         }
     }
 }

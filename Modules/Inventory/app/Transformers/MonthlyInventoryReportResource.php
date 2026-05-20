@@ -15,6 +15,7 @@ class MonthlyInventoryReportResource extends JsonResource
     {
         $data = $this->resource;
         $summary = $data['summary'] ?? [];
+
         return [
             'inventory' => new MonthlyInventoryResource($data['inventory'] ?? null),
             'summary' => [

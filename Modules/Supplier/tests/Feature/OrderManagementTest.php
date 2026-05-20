@@ -26,7 +26,7 @@ class OrderManagementTest extends TestCase
             'status' => OrderStatus::PENDING,
         ]);
 
-        $response = $this->withHeader('Authorization', 'Bearer ' . $token)
+        $response = $this->withHeader('Authorization', 'Bearer '.$token)
             ->getJson('/api/v1/supplier/orders');
 
         $response->assertStatus(200)
@@ -53,7 +53,7 @@ class OrderManagementTest extends TestCase
             'status' => OrderStatus::PENDING,
         ]);
 
-        $response = $this->withHeader('Authorization', 'Bearer ' . $token)
+        $response = $this->withHeader('Authorization', 'Bearer '.$token)
             ->postJson("/api/v1/supplier/orders/{$order->id}/accept", [
                 'expected_delivery_at' => now()->addDays(2)->toDateTimeString(),
             ]);
@@ -65,4 +65,3 @@ class OrderManagementTest extends TestCase
         ]);
     }
 }
-

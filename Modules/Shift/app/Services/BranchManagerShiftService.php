@@ -2,17 +2,17 @@
 
 namespace Modules\Shift\Services;
 
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\ShiftSalesBreakdown;
-use Modules\BranchManagers\Models\BranchManager;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Redis;
-use Carbon\Carbon;
 
 class BranchManagerShiftService
 {
@@ -29,8 +29,10 @@ class BranchManagerShiftService
         if ($this->financialService === null) {
             $this->financialService = app(ShiftFinancialService::class);
         }
+
         return $this->financialService;
     }
+
     /**
      * Attach handoffs_summary and financial_summary to each shift to avoid N+1 in BranchManagerShiftResource.
      * Call this when returning a collection of BranchManagerShift (e.g. list/history).
@@ -55,11 +57,12 @@ class BranchManagerShiftService
             $cs = $h->cashierShift;
             $shiftDate = $cs?->shift_date?->format('Y-m-d');
             $branchId = $cs?->shift?->branch_id;
-            return ($h->handover_to_id ?? '') . '|' . ($shiftDate ?? '') . '|' . ($branchId ?? '');
+
+            return ($h->handover_to_id ?? '').'|'.($shiftDate ?? '').'|'.($branchId ?? '');
         });
 
         foreach ($shifts as $shift) {
-            $key = ($shift->branch_manager_id ?? '') . '|' . ($shift->shift_date?->format('Y-m-d') ?? '') . '|' . ($shift->branch_id ?? '');
+            $key = ($shift->branch_manager_id ?? '').'|'.($shift->shift_date?->format('Y-m-d') ?? '').'|'.($shift->branch_id ?? '');
             $shiftHandovers = $grouped->get($key, collect());
 
             $shift->setAttribute('handoffs_summary', [
@@ -101,7 +104,7 @@ class BranchManagerShiftService
             ->where('id', '!=', $currentShift->branch_manager_id)
             ->where('is_active', true)
             ->get()
-            ->map(fn($manager) => [
+            ->map(fn ($manager) => [
                 'id' => $manager->id,
                 'name' => $manager->name,
                 'email' => $manager->email,
@@ -206,6 +209,7 @@ class BranchManagerShiftService
     {
         // Use shift ID + date instead of updated_at for more stable keys
         $date = $shift->shift_date->format('Y-m-d');
+
         return "shift:{$shift->id}:{$date}:{$type}";
     }
 
@@ -213,7 +217,7 @@ class BranchManagerShiftService
      * Get all handovers for a manager shift (optimized with caching)
      * جلب جميع الـ handovers مرة واحدة فقط مع caching
      *
-     * @param bool $skipCache When true (e.g. workday/current), always return fresh data so approve/reject reflect immediately
+     * @param  bool  $skipCache  When true (e.g. workday/current), always return fresh data so approve/reject reflect immediately
      */
     public function getShiftHandovers(BranchManagerShift $managerShift, ?string $handoverType = null, bool $skipCache = false)
     {
@@ -266,7 +270,7 @@ class BranchManagerShiftService
                         'vat_amount',
                         'cash_collected',
                         'card_payments',
-                        'variance'
+                        'variance',
                     ]);
                 },
                 'cashierShift.cashier:id,name',
@@ -278,7 +282,7 @@ class BranchManagerShiftService
                 'cashierShift.varianceDetails:id,cashier_shift_id,responsible_cashier_id,assigned_amount,reason',
                 'cashierShift.varianceDetails.responsibleCashier:id,name',
                 'handoverTo:id,name',
-                'approvedBy:id,name'
+                'approvedBy:id,name',
             ]);
 
         switch ($handoverType) {
@@ -296,14 +300,14 @@ class BranchManagerShiftService
                             })->orWhereDate('handover_date', $shiftDate);
                         })
                         // Previous days (up to 7 days back) — only pending/rejected (not yet approved)
-                        ->orWhere(function ($subQ) use ($managerShift, $shiftDate, $sevenDaysAgo) {
-                            $subQ->whereHas('cashierShift.shift', function ($sq) use ($managerShift) {
-                                $sq->where('branch_id', $managerShift->branch_id);
-                            })
-                                ->whereDate('handover_date', '>=', $sevenDaysAgo)
-                                ->whereDate('handover_date', '<', $shiftDate)
-                                ->whereNotIn('status', ['approved', 'rejected_final']);
-                        });
+                            ->orWhere(function ($subQ) use ($managerShift, $shiftDate, $sevenDaysAgo) {
+                                $subQ->whereHas('cashierShift.shift', function ($sq) use ($managerShift) {
+                                    $sq->where('branch_id', $managerShift->branch_id);
+                                })
+                                    ->whereDate('handover_date', '>=', $sevenDaysAgo)
+                                    ->whereDate('handover_date', '<', $shiftDate)
+                                    ->whereNotIn('status', ['approved', 'rejected_final']);
+                            });
                     });
                 break;
 
@@ -453,14 +457,14 @@ class BranchManagerShiftService
     private function processCashierBreakdownItem(array $breakdown, $cashierShifts, $handovers): void
     {
         $cashierId = $breakdown['cashier_id'] ?? null;
-        if (!$cashierId || !isset($cashierShifts[$cashierId])) {
+        if (! $cashierId || ! isset($cashierShifts[$cashierId])) {
             return;
         }
 
         $cashierShift = $cashierShifts[$cashierId];
         $updateData = $this->prepareShiftUpdateData($breakdown);
 
-        if (!empty($updateData)) {
+        if (! empty($updateData)) {
             $cashierShift->update($updateData);
         }
 
@@ -547,40 +551,40 @@ class BranchManagerShiftService
     {
         $defaultShiftHours = 8;
         $startTime = $shift->actual_start_time;
-        $endTime   = $shift->actual_end_time;
+        $endTime = $shift->actual_end_time;
         $shiftDateFormatted = $shift->shift_date->format('d M Y');
 
         $statusLabel = match ($shift->status) {
             'not_started' => 'Not Started',
             'in_progress' => 'In Progress',
-            default       => 'Completed',
+            default => 'Completed',
         };
 
         $progress = [
-            'title'               => "Branch Manager Shift - {$shiftDateFormatted}",
-            'description'         => 'Managing daily operations and cashier handovers',
-            'status'              => $statusLabel,
-            'start_time'          => $startTime ? $startTime->format('H:i') : '09:00',
-            'end_time'            => $endTime ? $endTime->format('H:i') : '17:00',
-            'elapsed_hours'       => 0,
+            'title' => "Branch Manager Shift - {$shiftDateFormatted}",
+            'description' => 'Managing daily operations and cashier handovers',
+            'status' => $statusLabel,
+            'start_time' => $startTime ? $startTime->format('H:i') : '09:00',
+            'end_time' => $endTime ? $endTime->format('H:i') : '17:00',
+            'elapsed_hours' => 0,
             'progress_percentage' => 0,
         ];
 
-        if (!$startTime) {
+        if (! $startTime) {
             return $progress;
         }
 
         if ($shift->status === 'in_progress') {
             $expectedEndTime = $endTime ?: $startTime->copy()->addHours($defaultShiftHours);
-            $totalMinutes    = $startTime->diffInMinutes($expectedEndTime);
-            $elapsedMinutes  = now()->diffInMinutes($startTime);
+            $totalMinutes = $startTime->diffInMinutes($expectedEndTime);
+            $elapsedMinutes = now()->diffInMinutes($startTime);
 
-            $progress['elapsed_hours']       = round($elapsedMinutes / 60, 2);
+            $progress['elapsed_hours'] = round($elapsedMinutes / 60, 2);
             $progress['progress_percentage'] = $totalMinutes > 0
                 ? min(($elapsedMinutes / $totalMinutes) * 100, 100)
                 : 0;
         } elseif ($shift->status === 'completed' && $endTime) {
-            $progress['elapsed_hours']       = round($startTime->diffInHours($endTime), 2);
+            $progress['elapsed_hours'] = round($startTime->diffInHours($endTime), 2);
             $progress['progress_percentage'] = 100;
         }
 
@@ -616,17 +620,17 @@ class BranchManagerShiftService
      */
     public function getCorrectionDetails($handoverStatus): ?array
     {
-        if (!$this->isCorrectionDetailsEligible($handoverStatus)) {
+        if (! $this->isCorrectionDetailsEligible($handoverStatus)) {
             return null;
         }
 
         return [
-            'requested_by'      => $handoverStatus->reviewedBy?->name ?? 'N/A',
-            'requested_by_id'   => $handoverStatus->reviewed_by_id,
+            'requested_by' => $handoverStatus->reviewedBy?->name ?? 'N/A',
+            'requested_by_id' => $handoverStatus->reviewed_by_id,
             'requested_by_type' => $this->getReviewerTypeLabel($handoverStatus->reviewed_by_type),
-            'manager_comment'   => $handoverStatus->manager_comment,
-            'requested_at'      => $handoverStatus->reviewed_at?->format(self::DATETIME_FORMAT),
-            'can_cashier_edit'  => $handoverStatus->canCashierEdit(),
+            'manager_comment' => $handoverStatus->manager_comment,
+            'requested_at' => $handoverStatus->reviewed_at?->format(self::DATETIME_FORMAT),
+            'can_cashier_edit' => $handoverStatus->canCashierEdit(),
         ];
     }
 
@@ -635,7 +639,7 @@ class BranchManagerShiftService
      */
     public function getReviewerTypeLabel(?string $reviewerType): ?string
     {
-        if (!$reviewerType) {
+        if (! $reviewerType) {
             return null;
         }
 
@@ -663,7 +667,7 @@ class BranchManagerShiftService
         return $handoverStatus
             && $handoverStatus->manager_comment
             && $handoverStatus->reviewed_at
-            && !$handoverStatus->isPermanentlyRejected()
+            && ! $handoverStatus->isPermanentlyRejected()
             && $handoverStatus->manager_approval_status === 'rejected';
     }
 
@@ -680,6 +684,7 @@ class BranchManagerShiftService
             if (config('cache.default') === 'redis') {
                 try {
                     Cache::tags([$shiftKey])->flush();
+
                     return;
                 } catch (\Exception $e) {
                     // Fallback if tags not supported
@@ -698,7 +703,7 @@ class BranchManagerShiftService
 
                 $keys = $redis->keys($pattern);
 
-                if (!empty($keys)) {
+                if (! empty($keys)) {
                     // Remove cache prefix from keys for Laravel Cache::forget()
                     $keysWithoutPrefix = array_map(function ($key) use ($prefix) {
                         return str_replace("{$prefix}:", '', $key);
@@ -708,6 +713,7 @@ class BranchManagerShiftService
                         Cache::forget($key);
                     }
                 }
+
                 return;
             }
         } catch (\Exception $e) {
@@ -721,9 +727,9 @@ class BranchManagerShiftService
         }
 
         // Also clear with old timestamp-based keys for backward compatibility
-        Cache::forget("shift_handovers_{$shift->id}_to_manager_" . $shift->updated_at->timestamp);
-        Cache::forget("shift_handovers_{$shift->id}_between_cashiers_" . $shift->updated_at->timestamp);
-        Cache::forget("financial_summary_{$shift->id}_" . $shift->updated_at->timestamp);
+        Cache::forget("shift_handovers_{$shift->id}_to_manager_".$shift->updated_at->timestamp);
+        Cache::forget("shift_handovers_{$shift->id}_between_cashiers_".$shift->updated_at->timestamp);
+        Cache::forget("financial_summary_{$shift->id}_".$shift->updated_at->timestamp);
     }
 
     /**
@@ -738,7 +744,7 @@ class BranchManagerShiftService
             ->select(['handover_amount', 'closing_balance'])
             ->first();
 
-        if (!$previousShift) {
+        if (! $previousShift) {
             return 0.0;
         }
 

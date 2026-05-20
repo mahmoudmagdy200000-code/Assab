@@ -3,14 +3,14 @@
 namespace Modules\Shift\Console;
 
 use Illuminate\Console\Command;
-use Modules\Shift\Models\CashierShift;
-use Modules\Shift\Enums\ShiftStatus;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
+use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Models\CashierShift;
 
 class AutoEndOverdueShiftsCommand extends Command
 {
     protected $signature = 'shifts:auto-end-overdue';
+
     protected $description = 'Automatically end shifts that are overdue';
 
     public function handle(): int
@@ -25,6 +25,7 @@ class AutoEndOverdueShiftsCommand extends Command
 
         if ($overdueShifts->isEmpty()) {
             $this->info('No overdue shifts found.');
+
             return Command::SUCCESS;
         }
 

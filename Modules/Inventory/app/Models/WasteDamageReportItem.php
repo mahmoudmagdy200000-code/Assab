@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Branch\Models\Branch;
-use Modules\Cashier\Models\Cashier;
 use Modules\Inventory\Enums\CauseOfDamage;
 use Modules\Inventory\Enums\ProblemType;
 use Modules\Inventory\Enums\WasteDamageReason;

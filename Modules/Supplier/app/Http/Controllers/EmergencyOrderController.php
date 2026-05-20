@@ -53,4 +53,3 @@ class EmergencyOrderController extends BaseController
         }
     }
 }
-

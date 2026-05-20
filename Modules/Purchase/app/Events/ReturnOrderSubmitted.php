@@ -15,4 +15,3 @@ class ReturnOrderSubmitted
         public ReturnOrder $returnOrder
     ) {}
 }
-

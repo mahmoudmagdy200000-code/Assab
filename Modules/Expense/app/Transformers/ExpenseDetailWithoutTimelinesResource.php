@@ -2,8 +2,6 @@
 
 namespace Modules\Expense\Transformers;
 
-use Illuminate\Http\Request;
-
 /**
  * Same as ExpenseDetailResource but omits "timelines" from the response.
  * Used for "previous" list endpoints (pre-approval/previous, single-invoice/previous).

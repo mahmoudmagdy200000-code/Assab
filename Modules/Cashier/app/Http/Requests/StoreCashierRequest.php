@@ -2,7 +2,6 @@
 
 namespace Modules\Cashier\Http\Requests;
 
-
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreCashierRequest extends FormRequest

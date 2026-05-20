@@ -11,7 +11,6 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 use Modules\Branch\Models\Branch;
-use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Inventory\Enums\InventorySessionStatus;
 
@@ -127,7 +126,7 @@ class InventorySession extends Model
     // Accessors
     public function getTimeTakenFormattedAttribute(): ?string
     {
-        if (!$this->time_taken) {
+        if (! $this->time_taken) {
             return null;
         }
 
@@ -171,4 +170,3 @@ class InventorySession extends Model
         $this->save();
     }
 }
-

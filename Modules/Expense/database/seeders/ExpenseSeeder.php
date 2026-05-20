@@ -3,21 +3,19 @@
 namespace Modules\Expense\Database\Seeders;
 
 use Illuminate\Database\Seeder;
-use Modules\Expense\Models\{
-    Expense,
-    QuickCashExpense,
-    QuickCashItem,
-    InvoiceDetail,
-    GroupedInvoice,
-    PreApprovalRequest,
-    ExpenseItem,
-    ExpenseLine,
-    ExpenseAttachment,
-    ExpenseTimeline,
-    Category,
-    Supplier
-};
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Expense\Models\Category;
+use Modules\Expense\Models\Expense;
+use Modules\Expense\Models\ExpenseAttachment;
+use Modules\Expense\Models\ExpenseItem;
+use Modules\Expense\Models\ExpenseLine;
+use Modules\Expense\Models\ExpenseTimeline;
+use Modules\Expense\Models\GroupedInvoice;
+use Modules\Expense\Models\InvoiceDetail;
+use Modules\Expense\Models\PreApprovalRequest;
+use Modules\Expense\Models\QuickCashExpense;
+use Modules\Expense\Models\QuickCashItem;
+use Modules\Expense\Models\Supplier;
 
 class ExpenseSeeder extends Seeder
 {
@@ -27,6 +25,7 @@ class ExpenseSeeder extends Seeder
 
         if ($branchManagers->isEmpty()) {
             $this->command->warn('No branch managers found. Please seed branch managers first.');
+
             return;
         }
 

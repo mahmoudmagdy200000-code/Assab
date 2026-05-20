@@ -3,20 +3,20 @@
 namespace Modules\Cashier\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Modules\Cashier\Services\CashierService;
-use Modules\Cashier\Http\Requests\UpdateCashierRequest;
 use Modules\Cashier\Http\Requests\FilterCashierRequest;
 use Modules\Cashier\Http\Requests\StoreCashierRequest;
+use Modules\Cashier\Http\Requests\UpdateCashierRequest;
 use Modules\Cashier\Models\Cashier;
+use Modules\Cashier\Services\CashierService;
 use Modules\Cashier\Transformers\CashierDetailResource;
 use Modules\Cashier\Transformers\CashierResource;
-use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 
 class CashierController extends BaseController
 {
     use AuthorizesRequests;
+
     public function __construct(
         private CashierService $cashierService
     ) {
@@ -136,7 +136,7 @@ class CashierController extends BaseController
         $this->authorize('update', $cashier);
 
         if ($cashier->isDeactivated()) {
-            return  $this->errorResponse('Cashier is already deactivated', 400);
+            return $this->errorResponse('Cashier is already deactivated', 400);
         }
 
         // Check if cashier has active shifts

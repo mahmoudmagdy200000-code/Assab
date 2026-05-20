@@ -365,7 +365,7 @@ class ExpenseController extends BaseController
             );
         } catch (\Exception $e) {
             return $this->errorResponse(
-                'Failed to parse QR code: ' . $e->getMessage(),
+                'Failed to parse QR code: '.$e->getMessage(),
                 400
             );
         }
@@ -390,14 +390,11 @@ class ExpenseController extends BaseController
             );
         } catch (\Exception $e) {
             return $this->errorResponse(
-                'Failed to parse Invoice code: ' . $e->getMessage(),
+                'Failed to parse Invoice code: '.$e->getMessage(),
                 400
             );
         }
     }
-
-
-
 
     /**
      * Search & filter expenses

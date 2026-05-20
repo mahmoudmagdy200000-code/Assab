@@ -14,6 +14,7 @@ class MonthlyInventoryProgressResource extends JsonResource
     public function toArray($request): array
     {
         $data = $this->resource;
+
         return [
             'elapsed_seconds' => $data['elapsed_seconds'] ?? 0,
             'elapsed_formatted' => $data['elapsed_formatted'] ?? '00:00:00',

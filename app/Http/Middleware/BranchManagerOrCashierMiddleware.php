@@ -21,7 +21,7 @@ class BranchManagerOrCashierMiddleware
     {
         $user = auth()->user();
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
                 'message' => 'Unauthenticated',
@@ -47,7 +47,7 @@ class BranchManagerOrCashierMiddleware
      */
     protected function handleBranchManager(Request $request, Closure $next, BranchManager $user): Response
     {
-        if (!$user->is_active) {
+        if (! $user->is_active) {
             return response()->json([
                 'success' => false,
                 'message' => 'Your account is inactive. Please contact administrator.',
@@ -61,7 +61,7 @@ class BranchManagerOrCashierMiddleware
             ], 403);
         }
 
-        if (!$user->branch_id) {
+        if (! $user->branch_id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Branch manager is not assigned to any branch. Please contact administrator.',
@@ -78,14 +78,14 @@ class BranchManagerOrCashierMiddleware
      */
     protected function handleCashier(Request $request, Closure $next, Cashier $user): Response
     {
-        if (!$user->isActive()) {
+        if (! $user->isActive()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Your account is not active. Please contact your manager.',
             ], 403);
         }
 
-        if (!$user->branch_id) {
+        if (! $user->branch_id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Cashier is not assigned to any branch. Please contact administrator.',

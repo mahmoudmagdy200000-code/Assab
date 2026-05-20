@@ -15,11 +15,12 @@ class RecurringOrderHistoryItemResource extends JsonResource
         $image = null;
         if ($source) {
             $image = $source->image_url ?? $source->image ?? null;
-            if ($image && !str_starts_with((string) $image, 'http')) {
-                $image = asset('storage/' . $image);
+            if ($image && ! str_starts_with((string) $image, 'http')) {
+                $image = asset('storage/'.$image);
             }
         }
         $orderStatus = $this->status === OrderStatus::CLOSED ? 'Completed' : 'Canceled';
+
         return [
             'id' => $this->id,
             'order_number' => $this->order_number,

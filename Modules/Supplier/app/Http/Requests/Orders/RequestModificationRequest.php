@@ -17,6 +17,7 @@ class RequestModificationRequest extends FormRequest
     public function getNote(): ?string
     {
         $validated = $this->validated();
+
         return $validated['note'] ?? $validated['message'] ?? $validated['modification_request'] ?? null;
     }
 
@@ -26,6 +27,7 @@ class RequestModificationRequest extends FormRequest
     public function getReason(): string
     {
         $validated = $this->validated();
+
         return $validated['reason'] ?? $validated['message'] ?? $validated['modification_request'] ?? '';
     }
 

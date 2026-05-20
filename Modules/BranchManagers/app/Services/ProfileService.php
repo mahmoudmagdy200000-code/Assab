@@ -1,10 +1,11 @@
 <?php
 
 namespace Modules\BranchManagers\Services;
-use Modules\BranchManagers\Models\BranchManager;
+
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Http\UploadedFile;
+use Modules\BranchManagers\Models\BranchManager;
 
 class ProfileService
 {
@@ -41,7 +42,7 @@ class ProfileService
         }
 
         // Store new image
-        $filename = 'manager_' . $manager->id . '_' . time() . '.' . $image->getClientOriginalExtension();
+        $filename = 'manager_'.$manager->id.'_'.time().'.'.$image->getClientOriginalExtension();
         $path = $image->storeAs('profiles/managers', $filename, 'public');
 
         // Update manager record
@@ -67,7 +68,7 @@ class ProfileService
     public function changePassword(BranchManager $manager, string $currentPassword, string $newPassword): void
     {
         // Verify current password
-        if (!Hash::check($currentPassword, $manager->password)) {
+        if (! Hash::check($currentPassword, $manager->password)) {
             throw new \Exception('Current password is incorrect');
         }
 

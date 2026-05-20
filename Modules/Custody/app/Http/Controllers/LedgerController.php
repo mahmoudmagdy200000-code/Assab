@@ -8,9 +8,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Response;
 use Modules\Cashier\Models\Cashier;
 use Modules\Custody\Services\CashierCustodyService;
-use Modules\Custody\Services\PersonalLedgerService;
-use Modules\Custody\Services\PdfExportService;
 use Modules\Custody\Services\CustodyBalanceService;
+use Modules\Custody\Services\PdfExportService;
+use Modules\Custody\Services\PersonalLedgerService;
 
 class LedgerController extends BaseController
 {
@@ -41,7 +41,7 @@ class LedgerController extends BaseController
             $yearValue = null;
 
             // Validate month and year if provided
-            if (!empty($month) && !empty($year)) {
+            if (! empty($month) && ! empty($year)) {
                 $monthValue = (int) $month;
                 $yearValue = (int) $year;
 
@@ -80,8 +80,8 @@ class LedgerController extends BaseController
     public function getPersonalBalanceOnly(): JsonResponse
     {
         try {
-            $userId  = auth()->id();
-            $user    = auth()->user();
+            $userId = auth()->id();
+            $user = auth()->user();
             if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
                 $balance = $this->brandOwnerBalanceOnly($userId);
             } elseif ($user instanceof Cashier) {
@@ -91,7 +91,7 @@ class LedgerController extends BaseController
             }
 
             return $this->successResponse([
-                'personalCustodyBalance' => $balance
+                'personalCustodyBalance' => $balance,
             ], 'Personal balance retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
@@ -115,14 +115,14 @@ class LedgerController extends BaseController
             $year = $request->input('year');
 
             // Validate month and year if provided
-            if (!empty($month)) {
+            if (! empty($month)) {
                 $month = (int) $month;
                 if ($month < 1 || $month > 12) {
                     return $this->errorResponse('Month must be between 1 and 12', 400);
                 }
             }
 
-            if (!empty($year)) {
+            if (! empty($year)) {
                 $year = (int) $year;
                 if ($year < 2000 || $year > 2100) {
                     return $this->errorResponse('Year must be between 2000 and 2100', 400);
@@ -130,7 +130,7 @@ class LedgerController extends BaseController
             }
 
             // If one is provided, both must be provided
-            if ((!empty($month) && empty($year)) || (empty($month) && !empty($year))) {
+            if ((! empty($month) && empty($year)) || (empty($month) && ! empty($year))) {
                 return $this->errorResponse('Both month and year must be provided together, or both omitted', 400);
             }
 
@@ -140,13 +140,13 @@ class LedgerController extends BaseController
             ];
 
             // Only add month and year if both are provided
-            if (!empty($month) && !empty($year)) {
+            if (! empty($month) && ! empty($year)) {
                 $filters['month'] = $month;
                 $filters['year'] = $year;
             }
 
-            $userId       = auth()->id();
-            $user         = auth()->user();
+            $userId = auth()->id();
+            $user = auth()->user();
             if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
                 $transactions = $this->brandOwnerTransactions($userId, $filters);
             } elseif ($user instanceof Cashier) {
@@ -184,7 +184,7 @@ class LedgerController extends BaseController
 
             // Validate timePeriod if provided
             $validTimePeriods = ['last_24_hours', 'last_7_days', 'last_30_days', 'last_90_days', 'last_365_days'];
-            if (!empty($timePeriod) && !in_array($timePeriod, $validTimePeriods)) {
+            if (! empty($timePeriod) && ! in_array($timePeriod, $validTimePeriods)) {
                 return $this->errorResponse(
                     'Invalid timePeriod. Must be: last_24_hours, last_7_days, last_30_days, last_90_days, or last_365_days',
                     400
@@ -205,7 +205,7 @@ class LedgerController extends BaseController
                 'filename' => $result['filename'],
             ], 'PDF exported successfully');
         } catch (\Exception $e) {
-            return $this->errorResponse('Failed to export PDF: ' . $e->getMessage(), 500);
+            return $this->errorResponse('Failed to export PDF: '.$e->getMessage(), 500);
         }
     }
 
@@ -235,7 +235,7 @@ class LedgerController extends BaseController
 
             // Validate timePeriod if provided
             $validTimePeriods = ['last_24_hours', 'last_7_days', 'last_30_days', 'custom'];
-            if (!empty($filters['timePeriod']) && !in_array($filters['timePeriod'], $validTimePeriods)) {
+            if (! empty($filters['timePeriod']) && ! in_array($filters['timePeriod'], $validTimePeriods)) {
                 return $this->errorResponse(
                     'Invalid timePeriod. Must be: last_24_hours, last_7_days, last_30_days, or custom',
                     400
@@ -286,20 +286,20 @@ class LedgerController extends BaseController
 
         $requests = $query->get();
         $approved = $requests->where('status', 'Approved')->sum('requested_amount');
-        $pending  = $requests->where('status', 'Pending')->sum('requested_amount');
+        $pending = $requests->where('status', 'Pending')->sum('requested_amount');
         $rejected = $requests->where('status', 'Rejected')->sum('requested_amount');
 
         return [
             'personalCustodyBalance' => (float) $approved,
             'totals' => [
                 'approved' => (float) $approved,
-                'pending'  => (float) $pending,
+                'pending' => (float) $pending,
                 'rejected' => (float) $rejected,
             ],
             'transactions' => [],
             'filter' => [
                 'month' => $month,
-                'year'  => $year,
+                'year' => $year,
             ],
         ];
     }
@@ -319,26 +319,26 @@ class LedgerController extends BaseController
     {
         $query = \Modules\Custody\Models\CustodyRequest::where('created_by_brand_owner_id', $brandOwnerId);
 
-        if (!empty($filters['month']) && !empty($filters['year'])) {
+        if (! empty($filters['month']) && ! empty($filters['year'])) {
             $query->whereYear('created_at', $filters['year'])
                 ->whereMonth('created_at', $filters['month']);
         }
 
         $transactions = $query->orderBy('created_at', 'desc')->get()->map(function ($req) {
             return [
-                'id'            => $req->id,
-                'type'          => 'Owner Payment',
-                'amount'        => (float) $req->requested_amount,
-                'status'        => strtolower((string) $req->status),
+                'id' => $req->id,
+                'type' => 'Owner Payment',
+                'amount' => (float) $req->requested_amount,
+                'status' => strtolower((string) $req->status),
                 'preferredReceiptMethod' => $req->preferred_receipt_method,
-                'handoverDate'  => $req->handover_date?->toIso8601String(),
-                'dateTime'      => $req->created_at->toIso8601String(),
+                'handoverDate' => $req->handover_date?->toIso8601String(),
+                'dateTime' => $req->created_at->toIso8601String(),
             ];
         })->values();
 
         return [
             'transactions' => $transactions,
-            'filter'       => $filters,
+            'filter' => $filters,
         ];
     }
 }

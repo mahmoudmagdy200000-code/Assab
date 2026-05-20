@@ -26,8 +26,8 @@ class CashierCustodyTransaction extends Model
     ];
 
     protected $casts = [
-        'amount'           => 'decimal:2',
-        'is_cash_in'       => 'boolean',
+        'amount' => 'decimal:2',
+        'is_cash_in' => 'boolean',
         'transaction_date' => 'datetime',
     ];
 

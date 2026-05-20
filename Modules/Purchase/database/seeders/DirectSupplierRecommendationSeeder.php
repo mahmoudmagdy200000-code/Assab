@@ -16,8 +16,9 @@ class DirectSupplierRecommendationSeeder extends Seeder
     public function run(): void
     {
         $branch = Branch::first();
-        if (!$branch) {
+        if (! $branch) {
             $this->command?->warn('⚠️ No branches found; skipping direct supplier recommendation seed.');
+
             return;
         }
 
@@ -92,4 +93,3 @@ class DirectSupplierRecommendationSeeder extends Seeder
         $this->command?->info('✅ Direct supplier recommendation scenario seeded.');
     }
 }
-

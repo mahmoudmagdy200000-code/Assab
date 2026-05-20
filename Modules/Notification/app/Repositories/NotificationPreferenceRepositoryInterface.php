@@ -33,4 +33,3 @@ interface NotificationPreferenceRepositoryInterface
      */
     public function getDefaultPreferencesForRole(string $role): array;
 }
-

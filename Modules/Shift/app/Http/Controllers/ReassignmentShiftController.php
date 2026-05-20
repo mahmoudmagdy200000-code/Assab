@@ -2,20 +2,21 @@
 
 namespace Modules\Shift\Http\Controllers;
 
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-use Modules\Shift\Services\{ShiftService, ShiftNotificationService};
-use Modules\Shift\Transformers\{ShiftResource, ShiftDetailResource, CashierShiftResource};
-use Modules\Shift\Models\CashierShift;
-use Modules\Shift\Models\ShiftVarianceDetail;
 use Modules\Cashier\Models\Cashier;
+use Modules\Shift\Enums\ResponsibilityType;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Enums\VarianceType;
-use Modules\Shift\Enums\ResponsibilityType;
+use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\ShiftVarianceDetail;
+use Modules\Shift\Services\ShiftNotificationService;
+use Modules\Shift\Services\ShiftService;
+use Modules\Shift\Transformers\CashierShiftResource;
+use Modules\Shift\Transformers\ShiftDetailResource;
 
 class ReassignmentShiftController extends Controller
 {
@@ -26,9 +27,6 @@ class ReassignmentShiftController extends Controller
 
     /**
      * Display a listing of reassigned shifts
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function index(Request $request): JsonResponse
     {
@@ -43,13 +41,13 @@ class ReassignmentShiftController extends Controller
                 'data' => CashierShiftResource::collection($shifts),
                 'meta' => [
                     'total' => $shifts->count(),
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve reassigned shifts',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -57,9 +55,6 @@ class ReassignmentShiftController extends Controller
     /**
      * Display the specified reassigned shift
      * Returns unified shift payload (ShiftDetailResource) with shift_progress and reassignment_info inside.
-     *
-     * @param string $shift
-     * @return JsonResponse
      */
     public function show(string $shift): JsonResponse
     {
@@ -75,22 +70,18 @@ class ReassignmentShiftController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve shift details',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
 
     /**
      * Reassign a shift to another cashier
-     *
-     * @param Request $request
-     * @param string $shift
-     * @return JsonResponse
      */
     public function reassign(Request $request, string $shift): JsonResponse
     {
         // Validate UUID format
-        if (!$this->isValidUuid($shift)) {
+        if (! $this->isValidUuid($shift)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid shift ID format',
@@ -106,7 +97,7 @@ class ReassignmentShiftController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -114,7 +105,7 @@ class ReassignmentShiftController extends Controller
         try {
             $authUser = auth()->user();
 
-            if (!$authUser || !$authUser->branch_id) {
+            if (! $authUser || ! $authUser->branch_id) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -127,18 +118,20 @@ class ReassignmentShiftController extends Controller
             // البحث مرة واحدة فقط داخل ال transaction
             $shiftModel = CashierShift::with(['cashier', 'shift'])->find($shift);
 
-            if (!$shiftModel) {
+            if (! $shiftModel) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Shift not found',
-                    'error' => 'The specified shift does not exist'
+                    'error' => 'The specified shift does not exist',
                 ], 404);
             }
 
             // Verify shift belongs to the same branch as the authenticated user
             if ($shiftModel->shift->branch_id !== $branchId) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized: This shift does not belong to your branch',
@@ -148,6 +141,7 @@ class ReassignmentShiftController extends Controller
             // Verify cashier belongs to same branch
             if ($shiftModel->cashier->branch_id !== $branchId) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized: This cashier does not belong to your branch',
@@ -155,8 +149,9 @@ class ReassignmentShiftController extends Controller
             }
 
             // Verify shift is pending or not started
-            if (!in_array($shiftModel->status->value, ['not_started', 'reassigned'])) {
+            if (! in_array($shiftModel->status->value, ['not_started', 'reassigned'])) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Cannot reassign a shift that is already in progress or completed',
@@ -166,6 +161,7 @@ class ReassignmentShiftController extends Controller
             // Verify new cashier is not the same as current
             if ($shiftModel->cashier_id == $request->new_cashier_id) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Cannot reassign to the same cashier',
@@ -173,8 +169,9 @@ class ReassignmentShiftController extends Controller
             }
 
             $newCashier = Cashier::find($request->new_cashier_id);
-            if (!$newCashier) {
+            if (! $newCashier) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'New cashier not found',
@@ -190,6 +187,7 @@ class ReassignmentShiftController extends Controller
 
             if ($conflictingShift) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'The selected cashier is already assigned to this shift',
@@ -201,8 +199,9 @@ class ReassignmentShiftController extends Controller
 
             // البحث عن الكاشير الأصلي
             $originalCashier = Cashier::find($originalCashierId);
-            if (!$originalCashier) {
+            if (! $originalCashier) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Original cashier not found',
@@ -243,7 +242,7 @@ class ReassignmentShiftController extends Controller
                     'cashier_name' => $newCashier->name,
                     'reason' => $request->reason, // ممكن يكون null
                 ]),
-                'notes' => $request->reason ? 'Shift reassigned: ' . $request->reason : 'Shift reassigned',
+                'notes' => $request->reason ? 'Shift reassigned: '.$request->reason : 'Shift reassigned',
             ]);
 
             // Send notifications
@@ -265,15 +264,16 @@ class ReassignmentShiftController extends Controller
                         'reason' => $request->reason, // ممكن يكون null
                         'reassigned_at' => now()->format('Y-m-d H:i:s'),
                     ],
-                    'shift' => new ShiftDetailResource($shiftModel->fresh())
-                ]
+                    'shift' => new ShiftDetailResource($shiftModel->fresh()),
+                ],
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to reassign shift',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -299,17 +299,14 @@ class ReassignmentShiftController extends Controller
             default => ResponsibilityType::I_WAS_RESPONSIBLE,
         };
     }
+
     /**
      * Reassign shift with handover (for in-progress shifts)
-     *
-     * @param Request $request
-     * @param string $shift
-     * @return JsonResponse
      */
     public function reassignWithHandover(Request $request, string $shift): JsonResponse
     {
         // Validate UUID format
-        if (!$this->isValidUuid($shift)) {
+        if (! $this->isValidUuid($shift)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid shift ID format',
@@ -364,46 +361,49 @@ class ReassignmentShiftController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
         DB::beginTransaction();
         try {
             $manager = auth()->user();
-            
+
             // Ensure the user is a branch manager
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
                 ], 403);
             }
-            
+
             // البحث مرة واحدة فقط
             $shiftModel = CashierShift::with(['cashier', 'shift'])->find($shift);
 
-            if (!$shiftModel) {
+            if (! $shiftModel) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Shift not found',
-                    'error' => 'The specified shift does not exist'
+                    'error' => 'The specified shift does not exist',
                 ], 404);
             }
-            
+
             // Verify shift belongs to manager's branch
             if ($shiftModel->shift->branch_id !== $manager->branch_id) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized: This shift does not belong to your branch',
                 ], 403);
             }
-            
+
             // Verify cashier belongs to manager's branch
             if ($shiftModel->cashier->branch_id !== $manager->branch_id) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized: This cashier does not belong to your branch',
@@ -412,6 +412,7 @@ class ReassignmentShiftController extends Controller
 
             if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Can only reassign with handover for in-progress shifts',
@@ -420,6 +421,7 @@ class ReassignmentShiftController extends Controller
 
             if ($shiftModel->cashier_id == $request->new_cashier_id) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Cannot reassign to the same cashier',
@@ -427,17 +429,19 @@ class ReassignmentShiftController extends Controller
             }
 
             $newCashier = Cashier::find($request->new_cashier_id);
-            if (!$newCashier) {
+            if (! $newCashier) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'New cashier not found',
                 ], 404);
             }
-            
+
             // Verify new cashier belongs to manager's branch
             if ($newCashier->branch_id !== $manager->branch_id) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized: The selected cashier does not belong to your branch',
@@ -453,6 +457,7 @@ class ReassignmentShiftController extends Controller
 
             if ($conflictingShift) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'The selected cashier is already assigned to another active shift',
@@ -463,8 +468,9 @@ class ReassignmentShiftController extends Controller
             $originalCashierId = $shiftModel->original_cashier_id ?? $shiftModel->cashier_id;
             $originalCashier = Cashier::find($originalCashierId);
 
-            if (!$originalCashier) {
+            if (! $originalCashier) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Original cashier not found',
@@ -525,11 +531,11 @@ class ReassignmentShiftController extends Controller
                 $responsibilityType = $this->normalizeResponsibilityType($varianceInput['responsibility_type'] ?? 'self');
 
                 $supportingFiles = null;
-                if (!empty($varianceInput['supporting_files']) && is_array($varianceInput['supporting_files'])) {
+                if (! empty($varianceInput['supporting_files']) && is_array($varianceInput['supporting_files'])) {
                     $paths = [];
                     foreach ($varianceInput['supporting_files'] as $file) {
                         if (is_object($file) && method_exists($file, 'store')) {
-                            $paths[] = $file->storeAs('variance/supporting-files', 'reassign_' . $shiftModel->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension(), 'public');
+                            $paths[] = $file->storeAs('variance/supporting-files', 'reassign_'.$shiftModel->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension(), 'public');
                         }
                     }
                     $supportingFiles = $paths ?: null;
@@ -645,7 +651,7 @@ class ReassignmentShiftController extends Controller
                     'reason' => $request->reason, // ممكن يكون null
                 ]),
                 'notes' => $request->reason ?
-                    'Shift reassigned with handover by branch manager: ' . $request->reason :
+                    'Shift reassigned with handover by branch manager: '.$request->reason :
                     'Shift reassigned with handover by branch manager',
             ]);
 
@@ -664,9 +670,9 @@ class ReassignmentShiftController extends Controller
                         'reason' => $request->reason, // ممكن يكون null
                         'reassigned_at' => now()->format('Y-m-d H:i:s'),
                         'handover_details' => [
-                            'handover_amount' => (float)$request->handover_amount,
+                            'handover_amount' => (float) $request->handover_amount,
                             'handover_notes' => $request->handover_notes,
-                            'current_sales' => (float)($request->current_sales ?? 0),
+                            'current_sales' => (float) ($request->current_sales ?? 0),
                             'handover_status' => 'pending_acceptance',
                         ],
                     ],
@@ -679,50 +685,47 @@ class ReassignmentShiftController extends Controller
                         'handoverStatus',
                         'salesBreakdown.aggregator',
                         'varianceDetails.responsibleCashier',
-                    ]))
-                ]
+                    ])),
+                ],
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to reassign shift with handover',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
 
-
-
     /**
      * Get available cashiers for reassignment
      *
-     * @param Request $request
-     * @param string $shift
-     * @return JsonResponse
+     * @param  Request  $request
      */
     public function getAvailableCashiers(string $shift): JsonResponse
     {
         try {
             $manager = auth()->user();
-            
+
             // Ensure the user is a branch manager
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
                 ], 403);
             }
-            
+
             // Optimized eager loading
             $shiftModel = CashierShift::with([
                 'shift' => function ($q) {
                     $q->select(['id', 'name', 'branch_id', 'start_time', 'end_time']);
                 },
                 'shift.branch:id,name',
-                'cashier:id,name,branch_id'
+                'cashier:id,name,branch_id',
             ])->findOrFail($shift);
-            
+
             // Verify shift belongs to manager's branch
             if ($shiftModel->shift->branch_id !== $manager->branch_id) {
                 return response()->json([
@@ -747,18 +750,18 @@ class ReassignmentShiftController extends Controller
 
             // Filter available cashiers
             $availableCashiers = $allCashiers->map(function ($cashier) use ($busyCashierIds, $shiftModel) {
-                $isAvailable = !in_array($cashier->id, $busyCashierIds)
+                $isAvailable = ! in_array($cashier->id, $busyCashierIds)
                     && $cashier->id != $shiftModel->cashier_id;
 
                 return [
                     'id' => $cashier->id,
                     'name' => $cashier->name,
                     'email' => $cashier->email ?? null,
-                    'image' => $cashier->image ? asset('storage/' . $cashier->image) : null,
+                    'image' => $cashier->image ? asset('storage/'.$cashier->image) : null,
                     'is_available' => $isAvailable,
-                    'disabled' => !$isAvailable,
+                    'disabled' => ! $isAvailable,
                     'is_current_cashier' => $cashier->id == $shiftModel->cashier_id,
-                    'reason_disabled' => !$isAvailable ? 'Already assigned to this shift' : null,
+                    'reason_disabled' => ! $isAvailable ? 'Already assigned to this shift' : null,
                 ];
             });
 
@@ -771,7 +774,7 @@ class ReassignmentShiftController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve available cashiers',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }

@@ -23,7 +23,7 @@ class MonthlyInventoryRepository
     {
         $query = MonthlyInventory::query();
 
-        if (!empty($relations)) {
+        if (! empty($relations)) {
             $query->with($relations);
         }
 
@@ -34,7 +34,7 @@ class MonthlyInventoryRepository
     {
         $query = MonthlyInventory::where('id', $id)->where('branch_id', $branchId);
 
-        if (!empty($relations)) {
+        if (! empty($relations)) {
             $query->with($relations);
         }
 
@@ -47,7 +47,7 @@ class MonthlyInventoryRepository
             ->where('branch_id', $branchId)
             ->where('created_by', $createdBy);
 
-        if (!empty($relations)) {
+        if (! empty($relations)) {
             $query->with($relations);
         }
 
@@ -71,7 +71,7 @@ class MonthlyInventoryRepository
             $query->where('created_by', $createdBy);
         }
 
-        if (!empty($relations)) {
+        if (! empty($relations)) {
             $query->with($relations);
         }
 
@@ -79,17 +79,17 @@ class MonthlyInventoryRepository
     }
 
     /**
-     * @param array{branch_id?: string, created_by?: string, status?: string|MonthlyInventoryStatus, date_from?: string, date_to?: string} $filters
+     * @param  array{branch_id?: string, created_by?: string, status?: string|MonthlyInventoryStatus, date_from?: string, date_to?: string}  $filters
      */
     public function getPaginated(array $filters, int $perPage = 15): LengthAwarePaginator
     {
         $query = MonthlyInventory::query();
 
-        if (!empty($filters['branch_id'])) {
+        if (! empty($filters['branch_id'])) {
             $query->where('branch_id', $filters['branch_id']);
         }
 
-        if (!empty($filters['created_by'])) {
+        if (! empty($filters['created_by'])) {
             $query->where('created_by', $filters['created_by']);
         }
 
@@ -97,11 +97,11 @@ class MonthlyInventoryRepository
             $query->where('status', $filters['status']);
         }
 
-        if (!empty($filters['date_from'])) {
+        if (! empty($filters['date_from'])) {
             $query->whereDate('inventory_date', '>=', $filters['date_from']);
         }
 
-        if (!empty($filters['date_to'])) {
+        if (! empty($filters['date_to'])) {
             $query->whereDate('inventory_date', '<=', $filters['date_to']);
         }
 
@@ -114,7 +114,7 @@ class MonthlyInventoryRepository
     /**
      * Paginated list for a cashier: monthly inventories where they are in staff.
      *
-     * @param array{branch_id?: string, status?: string|MonthlyInventoryStatus, date_from?: string, date_to?: string} $filters
+     * @param  array{branch_id?: string, status?: string|MonthlyInventoryStatus, date_from?: string, date_to?: string}  $filters
      */
     public function getPaginatedForStaff(string $branchId, string $cashierId, array $filters, int $perPage = 15): LengthAwarePaginator
     {
@@ -129,10 +129,10 @@ class MonthlyInventoryRepository
         if (isset($filters['status'])) {
             $query->where('status', $filters['status']);
         }
-        if (!empty($filters['date_from'])) {
+        if (! empty($filters['date_from'])) {
             $query->whereDate('inventory_date', '>=', $filters['date_from']);
         }
-        if (!empty($filters['date_to'])) {
+        if (! empty($filters['date_to'])) {
             $query->whereDate('inventory_date', '<=', $filters['date_to']);
         }
 
@@ -145,7 +145,7 @@ class MonthlyInventoryRepository
     /**
      * Get counts per status for list tabs (branch + optional created_by).
      *
-     * @param array{branch_id: string, created_by?: string} $filters
+     * @param  array{branch_id: string, created_by?: string}  $filters
      * @return array<string, int>
      */
     public function getStatusCounts(array $filters): array
@@ -153,7 +153,7 @@ class MonthlyInventoryRepository
         $query = MonthlyInventory::query()
             ->where('branch_id', $filters['branch_id']);
 
-        if (!empty($filters['created_by'])) {
+        if (! empty($filters['created_by'])) {
             $query->where('created_by', $filters['created_by']);
         }
 

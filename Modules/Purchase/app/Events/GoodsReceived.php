@@ -16,4 +16,3 @@ class GoodsReceived
         public bool $hasVariances = false
     ) {}
 }
-

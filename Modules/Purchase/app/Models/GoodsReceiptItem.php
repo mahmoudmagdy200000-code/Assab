@@ -89,24 +89,24 @@ class GoodsReceiptItem extends Model
     // Accessors
     public function getItemLogoUrlAttribute(): ?string
     {
-        if (!$this->item_logo) {
+        if (! $this->item_logo) {
             return null;
         }
-        
-        return str_starts_with($this->item_logo, 'http') 
-            ? $this->item_logo 
-            : asset('storage/' . $this->item_logo);
+
+        return str_starts_with($this->item_logo, 'http')
+            ? $this->item_logo
+            : asset('storage/'.$this->item_logo);
     }
 
     public function getPhotoUrlAttribute(): ?string
     {
-        if (!$this->photo) {
+        if (! $this->photo) {
             return null;
         }
-        
-        return str_starts_with($this->photo, 'http') 
-            ? $this->photo 
-            : asset('storage/' . $this->photo);
+
+        return str_starts_with($this->photo, 'http')
+            ? $this->photo
+            : asset('storage/'.$this->photo);
     }
 
     public function getHasVarianceAttribute(): bool
@@ -118,13 +118,13 @@ class GoodsReceiptItem extends Model
     public function calculateVariance(): void
     {
         $quantityVariance = $this->quantity_ordered - $this->quantity_received;
-        $hasQualityVariance = $this->quality_ordered && $this->quality_received && 
+        $hasQualityVariance = $this->quality_ordered && $this->quality_received &&
                              $this->quality_ordered->value !== $this->quality_received->value;
-        
+
         $expectedTotal = $this->quantity_ordered * $this->unit_price;
         $receivedTotal = $this->quantity_received * $this->unit_price;
         $varianceAmount = $expectedTotal - $receivedTotal;
-        
+
         // Determine variance type
         $varianceType = null;
         if ($quantityVariance > 0 && $hasQualityVariance) {
@@ -134,7 +134,7 @@ class GoodsReceiptItem extends Model
         } elseif ($hasQualityVariance) {
             $varianceType = VarianceType::DAMAGE;
         }
-        
+
         $this->update([
             'quantity_variance' => $quantityVariance,
             'has_quality_variance' => $hasQualityVariance,
@@ -155,8 +155,7 @@ class GoodsReceiptItem extends Model
             'photo' => $data['photo'] ?? null,
             'notes' => $data['notes'] ?? null,
         ]);
-        
+
         $this->calculateVariance();
     }
 }
-

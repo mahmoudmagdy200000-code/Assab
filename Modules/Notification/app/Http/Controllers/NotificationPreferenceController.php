@@ -104,4 +104,3 @@ class NotificationPreferenceController extends BaseController
         return $this->successResponse(null, 'Preference deleted successfully');
     }
 }
-

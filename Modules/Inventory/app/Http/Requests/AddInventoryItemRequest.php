@@ -45,4 +45,3 @@ class AddInventoryItemRequest extends FormRequest
         ];
     }
 }
-

@@ -15,35 +15,35 @@ enum OrderItemStatus: string
     case NEEDS_APPROVAL_SUPPLIER = 'needs_approval_supplier';
     case NEEDS_APPROVAL_BRANCH = 'needs_approval_branch';
 
-        // Confirmed Statuses (all treated as confirmed)
+    // Confirmed Statuses (all treated as confirmed)
     case PARTIAL = 'partial';
     case PARTIAL_CONFIRMATION = 'partial_confirmation';
     case CONFIRMED_NEED_TIME = 'confirmed_need_time';
     case CONFIRMED_ALTERNATIVE_PRODUCT = 'confirmed_alternative_product';
 
-        // Execution Phase Statuses
+    // Execution Phase Statuses
     case PREPARING = 'preparing';
     case ON_THE_WAY = 'on_the_way';
     case DELIVERED = 'delivered';
 
-        // Delay Statuses
+    // Delay Statuses
     case DELAYED_BRANCH = 'delayed_branch';
     case DELAYED_SUPPLIER = 'delayed_supplier';
     case DELAYED_APPROVED = 'delayed_approved';
     case DELAYED_CONFIRMED = 'delayed_confirmed';   // Matches order DELAYED_CONFIRMED
     case DELAYED_CANCELED = 'delayed_canceled';     // Matches order DELAYED_CANCELED
 
-        // Deprecated - use DELAYED_BRANCH or DELAYED_SUPPLIER instead
+    // Deprecated - use DELAYED_BRANCH or DELAYED_SUPPLIER instead
     case DELAYED = 'delayed';
 
-        // Cancellation Statuses
+    // Cancellation Statuses
     case CANCELLED = 'cancelled';
     case CANCELLED_BY_BRANCH = 'cancelled_by_branch';
     case CANCELLED_BY_SUPPLIER = 'cancelled_by_supplier';
     case CANCELED_MODIFICATION = 'cancelled_modification';
     case CANCELLED_DELAYED = 'cancelled_delayed';
 
-        // Execution Phase Statuses
+    // Execution Phase Statuses
     case RECEIVED = 'received';
     case VARIANCE = 'variance';
     case CLOSED = 'closed';

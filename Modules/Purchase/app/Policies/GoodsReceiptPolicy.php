@@ -39,7 +39,7 @@ class GoodsReceiptPolicy
      */
     public function update(BranchManager $user, GoodsReceipt $receipt): bool
     {
-        return $user->branch_id === $receipt->branch_id && 
+        return $user->branch_id === $receipt->branch_id &&
                in_array($receipt->status, ['draft', 'in_progress']);
     }
 
@@ -59,4 +59,3 @@ class GoodsReceiptPolicy
         return $user->branch_id === $receipt->branch_id && $receipt->status === 'in_progress';
     }
 }
-

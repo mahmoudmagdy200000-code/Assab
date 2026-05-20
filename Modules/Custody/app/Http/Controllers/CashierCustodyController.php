@@ -25,9 +25,9 @@ class CashierCustodyController extends BaseController
     {
         try {
             $month = $request->input('month') ? (int) $request->input('month') : null;
-            $year  = $request->input('year')  ? (int) $request->input('year')  : null;
+            $year = $request->input('year') ? (int) $request->input('year') : null;
 
-            if (($month && !$year) || (!$month && $year)) {
+            if (($month && ! $year) || (! $month && $year)) {
                 return $this->errorResponse('Both month and year must be provided together, or both omitted', 400);
             }
 
@@ -56,22 +56,22 @@ class CashierCustodyController extends BaseController
     {
         try {
             $month = $request->input('month') ? (int) $request->input('month') : null;
-            $year  = $request->input('year')  ? (int) $request->input('year')  : null;
+            $year = $request->input('year') ? (int) $request->input('year') : null;
 
-            if (($month && !$year) || (!$month && $year)) {
+            if (($month && ! $year) || (! $month && $year)) {
                 return $this->errorResponse('Both month and year must be provided together, or both omitted', 400);
             }
 
             $validTypes = ['Handover Received', 'Handover Sent', 'Variance', 'Total Sales'];
             $type = $request->input('transaction_type');
-            if ($type && !in_array($type, $validTypes)) {
-                return $this->errorResponse('Invalid transaction_type. Must be: ' . implode(', ', $validTypes), 400);
+            if ($type && ! in_array($type, $validTypes)) {
+                return $this->errorResponse('Invalid transaction_type. Must be: '.implode(', ', $validTypes), 400);
             }
 
             $filters = array_filter([
-                'month'            => $month,
-                'year'             => $year,
-                'transactionType'  => $type,
+                'month' => $month,
+                'year' => $year,
+                'transactionType' => $type,
             ]);
 
             $result = $this->custodyService->getTransactionHistory(auth()->id(), $filters);

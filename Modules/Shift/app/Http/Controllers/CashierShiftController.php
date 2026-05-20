@@ -3,19 +3,19 @@
 namespace Modules\Shift\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Modules\BranchManagers\Models\BranchManager;
+use Modules\BranchManagers\Transformers\BranchManagerResource;
+use Modules\Cashier\Models\Cashier;
+use Modules\Cashier\Transformers\CashierResource;
+use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Transformers\CashierShiftResource;
 use Modules\Shift\Transformers\ShiftDetailResource;
-use Modules\Shift\Enums\ShiftStatus;
-use Carbon\Carbon;
-use Modules\BranchManagers\Models\BranchManager;
-use Modules\BranchManagers\Transformers\BranchManagerResource;
-use Modules\Cashier\Models\Cashier;
-use Modules\Cashier\Transformers\CashierResource;
 
 /**
  * CashierShiftController
@@ -44,7 +44,7 @@ class CashierShiftController extends BaseController
                 },
                 'shift.branch:id,name,location',
                 'nextCashier:id,name',
-                'assignedBy:id,name'
+                'assignedBy:id,name',
             ])
                 ->where('cashier_id', $cashier->id)
                 ->orderBy('shift_date', 'desc')
@@ -79,7 +79,7 @@ class CashierShiftController extends BaseController
                 },
                 'shift.branch:id,name,location',
                 'nextCashier:id,name',
-                'handoverStatus'
+                'handoverStatus',
             ])
                 ->where('cashier_id', $cashier->id)
                 ->whereDate('shift_date', today())
@@ -101,7 +101,7 @@ class CashierShiftController extends BaseController
                         'can_start' => $shift->status === ShiftStatus::NOT_STARTED && $shift->shift_date->isToday(),
                         'can_end' => $shift->status === ShiftStatus::IN_PROGRESS,
                         'can_handover' => $shift->status === ShiftStatus::IN_PROGRESS ||
-                            ($shift->total_sales > 0 && !$shift->handoverStatus?->isManagerApproved()),
+                            ($shift->total_sales > 0 && ! $shift->handoverStatus?->isManagerApproved()),
                     ];
                 });
 
@@ -242,7 +242,7 @@ class CashierShiftController extends BaseController
                 'shift.branch:id,name',
                 'nextCashier:id,name',
                 'assignedBy:id,name',
-                'handoverStatus'
+                'handoverStatus',
             ])
                 ->where('cashier_id', $cashier->id)
                 ->where('status', ShiftStatus::IN_PROGRESS)
@@ -300,7 +300,7 @@ class CashierShiftController extends BaseController
                 },
                 'shift.branch:id,name',
                 'cashier:id,name',
-                'nextCashier:id,name'
+                'nextCashier:id,name',
             ])
                 ->where('cashier_id', $cashier->id)
                 ->findOrFail($shift);
@@ -309,7 +309,7 @@ class CashierShiftController extends BaseController
                 return $this->errorResponse('Shift has already been started or is not in pending status', 400);
             }
 
-            if (!$shiftModel->shift_date->isToday()) {
+            if (! $shiftModel->shift_date->isToday()) {
                 return $this->errorResponse('You can only start shifts scheduled for today', 400);
             }
 
@@ -634,7 +634,7 @@ class CashierShiftController extends BaseController
                 },
                 'shift.branch:id,name',
                 'nextCashier:id,name',
-                'assignedBy:id,name'
+                'assignedBy:id,name',
             ])
                 ->where('cashier_id', $cashier->id)
                 ->whereIn('status', [ShiftStatus::COMPLETED, ShiftStatus::REASSIGNED])
@@ -688,7 +688,7 @@ class CashierShiftController extends BaseController
             $shifts = CashierShift::with([
                 'shift' => function ($q) {
                     $q->select(['id', 'name', 'start_time', 'end_time']);
-                }
+                },
             ])
                 ->where('cashier_id', $cashier->id)
                 ->whereBetween('shift_date', [$weekStart, $weekEnd])
@@ -703,8 +703,8 @@ class CashierShiftController extends BaseController
                 'in_progress_shifts' => $shifts->where('status', ShiftStatus::IN_PROGRESS)->count(),
                 'total_sales' => (float) $shifts->where('status', ShiftStatus::COMPLETED)->sum('total_sales'),
                 'total_variance' => (float) $shifts->where('status', ShiftStatus::COMPLETED)->sum('variance'),
-                'shifts_by_day' => $shifts->groupBy(fn($s) => $s->shift_date->format('l'))
-                    ->map(fn($g) => $g->count()),
+                'shifts_by_day' => $shifts->groupBy(fn ($s) => $s->shift_date->format('l'))
+                    ->map(fn ($g) => $g->count()),
             ];
 
             return $this->successResponse($summary, 'Weekly summary retrieved successfully');
@@ -731,7 +731,7 @@ class CashierShiftController extends BaseController
 
     private function calculateDuration(CashierShift $shift): string
     {
-        if (!$shift->shift->start_time || !$shift->shift->end_time) {
+        if (! $shift->shift->start_time || ! $shift->shift->end_time) {
             return 'N/A';
         }
 
@@ -744,7 +744,7 @@ class CashierShiftController extends BaseController
 
     private function calculateRemainingTime(CashierShift $shift): string
     {
-        if (!$shift->actual_start_time || !$shift->shift->end_time) {
+        if (! $shift->actual_start_time || ! $shift->shift->end_time) {
             return 'N/A';
         }
 
@@ -796,13 +796,12 @@ class CashierShiftController extends BaseController
         ];
     }
 
-
     public function getAllCashiersAndBranchManagerAccount(Request $request)
     {
         try {
             $manager = auth()->user();
 
-            if (!$manager || !$manager->branch_id) {
+            if (! $manager || ! $manager->branch_id) {
                 return $this->errorResponse('Unauthorized', 403);
             }
 
@@ -810,7 +809,7 @@ class CashierShiftController extends BaseController
             $cashiers = Cashier::where('branch_id', $manager->branch_id)
                 ->with([
                     'branch:id,name,location',
-                    'creator:id,name'
+                    'creator:id,name',
                 ])
                 ->withCount('shifts')
                 ->paginate($request->input('per_page', 10));
@@ -832,7 +831,7 @@ class CashierShiftController extends BaseController
                 ->unique()
                 ->values();
             $existingIds = $byBranch->pluck('id')->map(fn ($id) => (string) $id)->all();
-            $missingCreatorIds = $creatorIds->filter(fn ($id) => !in_array((string) $id, $existingIds, true))->values();
+            $missingCreatorIds = $creatorIds->filter(fn ($id) => ! in_array((string) $id, $existingIds, true))->values();
             $byCreator = collect();
             if ($missingCreatorIds->isNotEmpty()) {
                 $byCreator = BranchManager::withTrashed()
@@ -847,7 +846,7 @@ class CashierShiftController extends BaseController
             // 3) If current user is branch manager, put them first so they can hand over to themselves
             if ($manager instanceof BranchManager) {
                 $current = $manager;
-                if (!$current->relationLoaded('branch')) {
+                if (! $current->relationLoaded('branch')) {
                     $current->load('branch:id,name,location');
                 }
                 $branchManagers = $branchManagers->filter(fn ($m) => (string) $m->id !== (string) $current->id)->values();
@@ -873,7 +872,6 @@ class CashierShiftController extends BaseController
         }
     }
 
-
     /**
      * Start shift by manager (for cashier)
      * Accepts either shiftId or cashierId - will find pending shift for cashier if cashierId is provided
@@ -890,7 +888,7 @@ class CashierShiftController extends BaseController
                 },
                 'shift.branch:id,name',
                 'cashier:id,name,branch_id',
-                'nextCashier:id,name'
+                'nextCashier:id,name',
             ])
                 ->where('id', $shiftId)
                 ->whereHas('shift', function ($query) use ($branchManager) {
@@ -902,14 +900,14 @@ class CashierShiftController extends BaseController
                 ->first();
 
             // If not found, assume it's a cashier_id and find pending shift for that cashier
-            if (!$shiftModel) {
+            if (! $shiftModel) {
                 $shiftModel = CashierShift::with([
                     'shift' => function ($q) {
                         $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
                     },
                     'shift.branch:id,name',
                     'cashier:id,name,branch_id',
-                    'nextCashier:id,name'
+                    'nextCashier:id,name',
                 ])
                     ->where('cashier_id', $shiftId)
                     ->whereHas('shift', function ($query) use ($branchManager) {
@@ -924,7 +922,7 @@ class CashierShiftController extends BaseController
                     ->first();
             }
 
-            if (!$shiftModel) {
+            if (! $shiftModel) {
                 return $this->errorResponse('Shift not found or no pending shift available for this cashier', 404);
             }
 
@@ -953,15 +951,16 @@ class CashierShiftController extends BaseController
      * Format next recipient (cashier or branch manager) for display.
      * Next cashier = cashier of the chronologically next shift on the same day/branch.
      *
-     * @param \Modules\Cashier\Models\Cashier|\Modules\BranchManagers\Models\BranchManager|null $recipient
+     * @param  \Modules\Cashier\Models\Cashier|\Modules\BranchManagers\Models\BranchManager|null  $recipient
      */
     private function formatNextRecipientName($recipient): ?string
     {
-        if (!$recipient) {
+        if (! $recipient) {
             return null;
         }
+
         return $recipient instanceof BranchManager
-            ? $recipient->name . ' (Branch Manager)'
+            ? $recipient->name.' (Branch Manager)'
             : $recipient->name;
     }
 }

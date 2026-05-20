@@ -4,13 +4,13 @@ namespace App\Http\Controllers;
 
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
 
 abstract class BaseController extends Controller
 {
     use AuthorizesRequests;
+
     /**
      * Success response format
      */
@@ -26,7 +26,7 @@ abstract class BaseController extends Controller
             'data' => $data,
         ];
 
-        if (!empty($meta)) {
+        if (! empty($meta)) {
             $response['meta'] = $meta;
         }
 
@@ -51,7 +51,7 @@ abstract class BaseController extends Controller
             $response['errors'] = $errors;
         }
 
-        if (!empty($meta)) {
+        if (! empty($meta)) {
             $response['meta'] = $meta;
         }
 
@@ -100,12 +100,12 @@ abstract class BaseController extends Controller
      */
     protected function serverErrorResponse(
         string $message = 'Internal server error',
-        \Throwable $exception = null
+        ?\Throwable $exception = null
     ): JsonResponse {
         if ($exception) {
-            Log::error('Server Error: ' . $exception->getMessage(), [
+            Log::error('Server Error: '.$exception->getMessage(), [
                 'exception' => $exception,
-                'trace' => $exception->getTraceAsString()
+                'trace' => $exception->getTraceAsString(),
             ]);
         }
 
@@ -151,7 +151,7 @@ abstract class BaseController extends Controller
         // Support passing a ResourceCollection or a Paginator directly
         $paginator = method_exists($data, 'currentPage') ? $data : ($data->resource ?? null);
 
-        if (!$paginator || !method_exists($paginator, 'currentPage')) {
+        if (! $paginator || ! method_exists($paginator, 'currentPage')) {
             // Fallback to regular success response if not paginatable
             return $this->successResponse($data, $message);
         }

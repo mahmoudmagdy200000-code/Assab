@@ -12,7 +12,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (!Schema::hasTable('purchase_suppliers') || !Schema::hasTable('suppliers')) {
+        if (! Schema::hasTable('purchase_suppliers') || ! Schema::hasTable('suppliers')) {
             return;
         }
 
@@ -32,7 +32,7 @@ return new class extends Migration
                 })
                 ->first();
 
-            if (!$existingSupplier) {
+            if (! $existingSupplier) {
                 // Create new supplier record
                 DB::table('suppliers')->insert([
                     'id' => $purchaseSupplier->id,
@@ -42,7 +42,7 @@ return new class extends Migration
                     'image' => $purchaseSupplier->image,
                     'address' => $purchaseSupplier->address,
                     'tax_id' => $purchaseSupplier->tax_id,
-                    'password' => bcrypt('default_password_' . $purchaseSupplier->id), // Temporary password
+                    'password' => bcrypt('default_password_'.$purchaseSupplier->id), // Temporary password
                     'is_active' => $purchaseSupplier->is_active ?? true,
                     'is_first_login' => true,
                     'status' => $purchaseSupplier->status ?? 'offline',

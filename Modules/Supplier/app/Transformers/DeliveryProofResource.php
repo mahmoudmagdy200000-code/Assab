@@ -15,9 +15,9 @@ class DeliveryProofResource extends JsonResource
             'id' => $this->id,
             'purchase_order_id' => $this->purchase_order_id,
             'recipient_name' => $this->recipient_name,
-            'recipient_signature' => $this->recipient_signature ? asset('storage/' . $this->recipient_signature) : null,
+            'recipient_signature' => $this->recipient_signature ? asset('storage/'.$this->recipient_signature) : null,
             'delivery_photos' => $this->delivery_photos ? array_map(function ($photo) {
-                return asset('storage/' . $photo);
+                return asset('storage/'.$photo);
             }, $this->delivery_photos) : [],
             'condition_confirmation' => $this->condition_confirmation,
             'acknowledgment_received_at' => $this->acknowledgment_received_at?->toISOString(),
@@ -26,4 +26,3 @@ class DeliveryProofResource extends JsonResource
         ];
     }
 }
-

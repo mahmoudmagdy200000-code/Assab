@@ -5,8 +5,8 @@ namespace Modules\Supplier\Services;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Modules\Supplier\Models\Supplier;
-use Modules\Supplier\Models\SupplierProduct;
 use Modules\Supplier\Models\SupplierInventory;
+use Modules\Supplier\Models\SupplierProduct;
 
 class InventoryService
 {
@@ -20,8 +20,8 @@ class InventoryService
             ->orderBy('created_at', 'desc');
 
         // Search by name
-        if (!empty($filters['search'])) {
-            $query->where('name', 'like', '%' . $filters['search'] . '%');
+        if (! empty($filters['search'])) {
+            $query->where('name', 'like', '%'.$filters['search'].'%');
         }
 
         // Filter by availability
@@ -30,7 +30,7 @@ class InventoryService
         }
 
         // Filter by quality level
-        if (!empty($filters['quality_level'])) {
+        if (! empty($filters['quality_level'])) {
             $query->where('quality_level', $filters['quality_level']);
         }
 
@@ -85,7 +85,7 @@ class InventoryService
             ->where('product_id', $product->id)
             ->first();
 
-        if (!$inventory) {
+        if (! $inventory) {
             $inventory = SupplierInventory::create([
                 'supplier_id' => $supplier->id,
                 'product_id' => $product->id,
@@ -130,4 +130,3 @@ class InventoryService
             ->toArray();
     }
 }
-

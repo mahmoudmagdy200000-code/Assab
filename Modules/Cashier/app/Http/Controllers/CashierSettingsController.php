@@ -6,7 +6,6 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
-use Modules\Cashier\Transformers\CashierDetailResource;
 use Modules\Cashier\Services\ProfileService;
 use Modules\Settings\Services\SettingsService;
 
@@ -63,6 +62,7 @@ class CashierSettingsController extends BaseController
     {
         $cashier = auth()->user();
         $data = $this->settingsService->getAccountDetailsForCashier($cashier->id);
+
         return $this->successResponse($data, 'Account and branch details retrieved successfully');
     }
 
@@ -99,7 +99,7 @@ class CashierSettingsController extends BaseController
             $payload['split_shift_handover'] = $request->boolean('allow_split_shift_handover');
         }
 
-        if (!empty($payload)) {
+        if (! empty($payload)) {
             $this->settingsService->updateNotificationSettings($cashier->id, \Modules\Cashier\Models\Cashier::class, $payload);
             $settings = $this->settingsService->getSettingsForCashier($cashier->id);
         }

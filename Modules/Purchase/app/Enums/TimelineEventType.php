@@ -12,30 +12,30 @@ enum TimelineEventType: string
     case ORDER_REJECTED = 'order_rejected';
     case ORDER_CANCELED = 'order_canceled';
     case ORDER_MODIFIED = 'order_modified';
-    
+
     // Approval flow
     case APPROVAL_REQUESTED = 'approval_requested';
     case APPROVAL_GRANTED = 'approval_granted';
     case APPROVAL_DENIED = 'approval_denied';
     case PARTIAL_APPROVAL = 'partial_approval';
-    
+
     // Preparation & Delivery
     case PREPARATION_STARTED = 'preparation_started';
     case QUALITY_CERTIFICATE_UPLOADED = 'quality_certificate_uploaded';
     case OUT_FOR_DELIVERY = 'out_for_delivery';
     case DELIVERY_DELAYED = 'delivery_delayed';
     case DELIVERED = 'delivered';
-    
+
     // Receiving
     case INSPECTION_STARTED = 'inspection_started';
     case INSPECTION_COMPLETED = 'inspection_completed';
     case VARIANCE_DETECTED = 'variance_detected';
     case GOODS_RECEIVED = 'goods_received';
-    
+
     // Documents
     case INVOICE_UPLOADED = 'invoice_uploaded';
     case DOCUMENT_ATTACHED = 'document_attached';
-    
+
     // Returns
     case RETURN_CREATED = 'return_created';
     case RETURN_SUBMITTED = 'return_submitted';
@@ -45,7 +45,7 @@ enum TimelineEventType: string
     case RETURN_RESOLVED = 'return_resolved';
     case RETURN_ESCALATION_APPROVED = 'return_escalation_approved';
     case RETURN_ESCALATION_REJECTED = 'return_escalation_rejected';
-    
+
     // Variance
     case COMPENSATORY_ORDER_CREATED = 'compensatory_order_created';
     case INVOICE_DEDUCTED = 'invoice_deducted';
@@ -53,7 +53,7 @@ enum TimelineEventType: string
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::ORDER_CREATED => 'Order Created',
             self::ORDER_SUBMITTED => 'Order Submitted',
             self::ORDER_VIEWED => 'Order Viewed',
@@ -92,7 +92,7 @@ enum TimelineEventType: string
 
     public function icon(): string
     {
-        return match($this) {
+        return match ($this) {
             self::ORDER_CREATED, self::ORDER_SUBMITTED => 'plus-circle',
             self::ORDER_VIEWED => 'eye',
             self::ORDER_CONFIRMED, self::APPROVAL_GRANTED => 'check-circle',
@@ -123,4 +123,3 @@ enum TimelineEventType: string
         };
     }
 }
-

@@ -10,7 +10,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Branch\Models\Branch;
-use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Inventory\Enums\WasteDamageReportStatus;
 
@@ -52,7 +51,7 @@ class WasteDamageReport extends Model
      */
     public function getReportTypeAttribute(): string
     {
-        if (!$this->relationLoaded('items') || $this->items->isEmpty()) {
+        if (! $this->relationLoaded('items') || $this->items->isEmpty()) {
             return 'waste_and_damage';
         }
         $types = $this->items->pluck('problem_type')->unique()->filter()->values();
@@ -64,6 +63,7 @@ class WasteDamageReport extends Model
         if ($hasWaste && $hasDamage) {
             return 'waste_and_damage';
         }
+
         return $hasWaste ? 'waste' : 'damage';
     }
 

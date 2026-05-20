@@ -4,7 +4,6 @@ namespace Modules\BranchManagers\Services;
 
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Shift\Models\CashierShift;
-use Carbon\Carbon;
 
 class DashboardService
 {
@@ -41,8 +40,8 @@ class DashboardService
         $today = today();
 
         $shifts = CashierShift::whereHas('shift', function ($q) use ($manager) {
-                $q->where('branch_id', $manager->branch_id);
-            })
+            $q->where('branch_id', $manager->branch_id);
+        })
             ->whereDate('shift_date', $today)
             ->get();
 
@@ -75,14 +74,14 @@ class DashboardService
             'shifts' => [
                 'today' => $manager->getTodayShifts(),
                 'in_progress' => CashierShift::whereHas('shift', function ($q) use ($manager) {
-                        $q->where('branch_id', $manager->branch_id);
-                    })
+                    $q->where('branch_id', $manager->branch_id);
+                })
                     ->where('status', 'in_progress')
                     ->whereDate('shift_date', today())
                     ->count(),
                 'pending' => CashierShift::whereHas('shift', function ($q) use ($manager) {
-                        $q->where('branch_id', $manager->branch_id);
-                    })
+                    $q->where('branch_id', $manager->branch_id);
+                })
                     ->where('status', 'not_started')
                     ->whereDate('shift_date', today())
                     ->count(),
@@ -126,8 +125,8 @@ class DashboardService
 
         // Recent shifts with variance
         $varianceShifts = CashierShift::whereHas('shift', function ($q) use ($manager) {
-                $q->where('branch_id', $manager->branch_id);
-            })
+            $q->where('branch_id', $manager->branch_id);
+        })
             ->where('status', 'completed')
             ->where('variance', '!=', 0)
             ->latest()
@@ -138,7 +137,7 @@ class DashboardService
             $activities[] = [
                 'type' => 'variance_detected',
                 'title' => 'Variance Detected',
-                'description' => "Variance of " . abs($shift->variance) . " SAR in shift",
+                'description' => 'Variance of '.abs($shift->variance).' SAR in shift',
                 'timestamp' => $shift->updated_at->diffForHumans(),
                 'icon' => 'alert-triangle',
                 'color' => 'red',
@@ -156,8 +155,8 @@ class DashboardService
     private function getTodaySales(BranchManager $manager): float
     {
         return CashierShift::whereHas('shift', function ($q) use ($manager) {
-                $q->where('branch_id', $manager->branch_id);
-            })
+            $q->where('branch_id', $manager->branch_id);
+        })
             ->whereDate('shift_date', today())
             ->where('status', 'completed')
             ->sum('total_sales');
@@ -166,8 +165,8 @@ class DashboardService
     private function getWeekSales(BranchManager $manager): float
     {
         return CashierShift::whereHas('shift', function ($q) use ($manager) {
-                $q->where('branch_id', $manager->branch_id);
-            })
+            $q->where('branch_id', $manager->branch_id);
+        })
             ->whereBetween('shift_date', [now()->startOfWeek(), now()->endOfWeek()])
             ->where('status', 'completed')
             ->sum('total_sales');
@@ -176,8 +175,8 @@ class DashboardService
     private function getMonthSales(BranchManager $manager): float
     {
         return CashierShift::whereHas('shift', function ($q) use ($manager) {
-                $q->where('branch_id', $manager->branch_id);
-            })
+            $q->where('branch_id', $manager->branch_id);
+        })
             ->whereMonth('shift_date', now()->month)
             ->whereYear('shift_date', now()->year)
             ->where('status', 'completed')
@@ -187,8 +186,8 @@ class DashboardService
     private function getTodayVariance(BranchManager $manager): float
     {
         return CashierShift::whereHas('shift', function ($q) use ($manager) {
-                $q->where('branch_id', $manager->branch_id);
-            })
+            $q->where('branch_id', $manager->branch_id);
+        })
             ->whereDate('shift_date', today())
             ->where('status', 'completed')
             ->sum('variance');
@@ -197,8 +196,8 @@ class DashboardService
     private function getWeekVariance(BranchManager $manager): float
     {
         return CashierShift::whereHas('shift', function ($q) use ($manager) {
-                $q->where('branch_id', $manager->branch_id);
-            })
+            $q->where('branch_id', $manager->branch_id);
+        })
             ->whereBetween('shift_date', [now()->startOfWeek(), now()->endOfWeek()])
             ->where('status', 'completed')
             ->sum('variance');
@@ -207,8 +206,8 @@ class DashboardService
     private function getMonthVariance(BranchManager $manager): float
     {
         return CashierShift::whereHas('shift', function ($q) use ($manager) {
-                $q->where('branch_id', $manager->branch_id);
-            })
+            $q->where('branch_id', $manager->branch_id);
+        })
             ->whereMonth('shift_date', now()->month)
             ->whereYear('shift_date', now()->year)
             ->where('status', 'completed')

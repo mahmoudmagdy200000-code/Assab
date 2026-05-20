@@ -5,10 +5,10 @@ namespace Modules\Supplier\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
-use Modules\Supplier\Http\Requests\Settings\UpdateProfileRequest;
 use Modules\Supplier\Http\Requests\Settings\UpdateAccountSettingsRequest;
-use Modules\Supplier\Http\Requests\Settings\UpdateSystemSettingsRequest;
 use Modules\Supplier\Http\Requests\Settings\UpdateNotificationSettingsRequest;
+use Modules\Supplier\Http\Requests\Settings\UpdateProfileRequest;
+use Modules\Supplier\Http\Requests\Settings\UpdateSystemSettingsRequest;
 use Modules\Supplier\Transformers\SupplierResource;
 
 class SettingsController extends BaseController
@@ -116,4 +116,3 @@ class SettingsController extends BaseController
         }
     }
 }
-

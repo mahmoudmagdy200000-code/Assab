@@ -2,7 +2,6 @@
 
 namespace Modules\Custody\Services;
 
-use Illuminate\Support\Facades\Log;
 use Modules\Cashier\Models\Cashier;
 use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Shift\Models\CashierShiftHandover;
@@ -10,7 +9,8 @@ use Modules\Shift\Models\CashierShiftHandover;
 class CashierCustodyService
 {
     private const TRANSACTION_TYPE_HANDOVER_RECEIVED = 'Handover Received';
-    private const TRANSACTION_TYPE_HANDOVER_SENT     = 'Handover Sent';
+
+    private const TRANSACTION_TYPE_HANDOVER_SENT = 'Handover Sent';
 
     /**
      * Record a Cash-IN entry when a cashier accepts a handover from another cashier (shift handover flow).
@@ -30,14 +30,14 @@ class CashierCustodyService
         $fromName = $handover->cashierShift?->cashier?->name ?? null;
 
         return CashierCustodyTransaction::create([
-            'cashier_id'          => $receivingCashier->id,
-            'transaction_type'    => self::TRANSACTION_TYPE_HANDOVER_RECEIVED,
-            'amount'              => $handover->handover_amount,
-            'is_cash_in'          => true,
-            'counterpart_name'    => $fromName,
-            'related_shift_id'    => $handover->cashier_shift_id,
+            'cashier_id' => $receivingCashier->id,
+            'transaction_type' => self::TRANSACTION_TYPE_HANDOVER_RECEIVED,
+            'amount' => $handover->handover_amount,
+            'is_cash_in' => true,
+            'counterpart_name' => $fromName,
+            'related_shift_id' => $handover->cashier_shift_id,
             'related_handover_id' => $handover->id,
-            'transaction_date'    => now(),
+            'transaction_date' => now(),
         ]);
     }
 
@@ -63,14 +63,14 @@ class CashierCustodyService
         }
 
         return CashierCustodyTransaction::create([
-            'cashier_id'          => $sendingCashier->id,
-            'transaction_type'    => self::TRANSACTION_TYPE_HANDOVER_SENT,
-            'amount'              => $handover->handover_amount,
-            'is_cash_in'          => false,
-            'counterpart_name'    => $toName,
-            'related_shift_id'    => $handover->cashier_shift_id,
+            'cashier_id' => $sendingCashier->id,
+            'transaction_type' => self::TRANSACTION_TYPE_HANDOVER_SENT,
+            'amount' => $handover->handover_amount,
+            'is_cash_in' => false,
+            'counterpart_name' => $toName,
+            'related_shift_id' => $handover->cashier_shift_id,
             'related_handover_id' => $handover->id,
-            'transaction_date'    => now(),
+            'transaction_date' => now(),
         ]);
     }
 
@@ -116,14 +116,14 @@ class CashierCustodyService
         }
 
         return CashierCustodyTransaction::create([
-            'cashier_id'          => $sendingCashier->id,
-            'transaction_type'    => 'Total Sales',
-            'amount'              => $totalSales,
-            'is_cash_in'          => true,
-            'counterpart_name'    => $toName,
-            'related_shift_id'    => $handover->cashier_shift_id,
+            'cashier_id' => $sendingCashier->id,
+            'transaction_type' => 'Total Sales',
+            'amount' => $totalSales,
+            'is_cash_in' => true,
+            'counterpart_name' => $toName,
+            'related_shift_id' => $handover->cashier_shift_id,
             'related_handover_id' => $handover->id,
-            'transaction_date'    => now(),
+            'transaction_date' => now(),
         ]);
     }
 
@@ -133,10 +133,10 @@ class CashierCustodyService
     public function recordManualHandoverSent(string $cashierId, float $amount, ?string $recipientName): CashierCustodyTransaction
     {
         return CashierCustodyTransaction::create([
-            'cashier_id'       => $cashierId,
+            'cashier_id' => $cashierId,
             'transaction_type' => self::TRANSACTION_TYPE_HANDOVER_SENT,
-            'amount'           => $amount,
-            'is_cash_in'       => false,
+            'amount' => $amount,
+            'is_cash_in' => false,
             'counterpart_name' => $recipientName,
             'transaction_date' => now(),
         ]);
@@ -148,10 +148,10 @@ class CashierCustodyService
     public function recordManualHandoverReceived(string $receivingCashierId, float $amount, ?string $senderName): CashierCustodyTransaction
     {
         return CashierCustodyTransaction::create([
-            'cashier_id'       => $receivingCashierId,
+            'cashier_id' => $receivingCashierId,
             'transaction_type' => self::TRANSACTION_TYPE_HANDOVER_RECEIVED,
-            'amount'           => $amount,
-            'is_cash_in'       => true,
+            'amount' => $amount,
+            'is_cash_in' => true,
             'counterpart_name' => $senderName,
             'transaction_date' => now(),
         ]);
@@ -184,21 +184,21 @@ class CashierCustodyService
     {
         $query = CashierCustodyTransaction::where('cashier_id', $cashierId);
 
-        if (!empty($month) && !empty($year)) {
+        if (! empty($month) && ! empty($year)) {
             $query->whereYear('transaction_date', $year)
-                  ->whereMonth('transaction_date', $month);
+                ->whereMonth('transaction_date', $month);
         }
 
         $transactions = $query->orderBy('transaction_date', 'desc')->get();
 
-        $totalCashIn  = round((float) $transactions->where('is_cash_in', true)->sum('amount'), 2);
+        $totalCashIn = round((float) $transactions->where('is_cash_in', true)->sum('amount'), 2);
         $totalCashOut = round((float) $transactions->where('is_cash_in', false)->sum('amount'), 2);
 
         $recentActivity = $transactions->take(5)->map(fn ($t) => $this->formatForActivity($t))->values();
 
         return [
-            'totalCashIn'    => $totalCashIn,
-            'totalCashOut'   => $totalCashOut,
+            'totalCashIn' => $totalCashIn,
+            'totalCashOut' => $totalCashOut,
             'currentBalance' => round($totalCashIn - $totalCashOut, 2),
             'recentActivity' => $recentActivity,
         ];
@@ -216,21 +216,21 @@ class CashierCustodyService
             $query->whereDate('transaction_date', today());
         }
 
-        if (!empty($filters['month']) && !empty($filters['year'])) {
+        if (! empty($filters['month']) && ! empty($filters['year'])) {
             $query->whereYear('transaction_date', (int) $filters['year'])
-                  ->whereMonth('transaction_date', (int) $filters['month']);
+                ->whereMonth('transaction_date', (int) $filters['month']);
         }
 
-        if (!empty($filters['transactionType'])) {
+        if (! empty($filters['transactionType'])) {
             $query->where('transaction_type', $filters['transactionType']);
         }
 
         $transactions = $query->orderBy('transaction_date', 'desc')->get();
 
         return [
-            'view'              => $view,
+            'view' => $view,
             'totalTransactions' => $transactions->count(),
-            'transactions'      => $transactions->map(fn ($t) => $this->formatForList($t))->values(),
+            'transactions' => $transactions->map(fn ($t) => $this->formatForList($t))->values(),
         ];
     }
 
@@ -238,29 +238,29 @@ class CashierCustodyService
 
     private function formatForActivity(CashierCustodyTransaction $t): array
     {
-        $sign   = $t->is_cash_in ? '+' : '-';
-        $amount = $sign . number_format((float) $t->amount, 2, '.', '');
+        $sign = $t->is_cash_in ? '+' : '-';
+        $amount = $sign.number_format((float) $t->amount, 2, '.', '');
 
         return [
             'transactionType' => $t->transaction_type,
-            'amount'          => $amount,
-            'dateTime'        => $t->transaction_date->toIso8601String(),
-            'isCashIn'        => $t->is_cash_in,
-            'cashierName'     => $t->counterpart_name,   // mirrors PersonalLedgerService key
+            'amount' => $amount,
+            'dateTime' => $t->transaction_date->toIso8601String(),
+            'isCashIn' => $t->is_cash_in,
+            'cashierName' => $t->counterpart_name,   // mirrors PersonalLedgerService key
         ];
     }
 
     private function formatForList(CashierCustodyTransaction $t): array
     {
-        $sign   = $t->is_cash_in ? '+' : '-';
-        $amount = $sign . number_format((float) $t->amount, 2, '.', '');
+        $sign = $t->is_cash_in ? '+' : '-';
+        $amount = $sign.number_format((float) $t->amount, 2, '.', '');
 
         return [
-            'id'              => $t->id,
+            'id' => $t->id,
             'transactionType' => $t->transaction_type,
-            'amount'          => $amount,
-            'dateTime'        => $t->transaction_date->toIso8601String(),
-            'cashierName'     => $t->counterpart_name,   // mirrors PersonalLedgerService key
+            'amount' => $amount,
+            'dateTime' => $t->transaction_date->toIso8601String(),
+            'cashierName' => $t->counterpart_name,   // mirrors PersonalLedgerService key
         ];
     }
 }

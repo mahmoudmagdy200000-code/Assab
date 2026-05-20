@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('supplier_returns', function (Blueprint $table) {
             $table->id();
-            
+
             $table->timestamps();
         });
     }

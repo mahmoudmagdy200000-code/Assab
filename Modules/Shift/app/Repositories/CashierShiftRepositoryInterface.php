@@ -2,10 +2,10 @@
 
 namespace Modules\Shift\Repositories;
 
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
-use Modules\Shift\Models\CashierShift;
-use Illuminate\Support\Collection;
 use Carbon\Carbon;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
+use Modules\Shift\Models\CashierShift;
 
 interface CashierShiftRepositoryInterface
 {

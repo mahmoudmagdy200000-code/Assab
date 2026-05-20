@@ -5,15 +5,14 @@ namespace Modules\Aggregator\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Modules\Aggregator\Entities\Aggregator;
-use Modules\Aggregator\Services\AggregatorService;
-use Modules\Aggregator\Http\Requests\CreateAggregatorRequest;
-use Modules\Aggregator\Http\Requests\UpdateAggregatorRequest;
-use Modules\Aggregator\Http\Requests\FilterAggregatorRequest;
-use Modules\Aggregator\Http\Resources\AggregatorResource;
-use Modules\Aggregator\Http\Resources\AggregatorDetailResource;
 use Modules\Aggregator\Database\Seeders\AggregatorSeeder;
+use Modules\Aggregator\Entities\Aggregator;
+use Modules\Aggregator\Http\Requests\CreateAggregatorRequest;
+use Modules\Aggregator\Http\Requests\FilterAggregatorRequest;
+use Modules\Aggregator\Http\Requests\UpdateAggregatorRequest;
+use Modules\Aggregator\Http\Resources\AggregatorResource;
 use Modules\Aggregator\Models\Aggregator as ModelsAggregator;
+use Modules\Aggregator\Services\AggregatorService;
 use Modules\Aggregator\Transformers\AggregatorDetailResource as TransformersAggregatorDetailResource;
 use Modules\Aggregator\Transformers\AggregatorResource as TransformersAggregatorResource;
 
@@ -152,7 +151,7 @@ class AggregatorController extends BaseController
         );
 
         return response()->success([
-            'logo_url' => asset('storage/' . $logoPath),
+            'logo_url' => asset('storage/'.$logoPath),
         ], 'Aggregator logo uploaded successfully');
     }
 

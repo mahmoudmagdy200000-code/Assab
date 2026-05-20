@@ -111,4 +111,3 @@ class InventoryController extends BaseController
         }
     }
 }
-

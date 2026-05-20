@@ -6,8 +6,8 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Purchase\Enums\SupplierStatus;
-use Modules\Supplier\Models\Supplier;
 use Modules\Purchase\Transformers\SupplierResource;
+use Modules\Supplier\Models\Supplier;
 
 class SupplierController extends BaseController
 {
@@ -69,7 +69,7 @@ class SupplierController extends BaseController
             $supplier = Supplier::with(['supplierItems', 'purchaseOrders'])
                 ->find($id);
 
-            if (!$supplier) {
+            if (! $supplier) {
                 return $this->notFoundResponse('Supplier not found');
             }
 
@@ -92,12 +92,12 @@ class SupplierController extends BaseController
         try {
             $supplier = Supplier::find($id);
 
-            if (!$supplier) {
+            if (! $supplier) {
                 return $this->notFoundResponse('Supplier not found');
             }
 
             $items = $supplier->supplierItems()
-                ->when($request->boolean('available_only'), fn($q) => $q->available())
+                ->when($request->boolean('available_only'), fn ($q) => $q->available())
                 ->paginate($request->get('per_page', 15));
 
             return $this->paginatedResponse(
@@ -119,7 +119,7 @@ class SupplierController extends BaseController
         try {
             $supplier = Supplier::find($id);
 
-            if (!$supplier) {
+            if (! $supplier) {
                 return $this->notFoundResponse('Supplier not found');
             }
 
@@ -147,7 +147,7 @@ class SupplierController extends BaseController
         try {
             $supplier = Supplier::find($id);
 
-            if (!$supplier) {
+            if (! $supplier) {
                 return $this->notFoundResponse('Supplier not found');
             }
 

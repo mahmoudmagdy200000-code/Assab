@@ -6,7 +6,7 @@ use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * Form Request for approving/rejecting handovers
- * 
+ *
  * Business Rules:
  * - Approve: Changes status from Pending → Approved
  * - Reject: Must require reason for rejection
@@ -24,14 +24,14 @@ class HandoverApprovalRequest extends FormRequest
     public function rules(): array
     {
         $isRejection = $this->routeIs('*.reject') || $this->input('action') === 'reject';
-        
+
         return [
             // Action type
             'action' => 'sometimes|in:approve,reject',
-            
+
             // Manager comment (optional for approval, required for rejection)
             'manager_comment' => $isRejection ? 'nullable|string|max:500' : 'nullable|string|max:500',
-            
+
             // Rejection specific fields
             'rejection_reason' => $isRejection ? 'required|string|max:500' : 'nullable|string|max:500',
             'rejection_files' => 'sometimes|array',
@@ -49,4 +49,3 @@ class HandoverApprovalRequest extends FormRequest
         ];
     }
 }
-

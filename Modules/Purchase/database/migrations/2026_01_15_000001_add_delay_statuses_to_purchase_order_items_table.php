@@ -56,7 +56,7 @@ return new class extends Migration
             ) DEFAULT 'pending'");
         } catch (\Exception $e) {
             // If enum modification fails, log and continue
-            Log::warning('Migration add_delay_statuses: ' . $e->getMessage());
+            Log::warning('Migration add_delay_statuses: '.$e->getMessage());
         }
     }
 
@@ -106,7 +106,7 @@ return new class extends Migration
                 'variance'
             ) DEFAULT 'pending'");
         } catch (\Exception $e) {
-            Log::warning('Migration rollback add_delay_statuses: ' . $e->getMessage());
+            Log::warning('Migration rollback add_delay_statuses: '.$e->getMessage());
         }
     }
 };

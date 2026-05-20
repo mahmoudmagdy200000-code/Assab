@@ -3,9 +3,7 @@
 namespace Modules\Shift\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
-use Carbon\Carbon;
 use Modules\Shift\Models\CashierShiftHandover;
-use Modules\Shift\Models\BranchManagerShift;
 
 /**
  * BranchManagerShiftResource
@@ -15,7 +13,8 @@ use Modules\Shift\Models\BranchManagerShift;
  */
 class BranchManagerShiftResource extends JsonResource
 {
-    private const DATETIME_FORMAT    = 'Y-m-d H:i:s';
+    private const DATETIME_FORMAT = 'Y-m-d H:i:s';
+
     private const STATUS_NOT_SUBMITTED = 'Not Submitted';
 
     /**
@@ -52,12 +51,12 @@ class BranchManagerShiftResource extends JsonResource
 
             // Timestamps
             'timestamps' => [
-                'actual_start_time'         => $this->actual_start_time?->format(self::DATETIME_FORMAT),
-                'actual_end_time'           => $this->actual_end_time?->format(self::DATETIME_FORMAT),
+                'actual_start_time' => $this->actual_start_time?->format(self::DATETIME_FORMAT),
+                'actual_end_time' => $this->actual_end_time?->format(self::DATETIME_FORMAT),
                 'daily_report_submitted_at' => $this->daily_report_submitted_at?->format(self::DATETIME_FORMAT),
-                'reopened_at'               => $this->reopened_at?->format(self::DATETIME_FORMAT),
-                'approved_at'               => $this->approved_at?->format(self::DATETIME_FORMAT),
-                'archived_at'               => $this->archived_at?->format(self::DATETIME_FORMAT),
+                'reopened_at' => $this->reopened_at?->format(self::DATETIME_FORMAT),
+                'approved_at' => $this->approved_at?->format(self::DATETIME_FORMAT),
+                'archived_at' => $this->archived_at?->format(self::DATETIME_FORMAT),
             ],
         ];
     }
@@ -70,8 +69,8 @@ class BranchManagerShiftResource extends JsonResource
         $progress = $this->calculateProgress();
 
         return [
-            'title' => "Branch Manager Shift - " . ($this->shift_date?->format('d M Y') ?? 'Today'),
-            'description' => "Managing daily operations and cashier handovers",
+            'title' => 'Branch Manager Shift - '.($this->shift_date?->format('d M Y') ?? 'Today'),
+            'description' => 'Managing daily operations and cashier handovers',
             'status' => $this->getStatusLabel(),
             'start_time' => $this->actual_start_time?->format('H:i') ?? '09:00',
             'end_time' => $this->actual_end_time?->format('H:i') ?? '17:00',
@@ -159,43 +158,43 @@ class BranchManagerShiftResource extends JsonResource
             ? now()->subDay()->format(self::DATETIME_FORMAT)
             : now()->format(self::DATETIME_FORMAT);
 
-        $expectedBalance    = (float) ($this->total_sales ?? 0);
-        $closingBalance     = (float) ($this->handover_amount ?? $this->closing_balance ?? 0);
-        $variance           = $expectedBalance - $closingBalance;
+        $expectedBalance = (float) ($this->total_sales ?? 0);
+        $closingBalance = (float) ($this->handover_amount ?? $this->closing_balance ?? 0);
+        $variance = $expectedBalance - $closingBalance;
         $finalCashCollected = $closingBalance;
 
         $lastDepositDateRaw = $this->handover_date ?? $this->actual_end_time ?? now();
-        $lastDepositDate    = $lastDepositDateRaw instanceof \DateTimeInterface
+        $lastDepositDate = $lastDepositDateRaw instanceof \DateTimeInterface
             ? $lastDepositDateRaw->format('Y-m-d')
             : (is_string($lastDepositDateRaw) ? $lastDepositDateRaw : now()->format('Y-m-d'));
 
         $lastDepositTimeRaw = $this->handover_time ?? $this->actual_end_time ?? now();
-        $lastDepositTime    = $lastDepositTimeRaw instanceof \DateTimeInterface
+        $lastDepositTime = $lastDepositTimeRaw instanceof \DateTimeInterface
             ? $lastDepositTimeRaw->format('H:i:s')
             : now()->format('H:i:s');
 
         $varianceType = $variance > 0 ? 'Over' : ($variance < 0 ? 'Short' : 'None');
 
         return [
-            'handover_amount'      => (float) ($this->handover_amount ?? 0),
-            'status'               => $status,
-            'status_options'       => ['Completed', self::STATUS_NOT_SUBMITTED, 'Pending'],
-            'handover_from'        => $this->branchManager?->name ?? 'N/A',
-            'handover_to'          => $this->nextManager?->name ?? 'Not specified',
-            'handover_date'        => $this->handover_date?->format('Y-m-d') ?? now()->format('Y-m-d'),
-            'handover_time'        => $this->handover_time?->format('H:i:s') ?? now()->format('H:i:s'),
-            'current_time'         => $currentTime,
+            'handover_amount' => (float) ($this->handover_amount ?? 0),
+            'status' => $status,
+            'status_options' => ['Completed', self::STATUS_NOT_SUBMITTED, 'Pending'],
+            'handover_from' => $this->branchManager?->name ?? 'N/A',
+            'handover_to' => $this->nextManager?->name ?? 'Not specified',
+            'handover_date' => $this->handover_date?->format('Y-m-d') ?? now()->format('Y-m-d'),
+            'handover_time' => $this->handover_time?->format('H:i:s') ?? now()->format('H:i:s'),
+            'current_time' => $currentTime,
             'current_time_setting' => $this->handover_timing ?? 'today',
-            'handover_notes'       => $this->handover_notes,
-            'opening_balance'      => (float) ($this->opening_balance ?? 0),
-            'closing_balance'      => $closingBalance,
-            'expected_balance'     => $expectedBalance,
-            'variance'             => $variance,
-            'variance_type'        => $varianceType,
-            'petty_cash'           => (float) $finalCashCollected,
-            'last_deposit'         => (float) $finalCashCollected,
-            'last_deposit_date'    => $lastDepositDate,
-            'last_deposit_time'    => $lastDepositTime,
+            'handover_notes' => $this->handover_notes,
+            'opening_balance' => (float) ($this->opening_balance ?? 0),
+            'closing_balance' => $closingBalance,
+            'expected_balance' => $expectedBalance,
+            'variance' => $variance,
+            'variance_type' => $varianceType,
+            'petty_cash' => (float) $finalCashCollected,
+            'last_deposit' => (float) $finalCashCollected,
+            'last_deposit_date' => $lastDepositDate,
+            'last_deposit_time' => $lastDepositTime,
         ];
     }
 
@@ -209,14 +208,14 @@ class BranchManagerShiftResource extends JsonResource
         return [
             'is_submitted' => (bool) $this->daily_report_submitted,
             'submitted_at' => $this->daily_report_submitted_at?->format(self::DATETIME_FORMAT),
-            'notes'        => $this->daily_report_notes,
-            'can_reopen'   => $this->can_reopen && $this->daily_report_submitted,
-            'reopened_at'  => $this->reopened_at?->format(self::DATETIME_FORMAT),
-            'reopen_reason'=> $this->reopen_reason,
-            'is_archived'  => !is_null($this->archived_at),
-            'archived_at'  => $this->archived_at?->format(self::DATETIME_FORMAT),
-            'approved_by'  => $this->approvedBy?->name,
-            'approved_at'  => $this->approved_at?->format(self::DATETIME_FORMAT),
+            'notes' => $this->daily_report_notes,
+            'can_reopen' => $this->can_reopen && $this->daily_report_submitted,
+            'reopened_at' => $this->reopened_at?->format(self::DATETIME_FORMAT),
+            'reopen_reason' => $this->reopen_reason,
+            'is_archived' => ! is_null($this->archived_at),
+            'archived_at' => $this->archived_at?->format(self::DATETIME_FORMAT),
+            'approved_by' => $this->approvedBy?->name,
+            'approved_at' => $this->approved_at?->format(self::DATETIME_FORMAT),
         ];
     }
 
@@ -291,7 +290,7 @@ class BranchManagerShiftResource extends JsonResource
         return [
             'can_start' => $this->status === 'not_started' && $this->shift_date?->isToday(),
             'can_end' => $this->canEnd(),
-            'can_submit_daily_report' => $this->status === 'completed' && !$this->daily_report_submitted,
+            'can_submit_daily_report' => $this->status === 'completed' && ! $this->daily_report_submitted,
             'can_reopen' => $this->can_reopen && $this->daily_report_submitted && $this->shift_date?->isToday(),
             'can_approve_handovers' => $this->status === 'in_progress',
             'can_reject_handovers' => $this->status === 'in_progress',
@@ -339,6 +338,4 @@ class BranchManagerShiftResource extends JsonResource
             default => 'Unknown',
         };
     }
-
 }
-

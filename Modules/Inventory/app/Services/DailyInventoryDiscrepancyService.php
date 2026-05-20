@@ -3,7 +3,6 @@
 namespace Modules\Inventory\Services;
 
 use Carbon\Carbon;
-use Illuminate\Support\Facades\DB;
 use Modules\Inventory\Enums\InventorySessionStatus;
 use Modules\Inventory\Models\DailyInventoryDiscrepancy;
 use Modules\Inventory\Models\InventoryItem;
@@ -30,7 +29,7 @@ class DailyInventoryDiscrepancyService
 
         foreach ($session->items as $invItem) {
             $itemId = $invItem->item_id;
-            if (!$itemId) {
+            if (! $itemId) {
                 continue;
             }
 
@@ -46,7 +45,7 @@ class DailyInventoryDiscrepancyService
             $difference = $theoreticallyExpected - $actual;
             $isMatch = abs($difference) < 0.001;
 
-            if (!$isMatch) {
+            if (! $isMatch) {
                 $hasDiscrepancy = true;
             }
 
@@ -89,7 +88,7 @@ class DailyInventoryDiscrepancyService
             ->orderByDesc('inventory_date')
             ->first();
 
-        if (!$lastSession) {
+        if (! $lastSession) {
             return 0;
         }
 

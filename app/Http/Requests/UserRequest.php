@@ -2,8 +2,6 @@
 
 namespace App\Http\Requests;
 
-use App\Http\Requests\BaseRequest;
-
 class UserRequest extends BaseRequest
 {
     /**
@@ -31,8 +29,8 @@ class UserRequest extends BaseRequest
             $userId = $this->getRouteParam('user');
             $rules = array_merge($rules, [
                 'name' => 'sometimes|required|string|max:255',
-                'email' => 'sometimes|required|email|max:255|unique:users,email,' . $userId,
-                'phone' => 'sometimes|required|string|max:20|unique:users,phone,' . $userId,
+                'email' => 'sometimes|required|email|max:255|unique:users,email,'.$userId,
+                'phone' => 'sometimes|required|string|max:20|unique:users,phone,'.$userId,
                 'password' => 'sometimes|string|min:8|confirmed',
             ]);
         }

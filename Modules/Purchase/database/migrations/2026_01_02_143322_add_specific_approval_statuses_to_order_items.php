@@ -8,20 +8,20 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
-     * 
+     *
      * This is a placeholder migration to handle the case where the migration
      * was run in production but the file was deleted.
-     * 
+     *
      * If the migration was already run, this will:
      * 1. Convert any items with old specific statuses to needs_approval_branch
      * 2. Ensure enum only contains the correct statuses (removes old specific ones)
-     * 
+     *
      * If the migration was not run, this will do nothing (safe to run multiple times)
      */
     public function up(): void
     {
         $driver = DB::getDriverName();
-        
+
         // SQLite doesn't support MODIFY COLUMN or ENUM
         if ($driver === 'sqlite') {
             return;
@@ -34,7 +34,7 @@ return new class extends Migration
             $oldStatuses = [
                 'needs_time_change_approval',
                 'needs_alternative_product_approval',
-                'needs_partial_approval'
+                'needs_partial_approval',
             ];
 
             foreach ($oldStatuses as $oldStatus) {
@@ -72,7 +72,7 @@ return new class extends Migration
         } catch (\Exception $e) {
             // If enum modification fails (e.g., enum already has correct values), that's okay
             // Just log and continue
-            Log::warning('Migration cleanup: ' . $e->getMessage());
+            Log::warning('Migration cleanup: '.$e->getMessage());
         }
     }
 
@@ -82,7 +82,7 @@ return new class extends Migration
     public function down(): void
     {
         $driver = DB::getDriverName();
-        
+
         // SQLite doesn't support MODIFY COLUMN or ENUM
         if ($driver === 'sqlite') {
             return;
@@ -128,4 +128,3 @@ return new class extends Migration
         ) DEFAULT 'pending'");
     }
 };
-

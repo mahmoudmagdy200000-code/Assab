@@ -3,8 +3,8 @@
 namespace Modules\Aggregator\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -14,7 +14,7 @@ use Modules\Shift\Models\ShiftSalesBreakdown;
 
 class Aggregator extends Model
 {
-    use HasFactory, SoftDeletes , HasUuids;
+    use HasFactory, HasUuids , SoftDeletes;
 
     protected $fillable = [
         'name',
@@ -165,12 +165,12 @@ class Aggregator extends Model
 
     public function getLogoUrlAttribute(): ?string
     {
-        return $this->logo ? asset('storage/' . $this->logo) : null;
+        return $this->logo ? asset('storage/'.$this->logo) : null;
     }
 
     public function getCommissionPercentageAttribute(): string
     {
-        return number_format($this->commission_rate, 2) . '%';
+        return number_format($this->commission_rate, 2).'%';
     }
 
     // Methods
@@ -191,7 +191,7 @@ class Aggregator extends Model
 
     public function hasIntegration(): bool
     {
-        return !empty($this->api_key) && !empty($this->api_endpoint);
+        return ! empty($this->api_key) && ! empty($this->api_endpoint);
     }
 
     public function getTotalBranches(): int
@@ -233,6 +233,7 @@ class Aggregator extends Model
     public function getCommissionAmount(?string $period = 'all'): float
     {
         $totalSales = $this->getTotalSales($period);
+
         return $totalSales * ($this->commission_rate / 100);
     }
 
@@ -284,6 +285,7 @@ class Aggregator extends Model
 
         return $breakdown->map(function ($branchSales) {
             $branch = $branchSales->first()->cashierShift->shift->branch;
+
             return [
                 'branch_id' => $branch->id,
                 'branch_name' => $branch->name,
@@ -336,6 +338,7 @@ class Aggregator extends Model
     public function isEnabledForBranch(string $branchId): bool
     {
         $pivot = $this->branches()->where('branch_id', $branchId)->first();
+
         return $pivot ? $pivot->pivot->is_enabled : false;
     }
 

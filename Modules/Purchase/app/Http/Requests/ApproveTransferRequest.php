@@ -14,7 +14,7 @@ class ApproveTransferRequest extends FormRequest
     public function rules(): array
     {
         $action = $this->input('action');
-        
+
         $rules = [
             'action' => ['required', 'string', 'in:approve_all,partial_approve,reject_all'],
             'ready_time' => ['required_unless:action,reject_all', 'string', 'in:3_minutes,1_hour,2_hours,3_hours,more_than_3_hours'],
@@ -45,4 +45,3 @@ class ApproveTransferRequest extends FormRequest
         ];
     }
 }
-

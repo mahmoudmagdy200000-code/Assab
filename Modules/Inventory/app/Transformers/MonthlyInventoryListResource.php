@@ -36,7 +36,7 @@ class MonthlyInventoryListResource extends JsonResource
                 'id' => $this->created_by,
                 'name' => $this->createdBy->name ?? null,
             ]),
-            'performed_by' => 'Team (You & ' . max(0, $staffCount - 1) . ' Others)',
+            'performed_by' => 'Team (You & '.max(0, $staffCount - 1).' Others)',
             'products_count' => $this->when(isset($this->products_count), $this->products_count),
             'inventoried_count' => $inventoriedProducts->count(),
             'staff' => $this->whenLoaded('staff', fn () => $this->staff->map(fn ($s) => [

@@ -3,18 +3,14 @@
 namespace Modules\BranchManagers\Providers;
 
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
-use Modules\BranchManagers\Events\{
-    BranchManagerCreatedEvent,
-    BranchManagerLoggedInEvent,
-    PasswordChangedEvent,
-    BranchManagerSuspendedEvent
-};
-use Modules\BranchManagers\Listeners\{
-    SendWelcomeNotificationListener,
-    LogLoginActivityListener,
-    NotifyPasswordChangedListener,
-    HandleSuspensionListener
-};
+use Modules\BranchManagers\Events\BranchManagerCreatedEvent;
+use Modules\BranchManagers\Events\BranchManagerLoggedInEvent;
+use Modules\BranchManagers\Events\BranchManagerSuspendedEvent;
+use Modules\BranchManagers\Events\PasswordChangedEvent;
+use Modules\BranchManagers\Listeners\HandleSuspensionListener;
+use Modules\BranchManagers\Listeners\LogLoginActivityListener;
+use Modules\BranchManagers\Listeners\NotifyPasswordChangedListener;
+use Modules\BranchManagers\Listeners\SendWelcomeNotificationListener;
 
 class EventServiceProvider extends ServiceProvider
 {

@@ -16,7 +16,9 @@ class SendShiftStartReminderJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $timeout = 60;
+
     public $tries = 3;
+
     public $afterCommit = true;
 
     public function __construct(
@@ -32,6 +34,7 @@ class SendShiftStartReminderJob implements ShouldQueue
     public function backoff(): array
     {
         $jitter = random_int(1, 5);
+
         return [10 + $jitter, 30 + $jitter, 90 + $jitter];
     }
 

@@ -75,7 +75,7 @@ class Item extends Model
      */
     public function getLogoUrlAttribute(): ?string
     {
-        if (!$this->logo) {
+        if (! $this->logo) {
             return null;
         }
 
@@ -86,13 +86,13 @@ class Item extends Model
             $logo = $this->logo;
         }
 
-        if (!$logo) {
+        if (! $logo) {
             return null;
         }
 
         return str_starts_with($logo, 'http')
             ? $logo
-            : asset('storage/' . $logo);
+            : asset('storage/'.$logo);
     }
 
     // Scopes

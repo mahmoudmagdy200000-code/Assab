@@ -1,8 +1,6 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
@@ -13,7 +11,7 @@ return new class extends Migration
     public function up(): void
     {
         $driver = DB::getDriverName();
-        
+
         // SQLite doesn't support MODIFY COLUMN or ENUM
         if ($driver === 'sqlite') {
             return;
@@ -24,7 +22,7 @@ return new class extends Migration
         DB::statement("ALTER TABLE purchase_orders MODIFY status VARCHAR(50) NOT NULL DEFAULT 'draft'");
 
         // Then update existing values if needed (no changes needed for existing values)
-        
+
         // Finally, change back to enum with new values
         DB::statement("ALTER TABLE purchase_orders MODIFY status ENUM(
             'draft',
@@ -52,7 +50,7 @@ return new class extends Migration
     public function down(): void
     {
         $driver = DB::getDriverName();
-        
+
         // SQLite doesn't support MODIFY COLUMN or ENUM
         if ($driver === 'sqlite') {
             return;
@@ -84,4 +82,3 @@ return new class extends Migration
         ) NOT NULL DEFAULT 'draft'");
     }
 };
-

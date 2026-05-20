@@ -7,10 +7,11 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use Modules\Shift\Services\VarianceCalculationService;
-use Modules\Shift\Models\{CashierShift, ShiftVarianceAlert};
-use Modules\Shift\Transformers\ShiftDetailResource;
 use Modules\Cashier\Models\Cashier;
+use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\ShiftVarianceAlert;
+use Modules\Shift\Services\VarianceCalculationService;
+use Modules\Shift\Transformers\ShiftDetailResource;
 
 class ShiftVarianceController extends Controller
 {
@@ -21,10 +22,6 @@ class ShiftVarianceController extends Controller
     /**
      * Record variance with responsibility details
      * Four scenarios: Self, Self and Others, Other Factors, Mixed
-     *
-     * @param Request $request
-     * @param string $shift
-     * @return JsonResponse
      */
     public function recordVariance(Request $request, string $shift): JsonResponse
     {
@@ -53,7 +50,7 @@ class ShiftVarianceController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -68,7 +65,7 @@ class ShiftVarianceController extends Controller
                     return response()->json([
                         'success' => false,
                         'message' => 'Validation failed',
-                        'errors' => $v->errors()
+                        'errors' => $v->errors(),
                     ], 422);
                 }
             }
@@ -78,7 +75,7 @@ class ShiftVarianceController extends Controller
             $shiftModel = CashierShift::with(['cashier', 'varianceDetails'])->findOrFail($shift);
 
             // Verify shift has variance
-            if (!$shiftModel->hasVariance()) {
+            if (! $shiftModel->hasVariance()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'This shift has no variance to record',
@@ -106,7 +103,7 @@ class ShiftVarianceController extends Controller
                         'details' => [
                             'variance_amount' => $varianceAmount,
                             'other_cashiers_sum' => $otherSum,
-                        ]
+                        ],
                     ], 400);
                 }
             }
@@ -123,7 +120,7 @@ class ShiftVarianceController extends Controller
                         'details' => [
                             'variance_amount' => $varianceAmount,
                             'total_assigned' => $totalAssigned,
-                        ]
+                        ],
                     ], 400);
                 }
             }
@@ -146,22 +143,19 @@ class ShiftVarianceController extends Controller
                 'data' => [
                     'shift' => new ShiftDetailResource($shiftModel->fresh()),
                     'variance' => $variance,
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to record variance',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
 
     /**
      * Get variance details for a shift
-     *
-     * @param string $shift
-     * @return JsonResponse
      */
     public function getVarianceDetails(string $shift): JsonResponse
     {
@@ -169,14 +163,14 @@ class ShiftVarianceController extends Controller
             $shiftModel = CashierShift::with(['varianceDetails.responsibleCashier'])
                 ->findOrFail($shift);
 
-            if (!$shiftModel->hasVariance()) {
+            if (! $shiftModel->hasVariance()) {
                 return response()->json([
                     'success' => true,
                     'message' => 'No variance found for this shift',
                     'data' => [
                         'has_variance' => false,
                         'variance' => 0,
-                    ]
+                    ],
                 ]);
             }
 
@@ -189,13 +183,13 @@ class ShiftVarianceController extends Controller
                     'has_variance' => true,
                     'variance' => $variance,
                     'variance_recorded' => $shiftModel->varianceDetails->isNotEmpty(),
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve variance details',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -203,9 +197,6 @@ class ShiftVarianceController extends Controller
     /**
      * Get variance alerts
      * Alerts when variance exceeds threshold
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function getVarianceAlerts(Request $request): JsonResponse
     {
@@ -254,23 +245,19 @@ class ShiftVarianceController extends Controller
                     'current_page' => $alerts->currentPage(),
                     'total' => $alerts->total(),
                     'per_page' => $alerts->perPage(),
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve variance alerts',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
 
     /**
      * Acknowledge a variance alert
-     *
-     * @param Request $request
-     * @param string $alertId
-     * @return JsonResponse
      */
     public function acknowledgeAlert(Request $request, string $alertId): JsonResponse
     {
@@ -282,7 +269,7 @@ class ShiftVarianceController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -311,13 +298,13 @@ class ShiftVarianceController extends Controller
                     'acknowledged_by' => auth()->user()->name,
                     'acknowledged_at' => now()->format('Y-m-d H:i:s'),
                     'notes' => $alert->notes,
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to acknowledge alert',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -335,7 +322,7 @@ class ShiftVarianceController extends Controller
                 ->where('responsible_cashier_id', $cashier->id)
                 ->first();
 
-            if (!$detail) {
+            if (! $detail) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No responsibility record found for you on this shift',
@@ -352,10 +339,10 @@ class ShiftVarianceController extends Controller
 
             $detail->update([
                 'responsibility_status' => 'approved',
-                'rejection_reason'      => null,
-                'reviewed_by_id'        => $cashier->id,
-                'reviewed_by_type'      => get_class($cashier),
-                'reviewed_at'           => now(),
+                'rejection_reason' => null,
+                'reviewed_by_id' => $cashier->id,
+                'reviewed_by_type' => get_class($cashier),
+                'reviewed_at' => now(),
             ]);
 
             // Dispatch VarianceRecorded so custody ledger entries are created/updated
@@ -368,23 +355,23 @@ class ShiftVarianceController extends Controller
                 'success' => true,
                 'message' => 'You have accepted the assigned responsibility',
                 'data' => [
-                    'shift_id'              => $shift,
-                    'cashier_name'          => $cashier->name,
-                    'assigned_amount'       => (float) $detail->assigned_amount,
+                    'shift_id' => $shift,
+                    'cashier_name' => $cashier->name,
+                    'assigned_amount' => (float) $detail->assigned_amount,
                     'responsibility_status' => 'approved',
-                    'reviewed_at'           => now()->format('Y-m-d H:i:s'),
+                    'reviewed_at' => now()->format('Y-m-d H:i:s'),
                 ],
             ]);
         } catch (\Exception $e) {
             Log::error('Cashier failed to approve responsibility', [
                 'shift_id' => $shift,
-                'error'    => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to accept responsibility',
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -403,7 +390,7 @@ class ShiftVarianceController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors'  => $validator->errors(),
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -414,7 +401,7 @@ class ShiftVarianceController extends Controller
                 ->where('responsible_cashier_id', $cashier->id)
                 ->first();
 
-            if (!$detail) {
+            if (! $detail) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No responsibility record found for you on this shift',
@@ -431,34 +418,34 @@ class ShiftVarianceController extends Controller
 
             $detail->update([
                 'responsibility_status' => 'rejected',
-                'rejection_reason'      => $request->reason,
-                'reviewed_by_id'        => $cashier->id,
-                'reviewed_by_type'      => get_class($cashier),
-                'reviewed_at'           => now(),
+                'rejection_reason' => $request->reason,
+                'reviewed_by_id' => $cashier->id,
+                'reviewed_by_type' => get_class($cashier),
+                'reviewed_at' => now(),
             ]);
 
             return response()->json([
                 'success' => true,
                 'message' => 'You have rejected the assigned responsibility',
                 'data' => [
-                    'shift_id'              => $shift,
-                    'cashier_name'          => $cashier->name,
-                    'assigned_amount'       => (float) $detail->assigned_amount,
+                    'shift_id' => $shift,
+                    'cashier_name' => $cashier->name,
+                    'assigned_amount' => (float) $detail->assigned_amount,
                     'responsibility_status' => 'rejected',
-                    'rejection_reason'      => $request->reason,
-                    'reviewed_at'           => now()->format('Y-m-d H:i:s'),
+                    'rejection_reason' => $request->reason,
+                    'reviewed_at' => now()->format('Y-m-d H:i:s'),
                 ],
             ]);
         } catch (\Exception $e) {
             Log::error('Cashier failed to reject responsibility', [
                 'shift_id' => $shift,
-                'error'    => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to reject responsibility',
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -477,7 +464,7 @@ class ShiftVarianceController extends Controller
                 'shift:id,branch_id',
             ])->findOrFail($shift);
 
-            if (!$manager->branch_id || $shiftModel->shift->branch_id !== $manager->branch_id) {
+            if (! $manager->branch_id || $shiftModel->shift->branch_id !== $manager->branch_id) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized: This shift is not in your branch',
@@ -502,10 +489,10 @@ class ShiftVarianceController extends Controller
 
             $shiftModel->varianceDetails()->update([
                 'responsibility_status' => 'approved',
-                'rejection_reason'      => null,
-                'reviewed_by_id'        => $manager->id,
-                'reviewed_by_type'      => get_class($manager),
-                'reviewed_at'           => now(),
+                'rejection_reason' => null,
+                'reviewed_by_id' => $manager->id,
+                'reviewed_by_type' => get_class($manager),
+                'reviewed_at' => now(),
             ]);
 
             $shiftModel->recordHistory(
@@ -524,23 +511,23 @@ class ShiftVarianceController extends Controller
                 'success' => true,
                 'message' => 'Responsibility approved successfully',
                 'data' => [
-                    'shift_id'              => $shiftModel->id,
-                    'cashier_name'          => $shiftModel->cashier?->name,
+                    'shift_id' => $shiftModel->id,
+                    'cashier_name' => $shiftModel->cashier?->name,
                     'responsibility_status' => 'approved',
-                    'approved_by'           => $manager->name,
-                    'approved_at'           => now()->format('Y-m-d H:i:s'),
+                    'approved_by' => $manager->name,
+                    'approved_at' => now()->format('Y-m-d H:i:s'),
                 ],
             ]);
         } catch (\Exception $e) {
             Log::error('Failed to approve responsibility', [
                 'shift_id' => $shift,
-                'error'    => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to approve responsibility',
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -559,7 +546,7 @@ class ShiftVarianceController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors'  => $validator->errors(),
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -572,7 +559,7 @@ class ShiftVarianceController extends Controller
                 'shift:id,branch_id',
             ])->findOrFail($shift);
 
-            if (!$manager->branch_id || $shiftModel->shift->branch_id !== $manager->branch_id) {
+            if (! $manager->branch_id || $shiftModel->shift->branch_id !== $manager->branch_id) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized: This shift is not in your branch',
@@ -597,10 +584,10 @@ class ShiftVarianceController extends Controller
 
             $shiftModel->varianceDetails()->update([
                 'responsibility_status' => 'rejected',
-                'rejection_reason'      => $request->reason,
-                'reviewed_by_id'        => $manager->id,
-                'reviewed_by_type'      => get_class($manager),
-                'reviewed_at'           => now(),
+                'rejection_reason' => $request->reason,
+                'reviewed_by_id' => $manager->id,
+                'reviewed_by_type' => get_class($manager),
+                'reviewed_at' => now(),
             ]);
 
             $shiftModel->recordHistory(
@@ -608,8 +595,8 @@ class ShiftVarianceController extends Controller
                 ['responsibility_status' => $currentStatus],
                 [
                     'responsibility_status' => 'rejected',
-                    'rejection_reason'      => $request->reason,
-                    'reviewed_by_id'        => $manager->id,
+                    'rejection_reason' => $request->reason,
+                    'reviewed_by_id' => $manager->id,
                 ]
             );
 
@@ -617,33 +604,30 @@ class ShiftVarianceController extends Controller
                 'success' => true,
                 'message' => 'Responsibility rejected successfully',
                 'data' => [
-                    'shift_id'              => $shiftModel->id,
-                    'cashier_name'          => $shiftModel->cashier?->name,
+                    'shift_id' => $shiftModel->id,
+                    'cashier_name' => $shiftModel->cashier?->name,
                     'responsibility_status' => 'rejected',
-                    'rejection_reason'      => $request->reason,
-                    'rejected_by'           => $manager->name,
-                    'rejected_at'           => now()->format('Y-m-d H:i:s'),
+                    'rejection_reason' => $request->reason,
+                    'rejected_by' => $manager->name,
+                    'rejected_at' => now()->format('Y-m-d H:i:s'),
                 ],
             ]);
         } catch (\Exception $e) {
             Log::error('Failed to reject responsibility', [
                 'shift_id' => $shift,
-                'error'    => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to reject responsibility',
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
 
     /**
      * Get variance statistics
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function getVarianceStatistics(Request $request): JsonResponse
     {
@@ -656,12 +640,12 @@ class ShiftVarianceController extends Controller
                 ->get();
 
             $totalShifts = $shifts->count();
-            $shiftsWithVariance = $shifts->filter(fn($s) => $s->hasVariance())->count();
+            $shiftsWithVariance = $shifts->filter(fn ($s) => $s->hasVariance())->count();
             $totalVariance = $shifts->sum('variance');
             $averageVariance = $totalShifts > 0 ? $totalVariance / $totalShifts : 0;
 
-            $overVariances = $shifts->filter(fn($s) => $s->variance > 0);
-            $shortVariances = $shifts->filter(fn($s) => $s->variance < 0);
+            $overVariances = $shifts->filter(fn ($s) => $s->variance > 0);
+            $shortVariances = $shifts->filter(fn ($s) => $s->variance < 0);
 
             return response()->json([
                 'success' => true,
@@ -692,13 +676,13 @@ class ShiftVarianceController extends Controller
                             ? round(abs($shortVariances->avg('variance')), 2)
                             : 0,
                     ],
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve variance statistics',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }

@@ -64,4 +64,3 @@ class SupplierResource extends JsonResource
         ];
     }
 }
-

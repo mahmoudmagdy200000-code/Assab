@@ -14,7 +14,7 @@ class VarianceActionRequest extends FormRequest
     public function rules(): array
     {
         $action = $this->input('action');
-        
+
         $rules = [
             'action' => ['required', 'string', 'in:accept,compensatory_order,deduct_from_invoice'],
         ];
@@ -52,4 +52,3 @@ class VarianceActionRequest extends FormRequest
         ];
     }
 }
-

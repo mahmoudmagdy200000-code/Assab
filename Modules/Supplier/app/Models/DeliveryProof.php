@@ -35,4 +35,3 @@ class DeliveryProof extends Model
         return $this->belongsTo(PurchaseOrder::class);
     }
 }
-

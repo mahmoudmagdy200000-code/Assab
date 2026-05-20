@@ -16,7 +16,7 @@ enum ReturnStatus: string
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::DRAFT => 'Draft',
             self::PENDING => 'Pending',
             self::APPROVED => 'Approved',
@@ -31,7 +31,7 @@ enum ReturnStatus: string
 
     public function color(): string
     {
-        return match($this) {
+        return match ($this) {
             self::DRAFT => '#6B7280',
             self::PENDING => '#F59E0B',
             self::APPROVED => '#22C55E',
@@ -64,4 +64,3 @@ enum ReturnStatus: string
         ]);
     }
 }
-

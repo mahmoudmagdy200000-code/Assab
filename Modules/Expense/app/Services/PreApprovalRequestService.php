@@ -2,9 +2,12 @@
 
 namespace Modules\Expense\Services;
 
-use Modules\Expense\Models\{Expense, PreApprovalRequest, ExpenseItem, ExpenseLine};
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Modules\Expense\Models\Expense;
+use Modules\Expense\Models\ExpenseItem;
+use Modules\Expense\Models\ExpenseLine;
+use Modules\Expense\Models\PreApprovalRequest;
 
 /**
  * Pre-Approval Request Service
@@ -37,7 +40,7 @@ class PreApprovalRequestService
             'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
         ]);
 
-        if (!empty($data['items'])) {
+        if (! empty($data['items'])) {
             foreach ($data['items'] as $item) {
                 ExpenseItem::create([
                     'expense_id' => $expense->id,
@@ -50,7 +53,7 @@ class PreApprovalRequestService
             }
         }
 
-        if (!empty($data['expenses'])) {
+        if (! empty($data['expenses'])) {
             foreach ($data['expenses'] as $expenseLine) {
                 ExpenseLine::create([
                     'expense_id' => $expense->id,
@@ -61,7 +64,7 @@ class PreApprovalRequestService
             }
         }
 
-        if (!empty($data['attachments'])) {
+        if (! empty($data['attachments'])) {
             foreach ($data['attachments'] as $file) {
                 $this->uploadAttachment($expense, $file);
             }
@@ -97,12 +100,12 @@ class PreApprovalRequestService
         if (isset($data['is_draft'])) {
             $expenseUpdateData['status'] = $data['is_draft'] ? 'draft' : 'pending';
 
-            if (!$data['is_draft'] && !$expense->submitted_at) {
+            if (! $data['is_draft'] && ! $expense->submitted_at) {
                 $expenseUpdateData['submitted_at'] = now();
             }
         }
 
-        if (!empty($expenseUpdateData)) {
+        if (! empty($expenseUpdateData)) {
             $expense->update($expenseUpdateData);
         }
 
@@ -116,7 +119,7 @@ class PreApprovalRequestService
             return $value !== null;
         });
 
-        if (!empty($preApprovalUpdateData)) {
+        if (! empty($preApprovalUpdateData)) {
             $expense->preApprovalRequest->update($preApprovalUpdateData);
         }
 
@@ -184,7 +187,7 @@ class PreApprovalRequestService
                 // Delete database record
                 $attachment->delete();
             } catch (\Exception $e) {
-                Log::warning('Failed to delete attachment: ' . $e->getMessage());
+                Log::warning('Failed to delete attachment: '.$e->getMessage());
             }
         }
     }
@@ -194,13 +197,13 @@ class PreApprovalRequestService
         $itemsTotal = 0;
         $expensesTotal = 0;
 
-        if (!empty($data['items'])) {
+        if (! empty($data['items'])) {
             foreach ($data['items'] as $item) {
                 $itemsTotal += $item['quantity'] * $item['rate'];
             }
         }
 
-        if (!empty($data['expenses'])) {
+        if (! empty($data['expenses'])) {
             foreach ($data['expenses'] as $expense) {
                 $expensesTotal += $expense['price'];
             }
@@ -218,7 +221,7 @@ class PreApprovalRequestService
      */
     private function uploadAttachment(Expense $expense, $file): void
     {
-        $filename = 'expense_' . $expense->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+        $filename = 'expense_'.$expense->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
         $path = $file->storeAs('expenses/attachments', $filename, 'public');
 
         $expense->attachments()->create([
@@ -229,7 +232,7 @@ class PreApprovalRequestService
         ]);
     }
 
-    private function createTimelineEntry(Expense $expense, string $action, string $status = null): void
+    private function createTimelineEntry(Expense $expense, string $action, ?string $status = null): void
     {
         $expense->timelines()->create([
             'action' => $action,

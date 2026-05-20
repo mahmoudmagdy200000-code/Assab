@@ -52,4 +52,3 @@ class SupplierFeedback extends Model
         return $this->belongsTo(Branch::class);
     }
 }
-

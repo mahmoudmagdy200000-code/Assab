@@ -5,9 +5,9 @@ namespace Modules\Supplier\Http\Controllers\Auth;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
+use Modules\Supplier\Http\Requests\Auth\ResetPasswordRequest;
 use Modules\Supplier\Http\Requests\Auth\SendOTPRequest;
 use Modules\Supplier\Http\Requests\Auth\VerifyOTPRequest;
-use Modules\Supplier\Http\Requests\Auth\ResetPasswordRequest;
 use Modules\Supplier\Models\Supplier;
 use Modules\Supplier\Services\OTPService;
 
@@ -27,7 +27,7 @@ class PasswordResetController extends BaseController
                 ->orWhere('phone', $request->identifier)
                 ->first();
 
-            if (!$supplier) {
+            if (! $supplier) {
                 return $this->notFoundResponse('Supplier not found');
             }
 
@@ -55,7 +55,7 @@ class PasswordResetController extends BaseController
                 otp: $request->otp
             );
 
-            if (!$isValid) {
+            if (! $isValid) {
                 return $this->errorResponse('Invalid or expired OTP', 400);
             }
 
@@ -77,7 +77,7 @@ class PasswordResetController extends BaseController
     {
         try {
             // Verify reset token
-            if (!$this->otpService->verifyResetToken($request->identifier, $request->reset_token)) {
+            if (! $this->otpService->verifyResetToken($request->identifier, $request->reset_token)) {
                 return $this->errorResponse('Invalid or expired reset token', 400);
             }
 
@@ -85,7 +85,7 @@ class PasswordResetController extends BaseController
                 ->orWhere('phone', $request->identifier)
                 ->first();
 
-            if (!$supplier) {
+            if (! $supplier) {
                 return $this->notFoundResponse('Supplier not found');
             }
 
@@ -103,4 +103,3 @@ class PasswordResetController extends BaseController
         }
     }
 }
-

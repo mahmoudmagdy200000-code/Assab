@@ -2,12 +2,12 @@
 
 namespace Modules\Supplier\Transformers;
 
+use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\Branch\Transformers\BranchResource;
 use Modules\BranchManagers\Transformers\BranchManagerResource;
 use Modules\Purchase\Support\PurchaseFileHelper;
 use Modules\Purchase\Transformers\ReturnOrderItemResource;
-use App\Http\Resources\UnifiedTimelineResource;
 
 /**
  * Return details for Supplier app: branch + timelines (same style as Purchase details).
@@ -18,7 +18,7 @@ class ReturnDetailResource extends JsonResource
     {
         $responseFiles = $this->response_files ?? [];
         $responseFilesList = is_array($responseFiles)
-            ? array_map(fn($f) => PurchaseFileHelper::toApiShape($f), $responseFiles)
+            ? array_map(fn ($f) => PurchaseFileHelper::toApiShape($f), $responseFiles)
             : [];
 
         return [
@@ -66,9 +66,10 @@ class ReturnDetailResource extends JsonResource
             'is_completed' => $this->is_completed,
 
             'purchase_order' => $this->whenLoaded('purchaseOrder', function () {
-                if (!$this->purchaseOrder) {
+                if (! $this->purchaseOrder) {
                     return null;
                 }
+
                 return [
                     'id' => $this->purchaseOrder->id,
                     'order_number' => $this->purchaseOrder->order_number,
@@ -85,7 +86,7 @@ class ReturnDetailResource extends JsonResource
             }),
 
             'items' => ReturnOrderItemResource::collection($this->whenLoaded('items')),
-            'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn () => UnifiedTimelineResource::collection($this->timelines)),
         ];
     }
 
@@ -98,7 +99,7 @@ class ReturnDetailResource extends JsonResource
     {
         // Return cancellation if there was a rejection (regardless of current status)
         // Check if rejected_at or rejection_reason exists
-        if (!$this->rejected_at && !$this->rejection_reason) {
+        if (! $this->rejected_at && ! $this->rejection_reason) {
             return null;
         }
 
@@ -123,7 +124,7 @@ class ReturnDetailResource extends JsonResource
      */
     private function getCancelledByInfo(): ?array
     {
-        if (!$this->responded_by) {
+        if (! $this->responded_by) {
             return null;
         }
 
@@ -152,7 +153,7 @@ class ReturnDetailResource extends JsonResource
      */
     private function getSupplierInfo(): ?array
     {
-        if (!$this->relationLoaded('supplier') || !$this->supplier) {
+        if (! $this->relationLoaded('supplier') || ! $this->supplier) {
             return null;
         }
 

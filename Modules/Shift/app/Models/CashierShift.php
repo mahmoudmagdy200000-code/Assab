@@ -3,15 +3,14 @@
 namespace Modules\Shift\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
-use Modules\Cashier\Models\Cashier;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
-use Modules\Shift\Models\CashierShiftHandover;
 
 class CashierShift extends Model
 {
@@ -77,6 +76,7 @@ class CashierShift extends Model
     {
         return $this->belongsTo(BranchManager::class, 'assigned_by');
     }
+
     // Relationships
     public function cashier(): BelongsTo
     {
@@ -143,7 +143,7 @@ class CashierShift extends Model
     {
         return $query->whereIn('status', [
             ShiftStatus::NOT_STARTED->value,
-            ShiftStatus::REASSIGNED->value
+            ShiftStatus::REASSIGNED->value,
         ]);
     }
 
@@ -202,16 +202,14 @@ class CashierShift extends Model
     /**
      * Calculate variance as the difference between total sales and total collected payments
      * Variance = Total Sales - (Cash Collected + Card Payments + Delivery Apps)
-     *
-     * @return float
      */
     public function calculateVariance(): float
     {
         $totalCollected = $this->cash_collected + $this->card_payments;
-        
+
         // Add delivery apps (aggregators) payments
         $deliveryAppsTotal = $this->salesBreakdown()->sum('amount');
-        
+
         return $this->total_sales - ($totalCollected + $deliveryAppsTotal);
     }
 
@@ -225,7 +223,7 @@ class CashierShift extends Model
                 \Modules\Cashier\Models\Cashier::class => 'cashier',
                 default => 'system',
             }
-            : 'system';
+        : 'system';
 
         $this->history()->create([
             'action' => $action,
@@ -237,7 +235,6 @@ class CashierShift extends Model
         ]);
     }
 
-
     public function hasVariance(): bool
     {
         return abs($this->calculateVariance()) > 0.01;
@@ -247,8 +244,6 @@ class CashierShift extends Model
     {
         return $this->belongsTo(\Modules\BranchManagers\Models\BranchManager::class, 'created_by');
     }
-
-
 
     /**
      * Load all necessary relationships for API responses
@@ -264,7 +259,7 @@ class CashierShift extends Model
             'reassignedBy',
             'salesBreakdown.aggregator',
             'handoverStatus.reviewedBy',
-            'varianceDetails.responsibleCashier'
+            'varianceDetails.responsibleCashier',
         ]);
     }
 }

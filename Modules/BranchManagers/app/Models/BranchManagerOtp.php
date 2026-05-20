@@ -2,10 +2,10 @@
 
 namespace Modules\BranchManagers\Models;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 
 class BranchManagerOtp extends Model
 {
@@ -49,7 +49,7 @@ class BranchManagerOtp extends Model
 
     public function isValid(): bool
     {
-        return !$this->is_used && !$this->isExpired();
+        return ! $this->is_used && ! $this->isExpired();
     }
 
     public function markAsUsed(): void
@@ -86,6 +86,7 @@ class BranchManagerOtp extends Model
 
         if ($record) {
             $record->markAsUsed();
+
             return true;
         }
 

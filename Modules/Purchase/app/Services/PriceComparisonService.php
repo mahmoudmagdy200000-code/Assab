@@ -6,26 +6,26 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Modules\Inventory\Enums\InventorySessionStatus;
+use Modules\Inventory\Models\InventoryItem;
 use Modules\Purchase\Constants\PurchaseConstants;
-use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\OrderStatus;
+use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\QualityLevel;
-use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\BranchInventory;
+use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
 use Modules\Purchase\Models\PriceHistory;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
-use Modules\Supplier\Models\Supplier;
 use Modules\Purchase\Models\SupplierItem;
 use Modules\Purchase\Traits\ItemHelperTrait;
-use Modules\Inventory\Models\InventoryItem;
-use Modules\Inventory\Models\InventorySession;
-use Modules\Inventory\Enums\InventorySessionStatus;
+use Modules\Supplier\Models\Supplier;
 
 class PriceComparisonService implements \Modules\Purchase\Services\Contracts\PriceComparisonServiceInterface
 {
     use ItemHelperTrait;
+
     /**
      * Compare prices for an item across all sources
      *
@@ -53,7 +53,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         $item = Item::select('id', 'name', 'code', 'unit', 'logo')->find($itemId);
 
         // If Item not found, try to find BranchItem (itemId might be BranchItem.id)
-        if (!$item) {
+        if (! $item) {
             $branchItem = BranchItem::with('item:id,name,code,unit,logo')->find($itemId);
 
             if ($branchItem && $branchItem->item) {
@@ -149,9 +149,9 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         $supplierItems = SupplierItem::with(['supplier:id,name,status,rating'])
             ->byItem($itemId)
             ->available()
-            ->whereHas('supplier', fn($q) => $q->active())
+            ->whereHas('supplier', fn ($q) => $q->active())
             ->get()
-            ->filter(fn($item) => $item->isWithinQuantityLimits($quantity));
+            ->filter(fn ($item) => $item->isWithinQuantityLimits($quantity));
 
         // Performance: Use optimized query with indexes for order history
         $threeMonthsAgo = now()->subMonths(PurchaseConstants::PRICE_HISTORY_MONTHS);
@@ -195,6 +195,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                             : ($order->closed_at
                                 ? \Carbon\Carbon::parse($order->closed_at)
                                 : now()));
+
                     return $createdAt->diffInDays($completedAt);
                 })->avg();
                 $avgDeliveryDays = round($deliveryDays, 1);
@@ -260,7 +261,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             ->map(function ($items, $supplierId) use ($quantity) {
                 $firstItem = $items->first();
 
-                if (!$firstItem) {
+                if (! $firstItem) {
                     return null;
                 }
 
@@ -277,6 +278,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                             : ($item->closed_at
                                 ? \Carbon\Carbon::parse($item->closed_at)
                                 : now()));
+
                     return $createdAt->diffInDays($completedAt);
                 })->avg();
 
@@ -333,7 +335,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                 ->orderBy('recorded_date', 'desc')
                 ->first();
 
-            if (!$history) {
+            if (! $history) {
                 return null;
             }
 
@@ -405,7 +407,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         return BranchInventory::with(['branch:id,name,image'])
             ->byItem($itemId)
             ->available()
-            ->when($excludeBranchId, fn($q) => $q->where('branch_id', '!=', $excludeBranchId))
+            ->when($excludeBranchId, fn ($q) => $q->where('branch_id', '!=', $excludeBranchId))
             ->whereRaw('(available_quantity - reserved_quantity) >= ?', [$minAvailability])
             ->get()
             ->map(function ($inventory) use ($quantity, $avgUnitPrice) {
@@ -498,9 +500,9 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         $table = [];
 
         // Direct Supplier - get best option (lowest price or highest rating)
-        if (!empty($sources['direct_supplier']) && is_array($sources['direct_supplier'])) {
+        if (! empty($sources['direct_supplier']) && is_array($sources['direct_supplier'])) {
             $suppliers = collect($sources['direct_supplier'])
-                ->filter(fn($s) => isset($s['unit_price']) && $s['unit_price'] !== null);
+                ->filter(fn ($s) => isset($s['unit_price']) && $s['unit_price'] !== null);
 
             if ($suppliers->isNotEmpty()) {
                 $bestSupplier = $suppliers->sortBy('unit_price')->first();
@@ -518,7 +520,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         }
 
         // Via Purchasing Officer
-        if (!empty($sources['via_purchasing_officer'])) {
+        if (! empty($sources['via_purchasing_officer'])) {
             $po = $sources['via_purchasing_officer'];
             $table[] = [
                 'order_type' => 'via_purchasing_officer',
@@ -532,7 +534,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         }
 
         // Internal Transfer
-        if (!empty($sources['internal_transfer'])) {
+        if (! empty($sources['internal_transfer'])) {
             $transfer = collect($sources['internal_transfer'])->first();
             $table[] = [
                 'order_type' => 'internal_transfer',
@@ -562,7 +564,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         // Check if it's the new format (array of {date, value} objects)
         $isNewFormat = isset($trends[0]) && is_array($trends[0]) && isset($trends[0]['date']) && isset($trends[0]['value']);
 
-        if (!$isNewFormat) {
+        if (! $isNewFormat) {
             // Old format - return null for now (can be removed later)
             return null;
         }
@@ -586,9 +588,9 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             'percentage' => round(abs($change), 1),
             'is_increase' => $isIncrease,
             'label' => $isIncrease
-                ? "+" . round($change, 1) . "% Price Increase"
-                : round($change, 1) . "% Price Decrease",
-            'status' => $isIncrease ? "HIGHER THAN FIRST PURCHASE" : "LOWER THAN FIRST PURCHASE",
+                ? '+'.round($change, 1).'% Price Increase'
+                : round($change, 1).'% Price Decrease',
+            'status' => $isIncrease ? 'HIGHER THAN FIRST PURCHASE' : 'LOWER THAN FIRST PURCHASE',
         ];
     }
 
@@ -607,17 +609,17 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         $allOptions = [];
 
         // Collect all options
-        if (!empty($sources['direct_supplier'])) {
+        if (! empty($sources['direct_supplier'])) {
             foreach ($sources['direct_supplier'] as $option) {
                 $allOptions[] = array_merge($option, ['type' => 'direct_supplier']);
             }
         }
 
-        if (!empty($sources['via_purchasing_officer'])) {
+        if (! empty($sources['via_purchasing_officer'])) {
             $allOptions[] = array_merge($sources['via_purchasing_officer'], ['type' => 'via_purchasing_officer']);
         }
 
-        if (!empty($sources['internal_transfer'])) {
+        if (! empty($sources['internal_transfer'])) {
             foreach ($sources['internal_transfer'] as $option) {
                 $allOptions[] = array_merge($option, ['type' => 'internal_transfer']);
             }
@@ -639,7 +641,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
 
         // Find fastest delivery
         $fastest = collect($allOptions)
-            ->filter(fn($o) => isset($o['delivery_days']))
+            ->filter(fn ($o) => isset($o['delivery_days']))
             ->sortBy('delivery_days')
             ->first();
 
@@ -655,7 +657,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
 
         // Find best rating (also used for compliance)
         $bestRated = collect($allOptions)
-            ->filter(fn($o) => isset($o['rating']))
+            ->filter(fn ($o) => isset($o['rating']))
             ->sortByDesc('rating')
             ->first();
 
@@ -681,17 +683,17 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
     {
         $allOptions = [];
 
-        if (!empty($sources['direct_supplier'])) {
+        if (! empty($sources['direct_supplier'])) {
             foreach ($sources['direct_supplier'] as $option) {
                 $allOptions[] = array_merge($option, ['type' => 'direct_supplier']);
             }
         }
 
-        if (!empty($sources['via_purchasing_officer'])) {
+        if (! empty($sources['via_purchasing_officer'])) {
             $allOptions[] = array_merge($sources['via_purchasing_officer'], ['type' => 'via_purchasing_officer']);
         }
 
-        if (!empty($sources['internal_transfer'])) {
+        if (! empty($sources['internal_transfer'])) {
             foreach ($sources['internal_transfer'] as $option) {
                 $allOptions[] = array_merge($option, ['type' => 'internal_transfer']);
             }
@@ -709,6 +711,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                 if ($option['type'] === 'internal_transfer') {
                     return isset($option['delivery_days']);
                 }
+
                 // For other types, at least one of delivery_days or rating should exist
                 return isset($option['delivery_days']) || isset($option['rating']);
             })
@@ -770,26 +773,26 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         $query = SupplierItem::with('supplier')
             ->byItem($itemId)
             ->available()
-            ->whereHas('supplier', fn($q) => $q->active());
+            ->whereHas('supplier', fn ($q) => $q->active());
 
         // Filter by supplier status (Supplier model has no scopeByStatus; filter by column)
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             $status = $filters['status'];
             if ($status instanceof \Modules\Purchase\Enums\SupplierStatus) {
                 $status = $status->value;
             }
-            $query->whereHas('supplier', fn($q) => $q->where('status', $status));
+            $query->whereHas('supplier', fn ($q) => $q->where('status', $status));
         }
 
         // Filter by delivery time
-        if (!empty($filters['max_delivery_hours'])) {
+        if (! empty($filters['max_delivery_hours'])) {
             $query->byDeliveryTime($filters['max_delivery_hours']);
         }
 
         // Search by supplier name (Supplier model has no scopeSearch; use where like)
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $term = $filters['search'];
-            $query->whereHas('supplier', fn($q) => $q->where(function ($q) use ($term) {
+            $query->whereHas('supplier', fn ($q) => $q->where(function ($q) use ($term) {
                 $q->where('name', 'like', "%{$term}%")
                     ->orWhere('email', 'like', "%{$term}%")
                     ->orWhere('phone', 'like', "%{$term}%");
@@ -821,11 +824,10 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
      * - Rating
      * - Last Update (from daily inventory)
      *
-     * @param string $itemId BranchItem.id or Item.id
-     * @param float $quantity Required quantity
-     * @param string $excludeBranchId Branch to exclude (current branch)
-     * @param array $filters Additional filters
-     * @return Collection
+     * @param  string  $itemId  BranchItem.id or Item.id
+     * @param  float  $quantity  Required quantity
+     * @param  string  $excludeBranchId  Branch to exclude (current branch)
+     * @param  array  $filters  Additional filters
      */
     public function getBranchesWithStock(string $itemId, float $quantity, string $excludeBranchId, array $filters = []): Collection
     {
@@ -842,7 +844,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             $item = Item::find($itemId);
         }
 
-        if (!$item) {
+        if (! $item) {
             return collect([]);
         }
 
@@ -851,7 +853,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         $currentCoordinates = $this->parseCoordinates($currentBranch->map_coordinates ?? null);
 
         // Log warning if coordinates are missing (for debugging)
-        if (!$currentCoordinates && $currentBranch) {
+        if (! $currentCoordinates && $currentBranch) {
             Log::warning('Current branch missing map_coordinates', [
                 'branch_id' => $excludeBranchId,
                 'branch_name' => $currentBranch->name,
@@ -883,22 +885,26 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                 // Get the latest inventory item for this branch
                 return $items->sortByDesc(function ($item) {
                     $session = $item->inventorySession;
+
                     return $session ? ($session->submitted_at ?? $session->end_time ?? $session->created_at) : null;
                 })->first();
             })
             ->filter(function ($item) use ($quantity, $filters) {
                 // Filter by minimum availability percentage if specified
-                if (!empty($filters['min_availability'])) {
+                if (! empty($filters['min_availability'])) {
                     $minQuantity = $quantity * ($filters['min_availability'] / 100);
+
                     return (float) $item->quantity_inventory >= $minQuantity;
                 }
+
                 return (float) $item->quantity_inventory > 0;
             });
 
         // Search by branch name
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $branchesWithInventory = $branchesWithInventory->filter(function ($item) use ($filters) {
                 $branchName = $item->branch->name ?? '';
+
                 return stripos($branchName, $filters['search']) !== false;
             });
         }
@@ -916,18 +922,19 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         }
 
         // Filter by minimum availability percentage
-        if (!empty($filters['min_availability'])) {
+        if (! empty($filters['min_availability'])) {
             $minQuantity = $quantity * ($filters['min_availability'] / 100);
             $query->where(DB::raw('(available_quantity - reserved_quantity)'), '>=', $minQuantity);
         }
 
         // Search by branch name
-        if (!empty($filters['search'])) {
-            $query->whereHas('branch', fn($q) => $q->where('name', 'like', "%{$filters['search']}%"));
+        if (! empty($filters['search'])) {
+            $query->whereHas('branch', fn ($q) => $q->where('name', 'like', "%{$filters['search']}%"));
 
             // Also filter inventory items by search
             $branchesWithInventory = $branchesWithInventory->filter(function ($item) use ($filters) {
                 $branchName = $item->branch->name ?? '';
+
                 return stripos($branchName, $filters['search']) !== false;
             });
         }
@@ -953,7 +960,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             $distance = $this->calculateDistance($currentCoordinates, $targetCoordinates);
 
             // If distance is null (coordinates missing), use default values
-            if (!$distance) {
+            if (! $distance) {
                 $distance = [
                     'distance_km' => PurchaseConstants::DEFAULT_DISTANCE_KM,
                     'estimated_hours' => (PurchaseConstants::DEFAULT_DISTANCE_KM / PurchaseConstants::AVERAGE_SPEED_KMH)
@@ -992,7 +999,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                     'location' => $branch->location ?? null,
                     'lat' => $branch->lat ? (float) $branch->lat : null,
                     'lng' => $branch->lng ? (float) $branch->lng : null,
-                    'image' => $branch->image ? asset('storage/' . $branch->image) : null,
+                    'image' => $branch->image ? asset('storage/'.$branch->image) : null,
                 ] : null,
                 'branch_manager' => $manager ? [
                     'id' => $manager->id,
@@ -1008,7 +1015,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                 'total_amount' => round($totalAmount, 2),
                 // Available Quantity (from daily inventory)
                 'available_quantity' => $availableQty,
-                'available_quantity_label' => number_format($availableQty, 2) . ' ' . ($item->unit ?? 'kg'),
+                'available_quantity_label' => number_format($availableQty, 2).' '.($item->unit ?? 'kg'),
                 'availability_percentage' => min(100, round(($availableQty / $quantity) * 100, 1)),
                 'quality' => null, // Quality not available in daily inventory
                 'expiry_date' => null, // Expiry date not available in daily inventory
@@ -1039,7 +1046,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                 ->whereIn('item_id', $itemIds)
                 ->get()
                 ->keyBy(function ($inv) {
-                    return $inv->branch_id . '_' . $inv->item_id;
+                    return $inv->branch_id.'_'.$inv->item_id;
                 });
 
             return $otherBranchesItems->map(function ($branchItem) use ($quantity, $currentCoordinates, $branchStats, $item, $avgUnitPrice, $filters, $inventoriesByBranch) {
@@ -1047,7 +1054,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                 $branchId = $branchItem->branch_id;
 
                 // Try to get inventory data for this branch and item
-                $inventoryKey = $branchId . '_' . $branchItem->item_id;
+                $inventoryKey = $branchId.'_'.$branchItem->item_id;
                 $inventory = $inventoriesByBranch[$inventoryKey] ?? null;
 
                 // Use inventory data if available, otherwise use BranchItem quantity
@@ -1060,7 +1067,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                 $distance = $this->calculateDistance($currentCoordinates, $targetCoordinates);
 
                 // If distance is null (coordinates missing), use default values
-                if (!$distance) {
+                if (! $distance) {
                     $distance = [
                         'distance_km' => PurchaseConstants::DEFAULT_DISTANCE_KM,
                         'estimated_hours' => (PurchaseConstants::DEFAULT_DISTANCE_KM / PurchaseConstants::AVERAGE_SPEED_KMH)
@@ -1097,7 +1104,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                         'location' => $branch->location ?? null,
                         'lat' => $branch->lat ? (float) $branch->lat : null,
                         'lng' => $branch->lng ? (float) $branch->lng : null,
-                        'image' => $branch->image ? asset('storage/' . $branch->image) : null,
+                        'image' => $branch->image ? asset('storage/'.$branch->image) : null,
                     ] : null,
                     'branch_manager' => $manager ? [
                         'id' => $manager->id,
@@ -1113,7 +1120,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                     'total_amount' => round($totalAmount, 2),
                     // Available Quantity
                     'available_quantity' => $availableQty,
-                    'available_quantity_label' => number_format($availableQty, 2) . ' ' . ($item->unit ?? 'kg'),
+                    'available_quantity_label' => number_format($availableQty, 2).' '.($item->unit ?? 'kg'),
                     'availability_percentage' => min(100, round(($availableQty / $quantity) * 100, 1)),
                     'quality' => $inventory ? ($inventory->quality?->value ?? null) : null,
                     'expiry_date' => $inventory ? ($inventory->earliest_expiry_date?->format('Y-m-d') ?? null) : null,
@@ -1142,7 +1149,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             $distance = $this->calculateDistance($currentCoordinates, $targetCoordinates);
 
             // If distance is null (coordinates missing), use default values
-            if (!$distance) {
+            if (! $distance) {
                 $distance = [
                     'distance_km' => PurchaseConstants::DEFAULT_DISTANCE_KM,
                     'estimated_hours' => (PurchaseConstants::DEFAULT_DISTANCE_KM / PurchaseConstants::AVERAGE_SPEED_KMH)
@@ -1181,7 +1188,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                     'id' => $branch->id,
                     'name' => $branch->name,
                     'location' => $branch->location ?? null,
-                    'image' => $branch->image ? asset('storage/' . $branch->image) : null,
+                    'image' => $branch->image ? asset('storage/'.$branch->image) : null,
                 ] : null,
                 'branch_manager' => $manager ? [
                     'id' => $manager->id,
@@ -1197,7 +1204,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                 'total_amount' => round($totalAmount, 2),
                 // Available Quantity
                 'available_quantity' => $availableQty,
-                'available_quantity_label' => number_format($availableQty, 2) . ' ' . ($inventoryItem->unit ?? $item->unit ?? 'kg'),
+                'available_quantity_label' => number_format($availableQty, 2).' '.($inventoryItem->unit ?? $item->unit ?? 'kg'),
                 'availability_percentage' => min(100, round(($availableQty / $quantity) * 100, 1)),
                 'quality' => $inventory->quality?->value,
                 'expiry_date' => $inventory->earliest_expiry_date?->format('Y-m-d'),
@@ -1243,7 +1250,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
      */
     private function calculateDistance(?array $from, ?array $to): ?array
     {
-        if (!$from || !$to) {
+        if (! $from || ! $to) {
             return null;
         }
 
@@ -1318,7 +1325,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         foreach ($orders as $order) {
             $branchId = $order->from_branch_id;
 
-            if (!isset($stats[$branchId])) {
+            if (! isset($stats[$branchId])) {
                 $stats[$branchId] = [
                     'response_times' => [],
                     'ratings' => [],
@@ -1338,7 +1345,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             // Response rate: percentage of orders responded to within 24 hours
             $respondedWithin24h = count(array_filter(
                 $data['response_times'],
-                fn($t) => $t <= PurchaseConstants::HOURS_PER_DAY
+                fn ($t) => $t <= PurchaseConstants::HOURS_PER_DAY
             ));
             $totalOrders = count($data['response_times']);
             $responseRate = $totalOrders > 0

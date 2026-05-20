@@ -2,8 +2,8 @@
 
 namespace Modules\Cashier\Repositories;
 
-use Modules\Cashier\Models\Cashier;
 use Illuminate\Support\Collection;
+use Modules\Cashier\Models\Cashier;
 
 interface CashierRepositoryInterface
 {

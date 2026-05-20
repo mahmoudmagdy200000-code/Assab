@@ -3,6 +3,7 @@
 namespace Modules\Purchase\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Constants\PurchaseConstants;
@@ -16,15 +17,14 @@ use Modules\Purchase\Models\OrderTimeline;
 use Modules\Purchase\Models\PriceHistory;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
-use Illuminate\Support\Collection;
 
 class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\PurchaseOrderServiceInterface
 {
     public function __construct(
-        private readonly TimelineService           $timelineService,
-        private readonly OrderCreationService      $orderCreationService,
+        private readonly TimelineService $timelineService,
+        private readonly OrderCreationService $orderCreationService,
         private readonly PurchaseOrderDelayService $delayService,
-        private readonly PurchaseOrderItemService  $itemService
+        private readonly PurchaseOrderItemService $itemService
     ) {}
 
     /**
@@ -44,22 +44,22 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             ->with('item:id,name,code,unit,logo,category,subcategory');
 
         // Search by item name (through Item model)
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $query->search($filters['search']);
         }
 
         // Filter by category (through Item model)
-        if (!empty($filters['category'])) {
+        if (! empty($filters['category'])) {
             $query->byCategory($filters['category']);
         }
 
         // Filter by subcategory (through Item model)
-        if (!empty($filters['subcategory'])) {
+        if (! empty($filters['subcategory'])) {
             $query->bySubcategory($filters['subcategory']);
         }
 
         // Filter by supplier (from Expense module)
-        if (!empty($filters['supplier_id'])) {
+        if (! empty($filters['supplier_id'])) {
             $query->bySupplier($filters['supplier_id']);
         }
 
@@ -93,7 +93,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             ->history()
             ->orderBy('created_at', 'desc');
 
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $query->search($filters['search']);
         }
 
@@ -101,7 +101,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         $this->applyHistoryTypeFilter($query, $filters['type'] ?? null);
         $this->applyHistoryDateFilters($query, $filters);
 
-        if (!empty($filters['branch_id'])) {
+        if (! empty($filters['branch_id'])) {
             $query->forBranchHistory($filters['branch_id']);
         }
 
@@ -125,24 +125,24 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             'items:id,purchase_order_id,item_id,item_name,quantity_ordered,quantity_confirmed,unit_price,total_price,status,approval_type,approval_data',
             'items.item:id,name,code,logo,unit',
             'supplier:id,name,phone,email',
-            'fromBranch:id,name,location'
+            'fromBranch:id,name,location',
         ])
             ->orderBy('created_at', 'desc');
 
         // Filter by branch: orders created BY this branch (branch_id = requester branch)
         // Includes: direct_supplier, via_purchasing_officer, and internal_transfer where this branch is the requester (destination)
         // Excludes: orders requested FROM this branch by others (those appear in requested_orders via getPendingOrders)
-        if (!empty($filters['branch_id'])) {
+        if (! empty($filters['branch_id'])) {
             $query->where('branch_id', $filters['branch_id']);
         }
 
         // Search by item name or order number
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $query->search($filters['search']);
         }
 
         // Filter by order type
-        if (!empty($filters['order_type'])) {
+        if (! empty($filters['order_type'])) {
             try {
                 $orderType = OrderType::from($filters['order_type']);
                 $query->byType($orderType);
@@ -152,7 +152,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         }
 
         // Filter by status
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             try {
                 $status = OrderStatus::from($filters['status']);
                 $query->byStatus($status);
@@ -185,13 +185,13 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             'supplier:id,name,phone,email',
             'branch:id,name,lat,lng,opening_hours,closing_hours,image',
             'requestedBy:id,name,email',
-            'fromBranch:id,name,lat,lng'
+            'fromBranch:id,name,lat,lng',
         ])
             ->pending()
             ->orderBy('created_at', 'desc');
 
         // Filter by branch - get orders requested FROM this branch
-        if (!empty($filters['branch_id'])) {
+        if (! empty($filters['branch_id'])) {
             $branchId = $filters['branch_id'];
 
             // For internal_transfer: get orders requested FROM this branch by other branches
@@ -209,11 +209,11 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         }
 
         // Apply filters
-        if (!empty($filters['type'])) {
+        if (! empty($filters['type'])) {
             $query->byType(OrderType::from($filters['type']));
         }
 
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             $query->byStatus(OrderStatus::from($filters['status']));
         }
 
@@ -229,11 +229,11 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      */
     public function getOrdersForReceiving(array $filters, ?int $perPage = null): LengthAwarePaginator
     {
-        $perPage     = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
+        $perPage = $perPage ?? PurchaseConstants::DEFAULT_PER_PAGE;
         $currentPage = request()->get('page', 1);
 
         $cancelledStatuses = OrderItemStatus::cancelledStatusValues();
-        $orderType         = !empty($filters['type']) ? OrderType::from($filters['type']) : null;
+        $orderType = ! empty($filters['type']) ? OrderType::from($filters['type']) : null;
 
         $query = PurchaseOrder::withCount([
             'items as items_count' => fn ($q) => $q->whereNotIn('status', $cancelledStatuses),
@@ -245,7 +245,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             $query->byType($orderType);
         }
 
-        if (!empty($filters['branch_id'])) {
+        if (! empty($filters['branch_id'])) {
             $this->applyReceivingBranchFilter($query, $filters['branch_id'], $orderType);
         }
 
@@ -299,7 +299,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             ]);
 
             // Create order items
-            if (!empty($data['items'])) {
+            if (! empty($data['items'])) {
                 foreach ($data['items'] as $item) {
                     $this->addItem($order, $item);
                 }
@@ -323,11 +323,12 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      * - direct_supplier[]: Direct supplier orders
      * - purchase_officer[]: Purchasing officer orders
      *
-     * @param array $data Request data containing branches, direct_supplier, and/or purchase_officer arrays
-     * @param string $branchId The branch ID for the orders
-     * @param string $requestedBy The user ID who requested the orders
-     * @param bool $isDraft Whether to create orders as draft (true) or pending (false)
+     * @param  array  $data  Request data containing branches, direct_supplier, and/or purchase_officer arrays
+     * @param  string  $branchId  The branch ID for the orders
+     * @param  string  $requestedBy  The user ID who requested the orders
+     * @param  bool  $isDraft  Whether to create orders as draft (true) or pending (false)
      * @return Collection Collection of created PurchaseOrder models
+     *
      * @throws \InvalidArgumentException
      * @throws \Exception
      */
@@ -362,7 +363,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      */
     private function resolveSourceable(array $data, OrderType $orderType): array
     {
-        if (!empty($data['sourceable_type']) && !empty($data['sourceable_id'])) {
+        if (! empty($data['sourceable_type']) && ! empty($data['sourceable_id'])) {
             return [$data['sourceable_type'], $data['sourceable_id']];
         }
 
@@ -378,30 +379,31 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     {
         $definitions = [
             OrderType::DIRECT_SUPPLIER->value => [
-                'class'     => \Modules\Supplier\Models\Supplier::class,
-                'id'        => $data['supplier_id'] ?? null,
+                'class' => \Modules\Supplier\Models\Supplier::class,
+                'id' => $data['supplier_id'] ?? null,
                 'exception' => fn () => PurchaseOrderException::supplierIdRequired(),
             ],
             OrderType::VIA_PURCHASING_OFFICER->value => [
-                'class'     => \Modules\BranchManagers\Models\BranchManager::class,
-                'id'        => $data['sourceable_id'] ?? $data['requested_by'] ?? null,
+                'class' => \Modules\BranchManagers\Models\BranchManager::class,
+                'id' => $data['sourceable_id'] ?? $data['requested_by'] ?? null,
                 'exception' => fn () => PurchaseOrderException::requestedByRequired(),
             ],
             OrderType::INTERNAL_TRANSFER->value => [
-                'class'     => \Modules\Branch\Models\Branch::class,
-                'id'        => $data['from_branch_id'] ?? null,
+                'class' => \Modules\Branch\Models\Branch::class,
+                'id' => $data['from_branch_id'] ?? null,
                 'exception' => fn () => PurchaseOrderException::fromBranchIdRequired(),
             ],
         ];
 
-        if (!isset($definitions[$orderType->value])) {
+        if (! isset($definitions[$orderType->value])) {
             return [null, null];
         }
 
         ['class' => $class, 'id' => $id, 'exception' => $mkException] = $definitions[$orderType->value];
-        if (!$id) {
+        if (! $id) {
             throw $mkException();
         }
+
         return [$class, $id];
     }
 
@@ -426,7 +428,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     {
         $orders = collect();
 
-        if (empty($data['branches']) || !is_array($data['branches'])) {
+        if (empty($data['branches']) || ! is_array($data['branches'])) {
             return $orders;
         }
 
@@ -461,7 +463,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     {
         $orders = collect();
 
-        if (empty($data['direct_supplier']) || !is_array($data['direct_supplier'])) {
+        if (empty($data['direct_supplier']) || ! is_array($data['direct_supplier'])) {
             return $orders;
         }
 
@@ -496,7 +498,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     {
         $orders = collect();
 
-        if (empty($data['purchase_officer']) || !is_array($data['purchase_officer'])) {
+        if (empty($data['purchase_officer']) || ! is_array($data['purchase_officer'])) {
             return $orders;
         }
 
@@ -545,7 +547,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      */
     public function submitOrder(PurchaseOrder $order): bool
     {
-        if (!$order->submit()) {
+        if (! $order->submit()) {
             return false;
         }
 
@@ -575,7 +577,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     {
         return DB::transaction(function () use ($order, $itemConfirmations, $readyTime) {
             $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
-            if (!$order->status->isDecisionPhase() || $order->status === OrderStatus::CONFIRMED) {
+            if (! $order->status->isDecisionPhase() || $order->status === OrderStatus::CONFIRMED) {
                 throw new \InvalidArgumentException(
                     "Cannot approve order. Current status: {$order->status?->value}. Order must be in pending status."
                 );
@@ -603,8 +605,9 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      */
     private function applyItemConfirmations(PurchaseOrder $order, ?array $itemConfirmations): void
     {
-        if (!$itemConfirmations) {
+        if (! $itemConfirmations) {
             $order->items()->where('status', OrderItemStatus::PENDING)->get()->each->confirm();
+
             return;
         }
 
@@ -624,7 +627,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         return DB::transaction(function () use ($order, $itemConfirmations, $readyTime) {
             $order = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
             // Check if order is in decision phase
-            if (!$order->status->isDecisionPhase() || $order->status === OrderStatus::CONFIRMED) {
+            if (! $order->status->isDecisionPhase() || $order->status === OrderStatus::CONFIRMED) {
                 throw new \InvalidArgumentException(
                     "Cannot partially approve order. Current status: {$order->status?->value}. Order must be in pending status."
                 );
@@ -674,7 +677,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      */
     public function rejectOrder(PurchaseOrder $order, string $reason): bool
     {
-        if (!$order->reject($reason)) {
+        if (! $order->reject($reason)) {
             return false;
         }
 
@@ -688,7 +691,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      */
     public function cancelOrder(PurchaseOrder $order, ?string $reason = null, bool $byBranch = false, bool $bySupplier = false): bool
     {
-        if (!$order->cancel($reason, $byBranch, $bySupplier)) {
+        if (! $order->cancel($reason, $byBranch, $bySupplier)) {
             return false;
         }
 
@@ -702,7 +705,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      */
     public function markAsPreparing(PurchaseOrder $order): bool
     {
-        if (!$order->markAsPreparing()) {
+        if (! $order->markAsPreparing()) {
             return false;
         }
 
@@ -718,7 +721,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     {
         $order->fill($deliveryDetails);
 
-        if (!$order->markAsOnTheWay()) {
+        if (! $order->markAsOnTheWay()) {
             return false;
         }
 
@@ -738,7 +741,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                 $order->expected_delivery_at = $newDeliveryDate;
             }
 
-            if (!$order->reportDelay($reason)) {
+            if (! $order->reportDelay($reason)) {
                 return false;
             }
 
@@ -786,7 +789,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      */
     public function approveModifications(PurchaseOrder $order): bool
     {
-        if (!$order->transitionTo(OrderStatus::CONFIRMED)) {
+        if (! $order->transitionTo(OrderStatus::CONFIRMED)) {
             return false;
         }
 
@@ -800,7 +803,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      */
     public function rejectModifications(PurchaseOrder $order, string $reason): bool
     {
-        if (!$order->cancel($reason)) {
+        if (! $order->cancel($reason)) {
             return false;
         }
 
@@ -877,7 +880,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      */
     public function closeOrder(PurchaseOrder $order): bool
     {
-        if (!$order->close()) {
+        if (! $order->close()) {
             return false;
         }
 
@@ -892,9 +895,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      * Security: Optionally filter by branch_id to ensure user has access
      * For internal transfers, also checks from_branch_id for authorization
      *
-     * @param string $orderId
-     * @param string|null $branchId Optional branch ID for authorization check
-     * @return PurchaseOrder|null
+     * @param  string|null  $branchId  Optional branch ID for authorization check
      */
     public function getOrderDetails(string $orderId, ?string $branchId = null): ?PurchaseOrder
     {
@@ -912,7 +913,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             'returnOrders.items',
         ])->find($orderId);
 
-        if (!$order) {
+        if (! $order) {
             return null;
         }
 
@@ -922,11 +923,11 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             $hasAccess = $order->branch_id === $branchId;
 
             // Internal transfers: user can also access if they belong to from_branch_id (sending branch)
-            if (!$hasAccess && $order->order_type === OrderType::INTERNAL_TRANSFER) {
+            if (! $hasAccess && $order->order_type === OrderType::INTERNAL_TRANSFER) {
                 $hasAccess = $order->from_branch_id === $branchId;
             }
 
-            if (!$hasAccess) {
+            if (! $hasAccess) {
                 return null;
             }
         }
@@ -959,11 +960,13 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
         if ($orderType === OrderType::INTERNAL_TRANSFER) {
             $query->whereIn('status', $internalStatuses);
+
             return;
         }
 
         if ($orderType !== null) {
             $query->byStatus(OrderStatus::DELIVERED)->whereNotNull('expected_delivery_at');
+
             return;
         }
 
@@ -987,11 +990,13 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     {
         if ($orderType === OrderType::INTERNAL_TRANSFER) {
             $query->where('to_branch_id', $branchId);
+
             return;
         }
 
         if ($orderType !== null) {
             $query->byBranch($branchId);
+
             return;
         }
 
@@ -1023,19 +1028,19 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     private function transformReceivingOrder($order): array
     {
         $orderTypeValue = $order->order_type;
-        $orderTypeStr   = $orderTypeValue instanceof \BackedEnum ? $orderTypeValue->value : null;
-        $orderType      = $orderTypeStr ?? (is_string($orderTypeValue) ? $orderTypeValue : null);
+        $orderTypeStr = $orderTypeValue instanceof \BackedEnum ? $orderTypeValue->value : null;
+        $orderType = $orderTypeStr ?? (is_string($orderTypeValue) ? $orderTypeValue : null);
 
         $statusValue = $order->status;
-        $statusStr   = $statusValue instanceof \BackedEnum ? $statusValue->value : null;
-        $status      = $statusStr ?? (is_string($statusValue) ? $statusValue : null);
+        $statusStr = $statusValue instanceof \BackedEnum ? $statusValue->value : null;
+        $status = $statusStr ?? (is_string($statusValue) ? $statusValue : null);
 
         return [
-            'id'          => $order->id,
+            'id' => $order->id,
             'items_count' => (int) ($order->items_count ?? 0),
-            'type'        => $orderType,
-            'status'      => $status ?? 'draft',
-            'date'        => $order->created_at?->format('Y-m-d H:i:s') ?? null,
+            'type' => $orderType,
+            'status' => $status ?? 'draft',
+            'date' => $order->created_at?->format('Y-m-d H:i:s') ?? null,
         ];
     }
 
@@ -1065,6 +1070,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             return OrderType::from($type);
         } catch (\ValueError $e) {
             Log::warning('Invalid order type filter', ['type' => $type]);
+
             return null;
         }
     }
@@ -1092,17 +1098,18 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         $range = $filters['date_range'] ?? null;
 
         if ($range === 'custom' || empty($range)) {
-            if (!empty($filters['date_from']) || !empty($filters['date_to'])) {
+            if (! empty($filters['date_from']) || ! empty($filters['date_to'])) {
                 $query->byDateRange($filters['date_from'] ?? null, $filters['date_to'] ?? null);
             }
+
             return;
         }
 
         match ($range) {
             'last_24h' => $query->last24Hours(),
-            'last_7d'  => $query->last7Days(),
+            'last_7d' => $query->last7Days(),
             'last_30d' => $query->last30Days(),
-            default    => null,
+            default => null,
         };
     }
 
@@ -1111,7 +1118,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      */
     private function applyDateFilters($query, array $filters): void
     {
-        if (!empty($filters['date_range'])) {
+        if (! empty($filters['date_range'])) {
             match ($filters['date_range']) {
                 'last_24h' => $query->last24Hours(),
                 'last_7d' => $query->last7Days(),
@@ -1120,7 +1127,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             };
         }
 
-        if (!empty($filters['date_from']) || !empty($filters['date_to'])) {
+        if (! empty($filters['date_from']) || ! empty($filters['date_to'])) {
             $query->byDateRange($filters['date_from'] ?? null, $filters['date_to'] ?? null);
         }
     }
@@ -1134,24 +1141,24 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         try {
             $order->load(['items', 'supplier', 'fromBranch']);
 
-            $sourceId   = match ($order->order_type) {
-                OrderType::DIRECT_SUPPLIER       => $order->supplier_id,
-                OrderType::INTERNAL_TRANSFER     => $order->from_branch_id,
-                default                          => null,
+            $sourceId = match ($order->order_type) {
+                OrderType::DIRECT_SUPPLIER => $order->supplier_id,
+                OrderType::INTERNAL_TRANSFER => $order->from_branch_id,
+                default => null,
             };
             $sourceName = match ($order->order_type) {
-                OrderType::DIRECT_SUPPLIER       => $order->supplier?->name,
+                OrderType::DIRECT_SUPPLIER => $order->supplier?->name,
                 OrderType::VIA_PURCHASING_OFFICER => 'Purchasing Officer',
-                OrderType::INTERNAL_TRANSFER     => $order->fromBranch?->name,
-                default                          => null,
+                OrderType::INTERNAL_TRANSFER => $order->fromBranch?->name,
+                default => null,
             };
 
             $deliveryDays = ($order->created_at && $order->confirmed_at)
                 ? (int) $order->created_at->diffInDays($order->confirmed_at)
                 : null;
 
-            $rating             = $order->supplier?->rating ?? null;
-            $confirmedItemIds   = $itemConfirmations !== null
+            $rating = $order->supplier?->rating ?? null;
+            $confirmedItemIds = $itemConfirmations !== null
                 ? collect($itemConfirmations)->pluck('item_id')->all()
                 : null;
 
@@ -1160,10 +1167,10 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             }
         } catch (\Exception $e) {
             Log::error('Error recording order prices in price_histories', [
-                'order_id'     => $order->id,
+                'order_id' => $order->id,
                 'order_number' => $order->order_number,
-                'error'        => $e->getMessage(),
-                'trace'        => $e->getTraceAsString(),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
         }
     }
@@ -1173,11 +1180,11 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      */
     private function recordSingleItemPrice($item, PurchaseOrder $order, $sourceId, ?string $sourceName, ?int $deliveryDays, $rating, ?array $confirmedItemIds): void
     {
-        if ($confirmedItemIds !== null && !in_array($item->id, $confirmedItemIds, true)) {
+        if ($confirmedItemIds !== null && ! in_array($item->id, $confirmedItemIds, true)) {
             return;
         }
 
-        if (!$item->item_id) {
+        if (! $item->item_id) {
             return;
         }
 
@@ -1205,5 +1212,4 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             $rating
         );
     }
-
 }

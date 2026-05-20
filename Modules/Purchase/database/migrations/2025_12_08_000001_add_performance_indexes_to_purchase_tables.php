@@ -8,7 +8,7 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
-     * 
+     *
      * Adds performance indexes for common query patterns
      */
     public function up(): void
@@ -17,12 +17,12 @@ return new class extends Migration
         if (Schema::hasTable('purchase_order_items')) {
             Schema::table('purchase_order_items', function (Blueprint $table) {
                 // Composite index for item_id + created_at (used in price trends)
-                if (!$this->indexExists('purchase_order_items', 'purchase_order_items_item_id_created_at_index')) {
+                if (! $this->indexExists('purchase_order_items', 'purchase_order_items_item_id_created_at_index')) {
                     $table->index(['item_id', 'created_at'], 'purchase_order_items_item_id_created_at_index');
                 }
-                
+
                 // Composite index for purchase_order_id + item_id
-                if (!$this->indexExists('purchase_order_items', 'purchase_order_items_order_id_item_id_index')) {
+                if (! $this->indexExists('purchase_order_items', 'purchase_order_items_order_id_item_id_index')) {
                     $table->index(['purchase_order_id', 'item_id'], 'purchase_order_items_order_id_item_id_index');
                 }
             });
@@ -32,22 +32,22 @@ return new class extends Migration
         if (Schema::hasTable('purchase_orders')) {
             Schema::table('purchase_orders', function (Blueprint $table) {
                 // Composite index for order_type + status + created_at (used in price comparison)
-                if (!$this->indexExists('purchase_orders', 'purchase_orders_type_status_created_at_index')) {
+                if (! $this->indexExists('purchase_orders', 'purchase_orders_type_status_created_at_index')) {
                     $table->index(['order_type', 'status', 'created_at'], 'purchase_orders_type_status_created_at_index');
                 }
-                
+
                 // Composite index for branch_id + order_type + created_at
-                if (!$this->indexExists('purchase_orders', 'purchase_orders_branch_type_created_at_index')) {
+                if (! $this->indexExists('purchase_orders', 'purchase_orders_branch_type_created_at_index')) {
                     $table->index(['branch_id', 'order_type', 'created_at'], 'purchase_orders_branch_type_created_at_index');
                 }
-                
+
                 // Composite index for from_branch_id + order_type (used in internal transfers)
-                if (!$this->indexExists('purchase_orders', 'purchase_orders_from_branch_type_index')) {
+                if (! $this->indexExists('purchase_orders', 'purchase_orders_from_branch_type_index')) {
                     $table->index(['from_branch_id', 'order_type'], 'purchase_orders_from_branch_type_index');
                 }
-                
+
                 // Composite index for supplier_id + order_type + created_at
-                if (!$this->indexExists('purchase_orders', 'purchase_orders_supplier_type_created_at_index')) {
+                if (! $this->indexExists('purchase_orders', 'purchase_orders_supplier_type_created_at_index')) {
                     $table->index(['supplier_id', 'order_type', 'created_at'], 'purchase_orders_supplier_type_created_at_index');
                 }
             });
@@ -57,12 +57,12 @@ return new class extends Migration
         if (Schema::hasTable('branch_inventory')) {
             Schema::table('branch_inventory', function (Blueprint $table) {
                 // Composite index for item_id + branch_id (used in getBranchesWithStock)
-                if (!$this->indexExists('branch_inventory', 'branch_inventory_item_branch_index')) {
+                if (! $this->indexExists('branch_inventory', 'branch_inventory_item_branch_index')) {
                     $table->index(['item_id', 'branch_id'], 'branch_inventory_item_branch_index');
                 }
-                
+
                 // Index for available_quantity calculations
-                if (!$this->indexExists('branch_inventory', 'branch_inventory_available_quantity_index')) {
+                if (! $this->indexExists('branch_inventory', 'branch_inventory_available_quantity_index')) {
                     $table->index('available_quantity', 'branch_inventory_available_quantity_index');
                 }
             });
@@ -72,7 +72,7 @@ return new class extends Migration
         if (Schema::hasTable('supplier_items')) {
             Schema::table('supplier_items', function (Blueprint $table) {
                 // Composite index for item_id + is_available (used in getDirectSupplierItems)
-                if (!$this->indexExists('supplier_items', 'supplier_items_item_available_index')) {
+                if (! $this->indexExists('supplier_items', 'supplier_items_item_available_index')) {
                     $table->index(['item_id', 'is_available'], 'supplier_items_item_available_index');
                 }
             });
@@ -127,29 +127,31 @@ return new class extends Migration
                 "SELECT name FROM sqlite_master WHERE type='index' AND name=? AND tbl_name=?",
                 [$index, $table]
             );
+
             return count($result) > 0;
         } elseif ($driver === 'mysql' || $driver === 'mariadb') {
             // MySQL/MariaDB: Use information_schema
             $connection = Schema::getConnection();
             $databaseName = $connection->getDatabaseName();
-            
+
             $result = $connection->select(
-                "SELECT COUNT(*) as count 
+                'SELECT COUNT(*) as count 
                  FROM information_schema.statistics 
                  WHERE table_schema = ? 
                  AND table_name = ? 
-                 AND index_name = ?",
+                 AND index_name = ?',
                 [$databaseName, $table, $index]
             );
-            
+
             return $result[0]->count > 0;
         } else {
             // PostgreSQL and others: Query pg_indexes
             try {
                 $result = Schema::getConnection()->select(
-                    "SELECT indexname FROM pg_indexes WHERE tablename = ? AND indexname = ?",
+                    'SELECT indexname FROM pg_indexes WHERE tablename = ? AND indexname = ?',
                     [$table, $index]
                 );
+
                 return count($result) > 0;
             } catch (\Exception $e) {
                 // Fallback: return false and let it attempt to create
@@ -158,4 +160,3 @@ return new class extends Migration
         }
     }
 };
-

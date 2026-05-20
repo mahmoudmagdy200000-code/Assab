@@ -2,10 +2,10 @@
 
 namespace Modules\Cashier\Tests\Unit\Feature;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Modules\Cashier\Models\Cashier;
 use Illuminate\Support\Facades\Hash;
+use Modules\Cashier\Models\Cashier;
+use Tests\TestCase;
 
 class CashierAuthenticationTest extends TestCase
 {
@@ -32,7 +32,7 @@ class CashierAuthenticationTest extends TestCase
                     'cashier',
                     'token',
                     'token_type',
-                ]
+                ],
             ]);
     }
 

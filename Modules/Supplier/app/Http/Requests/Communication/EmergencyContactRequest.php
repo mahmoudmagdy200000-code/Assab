@@ -23,4 +23,3 @@ class EmergencyContactRequest extends FormRequest
         ];
     }
 }
-

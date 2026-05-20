@@ -2,17 +2,17 @@
 
 namespace Modules\Shift\Console;
 
+use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use Modules\Shift\Models\BranchManagerShift;
-use Carbon\Carbon;
 
 /**
  * Command to auto-archive completed Branch Manager shifts
- * 
- * Business Rule: After day completes, system auto-archives/deletes 
+ *
+ * Business Rule: After day completes, system auto-archives/deletes
  * completed Workday Management records
- * 
+ *
  * Usage: php artisan shift:archive-completed-manager-shifts
  * Schedule: Daily at midnight
  */
@@ -43,7 +43,7 @@ class ArchiveCompletedManagerShiftsCommand extends Command
         $cutoffDate = Carbon::now()->subDays($daysAfterCompletion)->startOfDay();
 
         $this->info("Archiving Branch Manager shifts completed before: {$cutoffDate->format('Y-m-d')}");
-        
+
         if ($isDryRun) {
             $this->warn('DRY RUN MODE - No changes will be made');
         }
@@ -60,6 +60,7 @@ class ArchiveCompletedManagerShiftsCommand extends Command
 
             if ($count === 0) {
                 $this->info('No shifts to archive.');
+
                 return self::SUCCESS;
             }
 
@@ -68,7 +69,7 @@ class ArchiveCompletedManagerShiftsCommand extends Command
             if ($isDryRun) {
                 $this->table(
                     ['ID', 'Manager', 'Branch', 'Shift Date', 'Completed At'],
-                    $shiftsToArchive->map(fn($s) => [
+                    $shiftsToArchive->map(fn ($s) => [
                         $s->id,
                         $s->branchManager?->name ?? 'N/A',
                         $s->branch?->name ?? 'N/A',
@@ -76,6 +77,7 @@ class ArchiveCompletedManagerShiftsCommand extends Command
                         $s->daily_report_submitted_at?->format('Y-m-d H:i'),
                     ])
                 );
+
                 return self::SUCCESS;
             }
 
@@ -95,7 +97,7 @@ class ArchiveCompletedManagerShiftsCommand extends Command
                         $shift->update(['archived_at' => now()]);
                     }
                     $archived++;
-                    
+
                     Log::info('Branch Manager shift archived', [
                         'shift_id' => $shift->id,
                         'manager_id' => $shift->branch_manager_id,
@@ -118,7 +120,7 @@ class ArchiveCompletedManagerShiftsCommand extends Command
 
             $action = $shouldDelete ? 'deleted' : 'archived';
             $this->info("Successfully {$action}: {$archived} shift(s)");
-            
+
             if ($errors > 0) {
                 $this->warn("Errors encountered: {$errors}");
             }
@@ -131,8 +133,8 @@ class ArchiveCompletedManagerShiftsCommand extends Command
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
+
             return self::FAILURE;
         }
     }
 }
-

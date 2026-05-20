@@ -24,7 +24,7 @@ class SupplierInfoController extends BaseController
         $branchId = auth()->user()->branch_id;
         $supplier = $this->supplierInfoService->getSupplierForOrder($orderId, $branchId);
 
-        if (!$supplier) {
+        if (! $supplier) {
             return $this->notFoundResponse('Order not found, or it has no supplier, or access denied for your branch.');
         }
 
@@ -45,7 +45,7 @@ class SupplierInfoController extends BaseController
         $branchId = auth()->user()->branch_id;
         $supplier = $this->supplierInfoService->getSupplierForReturn($returnId, $branchId);
 
-        if (!$supplier) {
+        if (! $supplier) {
             return $this->notFoundResponse('Return order not found, or it has no supplier, or access denied for your branch.');
         }
 

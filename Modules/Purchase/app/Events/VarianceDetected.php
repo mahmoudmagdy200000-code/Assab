@@ -15,4 +15,3 @@ class VarianceDetected
         public PurchaseVariance $variance
     ) {}
 }
-

@@ -2,8 +2,7 @@
 
 namespace Modules\Expense\Services;
 
-use Modules\Expense\Models\{Expense, ExpenseTimeline};
-use Modules\BranchManagers\Models\BranchManager;
+use Modules\Expense\Models\Expense;
 
 /**
  * Expense Approval Service

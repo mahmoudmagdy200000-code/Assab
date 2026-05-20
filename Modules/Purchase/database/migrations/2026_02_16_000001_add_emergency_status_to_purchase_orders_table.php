@@ -45,7 +45,7 @@ return new class extends Migration
                 'variance'
             ) DEFAULT 'draft'");
         } catch (\Exception $e) {
-            Log::warning('Migration add_emergency_status_to_purchase_orders: ' . $e->getMessage());
+            Log::warning('Migration add_emergency_status_to_purchase_orders: '.$e->getMessage());
         }
     }
 
@@ -90,7 +90,7 @@ return new class extends Migration
                 'variance'
             ) DEFAULT 'draft'");
         } catch (\Exception $e) {
-            Log::warning('Migration rollback add_emergency_status_to_purchase_orders: ' . $e->getMessage());
+            Log::warning('Migration rollback add_emergency_status_to_purchase_orders: '.$e->getMessage());
         }
     }
 };

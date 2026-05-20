@@ -22,4 +22,3 @@ class UpdateStockRequest extends FormRequest
         ];
     }
 }
-

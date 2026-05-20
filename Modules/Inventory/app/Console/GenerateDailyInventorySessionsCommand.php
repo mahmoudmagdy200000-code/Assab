@@ -75,6 +75,7 @@ class GenerateDailyInventorySessionsCommand extends Command
         }
 
         $this->info("Generated {$created} daily inventory session(s).");
+
         return self::SUCCESS;
     }
 }

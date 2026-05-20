@@ -19,4 +19,3 @@ class FirstLoginRequest extends FormRequest
         ];
     }
 }
-

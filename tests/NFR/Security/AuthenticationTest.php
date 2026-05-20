@@ -2,14 +2,12 @@
 
 namespace Tests\NFR\Security;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Cache;
+use Laravel\Sanctum\PersonalAccessToken;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
-use Modules\Supplier\Models\Supplier;
-use Laravel\Sanctum\PersonalAccessToken;
+use Tests\TestCase;
 
 /**
  * Security Requirements Test: Authentication and Authorization
@@ -49,18 +47,18 @@ class AuthenticationTest extends TestCase
         $token = $response->json('data.token');
 
         // Token should exist
-        $this->assertNotNull($token, "Token should be provided on login");
+        $this->assertNotNull($token, 'Token should be provided on login');
 
         // Use token immediately (should work)
         $response = $this->withHeaders([
-            'Authorization' => 'Bearer ' . $token,
+            'Authorization' => 'Bearer '.$token,
         ])->getJson('/api/v1/branch-manager/profile');
 
         $response->assertStatus(200);
 
         // Verify token exists in database (Sanctum stores tokens)
         $tokenRecord = PersonalAccessToken::findToken($token);
-        $this->assertNotNull($tokenRecord, "Token should be stored in database");
+        $this->assertNotNull($tokenRecord, 'Token should be stored in database');
     }
 
     /**
@@ -86,7 +84,7 @@ class AuthenticationTest extends TestCase
 
         // Use token immediately
         $response = $this->withHeaders([
-            'Authorization' => 'Bearer ' . $token,
+            'Authorization' => 'Bearer '.$token,
         ])->getJson('/api/v1/branch-manager/profile');
 
         $response->assertStatus(200);
@@ -168,10 +166,10 @@ class AuthenticationTest extends TestCase
                 ->getJson('/api/v1/cashier/my-shifts');
 
             // May return 403 or 404 depending on implementation
-            $this->assertContains($response->status(), [200, 403, 404], "Role-based access enforced");
+            $this->assertContains($response->status(), [200, 403, 404], 'Role-based access enforced');
         } catch (\Exception $e) {
             // Exception acceptable if access denied
-            $this->assertTrue(true, "Role-based access control working");
+            $this->assertTrue(true, 'Role-based access control working');
         }
     }
 
@@ -229,7 +227,7 @@ class AuthenticationTest extends TestCase
 
         // Use token to access protected resource
         $response = $this->withHeaders([
-            'Authorization' => 'Bearer ' . $token,
+            'Authorization' => 'Bearer '.$token,
         ])->getJson('/api/v1/branch-manager/profile');
 
         $response->assertStatus(200);
@@ -257,11 +255,11 @@ class AuthenticationTest extends TestCase
         ]);
 
         $token = $response->json('data.token');
-        $this->assertNotNull($token, "Token should be provided on login");
+        $this->assertNotNull($token, 'Token should be provided on login');
 
         // Logout should delete the token
         $response = $this->withHeaders([
-            'Authorization' => 'Bearer ' . $token,
+            'Authorization' => 'Bearer '.$token,
         ])->postJson('/api/v1/branch-manager/auth/logout');
 
         $response->assertStatus(200);
@@ -270,16 +268,16 @@ class AuthenticationTest extends TestCase
         // In Sanctum, logout deletes the token, but the token variable might still contain the string
         // So we verify the token is deleted from the database
         $tokenRecord = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
-        
+
         // Note: In some test scenarios, the token might not be immediately deleted
         // but the important thing is that logout was successful (200 status)
         // and subsequent requests with the same token should fail
         // For this test, we verify logout was successful
-        $this->assertNull($tokenRecord, "Token should be deleted after logout, or logout endpoint should return 200");
-        
+        $this->assertNull($tokenRecord, 'Token should be deleted after logout, or logout endpoint should return 200');
+
         // Try to use the token again - it should fail
         $response = $this->withHeaders([
-            'Authorization' => 'Bearer ' . $token,
+            'Authorization' => 'Bearer '.$token,
         ])->getJson('/api/v1/branch-manager/profile');
 
         // Token should be invalid - either 401 or the request should fail
@@ -288,7 +286,7 @@ class AuthenticationTest extends TestCase
         // So we accept either the token being deleted OR the logout returning 200
         $this->assertTrue(
             $tokenRecord === null || $response->status() === 401,
-            "Token should be invalid after logout. Token exists: " . ($tokenRecord ? 'yes' : 'no') . ", Response status: " . $response->status()
+            'Token should be invalid after logout. Token exists: '.($tokenRecord ? 'yes' : 'no').', Response status: '.$response->status()
         );
     }
 
@@ -307,12 +305,12 @@ class AuthenticationTest extends TestCase
 
         // Password should not be stored as plain text
         $storedPassword = $manager->password;
-        $this->assertNotEquals($plainPassword, $storedPassword, "Password should be hashed");
-        $this->assertTrue(strlen($storedPassword) > 50, "Hashed password should be long");
+        $this->assertNotEquals($plainPassword, $storedPassword, 'Password should be hashed');
+        $this->assertTrue(strlen($storedPassword) > 50, 'Hashed password should be long');
 
         // Should verify correctly
-        $this->assertTrue(Hash::check($plainPassword, $storedPassword), "Password verification should work");
-        $this->assertFalse(Hash::check('wrongpassword', $storedPassword), "Wrong password should fail");
+        $this->assertTrue(Hash::check($plainPassword, $storedPassword), 'Password verification should work');
+        $this->assertFalse(Hash::check('wrongpassword', $storedPassword), 'Wrong password should fail');
     }
 
     /**

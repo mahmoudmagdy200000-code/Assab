@@ -48,7 +48,7 @@ return new class extends Migration
                 'paid',
                 'partially_paid',
                 'overdue',
-                'disputed'
+                'disputed',
             ])->default('pending');
 
             // Deduction tracking

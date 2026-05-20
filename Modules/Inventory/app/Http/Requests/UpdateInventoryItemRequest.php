@@ -41,4 +41,3 @@ class UpdateInventoryItemRequest extends FormRequest
         ];
     }
 }
-

@@ -10,7 +10,7 @@ enum VarianceAction: string
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::ACCEPT => 'Accept Variance as is',
             self::COMPENSATORY_ORDER => 'Create Compensatory Order',
             self::DEDUCT_FROM_INVOICE => 'Deduct from Invoice Value',
@@ -22,4 +22,3 @@ enum VarianceAction: string
         return $this !== self::ACCEPT;
     }
 }
-

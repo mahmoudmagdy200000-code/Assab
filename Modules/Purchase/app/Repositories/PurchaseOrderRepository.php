@@ -7,7 +7,7 @@ use Modules\Purchase\Models\PurchaseOrder;
 
 /**
  * Repository for Purchase Order data access
- * 
+ *
  * Encapsulates database queries for Purchase Orders
  */
 class PurchaseOrderRepository
@@ -31,7 +31,7 @@ class PurchaseOrderRepository
     {
         $query = PurchaseOrder::where('id', $id)->where('branch_id', $branchId);
 
-        if (!empty($relations)) {
+        if (! empty($relations)) {
             $query->with($relations);
         }
 
@@ -62,27 +62,26 @@ class PurchaseOrderRepository
         $query = PurchaseOrder::query();
 
         // Apply filters
-        if (!empty($filters['branch_id'])) {
+        if (! empty($filters['branch_id'])) {
             $query->where('branch_id', $filters['branch_id']);
         }
 
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             $query->where('status', $filters['status']);
         }
 
-        if (!empty($filters['order_type'])) {
+        if (! empty($filters['order_type'])) {
             $query->where('order_type', $filters['order_type']);
         }
 
-        if (!empty($filters['date_from'])) {
+        if (! empty($filters['date_from'])) {
             $query->whereDate('created_at', '>=', $filters['date_from']);
         }
 
-        if (!empty($filters['date_to'])) {
+        if (! empty($filters['date_to'])) {
             $query->whereDate('created_at', '<=', $filters['date_to']);
         }
 
         return $query->orderBy('created_at', 'desc')->paginate($perPage);
     }
 }
-

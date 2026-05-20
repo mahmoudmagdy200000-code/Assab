@@ -42,7 +42,7 @@ enum CustodyTransactionType: string
      */
     public function isCashOut(): bool
     {
-        return !$this->isCashIn();
+        return ! $this->isCashIn();
     }
 
     /**
@@ -90,7 +90,7 @@ enum CustodyTransactionType: string
     {
         return array_filter(
             self::cases(),
-            fn($type) => $type->isCashIn()
+            fn ($type) => $type->isCashIn()
         );
     }
 
@@ -101,7 +101,7 @@ enum CustodyTransactionType: string
     {
         return array_filter(
             self::cases(),
-            fn($type) => $type->isCashOut()
+            fn ($type) => $type->isCashOut()
         );
     }
 }

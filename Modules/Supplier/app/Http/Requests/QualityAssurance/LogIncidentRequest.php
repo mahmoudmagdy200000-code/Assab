@@ -26,4 +26,3 @@ class LogIncidentRequest extends FormRequest
         ];
     }
 }
-

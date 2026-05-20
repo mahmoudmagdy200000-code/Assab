@@ -13,12 +13,12 @@ class BrandOwnerSeeder extends Seeder
         BrandOwner::updateOrCreate(
             ['email' => 'owner@assab.test'],
             [
-                'name'              => 'Brand Owner',
-                'phone'             => '+966500000001',
-                'password'          => Hash::make('Password@123'),
-                'is_active'         => true,
-                'is_first_login'    => false,
-                'status'            => 'active',
+                'name' => 'Brand Owner',
+                'phone' => '+966500000001',
+                'password' => Hash::make('Password@123'),
+                'is_active' => true,
+                'is_first_login' => false,
+                'status' => 'active',
                 'email_verified_at' => now(),
                 'phone_verified_at' => now(),
             ]

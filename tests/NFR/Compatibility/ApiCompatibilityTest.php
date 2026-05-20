@@ -2,15 +2,15 @@
 
 namespace Tests\NFR\Compatibility;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
-use Modules\BranchManagers\Models\BranchManager;
 use Modules\Branch\Models\Branch;
+use Modules\BranchManagers\Models\BranchManager;
+use Tests\TestCase;
 
 /**
  * Compatibility Requirements Test: API Compatibility
- * 
+ *
  * Tests API compatibility requirements:
  * - RESTful API with JSON payloads
  * - Backward compatibility for 2 major versions
@@ -27,10 +27,10 @@ class ApiCompatibilityTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         // Create branch first (required for BranchManager)
         $branch = Branch::factory()->create();
-        
+
         $this->manager = BranchManager::factory()->create([
             'email' => 'compatibility-test-manager@assab.com',
             'password' => Hash::make('password123'),
@@ -49,7 +49,7 @@ class ApiCompatibilityTest extends TestCase
         $response = $this->actingAs($this->manager, 'sanctum')
             ->getJson('/api/v1/branch-manager/profile');
 
-        $this->assertEquals(200, $response->status(), "GET should return 200 for existing resource");
+        $this->assertEquals(200, $response->status(), 'GET should return 200 for existing resource');
 
         // POST request
         $response = $this->actingAs($this->manager, 'sanctum')
@@ -58,7 +58,7 @@ class ApiCompatibilityTest extends TestCase
         $this->assertContains(
             $response->status(),
             [201, 422],
-            "POST should return 201 (created) or 422 (validation error)"
+            'POST should return 201 (created) or 422 (validation error)'
         );
 
         // PUT request
@@ -70,7 +70,7 @@ class ApiCompatibilityTest extends TestCase
         $this->assertContains(
             $response->status(),
             [200, 422],
-            "PUT should return 200 (updated) or 422 (validation error)"
+            'PUT should return 200 (updated) or 422 (validation error)'
         );
 
         // DELETE request (if endpoint exists)
@@ -81,11 +81,11 @@ class ApiCompatibilityTest extends TestCase
             $this->assertContains(
                 $response->status(),
                 [200, 204, 404],
-                "DELETE should return 200/204 (deleted) or 404 (not found)"
+                'DELETE should return 200/204 (deleted) or 404 (not found)'
             );
         } catch (\Exception $e) {
             // DELETE endpoint may not exist for profile
-            $this->assertTrue(true, "DELETE endpoint may not be implemented for all resources");
+            $this->assertTrue(true, 'DELETE endpoint may not be implemented for all resources');
         }
     }
 
@@ -99,13 +99,13 @@ class ApiCompatibilityTest extends TestCase
             ->getJson('/api/v1/branch-manager/profile');
 
         $response->assertStatus(200);
-        
+
         // Should be valid JSON
-        $this->assertJson($response->getContent(), "Response should be valid JSON");
-        
+        $this->assertJson($response->getContent(), 'Response should be valid JSON');
+
         // Should have proper content-type header
         $contentType = $response->headers->get('Content-Type');
-        $this->assertStringContainsString('application/json', $contentType, "Content-Type should be application/json");
+        $this->assertStringContainsString('application/json', $contentType, 'Content-Type should be application/json');
     }
 
     /**
@@ -118,7 +118,7 @@ class ApiCompatibilityTest extends TestCase
         $response = $this->actingAs($this->manager, 'sanctum')
             ->getJson('/api/v1/branch-manager/profile');
 
-        $this->assertEquals(200, $response->status(), "v1 API endpoint should work");
+        $this->assertEquals(200, $response->status(), 'v1 API endpoint should work');
 
         // v2 endpoint (if exists) should also work
         try {
@@ -126,10 +126,10 @@ class ApiCompatibilityTest extends TestCase
                 ->getJson('/api/v2/branch-manager/profile');
 
             // If v2 exists, should return valid response
-            $this->assertContains($response->status(), [200, 404], "v2 API endpoint should work if implemented");
+            $this->assertContains($response->status(), [200, 404], 'v2 API endpoint should work if implemented');
         } catch (\Exception $e) {
             // v2 may not exist yet
-            $this->assertTrue(true, "v2 API endpoint may not be implemented yet");
+            $this->assertTrue(true, 'v2 API endpoint may not be implemented yet');
         }
     }
 
@@ -142,31 +142,31 @@ class ApiCompatibilityTest extends TestCase
         // 200 OK
         $response = $this->actingAs($this->manager, 'sanctum')
             ->getJson('/api/v1/branch-manager/profile');
-        $this->assertEquals(200, $response->status(), "GET existing resource should return 200");
+        $this->assertEquals(200, $response->status(), 'GET existing resource should return 200');
 
         // 401 Unauthorized - Test with an endpoint that definitely requires authentication
         // Some endpoints might be accessible without auth, so we test a protected endpoint
         $response = $this->getJson('/api/v1/branch-manager/profile');
-        
+
         // Verify authentication is required (401/403) or if endpoint is public, verify it still follows standards
         if ($response->status() === 200) {
             // If endpoint doesn't require auth, that's also valid - verify it still returns proper structure
             $data = $response->json();
-            $this->assertIsArray($data, "Even public endpoints should return valid JSON structure");
+            $this->assertIsArray($data, 'Even public endpoints should return valid JSON structure');
         } else {
             // If endpoint requires auth, should return 401/403
-            $this->assertContains($response->status(), [401, 403], "Unauthenticated request should return 401 or 403");
+            $this->assertContains($response->status(), [401, 403], 'Unauthenticated request should return 401 or 403');
         }
 
         // 404 Not Found
         $response = $this->actingAs($this->manager, 'sanctum')
             ->getJson('/api/v1/nonexistent-resource/999999');
-        $this->assertEquals(404, $response->status(), "Non-existent resource should return 404");
+        $this->assertEquals(404, $response->status(), 'Non-existent resource should return 404');
 
         // 422 Validation Error
         $response = $this->actingAs($this->manager, 'sanctum')
             ->postJson('/api/v1/purchase/orders', []);
-        $this->assertEquals(422, $response->status(), "Validation error should return 422");
+        $this->assertEquals(422, $response->status(), 'Validation error should return 422');
     }
 
     /**
@@ -187,7 +187,7 @@ class ApiCompatibilityTest extends TestCase
 
             if ($response->status() === 200) {
                 $data = $response->json();
-                
+
                 // All successful responses should have consistent structure
                 $this->assertArrayHasKey('success', $data, "Response should have 'success' field: {$endpoint}");
                 $this->assertArrayHasKey('message', $data, "Response should have 'message' field: {$endpoint}");
@@ -219,7 +219,7 @@ class ApiCompatibilityTest extends TestCase
         $hasSuccess = isset($data['success']);
         $hasErrors = isset($data['errors']);
         $hasMessage = isset($data['message']);
-        $this->assertTrue($hasSuccess || $hasErrors || $hasMessage, "Validation error should have structured format");
+        $this->assertTrue($hasSuccess || $hasErrors || $hasMessage, 'Validation error should have structured format');
     }
 
     /**
@@ -231,11 +231,11 @@ class ApiCompatibilityTest extends TestCase
         // GET should be supported
         $response = $this->actingAs($this->manager, 'sanctum')
             ->getJson('/api/v1/branch-manager/profile');
-        $this->assertNotEquals(405, $response->status(), "GET method should be supported");
+        $this->assertNotEquals(405, $response->status(), 'GET method should be supported');
 
         // OPTIONS should be supported (CORS)
         $response = $this->options('/api/v1/branch-manager/profile');
-        $this->assertNotEquals(404, $response->status(), "OPTIONS method should be supported for CORS");
+        $this->assertNotEquals(404, $response->status(), 'OPTIONS method should be supported for CORS');
     }
 
     /**
@@ -249,9 +249,9 @@ class ApiCompatibilityTest extends TestCase
             ->withHeaders(['Accept' => 'application/json'])
             ->getJson('/api/v1/branch-manager/profile');
 
-        $this->assertEquals(200, $response->status(), "JSON Accept header should be supported");
+        $this->assertEquals(200, $response->status(), 'JSON Accept header should be supported');
         $contentType = $response->headers->get('Content-Type');
-        $this->assertStringContainsString('application/json', $contentType, "Response should be JSON");
+        $this->assertStringContainsString('application/json', $contentType, 'Response should be JSON');
     }
 
     /**
@@ -270,11 +270,11 @@ class ApiCompatibilityTest extends TestCase
         foreach ($endpoints as $endpoint) {
             // Should not contain uppercase or underscores in path
             $this->assertStringNotContainsString('_', $endpoint, "Endpoints should use hyphens, not underscores: {$endpoint}");
-            
+
             // Path should be lowercase
             $pathParts = explode('/', $endpoint);
             foreach ($pathParts as $part) {
-                if (!empty($part) && $part !== 'api' && !preg_match('/^v\d+$/', $part)) {
+                if (! empty($part) && $part !== 'api' && ! preg_match('/^v\d+$/', $part)) {
                     $this->assertEquals(strtolower($part), $part, "Endpoint path should be lowercase: {$endpoint}");
                 }
             }
@@ -288,30 +288,30 @@ class ApiCompatibilityTest extends TestCase
     public function test_pagination_consistency(): void
     {
         $response = $this->actingAs($this->manager, 'sanctum')
-            ->getJson('/api/v1/purchase/orders?' . http_build_query([
+            ->getJson('/api/v1/purchase/orders?'.http_build_query([
                 'per_page' => 20,
                 'page' => 1,
             ]));
 
         if ($response->status() === 200) {
             $data = $response->json();
-            
+
             // Should have pagination metadata (check both possible structures)
             if (isset($data['meta'])) {
                 $meta = $data['meta'];
-                $this->assertArrayHasKey('current_page', $meta, "Pagination should include current_page");
-                $this->assertArrayHasKey('per_page', $meta, "Pagination should include per_page");
+                $this->assertArrayHasKey('current_page', $meta, 'Pagination should include current_page');
+                $this->assertArrayHasKey('per_page', $meta, 'Pagination should include per_page');
             } elseif (isset($data['data']['meta'])) {
                 $meta = $data['data']['meta'];
-                $this->assertArrayHasKey('current_page', $meta, "Pagination should include current_page");
-                $this->assertArrayHasKey('per_page', $meta, "Pagination should include per_page");
+                $this->assertArrayHasKey('current_page', $meta, 'Pagination should include current_page');
+                $this->assertArrayHasKey('per_page', $meta, 'Pagination should include per_page');
             } else {
                 // Pagination metadata might not exist if endpoint doesn't support it
-                $this->assertTrue(true, "Pagination metadata structure may vary by endpoint");
+                $this->assertTrue(true, 'Pagination metadata structure may vary by endpoint');
             }
         } else {
             // If endpoint doesn't exist or returns error, that's acceptable
-            $this->assertTrue(true, "Pagination endpoint may not be available");
+            $this->assertTrue(true, 'Pagination endpoint may not be available');
         }
     }
 }

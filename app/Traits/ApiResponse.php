@@ -22,7 +22,7 @@ trait ApiResponse
             'data' => $data,
         ];
 
-        if (!empty($meta)) {
+        if (! empty($meta)) {
             $response['meta'] = $meta;
         }
 
@@ -47,7 +47,7 @@ trait ApiResponse
             $response['errors'] = $errors;
         }
 
-        if (!empty($meta)) {
+        if (! empty($meta)) {
             $response['meta'] = $meta;
         }
 
@@ -96,12 +96,12 @@ trait ApiResponse
      */
     protected function serverErrorResponse(
         string $message = 'Internal server error',
-        \Throwable $exception = null
+        ?\Throwable $exception = null
     ): JsonResponse {
         if ($exception) {
-            Log::error('Server Error: ' . $exception->getMessage(), [
+            Log::error('Server Error: '.$exception->getMessage(), [
                 'exception' => $exception,
-                'trace' => $exception->getTraceAsString()
+                'trace' => $exception->getTraceAsString(),
             ]);
         }
 
@@ -147,7 +147,7 @@ trait ApiResponse
         // Support passing a ResourceCollection or a Paginator directly
         $paginator = method_exists($data, 'currentPage') ? $data : ($data->resource ?? null);
 
-        if (!$paginator || !method_exists($paginator, 'currentPage')) {
+        if (! $paginator || ! method_exists($paginator, 'currentPage')) {
             // Fallback to regular success response if not paginatable
             return $this->successResponse($data, $message);
         }
@@ -276,7 +276,7 @@ trait ApiResponse
      */
     private function handleDatabaseException(\Illuminate\Database\QueryException $exception): JsonResponse
     {
-        Log::error('Database Error: ' . $exception->getMessage(), [
+        Log::error('Database Error: '.$exception->getMessage(), [
             'sql' => $exception->getSql(),
             'bindings' => $exception->getBindings(),
         ]);
@@ -303,7 +303,7 @@ trait ApiResponse
             $response['data'] = $data;
         }
 
-        if (!empty($meta)) {
+        if (! empty($meta)) {
             $response['meta'] = $meta;
         }
 
@@ -328,13 +328,13 @@ trait ApiResponse
     protected function responseWithExecutionTime(
         $data,
         string $message = 'Success',
-        float $startTime = null,
+        ?float $startTime = null,
         int $status = 200
     ): JsonResponse {
         $meta = [];
 
         if ($startTime) {
-            $meta['execution_time'] = round((microtime(true) - $startTime) * 1000, 2) . 'ms';
+            $meta['execution_time'] = round((microtime(true) - $startTime) * 1000, 2).'ms';
         }
 
         return $this->successResponse($data, $message, $status, $meta);
@@ -347,7 +347,7 @@ trait ApiResponse
         $data,
         string $message = 'Success',
         bool $cached = false,
-        int $cacheTtl = null,
+        ?int $cacheTtl = null,
         int $status = 200
     ): JsonResponse {
         $meta = [

@@ -8,15 +8,15 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\BrandOwner\Models\CashSalesTransferRequest;
 use Modules\Cashier\Models\Cashier;
+use Modules\Custody\Models\CashierCustodyTransaction;
+use Modules\Custody\Models\CustodyHandoverRequest;
+use Modules\Custody\Models\PersonalLedgerTransaction;
 use Modules\Custody\Services\CashierCustodyService;
+use Modules\Custody\Services\CustodyBalanceService;
 use Modules\Custody\Services\CustodyTransactionService;
 use Modules\Custody\Services\PersonalLedgerService;
-use Modules\Custody\Services\CustodyBalanceService;
-use Modules\Custody\Models\CustodyHandoverRequest;
-use Modules\Custody\Models\CashierCustodyTransaction;
-use Modules\Custody\Models\PersonalLedgerTransaction;
-use Modules\BrandOwner\Models\CashSalesTransferRequest;
 
 class CustodyHandoverController extends BaseController
 {
@@ -34,7 +34,7 @@ class CustodyHandoverController extends BaseController
     public function handover(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'recipientId'   => 'required|string',
+            'recipientId' => 'required|string',
             'recipientType' => 'required|in:Cashier,Branch Manager,Brand Owner,Custody',
             'handoverAmount' => 'required|numeric|min:1',
             'additionalNotes' => 'nullable|string|max:500',
@@ -49,7 +49,7 @@ class CustodyHandoverController extends BaseController
         $handoverMethod = $this->normalizeHandoverMethod($request->input('handoverMethod'));
 
         try {
-            $user    = auth()->user();
+            $user = auth()->user();
             $isCashier = $user instanceof Cashier;
 
             // ── Cashier path ──────────────────────────────────────────────────
@@ -57,7 +57,7 @@ class CustodyHandoverController extends BaseController
                 return DB::transaction(function () use ($request, $user) {
                     CashierCustodyTransaction::where('cashier_id', $user->id)->lockForUpdate()->get(['id']);
                     $personalBalance = $this->cashierCustodyService->getPersonalBalanceOnly($user->id);
-                    $amount        = (float) $request->input('handoverAmount');
+                    $amount = (float) $request->input('handoverAmount');
                     if ($amount > $personalBalance) {
                         return $this->errorResponse(
                             sprintf('Insufficient balance. Available: %s SAR, requested: %s SAR.',
@@ -66,31 +66,31 @@ class CustodyHandoverController extends BaseController
                             ),
                             400,
                             [
-                                'code'      => 'INSUFFICIENT_BALANCE',
-                                'required'  => $amount,
+                                'code' => 'INSUFFICIENT_BALANCE',
+                                'required' => $amount,
                                 'available' => $personalBalance,
                             ]
                         );
                     }
 
                     $recipientType = $request->input('recipientType');
-                    $recipientId   = $request->input('recipientId');
+                    $recipientId = $request->input('recipientId');
                     $recipientName = $this->getRecipientName($recipientId, $recipientType);
 
                     // Cashier-to-cashier: create pending request; ledger entries when recipient accepts/rejects
                     if ($recipientType === 'Cashier') {
                         $handoverRequest = CustodyHandoverRequest::create([
-                            'from_cashier_id'   => $user->id,
-                            'to_cashier_id'    => $recipientId,
-                            'amount'           => $amount,
+                            'from_cashier_id' => $user->id,
+                            'to_cashier_id' => $recipientId,
+                            'amount' => $amount,
                             'additional_notes' => $request->input('additionalNotes'),
-                            'status'           => 'pending',
+                            'status' => 'pending',
                         ]);
 
                         return $this->successResponse([
                             'handoverRequestId' => $handoverRequest->id,
-                            'message'          => 'Handover request sent. It will be deducted from your balance when the recipient accepts.',
-                            'newBalance'       => round($personalBalance, 2),
+                            'message' => 'Handover request sent. It will be deducted from your balance when the recipient accepts.',
+                            'newBalance' => round($personalBalance, 2),
                         ], 'Handover request submitted successfully');
                     }
 
@@ -98,11 +98,11 @@ class CustodyHandoverController extends BaseController
                     $this->cashierCustodyService->recordManualHandoverSent($user->id, $amount, $recipientName);
                     PersonalLedgerTransaction::create([
                         'branch_manager_id' => $recipientId,
-                        'transaction_type'  => 'Total Sales',
-                        'amount'            => $amount,
-                        'is_cash_in'        => true,
-                        'cashier_name'      => $user->name,
-                        'transaction_date'  => now(),
+                        'transaction_type' => 'Total Sales',
+                        'amount' => $amount,
+                        'is_cash_in' => true,
+                        'cashier_name' => $user->name,
+                        'transaction_date' => now(),
                     ]);
 
                     return $this->successResponse([
@@ -131,8 +131,8 @@ class CustodyHandoverController extends BaseController
                         ),
                         400,
                         [
-                            'code'      => 'INSUFFICIENT_BALANCE',
-                            'required'  => $amount,
+                            'code' => 'INSUFFICIENT_BALANCE',
+                            'required' => $amount,
                             'available' => $personalBalance,
                         ]
                     );
@@ -143,50 +143,50 @@ class CustodyHandoverController extends BaseController
                 if ($recipientType === 'Custody') {
                     $this->transactionService->createCashTransferTransaction([
                         'branch_manager_id' => $branchManager->id,
-                        'branch_id'         => $branchManager->branch_id,
-                        'amount'            => $amount,
+                        'branch_id' => $branchManager->branch_id,
+                        'amount' => $amount,
                     ]);
 
                     PersonalLedgerTransaction::create([
                         'branch_manager_id' => $branchManager->id,
-                        'transaction_type'  => 'Transfer to Custody',
-                        'amount'            => $amount,
-                        'is_cash_in'        => false,
-                        'transaction_date'  => now(),
+                        'transaction_type' => 'Transfer to Custody',
+                        'amount' => $amount,
+                        'is_cash_in' => false,
+                        'transaction_date' => now(),
                     ]);
                 } else {
                     $this->transactionService->createHandoverTransaction([
                         'branch_manager_id' => $branchManager->id,
-                        'branch_id'         => $branchManager->branch_id,
-                        'amount'            => $amount,
-                        'recipient_type'    => $recipientType,
-                        'recipient_id'      => $request->input('recipientId'),
-                        'handover_method'   => $handoverMethod,
-                        'handover_date'     => $request->input('handoverDate'),
-                        'additional_notes'  => $request->input('additionalNotes'),
+                        'branch_id' => $branchManager->branch_id,
+                        'amount' => $amount,
+                        'recipient_type' => $recipientType,
+                        'recipient_id' => $request->input('recipientId'),
+                        'handover_method' => $handoverMethod,
+                        'handover_date' => $request->input('handoverDate'),
+                        'additional_notes' => $request->input('additionalNotes'),
                     ]);
 
                     if ($recipientType === 'Brand Owner') {
                         CashSalesTransferRequest::create([
-                            'sender_id'        => $branchManager->id,
-                            'sender_type'      => 'branch_manager',
-                            'branch_id'        => $branchManager->branch_id,
-                            'brand_owner_id'   => $request->input('recipientId'),
-                            'handover_amount'  => $amount,
-                            'handover_method'  => $handoverMethod,
-                            'handover_date'    => $request->input('handoverDate'),
+                            'sender_id' => $branchManager->id,
+                            'sender_type' => 'branch_manager',
+                            'branch_id' => $branchManager->branch_id,
+                            'brand_owner_id' => $request->input('recipientId'),
+                            'handover_amount' => $amount,
+                            'handover_method' => $handoverMethod,
+                            'handover_date' => $request->input('handoverDate'),
                             'additional_notes' => $request->input('additionalNotes'),
-                            'status'           => 'pending',
+                            'status' => 'pending',
                         ]);
                     }
 
                     PersonalLedgerTransaction::create([
                         'branch_manager_id' => $branchManager->id,
-                        'transaction_type'  => 'Handover to Brand Owner',
-                        'amount'            => $amount,
-                        'is_cash_in'        => false,
-                        'brand_owner_name'  => $this->getRecipientName($request->input('recipientId'), $recipientType),
-                        'transaction_date'  => now(),
+                        'transaction_type' => 'Handover to Brand Owner',
+                        'amount' => $amount,
+                        'is_cash_in' => false,
+                        'brand_owner_name' => $this->getRecipientName($request->input('recipientId'), $recipientType),
+                        'transaction_date' => now(),
                     ]);
                 }
 
@@ -274,12 +274,12 @@ class CustodyHandoverController extends BaseController
     {
         try {
             $user = auth()->user();
-            if (!$user instanceof Cashier && !$user instanceof BranchManager) {
+            if (! $user instanceof Cashier && ! $user instanceof BranchManager) {
                 return $this->errorResponse('Only cashiers and branch managers can view custody handover requests', 403);
             }
 
             $status = $request->query('status', 'pending');
-            $query  = CustodyHandoverRequest::with(['fromCashier:id,name,email,branch_id', 'toCashier:id,name,email,branch_id']);
+            $query = CustodyHandoverRequest::with(['fromCashier:id,name,email,branch_id', 'toCashier:id,name,email,branch_id']);
 
             if ($user instanceof Cashier) {
                 if ($status === 'pending') {
@@ -299,26 +299,27 @@ class CustodyHandoverController extends BaseController
 
             $data = collect($items->items())->map(function (CustodyHandoverRequest $req) use ($user) {
                 $isIncoming = $user instanceof Cashier && (string) $req->to_cashier_id === (string) $user->id;
+
                 return [
-                    'id'           => $req->id,
-                    'amount'       => (float) $req->amount,
-                    'status'       => $req->status,
-                    'notes'        => $req->additional_notes,
-                    'created_at'   => $req->created_at->toIso8601String(),
+                    'id' => $req->id,
+                    'amount' => (float) $req->amount,
+                    'status' => $req->status,
+                    'notes' => $req->additional_notes,
+                    'created_at' => $req->created_at->toIso8601String(),
                     'responded_at' => $req->responded_at?->toIso8601String(),
-                    'from'         => $req->fromCashier ? ['id' => $req->from_cashier_id, 'name' => $req->fromCashier->name] : null,
-                    'to'           => $req->toCashier ? ['id' => $req->to_cashier_id, 'name' => $req->toCashier->name] : null,
-                    'isIncoming'   => $isIncoming,
+                    'from' => $req->fromCashier ? ['id' => $req->from_cashier_id, 'name' => $req->fromCashier->name] : null,
+                    'to' => $req->toCashier ? ['id' => $req->to_cashier_id, 'name' => $req->toCashier->name] : null,
+                    'isIncoming' => $isIncoming,
                 ];
             });
 
             return $this->successResponse([
-                'data'  => $data,
-                'meta'  => [
+                'data' => $data,
+                'meta' => [
                     'current_page' => $items->currentPage(),
-                    'last_page'    => $items->lastPage(),
-                    'per_page'     => $items->perPage(),
-                    'total'        => $items->total(),
+                    'last_page' => $items->lastPage(),
+                    'per_page' => $items->perPage(),
+                    'total' => $items->total(),
                 ],
             ], 'Custody handover requests retrieved successfully');
         } catch (\Exception $e) {
@@ -334,7 +335,7 @@ class CustodyHandoverController extends BaseController
     {
         try {
             $user = auth()->user();
-            if (!$user instanceof Cashier) {
+            if (! $user instanceof Cashier) {
                 return $this->errorResponse('Only cashiers can accept custody handover requests', 403);
             }
 
@@ -342,7 +343,7 @@ class CustodyHandoverController extends BaseController
             if ($req->to_cashier_id !== $user->id) {
                 return $this->errorResponse('You can only accept handover requests sent to you', 403);
             }
-            if (!$req->isPending()) {
+            if (! $req->isPending()) {
                 return $this->errorResponse('This request has already been responded to', 400);
             }
 
@@ -362,7 +363,7 @@ class CustodyHandoverController extends BaseController
 
             return $this->successResponse([
                 'handoverRequestId' => $req->id,
-                'status'            => 'accepted',
+                'status' => 'accepted',
             ], 'Handover request accepted. Amount deducted from sender and added to your balance.');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
@@ -377,7 +378,7 @@ class CustodyHandoverController extends BaseController
     {
         try {
             $user = auth()->user();
-            if (!$user instanceof Cashier) {
+            if (! $user instanceof Cashier) {
                 return $this->errorResponse('Only cashiers can reject custody handover requests', 403);
             }
 
@@ -385,7 +386,7 @@ class CustodyHandoverController extends BaseController
             if ($req->to_cashier_id !== $user->id) {
                 return $this->errorResponse('You can only reject handover requests sent to you', 403);
             }
-            if (!$req->isPending()) {
+            if (! $req->isPending()) {
                 return $this->errorResponse('This request has already been responded to', 400);
             }
 
@@ -393,7 +394,7 @@ class CustodyHandoverController extends BaseController
 
             return $this->successResponse([
                 'handoverRequestId' => $req->id,
-                'status'            => 'rejected',
+                'status' => 'rejected',
             ], 'Handover request rejected.');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
@@ -422,9 +423,9 @@ class CustodyHandoverController extends BaseController
 
                 foreach ($branchManagers as $bm) {
                     $recipients[] = [
-                        'id'    => $bm->id,
-                        'type'  => 'Branch Manager',
-                        'name'  => $bm->name,
+                        'id' => $bm->id,
+                        'type' => 'Branch Manager',
+                        'name' => $bm->name,
                         'email' => $bm->email,
                     ];
                 }
@@ -445,9 +446,9 @@ class CustodyHandoverController extends BaseController
 
                 foreach ($cashiers as $c) {
                     $recipients[] = [
-                        'id'    => $c->id,
-                        'type'  => 'Cashier',
-                        'name'  => $c->name,
+                        'id' => $c->id,
+                        'type' => 'Cashier',
+                        'name' => $c->name,
                         'email' => $c->email,
                     ];
                 }
@@ -460,9 +461,9 @@ class CustodyHandoverController extends BaseController
 
                 foreach ($branchManagersForCashier as $bm) {
                     $recipients[] = [
-                        'id'    => $bm->id,
-                        'type'  => 'Branch Manager',
-                        'name'  => $bm->name,
+                        'id' => $bm->id,
+                        'type' => 'Branch Manager',
+                        'name' => $bm->name,
                         'email' => $bm->email,
                     ];
                 }
@@ -484,9 +485,9 @@ class CustodyHandoverController extends BaseController
 
                     foreach ($branchManagers as $bm) {
                         $recipients[] = [
-                            'id'    => $bm->id,
-                            'type'  => 'Branch Manager',
-                            'name'  => $bm->name,
+                            'id' => $bm->id,
+                            'type' => 'Branch Manager',
+                            'name' => $bm->name,
                             'email' => $bm->email,
                         ];
                     }
@@ -512,9 +513,9 @@ class CustodyHandoverController extends BaseController
             ->orderBy('name')
             ->get(['id', 'name', 'email'])
             ->map(fn ($bo) => [
-                'id'    => $bo->id,
-                'type'  => 'Brand Owner',
-                'name'  => $bo->name,
+                'id' => $bo->id,
+                'type' => 'Brand Owner',
+                'name' => $bo->name,
                 'email' => $bo->email,
             ])
             ->all();
@@ -522,14 +523,14 @@ class CustodyHandoverController extends BaseController
 
     private function normalizeHandoverMethod(?string $value): ?string
     {
-        if (!$value) {
+        if (! $value) {
             return null;
         }
 
         return match (strtolower($value)) {
             'cash_handover', 'cash handover' => 'Cash Handover',
             'bank_transfer', 'bank transfer' => 'Bank Transfer',
-            default                          => $value,
+            default => $value,
         };
     }
 

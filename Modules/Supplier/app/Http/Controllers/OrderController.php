@@ -5,8 +5,8 @@ namespace Modules\Supplier\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Modules\Purchase\Models\PurchaseOrder;
-use Modules\Purchase\Services\TimelineService;
 use Modules\Purchase\Models\SupplierItem;
+use Modules\Purchase\Services\TimelineService;
 use Modules\Supplier\Http\Requests\Orders\AcceptOrderRequest;
 use Modules\Supplier\Http\Requests\Orders\RejectOrderRequest;
 use Modules\Supplier\Http\Requests\Orders\RequestModificationRequest;
@@ -50,7 +50,7 @@ class OrderController extends BaseController
             $supplier = auth('supplier')->user();
             $order = $this->orderService->getOrderDetails($id, $supplier);
 
-            if (!$order) {
+            if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
@@ -164,10 +164,10 @@ class OrderController extends BaseController
                 }]);
 
             // Search by item name (through Item model)
-            if (!empty($filters['search'])) {
+            if (! empty($filters['search'])) {
                 $searchTerm = $filters['search'];
                 $query->whereHas('item', function ($q) use ($searchTerm) {
-                    $q->where('name', 'like', '%' . $searchTerm . '%');
+                    $q->where('name', 'like', '%'.$searchTerm.'%');
                 });
             }
 

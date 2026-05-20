@@ -27,6 +27,7 @@ enum ExpenseTimelinePerformedByType: string
         foreach (self::cases() as $case) {
             $out[] = ['value' => $case->value, 'label' => $case->label()];
         }
+
         return $out;
     }
 }

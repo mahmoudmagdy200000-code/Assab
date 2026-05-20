@@ -18,17 +18,17 @@ class OTPService
         $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
         $supplier = Supplier::where($field, $identifier)->first();
 
-        if (!$supplier) {
+        if (! $supplier) {
             throw new \Exception('Supplier not found');
         }
 
         // Generate OTP
         $otpRecord = SupplierOtp::generate($identifier, $type, $expiryMinutes);
-        
+
         // Get plain OTP (before hashing) - we need to return it for sending
         // Note: The generate method hashes it, so we need to generate it separately
         $plainOtp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        
+
         // Delete old OTPs
         SupplierOtp::where('identifier', $identifier)
             ->where('type', $type)
@@ -63,11 +63,11 @@ class OTPService
             ->latest()
             ->first();
 
-        if (!$otpRecord) {
+        if (! $otpRecord) {
             return false;
         }
 
-        return Hash::check($otp, $otpRecord->otp) || $otpRecord->otp === $otp;
+        return Hash::check($otp, $otpRecord->otp);
     }
 
     /**
@@ -76,10 +76,10 @@ class OTPService
     public function generateResetToken(string $identifier): string
     {
         $token = bin2hex(random_bytes(32));
-        
+
         // Store token in cache for 10 minutes
         cache()->put("supplier_reset_token_{$identifier}", $token, now()->addMinutes(10));
-        
+
         return $token;
     }
 
@@ -89,7 +89,7 @@ class OTPService
     public function verifyResetToken(string $identifier, string $token): bool
     {
         $storedToken = cache()->get("supplier_reset_token_{$identifier}");
-        
+
         return $storedToken && hash_equals($storedToken, $token);
     }
 
@@ -108,7 +108,7 @@ class OTPService
     {
         // TODO: Implement email sending
         // Mail::to($email)->send(new SupplierPasswordResetOTPNotification($otp));
-        
+
         // For development, log the OTP
         Log::info("OTP for supplier email {$email}: {$otp}");
     }
@@ -120,9 +120,8 @@ class OTPService
     {
         // TODO: Implement SMS sending using a service like Twilio
         // Example: Twilio::message($phone, "Your OTP is: {$otp}");
-        
+
         // For development, log the OTP
         Log::info("OTP for supplier phone {$phone}: {$otp}");
     }
 }
-

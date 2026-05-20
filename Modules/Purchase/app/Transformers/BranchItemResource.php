@@ -3,8 +3,8 @@
 namespace Modules\Purchase\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class BranchItemResource extends JsonResource
 {
@@ -16,7 +16,7 @@ class BranchItemResource extends JsonResource
         $suppliersCount = 0;
         try {
             $result = DB::selectOne(
-                "SELECT COUNT(DISTINCT suppliers.id) as count
+                'SELECT COUNT(DISTINCT suppliers.id) as count
                 FROM suppliers
                 WHERE EXISTS (
                     SELECT 1
@@ -25,7 +25,7 @@ class BranchItemResource extends JsonResource
                     WHERE expenses.supplier_id = suppliers.id
                     AND expense_items.name = ?
                     AND expenses.deleted_at IS NULL
-                )",
+                )',
                 [$this->item?->name ?? $this->item_name ?? '']
             );
             $suppliersCount = $result->count ?? 0;

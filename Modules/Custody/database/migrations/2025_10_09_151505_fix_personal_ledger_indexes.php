@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -19,7 +19,7 @@ return new class extends Migration
             }
 
             // Add the index with shorter name if it doesn't exist
-            if (!$this->indexExists('personal_ledger_transactions', 'idx_plt_bm_id_txn_date')) {
+            if (! $this->indexExists('personal_ledger_transactions', 'idx_plt_bm_id_txn_date')) {
                 Schema::table('personal_ledger_transactions', function (Blueprint $table) {
                     $table->index(['branch_manager_id', 'transaction_date'], 'idx_plt_bm_id_txn_date');
                 });
@@ -46,18 +46,21 @@ return new class extends Migration
                 "SELECT name FROM sqlite_master WHERE type='index' AND name=? AND tbl_name=?",
                 [$indexName, $table]
             );
+
             return count($result) > 0;
         } elseif ($driver === 'mysql') {
             // MySQL: Use SHOW INDEXES
             $indexes = DB::select("SHOW INDEXES FROM `{$table}` WHERE Key_name = ?", [$indexName]);
+
             return count($indexes) > 0;
         } else {
             // PostgreSQL and others: Query information_schema
             try {
                 $result = DB::select(
-                    "SELECT indexname FROM pg_indexes WHERE tablename = ? AND indexname = ?",
+                    'SELECT indexname FROM pg_indexes WHERE tablename = ? AND indexname = ?',
                     [$table, $indexName]
                 );
+
                 return count($result) > 0;
             } catch (\Exception $e) {
                 // Fallback: Try to use Laravel's schema inspector if available

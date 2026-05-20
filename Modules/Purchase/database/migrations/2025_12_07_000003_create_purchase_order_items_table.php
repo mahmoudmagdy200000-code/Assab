@@ -65,7 +65,7 @@ return new class extends Migration
                 'partial',
                 'rejected',
                 'received',
-                'variance'
+                'variance',
             ])->default('pending');
 
             // Modification tracking

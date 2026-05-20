@@ -2,16 +2,12 @@
 
 namespace Modules\Cashier\Http\Controllers\Auth;
 
+use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Modules\Cashier\Models\Cashier;
 use Modules\Cashier\Http\Requests\Auth\LoginRequest;
-use Modules\Cashier\Helpers\CashierHelper;
-use App\Http\Controllers\BaseController;
-use Modules\Cashier\Transformers\CashierResource;
+use Modules\Cashier\Models\Cashier;
 
 class LoginController extends BaseController
 {
@@ -29,7 +25,7 @@ class LoginController extends BaseController
         $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
         $cashier = Cashier::where($field, $identifier)->first();
 
-        if (!$cashier) {
+        if (! $cashier) {
             return $this->errorResponse('Invalid credentials or inactive account.', 401);
         }
 
@@ -40,14 +36,14 @@ class LoginController extends BaseController
             );
         }
 
-        if (!$cashier->isActive()) {
+        if (! $cashier->isActive()) {
             return $this->errorResponse(
                 'Your account is not active. Please contact your manager.',
                 403
             );
         }
 
-        if (!Hash::check($password, $cashier->password)) {
+        if (! Hash::check($password, $cashier->password)) {
             return $this->errorResponse('Invalid credentials or inactive account.', 401);
         }
 
@@ -75,6 +71,7 @@ class LoginController extends BaseController
     public function logout(Request $request): JsonResponse
     {
         $request->user()->currentAccessToken()->delete();
+
         return $this->successResponse(null, 'Logged out successfully');
     }
 }

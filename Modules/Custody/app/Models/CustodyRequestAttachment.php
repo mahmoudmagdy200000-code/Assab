@@ -33,6 +33,6 @@ class CustodyRequestAttachment extends Model
     // Accessors
     public function getUrlAttribute(): string
     {
-        return asset('storage/' . $this->file_path);
+        return asset('storage/'.$this->file_path);
     }
 }

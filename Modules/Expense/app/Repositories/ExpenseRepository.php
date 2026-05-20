@@ -40,6 +40,7 @@ class ExpenseRepository
 
     /**
      * Summary: approved expenses by branch_manager for month/year.
+     *
      * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
     public function getSummaryForManager(string|int $managerId, int $month, int $year): Collection
@@ -53,6 +54,7 @@ class ExpenseRepository
 
     /**
      * Recent expenses (non-pending), limit 10.
+     *
      * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
     public function getRecentForManager(string|int $managerId, int $limit = 10): Collection
@@ -89,6 +91,7 @@ class ExpenseRepository
 
     /**
      * Paginated index with optional type, status, date filters.
+     *
      * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
     public function getPaginatedForManager(string|int $managerId, Request $request): LengthAwarePaginator
@@ -139,6 +142,7 @@ class ExpenseRepository
 
     /**
      * Drafts paginated.
+     *
      * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
     public function getDraftsPaginated(string|int $managerId, int $perPage = 20): LengthAwarePaginator
@@ -152,6 +156,7 @@ class ExpenseRepository
 
     /**
      * Quick cash list paginated.
+     *
      * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
     public function getQuickCashPaginated(string|int $managerId, int $perPage = 20): LengthAwarePaginator
@@ -165,6 +170,7 @@ class ExpenseRepository
 
     /**
      * Single invoice list paginated.
+     *
      * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
     public function getSingleInvoicePaginated(string|int $managerId, int $perPage = 20): LengthAwarePaginator
@@ -178,6 +184,7 @@ class ExpenseRepository
 
     /**
      * Pre-approval list paginated.
+     *
      * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
     public function getPreApprovalPaginated(string|int $managerId, int $perPage = 20): LengthAwarePaginator
@@ -191,6 +198,7 @@ class ExpenseRepository
 
     /**
      * Grouped invoice list paginated.
+     *
      * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
     public function getGroupedInvoicePaginated(string|int $managerId, int $perPage = 20): LengthAwarePaginator
@@ -204,6 +212,7 @@ class ExpenseRepository
 
     /**
      * Search/filter paginated (same logic as controller search).
+     *
      * @param  string|int  $managerId  Branch manager ID (UUID string or int)
      */
     public function getSearchPaginated(string|int $managerId, Request $request): LengthAwarePaginator

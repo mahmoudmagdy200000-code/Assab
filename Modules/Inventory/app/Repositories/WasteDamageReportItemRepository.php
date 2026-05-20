@@ -16,14 +16,11 @@ class WasteDamageReportItemRepository
         return $item->update($data);
     }
 
-    /**
-     * @param array $relations
-     */
     public function find(string $id, array $relations = []): ?WasteDamageReportItem
     {
         $query = WasteDamageReportItem::query();
 
-        if (!empty($relations)) {
+        if (! empty($relations)) {
             $query->with($relations);
         }
 
@@ -35,7 +32,7 @@ class WasteDamageReportItemRepository
         $query = WasteDamageReportItem::where('id', $itemId)
             ->where('waste_damage_report_id', $reportId);
 
-        if (!empty($relations)) {
+        if (! empty($relations)) {
             $query->with($relations);
         }
 

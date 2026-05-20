@@ -23,8 +23,8 @@ class CustodyHandoverRequest extends Model
     ];
 
     protected $casts = [
-        'amount'        => 'decimal:2',
-        'responded_at'  => 'datetime',
+        'amount' => 'decimal:2',
+        'responded_at' => 'datetime',
     ];
 
     public function fromCashier(): BelongsTo

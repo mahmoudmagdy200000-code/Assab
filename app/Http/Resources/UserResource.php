@@ -2,8 +2,6 @@
 
 namespace App\Http\Resources;
 
-use App\Http\Resources\BaseResource;
-
 class UserResource extends BaseResource
 {
     /**

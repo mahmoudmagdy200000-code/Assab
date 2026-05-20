@@ -13,7 +13,7 @@ class QualityDocumentResource extends JsonResource
             'document_type' => $this->document_type,
             'title' => $this->title,
             'description' => $this->description,
-            'file_path' => $this->file_path ? asset('storage/' . $this->file_path) : null,
+            'file_path' => $this->file_path ? asset('storage/'.$this->file_path) : null,
             'file_name' => $this->file_name,
             'file_type' => $this->file_type,
             'issue_date' => $this->issue_date?->toDateString(),
@@ -27,4 +27,3 @@ class QualityDocumentResource extends JsonResource
         ];
     }
 }
-

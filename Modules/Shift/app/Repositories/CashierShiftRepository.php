@@ -2,11 +2,11 @@
 
 namespace Modules\Shift\Repositories;
 
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
-use Modules\Shift\Models\CashierShift;
-use Modules\Shift\Enums\ShiftStatus;
-use Illuminate\Support\Collection;
 use Carbon\Carbon;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
+use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Models\CashierShift;
 
 /**
  * Repository for CashierShift data access. Implements CashierShiftRepositoryInterface.
@@ -24,7 +24,7 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
             'nextCashier',
             'salesBreakdown.aggregator',
             'handoverStatus',
-            'varianceDetails'
+            'varianceDetails',
         ])->find($id);
     }
 
@@ -82,7 +82,7 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
             'handover',
             'varianceDetails.responsibleCashier',
             'varianceAlerts',
-            'history'
+            'history',
         ])
             ->whereHas('shift', fn ($q) => $q->where('branch_id', $branchId))
             ->whereHas('cashier', fn ($q) => $q->where('branch_id', $branchId))
@@ -177,7 +177,7 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
                 'shift',
                 'nextCashier',
                 'handoverStatus',
-                'varianceDetails'
+                'varianceDetails',
             ])
             ->where('status', ShiftStatus::COMPLETED)
             ->orderBy('shift_date', 'desc');
@@ -216,15 +216,15 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
                 'reassignedBy',
                 'nextCashier',
                 'handoverStatus',
-                'varianceDetails'
+                'varianceDetails',
             ])
             ->where('status', ShiftStatus::REASSIGNED)
             ->orderBy('reassigned_at', 'desc');
 
         if ($cashierId) {
-            $query->where(function($q) use ($cashierId) {
+            $query->where(function ($q) use ($cashierId) {
                 $q->where('cashier_id', $cashierId)
-                  ->orWhere('original_cashier_id', $cashierId);
+                    ->orWhere('original_cashier_id', $cashierId);
             });
         }
 

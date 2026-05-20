@@ -19,4 +19,3 @@ class ProcessReturnRequest extends FormRequest
         ];
     }
 }
-

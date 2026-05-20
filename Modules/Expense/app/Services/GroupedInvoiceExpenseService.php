@@ -3,9 +3,13 @@
 namespace Modules\Expense\Services;
 
 use Illuminate\Support\Facades\DB;
-use Modules\Expense\Models\{Expense, GroupedInvoice, InvoiceDetail, ExpenseItem, ExpenseLine};
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Modules\Expense\Models\Expense;
+use Modules\Expense\Models\ExpenseItem;
+use Modules\Expense\Models\ExpenseLine;
+use Modules\Expense\Models\GroupedInvoice;
+use Modules\Expense\Models\InvoiceDetail;
 
 /**
  * Grouped Invoice Expense Service
@@ -60,7 +64,7 @@ class GroupedInvoiceExpenseService
                     'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
                     'default_supplier_id' => $data['default_supplier_id'] ?? null,
                     'due_date' => $data['due_date'] ?? null,
-                ], fn($v) => !is_null($v)));
+                ], fn ($v) => ! is_null($v)));
             }
 
             // Update expense main data
@@ -73,20 +77,20 @@ class GroupedInvoiceExpenseService
             // Draft handling
             if (isset($data['is_draft'])) {
                 $expenseUpdate['status'] = $data['is_draft'] ? 'draft' : 'pending';
-                if (!$data['is_draft'] && !$expense->submitted_at) {
+                if (! $data['is_draft'] && ! $expense->submitted_at) {
                     $expenseUpdate['submitted_at'] = now();
                 }
             }
 
-            if (!empty($expenseUpdate)) {
+            if (! empty($expenseUpdate)) {
                 $expense->update($expenseUpdate);
             }
 
             // Partial Update for Single Invoice
-            if (!empty($data['invoice_id'])) {
+            if (! empty($data['invoice_id'])) {
                 $invoice = $expense->invoiceDetails()->where('id', $data['invoice_id'])->first();
 
-                if (!$invoice) {
+                if (! $invoice) {
                     throw new \Exception('Invoice not found');
                 }
 
@@ -95,14 +99,14 @@ class GroupedInvoiceExpenseService
                     'issue_date' => $data['issue_date'] ?? null,
                     'tax_id' => $data['tax_id'] ?? null,
                     'supplier_id' => $data['supplier_id'] ?? null,
-                ], fn($v) => !is_null($v));
+                ], fn ($v) => ! is_null($v));
 
-                if (!empty($updatePayload)) {
+                if (! empty($updatePayload)) {
                     $invoice->update($updatePayload);
                 }
 
                 // Upload new receipts for this invoice
-                if (!empty($data['invoice_receipts'])) {
+                if (! empty($data['invoice_receipts'])) {
                     foreach ($data['invoice_receipts'] as $file) {
                         $this->uploadInvoiceReceipt($expense, $invoice, $file);
                     }
@@ -124,11 +128,11 @@ class GroupedInvoiceExpenseService
 
                 foreach ($data['invoices'] as $invoiceData) {
                     // Check if this is an update (has 'id') or new invoice
-                    if (!empty($invoiceData['id'])) {
+                    if (! empty($invoiceData['id'])) {
                         // UPDATE EXISTING INVOICE
                         $existingInvoice = $expense->invoiceDetails()->find($invoiceData['id']);
 
-                        if (!$existingInvoice) {
+                        if (! $existingInvoice) {
                             throw new \Exception("Invoice with ID {$invoiceData['id']} not found");
                         }
 
@@ -144,7 +148,7 @@ class GroupedInvoiceExpenseService
                         ]);
 
                         // Handle attachments deletion for this invoice
-                        if (!empty($invoiceData['delete_attachments'])) {
+                        if (! empty($invoiceData['delete_attachments'])) {
                             $attachmentsToDelete = $existingInvoice->attachments()
                                 ->whereIn('id', $invoiceData['delete_attachments'])
                                 ->get();
@@ -158,7 +162,7 @@ class GroupedInvoiceExpenseService
                         }
 
                         // Add new receipts if provided
-                        if (!empty($invoiceData['invoice_receipts'])) {
+                        if (! empty($invoiceData['invoice_receipts'])) {
                             foreach ($invoiceData['invoice_receipts'] as $file) {
                                 $this->uploadInvoiceReceipt($expense, $existingInvoice, $file);
                             }
@@ -215,7 +219,7 @@ class GroupedInvoiceExpenseService
             }
 
             // Delete specific attachments (global deletion)
-            if (!empty($data['delete_attachments'])) {
+            if (! empty($data['delete_attachments'])) {
                 $this->deleteAttachments($expense, $data['delete_attachments']);
             }
 
@@ -226,7 +230,7 @@ class GroupedInvoiceExpenseService
             return $expense->fresh(['groupedInvoice.paymentSupplier', 'invoiceDetails.attachments', 'items', 'expenseLines', 'attachments']);
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Update Grouped Invoice Failed: ' . $e->getMessage());
+            Log::error('Update Grouped Invoice Failed: '.$e->getMessage());
             throw $e;
         }
     }
@@ -246,7 +250,7 @@ class GroupedInvoiceExpenseService
 
                 $attachment->delete();
             } catch (\Exception $e) {
-                Log::warning('Failed to delete attachment: ' . $e->getMessage());
+                Log::warning('Failed to delete attachment: '.$e->getMessage());
             }
         }
     }
@@ -266,7 +270,7 @@ class GroupedInvoiceExpenseService
             'supplier_id' => $invoiceData['supplier_id'],
         ];
 
-        if (!empty($invoiceData['is_tax_invoice']) && !empty($invoiceData['tax_invoice_details'])) {
+        if (! empty($invoiceData['is_tax_invoice']) && ! empty($invoiceData['tax_invoice_details'])) {
             $invoicePayload['tax_supplier_name'] = $invoiceData['tax_invoice_details']['supplier_name'] ?? null;
             $invoicePayload['tax_net_amount'] = $invoiceData['tax_invoice_details']['net_amount'] ?? 0;
             $invoicePayload['tax_vat_amount'] = $invoiceData['tax_invoice_details']['vat_amount'] ?? 0;
@@ -275,20 +279,20 @@ class GroupedInvoiceExpenseService
 
         $invoice = InvoiceDetail::create($invoicePayload);
 
-        if (!empty($invoiceData['items'])) {
+        if (! empty($invoiceData['items'])) {
             foreach ($invoiceData['items'] as $item) {
                 $this->createInvoiceItem($expense, $invoice, $item);
             }
         }
 
-        if (!empty($invoiceData['expenses'])) {
+        if (! empty($invoiceData['expenses'])) {
             foreach ($invoiceData['expenses'] as $expenseLine) {
                 $this->createExpenseLine($expense, $invoice, $expenseLine);
             }
         }
 
         // Upload new receipts WITHOUT deleting old ones
-        if (!empty($invoiceData['invoice_receipts'])) {
+        if (! empty($invoiceData['invoice_receipts'])) {
             foreach ($invoiceData['invoice_receipts'] as $file) {
                 $this->uploadInvoiceReceipt($expense, $invoice, $file);
             }
@@ -338,13 +342,13 @@ class GroupedInvoiceExpenseService
             $itemsTotal = 0;
             $expensesTotal = 0;
 
-            if (!empty($invoiceData['items'])) {
+            if (! empty($invoiceData['items'])) {
                 foreach ($invoiceData['items'] as $item) {
                     $itemsTotal += $item['quantity'] * $item['unit_price'];
                 }
             }
 
-            if (!empty($invoiceData['expenses'])) {
+            if (! empty($invoiceData['expenses'])) {
                 foreach ($invoiceData['expenses'] as $expense) {
                     $expensesTotal += $expense['price'];
                 }
@@ -376,7 +380,7 @@ class GroupedInvoiceExpenseService
      */
     private function uploadInvoiceReceipt(Expense $expense, InvoiceDetail $invoice, $file): void
     {
-        $filename = 'invoice_' . $invoice->id . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+        $filename = 'invoice_'.$invoice->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
         $path = $file->storeAs('expenses/invoices', $filename, 'public');
 
         $expense->attachments()->create([
@@ -391,7 +395,7 @@ class GroupedInvoiceExpenseService
     /**
      * Create timeline entry
      */
-    private function createTimelineEntry(Expense $expense, string $action, string $status = null): void
+    private function createTimelineEntry(Expense $expense, string $action, ?string $status = null): void
     {
         $expense->timelines()->create([
             'action' => $action,

@@ -2,14 +2,15 @@
 
 namespace App\Http\Resources;
 
-use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Http\Resources\MissingValue;
 use App\ApiResponse;
 use Carbon\Carbon;
+use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Http\Resources\MissingValue;
 
 abstract class BaseResource extends JsonResource
 {
     use ApiResponse;
+
     private const DATETIME_FORMAT = 'Y-m-d H:i:s';
 
     /**
@@ -86,7 +87,7 @@ abstract class BaseResource extends JsonResource
     {
         return [
             'amount' => (float) $amount,
-            'formatted' => number_format($amount, 2) . ' ' . $currency,
+            'formatted' => number_format($amount, 2).' '.$currency,
             'currency' => $currency,
         ];
     }
@@ -98,7 +99,7 @@ abstract class BaseResource extends JsonResource
     {
         return [
             'value' => (float) $value,
-            'formatted' => number_format($value, $decimals) . '%',
+            'formatted' => number_format($value, $decimals).'%',
             'percentage' => $value,
         ];
     }
@@ -108,7 +109,7 @@ abstract class BaseResource extends JsonResource
      */
     protected function formatDate($date, string $format = 'Y-m-d'): ?array
     {
-        if (!$date) {
+        if (! $date) {
             return null;
         }
 
@@ -127,14 +128,14 @@ abstract class BaseResource extends JsonResource
      */
     protected function formatImageUrl(?string $imagePath): ?array
     {
-        if (!$imagePath) {
+        if (! $imagePath) {
             return null;
         }
 
         return [
-            'url' => asset('storage/' . $imagePath),
+            'url' => asset('storage/'.$imagePath),
             'path' => $imagePath,
-            'exists' => file_exists(storage_path('app/public/' . $imagePath)),
+            'exists' => file_exists(storage_path('app/public/'.$imagePath)),
         ];
     }
 
@@ -228,18 +229,16 @@ abstract class BaseResource extends JsonResource
      */
     protected function formatIds($items, string $key = 'id'): array
     {
-        if (!$items) {
+        if (! $items) {
             return [];
         }
 
         return collect($items)->pluck($key)->toArray();
     }
 
-
-
-    protected function formatNestedResource($resource, string $resourceClass = null): ?array
+    protected function formatNestedResource($resource, ?string $resourceClass = null): ?array
     {
-        if (!$resource || $resource instanceof MissingValue) {
+        if (! $resource || $resource instanceof MissingValue) {
             return null;
         }
 
@@ -253,13 +252,12 @@ abstract class BaseResource extends JsonResource
         ];
     }
 
-
     /**
      * Format collection of nested resources
      */
-    protected function formatNestedCollection($collection, string $resourceClass = null): array
+    protected function formatNestedCollection($collection, ?string $resourceClass = null): array
     {
-        if (!$collection || $collection->isEmpty()) {
+        if (! $collection || $collection->isEmpty()) {
             return [];
         }
 

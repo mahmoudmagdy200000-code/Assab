@@ -3,8 +3,8 @@
 namespace Modules\BranchManagers\Notifications;
 
 use Illuminate\Bus\Queueable;
-use Illuminate\Notifications\Notification;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Notification;
 
 class AccountSuspendedNotification extends Notification
 {
@@ -23,9 +23,9 @@ class AccountSuspendedNotification extends Notification
     {
         return (new MailMessage)
             ->subject('Account Suspended - Assab')
-            ->greeting('Hello ' . $notifiable->name . ',')
+            ->greeting('Hello '.$notifiable->name.',')
             ->line('Your Branch Manager account has been suspended.')
-            ->line('**Reason:** ' . $this->reason)
+            ->line('**Reason:** '.$this->reason)
             ->line('Please contact the administrator for more information.')
             ->line('Email: support@assab.com')
             ->salutation('Assab Team');

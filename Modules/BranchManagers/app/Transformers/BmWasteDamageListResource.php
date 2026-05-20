@@ -32,7 +32,7 @@ class BmWasteDamageListResource extends JsonResource
 
     private function resolveReportType(): string
     {
-        if (!$this->relationLoaded('items') || $this->items->isEmpty()) {
+        if (! $this->relationLoaded('items') || $this->items->isEmpty()) {
             return 'waste_and_damage';
         }
         $types = $this->items->pluck('problem_type')->unique()->filter()->values();
@@ -44,6 +44,7 @@ class BmWasteDamageListResource extends JsonResource
         if ($hasWaste && $hasDamage) {
             return 'waste_and_damage';
         }
+
         return $hasWaste ? 'waste' : 'damage';
     }
 

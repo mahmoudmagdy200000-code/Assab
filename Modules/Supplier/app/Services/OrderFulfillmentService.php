@@ -4,8 +4,6 @@ namespace Modules\Supplier\Services;
 
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Models\GoodsReceipt;
@@ -46,7 +44,7 @@ class OrderFulfillmentService
             ]);
 
             // Update items status and upload files
-            if (!empty($data['items'])) {
+            if (! empty($data['items'])) {
                 foreach ($data['items'] as $itemData) {
                     $item = PurchaseOrderItem::where('id', $itemData['id'])
                         ->where('purchase_order_id', $order->id)
@@ -73,7 +71,7 @@ class OrderFulfillmentService
                                 'supplier_id' => $supplier->id,
                                 'order_id' => $order->id,
                                 'document_type' => 'certificate',
-                                'title' => 'Item Document - ' . $item->item_name,
+                                'title' => 'Item Document - '.$item->item_name,
                                 'file_path' => $filePath,
                                 'file_name' => $itemData['file']->getClientOriginalName(),
                                 'file_type' => $fileExtension,
@@ -126,11 +124,11 @@ class OrderFulfillmentService
         }
 
         // Allow starting delivery if order is in PREPARING or DELAYED status
-        if (!in_array($order->status, [OrderStatus::PREPARING, OrderStatus::DELAYED])) {
+        if (! in_array($order->status, [OrderStatus::PREPARING, OrderStatus::DELAYED])) {
             throw new \Exception('Order must be in preparing or delayed status before starting delivery');
         }
 
-        return DB::transaction(function () use ($order, $data, $supplier) {
+        return DB::transaction(function () use ($order, $data) {
             // Update order status
             $updateData = [
                 'status' => OrderStatus::ON_THE_WAY,
@@ -154,7 +152,7 @@ class OrderFulfillmentService
                 ->where('status', 'draft')
                 ->first();
 
-            if (!$receipt) {
+            if (! $receipt) {
                 // Create new receipt if doesn't exist
                 $receipt = GoodsReceipt::create([
                     'purchase_order_id' => $order->id,
@@ -206,7 +204,7 @@ class OrderFulfillmentService
         }
 
         // Allow delay reporting in both PREPARING and ON_THE_WAY statuses
-        if (!in_array($order->status, [OrderStatus::PREPARING, OrderStatus::ON_THE_WAY])) {
+        if (! in_array($order->status, [OrderStatus::PREPARING, OrderStatus::ON_THE_WAY])) {
             throw new \Exception('Order must be in preparing or delivery status to report delay');
         }
 
@@ -217,7 +215,7 @@ class OrderFulfillmentService
             if ($data['new_expected_delivery_date_type'] === 'today') {
                 // Use today's date with new_time (store as string)
                 $today = Carbon::today()->format('Y-m-d');
-                $newExpectedDeliveryAt = $today . ' ' . $data['new_time'];
+                $newExpectedDeliveryAt = $today.' '.$data['new_time'];
             } elseif ($data['new_expected_delivery_date_type'] === 'custom') {
                 // Extract date only from new_date (handle ISO format like 2026-01-12T00:00:00.000)
                 $dateString = $data['new_date'];
@@ -226,7 +224,7 @@ class OrderFulfillmentService
                     $dateString = explode('T', $dateString)[0];
                 }
                 // Use custom date and time (store as string)
-                $newExpectedDeliveryAt = $dateString . ' ' . $data['new_time'];
+                $newExpectedDeliveryAt = $dateString.' '.$data['new_time'];
             }
 
             $updateData = [
@@ -280,11 +278,11 @@ class OrderFulfillmentService
             throw new \Exception('Unauthorized access to this order');
         }
 
-        if (!in_array($order->status, [OrderStatus::ON_THE_WAY, OrderStatus::DELAYED])) {
+        if (! in_array($order->status, [OrderStatus::ON_THE_WAY, OrderStatus::DELAYED])) {
             throw new \Exception('Order must be out for delivery or delayed');
         }
 
-        return DB::transaction(function () use ($order, $data, $supplier) {
+        return DB::transaction(function () use ($order, $data) {
             $updateData = [
                 'status' => OrderStatus::DELIVERED,
                 'received_at' => now(),
@@ -293,7 +291,7 @@ class OrderFulfillmentService
 
             // Handle delivery photos upload
             $deliveryPhotos = [];
-            if (!empty($data['delivery_photos'])) {
+            if (! empty($data['delivery_photos'])) {
                 foreach ($data['delivery_photos'] as $photo) {
                     if ($photo && is_object($photo) && method_exists($photo, 'isValid') && $photo->isValid()) {
                         $photoPath = $photo->store('supplier/deliveries/photos', 'public');
@@ -357,7 +355,7 @@ class OrderFulfillmentService
             $invoice = \Modules\Supplier\Models\SupplierInvoice::create([
                 'supplier_id' => $supplier->id,
                 'order_id' => $order->id,
-                'invoice_number' => $data['invoice_number'] ?? 'INV-' . strtoupper(uniqid()),
+                'invoice_number' => $data['invoice_number'] ?? 'INV-'.strtoupper(uniqid()),
                 'invoice_date' => $data['invoice_date'] ?? now(),
                 'due_date' => $data['due_date'] ?? now()->addDays(30),
                 'subtotal' => $data['subtotal'] ?? $order->subtotal,

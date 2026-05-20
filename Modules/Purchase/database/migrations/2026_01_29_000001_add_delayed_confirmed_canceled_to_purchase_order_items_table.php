@@ -49,7 +49,7 @@ return new class extends Migration
                 'closed'
             ) DEFAULT 'pending'");
         } catch (\Exception $e) {
-            Log::warning('Migration add_delayed_confirmed_canceled_to_order_items: ' . $e->getMessage());
+            Log::warning('Migration add_delayed_confirmed_canceled_to_order_items: '.$e->getMessage());
         }
     }
 
@@ -100,7 +100,7 @@ return new class extends Migration
                 'closed'
             ) DEFAULT 'pending'");
         } catch (\Exception $e) {
-            Log::warning('Migration rollback add_delayed_confirmed_canceled_to_order_items: ' . $e->getMessage());
+            Log::warning('Migration rollback add_delayed_confirmed_canceled_to_order_items: '.$e->getMessage());
         }
     }
 };

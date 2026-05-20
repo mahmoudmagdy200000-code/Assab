@@ -22,7 +22,7 @@ class BrandOwnerOtp extends Model
 
     protected $casts = [
         'expires_at' => 'datetime',
-        'is_used'    => 'boolean',
+        'is_used' => 'boolean',
     ];
 
     public function scopeValid($query)
@@ -38,7 +38,7 @@ class BrandOwnerOtp extends Model
 
     public function isValid(): bool
     {
-        return !$this->is_used && !$this->isExpired();
+        return ! $this->is_used && ! $this->isExpired();
     }
 
     public function markAsUsed(): void
@@ -54,10 +54,10 @@ class BrandOwnerOtp extends Model
 
         return self::create([
             'identifier' => $identifier,
-            'otp'        => $otp,
-            'type'       => $type,
+            'otp' => $otp,
+            'type' => $type,
             'expires_at' => Carbon::now()->addMinutes($expiryMinutes),
-            'is_used'    => false,
+            'is_used' => false,
         ]);
     }
 }

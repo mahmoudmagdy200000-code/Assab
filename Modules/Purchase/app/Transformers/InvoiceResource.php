@@ -44,4 +44,3 @@ class InvoiceResource extends JsonResource
         ];
     }
 }
-

@@ -2,13 +2,12 @@
 
 namespace Tests\NFR\Security;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Crypt;
-use Illuminate\Support\Facades\DB;
-use Modules\BranchManagers\Models\BranchManager;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Hash;
+use Modules\BranchManagers\Models\BranchManager;
+use Tests\TestCase;
 
 /**
  * Security Requirements Test: Data Protection
@@ -38,12 +37,12 @@ class DataProtectionTest extends TestCase
         $encrypted = Crypt::encryptString($plainText);
 
         // Encrypted data should be different from plain text
-        $this->assertNotEquals($plainText, $encrypted, "Data should be encrypted");
-        $this->assertTrue(strlen($encrypted) > strlen($plainText), "Encrypted data should be longer");
+        $this->assertNotEquals($plainText, $encrypted, 'Data should be encrypted');
+        $this->assertTrue(strlen($encrypted) > strlen($plainText), 'Encrypted data should be longer');
 
         // Should decrypt correctly
         $decrypted = Crypt::decryptString($encrypted);
-        $this->assertEquals($plainText, $decrypted, "Decryption should work correctly");
+        $this->assertEquals($plainText, $decrypted, 'Decryption should work correctly');
     }
 
     /**
@@ -67,8 +66,8 @@ class DataProtectionTest extends TestCase
         // Check that password is not in response at any level
         $responseString = json_encode($responseData);
         // Check for common password field names, but allow it in email addresses
-        $this->assertStringNotContainsString('"password"', $responseString, "Password field should not appear in response");
-        $this->assertStringNotContainsString(Hash::make('secret123'), $responseString, "Hashed password should not appear in response");
+        $this->assertStringNotContainsString('"password"', $responseString, 'Password field should not appear in response');
+        $this->assertStringNotContainsString(Hash::make('secret123'), $responseString, 'Hashed password should not appear in response');
     }
 
     /**
@@ -93,7 +92,7 @@ class DataProtectionTest extends TestCase
         foreach ($sqlInjectionAttempts as $attempt) {
             // Try in query parameter
             $response = $this->actingAs($manager, 'sanctum')
-                ->getJson('/api/v1/purchase/orders?' . http_build_query(['search' => $attempt]));
+                ->getJson('/api/v1/purchase/orders?'.http_build_query(['search' => $attempt]));
 
             // Should not crash, should return error or empty result
             $this->assertContains(
@@ -108,7 +107,7 @@ class DataProtectionTest extends TestCase
                 $this->assertStringNotContainsString(
                     'SQL',
                     $responseData['message'],
-                    "SQL errors should not be exposed"
+                    'SQL errors should not be exposed'
                 );
             }
         }
@@ -180,7 +179,7 @@ class DataProtectionTest extends TestCase
             ]);
 
         // Should either succeed or fail with validation, not CSRF error
-        $this->assertNotEquals(419, $response->status(), "API endpoints should not require CSRF tokens");
+        $this->assertNotEquals(419, $response->status(), 'API endpoints should not require CSRF tokens');
     }
 
     /**
@@ -206,7 +205,7 @@ class DataProtectionTest extends TestCase
 
         // In production, logs should mask sensitive data
         // This test serves as a reminder to implement masking
-        $this->assertTrue(true, "Data masking should be implemented in logging");
+        $this->assertTrue(true, 'Data masking should be implemented in logging');
     }
 
     /**
@@ -220,7 +219,7 @@ class DataProtectionTest extends TestCase
 
         // In production, middleware should enforce HTTPS
         // For now, just verify endpoint exists
-        $this->assertTrue(true, "HTTPS enforcement should be implemented in production middleware");
+        $this->assertTrue(true, 'HTTPS enforcement should be implemented in production middleware');
     }
 
     /**
@@ -250,7 +249,7 @@ class DataProtectionTest extends TestCase
             $this->assertContains(
                 $response->status(),
                 [200, 201, 400, 422],
-                "Input should be validated/sanitized: " . substr($input, 0, 20)
+                'Input should be validated/sanitized: '.substr($input, 0, 20)
             );
 
             // If saved, check it's sanitized
@@ -260,7 +259,7 @@ class DataProtectionTest extends TestCase
                     $this->assertStringNotContainsString(
                         '<script>',
                         $responseData['data']['notes'],
-                        "Input should be sanitized"
+                        'Input should be sanitized'
                     );
                 }
             }
@@ -321,11 +320,11 @@ class DataProtectionTest extends TestCase
 
         // Should eventually rate limit (429) or continue rejecting (401)
         $hasRateLimit = in_array(429, $statusCodes);
-        $allUnauthorized = count(array_filter($statusCodes, fn($s) => $s === 401)) === $attempts;
+        $allUnauthorized = count(array_filter($statusCodes, fn ($s) => $s === 401)) === $attempts;
 
         $this->assertTrue(
             $hasRateLimit || $allUnauthorized,
-            "Rate limiting should be implemented on authentication endpoints"
+            'Rate limiting should be implemented on authentication endpoints'
         );
     }
 }

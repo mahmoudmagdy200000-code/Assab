@@ -2,13 +2,12 @@
 
 namespace Modules\BranchManagers\Services;
 
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Models\BranchManagerOtp;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Notification;
-use Carbon\Carbon;
-use Illuminate\Support\Facades\Log;
 
 class AuthService
 {
@@ -21,19 +20,20 @@ class AuthService
         $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
         $manager = BranchManager::where($field, $identifier)->first();
 
-        if (!$manager || !Hash::check($password, $manager->password)) {
+        if (! $manager || ! Hash::check($password, $manager->password)) {
             throw new \Exception('Invalid credentials ');
         }
 
-        if (!$manager->isActive()) {
+        if (! $manager->isActive()) {
             throw new \Exception('Account is inactive');
         }
 
-        if (!$manager->isFirstLogin()) {
+        if (! $manager->isFirstLogin()) {
             throw new \Exception('Account is already acctivated. Please use regular login.');
         }
 
         $token = $manager->createToken('first-login-token')->plainTextToken;
+
         return [
             'manager' => $manager,
             'token' => $token,
@@ -63,11 +63,11 @@ class AuthService
 
         $manager = BranchManager::where($field, $identifier)->first();
 
-        if (!$manager || !Hash::check($password, $manager->password)) {
+        if (! $manager || ! Hash::check($password, $manager->password)) {
             throw new \Exception('Invalid credentials');
         }
 
-        if (!$manager->isActive()) {
+        if (! $manager->isActive()) {
             throw new \Exception('Account is inactive');
         }
 
@@ -124,11 +124,11 @@ class AuthService
             ->latest()
             ->first();
 
-        if (!$otpRecord) {
+        if (! $otpRecord) {
             throw new \Exception('Invalid or expired OTP');
         }
 
-        if (!Hash::check($otp, $otpRecord->otp)) {
+        if (! Hash::check($otp, $otpRecord->otp)) {
             throw new \Exception('Invalid OTP');
         }
 
@@ -142,11 +142,11 @@ class AuthService
     {
         // Generate a random token
         $resetToken = bin2hex(random_bytes(32));
-        
-        // Store reset token in OTP table as a new record
+
+        // Store reset token in OTP table as a new record (hashed at rest)
         BranchManagerOtp::create([
             'identifier' => $identifier,
-            'otp' => $resetToken, // Store reset token as plain text (not hashed)
+            'otp' => Hash::make($resetToken),
             'type' => 'reset_token',
             'expires_at' => Carbon::now()->addHours(1),
             'is_used' => false,
@@ -160,15 +160,16 @@ class AuthService
      */
     public function resetPassword(string $identifier, string $resetToken, string $newPassword)
     {
-        // Verify reset token (stored in OTP table as plain text for reset tokens)
+        // Verify reset token (hashed at rest; match by Hash::check)
         $otpRecord = BranchManagerOtp::where('identifier', $identifier)
             ->where('type', 'reset_token')
-            ->where('otp', $resetToken) // Reset token is stored as plain text
             ->where('expires_at', '>', Carbon::now())
             ->where('is_used', false)
-            ->first();
+            ->latest()
+            ->get()
+            ->first(fn ($record) => Hash::check($resetToken, $record->otp));
 
-        if (!$otpRecord) {
+        if (! $otpRecord) {
             throw new \Exception('Invalid or expired reset token');
         }
 
@@ -176,7 +177,7 @@ class AuthService
         $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
         $manager = BranchManager::where($field, $identifier)->first();
 
-        if (!$manager) {
+        if (! $manager) {
             throw new \Exception('Branch Manager not found');
         }
 
@@ -184,6 +185,9 @@ class AuthService
         $manager->update([
             'password' => Hash::make($newPassword),
         ]);
+
+        // Revoke all existing sessions after a password reset
+        $manager->tokens()->delete();
 
         // Mark reset token as used
         $otpRecord->update(['is_used' => true]);

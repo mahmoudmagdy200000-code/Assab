@@ -18,7 +18,7 @@ class SupplierInfoService
             ->where('branch_id', $branchId)
             ->find($orderId);
 
-        if (!$order || !$order->supplier_id) {
+        if (! $order || ! $order->supplier_id) {
             return null;
         }
 
@@ -35,7 +35,7 @@ class SupplierInfoService
             ->where('branch_id', $branchId)
             ->find($returnId);
 
-        if (!$return || !$return->supplier_id) {
+        if (! $return || ! $return->supplier_id) {
             return null;
         }
 

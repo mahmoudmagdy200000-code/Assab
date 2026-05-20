@@ -15,7 +15,7 @@ enum ShiftStatus: string
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::NOT_STARTED => 'Not Started',
             self::IN_PROGRESS => 'In Progress',
             self::COMPLETED => 'Completed',
@@ -26,7 +26,7 @@ enum ShiftStatus: string
 
     public function color(): string
     {
-        return match($this) {
+        return match ($this) {
             self::NOT_STARTED => 'gray',
             self::IN_PROGRESS => 'blue',
             self::COMPLETED => 'green',
@@ -35,4 +35,3 @@ enum ShiftStatus: string
         };
     }
 }
-

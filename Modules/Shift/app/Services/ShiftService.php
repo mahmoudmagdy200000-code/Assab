@@ -2,14 +2,14 @@
 
 namespace Modules\Shift\Services;
 
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Repositories\CashierShiftRepositoryInterface;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Collection;
 
 class ShiftService
 {
@@ -29,7 +29,7 @@ class ShiftService
     {
         $shift->loadMissing('shift');
 
-        if (!$shift->shift || !$shift->shift->branch_id) {
+        if (! $shift->shift || ! $shift->shift->branch_id) {
             return null;
         }
 
@@ -70,8 +70,6 @@ class ShiftService
     /**
      * Next recipient for display: next cashier when there is a chronologically next shift,
      * otherwise branch manager (last shift of the day).
-     *
-     * @return Cashier|BranchManager|null
      */
     public function getNextRecipientForDisplay(CashierShift $shift): Cashier|BranchManager|null
     {
@@ -81,7 +79,7 @@ class ShiftService
         }
 
         $shift->loadMissing('shift');
-        if (!$shift->shift || !$shift->shift->branch_id) {
+        if (! $shift->shift || ! $shift->shift->branch_id) {
             return null;
         }
 
@@ -92,7 +90,7 @@ class ShiftService
             ->first();
     }
 
-    public function getPendingShifts(string $cashierId = null): LengthAwarePaginator
+    public function getPendingShifts(?string $cashierId = null): LengthAwarePaginator
     {
         $query = CashierShift::upcoming() // ✅ استخدم upcoming بدل pending
             ->with([
@@ -100,7 +98,7 @@ class ShiftService
                 'shift',
                 'nextCashier',
                 'originalCashier',
-                'reassignedBy'
+                'reassignedBy',
             ])
             ->whereDate('shift_date', '>=', now()->subMonth()->toDateString())
             ->whereDate('shift_date', '<=', now()->addMonth()->toDateString())
@@ -117,7 +115,6 @@ class ShiftService
         return $query->paginate(10);
     }
 
-
     /**
      * Retrieve in-progress shifts and the next shift
      */
@@ -129,7 +126,6 @@ class ShiftService
     //         ->orderBy('actual_start_time')
     //         ->when($cashierId, fn($q) => $q->where('cashier_id', $cashierId))
     //         ->get();
-
 
     //     $nextShift = CashierShift::where('status', 'not_started')
     //         ->whereDate('shift_date', today())
@@ -146,7 +142,7 @@ class ShiftService
     //     ];
     // }
 
-    public function getInProgressShifts(string $cashierId = null): Collection
+    public function getInProgressShifts(?string $cashierId = null): Collection
     {
         $query = CashierShift::inProgress()
             ->with(['cashier', 'shift', 'nextCashier'])
@@ -161,12 +157,8 @@ class ShiftService
 
     /**
      * Get completed shifts with optional filtering
-     *
-     * @param string|null $cashierId
-     * @param array|null $filters
-     * @return \Illuminate\Contracts\Pagination\LengthAwarePaginator
      */
-    public function getCompletedShifts(string $cashierId = null, ?array $filters = []): LengthAwarePaginator
+    public function getCompletedShifts(?string $cashierId = null, ?array $filters = []): LengthAwarePaginator
     {
         $query = CashierShift::completed()
             ->with([
@@ -176,11 +168,11 @@ class ShiftService
                 'handoverStatus.reviewedBy',
                 'handover.handoverTo',
                 'handover.approvedBy',
-                'varianceDetails'
+                'varianceDetails',
             ]);
 
         // ✅ فلتر حسب البرانش (shift و cashier)
-        if (!empty($filters['branch_id'])) {
+        if (! empty($filters['branch_id'])) {
             $query->whereHas('shift', function ($q) use ($filters) {
                 $q->where('branch_id', $filters['branch_id']);
             })
@@ -193,18 +185,18 @@ class ShiftService
             $query->where('cashier_id', $cashierId);
         }
 
-        if (!empty($filters['date_from'])) {
+        if (! empty($filters['date_from'])) {
             $query->whereDate('shift_date', '>=', $filters['date_from']);
         }
 
-        if (!empty($filters['date_to'])) {
+        if (! empty($filters['date_to'])) {
             $query->whereDate('shift_date', '<=', $filters['date_to']);
         }
 
         return $query->paginate(10);
     }
 
-    public function getReassignedShifts(string $cashierId = null): Collection
+    public function getReassignedShifts(?string $cashierId = null): Collection
     {
         $query = CashierShift::reassigned()
             ->with([
@@ -216,7 +208,7 @@ class ShiftService
                 'nextCashier:id,name,email,phone',
                 'handoverStatus',
                 'handover',
-                'varianceDetails'
+                'varianceDetails',
             ]);
 
         if ($cashierId) {
@@ -244,11 +236,11 @@ class ShiftService
             'handover.handoverTo',
             'varianceDetails.responsibleCashier',
             'varianceAlerts',
-            'history'
+            'history',
         ])->find($shiftId);
 
-        if (!$shift) {
-            throw new \Illuminate\Database\Eloquent\ModelNotFoundException("Shift not found");
+        if (! $shift) {
+            throw new \Illuminate\Database\Eloquent\ModelNotFoundException('Shift not found');
         }
 
         return $shift;

@@ -2,8 +2,6 @@
 
 namespace Modules\Aggregator\Http\Requests;
 
-
-
 use Illuminate\Foundation\Http\FormRequest;
 
 class CreateAggregatorRequest extends FormRequest
@@ -44,4 +42,3 @@ class CreateAggregatorRequest extends FormRequest
         ];
     }
 }
-

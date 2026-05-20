@@ -4,12 +4,12 @@ namespace Modules\Shift\Services;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\ShiftSalesBreakdown;
-use Illuminate\Support\Facades\Cache;
 
 /**
  * ShiftFinancialService
@@ -33,42 +33,42 @@ class ShiftFinancialService
     {
         if ($shift->total_sales > 0 || $shift->cash_collected > 0 || $shift->card_payments > 0) {
             return [
-                'total_sales'         => (float) ($shift->total_sales ?? 0),
-                'net_sales'           => (float) ($shift->net_sales ?? 0),
-                'vat_amount'          => (float) ($shift->vat_amount ?? 0),
-                'cash_collected'      => (float) ($shift->cash_collected ?? 0),
-                'card_payments'       => (float) ($shift->card_payments ?? 0),
+                'total_sales' => (float) ($shift->total_sales ?? 0),
+                'net_sales' => (float) ($shift->net_sales ?? 0),
+                'vat_amount' => (float) ($shift->vat_amount ?? 0),
+                'cash_collected' => (float) ($shift->cash_collected ?? 0),
+                'card_payments' => (float) ($shift->card_payments ?? 0),
                 'aggregator_payments' => (float) ($shift->aggregator_payments ?? 0),
-                'total_variance'      => (float) ($shift->variance ?? 0),
+                'total_variance' => (float) ($shift->variance ?? 0),
             ];
         }
 
-        $totalSales         = 0;
-        $cashCollected      = 0;
-        $cardPayments       = 0;
+        $totalSales = 0;
+        $cashCollected = 0;
+        $cardPayments = 0;
         $aggregatorPayments = 0;
-        $totalVariance      = 0;
+        $totalVariance = 0;
 
         foreach ($shiftHandovers as $handover) {
-            $cashierShift        = $handover->cashierShift;
-            $totalSales         += $cashierShift->total_sales ?? 0;
-            $cashCollected      += $cashierShift->cash_collected ?? 0;
-            $cardPayments       += $cashierShift->card_payments ?? 0;
+            $cashierShift = $handover->cashierShift;
+            $totalSales += $cashierShift->total_sales ?? 0;
+            $cashCollected += $cashierShift->cash_collected ?? 0;
+            $cardPayments += $cashierShift->card_payments ?? 0;
             $aggregatorPayments += $cashierShift->salesBreakdown?->sum('amount') ?? 0;
-            $totalVariance      += $handover->variance_amount ?? 0;
+            $totalVariance += $handover->variance_amount ?? 0;
         }
 
         $vatAmount = $totalSales * 0.15;
-        $netSales  = $totalSales - $vatAmount;
+        $netSales = $totalSales - $vatAmount;
 
         return [
-            'total_sales'         => (float) $totalSales,
-            'net_sales'           => (float) $netSales,
-            'vat_amount'          => (float) $vatAmount,
-            'cash_collected'      => (float) $cashCollected,
-            'card_payments'       => (float) $cardPayments,
+            'total_sales' => (float) $totalSales,
+            'net_sales' => (float) $netSales,
+            'vat_amount' => (float) $vatAmount,
+            'cash_collected' => (float) $cashCollected,
+            'card_payments' => (float) $cardPayments,
             'aggregator_payments' => (float) $aggregatorPayments,
-            'total_variance'      => (float) $totalVariance,
+            'total_variance' => (float) $totalVariance,
         ];
     }
 
@@ -97,20 +97,20 @@ class ShiftFinancialService
      */
     public function resolveFinancialValues(Request $request, array $financialSummary, BranchManagerShift $managerShift): array
     {
-        $totalSales         = (float) ($request->total_sales ?? $financialSummary['total_sales'] ?? $managerShift->total_sales ?? 0);
-        $cashCollected      = (float) ($request->cash_collected ?? $financialSummary['cash_collected'] ?? $managerShift->cash_collected ?? 0);
-        $cardPayments       = (float) ($request->card_payments ?? $financialSummary['card_payments'] ?? $managerShift->card_payments ?? 0);
+        $totalSales = (float) ($request->total_sales ?? $financialSummary['total_sales'] ?? $managerShift->total_sales ?? 0);
+        $cashCollected = (float) ($request->cash_collected ?? $financialSummary['cash_collected'] ?? $managerShift->cash_collected ?? 0);
+        $cardPayments = (float) ($request->card_payments ?? $financialSummary['card_payments'] ?? $managerShift->card_payments ?? 0);
         $aggregatorPayments = (float) ($request->aggregator_payments ?? $financialSummary['delivery_app_payments'] ?? $managerShift->aggregator_payments ?? 0);
-        $vatAmount          = $totalSales * 0.15;
+        $vatAmount = $totalSales * 0.15;
 
         return [
-            'total_sales'         => $totalSales,
-            'cash_collected'      => $cashCollected,
-            'card_payments'       => $cardPayments,
+            'total_sales' => $totalSales,
+            'cash_collected' => $cashCollected,
+            'card_payments' => $cardPayments,
             'aggregator_payments' => $aggregatorPayments,
-            'vat_amount'          => $vatAmount,
-            'net_sales'           => $totalSales - $vatAmount,
-            'total_variance'      => (float) ($financialSummary['total_variance'] ?? 0),
+            'vat_amount' => $vatAmount,
+            'net_sales' => $totalSales - $vatAmount,
+            'total_variance' => (float) ($financialSummary['total_variance'] ?? 0),
         ];
     }
 
@@ -124,7 +124,7 @@ class ShiftFinancialService
             return [];
         }
 
-        $cashierShiftIds   = $handovers->pluck('cashier_shift_id')->toArray();
+        $cashierShiftIds = $handovers->pluck('cashier_shift_id')->toArray();
         $deliveryAppTotals = ShiftSalesBreakdown::whereIn('cashier_shift_id', $cashierShiftIds)
             ->selectRaw('cashier_shift_id, SUM(amount) as total_amount')
             ->groupBy('cashier_shift_id')
@@ -133,14 +133,15 @@ class ShiftFinancialService
 
         return $handovers->map(function ($handover) use ($deliveryAppTotals) {
             $cashierShift = $handover->cashierShift;
+
             return [
-                'cashier_name'          => $cashierShift->cashier->name,
-                'cashier_id'            => $cashierShift->cashier_id,
-                'cash_collected'        => (float) ($cashierShift->cash_collected ?? 0),
-                'card_payments'         => (float) ($cashierShift->card_payments ?? 0),
+                'cashier_name' => $cashierShift->cashier->name,
+                'cashier_id' => $cashierShift->cashier_id,
+                'cash_collected' => (float) ($cashierShift->cash_collected ?? 0),
+                'card_payments' => (float) ($cashierShift->card_payments ?? 0),
                 'delivery_app_payments' => (float) ($deliveryAppTotals[$cashierShift->id] ?? 0),
-                'variance'              => (float) ($handover->variance_amount ?? 0),
-                'sales'                 => (float) ($cashierShift->total_sales ?? 0),
+                'variance' => (float) ($handover->variance_amount ?? 0),
+                'sales' => (float) ($cashierShift->total_sales ?? 0),
             ];
         })->values()->all();
     }
@@ -196,8 +197,8 @@ class ShiftFinancialService
 
         $cashierBreakdown = $cashierShifts->map(function ($cashierShift) use ($handoversByShiftId) {
             $deliveryApps = $cashierShift->salesBreakdown->sum('amount');
-            $handover     = $handoversByShiftId->get($cashierShift->id);
-            $variance     = $handover
+            $handover = $handoversByShiftId->get($cashierShift->id);
+            $variance = $handover
                 ? (float) ($handover->variance_amount ?? $cashierShift->variance ?? 0)
                 : (float) ($cashierShift->variance ?? 0);
 
@@ -206,54 +207,54 @@ class ShiftFinancialService
                 : (float) ($cashierShift->closing_balance ?? 0);
 
             return [
-                'cashier_name'          => $cashierShift->cashier->name,
-                'cashier_id'            => $cashierShift->cashier_id,
-                'cash_collected'        => (float) ($cashierShift->cash_collected ?? 0),
-                'card_payments'         => (float) ($cashierShift->card_payments ?? 0),
+                'cashier_name' => $cashierShift->cashier->name,
+                'cashier_id' => $cashierShift->cashier_id,
+                'cash_collected' => (float) ($cashierShift->cash_collected ?? 0),
+                'card_payments' => (float) ($cashierShift->card_payments ?? 0),
                 'delivery_app_payments' => (float) $deliveryApps,
-                'variance'              => $variance,
-                'sales'                 => (float) ($cashierShift->total_sales ?? 0),
-                'handover_amount'       => $handoverAmount,
-                'handover_status'       => $handover?->status ?? 'not_submitted',
+                'variance' => $variance,
+                'sales' => (float) ($cashierShift->total_sales ?? 0),
+                'handover_amount' => $handoverAmount,
+                'handover_status' => $handover?->status ?? 'not_submitted',
             ];
         })->values()->all();
 
         $totals = [
             'total_cash_collected' => (float) collect($cashierBreakdown)->sum('cash_collected'),
-            'total_card_payments'  => (float) collect($cashierBreakdown)->sum('card_payments'),
-            'total_delivery_apps'  => (float) collect($cashierBreakdown)->sum('delivery_app_payments'),
-            'total_variance'       => (float) collect($cashierBreakdown)->sum('variance'),
-            'total_sales'          => (float) collect($cashierBreakdown)->sum('sales'),
+            'total_card_payments' => (float) collect($cashierBreakdown)->sum('card_payments'),
+            'total_delivery_apps' => (float) collect($cashierBreakdown)->sum('delivery_app_payments'),
+            'total_variance' => (float) collect($cashierBreakdown)->sum('variance'),
+            'total_sales' => (float) collect($cashierBreakdown)->sum('sales'),
         ];
 
         $aggregators = $this->buildAggregatorsBreakdown($cashierShifts);
 
-        $closingBalance  = $totals['total_cash_collected'];
+        $closingBalance = $totals['total_cash_collected'];
         $expectedBalance = $totals['total_sales'];
-        $calcVariance    = $expectedBalance - $closingBalance;
+        $calcVariance = $expectedBalance - $closingBalance;
 
-        if (!$shift->relationLoaded('branchManager')) {
+        if (! $shift->relationLoaded('branchManager')) {
             $shift->load('branchManager:id,name');
         }
-        if (!$shift->relationLoaded('branch')) {
+        if (! $shift->relationLoaded('branch')) {
             $shift->load('branch:id,name');
         }
 
         return [
             'cashier_breakdown' => $cashierBreakdown,
-            'aggregators'       => $aggregators,
-            'totals'            => $totals,
-            'manager_summary'   => [
-                'opening_balance'  => (float) ($shift->opening_balance ?? 0),
-                'closing_balance'  => (float) $closingBalance,
+            'aggregators' => $aggregators,
+            'totals' => $totals,
+            'manager_summary' => [
+                'opening_balance' => (float) ($shift->opening_balance ?? 0),
+                'closing_balance' => (float) $closingBalance,
                 'expected_balance' => (float) $expectedBalance,
-                'variance'         => (float) $calcVariance,
-                'variance_type'    => $this->shiftService->normalizeVarianceType($calcVariance),
+                'variance' => (float) $calcVariance,
+                'variance_type' => $this->shiftService->normalizeVarianceType($calcVariance),
             ],
             'shift_info' => [
-                'date'    => $shift->shift_date->format('Y-m-d'),
+                'date' => $shift->shift_date->format('Y-m-d'),
                 'manager' => $shift->branchManager->name,
-                'branch'  => $shift->branch->name,
+                'branch' => $shift->branch->name,
             ],
         ];
     }
@@ -268,25 +269,25 @@ class ShiftFinancialService
         }
 
         $details = [
-            'total_sales'         => (float) $cashierShift->total_sales,
-            'handover_amount'     => (float) $handover->handover_amount,
-            'variance_amount'     => (float) $handover->variance_amount,
-            'variance_type'       => $this->shiftService->normalizeVarianceType((float) $handover->variance_amount),
+            'total_sales' => (float) $cashierShift->total_sales,
+            'handover_amount' => (float) $handover->handover_amount,
+            'variance_amount' => (float) $handover->variance_amount,
+            'variance_type' => $this->shiftService->normalizeVarianceType((float) $handover->variance_amount),
             'reason_for_variance' => $handover->variance_reason,
-            'attached_files'      => $handover->variance_files ?? [],
-            'cashier_details'     => [
-                'id'              => $cashierShift->cashier_id,
-                'name'            => $cashierShift->cashier->name,
+            'attached_files' => $handover->variance_files ?? [],
+            'cashier_details' => [
+                'id' => $cashierShift->cashier_id,
+                'name' => $cashierShift->cashier->name,
                 'variance_reason' => $handover->variance_reason,
             ],
         ];
 
         if ($cashierShift->varianceDetails) {
             $details['other_cashiers'] = $cashierShift->varianceDetails->map(fn ($detail) => [
-                'cashier_id'   => $detail->responsible_cashier_id,
+                'cashier_id' => $detail->responsible_cashier_id,
                 'cashier_name' => $detail->responsibleCashier?->name ?? 'External Factors',
-                'amount'       => (float) $detail->assigned_amount,
-                'notes'        => $detail->reason,
+                'amount' => (float) $detail->assigned_amount,
+                'notes' => $detail->reason,
             ])->toArray();
         }
 
@@ -299,12 +300,12 @@ class ShiftFinancialService
     public function buildDailyCloseStatusArray(BranchManagerShift $managerShift): array
     {
         return [
-            'is_submitted'  => (bool) $managerShift->daily_report_submitted,
-            'submitted_at'  => $managerShift->daily_report_submitted_at?->format(self::DATETIME_FORMAT),
-            'notes'         => $managerShift->daily_report_notes,
-            'can_submit'    => !$managerShift->daily_report_submitted,
-            'can_reopen'    => $managerShift->can_reopen && $managerShift->daily_report_submitted,
-            'reopened_at'   => $managerShift->reopened_at?->format(self::DATETIME_FORMAT),
+            'is_submitted' => (bool) $managerShift->daily_report_submitted,
+            'submitted_at' => $managerShift->daily_report_submitted_at?->format(self::DATETIME_FORMAT),
+            'notes' => $managerShift->daily_report_notes,
+            'can_submit' => ! $managerShift->daily_report_submitted,
+            'can_reopen' => $managerShift->can_reopen && $managerShift->daily_report_submitted,
+            'reopened_at' => $managerShift->reopened_at?->format(self::DATETIME_FORMAT),
             'reopen_reason' => $managerShift->reopen_reason,
         ];
     }
@@ -318,34 +319,34 @@ class ShiftFinancialService
     private function buildAggregatorsBreakdown(Collection $cashierShifts): array
     {
         $aggregatorMap = [];
-        $cashierOrder  = $cashierShifts->pluck('cashier_id')->unique()->values()->all();
-        $cashierNames  = $cashierShifts->keyBy('cashier_id')->map(fn ($cs) => $cs->cashier->name ?? '')->all();
+        $cashierOrder = $cashierShifts->pluck('cashier_id')->unique()->values()->all();
+        $cashierNames = $cashierShifts->keyBy('cashier_id')->map(fn ($cs) => $cs->cashier->name ?? '')->all();
 
         foreach ($cashierShifts as $cashierShift) {
-            $cashierId   = $cashierShift->cashier_id;
+            $cashierId = $cashierShift->cashier_id;
             $cashierName = $cashierShift->cashier->name ?? ($cashierNames[$cashierId] ?? '');
             foreach ($cashierShift->salesBreakdown as $row) {
                 $agg = $row->aggregator;
-                if (!$agg) {
+                if (! $agg) {
                     continue;
                 }
                 $id = $agg->id;
                 $amount = (float) $row->amount;
-                if (!isset($aggregatorMap[$id])) {
+                if (! isset($aggregatorMap[$id])) {
                     $aggregatorMap[$id] = [
-                        'id'                => $id,
-                        'name'              => $agg->name,
-                        'logo'              => $agg->logo_url,
-                        'total'             => 0.0,
+                        'id' => $id,
+                        'name' => $agg->name,
+                        'logo' => $agg->logo_url,
+                        'total' => 0.0,
                         'cashier_breakdown' => [],
                     ];
                 }
                 $aggregatorMap[$id]['total'] += $amount;
-                if (!isset($aggregatorMap[$id]['cashier_breakdown'][$cashierId])) {
+                if (! isset($aggregatorMap[$id]['cashier_breakdown'][$cashierId])) {
                     $aggregatorMap[$id]['cashier_breakdown'][$cashierId] = [
-                        'cashier_id'   => $cashierId,
+                        'cashier_id' => $cashierId,
                         'cashier_name' => $cashierName,
-                        'amount'       => 0.0,
+                        'amount' => 0.0,
                     ];
                 }
                 $aggregatorMap[$id]['cashier_breakdown'][$cashierId]['amount'] += $amount;
@@ -360,17 +361,17 @@ class ShiftFinancialService
                     $breakdown[] = $row['cashier_breakdown'][$cid];
                 } else {
                     $breakdown[] = [
-                        'cashier_id'   => $cid,
+                        'cashier_id' => $cid,
                         'cashier_name' => $cashierNames[$cid] ?? '',
-                        'amount'       => 0.0,
+                        'amount' => 0.0,
                     ];
                 }
             }
             $result[] = [
-                'id'                => $row['id'],
-                'name'              => $row['name'],
-                'logo'              => $row['logo'],
-                'total'             => (float) $row['total'],
+                'id' => $row['id'],
+                'name' => $row['name'],
+                'logo' => $row['logo'],
+                'total' => (float) $row['total'],
                 'cashier_breakdown' => array_values($breakdown),
             ];
         }
@@ -385,19 +386,19 @@ class ShiftFinancialService
         return $handovers->reduce(function ($summary, $handover) {
             $cashierShift = $handover->cashierShift;
 
-            $summary['total_sales']           += $cashierShift->total_sales ?? 0;
-            $summary['cash_collected']        += $cashierShift->cash_collected ?? 0;
-            $summary['card_payments']         += $cashierShift->card_payments ?? 0;
+            $summary['total_sales'] += $cashierShift->total_sales ?? 0;
+            $summary['cash_collected'] += $cashierShift->cash_collected ?? 0;
+            $summary['card_payments'] += $cashierShift->card_payments ?? 0;
             $summary['delivery_app_payments'] += $cashierShift->salesBreakdown->sum('amount');
-            $summary['total_variance']        += $handover->variance_amount ?? 0;
+            $summary['total_variance'] += $handover->variance_amount ?? 0;
 
             return $summary;
         }, [
-            'total_sales'           => 0,
-            'cash_collected'        => 0,
-            'card_payments'         => 0,
+            'total_sales' => 0,
+            'cash_collected' => 0,
+            'card_payments' => 0,
             'delivery_app_payments' => 0,
-            'total_variance'        => 0,
+            'total_variance' => 0,
         ]);
     }
 }

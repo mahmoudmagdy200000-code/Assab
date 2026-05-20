@@ -56,8 +56,9 @@ class ShiftWeekRenewalCommand extends Command
                     }
 
                     if ($dryRun) {
-                        $this->line("Would create: cashier={$cashierId} shift={$shiftId} date=" . $date->format('Y-m-d'));
+                        $this->line("Would create: cashier={$cashierId} shift={$shiftId} date=".$date->format('Y-m-d'));
                         $created++;
+
                         continue;
                     }
 

@@ -3,8 +3,6 @@
 namespace Modules\Notification\Services;
 
 use Illuminate\Notifications\Notifiable;
-use Modules\Notification\Enums\NotificationChannel;
-use Modules\Notification\Enums\NotificationPriority;
 use Modules\Notification\Enums\NotificationType;
 use Modules\Notification\Repositories\NotificationPreferenceRepositoryInterface;
 
@@ -60,4 +58,3 @@ class NotificationPreferenceService
         return $this->repository->getAllPreferences($notifiable);
     }
 }
-

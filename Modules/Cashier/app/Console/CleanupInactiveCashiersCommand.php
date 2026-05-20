@@ -2,13 +2,14 @@
 
 namespace Modules\Cashier\Console;
 
+use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Modules\Cashier\Models\Cashier;
-use Carbon\Carbon;
 
 class CleanupInactiveCashiersCommand extends Command
 {
     protected $signature = 'cashiers:cleanup-inactive {--days=90}';
+
     protected $description = 'Clean up cashiers that have been deactivated for a specified period';
 
     public function handle(): int
@@ -27,6 +28,7 @@ class CleanupInactiveCashiersCommand extends Command
 
         if ($cashiers->isEmpty()) {
             $this->info('No inactive cashiers found for cleanup.');
+
             return Command::SUCCESS;
         }
 
@@ -42,6 +44,7 @@ class CleanupInactiveCashiersCommand extends Command
         }
 
         $this->info("Successfully cleaned up {$count} inactive cashiers.");
+
         return Command::SUCCESS;
     }
 }

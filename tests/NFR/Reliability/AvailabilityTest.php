@@ -2,16 +2,15 @@
 
 namespace Tests\NFR\Reliability;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Cache;
-use Modules\BranchManagers\Models\BranchManager;
 use Illuminate\Support\Facades\Hash;
+use Modules\BranchManagers\Models\BranchManager;
+use Tests\TestCase;
 
 /**
  * Reliability Requirements Test: Availability
- * 
+ *
  * Tests system availability requirements:
  * - Mobile application: 99.5% availability
  * - Backend APIs: 99.9% availability
@@ -29,7 +28,7 @@ class AvailabilityTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->manager = BranchManager::factory()->create([
             'email' => 'availability-test-manager@assab.com',
             'password' => Hash::make('password123'),
@@ -181,7 +180,7 @@ class AvailabilityTest extends TestCase
         $this->assertContains(
             $response->status(),
             [200, 404, 500],
-            "System should handle failures gracefully, not crash"
+            'System should handle failures gracefully, not crash'
         );
 
         // Response should be JSON format even on error
@@ -197,17 +196,17 @@ class AvailabilityTest extends TestCase
         // Check if health endpoint exists (common pattern)
         try {
             $response = $this->getJson('/health');
-            
+
             // If endpoint exists, it should return success
             if ($response->status() !== 404) {
-                $this->assertEquals(200, $response->status(), "Health check should return 200");
+                $this->assertEquals(200, $response->status(), 'Health check should return 200');
             } else {
                 // Endpoint doesn't exist - this is acceptable if not implemented
-                $this->assertTrue(true, "Health check endpoint not implemented (404 is acceptable)");
+                $this->assertTrue(true, 'Health check endpoint not implemented (404 is acceptable)');
             }
         } catch (\Exception $e) {
             // Exception is acceptable if endpoint doesn't exist
-            $this->assertTrue(true, "Health check endpoint not implemented or not accessible");
+            $this->assertTrue(true, 'Health check endpoint not implemented or not accessible');
         }
     }
 
@@ -235,7 +234,7 @@ class AvailabilityTest extends TestCase
         $this->assertCount(
             1,
             $statuses,
-            "API responses should be consistent. Got multiple status codes: " . implode(', ', $statuses)
+            'API responses should be consistent. Got multiple status codes: '.implode(', ', $statuses)
         );
     }
 
@@ -267,7 +266,7 @@ class AvailabilityTest extends TestCase
 
         $this->assertTrue(
             $recovered,
-            "System should recover from temporary failures within 5 attempts"
+            'System should recover from temporary failures within 5 attempts'
         );
     }
 }

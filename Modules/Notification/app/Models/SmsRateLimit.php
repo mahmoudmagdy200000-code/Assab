@@ -36,4 +36,3 @@ class SmsRateLimit extends Model
         $this->increment('count');
     }
 }
-

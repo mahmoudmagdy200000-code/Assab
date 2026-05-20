@@ -2,15 +2,15 @@
 
 namespace Tests\NFR\Usability;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Purchase\Models\PurchaseOrder;
+use Tests\TestCase;
 
 /**
  * Usability Requirements Test: User Experience
- * 
+ *
  * Tests usability requirements:
  * - New user proficiency: ≤ 2 hours training time
  * - Task completion rate: ≥ 90% for primary workflows
@@ -29,7 +29,7 @@ class UserExperienceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->manager = BranchManager::factory()->create([
             'email' => 'ux-test-manager@assab.com',
             'password' => Hash::make('password123'),
@@ -45,12 +45,12 @@ class UserExperienceTest extends TestCase
     {
         // Example: Viewing dashboard should be 1 step
         $steps = 1; // GET request
-        
+
         $response = $this->actingAs($this->manager, 'sanctum')
             ->getJson('/api/v1/branch-manager/dashboard');
 
         $response->assertStatus(200);
-        $this->assertLessThanOrEqual(3, $steps, "Common tasks should be ≤ 3 steps");
+        $this->assertLessThanOrEqual(3, $steps, 'Common tasks should be ≤ 3 steps');
     }
 
     /**
@@ -69,12 +69,12 @@ class UserExperienceTest extends TestCase
         $responseData = $response->json();
 
         // Error message should exist and be descriptive
-        $this->assertArrayHasKey('message', $responseData, "Error response should have message");
-        $this->assertNotEmpty($responseData['message'], "Error message should not be empty");
-        
+        $this->assertArrayHasKey('message', $responseData, 'Error response should have message');
+        $this->assertNotEmpty($responseData['message'], 'Error message should not be empty');
+
         // Errors should be specific
         if (isset($responseData['errors'])) {
-            $this->assertIsArray($responseData['errors'], "Errors should be structured");
+            $this->assertIsArray($responseData['errors'], 'Errors should be structured');
         }
     }
 
@@ -96,13 +96,13 @@ class UserExperienceTest extends TestCase
 
             if ($response->status() === 200) {
                 $data = $response->json();
-                
+
                 // All successful responses should have consistent structure
                 $this->assertArrayHasKey('success', $data, "Response should have 'success' field");
                 $this->assertArrayHasKey('message', $data, "Response should have 'message' field");
-                
+
                 if (isset($data['data'])) {
-                    $this->assertTrue(true, "Response structure is consistent");
+                    $this->assertTrue(true, 'Response structure is consistent');
                 }
             }
         }
@@ -120,9 +120,9 @@ class UserExperienceTest extends TestCase
         ]);
 
         $startTime = microtime(true);
-        
+
         $response = $this->actingAs($this->manager, 'sanctum')
-            ->getJson('/api/v1/purchase/orders?' . http_build_query([
+            ->getJson('/api/v1/purchase/orders?'.http_build_query([
                 'search' => 'test',
             ]));
 
@@ -149,7 +149,7 @@ class UserExperienceTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->manager, 'sanctum')
-            ->getJson('/api/v1/purchase/orders?' . http_build_query([
+            ->getJson('/api/v1/purchase/orders?'.http_build_query([
                 'per_page' => 20,
             ]));
 
@@ -159,12 +159,12 @@ class UserExperienceTest extends TestCase
         // Response should be paginated
         if (isset($data['data']['data'])) {
             $items = $data['data']['data'];
-            $this->assertLessThanOrEqual(20, count($items), "Response should be paginated");
+            $this->assertLessThanOrEqual(20, count($items), 'Response should be paginated');
         }
 
         // Should include pagination metadata
         if (isset($data['data']['meta'])) {
-            $this->assertArrayHasKey('per_page', $data['data']['meta'], "Pagination metadata should include per_page");
+            $this->assertArrayHasKey('per_page', $data['data']['meta'], 'Pagination metadata should include per_page');
         }
     }
 
@@ -180,10 +180,10 @@ class UserExperienceTest extends TestCase
             ]);
 
         // Should return validation error immediately
-        $this->assertEquals(422, $response->status(), "Validation errors should be returned immediately");
-        
+        $this->assertEquals(422, $response->status(), 'Validation errors should be returned immediately');
+
         $data = $response->json();
-        $this->assertFalse($data['success'] ?? true, "Success should be false on validation error");
+        $this->assertFalse($data['success'] ?? true, 'Success should be false on validation error');
     }
 
     /**
@@ -199,8 +199,8 @@ class UserExperienceTest extends TestCase
         $data = $response->json();
 
         // Success message should be present
-        $this->assertArrayHasKey('message', $data, "Success response should include message");
-        $this->assertNotEmpty($data['message'], "Success message should not be empty");
+        $this->assertArrayHasKey('message', $data, 'Success response should include message');
+        $this->assertNotEmpty($data['message'], 'Success message should not be empty');
     }
 
     /**
@@ -216,10 +216,10 @@ class UserExperienceTest extends TestCase
 
         if ($response->status() === 422) {
             $data = $response->json();
-            
+
             // Should have field-specific errors
             if (isset($data['errors'])) {
-                $this->assertIsArray($data['errors'], "Errors should be structured by field");
+                $this->assertIsArray($data['errors'], 'Errors should be structured by field');
             }
         }
     }
@@ -237,7 +237,7 @@ class UserExperienceTest extends TestCase
         $data = $response->json();
 
         // Data should be structured
-        $this->assertIsArray($data, "Response should be array/object");
+        $this->assertIsArray($data, 'Response should be array/object');
         $this->assertArrayHasKey('data', $data, "Response should have 'data' key");
     }
 
@@ -258,7 +258,7 @@ class UserExperienceTest extends TestCase
 
         // Should return empty array, not error
         if (isset($data['data']['data'])) {
-            $this->assertIsArray($data['data']['data'], "Empty results should return array");
+            $this->assertIsArray($data['data']['data'], 'Empty results should return array');
         }
     }
 }

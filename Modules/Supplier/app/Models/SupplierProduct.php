@@ -64,7 +64,7 @@ class SupplierProduct extends Model
 
     public function getPriceByQuality(string $quality): float
     {
-        return match($quality) {
+        return match ($quality) {
             'economy' => $this->economy_price ?? $this->unit_price,
             'standard' => $this->standard_price ?? $this->unit_price,
             'premium' => $this->premium_price ?? $this->unit_price,

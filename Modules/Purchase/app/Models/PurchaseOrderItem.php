@@ -134,13 +134,13 @@ class PurchaseOrderItem extends Model
     // Accessors
     public function getItemLogoUrlAttribute(): ?string
     {
-        if (!$this->item_logo) {
+        if (! $this->item_logo) {
             return null;
         }
-        
-        return str_starts_with($this->item_logo, 'http') 
-            ? $this->item_logo 
-            : asset('storage/' . $this->item_logo);
+
+        return str_starts_with($this->item_logo, 'http')
+            ? $this->item_logo
+            : asset('storage/'.$this->item_logo);
     }
 
     public function getQuantityVarianceAttribute(): float
@@ -148,14 +148,14 @@ class PurchaseOrderItem extends Model
         if ($this->quantity_received === null) {
             return 0;
         }
-        
+
         return ($this->quantity_confirmed ?? $this->quantity_ordered) - $this->quantity_received;
     }
 
     public function getHasVarianceAttribute(): bool
     {
-        return $this->quantity_variance != 0 || 
-               ($this->quality_ordered && $this->quality_received && 
+        return $this->quantity_variance != 0 ||
+               ($this->quality_ordered && $this->quality_received &&
                 $this->quality_ordered->value !== $this->quality_received->value);
     }
 
@@ -215,7 +215,7 @@ class PurchaseOrderItem extends Model
         $quantity = $this->quantity_confirmed ?? $this->quantity_ordered;
         $this->total_price = ($quantity * $this->unit_price) - ($this->discount ?? 0);
         $this->save();
-        
+
         return $this->total_price;
     }
 
@@ -254,7 +254,7 @@ class PurchaseOrderItem extends Model
 
     /**
      * Request partial approval (supplier can only confirm partial quantity)
-     * 
+     *
      * When supplier requests: status = needs_approval_branch
      * When branch requests: status = needs_approval_supplier
      */
@@ -269,10 +269,10 @@ class PurchaseOrderItem extends Model
         }
 
         // Set status based on who is making the request
-        $this->status = $isSupplierRequest 
-            ? OrderItemStatus::NEEDS_APPROVAL_BRANCH 
+        $this->status = $isSupplierRequest
+            ? OrderItemStatus::NEEDS_APPROVAL_BRANCH
             : OrderItemStatus::NEEDS_APPROVAL_SUPPLIER;
-        
+
         $this->approval_type = 'partial';
         $this->modification_note = $note;
         $this->approval_data = [
@@ -286,7 +286,7 @@ class PurchaseOrderItem extends Model
 
     /**
      * Request delivery time change
-     * 
+     *
      * When supplier requests: status = needs_approval_branch
      * When branch requests: status = needs_approval_supplier
      */
@@ -297,10 +297,10 @@ class PurchaseOrderItem extends Model
         }
 
         // Set status based on who is making the request
-        $this->status = $isSupplierRequest 
-            ? OrderItemStatus::NEEDS_APPROVAL_BRANCH 
+        $this->status = $isSupplierRequest
+            ? OrderItemStatus::NEEDS_APPROVAL_BRANCH
             : OrderItemStatus::NEEDS_APPROVAL_SUPPLIER;
-        
+
         $this->approval_type = 'time_change';
         $this->modification_note = $note;
         $this->approval_data = [
@@ -314,21 +314,21 @@ class PurchaseOrderItem extends Model
 
     /**
      * Request alternative product
-     * 
+     *
      * When supplier requests: status = needs_approval_branch
      * When branch requests: status = needs_approval_supplier
      */
-    public function requestAlternative(string $alternativeItemId, string $alternativeItemName, ?float $price = null, string $reason, ?string $note = null, bool $isSupplierRequest = true): void
+    public function requestAlternative(string $alternativeItemId, string $alternativeItemName, ?float $price, string $reason, ?string $note = null, bool $isSupplierRequest = true): void
     {
         if ($this->status !== OrderItemStatus::PENDING) {
             throw new \InvalidArgumentException('Item must be in pending status to request alternative');
         }
 
         // Set status based on who is making the request
-        $this->status = $isSupplierRequest 
-            ? OrderItemStatus::NEEDS_APPROVAL_BRANCH 
+        $this->status = $isSupplierRequest
+            ? OrderItemStatus::NEEDS_APPROVAL_BRANCH
             : OrderItemStatus::NEEDS_APPROVAL_SUPPLIER;
-        
+
         $this->approval_type = 'alternative';
         $this->modification_note = $note;
         $this->approval_data = [
@@ -348,12 +348,12 @@ class PurchaseOrderItem extends Model
      */
     public function approveRequest(?array $additionalData = null): void
     {
-        if (!in_array($this->status, [
+        if (! in_array($this->status, [
             OrderItemStatus::NEEDS_APPROVAL,
             OrderItemStatus::NEEDS_APPROVAL_SUPPLIER,
             OrderItemStatus::NEEDS_APPROVAL_BRANCH,
             OrderItemStatus::PARTIAL_CONFIRMATION,
-            OrderItemStatus::PARTIAL
+            OrderItemStatus::PARTIAL,
         ])) {
             throw new \InvalidArgumentException('Item must be in needs approval status to approve request');
         }
@@ -391,43 +391,43 @@ class PurchaseOrderItem extends Model
 
     /**
      * Reject approval request (branch manager rejects supplier request or supplier rejects branch request)
-     * 
+     *
      * If item has approval_type (modification), sets status to CANCELED_MODIFICATION
      * Otherwise, sets status to REJECTED (first-time rejection)
      */
     public function rejectRequest(?string $reason = null): void
     {
-        if (!in_array($this->status, [
+        if (! in_array($this->status, [
             OrderItemStatus::NEEDS_APPROVAL,
             OrderItemStatus::NEEDS_APPROVAL_SUPPLIER,
             OrderItemStatus::NEEDS_APPROVAL_BRANCH,
             OrderItemStatus::PARTIAL_CONFIRMATION,
-            OrderItemStatus::PARTIAL
+            OrderItemStatus::PARTIAL,
         ])) {
             throw new \InvalidArgumentException('Item must be in needs approval status to reject request');
         }
 
         // Check if this is a modification cancellation (has approval_type)
-        $isModificationCancellation = !empty($this->approval_type);
-        
+        $isModificationCancellation = ! empty($this->approval_type);
+
         // Set status: canceled_modification if it's a modification, otherwise rejected
-        $this->status = $isModificationCancellation 
-            ? OrderItemStatus::CANCELED_MODIFICATION 
+        $this->status = $isModificationCancellation
+            ? OrderItemStatus::CANCELED_MODIFICATION
             : OrderItemStatus::REJECTED;
-        
+
         $this->quantity_confirmed = 0;
-        
+
         // Store rejection reason in approval_data for history
         if ($reason) {
             $this->approval_data = array_merge($this->approval_data ?? [], ['rejection_reason' => $reason]);
         }
-        
+
         // Keep approval_type when canceling modification (for display purposes)
         // Only clear it if it's not a modification cancellation
-        if (!$isModificationCancellation) {
+        if (! $isModificationCancellation) {
             $this->approval_type = null;
         }
-        
+
         $this->save();
 
         // Refresh purchase order and reload items to get latest status
@@ -467,7 +467,7 @@ class PurchaseOrderItem extends Model
 
     /**
      * Cancel item by branch
-     * 
+     *
      * If item has approval_type (modification request), sets status to CANCELED_MODIFICATION
      * Otherwise, sets status to CANCELLED_BY_BRANCH (first-time cancellation)
      */
@@ -478,25 +478,25 @@ class PurchaseOrderItem extends Model
         }
 
         // Check if this is a modification cancellation (has approval_type)
-        $isModificationCancellation = !empty($this->approval_type);
-        
+        $isModificationCancellation = ! empty($this->approval_type);
+
         // Set status: canceled_modification if it's a modification, otherwise cancelled_by_branch
-        $this->status = $isModificationCancellation 
-            ? OrderItemStatus::CANCELED_MODIFICATION 
+        $this->status = $isModificationCancellation
+            ? OrderItemStatus::CANCELED_MODIFICATION
             : OrderItemStatus::CANCELLED_BY_BRANCH;
-        
+
         $this->quantity_confirmed = 0;
-        
+
         if ($reason) {
             $this->approval_data = array_merge($this->approval_data ?? [], ['cancellation_reason' => $reason]);
         }
-        
+
         // Keep approval_type when canceling modification (for display purposes)
         // Only clear it if it's not a modification cancellation
-        if (!$isModificationCancellation) {
+        if (! $isModificationCancellation) {
             $this->approval_type = null;
         }
-        
+
         $this->save();
 
         // Refresh purchase order and check status
@@ -516,11 +516,11 @@ class PurchaseOrderItem extends Model
 
         $this->status = OrderItemStatus::CANCELLED_BY_SUPPLIER;
         $this->quantity_confirmed = 0;
-        
+
         if ($reason) {
             $this->approval_data = array_merge($this->approval_data ?? [], ['cancellation_reason' => $reason]);
         }
-        
+
         $this->save();
 
         // Refresh purchase order and check status
@@ -540,11 +540,11 @@ class PurchaseOrderItem extends Model
 
         $this->status = OrderItemStatus::CANCELLED;
         $this->quantity_confirmed = 0;
-        
+
         if ($reason) {
             $this->approval_data = array_merge($this->approval_data ?? [], ['cancellation_reason' => $reason]);
         }
-        
+
         $this->save();
     }
 
@@ -557,14 +557,13 @@ class PurchaseOrderItem extends Model
         if (isset($this->approval_data['alternative_item_id'])) {
             $this->item_id = $this->approval_data['alternative_item_id'];
             $this->item_name = $this->approval_data['alternative_item_name'] ?? $this->item_name;
-            
+
             if (isset($this->approval_data['alternative_price'])) {
                 $this->unit_price = $this->approval_data['alternative_price'];
             }
-            
+
             $this->is_alternative = true;
             $this->quantity_confirmed = $this->quantity_ordered;
         }
     }
 }
-

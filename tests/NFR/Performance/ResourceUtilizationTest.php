@@ -2,13 +2,13 @@
 
 namespace Tests\NFR\Performance;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
-use Illuminate\Support\Facades\Hash;
+use Tests\TestCase;
 
 /**
  * Performance Requirements Test: Resource Utilization
@@ -53,7 +53,7 @@ class ResourceUtilizationTest extends TestCase
 
         // Perform operation that processes large dataset
         $response = $this->actingAs($this->manager, 'sanctum')
-            ->getJson('/api/v1/purchase/history?' . http_build_query([
+            ->getJson('/api/v1/purchase/history?'.http_build_query([
                 'per_page' => 100, // Maximum allowed per API validation
             ]));
 
@@ -98,7 +98,7 @@ class ResourceUtilizationTest extends TestCase
 
         // Perform operation that should use eager loading
         $response = $this->actingAs($this->manager, 'sanctum')
-            ->getJson('/api/v1/purchase/history?' . http_build_query([
+            ->getJson('/api/v1/purchase/history?'.http_build_query([
                 'per_page' => 50,
             ]));
 
@@ -112,8 +112,8 @@ class ResourceUtilizationTest extends TestCase
         $this->assertLessThan(
             20,
             $queryCount,
-            "Query count suggests N+1 problem. Expected <20 queries, got {$queryCount} queries. " .
-                "Consider using eager loading (with()) for relationships."
+            "Query count suggests N+1 problem. Expected <20 queries, got {$queryCount} queries. ".
+                'Consider using eager loading (with()) for relationships.'
         );
     }
 
@@ -163,7 +163,7 @@ class ResourceUtilizationTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->manager, 'sanctum')
-            ->getJson('/api/v1/purchase/orders?' . http_build_query([
+            ->getJson('/api/v1/purchase/orders?'.http_build_query([
                 'per_page' => 50,
             ]));
 
@@ -176,8 +176,8 @@ class ResourceUtilizationTest extends TestCase
         $this->assertLessThan(
             500 * 1024, // 500KB
             $responseSize,
-            "API response size exceeded 500KB. Actual: {$responseSizeKB}KB. " .
-                "Consider pagination, field selection, or response compression."
+            "API response size exceeded 500KB. Actual: {$responseSizeKB}KB. ".
+                'Consider pagination, field selection, or response compression.'
         );
     }
 
@@ -205,7 +205,7 @@ class ResourceUtilizationTest extends TestCase
         // Cached response should be faster (or at least not slower)
         // Note: In test environment, caching may not be as effective
         // This test mainly ensures cache doesn't break functionality
-        $this->assertTrue(true, "Cache effectiveness check passed");
+        $this->assertTrue(true, 'Cache effectiveness check passed');
     }
 
     /**
@@ -243,8 +243,8 @@ class ResourceUtilizationTest extends TestCase
         $this->assertLessThan(
             10,
             $avgQueriesPerPage,
-            "Average queries per paginated page too high. Expected <10, got {$avgQueriesPerPage}. " .
-                "Check for N+1 queries or missing indexes."
+            "Average queries per paginated page too high. Expected <10, got {$avgQueriesPerPage}. ".
+                'Check for N+1 queries or missing indexes.'
         );
     }
 
@@ -284,6 +284,6 @@ class ResourceUtilizationTest extends TestCase
             );
         }
 
-        $this->assertTrue(true, "Memory leak detection completed");
+        $this->assertTrue(true, 'Memory leak detection completed');
     }
 }

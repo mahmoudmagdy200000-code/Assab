@@ -2,9 +2,9 @@
 
 namespace Modules\Shift\Events;
 
-use Modules\Shift\Models\CashierShift;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
+use Modules\Shift\Models\CashierShift;
 
 class ShiftEndedEvent
 {

@@ -28,7 +28,7 @@ class PurchaseOrderResource extends JsonResource
             }),
 
             // Supplier info
-            'supplier' => $this->whenLoaded('supplier', fn() => new SupplierResource($this->supplier)),
+            'supplier' => $this->whenLoaded('supplier', fn () => new SupplierResource($this->supplier)),
 
             // Source branch (for transfers)
             'from_branch' => $this->whenLoaded('fromBranch', function () {
@@ -77,7 +77,7 @@ class PurchaseOrderResource extends JsonResource
             'rejection_reason' => $this->when($this->status?->value === 'rejected', $this->rejection_reason),
             'rejected_by' => $this->when(
                 $this->status?->value === 'rejected' && $this->relationLoaded('requestedBy') && $this->requestedBy,
-                fn() => [
+                fn () => [
                     'id' => $this->requestedBy->id,
                     'name' => $this->requestedBy->name,
                     'image' => $this->requestedBy->image_url ?? null,

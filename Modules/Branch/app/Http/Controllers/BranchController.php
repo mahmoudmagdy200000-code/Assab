@@ -13,7 +13,7 @@ class BranchController extends BaseController
     {
         $manager = auth()->user();
 
-        if (!$manager) {
+        if (! $manager) {
             return response()->json([
                 'success' => false,
                 'message' => 'Unauthorized.',

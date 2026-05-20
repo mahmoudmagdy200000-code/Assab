@@ -2,11 +2,10 @@
 
 namespace Modules\Shift\Services;
 
+use Illuminate\Support\Facades\DB;
+use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\ShiftSalesBreakdown;
-use Modules\Shift\Enums\ShiftStatus;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 
 class ShiftEndService
 {
@@ -43,7 +42,7 @@ class ShiftEndService
             ]);
 
             // Save Sales Breakdown (Aggregators)
-            if (!empty($data['aggregators'])) {
+            if (! empty($data['aggregators'])) {
                 $this->saveSalesBreakdown($shift, $data['aggregators']);
             }
 
@@ -72,15 +71,15 @@ class ShiftEndService
                                 ->where('transaction_type', 'Total Sales')
                                 ->first();
 
-                            if (!$existing) {
+                            if (! $existing) {
                                 \Modules\Custody\Models\CashierCustodyTransaction::create([
-                                    'cashier_id'       => $cashier->id,
-                                    'transaction_type'  => 'Total Sales',
-                                    'amount'            => $cashAmount,
-                                    'is_cash_in'        => true,
-                                    'counterpart_name'  => null,
-                                    'related_shift_id'  => $shift->id,
-                                    'transaction_date'  => now(),
+                                    'cashier_id' => $cashier->id,
+                                    'transaction_type' => 'Total Sales',
+                                    'amount' => $cashAmount,
+                                    'is_cash_in' => true,
+                                    'counterpart_name' => null,
+                                    'related_shift_id' => $shift->id,
+                                    'transaction_date' => now(),
                                 ]);
                             }
                         }
@@ -88,7 +87,7 @@ class ShiftEndService
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::warning('Failed to record end-shift-only Total Sales', [
                         'shift_id' => $shift->id,
-                        'error'    => $e->getMessage(),
+                        'error' => $e->getMessage(),
                     ]);
                 }
             }
@@ -112,10 +111,10 @@ class ShiftEndService
             $handoverToId = $data['handover_to_id'] ?? null;
 
             // إذا لم يتم تمرير handover_to_id، ابحث عنه بناءً على النوع
-            if (!$handoverToId) {
+            if (! $handoverToId) {
                 if ($handoverToType === 'branch_manager') {
                     // Check if branch_manager_id is provided directly
-                    if (!empty($data['branch_manager_id'])) {
+                    if (! empty($data['branch_manager_id'])) {
                         $handoverToId = $data['branch_manager_id'];
                     } else {
                         // إذا كان handover للبرانش مانجر، احصل على branch_manager_id من البرانش
@@ -149,11 +148,12 @@ class ShiftEndService
             $this->handoverService->recordHandover($shift, $handoverData);
 
             // Check for variance
-            if ($shift->hasVariance() && !empty($data['variance'])) {
+            if ($shift->hasVariance() && ! empty($data['variance'])) {
                 $this->varianceService->recordVariance($shift, $data['variance']);
             }
 
             DB::commit();
+
             return $shift->fresh();
         } catch (\Exception $e) {
             DB::rollBack();
@@ -163,7 +163,8 @@ class ShiftEndService
 
     private function uploadPOSReceipt($file, string $shiftId): string
     {
-        $filename = 'shift_' . $shiftId . '_' . time() . '.' . $file->getClientOriginalExtension();
+        $filename = 'shift_'.$shiftId.'_'.time().'.'.$file->getClientOriginalExtension();
+
         return $file->storeAs('receipts', $filename, 'public');
     }
 

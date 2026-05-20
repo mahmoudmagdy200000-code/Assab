@@ -69,13 +69,13 @@ class OrderTimeline extends Model
 
     public function getActorImageUrlAttribute(): ?string
     {
-        if (!$this->actor_image) {
+        if (! $this->actor_image) {
             return null;
         }
-        
-        return str_starts_with($this->actor_image, 'http') 
-            ? $this->actor_image 
-            : asset('storage/' . $this->actor_image);
+
+        return str_starts_with($this->actor_image, 'http')
+            ? $this->actor_image
+            : asset('storage/'.$this->actor_image);
     }
 
     // Scopes
@@ -106,7 +106,7 @@ class OrderTimeline extends Model
         ?array $attachments = null
     ): self {
         $actor = auth()->user();
-        
+
         return static::create([
             'timelineable_type' => get_class($model),
             'timelineable_id' => $model->id,
@@ -128,4 +128,3 @@ class OrderTimeline extends Model
         ]);
     }
 }
-

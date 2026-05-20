@@ -4,8 +4,8 @@ namespace Modules\Shift\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Modules\Cashier\Models\Cashier;
-use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 
 class CashierShiftFactory extends Factory

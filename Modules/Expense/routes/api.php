@@ -1,17 +1,15 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Modules\Expense\Http\Controllers\{
-    ExpenseController,
-    QuickCashExpenseController,
-    SingleInvoiceExpenseController,
-    GroupedInvoiceExpenseController,
-    PreApprovalRequestController,
-    ExpenseApprovalController,
-    CategoryController,
-    SupplierController,
-    ExpenseAttachmentController
-};
+use Modules\Expense\Http\Controllers\CategoryController;
+use Modules\Expense\Http\Controllers\ExpenseApprovalController;
+use Modules\Expense\Http\Controllers\ExpenseAttachmentController;
+use Modules\Expense\Http\Controllers\ExpenseController;
+use Modules\Expense\Http\Controllers\GroupedInvoiceExpenseController;
+use Modules\Expense\Http\Controllers\PreApprovalRequestController;
+use Modules\Expense\Http\Controllers\QuickCashExpenseController;
+use Modules\Expense\Http\Controllers\SingleInvoiceExpenseController;
+use Modules\Expense\Http\Controllers\SupplierController;
 
 /*
 |--------------------------------------------------------------------------

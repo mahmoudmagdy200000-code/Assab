@@ -13,7 +13,7 @@ class ReturnOrderResource extends JsonResource
     {
         $responseFiles = $this->response_files ?? [];
         $responseFilesList = is_array($responseFiles)
-            ? array_map(fn($f) => PurchaseFileHelper::toApiShape($f), $responseFiles)
+            ? array_map(fn ($f) => PurchaseFileHelper::toApiShape($f), $responseFiles)
             : [];
 
         return [
@@ -73,9 +73,10 @@ class ReturnOrderResource extends JsonResource
 
             // Relations
             'purchase_order' => $this->whenLoaded('purchaseOrder', function () {
-                if (!$this->purchaseOrder) {
+                if (! $this->purchaseOrder) {
                     return null;
                 }
+
                 return [
                     'id' => $this->purchaseOrder->id,
                     'order_number' => $this->purchaseOrder->order_number,
@@ -87,9 +88,10 @@ class ReturnOrderResource extends JsonResource
                 return $this->branch ? new BranchResource($this->branch) : null;
             }),
             'supplier' => $this->whenLoaded('supplier', function () {
-                if (!$this->supplier) {
+                if (! $this->supplier) {
                     return null;
                 }
+
                 return [
                     'id' => $this->supplier->id,
                     'name' => $this->supplier->name,
@@ -116,7 +118,7 @@ class ReturnOrderResource extends JsonResource
     {
         // Return cancellation if there was a rejection (regardless of current status)
         // Check if rejected_at or rejection_reason exists
-        if (!$this->rejected_at && !$this->rejection_reason) {
+        if (! $this->rejected_at && ! $this->rejection_reason) {
             return null;
         }
 
@@ -141,7 +143,7 @@ class ReturnOrderResource extends JsonResource
      */
     private function getCancelledByInfo(): ?array
     {
-        if (!$this->responded_by) {
+        if (! $this->responded_by) {
             return null;
         }
 
@@ -170,7 +172,7 @@ class ReturnOrderResource extends JsonResource
      */
     private function getSupplierInfo(): ?array
     {
-        if (!$this->relationLoaded('supplier') || !$this->supplier) {
+        if (! $this->relationLoaded('supplier') || ! $this->supplier) {
             return null;
         }
 

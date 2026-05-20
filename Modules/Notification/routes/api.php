@@ -23,4 +23,3 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('/{preference}', [NotificationPreferenceController::class, 'destroy'])->name('notification-preferences.destroy');
     });
 });
-

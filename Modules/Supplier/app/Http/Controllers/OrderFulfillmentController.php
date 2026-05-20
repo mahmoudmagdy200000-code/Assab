@@ -5,15 +5,15 @@ namespace Modules\Supplier\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Modules\Purchase\Models\PurchaseOrder;
-use Modules\Supplier\Http\Requests\Fulfillment\StartPreparationRequest;
-use Modules\Supplier\Http\Requests\Fulfillment\UpdatePreparationRequest;
-use Modules\Supplier\Http\Requests\Fulfillment\StartDeliveryRequest;
-use Modules\Supplier\Http\Requests\Fulfillment\ReportDelayRequest;
 use Modules\Supplier\Http\Requests\Fulfillment\CompleteDeliveryRequest;
+use Modules\Supplier\Http\Requests\Fulfillment\ReportDelayRequest;
+use Modules\Supplier\Http\Requests\Fulfillment\StartDeliveryRequest;
+use Modules\Supplier\Http\Requests\Fulfillment\StartPreparationRequest;
 use Modules\Supplier\Http\Requests\Fulfillment\SubmitInvoiceRequest;
+use Modules\Supplier\Http\Requests\Fulfillment\UpdatePreparationRequest;
 use Modules\Supplier\Services\OrderFulfillmentService;
-use Modules\Supplier\Transformers\OrderResource;
 use Modules\Supplier\Transformers\InvoiceResource;
+use Modules\Supplier\Transformers\OrderResource;
 
 class OrderFulfillmentController extends BaseController
 {
@@ -29,14 +29,14 @@ class OrderFulfillmentController extends BaseController
         try {
             $supplier = auth()->user();
             $data = $request->validated();
-            
+
             $order = PurchaseOrder::findOrFail($data['order_id']);
 
             // Handle items with files
             // In formdata, files come as items[0][file], items[1][file], etc.
             $items = [];
             $allFiles = $request->allFiles();
-            
+
             // Get items from request
             $itemsInput = $request->input('items', []);
             if (is_array($itemsInput)) {
@@ -46,11 +46,11 @@ class OrderFulfillmentController extends BaseController
                             'id' => $itemData['id'],
                             'file' => null,
                         ];
-                        
+
                         // Try to get file using different formats
                         $fileKey1 = "items.{$index}.file";
                         $fileKey2 = "items[{$index}][file]";
-                        
+
                         if (isset($allFiles[$fileKey1])) {
                             $item['file'] = $allFiles[$fileKey1];
                         } elseif (isset($allFiles[$fileKey2])) {
@@ -60,7 +60,7 @@ class OrderFulfillmentController extends BaseController
                         } elseif ($request->hasFile($fileKey2)) {
                             $item['file'] = $request->file($fileKey2);
                         }
-                        
+
                         $items[] = $item;
                     }
                 }
@@ -169,7 +169,7 @@ class OrderFulfillmentController extends BaseController
             if ($request->hasFile('delivery_photos')) {
                 $photos = $request->file('delivery_photos');
                 // Ensure it's an array
-                if (!is_array($photos)) {
+                if (! is_array($photos)) {
                     $photos = [$photos];
                 }
                 $data['delivery_photos'] = $photos;
@@ -206,4 +206,3 @@ class OrderFulfillmentController extends BaseController
         }
     }
 }
-

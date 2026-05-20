@@ -3,21 +3,21 @@
 namespace Modules\Shift\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Modules\Cashier\Models\Cashier;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\HandoverStatus;
 
 /**
  * ShiftHandoverStatus Model
- * 
+ *
  * Tracks handover approval workflow with 2-rejection rule:
  * - First rejection: Cashier can edit and resubmit
  * - Second rejection: Permanently rejected (rejected_final)
- * 
+ *
  * @property string $id
  * @property string $cashier_shift_id
  * @property HandoverStatus $status
@@ -208,8 +208,8 @@ class ShiftHandoverStatus extends Model
         }
 
         // Can re-approve after first rejection if cashier edited
-        if ($this->manager_approval_status === 'rejected' && 
-            $this->rejection_count < 2 && 
+        if ($this->manager_approval_status === 'rejected' &&
+            $this->rejection_count < 2 &&
             $this->was_edited_after_rejection) {
             return true;
         }
@@ -234,8 +234,8 @@ class ShiftHandoverStatus extends Model
         }
 
         // Can reject again if first rejection and cashier has edited
-        if ($this->manager_approval_status === 'rejected' && 
-            $this->rejection_count < 2 && 
+        if ($this->manager_approval_status === 'rejected' &&
+            $this->rejection_count < 2 &&
             $this->was_edited_after_rejection) {
             return true;
         }
@@ -270,7 +270,7 @@ class ShiftHandoverStatus extends Model
      */
     public function canBeAcceptedByCashier(): bool
     {
-        return $this->isPending() && !$this->isManagerRejected();
+        return $this->isPending() && ! $this->isManagerRejected();
     }
 
     // ==========================================
@@ -279,7 +279,7 @@ class ShiftHandoverStatus extends Model
 
     public function hasRejectionFiles(): bool
     {
-        return !empty($this->rejection_files);
+        return ! empty($this->rejection_files);
     }
 
     /**
@@ -303,7 +303,7 @@ class ShiftHandoverStatus extends Model
      */
     public function getReviewerTypeAttribute(): ?string
     {
-        if (!$this->reviewed_by_type) {
+        if (! $this->reviewed_by_type) {
             return null;
         }
 
@@ -347,12 +347,12 @@ class ShiftHandoverStatus extends Model
      */
     public function getRejectionFileUrlsAttribute(): array
     {
-        if (!$this->hasRejectionFiles()) {
+        if (! $this->hasRejectionFiles()) {
             return [];
         }
 
         return array_map(
-            fn($file) => asset('storage/' . $file),
+            fn ($file) => asset('storage/'.$file),
             $this->rejection_files
         );
     }
@@ -374,7 +374,7 @@ class ShiftHandoverStatus extends Model
     public function removeRejectionFile(string $filePath): void
     {
         $files = $this->rejection_files ?? [];
-        $files = array_filter($files, fn($f) => $f !== $filePath);
+        $files = array_filter($files, fn ($f) => $f !== $filePath);
         $this->rejection_files = array_values($files);
         $this->save();
     }
@@ -404,10 +404,10 @@ class ShiftHandoverStatus extends Model
      * Handles the 2-rejection business rule
      */
     public function reject(
-        string $reviewerId, 
-        string $reviewerType, 
-        string $reason, 
-        array $files = [], 
+        string $reviewerId,
+        string $reviewerType,
+        string $reason,
+        array $files = [],
         ?string $comment = null
     ): array {
         $newRejectionCount = $this->rejection_count + 1;
@@ -433,7 +433,7 @@ class ShiftHandoverStatus extends Model
         }
 
         // Handle rejection files
-        if (!empty($files)) {
+        if (! empty($files)) {
             $existingFiles = $this->rejection_files ?? [];
             $updateData['rejection_files'] = array_merge($existingFiles, $files);
         }
@@ -443,7 +443,7 @@ class ShiftHandoverStatus extends Model
         return [
             'rejection_count' => $newRejectionCount,
             'is_final_rejection' => $isFinalRejection,
-            'can_cashier_edit' => !$isFinalRejection,
+            'can_cashier_edit' => ! $isFinalRejection,
         ];
     }
 

@@ -15,7 +15,7 @@ class NotificationService
     public function notifyOrderReceived(PurchaseOrder $order): void
     {
         $supplier = $order->supplier;
-        if (!$supplier) {
+        if (! $supplier) {
             return;
         }
 
@@ -73,7 +73,7 @@ class NotificationService
     public function notifyOrderStatusChanged(PurchaseOrder $order, string $status): void
     {
         $supplier = $order->supplier;
-        if (!$supplier) {
+        if (! $supplier) {
             return;
         }
 
@@ -181,4 +181,3 @@ class NotificationService
         ]);
     }
 }
-

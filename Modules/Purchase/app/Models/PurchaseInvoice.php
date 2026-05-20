@@ -64,7 +64,7 @@ class PurchaseInvoice extends Model
             if (empty($invoice->invoice_number)) {
                 $invoice->invoice_number = static::generateInvoiceNumber();
             }
-            
+
             // Calculate due date if not provided
             if (empty($invoice->due_date) && $invoice->invoice_date) {
                 $invoice->due_date = $invoice->invoice_date->addDays(30);
@@ -101,28 +101,28 @@ class PurchaseInvoice extends Model
     // Accessors
     public function getFileUrlAttribute(): ?string
     {
-        if (!$this->file_path) {
+        if (! $this->file_path) {
             return null;
         }
-        
-        return str_starts_with($this->file_path, 'http') 
-            ? $this->file_path 
-            : asset('storage/' . $this->file_path);
+
+        return str_starts_with($this->file_path, 'http')
+            ? $this->file_path
+            : asset('storage/'.$this->file_path);
     }
 
     public function getIsOverdueAttribute(): bool
     {
-        return $this->due_date && 
-               $this->due_date->isPast() && 
-               !in_array($this->status, ['paid', 'disputed']);
+        return $this->due_date &&
+               $this->due_date->isPast() &&
+               ! in_array($this->status, ['paid', 'disputed']);
     }
 
     public function getDaysUntilDueAttribute(): ?int
     {
-        if (!$this->due_date) {
+        if (! $this->due_date) {
             return null;
         }
-        
+
         return now()->diffInDays($this->due_date, false);
     }
 
@@ -140,7 +140,7 @@ class PurchaseInvoice extends Model
     public function scopeOverdue($query)
     {
         return $query->where('due_date', '<', now())
-                     ->whereNotIn('status', ['paid', 'disputed']);
+            ->whereNotIn('status', ['paid', 'disputed']);
     }
 
     public function scopePaid($query)
@@ -153,6 +153,7 @@ class PurchaseInvoice extends Model
     {
         $date = now()->format('Ymd');
         $random = strtoupper(Str::random(4));
+
         return "INV-{$date}-{$random}";
     }
 
@@ -161,7 +162,7 @@ class PurchaseInvoice extends Model
         $taxAmount = $this->amount_before_tax * ($this->tax_rate / 100);
         $totalAmount = $this->amount_before_tax + $taxAmount;
         $finalAmount = $totalAmount - ($this->deduction_amount ?? 0);
-        
+
         $this->update([
             'tax_amount' => round($taxAmount, 2),
             'total_amount' => round($totalAmount, 2),
@@ -176,7 +177,7 @@ class PurchaseInvoice extends Model
             'deduction_reason' => $reason,
             'deduction_details' => $details,
         ]);
-        
+
         $this->calculateAmounts();
     }
 
@@ -200,4 +201,3 @@ class PurchaseInvoice extends Model
         ]);
     }
 }
-

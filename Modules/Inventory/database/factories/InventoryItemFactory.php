@@ -19,4 +19,3 @@ class InventoryItemFactory extends Factory
         return [];
     }
 }
-

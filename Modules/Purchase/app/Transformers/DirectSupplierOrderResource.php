@@ -4,7 +4,6 @@ namespace Modules\Purchase\Transformers;
 
 use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
 
 class DirectSupplierOrderResource extends JsonResource
@@ -45,9 +44,10 @@ class DirectSupplierOrderResource extends JsonResource
 
             // Supplier Information (same shape as Return details)
             'supplier' => $this->whenLoaded('supplier', function () {
-                if (!$this->supplier) {
+                if (! $this->supplier) {
                     return null;
                 }
+
                 return [
                     'id' => $this->supplier->id,
                     'name' => $this->supplier->name,
@@ -65,7 +65,7 @@ class DirectSupplierOrderResource extends JsonResource
             }),
 
             // Timelines
-            'timelines' => $this->whenLoaded('timelines', fn() => UnifiedTimelineResource::collection($this->timelines)),
+            'timelines' => $this->whenLoaded('timelines', fn () => UnifiedTimelineResource::collection($this->timelines)),
 
             // Status-specific details
             'status_details' => $this->getStatusDetails(),
@@ -143,7 +143,7 @@ class DirectSupplierOrderResource extends JsonResource
             'confirmed' => [
                 'confirmed_at' => $this->confirmed_at?->format('Y-m-d H:i:s'),
                 'all_items_confirmed' => $this->relationLoaded('items')
-                    ? $this->items->every(fn($item) => $item->quantity_confirmed !== null)
+                    ? $this->items->every(fn ($item) => $item->quantity_confirmed !== null)
                     : false,
             ],
             'draft' => [
@@ -163,7 +163,7 @@ class DirectSupplierOrderResource extends JsonResource
             return null;
         }
 
-        if (!$this->relationLoaded('items') || $this->items->isEmpty()) {
+        if (! $this->relationLoaded('items') || $this->items->isEmpty()) {
             return null;
         }
 
@@ -205,7 +205,7 @@ class DirectSupplierOrderResource extends JsonResource
                 ];
             }
 
-            if (!empty($itemModifications)) {
+            if (! empty($itemModifications)) {
                 $modifications[] = array_merge([
                     'item_id' => $item->id,
                     'item_name' => $item->item_name,
@@ -213,7 +213,7 @@ class DirectSupplierOrderResource extends JsonResource
             }
         }
 
-        return !empty($modifications) ? $modifications : null;
+        return ! empty($modifications) ? $modifications : null;
     }
 
     /**
@@ -268,7 +268,7 @@ class DirectSupplierOrderResource extends JsonResource
      */
     private function hasModifications(): bool
     {
-        if (!$this->relationLoaded('items')) {
+        if (! $this->relationLoaded('items')) {
             return false;
         }
 
@@ -284,7 +284,7 @@ class DirectSupplierOrderResource extends JsonResource
      */
     private function getModificationCount(): int
     {
-        if (!$this->relationLoaded('items')) {
+        if (! $this->relationLoaded('items')) {
             return 0;
         }
 

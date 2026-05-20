@@ -50,7 +50,7 @@ return new class extends Migration
                 'closed'
             ) DEFAULT 'pending'");
         } catch (\Exception $e) {
-            Log::warning('Migration add_draft_status_to_order_items: ' . $e->getMessage());
+            Log::warning('Migration add_draft_status_to_order_items: '.$e->getMessage());
         }
     }
 
@@ -100,7 +100,7 @@ return new class extends Migration
                 'closed'
             ) DEFAULT 'pending'");
         } catch (\Exception $e) {
-            Log::warning('Migration rollback add_draft_status_to_order_items: ' . $e->getMessage());
+            Log::warning('Migration rollback add_draft_status_to_order_items: '.$e->getMessage());
         }
     }
 };

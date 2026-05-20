@@ -3,10 +3,11 @@
 namespace Modules\Shift\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Modules\Cashier\Models\Cashier;
-use Modules\Shift\Enums\{VarianceType, ResponsibilityType};
+use Modules\Shift\Enums\ResponsibilityType;
+use Modules\Shift\Enums\VarianceType;
 
 /**
  * Updated ShiftVarianceDetail Model
@@ -118,17 +119,17 @@ class ShiftVarianceDetail extends Model
 
     public function hasSupportingFiles(): bool
     {
-        return !empty($this->supporting_files);
+        return ! empty($this->supporting_files);
     }
 
     public function getSupportingFilesUrls(): array
     {
-        if (!$this->hasSupportingFiles()) {
+        if (! $this->hasSupportingFiles()) {
             return [];
         }
 
         return array_map(
-            fn($file) => asset('storage/' . $file),
+            fn ($file) => asset('storage/'.$file),
             $this->supporting_files
         );
     }

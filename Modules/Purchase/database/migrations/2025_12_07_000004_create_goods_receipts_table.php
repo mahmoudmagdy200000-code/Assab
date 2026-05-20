@@ -27,7 +27,7 @@ return new class extends Migration
                 'draft',
                 'in_progress',
                 'completed',
-                'has_variance'
+                'has_variance',
             ])->default('draft');
 
             // Delivery details
@@ -54,7 +54,7 @@ return new class extends Migration
             $table->enum('document_type', [
                 'invoice',
                 'delivery_note',
-                'receipt_without_document'
+                'receipt_without_document',
             ])->nullable();
 
             // Completion

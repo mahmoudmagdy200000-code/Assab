@@ -2,18 +2,17 @@
 
 namespace Tests\NFR\Reliability;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
-use Modules\Shift\Models\CashierShift;
-use Illuminate\Support\Facades\Hash;
+use Tests\TestCase;
 
 /**
  * Reliability Requirements Test: Data Integrity
- * 
+ *
  * Tests data integrity requirements:
  * - ACID compliance for all financial transactions
  * - Data validation at multiple layers (client, API, database)
@@ -32,7 +31,7 @@ class DataIntegrityTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->manager = BranchManager::factory()->create([
             'email' => 'data-integrity-test-manager@assab.com',
             'password' => Hash::make('password123'),
@@ -67,24 +66,24 @@ class DataIntegrityTest extends TestCase
 
             // Verify data before commit (Isolation)
             $this->assertDatabaseHas('purchase_orders', ['id' => $order->id]);
-            
+
             // Simulate constraint check (Consistency)
             $totalItems = PurchaseOrderItem::where('purchase_order_id', $order->id)->sum('quantity');
-            $this->assertEquals(30, $totalItems, "Data consistency maintained");
+            $this->assertEquals(30, $totalItems, 'Data consistency maintained');
 
             DB::commit();
 
             // Verify data after commit (Durability)
             $this->assertDatabaseHas('purchase_orders', ['id' => $order->id]);
             $finalOrderCount = PurchaseOrder::count();
-            $this->assertEquals($initialOrderCount + 1, $finalOrderCount, "Transaction persisted");
+            $this->assertEquals($initialOrderCount + 1, $finalOrderCount, 'Transaction persisted');
 
         } catch (\Exception $e) {
             DB::rollBack();
-            
+
             // Verify rollback (Atomicity)
             $finalOrderCount = PurchaseOrder::count();
-            $this->assertEquals($initialOrderCount, $finalOrderCount, "Transaction rolled back on error");
+            $this->assertEquals($initialOrderCount, $finalOrderCount, 'Transaction rolled back on error');
         }
     }
 
@@ -114,19 +113,19 @@ class DataIntegrityTest extends TestCase
         try {
             $order->delete();
             $itemExists = PurchaseOrderItem::where('id', $item->id)->exists();
-            
+
             // If cascade delete, item should be deleted
             // If restrict, deletion should fail
             $this->assertTrue(
                 true,
-                "Referential integrity constraint handled"
+                'Referential integrity constraint handled'
             );
         } catch (\Exception $e) {
             // Foreign key constraint violation is expected
             $this->assertStringContainsString(
                 'foreign key',
                 strtolower($e->getMessage()),
-                "Foreign key constraint enforced"
+                'Foreign key constraint enforced'
             );
         }
     }
@@ -145,7 +144,7 @@ class DataIntegrityTest extends TestCase
             ]);
 
         // Should return validation error
-        $this->assertEquals(422, $response->status(), "API layer validation should reject invalid data");
+        $this->assertEquals(422, $response->status(), 'API layer validation should reject invalid data');
 
         // Test database layer validation (if constraints exist)
         try {
@@ -155,10 +154,10 @@ class DataIntegrityTest extends TestCase
                 'updated_at' => now(),
             ]);
 
-            $this->fail("Database layer should enforce NOT NULL constraints");
+            $this->fail('Database layer should enforce NOT NULL constraints');
         } catch (\Exception $e) {
             // Expected to fail
-            $this->assertTrue(true, "Database layer validation working");
+            $this->assertTrue(true, 'Database layer validation working');
         }
     }
 
@@ -178,10 +177,10 @@ class DataIntegrityTest extends TestCase
 
         // Store original updated_at
         $originalUpdatedAt = $order->updated_at;
-        
+
         // Add small delay to ensure timestamp difference
         usleep(100000); // 0.1 second
-        
+
         // Modify order
         $order->update([
             'total_amount' => 1500.00,
@@ -189,20 +188,20 @@ class DataIntegrityTest extends TestCase
 
         // Refresh to get updated timestamps
         $order->refresh();
-        
+
         // Check if timestamps updated (basic audit trail)
-        $this->assertNotNull($order->updated_at, "Updated timestamp should be set");
+        $this->assertNotNull($order->updated_at, 'Updated timestamp should be set');
         // Timestamps should be different or at least updated_at should be >= created_at
         $this->assertGreaterThanOrEqual(
             $order->created_at->timestamp,
             $order->updated_at->timestamp,
-            "Updated timestamp should be greater than or equal to created timestamp"
+            'Updated timestamp should be greater than or equal to created timestamp'
         );
 
         // Verify modification persisted
         $order->refresh();
-        $this->assertEquals(1500.00, $order->total_amount, "Modification persisted correctly");
-        $this->assertNotEquals($originalAmount, $order->total_amount, "Data actually changed");
+        $this->assertEquals(1500.00, $order->total_amount, 'Modification persisted correctly');
+        $this->assertNotEquals($originalAmount, $order->total_amount, 'Data actually changed');
     }
 
     /**
@@ -227,17 +226,17 @@ class DataIntegrityTest extends TestCase
 
             // Within the same transaction, we should see the updated value
             $order1->refresh();
-            $this->assertEquals(1500.00, $order1->total_amount, "Within transaction, changes should be visible");
+            $this->assertEquals(1500.00, $order1->total_amount, 'Within transaction, changes should be visible');
 
             // Rollback to test rollback capability
             DB::rollBack();
-            
+
             // After rollback, original value should be restored
             $order->refresh();
             $this->assertEquals(
                 $originalAmount,
                 $order->total_amount,
-                "After rollback, original value should be restored (transaction atomicity)"
+                'After rollback, original value should be restored (transaction atomicity)'
             );
         } catch (\Exception $e) {
             DB::rollBack();
@@ -250,10 +249,10 @@ class DataIntegrityTest extends TestCase
             $order->total_amount = 1500.00;
             $order->save();
             DB::commit();
-            
+
             // After commit, change should persist
             $order->refresh();
-            $this->assertEquals(1500.00, $order->total_amount, "After commit, changes should persist");
+            $this->assertEquals(1500.00, $order->total_amount, 'After commit, changes should persist');
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;
@@ -280,7 +279,7 @@ class DataIntegrityTest extends TestCase
 
         // Verify relationship consistency
         $itemCount = PurchaseOrderItem::where('purchase_order_id', $order->id)->count();
-        $this->assertEquals(3, $itemCount, "Item count consistent with created items");
+        $this->assertEquals(3, $itemCount, 'Item count consistent with created items');
 
         // Verify total calculation consistency
         $calculatedTotal = PurchaseOrderItem::where('purchase_order_id', $order->id)
@@ -291,7 +290,7 @@ class DataIntegrityTest extends TestCase
             3000.00,
             $calculatedTotal,
             0.01,
-            "Total amount calculation consistent across related data"
+            'Total amount calculation consistent across related data'
         );
     }
 
@@ -315,13 +314,13 @@ class DataIntegrityTest extends TestCase
             ]);
 
             // Should succeed if no unique constraint on these fields
-            $this->assertNotEquals($order1->id, $order2->id, "Orders have unique IDs");
+            $this->assertNotEquals($order1->id, $order2->id, 'Orders have unique IDs');
         } catch (\Exception $e) {
             // If unique constraint exists, exception is expected
             $this->assertStringContainsString(
                 'unique',
                 strtolower($e->getMessage()),
-                "Unique constraint enforced"
+                'Unique constraint enforced'
             );
         }
     }
@@ -340,12 +339,12 @@ class DataIntegrityTest extends TestCase
                 'updated_at' => now(),
             ]);
 
-            $this->fail("NOT NULL constraint should prevent null values");
+            $this->fail('NOT NULL constraint should prevent null values');
         } catch (\Exception $e) {
             // Expected to fail
             $this->assertTrue(
                 true,
-                "NOT NULL constraint enforced: " . $e->getMessage()
+                'NOT NULL constraint enforced: '.$e->getMessage()
             );
         }
     }
@@ -373,7 +372,6 @@ class DataIntegrityTest extends TestCase
 
             // Simulate failure
             throw new \Exception('Simulated failure');
-
             DB::commit();
         } catch (\Exception $e) {
             DB::rollBack();
@@ -384,7 +382,7 @@ class DataIntegrityTest extends TestCase
         $this->assertEquals(
             $initialOrderCount,
             $finalOrderCount,
-            "Transaction atomicity: all operations rolled back on failure"
+            'Transaction atomicity: all operations rolled back on failure'
         );
     }
 
@@ -402,14 +400,14 @@ class DataIntegrityTest extends TestCase
         // Verify numeric field maintains precision
         // Note: Database returns decimals as strings, but they should be numeric
         $order->refresh();
-        $this->assertIsNumeric($order->total_amount, "Numeric field maintains type");
-        $this->assertEqualsWithDelta(1000.50, (float) $order->total_amount, 0.01, "Decimal precision maintained");
-        
+        $this->assertIsNumeric($order->total_amount, 'Numeric field maintains type');
+        $this->assertEqualsWithDelta(1000.50, (float) $order->total_amount, 0.01, 'Decimal precision maintained');
+
         // Verify timestamps are dates
         $this->assertInstanceOf(
             \Illuminate\Support\Carbon::class,
             $order->created_at,
-            "Timestamp fields are properly typed"
+            'Timestamp fields are properly typed'
         );
     }
 }

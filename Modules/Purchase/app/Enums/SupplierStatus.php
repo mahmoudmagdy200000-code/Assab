@@ -10,7 +10,7 @@ enum SupplierStatus: string
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::ONLINE => 'Online',
             self::OFFLINE => 'Offline',
             self::AWAY => 'Away',
@@ -19,7 +19,7 @@ enum SupplierStatus: string
 
     public function color(): string
     {
-        return match($this) {
+        return match ($this) {
             self::ONLINE => '#22C55E',
             self::OFFLINE => '#EF4444',
             self::AWAY => '#F59E0B',
@@ -31,4 +31,3 @@ enum SupplierStatus: string
         return $this === self::ONLINE;
     }
 }
-

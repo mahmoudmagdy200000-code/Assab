@@ -22,23 +22,23 @@ class CashSalesTransferController extends BaseController
     public function index(Request $request): JsonResponse
     {
         $actor = auth()->user();
-        if (!($actor instanceof BrandOwner)) {
+        if (! ($actor instanceof BrandOwner)) {
             return $this->errorResponse('Only brand owners can list cash sales transfers', 403);
         }
 
-        $page     = max((int) $request->input('page', 1), 1);
+        $page = max((int) $request->input('page', 1), 1);
         $pageSize = max(min((int) $request->input('pageSize', 20), 100), 1);
 
         $status = $request->input('status');
-        if ($status && !in_array($status, ['pending', 'approved', 'rejected'], true)) {
+        if ($status && ! in_array($status, ['pending', 'approved', 'rejected'], true)) {
             return $this->errorResponse('Invalid status. Must be: pending, approved, or rejected', 400);
         }
 
         $payload = $this->service->listForBrandOwner($actor->id, [
             'fromDate' => $request->input('fromDate'),
-            'toDate'   => $request->input('toDate'),
-            'storeId'  => $request->input('storeId'),
-            'status'   => $status,
+            'toDate' => $request->input('toDate'),
+            'storeId' => $request->input('storeId'),
+            'status' => $status,
         ], $page, $pageSize);
 
         return $this->successResponse($payload, 'Cash sales transfers retrieved successfully');
@@ -66,7 +66,7 @@ class CashSalesTransferController extends BaseController
     public function approve(string $id): JsonResponse
     {
         $actor = auth()->user();
-        if (!($actor instanceof BrandOwner)) {
+        if (! ($actor instanceof BrandOwner)) {
             return $this->errorResponse('Only brand owners can approve cash sales transfers', 403);
         }
 
@@ -75,7 +75,7 @@ class CashSalesTransferController extends BaseController
 
             return $this->successResponse([
                 'requestId' => $request->id,
-                'status'    => $request->status,
+                'status' => $request->status,
             ], 'Cash sales transfer approved');
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return $this->notFoundResponse('Cash sales transfer request not found');
@@ -90,7 +90,7 @@ class CashSalesTransferController extends BaseController
     public function reject(Request $request, string $id): JsonResponse
     {
         $actor = auth()->user();
-        if (!($actor instanceof BrandOwner)) {
+        if (! ($actor instanceof BrandOwner)) {
             return $this->errorResponse('Only brand owners can reject cash sales transfers', 403);
         }
 
@@ -106,7 +106,7 @@ class CashSalesTransferController extends BaseController
 
             return $this->successResponse([
                 'requestId' => $req->id,
-                'status'    => $req->status,
+                'status' => $req->status,
             ], 'Cash sales transfer rejected');
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return $this->notFoundResponse('Cash sales transfer request not found');

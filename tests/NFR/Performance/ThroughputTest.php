@@ -2,20 +2,18 @@
 
 namespace Tests\NFR\Performance;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Hash;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
-use Illuminate\Support\Facades\Hash;
+use Tests\TestCase;
 
 /**
  * Performance Requirements Test: Throughput
- * 
+ *
  * Tests system throughput requirements:
  * - Support 500 concurrent users during peak hours
  * - Handle 100 simultaneous shift handovers
@@ -31,12 +29,13 @@ class ThroughputTest extends TestCase
     use RefreshDatabase;
 
     protected BranchManager $manager;
+
     protected $cashiers;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->manager = BranchManager::factory()->create([
             'email' => 'throughput-test-manager@assab.com',
             'password' => Hash::make('password123'),
@@ -60,7 +59,7 @@ class ThroughputTest extends TestCase
         $shiftModel = Shift::factory()->create([
             'branch_id' => $this->manager->branch_id,
         ]);
-        
+
         foreach ($this->cashiers as $cashier) {
             $shift = CashierShift::factory()->create([
                 'cashier_id' => $cashier->id,
@@ -82,7 +81,7 @@ class ThroughputTest extends TestCase
             try {
                 $shift = $shifts[$i % count($shifts)] ?? $shifts[0];
                 $cashier = $this->cashiers[$i % $this->cashiers->count()];
-                
+
                 $response = $this->actingAs($cashier, 'sanctum')
                     ->getJson("/api/v1/cashier/shifts/{$shift->id}/handover/status");
 
@@ -120,7 +119,7 @@ class ThroughputTest extends TestCase
     {
         $ordersPerMinute = 200;
         $targetOrdersPerSecond = $ordersPerMinute / 60; // ≈3.33 orders/second
-        
+
         $testOrders = 20; // Test with 20 orders
         $startTime = microtime(true);
 
@@ -150,7 +149,7 @@ class ThroughputTest extends TestCase
     {
         $updatesPerMinute = 500;
         $targetUpdatesPerSecond = $updatesPerMinute / 60; // ≈8.33 updates/second
-        
+
         $testUpdates = 50; // Test with 50 updates
         $startTime = microtime(true);
 
@@ -182,7 +181,7 @@ class ThroughputTest extends TestCase
     {
         $transactionsPerMinute = 100;
         $targetTransactionsPerSecond = $transactionsPerMinute / 60; // ≈1.67 transactions/second
-        
+
         $testTransactions = 20;
         $startTime = microtime(true);
 
@@ -213,7 +212,7 @@ class ThroughputTest extends TestCase
     {
         $recordsPerMinute = 1000;
         $targetRecordsPerSecond = $recordsPerMinute / 60; // ≈16.67 records/second
-        
+
         // Create test data with CLOSED status (history endpoint only returns closed/canceled orders)
         PurchaseOrder::factory()->count(100)->create([
             'branch_id' => $this->manager->branch_id,
@@ -238,7 +237,9 @@ class ThroughputTest extends TestCase
                 $data = $responseData['data'] ?? [];
                 $data = is_array($data) ? $data : [];
                 $fetchedRecords += count($data);
-                if (count($data) < $perPage) break; // No more data
+                if (count($data) < $perPage) {
+                    break;
+                } // No more data
             } else {
                 // If request failed, break the loop to avoid infinite loop
                 break;
@@ -265,7 +266,7 @@ class ThroughputTest extends TestCase
     {
         $concurrentCounts = 50;
         $testCounts = min(10, $concurrentCounts); // Test with 10 for CI/CD
-        
+
         $successCount = 0;
 
         for ($i = 0; $i < $testCounts; $i++) {

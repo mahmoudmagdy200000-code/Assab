@@ -54,15 +54,17 @@ class PurchaseOrdersBulkSeeder extends Seeder
 
         if ($this->branchIds === [] || $this->supplierIds === []) {
             $this->command->error('Need at least one Branch and one Supplier. Run Branch and Supplier seeders first.');
+
             return;
         }
 
         if ($this->items === []) {
             $this->command->error('Need at least one Item. Run Item/SupplierItem seeders first.');
+
             return;
         }
 
-        $this->command->info('Seeding ' . self::TOTAL_ORDERS . ' purchase orders (chunks of ' . self::CHUNK_SIZE . ')...');
+        $this->command->info('Seeding '.self::TOTAL_ORDERS.' purchase orders (chunks of '.self::CHUNK_SIZE.')...');
 
         $bar = $this->command->getOutput()->createProgressBar(self::TOTAL_ORDERS);
         $bar->start();
@@ -135,7 +137,7 @@ class PurchaseOrdersBulkSeeder extends Seeder
             $requestedBy = $managerIds[array_rand($managerIds)];
             $supplierId = $this->supplierIds[array_rand($this->supplierIds)];
 
-            $orderNumber = 'DS-SEED-' . str_pad((string) ($globalIndex + 1), 6, '0', STR_PAD_LEFT);
+            $orderNumber = 'DS-SEED-'.str_pad((string) ($globalIndex + 1), 6, '0', STR_PAD_LEFT);
 
             $numItems = random_int(1, 4);
             $orderItems = $this->pickOrderItems($supplierId, $numItems);
@@ -251,7 +253,7 @@ class PurchaseOrdersBulkSeeder extends Seeder
      */
     private function pickOrderItems(string $supplierId, int $numItems): array
     {
-        if (!isset($this->supplierItemsCache[$supplierId])) {
+        if (! isset($this->supplierItemsCache[$supplierId])) {
             $rows = SupplierItem::where('supplier_id', $supplierId)
                 ->with('item:id,name,unit')
                 ->get();
@@ -274,7 +276,7 @@ class PurchaseOrdersBulkSeeder extends Seeder
 
         $picked = [];
         $indices = array_rand($list, min($numItems, count($list)));
-        if (!is_array($indices)) {
+        if (! is_array($indices)) {
             $indices = [$indices];
         }
         foreach ($indices as $idx) {
@@ -290,6 +292,7 @@ class PurchaseOrdersBulkSeeder extends Seeder
                 'total_price' => round($qty * $unitPrice, 2),
             ];
         }
+
         return $picked;
     }
 
@@ -301,11 +304,12 @@ class PurchaseOrdersBulkSeeder extends Seeder
         if ($this->items === []) {
             $first = Item::select('id', 'name', 'unit')->first()
                 ?? SupplierItem::with('item:id,name,unit')->first()?->item;
-            if (!$first) {
+            if (! $first) {
                 throw new \RuntimeException('No Items in DB. Run Item/SupplierItem seeders first.');
             }
             $qty = random_int(1, 10);
             $price = (float) random_int(5, 100);
+
             return [
                 [
                     'item_id' => $first->id,
@@ -320,7 +324,7 @@ class PurchaseOrdersBulkSeeder extends Seeder
 
         $picked = [];
         $indices = array_rand($this->items, min($numItems, count($this->items)));
-        if (!is_array($indices)) {
+        if (! is_array($indices)) {
             $indices = [$indices];
         }
         foreach ($indices as $idx) {
@@ -336,6 +340,7 @@ class PurchaseOrdersBulkSeeder extends Seeder
                 'total_price' => round($qty * $unitPrice, 2),
             ];
         }
+
         return $picked;
     }
 
@@ -363,6 +368,7 @@ class PurchaseOrdersBulkSeeder extends Seeder
             'grams' => 'kg',
             'g' => 'kg',
         ];
+
         return $map[$u] ?? 'piece';
     }
 

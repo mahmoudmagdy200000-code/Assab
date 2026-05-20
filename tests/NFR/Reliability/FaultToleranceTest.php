@@ -2,18 +2,18 @@
 
 namespace Tests\NFR\Reliability;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Purchase\Models\PurchaseOrder;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
+use Tests\TestCase;
 
 /**
  * Reliability Requirements Test: Fault Tolerance
- * 
+ *
  * Tests fault tolerance requirements:
  * - Graceful degradation during partial system failures
  * - Automatic retry mechanism for failed API calls (3 attempts)
@@ -33,7 +33,7 @@ class FaultToleranceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->manager = BranchManager::factory()->create([
             'email' => 'fault-tolerance-test-manager@assab.com',
             'password' => Hash::make('password123'),
@@ -49,7 +49,7 @@ class FaultToleranceTest extends TestCase
     {
         // This test verifies that retry logic exists (typically in HTTP client configuration)
         // In Laravel, retries are usually handled by HTTP client or queue jobs
-        
+
         $maxRetries = 3;
         $attemptCount = 0;
 
@@ -97,7 +97,6 @@ class FaultToleranceTest extends TestCase
 
             // Simulate failure
             throw new \Exception('Simulated failure');
-
             DB::commit();
         } catch (\Exception $e) {
             DB::rollBack();
@@ -137,7 +136,7 @@ class FaultToleranceTest extends TestCase
             // Simulate subsequent failure
             // Data should remain consistent
             $order->refresh();
-            $this->assertNotNull($order->id, "Order data integrity maintained");
+            $this->assertNotNull($order->id, 'Order data integrity maintained');
 
         } catch (\Exception $e) {
             // On failure, verify no partial data exists
@@ -145,7 +144,7 @@ class FaultToleranceTest extends TestCase
             $this->assertLessThanOrEqual(
                 $initialOrderCount + 1,
                 $finalOrderCount,
-                "Partial failure left inconsistent data"
+                'Partial failure left inconsistent data'
             );
         }
     }
@@ -158,7 +157,7 @@ class FaultToleranceTest extends TestCase
     {
         // Test error handling without strict logging expectations
         // (Logging may or may not occur depending on error type)
-        
+
         // Trigger an error scenario (invalid request)
         $response = $this->actingAs($this->manager, 'sanctum')
             ->postJson('/api/v1/purchase/orders', [
@@ -170,7 +169,7 @@ class FaultToleranceTest extends TestCase
         $this->assertContains(
             $response->status(),
             [400, 422, 500],
-            "System should handle errors gracefully"
+            'System should handle errors gracefully'
         );
 
         // Response should be JSON
@@ -181,7 +180,7 @@ class FaultToleranceTest extends TestCase
                 // If response is not JSON, that's also acceptable for error handling test
             }
         }
-        
+
         // Response should have error message or proper error structure
         try {
             $data = $response->json();
@@ -191,11 +190,11 @@ class FaultToleranceTest extends TestCase
             $hasErrorsKey = isset($data['errors']);
             $this->assertTrue(
                 $hasSuccessKey || $hasMessageKey || $hasErrorsKey,
-                "Error response should have 'success', 'message', or 'errors' key. Response: " . json_encode($data)
+                "Error response should have 'success', 'message', or 'errors' key. Response: ".json_encode($data)
             );
         } catch (\Exception $e) {
             // If JSON parsing fails, at least verify status code indicates error
-            $this->assertContains($response->status(), [400, 422, 500], "Error response should have error status code");
+            $this->assertContains($response->status(), [400, 422, 500], 'Error response should have error status code');
         }
     }
 
@@ -220,11 +219,11 @@ class FaultToleranceTest extends TestCase
                 $this->assertContains(
                     $response->status(),
                     [400, 422, 500],
-                    "Invalid input should return error status, not crash"
+                    'Invalid input should return error status, not crash'
                 );
             } catch (\Exception $e) {
                 // Exception is acceptable if properly handled
-                $this->assertTrue(true, "Exception caught and handled");
+                $this->assertTrue(true, 'Exception caught and handled');
             }
         }
     }
@@ -237,15 +236,15 @@ class FaultToleranceTest extends TestCase
     {
         // Get initial connection
         $initialConnection = DB::connection()->getPdo();
-        $this->assertNotNull($initialConnection, "Initial database connection should work");
+        $this->assertNotNull($initialConnection, 'Initial database connection should work');
 
         // Simulate reconnection
         try {
             DB::reconnect();
             $reconnected = DB::connection()->getPdo();
-            $this->assertNotNull($reconnected, "Database should reconnect successfully");
+            $this->assertNotNull($reconnected, 'Database should reconnect successfully');
         } catch (\Exception $e) {
-            $this->fail("Database reconnection failed: " . $e->getMessage());
+            $this->fail('Database reconnection failed: '.$e->getMessage());
         }
     }
 
@@ -267,7 +266,7 @@ class FaultToleranceTest extends TestCase
                 try {
                     // Use a simple GET request that doesn't modify data
                     $response = $this->makeApiRequest('get', '/api/v1/branch-manager/profile');
-                    
+
                     if ($response === null) {
                         // Database setup issue - skip remaining iterations
                         break;
@@ -276,18 +275,18 @@ class FaultToleranceTest extends TestCase
                     if (in_array($response->status(), [200])) {
                         $successCount++;
                     }
-                    
+
                     // Verify response is valid
                     $this->assertContains(
                         $response->status(),
                         [200, 404, 500],
-                        "Request should return valid status"
+                        'Request should return valid status'
                     );
                 } catch (\PDOException $e) {
                     // SQLite transaction/VACUUM conflicts are acceptable in test environment
                     // Skip this iteration if database operation fails
                     $errorMessage = strtolower($e->getMessage());
-                    if (strpos($errorMessage, 'vacuum') !== false || 
+                    if (strpos($errorMessage, 'vacuum') !== false ||
                         (strpos($errorMessage, 'table') !== false && strpos($errorMessage, 'already exists') !== false)) {
                         // VACUUM or migration table issues - skip this iteration
                         continue;
@@ -302,10 +301,10 @@ class FaultToleranceTest extends TestCase
             }
 
             // At least some requests should succeed
-            $this->assertGreaterThan(0, $successCount, "Some concurrent requests should succeed");
+            $this->assertGreaterThan(0, $successCount, 'Some concurrent requests should succeed');
         } catch (\PDOException|\Illuminate\Database\QueryException $e) {
             // Database setup issues are test environment issues, not functional failures
-            $this->markTestSkipped("Database setup issue - concurrent handling verified in other tests");
+            $this->markTestSkipped('Database setup issue - concurrent handling verified in other tests');
         }
     }
 
@@ -318,38 +317,40 @@ class FaultToleranceTest extends TestCase
         // Test that system handles requests within reasonable time
         // Note: Actual timeout testing would require modifying server config
         // This test verifies the endpoint responds within reasonable time
-        
+
         // Skip if database has setup issues (tested in other tests)
-        if (!$this->canRunDatabaseTests()) {
-            $this->markTestSkipped("Database setup issue - timeout handling verified in other tests");
+        if (! $this->canRunDatabaseTests()) {
+            $this->markTestSkipped('Database setup issue - timeout handling verified in other tests');
+
             return;
         }
-        
+
         $response = $this->makeApiRequest('get', '/api/v1/branch-manager/profile');
-        
+
         if ($response === null) {
-            $this->markTestSkipped("Database setup issue - timeout handling verified in other tests");
+            $this->markTestSkipped('Database setup issue - timeout handling verified in other tests');
+
             return;
         }
-        
+
         try {
             $startTime = microtime(true);
             $endTime = microtime(true);
             $responseTime = $endTime - $startTime;
 
             // Should return response within reasonable time (less than 30 seconds)
-            $this->assertLessThan(30, $responseTime, "Response should complete within reasonable time");
+            $this->assertLessThan(30, $responseTime, 'Response should complete within reasonable time');
             $this->assertContains(
                 $response->status(),
                 [200, 408, 500],
-                "System should handle requests gracefully"
+                'System should handle requests gracefully'
             );
         } catch (\PDOException|\Illuminate\Database\QueryException $e) {
             // Database setup issues are test environment issues, not functional failures
-            $this->markTestSkipped("Database setup issue - timeout handling capability exists");
+            $this->markTestSkipped('Database setup issue - timeout handling capability exists');
         } catch (\Exception $e) {
             // Any exception should be properly handled
-            $this->assertNotNull($e->getMessage(), "Exceptions should provide error messages");
+            $this->assertNotNull($e->getMessage(), 'Exceptions should provide error messages');
         }
     }
 
@@ -362,20 +363,22 @@ class FaultToleranceTest extends TestCase
         // Test that normal operations complete without memory issues
         // Note: Actual memory limit testing would require setting low limits
         // This test verifies normal operations complete successfully
-        
+
         // Skip if database has setup issues (tested in other tests)
-        if (!$this->canRunDatabaseTests()) {
-            $this->markTestSkipped("Database setup issue - memory handling verified in other tests");
+        if (! $this->canRunDatabaseTests()) {
+            $this->markTestSkipped('Database setup issue - memory handling verified in other tests');
+
             return;
         }
-        
+
         $response = $this->makeApiRequest('get', '/api/v1/branch-manager/profile');
-        
+
         if ($response === null) {
-            $this->markTestSkipped("Database setup issue - memory handling verified in other tests");
+            $this->markTestSkipped('Database setup issue - memory handling verified in other tests');
+
             return;
         }
-        
+
         try {
             $memoryBefore = memory_get_usage();
 
@@ -383,25 +386,25 @@ class FaultToleranceTest extends TestCase
             $this->assertContains(
                 $response->status(),
                 [200, 500],
-                "System should handle memory constraints"
+                'System should handle memory constraints'
             );
 
             $memoryAfter = memory_get_usage();
             $memoryUsed = $memoryAfter - $memoryBefore;
-            
+
             // Verify memory usage is reasonable (operation completed without excessive memory use)
             // Memory should be less than 100MB for a simple profile request
             $this->assertLessThan(
                 100 * 1024 * 1024, // 100MB
                 $memoryUsed,
-                "Memory usage should be reasonable for normal operations"
+                'Memory usage should be reasonable for normal operations'
             );
         } catch (\PDOException|\Illuminate\Database\QueryException $e) {
             // Database setup issues are test environment issues, not functional failures
-            $this->markTestSkipped("Database setup issue - memory handling capability exists");
+            $this->markTestSkipped('Database setup issue - memory handling capability exists');
         }
     }
-    
+
     /**
      * Check if database tests can run (avoid setup conflicts)
      * Also handle exceptions that might occur during test execution
@@ -411,6 +414,7 @@ class FaultToleranceTest extends TestCase
         try {
             // Try a simple database operation to check if database is ready
             DB::table('migrations')->limit(1)->get();
+
             return true;
         } catch (\PDOException|\Illuminate\Database\QueryException $e) {
             $errorMessage = strtolower($e->getMessage());
@@ -418,6 +422,7 @@ class FaultToleranceTest extends TestCase
             if (strpos($errorMessage, 'table') !== false && strpos($errorMessage, 'already exists') !== false) {
                 return false;
             }
+
             // Other database errors - assume database is accessible
             return true;
         } catch (\Exception $e) {
@@ -425,7 +430,7 @@ class FaultToleranceTest extends TestCase
             return true;
         }
     }
-    
+
     /**
      * Helper to make API requests with exception handling for database issues
      */
@@ -433,7 +438,8 @@ class FaultToleranceTest extends TestCase
     {
         try {
             $testRequest = $this->actingAs($this->manager, 'sanctum');
-            return match(strtolower($method)) {
+
+            return match (strtolower($method)) {
                 'get' => $testRequest->getJson($url),
                 'post' => $testRequest->postJson($url, $data),
                 'put' => $testRequest->putJson($url, $data),

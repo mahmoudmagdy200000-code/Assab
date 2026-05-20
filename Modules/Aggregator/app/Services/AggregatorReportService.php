@@ -2,7 +2,6 @@
 
 namespace Modules\Aggregator\Services;
 
-
 use Modules\Aggregator\Models\Aggregator;
 
 class AggregatorReportService
@@ -25,6 +24,7 @@ class AggregatorReportService
             return $sale->cashierShift->shift->branch_id;
         })->map(function ($branchSales) {
             $branch = $branchSales->first()->cashierShift->shift->branch;
+
             return [
                 'branch_name' => $branch->name,
                 'total_sales' => $branchSales->sum('amount'),
@@ -134,7 +134,7 @@ class AggregatorReportService
      */
     private function getPreviousPeriod(string $period): array
     {
-        return match($period) {
+        return match ($period) {
             'today' => [
                 'start' => now()->subDay()->startOfDay(),
                 'end' => now()->subDay()->endOfDay(),
@@ -182,4 +182,3 @@ class AggregatorReportService
             ->count();
     }
 }
-

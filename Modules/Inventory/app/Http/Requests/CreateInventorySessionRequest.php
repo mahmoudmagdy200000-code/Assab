@@ -37,8 +37,9 @@ class CreateInventorySessionRequest extends FormRequest
                 'uuid',
                 function (string $_attribute, mixed $value, \Closure $fail): void {
                     $manager = auth()->user();
-                    if (!$manager || !$manager->branch_id) {
+                    if (! $manager || ! $manager->branch_id) {
                         $fail(__('Branch is required.'));
+
                         return;
                     }
                     $branchId = $manager->branch_id;

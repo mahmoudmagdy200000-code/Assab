@@ -11,7 +11,7 @@ enum NotificationChannel: string
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::EMAIL => 'Email',
             self::WHATSAPP => 'WhatsApp',
             self::APP => 'In-App',
@@ -21,7 +21,7 @@ enum NotificationChannel: string
 
     public function icon(): string
     {
-        return match($this) {
+        return match ($this) {
             self::EMAIL => 'mail',
             self::WHATSAPP => 'whatsapp',
             self::APP => 'bell',
@@ -29,4 +29,3 @@ enum NotificationChannel: string
         };
     }
 }
-

@@ -51,13 +51,13 @@ class OrderDocument extends Model
     // Accessors
     public function getFileUrlAttribute(): ?string
     {
-        if (!$this->file_path) {
+        if (! $this->file_path) {
             return null;
         }
-        
-        return str_starts_with($this->file_path, 'http') 
-            ? $this->file_path 
-            : asset('storage/' . $this->file_path);
+
+        return str_starts_with($this->file_path, 'http')
+            ? $this->file_path
+            : asset('storage/'.$this->file_path);
     }
 
     public function getTypeLabelAttribute(): ?string
@@ -68,16 +68,16 @@ class OrderDocument extends Model
     public function getFormattedSizeAttribute(): string
     {
         $bytes = $this->file_size;
-        
+
         if ($bytes >= 1073741824) {
-            return number_format($bytes / 1073741824, 2) . ' GB';
+            return number_format($bytes / 1073741824, 2).' GB';
         } elseif ($bytes >= 1048576) {
-            return number_format($bytes / 1048576, 2) . ' MB';
+            return number_format($bytes / 1048576, 2).' MB';
         } elseif ($bytes >= 1024) {
-            return number_format($bytes / 1024, 2) . ' KB';
+            return number_format($bytes / 1024, 2).' KB';
         }
-        
-        return $bytes . ' bytes';
+
+        return $bytes.' bytes';
     }
 
     // Scopes
@@ -116,7 +116,7 @@ class OrderDocument extends Model
     ): self {
         $path = $file->store('purchase/documents', 'public');
         $actor = auth()->user();
-        
+
         return static::create([
             'documentable_type' => get_class($model),
             'documentable_id' => $model->id,
@@ -146,8 +146,7 @@ class OrderDocument extends Model
         if ($this->file_path && Storage::disk('public')->exists($this->file_path)) {
             Storage::disk('public')->delete($this->file_path);
         }
-        
+
         return parent::delete();
     }
 }
-

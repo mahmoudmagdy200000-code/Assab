@@ -3,8 +3,8 @@
 namespace Modules\Cashier\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -16,11 +16,10 @@ use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Database\Factories\CashierFactory;
 use Modules\Cashier\Notifications\CashierActivationNotification;
 use Modules\Shift\Models\CashierShift;
-use Modules\Shift\Models\Shift;
 
 class Cashier extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable, SoftDeletes, HasUuids;
+    use HasApiTokens, HasFactory, HasUuids, Notifiable, SoftDeletes;
 
     protected $fillable = [
         'name',
@@ -61,12 +60,10 @@ class Cashier extends Authenticatable
         return CashierFactory::new();
     }
 
-
     public function settings()
     {
         return $this->morphOne(\Modules\Settings\Models\UserSetting::class, 'userable');
     }
-
 
     // Relationships
     public function branch(): BelongsTo
@@ -78,6 +75,7 @@ class Cashier extends Authenticatable
     {
         return $this->belongsTo(BranchManager::class, 'created_by');
     }
+
     public function shifts(): HasMany
     {
         return $this->hasMany(CashierShift::class, 'cashier_id');
@@ -151,7 +149,7 @@ class Cashier extends Authenticatable
 
     public function getImageUrlAttribute(): ?string
     {
-        return $this->image ? asset('storage/' . $this->image) : null;
+        return $this->image ? asset('storage/'.$this->image) : null;
     }
 
     // Methods
@@ -225,7 +223,6 @@ class Cashier extends Authenticatable
             ->first();
     }
 
-
     public function getTotalShiftsCount(): int
     {
         try {
@@ -256,7 +253,7 @@ class Cashier extends Authenticatable
 
     public function sendActivationNotification(): void
     {
-        $this->notify(new CashierActivationNotification());
+        $this->notify(new CashierActivationNotification);
     }
 
     public function sendPasswordResetNotification($token): void

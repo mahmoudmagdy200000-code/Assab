@@ -3,8 +3,8 @@
 namespace Modules\Expense\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * Expense Attachment Model
@@ -39,7 +39,7 @@ class ExpenseAttachment extends Model
 
     public function getUrlAttribute(): string
     {
-        return asset('storage/' . $this->file_path);
+        return asset('storage/'.$this->file_path);
     }
 
     public function getFileSizeFormattedAttribute(): string
@@ -53,6 +53,6 @@ class ExpenseAttachment extends Model
             $unitIndex++;
         }
 
-        return round($size, 2) . ' ' . $units[$unitIndex];
+        return round($size, 2).' '.$units[$unitIndex];
     }
 }

@@ -26,7 +26,7 @@ return new class extends Migration
             $table->enum('source_type', [
                 'direct_supplier',
                 'via_purchasing_officer',
-                'internal_transfer'
+                'internal_transfer',
             ]);
 
             // Source reference

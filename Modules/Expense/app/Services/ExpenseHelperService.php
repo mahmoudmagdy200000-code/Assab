@@ -2,7 +2,8 @@
 
 namespace Modules\Expense\Services;
 
-use Modules\Expense\Models\{Category, Supplier};
+use Modules\Expense\Models\Category;
+use Modules\Expense\Models\Supplier;
 
 /**
  * Expense Helper Service
@@ -35,7 +36,6 @@ class ExpenseHelperService
             ];
         });
     }
-
 
     /**
      * Get all parent categories (categories without parent_id)
@@ -207,7 +207,7 @@ class ExpenseHelperService
             'total_amount' => 1150.00,
             'vat_amount' => 150.00,
             'net_amount' => 1000.00,
-            'invoice_number' => 'INV-' . rand(1000, 9999),
+            'invoice_number' => 'INV-'.rand(1000, 9999),
         ];
     }
 

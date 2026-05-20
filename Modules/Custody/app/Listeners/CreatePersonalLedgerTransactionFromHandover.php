@@ -35,6 +35,7 @@ class CreatePersonalLedgerTransactionFromHandover
                     'handover_id' => $handover->id,
                     'transaction_id' => $existingTransaction->id,
                 ]);
+
                 return;
             }
 

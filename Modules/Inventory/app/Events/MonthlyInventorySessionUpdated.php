@@ -13,7 +13,7 @@ class MonthlyInventorySessionUpdated implements ShouldBroadcastNow
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     public function __construct(
         public readonly string $inventoryId,
@@ -27,7 +27,7 @@ class MonthlyInventorySessionUpdated implements ShouldBroadcastNow
      */
     public function broadcastOn(): PresenceChannel
     {
-        return new PresenceChannel('inventory.monthly.' . $this->inventoryId);
+        return new PresenceChannel('inventory.monthly.'.$this->inventoryId);
     }
 
     public function broadcastAs(): string

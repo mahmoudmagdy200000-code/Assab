@@ -8,10 +8,10 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
-use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Enums\OrderStatus as PurchaseOrderStatus;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\QualityLevel;
+use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\RecurringOrder\Enums\OrderSourceType;
 use Modules\RecurringOrder\Enums\RecurringOrderStatus;
@@ -79,6 +79,7 @@ class ProcessRecurringOrdersJob implements ShouldQueue
                 'status' => RecurringOrderStatus::GENERATED,
                 'next_run_at' => $nextRun,
             ]);
+
             return;
         }
 
@@ -101,7 +102,7 @@ class ProcessRecurringOrdersJob implements ShouldQueue
             : ['app'];
 
         $recurringMetadata = null;
-        if (!empty($recurring->notification_options) || !empty($recurring->smart_settings)) {
+        if (! empty($recurring->notification_options) || ! empty($recurring->smart_settings)) {
             $recurringMetadata = array_filter([
                 'notification_options' => $recurring->notification_options ?? [],
                 'smart_settings' => $recurring->smart_settings ?? [],
@@ -118,7 +119,7 @@ class ProcessRecurringOrdersJob implements ShouldQueue
             'supplier_id' => $orderType === OrderType::DIRECT_SUPPLIER ? $recurring->sourceable_id : null,
             'quality_level' => $items[0]['quality'] ?? QualityLevel::STANDARD->value,
             'notification_channels' => $notificationChannels,
-            'message' => 'Auto-generated from recurring order: ' . $recurring->order_name,
+            'message' => 'Auto-generated from recurring order: '.$recurring->order_name,
             'recurring_order_id' => $recurring->id,
             'recurring_metadata' => $recurringMetadata,
             'items' => $items,

@@ -2,16 +2,12 @@
 
 namespace Modules\Purchase\Services;
 
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
-use Modules\Purchase\Models\PurchaseOrder;
 
 /**
  * Service for creating purchase orders
- * 
+ *
  * Handles validation and data preparation for different order types
  */
 class OrderCreationService
@@ -87,7 +83,7 @@ class OrderCreationService
         $this->validateOfficerData($officerData, $index);
 
         $items = $officerData['items'] ?? [];
-        $firstItem = !empty($items) ? $items[0] : [];
+        $firstItem = ! empty($items) ? $items[0] : [];
 
         $qualityLevelRaw = $firstItem['quality'] ?? $officerData['quality_level'] ?? 'standard';
         $qualityLevel = $this->normalizeQualityLevel($qualityLevelRaw);
@@ -119,6 +115,7 @@ class OrderCreationService
         if ($isEmergency) {
             return OrderStatus::EMERGENCY;
         }
+
         return OrderStatus::PENDING;
     }
 
@@ -131,7 +128,7 @@ class OrderCreationService
             throw new \InvalidArgumentException("Branch ID is required for branch entry at index {$index}");
         }
 
-        if (empty($branchData['items']) || !is_array($branchData['items']) || count($branchData['items']) === 0) {
+        if (empty($branchData['items']) || ! is_array($branchData['items']) || count($branchData['items']) === 0) {
             throw new \InvalidArgumentException("At least one item is required for branch entry at index {$index}");
         }
     }
@@ -145,11 +142,11 @@ class OrderCreationService
             throw new \InvalidArgumentException("Supplier ID is required for direct supplier order at index {$index}");
         }
 
-        if (empty($supplierData['items']) || !is_array($supplierData['items']) || count($supplierData['items']) === 0) {
+        if (empty($supplierData['items']) || ! is_array($supplierData['items']) || count($supplierData['items']) === 0) {
             throw new \InvalidArgumentException("At least one item is required for direct supplier order at index {$index}");
         }
 
-        if (empty($supplierData['notification_channels']) || !is_array($supplierData['notification_channels']) || count($supplierData['notification_channels']) === 0) {
+        if (empty($supplierData['notification_channels']) || ! is_array($supplierData['notification_channels']) || count($supplierData['notification_channels']) === 0) {
             throw new \InvalidArgumentException("At least one notification channel is required for direct supplier order at index {$index}");
         }
     }
@@ -160,7 +157,7 @@ class OrderCreationService
     private function validateOfficerData(array $officerData, int $index): void
     {
         $items = $officerData['items'] ?? [];
-        if (empty($items) || !is_array($items) || count($items) === 0) {
+        if (empty($items) || ! is_array($items) || count($items) === 0) {
             throw new \InvalidArgumentException("At least one item is required for purchasing officer order at index {$index}");
         }
     }
@@ -180,4 +177,3 @@ class OrderCreationService
         return in_array($normalized, $validLevels) ? $normalized : 'standard';
     }
 }
-

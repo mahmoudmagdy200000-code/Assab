@@ -12,15 +12,17 @@ class RecurringOrderRepository
         if (empty($relations)) {
             return RecurringOrder::find($id);
         }
+
         return RecurringOrder::with($relations)->find($id);
     }
 
     public function findByBranch(string $id, string $branchId, array $relations = []): ?RecurringOrder
     {
         $query = RecurringOrder::where('id', $id)->where('branch_id', $branchId);
-        if (!empty($relations)) {
+        if (! empty($relations)) {
             $query->with($relations);
         }
+
         return $query->first();
     }
 

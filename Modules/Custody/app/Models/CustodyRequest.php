@@ -7,10 +7,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Modules\BranchManagers\Models\BranchManager;
 use Modules\Branch\Models\Branch;
-use Modules\Custody\Models\CustodyRequestAttachment;
-use Modules\Custody\Models\CustodyRequestTimeline;
+use Modules\BranchManagers\Models\BranchManager;
 
 class CustodyRequest extends Model
 {

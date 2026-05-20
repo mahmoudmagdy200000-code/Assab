@@ -34,14 +34,14 @@ return new class extends Migration
                 'rejected',
                 'escalated',
                 'closed',
-                'resolved'
+                'resolved',
             ])->default('draft');
 
             // Required action
             $table->enum('required_action', [
                 'replacement',
                 'cash_refund',
-                'credit_future_order'
+                'credit_future_order',
             ]);
 
             // Financial

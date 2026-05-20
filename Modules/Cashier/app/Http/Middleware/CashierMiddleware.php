@@ -11,24 +11,24 @@ class CashierMiddleware
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if (!auth()->check()) {
+        if (! auth()->check()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Unauthenticated'
+                'message' => 'Unauthenticated',
             ], 401);
         }
 
-        if (!auth()->user() instanceof Cashier) {
+        if (! auth()->user() instanceof Cashier) {
             return response()->json([
                 'success' => false,
-                'message' => 'Unauthorized. Cashier access required.'
+                'message' => 'Unauthorized. Cashier access required.',
             ], 403);
         }
 
-        if (!auth()->user()->isActive()) {
+        if (! auth()->user()->isActive()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Your account is not active. Please contact your manager.'
+                'message' => 'Your account is not active. Please contact your manager.',
             ], 403);
         }
 

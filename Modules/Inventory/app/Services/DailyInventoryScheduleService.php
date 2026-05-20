@@ -91,7 +91,7 @@ class DailyInventoryScheduleService
     public function update(string $scheduleId, array $data): DailyInventorySchedule
     {
         $schedule = $this->repository->find($scheduleId, ['scheduleItems']);
-        if (!$schedule) {
+        if (! $schedule) {
             throw new \InvalidArgumentException('Daily inventory schedule not found.');
         }
 

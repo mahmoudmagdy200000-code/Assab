@@ -13,7 +13,7 @@ class ProductResource extends JsonResource
             'item_id' => $this->item_id,
             'name' => $this->name,
             'description' => $this->description,
-            'image' => $this->image ? asset('storage/' . $this->image) : null,
+            'image' => $this->image ? asset('storage/'.$this->image) : null,
             'sku' => $this->sku,
             'unit_price' => (float) $this->unit_price,
             'economy_price' => $this->economy_price ? (float) $this->economy_price : null,
@@ -32,9 +32,10 @@ class ProductResource extends JsonResource
             'inventory' => $this->whenLoaded('inventory', function () {
                 // inventory is HasMany, so get the first record or sum quantities
                 $inventory = $this->inventory->first();
-                if (!$inventory) {
+                if (! $inventory) {
                     return null;
                 }
+
                 return [
                     'quantity' => (float) $inventory->quantity,
                     'reserved_quantity' => (float) $inventory->reserved_quantity,
@@ -48,4 +49,3 @@ class ProductResource extends JsonResource
         ];
     }
 }
-

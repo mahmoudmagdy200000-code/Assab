@@ -18,7 +18,7 @@ class OrderTrackingService
     public function savePreparingStage(PurchaseOrder $order, array $itemsData = []): OrderTrackingStage
     {
         // Ensure order is fresh with relationships
-        if (!$order->relationLoaded('items')) {
+        if (! $order->relationLoaded('items')) {
             $order->load(['items.documents']);
         }
 
@@ -32,6 +32,7 @@ class OrderTrackingService
             // Update existing stage
             $stageData = $this->preparePreparingStageData($order, $itemsData);
             $existingStage->update(['stage_data' => $stageData]);
+
             return $existingStage->fresh();
         }
 
@@ -70,6 +71,7 @@ class OrderTrackingService
         if ($existingStage) {
             $stageData = $this->prepareOutForDeliveryStageData($order, $deliveryData);
             $existingStage->update(['stage_data' => $stageData]);
+
             return $existingStage->fresh();
         }
 
@@ -89,7 +91,7 @@ class OrderTrackingService
     public function saveDeliveredStage(PurchaseOrder $order, ?array $invoiceData = null): OrderTrackingStage
     {
         // Ensure order is fresh with relationships
-        if (!$order->relationLoaded('latestGoodsReceipt')) {
+        if (! $order->relationLoaded('latestGoodsReceipt')) {
             $order->load('latestGoodsReceipt.invoice');
         }
 
@@ -112,6 +114,7 @@ class OrderTrackingService
         if ($existingStage) {
             $stageData = $this->prepareDeliveredStageData($order, $invoiceData);
             $existingStage->update(['stage_data' => $stageData]);
+
             return $existingStage->fresh();
         }
 
@@ -156,7 +159,7 @@ class OrderTrackingService
         }
 
         // Allow creation if receipt is completed OR order is closed (fallback for edge cases)
-        if (!$latestReceipt || (!$latestReceipt->is_completed && $order->status !== \Modules\Purchase\Enums\OrderStatus::CLOSED)) {
+        if (! $latestReceipt || (! $latestReceipt->is_completed && $order->status !== \Modules\Purchase\Enums\OrderStatus::CLOSED)) {
             return null;
         }
 
@@ -178,6 +181,7 @@ class OrderTrackingService
         if ($existingStage) {
             $stageData = $this->prepareOrderConfirmationStageData($order, $latestReceipt);
             $existingStage->update(['stage_data' => $stageData]);
+
             return $existingStage->fresh();
         }
 
@@ -199,7 +203,7 @@ class OrderTrackingService
     {
         $latestReceipt = $order->latestGoodsReceipt;
 
-        if (!$latestReceipt || !$latestReceipt->hasVariances) {
+        if (! $latestReceipt || ! $latestReceipt->hasVariances) {
             return null;
         }
 
@@ -212,6 +216,7 @@ class OrderTrackingService
 
         if ($existingStage) {
             $existingStage->update(['stage_data' => $stageData]);
+
             return $existingStage->fresh();
         }
 
@@ -238,7 +243,7 @@ class OrderTrackingService
             'latestGoodsReceipt.variances',
         ])->find($orderId);
 
-        if (!$order) {
+        if (! $order) {
             return [];
         }
 
@@ -285,13 +290,14 @@ class OrderTrackingService
                                     if (str_contains($doc->title, 'Item Document - ')) {
                                         return str_replace('Item Document - ', '', $doc->title);
                                     }
+
                                     return null;
                                 });
 
                             foreach ($stageData['items'] as $key => $item) {
-                                $needsRefresh = !isset($item['quality_certificate'])
+                                $needsRefresh = ! isset($item['quality_certificate'])
                                     || (is_array($item['quality_certificate'] ?? null) && ($item['quality_certificate']['file_size'] ?? null) === null);
-                                if (!$needsRefresh) {
+                                if (! $needsRefresh) {
                                     continue;
                                 }
                                 $orderItem = $order->items->firstWhere('item_name', $item['item_name']);
@@ -310,6 +316,7 @@ class OrderTrackingService
 
                                     if ($qualityCert) {
                                         $stageData['items'][$key]['quality_certificate'] = FileResource::makeOrNull($qualityCert)?->toArray(request());
+
                                         continue;
                                     }
                                 }
@@ -356,7 +363,7 @@ class OrderTrackingService
 
                     case 'delivered':
                         // Ensure invoice or delivery_note file is included
-                        if (!$order->relationLoaded('latestGoodsReceipt')) {
+                        if (! $order->relationLoaded('latestGoodsReceipt')) {
                             $order->load('latestGoodsReceipt.invoice', 'latestGoodsReceipt.documents');
                         } else {
                             $order->latestGoodsReceipt?->loadMissing(['invoice', 'documents']);
@@ -388,13 +395,13 @@ class OrderTrackingService
                         }
 
                         // Add delivery_photos from order if available (enrichment)
-                        if ($order->delivery_photos && is_array($order->delivery_photos) && !empty($order->delivery_photos)) {
+                        if ($order->delivery_photos && is_array($order->delivery_photos) && ! empty($order->delivery_photos)) {
                             $uploadedAt = $order->actual_delivery_at?->format('Y-m-d H:i:s')
                                 ?? $order->received_at?->format('Y-m-d H:i:s')
                                 ?? null;
 
                             $stageData['delivery_photos'] = array_map(function ($photoPath) use ($uploadedAt) {
-                                if (!is_string($photoPath)) {
+                                if (! is_string($photoPath)) {
                                     return FileResource::makeOrNull($photoPath)?->toArray(request());
                                 }
 
@@ -469,7 +476,7 @@ class OrderTrackingService
             ->toArray();
 
         // If order_confirmation stage doesn't exist but receipt is completed or order is closed, add it
-        if (!isset($stages['order_confirmation'])) {
+        if (! isset($stages['order_confirmation'])) {
             $latestReceipt = $order->latestGoodsReceipt;
             // Create order_confirmation if receipt is completed OR order is closed (fallback)
             if ($latestReceipt && ($latestReceipt->is_completed || $order->status === \Modules\Purchase\Enums\OrderStatus::CLOSED)) {
@@ -503,7 +510,7 @@ class OrderTrackingService
         }
 
         // If variance_logged stage doesn't exist but receipt has variances, add it
-        if (!isset($stages['variance_logged'])) {
+        if (! isset($stages['variance_logged'])) {
             $latestReceipt = $order->latestGoodsReceipt;
             if ($latestReceipt && $latestReceipt->hasVariances) {
                 // Try to save the stage (it will be created if it doesn't exist)
@@ -534,7 +541,7 @@ class OrderTrackingService
         $stageData['receipt_details'] = $stageData['receipt_details'] ?? [];
 
         // Ensure receipt items are loaded - reload if needed
-        if (!$latestReceipt->relationLoaded('items') || $latestReceipt->items->isEmpty()) {
+        if (! $latestReceipt->relationLoaded('items') || $latestReceipt->items->isEmpty()) {
             // Try to reload items directly from database
             $itemsCount = \Modules\Purchase\Models\GoodsReceiptItem::where('goods_receipt_id', $latestReceipt->id)->count();
             \Log::info('OrderTracking: Reloading receipt items', [
@@ -560,7 +567,7 @@ class OrderTrackingService
 
         $quantityVariance = $latestReceipt->quantity_variances > 0
             ? $latestReceipt->quantity_variances
-            : $items->filter(fn($item) => $item->quantity_variance != 0)->count();
+            : $items->filter(fn ($item) => $item->quantity_variance != 0)->count();
 
         $totalAmount = $latestReceipt->received_amount > 0
             ? (float) $latestReceipt->received_amount
@@ -591,7 +598,7 @@ class OrderTrackingService
         // This fixes the issue where empty array is stored but items exist
         if ($latestReceipt->items->isNotEmpty()) {
             $goodsInspections = $latestReceipt->items
-                ->filter(fn($item) => $item->variance_type !== null)
+                ->filter(fn ($item) => $item->variance_type !== null)
                 ->map(function ($item) {
                     return [
                         'item_name' => $item->item_name,
@@ -616,7 +623,7 @@ class OrderTrackingService
             ]);
 
             // If no items in receipt, keep existing goods_inspections (if any) but enrich item_image and item_unit
-            if (!empty($goodsInspections)) {
+            if (! empty($goodsInspections)) {
                 foreach ($goodsInspections as $giKey => $gi) {
                     $item = $latestReceipt->items->firstWhere('item_name', $gi['item_name'] ?? '');
                     $stageData['receipt_details']['goods_inspections'][$giKey]['item_image'] = FileResource::makeOrNull($item?->photo ?? null)?->toArray(request());
@@ -653,7 +660,7 @@ class OrderTrackingService
     private function preparePreparingStageData(PurchaseOrder $order, array $itemsData = []): array
     {
         // Load relationships if not already loaded
-        if (!$order->relationLoaded('items')) {
+        if (! $order->relationLoaded('items')) {
             $order->load(['items.documents']);
         } else {
             // If items are loaded but documents are not, load them
@@ -670,6 +677,7 @@ class OrderTrackingService
                 if (str_contains($doc->title, 'Item Document - ')) {
                     return str_replace('Item Document - ', '', $doc->title);
                 }
+
                 return null;
             });
 
@@ -759,7 +767,7 @@ class OrderTrackingService
     private function prepareDeliveredStageData(PurchaseOrder $order, ?array $invoiceData = null): array
     {
         // Load latest receipt with invoice and documents
-        if (!$order->relationLoaded('latestGoodsReceipt')) {
+        if (! $order->relationLoaded('latestGoodsReceipt')) {
             $order->load('latestGoodsReceipt.invoice', 'latestGoodsReceipt.documents');
         } else {
             $order->latestGoodsReceipt?->loadMissing(['invoice', 'documents']);
@@ -769,7 +777,7 @@ class OrderTrackingService
         $invoice = $latestReceipt?->invoice;
 
         // If no invoice in PurchaseInvoice, try SupplierInvoice
-        if (!$invoice) {
+        if (! $invoice) {
             $supplierInvoice = \Modules\Supplier\Models\SupplierInvoice::where('order_id', $order->id)
                 ->latest()
                 ->first();
@@ -784,6 +792,7 @@ class OrderTrackingService
                         'created_at' => $supplierInvoice->created_at,
                     ])?->toArray(request()),
                 ];
+
                 return $stageData;
             }
         }
@@ -806,13 +815,13 @@ class OrderTrackingService
         }
 
         // Add delivery_photos from order if available
-        if ($order->delivery_photos && is_array($order->delivery_photos) && !empty($order->delivery_photos)) {
+        if ($order->delivery_photos && is_array($order->delivery_photos) && ! empty($order->delivery_photos)) {
             $uploadedAt = $order->actual_delivery_at?->format('Y-m-d H:i:s')
                 ?? $order->received_at?->format('Y-m-d H:i:s')
                 ?? null;
 
             $stageData['delivery_photos'] = array_map(function ($photoPath) use ($uploadedAt) {
-                if (!is_string($photoPath)) {
+                if (! is_string($photoPath)) {
                     return FileResource::makeOrNull($photoPath)?->toArray(request());
                 }
 
@@ -857,7 +866,7 @@ class OrderTrackingService
 
         $quantityVariance = $latestReceipt->quantity_variances > 0
             ? $latestReceipt->quantity_variances
-            : $items->filter(fn($item) => $item->quantity_variance != 0)->count();
+            : $items->filter(fn ($item) => $item->quantity_variance != 0)->count();
 
         $totalAmount = $latestReceipt->received_amount > 0
             ? (float) $latestReceipt->received_amount
@@ -882,7 +891,7 @@ class OrderTrackingService
                         ?? $order->expected_delivery_at?->format('Y-m-d H:i:s'),
                 ],
                 'goods_inspections' => $latestReceipt->items
-                    ->filter(fn($item) => $item->variance_type !== null)
+                    ->filter(fn ($item) => $item->variance_type !== null)
                     ->map(function ($item) {
                         return [
                             'item_name' => $item->item_name,

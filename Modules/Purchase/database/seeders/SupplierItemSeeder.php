@@ -19,17 +19,19 @@ class SupplierItemSeeder extends Seeder
 
         // Get all suppliers
         $suppliers = Supplier::where('is_active', true)->get();
-        
+
         if ($suppliers->isEmpty()) {
             $this->command->warn('⚠️  No active suppliers found. Please seed suppliers first.');
+
             return;
         }
 
         // Get all items
         $items = Item::where('is_active', true)->get();
-        
+
         if ($items->isEmpty()) {
             $this->command->warn('⚠️  No active items found. Please seed items first.');
+
             return;
         }
 
@@ -38,7 +40,7 @@ class SupplierItemSeeder extends Seeder
 
         foreach ($suppliers as $supplier) {
             // Each supplier will have 60-80% of available items
-            $itemsForSupplier = $items->random(rand((int)($items->count() * 0.6), (int)($items->count() * 0.8)));
+            $itemsForSupplier = $items->random(rand((int) ($items->count() * 0.6), (int) ($items->count() * 0.8)));
 
             foreach ($itemsForSupplier as $item) {
                 // Get price from BranchItem if exists, otherwise use default
@@ -74,12 +76,11 @@ class SupplierItemSeeder extends Seeder
                 }
             }
 
-            $this->command->info("✅ Supplier '{$supplier->name}': " . $itemsForSupplier->count() . " items");
+            $this->command->info("✅ Supplier '{$supplier->name}': ".$itemsForSupplier->count().' items');
         }
 
-        $this->command->info("🎉 Supplier Items Seeding Complete!");
+        $this->command->info('🎉 Supplier Items Seeding Complete!');
         $this->command->info("   Created: {$createdCount} items");
         $this->command->info("   Updated: {$updatedCount} items");
     }
 }
-

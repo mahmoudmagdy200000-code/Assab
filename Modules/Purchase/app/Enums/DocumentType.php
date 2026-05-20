@@ -13,7 +13,7 @@ enum DocumentType: string
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::INVOICE => 'Invoice',
             self::DELIVERY_NOTE => 'Delivery Note',
             self::RECEIPT_WITHOUT_DOCUMENT => 'Receipt Without Document',
@@ -28,4 +28,3 @@ enum DocumentType: string
         return $this === self::INVOICE;
     }
 }
-

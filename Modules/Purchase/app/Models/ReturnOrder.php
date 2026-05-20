@@ -240,6 +240,7 @@ class ReturnOrder extends Model
     {
         $date = now()->format('Ymd');
         $random = strtoupper(Str::random(4));
+
         return "RO-{$date}-{$random}";
     }
 
@@ -254,12 +255,12 @@ class ReturnOrder extends Model
         if ($this->status !== ReturnStatus::DRAFT) {
             return false;
         }
-        
+
         $this->update([
             'status' => ReturnStatus::PENDING,
             'submitted_at' => now(),
         ]);
-        
+
         return true;
     }
 
@@ -350,4 +351,3 @@ class ReturnOrder extends Model
         ]);
     }
 }
-

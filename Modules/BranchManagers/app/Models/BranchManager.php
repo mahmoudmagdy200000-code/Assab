@@ -21,7 +21,7 @@ use Modules\Shift\Models\Shift;
 
 class BranchManager extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable, SoftDeletes , HasUuids;
+    use HasApiTokens, HasFactory, HasUuids, Notifiable , SoftDeletes;
 
     protected $fillable = [
         'name',
@@ -97,12 +97,10 @@ class BranchManager extends Authenticatable
     //         ->where('user_type', self::class);
     // }
 
-
     public function settings()
     {
         return $this->morphOne(\Modules\Settings\Models\UserSetting::class, 'userable');
     }
-
 
     // Scopes
     public function scopeActive($query)
@@ -143,7 +141,7 @@ class BranchManager extends Authenticatable
     // Accessors
     public function getStatusLabelAttribute(): string
     {
-        if (!$this->is_active) {
+        if (! $this->is_active) {
             return 'Inactive';
         }
 
@@ -157,7 +155,7 @@ class BranchManager extends Authenticatable
 
     public function getStatusColorAttribute(): string
     {
-        if (!$this->is_active) {
+        if (! $this->is_active) {
             return 'gray';
         }
 
@@ -171,7 +169,7 @@ class BranchManager extends Authenticatable
 
     public function getImageUrlAttribute(): ?string
     {
-        return $this->image ? asset('storage/' . $this->image) : null;
+        return $this->image ? asset('storage/'.$this->image) : null;
     }
 
     public function getFullNameAttribute(): string
@@ -225,7 +223,7 @@ class BranchManager extends Authenticatable
         ]);
     }
 
-    public function suspend(string $reason = null): void
+    public function suspend(?string $reason = null): void
     {
         $this->update([
             'status' => 'suspended',

@@ -2,8 +2,8 @@
 
 namespace Modules\Aggregator\Services;
 
-use Modules\Aggregator\Models\BranchAggregator;
 use Illuminate\Support\Facades\DB;
+use Modules\Aggregator\Models\BranchAggregator;
 
 class BranchAggregatorService
 {
@@ -130,7 +130,7 @@ class BranchAggregatorService
             ->where('aggregator_id', $aggregatorId)
             ->firstOrFail();
 
-        $newStatus = !$branchAggregator->is_enabled;
+        $newStatus = ! $branchAggregator->is_enabled;
         $branchAggregator->update(['is_enabled' => $newStatus]);
 
         return $newStatus;

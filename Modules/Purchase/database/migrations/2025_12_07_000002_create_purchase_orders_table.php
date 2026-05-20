@@ -25,7 +25,7 @@ return new class extends Migration
                 'via_purchasing_officer',
                 'internal_transfer',
                 'multiple_sources',
-                'transfer_received'
+                'transfer_received',
             ]);
 
             // Status tracking
@@ -42,7 +42,7 @@ return new class extends Migration
                 'closed',
                 'canceled',
                 'rejected',
-                'delayed'
+                'delayed',
             ])->default('draft');
 
             // Branch information

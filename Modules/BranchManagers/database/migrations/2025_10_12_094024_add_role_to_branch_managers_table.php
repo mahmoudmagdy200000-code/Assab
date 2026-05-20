@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('branch_managers', function (Blueprint $table) {
-            if (!Schema::hasColumn('branch_managers', 'role')) {
+            if (! Schema::hasColumn('branch_managers', 'role')) {
                 $table->string('role')->default('branch_manager')->after('password');
             }
         });

@@ -20,12 +20,12 @@ class ShiftFactory extends Factory
     {
         // Automatically create branch if not provided
         $branch = Branch::first() ?? Branch::factory()->create();
-        
+
         $startHour = $this->faker->numberBetween(6, 10);
         $endHour = $startHour + 8;
 
         return [
-            'name' => $this->faker->randomElement(['Morning', 'Afternoon', 'Evening', 'Night']) . ' Shift',
+            'name' => $this->faker->randomElement(['Morning', 'Afternoon', 'Evening', 'Night']).' Shift',
             'start_time' => sprintf('%02d:00:00', $startHour),
             'end_time' => sprintf('%02d:00:00', $endHour),
             'branch_id' => $branch->id,
@@ -33,4 +33,3 @@ class ShiftFactory extends Factory
         ];
     }
 }
-

@@ -2,15 +2,15 @@
 
 namespace Modules\Expense\Http\Controllers;
 
+use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-use Modules\Expense\Services\QuickCashExpenseService;
 use Modules\Expense\Models\Expense;
+use Modules\Expense\Services\QuickCashExpenseService;
 use Modules\Expense\Transformers\ExpenseDetailResource;
-use App\Http\Controllers\BaseController;
 
 /**
  * Quick Cash Expense Controller
@@ -65,7 +65,7 @@ class QuickCashExpenseController extends BaseController
 
         // Validate items total equals total_amount
         $itemsTotal = collect($request->items ?? [])->sum('amount');
-        if (!empty($request->items) && abs($itemsTotal - $request->total_amount) > 0.01) {
+        if (! empty($request->items) && abs($itemsTotal - $request->total_amount) > 0.01) {
             return $this->errorResponse(
                 'Items total must equal total amount',
                 400
@@ -95,6 +95,7 @@ class QuickCashExpenseController extends BaseController
             );
         } catch (\Exception $e) {
             DB::rollBack();
+
             return $this->errorResponse(
                 'Failed to create quick cash expense',
                 500,
@@ -146,12 +147,11 @@ class QuickCashExpenseController extends BaseController
             'supplier_id' => 'sometimes|exists:suppliers,id',
             'payment_supplier_id' => 'sometimes|exists:suppliers,id',
 
-
             // New attachments
             'invoice_receipt' => 'sometimes|array|max:5',
             'invoice_receipt.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
 
-             'is_draft' => 'sometimes|boolean',
+            'is_draft' => 'sometimes|boolean',
 
             // Delete specific attachments
             'delete_attachments' => 'sometimes|array',
@@ -202,6 +202,7 @@ class QuickCashExpenseController extends BaseController
             );
         } catch (\Exception $e) {
             DB::rollBack();
+
             return $this->errorResponse(
                 'Failed to update quick cash expense',
                 500,

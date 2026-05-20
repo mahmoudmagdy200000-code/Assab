@@ -22,4 +22,3 @@ class FilterPendingOrdersRequest extends FormRequest
         ];
     }
 }
-

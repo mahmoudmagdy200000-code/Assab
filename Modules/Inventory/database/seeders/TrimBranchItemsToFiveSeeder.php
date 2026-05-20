@@ -27,7 +27,8 @@ class TrimBranchItemsToFiveSeeder extends Seeder
             ->get();
 
         if ($all->count() <= self::KEEP_COUNT) {
-            $this->command?->info("Branch already has {$all->count()} items (≤ " . self::KEEP_COUNT . "). Nothing to trim.");
+            $this->command?->info("Branch already has {$all->count()} items (≤ ".self::KEEP_COUNT.'). Nothing to trim.');
+
             return;
         }
 
@@ -39,7 +40,7 @@ class TrimBranchItemsToFiveSeeder extends Seeder
             $branchItem->delete();
         }
 
-        $this->command?->info('Deleted ' . $toDelete->count() . ' branch item(s). Kept ' . self::KEEP_COUNT . '.');
+        $this->command?->info('Deleted '.$toDelete->count().' branch item(s). Kept '.self::KEEP_COUNT.'.');
 
         $schedule = DailyInventorySchedule::query()
             ->byBranch($branchId)

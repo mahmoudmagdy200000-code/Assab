@@ -8,10 +8,9 @@ enum AlertType: string
     case MAJOR = 'major';
     case CRITICAL = 'critical';
 
-
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::MINOR => 'Minor',
             self::MAJOR => 'Major',
             self::CRITICAL => 'Critical',
@@ -20,7 +19,7 @@ enum AlertType: string
 
     public function color(): string
     {
-        return match($this) {
+        return match ($this) {
             self::MINOR => 'yellow',
             self::MAJOR => 'orange',
             self::CRITICAL => 'red',
@@ -34,6 +33,7 @@ enum AlertType: string
         } elseif ($percentage >= 5 || $amount >= 200) {
             return self::MAJOR;
         }
+
         return self::MINOR;
     }
 }

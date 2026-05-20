@@ -79,7 +79,7 @@ return new class extends Migration
                 'variance'
             ) DEFAULT 'draft'");
         } catch (\Exception $e) {
-            Log::warning('Migration fix_purchase_orders_status_cancelled_enum: ' . $e->getMessage());
+            Log::warning('Migration fix_purchase_orders_status_cancelled_enum: '.$e->getMessage());
             throw $e;
         }
     }
@@ -125,7 +125,7 @@ return new class extends Migration
                 'variance'
             ) DEFAULT 'draft'");
         } catch (\Exception $e) {
-            Log::warning('Migration rollback fix_purchase_orders_status_cancelled_enum: ' . $e->getMessage());
+            Log::warning('Migration rollback fix_purchase_orders_status_cancelled_enum: '.$e->getMessage());
             throw $e;
         }
     }

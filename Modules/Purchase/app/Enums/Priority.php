@@ -9,7 +9,7 @@ enum Priority: string
 
     public function label(): string
     {
-        return match($this) {
+        return match ($this) {
             self::HIGH => 'High Priority',
             self::NORMAL => 'Normal Priority',
         };
@@ -17,10 +17,9 @@ enum Priority: string
 
     public function color(): string
     {
-        return match($this) {
+        return match ($this) {
             self::HIGH => '#EF4444',
             self::NORMAL => '#3B82F6',
         };
     }
 }
-

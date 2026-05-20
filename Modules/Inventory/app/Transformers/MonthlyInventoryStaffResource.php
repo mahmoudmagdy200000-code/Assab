@@ -14,6 +14,7 @@ class MonthlyInventoryStaffResource extends JsonResource
     public function toArray($request): array
     {
         $user = $this->user;
+
         return [
             'id' => $this->id,
             'user_id' => $this->user_id,
