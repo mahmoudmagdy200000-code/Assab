@@ -6,6 +6,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BrandOwner\Models\BrandOwner;
+use Modules\BrandOwner\Database\Seeders\BrandOwnerReportsDemoSeeder;
 use Modules\Custody\Models\CustodyTransaction;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Models\Supplier;
@@ -183,6 +184,38 @@ class BrandOwnerReportsAndAnalyticsTest extends TestCase
 
         $response->assertStatus(422)
             ->assertJsonPath('success', false);
+    }
+
+    public function test_demo_seeder_populates_report_data(): void
+    {
+        $this->seed(BrandOwnerReportsDemoSeeder::class);
+
+        // Branches show up for report filters.
+        $this->actingAs($this->owner, 'sanctum')
+            ->getJson('/api/brand-owner/branches')
+            ->assertStatus(200)
+            ->assertJsonPath('success', true);
+
+        // Expense report has real totals and branch comparisons.
+        $expense = $this->actingAs($this->owner, 'sanctum')
+            ->getJson('/api/brand-owner/reports/expense/expenses');
+        $expense->assertStatus(200)->assertJsonPath('success', true);
+        $this->assertGreaterThan(0, $expense->json('data.summary.total_requests'));
+        $this->assertNotEmpty($expense->json('data.branch_comparisons'));
+
+        // Custody report has per-branch balances.
+        $custody = $this->actingAs($this->owner, 'sanctum')
+            ->getJson('/api/brand-owner/reports/custody/custody');
+        $custody->assertStatus(200)->assertJsonPath('success', true);
+        $this->assertNotEmpty($custody->json('data.branches'));
+
+        // Seeder must not create export history.
+        $this->assertDatabaseCount('brand_owner_report_exports', 0);
+
+        // Idempotent: a second run adds nothing.
+        $branchCount = \Modules\Branch\Models\Branch::count();
+        $this->seed(BrandOwnerReportsDemoSeeder::class);
+        $this->assertSame($branchCount, \Modules\Branch\Models\Branch::count());
     }
 
     public function test_non_brand_owner_is_forbidden(): void
