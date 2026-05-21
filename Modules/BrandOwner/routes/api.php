@@ -2,8 +2,10 @@
 
 use Illuminate\Support\Facades\Route;
 use Modules\BrandOwner\Http\Controllers\AuthController;
+use Modules\BrandOwner\Http\Controllers\BrandOwnerBranchesController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerInventoryController;
+use Modules\BrandOwner\Http\Controllers\BrandOwnerReportsController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerReturnController;
 use Modules\BrandOwner\Http\Controllers\CashSalesTransferController;
 use Modules\BrandOwner\Http\Controllers\OwnerPaymentFormController;
@@ -119,4 +121,33 @@ Route::prefix('brand-owner/inventory')
             ->where('requestId', '[0-9a-f-]{36}');
         Route::post('waste-damage-requests/{requestId}/reject', [BrandOwnerInventoryController::class, 'wasteDamageReject'])
             ->where('requestId', '[0-9a-f-]{36}');
+    });
+
+/*
+|--------------------------------------------------------------------------
+| Brand Owner - Reports & Analytics (BrandOwnerReportsAndAnalyticsScreen)
+|--------------------------------------------------------------------------
+| Expense / custody reports, report details, exports, and the branch list
+| used by report filters.
+*/
+
+Route::prefix('brand-owner')
+    ->middleware(['auth:sanctum', 'brand.owner', 'log.throttle'])
+    ->name('api.brand-owner.')
+    ->group(function () {
+        Route::get('branches', [BrandOwnerBranchesController::class, 'index'])
+            ->name('branches');
+
+        Route::get('reports-and-analytics', [BrandOwnerReportsController::class, 'index'])
+            ->name('reports-and-analytics');
+
+        Route::get('reports/expense/{reportId}', [BrandOwnerReportsController::class, 'expenseDetails'])
+            ->name('reports.expense.show');
+        Route::get('reports/custody/{reportId}', [BrandOwnerReportsController::class, 'custodyDetails'])
+            ->name('reports.custody.show');
+
+        Route::post('reports/expense/export', [BrandOwnerReportsController::class, 'exportExpense'])
+            ->name('reports.expense.export');
+        Route::post('reports/custody/export', [BrandOwnerReportsController::class, 'exportCustody'])
+            ->name('reports.custody.export');
     });
