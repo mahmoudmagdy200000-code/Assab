@@ -201,16 +201,6 @@ class Cashier extends Authenticatable
             ->first();
     }
 
-    // public function getNextShift()
-    // {
-    //     return $this->shifts()
-    //         ->where('status', 'not_started')
-    //         ->where('shift_date', '>=', today())
-    //         ->orderBy('shift_date')
-    //         ->orderBy('start_time')
-    //         ->first();
-    // }
-
     public function getNextShift()
     {
         return $this->shifts()

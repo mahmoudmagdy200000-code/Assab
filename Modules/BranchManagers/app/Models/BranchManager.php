@@ -83,19 +83,13 @@ class BranchManager extends Authenticatable
 
     public function expenses(): HasMany
     {
-        return $this->hasMany(Expense::class, 'created_by');
+        return $this->hasMany(Expense::class, 'branch_manager_id');
     }
 
     public function cashierShifts(): HasMany
     {
         return $this->hasMany(CashierShift::class, 'created_by');
     }
-
-    // public function settings(): HasMany
-    // {
-    //     return $this->hasMany(UserSetting::class, 'user_id')
-    //         ->where('user_type', self::class);
-    // }
 
     public function settings()
     {

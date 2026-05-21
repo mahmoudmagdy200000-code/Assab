@@ -9,7 +9,8 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (Schema::getConnection()->getDriverName() === 'sqlite') {
+        // SQLite has no ENUM / MODIFY; use the schema builder there.
+        if (DB::getDriverName() === 'sqlite') {
             Schema::table('custody_requests', function (Blueprint $table) {
                 $table->string('preferred_receipt_method')->nullable()->change();
             });
@@ -22,7 +23,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        if (Schema::getConnection()->getDriverName() === 'sqlite') {
+        if (DB::getDriverName() === 'sqlite') {
             Schema::table('custody_requests', function (Blueprint $table) {
                 $table->string('preferred_receipt_method')->nullable(false)->change();
             });
