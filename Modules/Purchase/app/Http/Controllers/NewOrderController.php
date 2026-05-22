@@ -16,6 +16,7 @@ use Modules\Purchase\Http\Requests\GetDirectSupplierItemsRequest;
 use Modules\Purchase\Http\Requests\GetPurchasingOfficerItemsRequest;
 use Modules\Purchase\Http\Requests\GetSupplierItemsRequest;
 use Modules\Purchase\Http\Requests\GetTransferItemsRequest;
+use Modules\Purchase\Http\Requests\SaveComparisonRequest;
 use Modules\Purchase\Http\Requests\StoreMultipleOrdersRequest;
 use Modules\Purchase\Notifications\PurchaseOrderCreated;
 use Modules\Purchase\Services\OrderDataService;
@@ -25,6 +26,7 @@ use Modules\Purchase\Transformers\BranchItemResource;
 use Modules\Purchase\Transformers\OrderSummaryResource;
 use Modules\Purchase\Transformers\PriceComparisonResource;
 use Modules\Purchase\Transformers\PurchaseOrderResource;
+use Modules\Purchase\Transformers\SavedComparisonResource;
 
 class NewOrderController extends BaseController
 {
@@ -133,6 +135,111 @@ class NewOrderController extends BaseController
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'comparing prices');
+        }
+    }
+
+    /**
+     * Save a price comparison snapshot
+     *
+     * Recomputes the comparison server-side from item_id and stores the full
+     * result, then returns the saved record (including its id).
+     *
+     * Input (JSON body or query string):
+     * - item_id (required): UUID of the item
+     * - quantity (optional): Quantity to compare for (default: 1)
+     * - note (optional): Free-text note, max 500 chars
+     *
+     * @group New Order
+     */
+    public function saveComparison(SaveComparisonRequest $request): JsonResponse
+    {
+        try {
+            $validated = $request->validated();
+            $user = $request->user();
+
+            $saved = $this->priceService->saveComparison(
+                $validated['item_id'],
+                $validated['quantity'] ?? null,
+                $user->branch_id,
+                $user->getKey(),
+                $validated['note'] ?? null
+            );
+
+            return $this->createdResponse(
+                (new SavedComparisonResource($saved))->withSnapshot(),
+                'Price comparison saved successfully'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 404);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'saving price comparison');
+        }
+    }
+
+    /**
+     * List saved price comparisons for the current branch
+     *
+     * @group New Order
+     */
+    public function savedComparisons(Request $request): JsonResponse
+    {
+        try {
+            $branchId = $request->user()->branch_id;
+            $perPage = (int) $request->get('per_page', 15);
+
+            $saved = $this->priceService->getSavedComparisons($branchId, $perPage);
+
+            return $this->paginatedResponse(
+                SavedComparisonResource::collection($saved),
+                'Saved price comparisons retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching saved price comparisons');
+        }
+    }
+
+    /**
+     * Show a single saved price comparison (with the full stored snapshot)
+     *
+     * @group New Order
+     */
+    public function showSavedComparison(Request $request, string $id): JsonResponse
+    {
+        try {
+            $branchId = $request->user()->branch_id;
+            $saved = $this->priceService->getSavedComparison($id, $branchId);
+
+            if (! $saved) {
+                return $this->notFoundResponse('Saved price comparison not found');
+            }
+
+            return $this->successResponse(
+                (new SavedComparisonResource($saved))->withSnapshot(),
+                'Saved price comparison retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching saved price comparison');
+        }
+    }
+
+    /**
+     * Delete a saved price comparison
+     *
+     * @group New Order
+     */
+    public function deleteSavedComparison(Request $request, string $id): JsonResponse
+    {
+        try {
+            $branchId = $request->user()->branch_id;
+            $deleted = $this->priceService->deleteSavedComparison($id, $branchId);
+
+            if (! $deleted) {
+                return $this->notFoundResponse('Saved price comparison not found');
+            }
+
+            return $this->deletedResponse('Saved price comparison deleted successfully');
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'deleting saved price comparison');
         }
     }
 

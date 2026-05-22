@@ -2,7 +2,9 @@
 
 namespace Modules\Purchase\Services\Contracts;
 
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Modules\Purchase\Models\SavedPriceComparison;
 
 /**
  * Interface for Price Comparison Service
@@ -40,4 +42,30 @@ interface PriceComparisonServiceInterface
      * Get internal transfer options
      */
     public function getInternalTransferOptions(string $itemId, float $quantity, ?string $excludeBranchId = null): Collection;
+
+    /**
+     * Save a price comparison snapshot for a branch
+     */
+    public function saveComparison(
+        string $itemId,
+        ?float $quantity,
+        string $branchId,
+        string $userId,
+        ?string $note = null
+    ): SavedPriceComparison;
+
+    /**
+     * Get a paginated list of saved comparisons for a branch
+     */
+    public function getSavedComparisons(string $branchId, int $perPage = 15): LengthAwarePaginator;
+
+    /**
+     * Get a single saved comparison scoped to a branch
+     */
+    public function getSavedComparison(string $id, string $branchId): ?SavedPriceComparison;
+
+    /**
+     * Delete a saved comparison scoped to a branch
+     */
+    public function deleteSavedComparison(string $id, string $branchId): bool;
 }

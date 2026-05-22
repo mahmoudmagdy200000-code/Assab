@@ -42,6 +42,12 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->prefix('v1/purchase')->grou
         Route::get('/branch-items', [NewOrderController::class, 'getBranchItems'])->name('purchase.orders.branch-items');
         // Price comparison
         Route::post('/compare-prices', [NewOrderController::class, 'comparePrices'])->name('purchase.orders.compare-prices');
+        Route::post('/compare-prices/save', [NewOrderController::class, 'saveComparison'])->name('purchase.orders.compare-prices.save');
+
+        // Saved price comparisons
+        Route::get('/saved-comparisons', [NewOrderController::class, 'savedComparisons'])->name('purchase.orders.saved-comparisons.index');
+        Route::get('/saved-comparisons/{id}', [NewOrderController::class, 'showSavedComparison'])->name('purchase.orders.saved-comparisons.show');
+        Route::delete('/saved-comparisons/{id}', [NewOrderController::class, 'deleteSavedComparison'])->name('purchase.orders.saved-comparisons.destroy');
 
         // Source selection helpers
         Route::get('/suppliers', [NewOrderController::class, 'getSuppliers'])->name('purchase.orders.suppliers');

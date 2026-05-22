@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Services;
 
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,7 @@ use Modules\Purchase\Models\Item;
 use Modules\Purchase\Models\PriceHistory;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
+use Modules\Purchase\Models\SavedPriceComparison;
 use Modules\Purchase\Models\SupplierItem;
 use Modules\Purchase\Traits\ItemHelperTrait;
 use Modules\Supplier\Models\Supplier;
@@ -1453,5 +1455,70 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         }
 
         return $distance['distance_km'] > $filters['max_distance_km'];
+    }
+
+    /**
+     * Save a price comparison snapshot.
+     *
+     * Recomputes the comparison server-side from the item id and persists the
+     * full result, so the saved record stays stable even if prices change.
+     */
+    public function saveComparison(
+        string $itemId,
+        ?float $quantity,
+        string $branchId,
+        string $userId,
+        ?string $note = null
+    ): SavedPriceComparison {
+        $comparison = $this->comparePrices($itemId, $quantity, $branchId);
+
+        // comparePrices() returns a null item_name when the id resolves to no item.
+        if (empty($comparison['item_name'])) {
+            throw new \InvalidArgumentException('Item not found for the given item_id.');
+        }
+
+        return SavedPriceComparison::create([
+            'branch_id' => $branchId,
+            'created_by' => $userId,
+            'item_id' => $comparison['item_id'],
+            'item_name' => $comparison['item_name'],
+            'quantity' => $comparison['quantity'],
+            'note' => $note,
+            'snapshot' => $comparison,
+        ]);
+    }
+
+    /**
+     * Get a paginated list of saved comparisons for a branch.
+     */
+    public function getSavedComparisons(string $branchId, int $perPage = 15): LengthAwarePaginator
+    {
+        return SavedPriceComparison::forBranch($branchId)
+            ->latest()
+            ->paginate($perPage);
+    }
+
+    /**
+     * Get a single saved comparison, scoped to the branch (tenant isolation).
+     */
+    public function getSavedComparison(string $id, string $branchId): ?SavedPriceComparison
+    {
+        return SavedPriceComparison::forBranch($branchId)->find($id);
+    }
+
+    /**
+     * Delete a saved comparison, scoped to the branch (tenant isolation).
+     *
+     * @return bool false when no matching record exists for this branch
+     */
+    public function deleteSavedComparison(string $id, string $branchId): bool
+    {
+        $saved = SavedPriceComparison::forBranch($branchId)->find($id);
+
+        if (! $saved) {
+            return false;
+        }
+
+        return (bool) $saved->delete();
     }
 }
