@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Modules\BrandOwner\Http\Controllers\AuthController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerBranchesController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerController;
+use Modules\BrandOwner\Http\Controllers\BrandOwnerHomeController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerInventoryController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerReportsController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerReturnController;
@@ -150,4 +151,23 @@ Route::prefix('brand-owner')
             ->name('reports.expense.export');
         Route::post('reports/custody/export', [BrandOwnerReportsController::class, 'exportCustody'])
             ->name('reports.custody.export');
+    });
+
+/*
+|--------------------------------------------------------------------------
+| Brand Owner - Home Dashboard (BrandOwnerHomeScreen)
+|--------------------------------------------------------------------------
+| Branch list for the home branch selector plus invoice / expense summaries
+| and daily / weekly / monthly expense trend charts.
+*/
+
+Route::prefix('brand-owner/dashboard')
+    ->middleware(['auth:sanctum', 'brand.owner', 'log.throttle'])
+    ->name('api.brand-owner.dashboard.')
+    ->group(function () {
+        Route::get('branches', [BrandOwnerHomeController::class, 'branches'])
+            ->name('branches');
+
+        Route::get('/', [BrandOwnerHomeController::class, 'dashboard'])
+            ->name('index');
     });
