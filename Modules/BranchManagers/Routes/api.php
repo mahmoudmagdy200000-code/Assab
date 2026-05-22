@@ -2,11 +2,13 @@
 
 use Illuminate\Support\Facades\Route;
 use Modules\BranchManagers\Http\Controllers\AuthController;
+use Modules\BranchManagers\Http\Controllers\BranchManagerNotificationSettingsController;
+use Modules\BranchManagers\Http\Controllers\BranchManagerSettingsAggregatorController;
+use Modules\BranchManagers\Http\Controllers\BranchManagerSettingsController;
 use Modules\BranchManagers\Http\Controllers\BrandManagerInventoryController;
 use Modules\BranchManagers\Http\Controllers\DashboardController;
 use Modules\BranchManagers\Http\Controllers\NotificationController;
 use Modules\BranchManagers\Http\Controllers\ProfileController;
-use Modules\BranchManagers\Http\Controllers\SettingsController;
 
 // fix
 
@@ -54,23 +56,6 @@ Route::prefix('branch-manager')->group(function () {
             Route::post('/change-password', [ProfileController::class, 'changePassword']);
         });
 
-        // Settings Management
-        // Route::prefix('settings')->group(function () {
-        //     Route::get('/', [SettingsController::class, 'index']);
-
-        //     // Notification Settings
-        //     Route::get('/notifications', [SettingsController::class, 'getNotificationSettings']);
-        //     Route::put('/notifications', [SettingsController::class, 'updateNotificationSettings']);
-
-        //     // System Settings
-        //     Route::get('/system', [SettingsController::class, 'getSystemSettings']);
-        //     Route::put('/system', [SettingsController::class, 'updateSystemSettings']);
-
-        //     // Branch Settings
-        //     Route::get('/branch', [SettingsController::class, 'getBranchSettings']);
-        //     Route::post('/aggregators', [SettingsController::class, 'updateAggregators']);
-        // });
-
         // Inventory work queues (BrandManagerInventoryManagementScreen)
         Route::prefix('inventory')->group(function () {
             Route::get('daily-requests', [BrandManagerInventoryController::class, 'dailyIndex']);
@@ -92,6 +77,45 @@ Route::prefix('branch-manager')->group(function () {
             Route::post('/read-all', [NotificationController::class, 'markAllAsRead']);
             Route::delete('/{id}', [NotificationController::class, 'delete']);
             Route::delete('/clear-all', [NotificationController::class, 'clearAll']);
+        });
+    });
+});
+
+/*
+|--------------------------------------------------------------------------
+| Branch Manager - Settings Screen
+|--------------------------------------------------------------------------
+| Account details and password reset are available to any authenticated
+| user (read/update of their own account). Aggregator and notification
+| management is restricted to branch managers.
+*/
+
+Route::prefix('branch-manager/settings')->group(function () {
+
+    // Available to any authenticated user (by token).
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::get('account-details', [BranchManagerSettingsController::class, 'accountDetails']);
+        Route::post('reset-password', [BranchManagerSettingsController::class, 'resetPassword']);
+    });
+
+    // Branch manager only.
+    Route::middleware(['auth:sanctum', 'branch.manager'])->group(function () {
+
+        // Settings snapshot + aggregators
+        Route::get('aggregators', [BranchManagerSettingsController::class, 'snapshot']);
+        Route::get('aggregators/available', [BranchManagerSettingsAggregatorController::class, 'available']);
+        Route::get('aggregators/assigned', [BranchManagerSettingsAggregatorController::class, 'assigned']);
+        Route::post('aggregators', [BranchManagerSettingsAggregatorController::class, 'store']);
+        Route::delete('aggregators/{aggregatorId}', [BranchManagerSettingsAggregatorController::class, 'destroy']);
+        Route::patch('aggregators/{aggregatorId}/status', [BranchManagerSettingsAggregatorController::class, 'updateStatus']);
+
+        // Notification toggles
+        Route::prefix('notifications')->group(function () {
+            Route::patch('shift-variance-alerts', [BranchManagerNotificationSettingsController::class, 'shiftVarianceAlerts']);
+            Route::patch('daily-inventory-reminders', [BranchManagerNotificationSettingsController::class, 'dailyInventoryReminders']);
+            Route::patch('approved-aggregators-only', [BranchManagerNotificationSettingsController::class, 'approvedAggregatorsOnly']);
+            Route::patch('asset-transfer-requests', [BranchManagerNotificationSettingsController::class, 'assetTransferRequests']);
+            Route::patch('allow-split-shift-handovers', [BranchManagerNotificationSettingsController::class, 'allowSplitShiftHandovers']);
         });
     });
 });
