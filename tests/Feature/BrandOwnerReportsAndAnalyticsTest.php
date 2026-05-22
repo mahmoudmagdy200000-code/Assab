@@ -5,8 +5,8 @@ namespace Tests\Feature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
-use Modules\BrandOwner\Models\BrandOwner;
 use Modules\BrandOwner\Database\Seeders\BrandOwnerReportsDemoSeeder;
+use Modules\BrandOwner\Models\BrandOwner;
 use Modules\Custody\Models\CustodyTransaction;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Models\Supplier;
@@ -225,5 +225,53 @@ class BrandOwnerReportsAndAnalyticsTest extends TestCase
 
         $response->assertStatus(403)
             ->assertJsonPath('success', false);
+    }
+
+    public function test_branch_manager_sees_expense_report_scoped_to_own_branch(): void
+    {
+        $otherBranch = Branch::factory()->create();
+        $otherManager = BranchManager::factory()->create(['branch_id' => $otherBranch->id]);
+
+        Expense::factory()->count(2)->create([
+            'branch_manager_id' => $this->manager->id,
+            'expense_type' => 'quick_cash',
+            'status' => 'approved',
+        ]);
+        Expense::factory()->count(2)->create([
+            'branch_manager_id' => $otherManager->id,
+            'expense_type' => 'quick_cash',
+            'status' => 'approved',
+        ]);
+
+        $response = $this->actingAs($this->manager, 'sanctum')
+            ->getJson('/api/brand-owner/reports/expense/expenses?type=quick_cash');
+
+        $response->assertStatus(200)->assertJsonPath('success', true);
+
+        // The branch manager is locked to their own branch — no other branch
+        // appears in the comparison and the summary/filters point at it.
+        $response->assertJsonPath('data.summary.branch.id', $this->branch->id);
+        $response->assertJsonPath('data.filters.branch_id', $this->branch->id);
+
+        $comparisonNames = collect($response->json('data.branch_comparisons'))->pluck('name');
+        $this->assertNotContains($otherBranch->name, $comparisonNames);
+        foreach ($comparisonNames as $name) {
+            $this->assertSame($this->branch->name, $name);
+        }
+    }
+
+    public function test_branch_manager_sees_custody_report_scoped_to_own_branch(): void
+    {
+        Branch::factory()->count(2)->create();
+
+        $response = $this->actingAs($this->manager, 'sanctum')
+            ->getJson('/api/brand-owner/reports/custody/custody');
+
+        $response->assertStatus(200)->assertJsonPath('success', true);
+
+        // Only the manager's own branch is returned, not every branch.
+        $branches = $response->json('data.branches');
+        $this->assertCount(1, $branches);
+        $this->assertSame($this->branch->name, $branches[0]['name']);
     }
 }

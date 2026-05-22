@@ -71,6 +71,10 @@ class BrandOwnerReportsService
 
     /**
      * GET /brand-owner/reports/expense/{reportId}
+     *
+     * When $filters['scope_branch_only'] is set (branch-manager callers), the
+     * whole payload — including branch comparisons and the default branch — is
+     * restricted to $filters['branch_id'] so no other branch's data leaks.
      */
     public function getExpenseReportDetails(string $reportId, array $filters): array
     {
@@ -79,6 +83,7 @@ class BrandOwnerReportsService
         $type = $filters['type'] ?? null;
         $status = $filters['status'] ?? null;
         $branchId = $filters['branch_id'] ?? null;
+        $scopeBranchOnly = ! empty($filters['scope_branch_only']) && $branchId !== null;
 
         $periodStart = Carbon::create($year, $month, 1)->startOfMonth();
         $prevStart = (clone $periodStart)->subMonth();
@@ -90,7 +95,9 @@ class BrandOwnerReportsService
         $trend = $this->trend($totalAmount, (float) $previous->sum('total_amount'));
 
         $branch = $branchId ? Branch::find($branchId) : null;
-        $defaultBranch = Branch::query()->orderBy('name')->first();
+        $defaultBranch = $scopeBranchOnly && $branch
+            ? $branch
+            : Branch::query()->orderBy('name')->first();
         $summaryBranch = $branch ?? $defaultBranch;
 
         return [
@@ -106,7 +113,7 @@ class BrandOwnerReportsService
             'payment_methods' => $this->paymentMethods($current),
             'top_suppliers' => $this->topSuppliers($current),
             'expense_ratios' => $this->expenseRatios($current),
-            'branch_comparisons' => $this->branchComparisons($type, $status, $month, $year),
+            'branch_comparisons' => $this->branchComparisons($type, $status, $month, $year, $scopeBranchOnly ? $branchId : null),
             'cash_transfer_log' => $this->cashTransferLog($month, $year, $branchId),
             'quick_summary' => $this->quickSummary($branchId, $month, $year, $prevStart),
             'default_branch' => $this->branchShort($defaultBranch),
@@ -123,8 +130,11 @@ class BrandOwnerReportsService
 
     /**
      * GET /brand-owner/reports/custody/{reportId}
+     *
+     * When $branchId is provided (branch-manager callers) only that branch is
+     * returned; brand owners pass null and receive every branch.
      */
-    public function getCustodyReportDetails(string $reportId, ?int $month, ?int $year): array
+    public function getCustodyReportDetails(string $reportId, ?int $month, ?int $year, ?string $branchId = null): array
     {
         $month = $month ?? (int) now()->month;
         $year = $year ?? (int) now()->year;
@@ -133,34 +143,38 @@ class BrandOwnerReportsService
         $monthEnd = (clone $monthStart)->endOfMonth();
         $monthName = $monthStart->format('F');
 
-        $branches = Branch::query()->orderBy('name')->get()->map(function (Branch $b) use ($monthStart, $monthEnd, $monthName) {
-            $opening = $this->custodyBalanceBefore($b->id, $monthStart);
-            $cashIn = (float) CustodyTransaction::query()
-                ->where('branch_id', $b->id)
-                ->where('is_cash_in', true)
-                ->whereBetween('transaction_date', [$monthStart, $monthEnd])
-                ->sum('amount');
-            $cashOut = (float) CustodyTransaction::query()
-                ->where('branch_id', $b->id)
-                ->where('is_cash_in', false)
-                ->whereBetween('transaction_date', [$monthStart, $monthEnd])
-                ->sum('amount');
-            $currentBalance = $opening + $cashIn - $cashOut;
+        $branches = Branch::query()
+            ->when($branchId, fn ($q) => $q->where('id', $branchId))
+            ->orderBy('name')
+            ->get()
+            ->map(function (Branch $b) use ($monthStart, $monthEnd, $monthName) {
+                $opening = $this->custodyBalanceBefore($b->id, $monthStart);
+                $cashIn = (float) CustodyTransaction::query()
+                    ->where('branch_id', $b->id)
+                    ->where('is_cash_in', true)
+                    ->whereBetween('transaction_date', [$monthStart, $monthEnd])
+                    ->sum('amount');
+                $cashOut = (float) CustodyTransaction::query()
+                    ->where('branch_id', $b->id)
+                    ->where('is_cash_in', false)
+                    ->whereBetween('transaction_date', [$monthStart, $monthEnd])
+                    ->sum('amount');
+                $currentBalance = $opening + $cashIn - $cashOut;
 
-            return [
-                'image_url' => $b->image ? asset('storage/'.$b->image) : null,
-                'name' => $b->name,
-                'branch' => $b->location,
-                'current_balance' => $currentBalance,
-                'amounts' => [
-                    'month_name' => $monthName,
-                    'month_opening_balance' => $opening,
-                    'total_cash_in' => $cashIn,
-                    'total_cash_out' => $cashOut,
+                return [
+                    'image_url' => $b->image ? asset('storage/'.$b->image) : null,
+                    'name' => $b->name,
+                    'branch' => $b->location,
                     'current_balance' => $currentBalance,
-                ],
-            ];
-        })->all();
+                    'amounts' => [
+                        'month_name' => $monthName,
+                        'month_opening_balance' => $opening,
+                        'total_cash_in' => $cashIn,
+                        'total_cash_out' => $cashOut,
+                        'current_balance' => $currentBalance,
+                    ],
+                ];
+            })->all();
 
         return [
             'period_label' => $monthName.' Custody Summary',
@@ -330,10 +344,15 @@ class BrandOwnerReportsService
         ];
     }
 
-    /** Per-branch totals for the period; max_amount lets the client draw bars. */
-    private function branchComparisons(?string $type, ?string $status, int $month, int $year): array
+    /**
+     * Per-branch totals for the period; max_amount lets the client draw bars.
+     *
+     * $branchId restricts the comparison to a single branch (branch-manager
+     * callers); brand owners pass null to compare every branch.
+     */
+    private function branchComparisons(?string $type, ?string $status, int $month, int $year, ?string $branchId = null): array
     {
-        $expenses = $this->monthExpenses($type, $status, null, $month, $year);
+        $expenses = $this->monthExpenses($type, $status, $branchId, $month, $year);
 
         $byBranch = $expenses
             ->groupBy(fn (Expense $e) => $e->branchManager?->branch_id ?: 'unassigned')

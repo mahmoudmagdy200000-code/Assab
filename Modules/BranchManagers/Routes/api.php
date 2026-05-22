@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Modules\BranchManagers\Http\Controllers\AuthController;
 use Modules\BranchManagers\Http\Controllers\BranchManagerNotificationSettingsController;
+use Modules\BranchManagers\Http\Controllers\BranchManagerPriceComparisonController;
 use Modules\BranchManagers\Http\Controllers\BranchManagerSettingsAggregatorController;
 use Modules\BranchManagers\Http\Controllers\BranchManagerSettingsController;
 use Modules\BranchManagers\Http\Controllers\BrandManagerInventoryController;
@@ -119,3 +120,32 @@ Route::prefix('branch-manager/settings')->group(function () {
         });
     });
 });
+
+/*
+|--------------------------------------------------------------------------
+| Branch Manager - Price Comparison Screen
+|--------------------------------------------------------------------------
+| Saved price-comparison snapshots, full details, file export, and creating a
+| purchase order from a recommended source. Comparisons are recorded by the
+| Purchase module; every endpoint is scoped to the manager's own branch.
+*/
+
+Route::prefix('branch-manager/price-comparisons')
+    ->middleware(['auth:sanctum', 'branch.manager'])
+    ->name('api.branch-manager.price-comparisons.')
+    ->group(function () {
+        Route::get('/', [BranchManagerPriceComparisonController::class, 'index'])
+            ->name('index');
+
+        Route::get('/{comparisonId}', [BranchManagerPriceComparisonController::class, 'show'])
+            ->where('comparisonId', '[0-9a-fA-F-]{36}')
+            ->name('show');
+
+        Route::get('/{comparisonId}/export', [BranchManagerPriceComparisonController::class, 'export'])
+            ->where('comparisonId', '[0-9a-fA-F-]{36}')
+            ->name('export');
+
+        Route::post('/{comparisonId}/orders', [BranchManagerPriceComparisonController::class, 'createOrder'])
+            ->where('comparisonId', '[0-9a-fA-F-]{36}')
+            ->name('orders.store');
+    });
