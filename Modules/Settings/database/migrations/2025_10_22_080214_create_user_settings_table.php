@@ -15,7 +15,9 @@ return new class extends Migration
             $table->uuid('id')->primary();
 
             // Polymorphic relation: works for both BranchManager and Cashier
-            $table->morphs('userable'); // creates userable_id & userable_type columns
+            // BranchManager & Cashier use UUID primary keys, so userable_id must be UUID, not bigint.
+            $table->uuid('userable_id');
+            $table->string('userable_type');
 
             // System Settings
             $table->enum('language', ['ar', 'en'])->default('ar');
