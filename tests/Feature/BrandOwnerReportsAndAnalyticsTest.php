@@ -218,13 +218,77 @@ class BrandOwnerReportsAndAnalyticsTest extends TestCase
         $this->assertSame($branchCount, \Modules\Branch\Models\Branch::count());
     }
 
-    public function test_non_brand_owner_is_forbidden(): void
+    public function test_inactive_branch_manager_is_rejected_from_reports(): void
+    {
+        $inactive = BranchManager::factory()->inactive()->create(['branch_id' => $this->branch->id]);
+
+        $this->actingAs($inactive, 'sanctum')
+            ->getJson('/api/brand-owner/reports-and-analytics')
+            ->assertStatus(403)
+            ->assertJsonPath('success', false);
+    }
+
+    public function test_branch_manager_can_access_reports_and_analytics(): void
     {
         $response = $this->actingAs($this->manager, 'sanctum')
             ->getJson('/api/brand-owner/reports-and-analytics');
 
-        $response->assertStatus(403)
-            ->assertJsonPath('success', false);
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure([
+                'data' => [
+                    'reports' => [['id', 'type', 'period_label', 'status_label']],
+                    'export_history',
+                ],
+            ]);
+    }
+
+    public function test_branch_manager_branch_list_is_scoped_to_own_branch(): void
+    {
+        Branch::factory()->count(3)->create();
+
+        $response = $this->actingAs($this->manager, 'sanctum')
+            ->getJson('/api/brand-owner/branches');
+
+        $response->assertStatus(200)->assertJsonPath('success', true);
+
+        // Only the manager's own branch is listed, not every branch.
+        $branches = $response->json('data.branches');
+        $this->assertCount(1, $branches);
+        $this->assertSame($this->branch->id, $branches[0]['id']);
+    }
+
+    public function test_branch_manager_export_is_attributed_and_private(): void
+    {
+        $response = $this->actingAs($this->manager, 'sanctum')
+            ->postJson('/api/brand-owner/reports/expense/export', [
+                'expense_type' => 'quick_cash',
+                'year' => (int) now()->year,
+                'month_number' => (int) now()->month,
+                'format_type' => 'Excel',
+            ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure(['data' => ['file_url']]);
+
+        // The export is attributed to the branch manager who created it.
+        $this->assertDatabaseHas('brand_owner_report_exports', [
+            'brand_owner_id' => $this->manager->id,
+            'report_kind' => 'expenses',
+        ]);
+
+        // The branch manager sees their own export in history...
+        $this->actingAs($this->manager, 'sanctum')
+            ->getJson('/api/brand-owner/reports-and-analytics')
+            ->assertStatus(200)
+            ->assertJsonCount(1, 'data.export_history');
+
+        // ...but the brand owner does not see the branch manager's export.
+        $this->actingAs($this->owner, 'sanctum')
+            ->getJson('/api/brand-owner/reports-and-analytics')
+            ->assertStatus(200)
+            ->assertJsonCount(0, 'data.export_history');
     }
 
     public function test_branch_manager_sees_expense_report_scoped_to_own_branch(): void

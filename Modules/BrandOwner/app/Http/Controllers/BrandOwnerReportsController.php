@@ -15,13 +15,12 @@ use Modules\BrandOwner\Services\BrandOwnerReportsService;
 /**
  * Brand Owner Reports & Analytics screen.
  *
- * The list, export and analytics endpoints are guarded by the `brand.owner`
- * middleware, so the authenticated user is a BrandOwner there.
+ * Every endpoint is guarded by the `branch.manager.or.brand.owner` middleware,
+ * so the authenticated user is always a BrandOwner or a BranchManager.
  *
- * The expense / custody report-detail endpoints are also reachable by branch
- * managers (`branch.manager.or.brand.owner` middleware). A branch manager
- * always receives data scoped to their own branch; a brand owner sees all
- * branches exactly as before.
+ * A branch manager is fully scoped to their own branch — report details,
+ * exports and export history all cover that branch only. A brand owner keeps
+ * the original cross-branch behaviour.
  */
 class BrandOwnerReportsController extends BaseController
 {
@@ -34,11 +33,14 @@ class BrandOwnerReportsController extends BaseController
      */
     public function index(): JsonResponse
     {
-        /** @var BrandOwner $owner */
-        $owner = auth()->user();
+        $user = auth()->user();
+
+        if (! $user instanceof BrandOwner && ! $user instanceof BranchManager) {
+            return $this->forbiddenResponse('Brand owner or branch manager access required.');
+        }
 
         return $this->successResponse(
-            $this->service->getReportsAndAnalytics($owner),
+            $this->service->getReportsAndAnalytics($user),
             'Reports and analytics retrieved successfully'
         );
     }
@@ -100,28 +102,44 @@ class BrandOwnerReportsController extends BaseController
 
     /**
      * POST /brand-owner/reports/expense/export
+     *
+     * A branch manager exports a file covering their own branch only; a brand
+     * owner exports across every branch.
      */
     public function exportExpense(ExportExpenseReportRequest $request): JsonResponse
     {
-        /** @var BrandOwner $owner */
-        $owner = auth()->user();
+        $user = auth()->user();
+
+        if (! $user instanceof BrandOwner && ! $user instanceof BranchManager) {
+            return $this->forbiddenResponse('Brand owner or branch manager access required.');
+        }
+
+        $branchId = $user instanceof BranchManager ? $user->branch_id : null;
 
         return $this->successResponse(
-            $this->service->exportExpenseReport($owner, $request->validated()),
+            $this->service->exportExpenseReport($user, $request->validated(), $branchId),
             'Expense report exported successfully'
         );
     }
 
     /**
      * POST /brand-owner/reports/custody/export
+     *
+     * A branch manager exports a file covering their own branch only; a brand
+     * owner exports across every branch.
      */
     public function exportCustody(ExportCustodyReportRequest $request): JsonResponse
     {
-        /** @var BrandOwner $owner */
-        $owner = auth()->user();
+        $user = auth()->user();
+
+        if (! $user instanceof BrandOwner && ! $user instanceof BranchManager) {
+            return $this->forbiddenResponse('Brand owner or branch manager access required.');
+        }
+
+        $branchId = $user instanceof BranchManager ? $user->branch_id : null;
 
         return $this->successResponse(
-            $this->service->exportCustodyReport($owner, $request->validated()),
+            $this->service->exportCustodyReport($user, $request->validated(), $branchId),
             'Custody report exported successfully'
         );
     }

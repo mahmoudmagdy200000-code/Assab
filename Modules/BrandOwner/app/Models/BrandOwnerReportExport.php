@@ -8,8 +8,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * Tracks every PDF/Excel report a brand owner has exported.
- * Powers the "export_history" list on the reports & analytics screen.
+ * Tracks every PDF/Excel report exported from the reports & analytics screen.
+ * Powers the "export_history" list on that screen.
+ *
+ * Note: `brand_owner_id` holds the id of whoever created the export — a brand
+ * owner or a branch manager. Export history is filtered by that id, so each
+ * user only ever sees their own exports.
  */
 class BrandOwnerReportExport extends Model
 {

@@ -131,24 +131,15 @@ Route::prefix('brand-owner/inventory')
 | Expense / custody reports, report details, exports, and the branch list
 | used by report filters.
 |
-| The expense / custody report-detail endpoints are also reachable by branch
-| managers (controller branches on the authenticated user type). A branch
-| manager always receives data scoped to their own branch only; brand-owner
-| behaviour is unchanged.
+| Every endpoint here is reachable by both brand owners and branch managers
+| (each controller branches on the authenticated user type). A branch manager
+| is always scoped to their own branch — branch list, report details, exports
+| and export history all return that branch only. Brand-owner behaviour is
+| unchanged: they continue to see every branch.
 */
 
 Route::prefix('brand-owner')
     ->middleware(['auth:sanctum', 'branch.manager.or.brand.owner', 'log.throttle'])
-    ->name('api.brand-owner.')
-    ->group(function () {
-        Route::get('reports/expense/{reportId}', [BrandOwnerReportsController::class, 'expenseDetails'])
-            ->name('reports.expense.show');
-        Route::get('reports/custody/{reportId}', [BrandOwnerReportsController::class, 'custodyDetails'])
-            ->name('reports.custody.show');
-    });
-
-Route::prefix('brand-owner')
-    ->middleware(['auth:sanctum', 'brand.owner', 'log.throttle'])
     ->name('api.brand-owner.')
     ->group(function () {
         Route::get('branches', [BrandOwnerBranchesController::class, 'index'])
@@ -156,6 +147,11 @@ Route::prefix('brand-owner')
 
         Route::get('reports-and-analytics', [BrandOwnerReportsController::class, 'index'])
             ->name('reports-and-analytics');
+
+        Route::get('reports/expense/{reportId}', [BrandOwnerReportsController::class, 'expenseDetails'])
+            ->name('reports.expense.show');
+        Route::get('reports/custody/{reportId}', [BrandOwnerReportsController::class, 'custodyDetails'])
+            ->name('reports.custody.show');
 
         Route::post('reports/expense/export', [BrandOwnerReportsController::class, 'exportExpense'])
             ->name('reports.expense.export');

@@ -4,8 +4,8 @@ namespace Modules\BrandOwner\Services;
 
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Modules\Branch\Models\Branch;
-use Modules\BrandOwner\Models\BrandOwner;
 use Modules\BrandOwner\Models\BrandOwnerReportExport;
 use Modules\Custody\Models\CustodyTransaction;
 use Modules\Expense\Models\Expense;
@@ -29,8 +29,11 @@ class BrandOwnerReportsService
 
     /**
      * GET /brand-owner/reports-and-analytics
+     *
+     * $owner is a BrandOwner or a BranchManager. Export history is scoped to
+     * whoever generated it, so a branch manager only sees their own exports.
      */
-    public function getReportsAndAnalytics(BrandOwner $owner): array
+    public function getReportsAndAnalytics(Model $owner): array
     {
         $now = now();
 
@@ -50,7 +53,7 @@ class BrandOwnerReportsService
         ];
 
         $history = BrandOwnerReportExport::query()
-            ->where('brand_owner_id', $owner->id)
+            ->where('brand_owner_id', $owner->getKey())
             ->orderByDesc('created_at')
             ->limit(50)
             ->get()
@@ -184,19 +187,29 @@ class BrandOwnerReportsService
 
     /**
      * POST /brand-owner/reports/expense/export
+     *
+     * $owner is a BrandOwner or BranchManager. When $branchId is provided
+     * (branch-manager callers) the generated file covers that branch only.
      */
-    public function exportExpenseReport(BrandOwner $owner, array $data): array
+    public function exportExpenseReport(Model $owner, array $data, ?string $branchId = null): array
     {
         $year = (int) $data['year'];
         $month = (int) $data['month_number'];
         $type = $data['expense_type'];
         $format = $data['format_type'];
 
-        $details = $this->getExpenseReportDetails('expenses', [
+        $filters = [
             'type' => $type,
             'month' => $month,
             'year' => $year,
-        ]);
+        ];
+
+        if ($branchId !== null) {
+            $filters['branch_id'] = $branchId;
+            $filters['scope_branch_only'] = true;
+        }
+
+        $details = $this->getExpenseReportDetails('expenses', $filters);
 
         $periodLabel = Carbon::create($year, $month, 1)->format('F Y');
         $title = ucfirst(str_replace('_', ' ', $type)).' Expense Report - '.$periodLabel;
@@ -204,7 +217,7 @@ class BrandOwnerReportsService
         $filePath = $this->exporter->exportExpense($details, $format, $title);
 
         $export = BrandOwnerReportExport::create([
-            'brand_owner_id' => $owner->id,
+            'brand_owner_id' => $owner->getKey(),
             'report_kind' => 'expenses',
             'format' => $this->normalizeFormat($format),
             'title' => $title,
@@ -217,14 +230,17 @@ class BrandOwnerReportsService
 
     /**
      * POST /brand-owner/reports/custody/export
+     *
+     * $owner is a BrandOwner or BranchManager. When $branchId is provided
+     * (branch-manager callers) the generated file covers that branch only.
      */
-    public function exportCustodyReport(BrandOwner $owner, array $data): array
+    public function exportCustodyReport(Model $owner, array $data, ?string $branchId = null): array
     {
         $year = (int) $data['year'];
         $month = (int) $data['month_number'];
         $format = $data['format_type'];
 
-        $details = $this->getCustodyReportDetails('custody', $month, $year);
+        $details = $this->getCustodyReportDetails('custody', $month, $year, $branchId);
 
         $periodLabel = Carbon::create($year, $month, 1)->format('F Y');
         $title = 'Custody Report - '.$periodLabel;
@@ -232,7 +248,7 @@ class BrandOwnerReportsService
         $filePath = $this->exporter->exportCustody($details, $format, $title);
 
         $export = BrandOwnerReportExport::create([
-            'brand_owner_id' => $owner->id,
+            'brand_owner_id' => $owner->getKey(),
             'report_kind' => 'custody',
             'format' => $this->normalizeFormat($format),
             'title' => $title,
@@ -245,10 +261,14 @@ class BrandOwnerReportsService
 
     /**
      * GET /brand-owner/branches
+     *
+     * When $branchId is provided (branch-manager callers) only that branch is
+     * returned; brand owners pass null and receive every branch.
      */
-    public function getBranches(): array
+    public function getBranches(?string $branchId = null): array
     {
         $branches = Branch::query()
+            ->when($branchId, fn (Builder $q) => $q->where('id', $branchId))
             ->with(['branchManager:id,branch_id,name'])
             ->orderBy('name')
             ->get()
