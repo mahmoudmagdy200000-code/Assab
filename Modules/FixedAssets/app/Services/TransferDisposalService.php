@@ -119,26 +119,38 @@ class TransferDisposalService
 
     public function paginateTransfers(string $branchId, int $page = 1, int $perPage = 15): LengthAwarePaginator
     {
-        return TransferDisposalRequest::query()
-            ->with(['items.asset:id,name,status', 'requestedBy:id,name'])
-            ->where(function ($q) use ($branchId) {
-                $q->where('branch_id', $branchId)
-                    ->orWhere('recipient_branch_id', $branchId);
-            })
-            ->whereIn('kind', [
-                TransferDisposalKind::TRANSFER_TO_BRANCH->value,
-                TransferDisposalKind::EXTERNAL_TRANSFER->value,
+        return TransferDisposalItem::query()
+            ->with([
+                'asset:id,name,status,image',
+                'request:id,kind,branch_id,recipient_branch_id,status,direction,created_at',
+                'request.branch:id,name',
+                'request.recipientBranch:id,name',
             ])
+            ->whereHas('request', function ($q) use ($branchId) {
+                $q->where(function ($q2) use ($branchId) {
+                    $q2->where('branch_id', $branchId)
+                        ->orWhere('recipient_branch_id', $branchId);
+                })->whereIn('kind', [
+                    TransferDisposalKind::TRANSFER_TO_BRANCH->value,
+                    TransferDisposalKind::EXTERNAL_TRANSFER->value,
+                ]);
+            })
             ->orderByDesc('created_at')
             ->paginate(perPage: $perPage, page: $page);
     }
 
     public function paginateDisposals(string $branchId, int $page = 1, int $perPage = 15): LengthAwarePaginator
     {
-        return TransferDisposalRequest::query()
-            ->with(['items.asset:id,name'])
-            ->where('branch_id', $branchId)
-            ->where('kind', TransferDisposalKind::DISPOSAL->value)
+        return TransferDisposalItem::query()
+            ->with([
+                'asset:id,name,image',
+                'request:id,branch_id,kind,status,created_at',
+                'request.branch:id,name',
+            ])
+            ->whereHas('request', function ($q) use ($branchId) {
+                $q->where('branch_id', $branchId)
+                    ->where('kind', TransferDisposalKind::DISPOSAL->value);
+            })
             ->orderByDesc('created_at')
             ->paginate(perPage: $perPage, page: $page);
     }
@@ -243,41 +255,49 @@ class TransferDisposalService
         });
     }
 
-    public function transferDetails(string $requestId, string $branchId): ?TransferDisposalRequest
+    public function transferDetails(string $itemId, string $branchId): ?TransferDisposalItem
     {
-        return TransferDisposalRequest::query()
+        return TransferDisposalItem::query()
             ->with([
-                'branch:id,name',
-                'recipientBranch:id,name',
-                'requestedBy:id,name',
-                'items.asset.zone',
-                'items.asset.assetType',
+                'asset.zone',
+                'asset.assetType',
+                'request.branch:id,name',
+                'request.recipientBranch:id,name',
+                'request.requestedBy:id,name',
                 'timelines' => fn ($q) => $q->orderBy('occurred_at'),
+                'documentationPhoto',
+                'visualEvidence',
             ])
-            ->where('id', $requestId)
-            ->where(function ($q) use ($branchId) {
-                $q->where('branch_id', $branchId)
-                    ->orWhere('recipient_branch_id', $branchId);
+            ->where('id', $itemId)
+            ->whereHas('request', function ($q) use ($branchId) {
+                $q->where(function ($q2) use ($branchId) {
+                    $q2->where('branch_id', $branchId)
+                        ->orWhere('recipient_branch_id', $branchId);
+                })->whereIn('kind', [
+                    TransferDisposalKind::TRANSFER_TO_BRANCH->value,
+                    TransferDisposalKind::EXTERNAL_TRANSFER->value,
+                ]);
             })
-            ->whereIn('kind', [
-                TransferDisposalKind::TRANSFER_TO_BRANCH->value,
-                TransferDisposalKind::EXTERNAL_TRANSFER->value,
-            ])
             ->first();
     }
 
-    public function disposalDetails(string $requestId, string $branchId): ?TransferDisposalRequest
+    public function disposalDetails(string $itemId, string $branchId): ?TransferDisposalItem
     {
-        return TransferDisposalRequest::query()
+        return TransferDisposalItem::query()
             ->with([
-                'items.asset.zone',
-                'items.asset.assetType',
-                'requestedBy:id,name',
+                'asset.zone',
+                'asset.assetType',
+                'request.branch:id,name',
+                'request.requestedBy:id,name',
                 'timelines' => fn ($q) => $q->orderBy('occurred_at'),
+                'visualEvidence',
+                'documentationPhoto',
             ])
-            ->where('id', $requestId)
-            ->where('branch_id', $branchId)
-            ->where('kind', TransferDisposalKind::DISPOSAL->value)
+            ->where('id', $itemId)
+            ->whereHas('request', function ($q) use ($branchId) {
+                $q->where('branch_id', $branchId)
+                    ->where('kind', TransferDisposalKind::DISPOSAL->value);
+            })
             ->first();
     }
 }

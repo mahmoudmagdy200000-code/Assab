@@ -40,14 +40,14 @@ class DisposalRequestController extends BaseController
     {
         /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
-        $req = $this->service->disposalDetails($requestId, $manager->branch_id);
+        $item = $this->service->disposalDetails($requestId, $manager->branch_id);
 
-        if (! $req) {
+        if (! $item) {
             return $this->notFoundResponse('Disposal request not found');
         }
 
         return $this->successResponse(
-            (new DisposalDetailsResource($req))->toArray(request()),
+            (new DisposalDetailsResource($item))->toArray(request()),
             'Disposal request details retrieved successfully',
         );
     }

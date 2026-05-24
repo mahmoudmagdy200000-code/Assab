@@ -40,14 +40,14 @@ class TransferRequestController extends BaseController
     {
         /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
-        $req = $this->service->transferDetails($requestId, $manager->branch_id);
+        $item = $this->service->transferDetails($requestId, $manager->branch_id);
 
-        if (! $req) {
+        if (! $item) {
             return $this->notFoundResponse('Transfer request not found');
         }
 
         return $this->successResponse(
-            (new TransferDetailsResource($req))->toArray(request()),
+            (new TransferDetailsResource($item))->toArray(request()),
             'Transfer request details retrieved successfully',
         );
     }
