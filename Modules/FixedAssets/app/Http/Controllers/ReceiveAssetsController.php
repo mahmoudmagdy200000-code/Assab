@@ -35,7 +35,7 @@ class ReceiveAssetsController extends BaseController
 
         try {
             $incoming = $this->service->findIncoming($requestId, $manager->branch_id);
-        } catch (ModelNotFoundException $e) {
+        } catch (ModelNotFoundException) {
             return $this->notFoundResponse("Incoming asset not found: {$requestId}");
         }
 
@@ -45,7 +45,7 @@ class ReceiveAssetsController extends BaseController
         );
     }
 
-    public function confirm(ReceiveAssetsConfirmRequest $request): JsonResponse
+    public function confirm(ReceiveAssetsConfirmRequest $request, ?string $requestId = null): JsonResponse
     {
         /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();

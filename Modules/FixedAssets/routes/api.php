@@ -59,6 +59,8 @@ Route::middleware(['auth:sanctum', 'branch.manager'])
             ->name('receive-assets.show');
         Route::post('receive-assets/confirm', [ReceiveAssetsController::class, 'confirm'])
             ->name('receive-assets.confirm');
+        Route::post('receive-assets/confirm/{requestId}', [ReceiveAssetsController::class, 'confirm'])
+            ->name('receive-assets.confirm.legacy');
 
         Route::post('requests/transfer-disposal', [TransferDisposalController::class, 'store'])
             ->name('requests.transfer-disposal');
