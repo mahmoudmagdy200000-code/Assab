@@ -188,7 +188,7 @@ class ReceiveAssetsService
         ]);
 
         $item->update([
-            'status' => RequestStatus::APPROVED->value,
+            'status' => RequestStatus::PENDING_FINAL_APPROVAL->value,
             'dest_decided_by_id' => (string) $manager->id,
             'dest_decided_at' => now(),
         ]);
