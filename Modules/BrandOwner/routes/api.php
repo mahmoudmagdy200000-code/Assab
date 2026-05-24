@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Modules\BrandOwner\Http\Controllers\AuthController;
+use Modules\BrandOwner\Http\Controllers\BrandManagerAuthController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerAssetOverviewController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerBranchesController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerControlPanelController;
@@ -29,6 +30,26 @@ Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
 | Brand Owner - Authentication (mirrors Branch Manager auth)
 |--------------------------------------------------------------------------
 */
+
+/*
+|--------------------------------------------------------------------------
+| Brand Manager - Authentication
+|--------------------------------------------------------------------------
+| Brand Manager extends Brand Owner and reuses every /brand-owner/* endpoint
+| (instanceof BrandOwner stays true). Auth lives under its own prefix.
+*/
+
+Route::prefix('brand-manager')->group(function () {
+    Route::post('auth/login', [BrandManagerAuthController::class, 'login']);
+    Route::post('auth/forgot-password', [BrandManagerAuthController::class, 'forgotPassword']);
+    Route::post('auth/verify-otp', [BrandManagerAuthController::class, 'verifyOtp']);
+    Route::post('auth/reset-password', [BrandManagerAuthController::class, 'resetPassword']);
+
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::post('auth/logout', [BrandManagerAuthController::class, 'logout']);
+        Route::get('auth/me', [BrandManagerAuthController::class, 'me']);
+    });
+});
 
 Route::prefix('brand-owner')->group(function () {
     // Public

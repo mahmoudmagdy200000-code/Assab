@@ -8,6 +8,7 @@ use Modules\Aggregator\Database\Seeders\AggregatorSeeder;
 use Modules\Aggregator\Database\Seeders\BranchAggregatorSeeder;
 use Modules\Branch\Database\Seeders\BranchSeeder;
 use Modules\BranchManagers\Database\Seeders\BranchManagerSeeder;
+use Modules\BrandOwner\Database\Seeders\BrandManagerSeeder as BrandOwnerBrandManagerSeeder;
 use Modules\BrandOwner\Database\Seeders\BrandOwnerSeeder;
 use Modules\Cashier\Database\Seeders\CashierSeeder;
 use Modules\Cashier\Database\Seeders\CashierShiftSeeder;
@@ -47,6 +48,9 @@ class DatabaseSeeder extends Seeder
 
             // 6) Brand Owner account
             BrandOwnerSeeder::class,
+
+            // 7) Brand Manager account (standalone, reuses brand-owner endpoints)
+            BrandOwnerBrandManagerSeeder::class,
         ]);
     }
 }

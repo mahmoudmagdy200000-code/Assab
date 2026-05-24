@@ -13,6 +13,7 @@ class BrandOwnerDatabaseSeeder extends Seeder
     {
         $this->call([
             BrandOwnerSeeder::class,
+            BrandManagerSeeder::class,
         ]);
     }
 }
