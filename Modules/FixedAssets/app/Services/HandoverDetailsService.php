@@ -71,6 +71,17 @@ class HandoverDetailsService
             ? 'sender'
             : (((string) $handover->recipient_id === $viewerId && $handover->recipient_type === $viewerType) ? 'receiver' : 'sender');
 
+        $deductionItems = $handover->items
+            ->map(fn ($it) => [
+                'id' => (string) $it->id,
+                'assetId' => (string) $it->asset_id,
+                'assetName' => (string) ($it->asset_name_snapshot ?? ''),
+                'isDeducted' => (bool) ($it->is_deducted ?? false),
+                'deduction' => $it->deduction,
+            ])
+            ->values()
+            ->all();
+
         return [
             'handoverId' => (string) $handover->id,
             'type' => $type,
@@ -78,6 +89,7 @@ class HandoverDetailsService
             'initiatedDetails' => $initiated,
             'recipientName' => $recipientName,
             'completedDetails' => $completed,
+            'itemsDeductionStatus' => $deductionItems,
             'timeLine' => [
                 'timelines' => $handover->timelines
                     ->sortBy('occurred_at')

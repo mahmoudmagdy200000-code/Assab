@@ -20,6 +20,20 @@ class TransferDisposalItem extends Model
         'transfer_reason',
         'disposal_reason',
         'condition_description',
+        'status',
+        'dest_decided_by_id',
+        'dest_decided_at',
+        'bo_decided_by_id',
+        'bo_decided_at',
+        'rejection_reason',
+        'cancellation',
+    ];
+
+    protected $casts = [
+        'status' => \Modules\FixedAssets\Enums\RequestStatus::class,
+        'dest_decided_at' => 'datetime',
+        'bo_decided_at' => 'datetime',
+        'cancellation' => 'array',
     ];
 
     public function request(): BelongsTo
@@ -47,5 +61,10 @@ class TransferDisposalItem extends Model
     public function attachments(): MorphMany
     {
         return $this->morphMany(Attachment::class, 'attachable');
+    }
+
+    public function timelines(): MorphMany
+    {
+        return $this->morphMany(Timeline::class, 'timelineable');
     }
 }

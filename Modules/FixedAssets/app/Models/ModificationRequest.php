@@ -31,6 +31,11 @@ class ModificationRequest extends Model
         'next_action',
         'approval_request_owner_note',
         'approved_at',
+        'rejection_reason',
+        'rejected_at',
+        'bo_decided_by_id',
+        'bo_decided_at',
+        'cancellation',
     ];
 
     protected $casts = [
@@ -38,6 +43,9 @@ class ModificationRequest extends Model
         'new_status' => AssetStatus::class,
         'next_action' => ModificationNextAction::class,
         'approved_at' => 'datetime',
+        'rejected_at' => 'datetime',
+        'bo_decided_at' => 'datetime',
+        'cancellation' => 'array',
     ];
 
     public function asset(): BelongsTo

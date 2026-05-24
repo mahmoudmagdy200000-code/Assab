@@ -63,12 +63,17 @@ class TransferDisposalService
                     ->where('branch_id', $manager->branch_id)
                     ->firstOrFail();
 
+                $itemStatus = ($payload['autoApprove'] ?? false)
+                    ? RequestStatus::APPROVED->value
+                    : RequestStatus::PENDING->value;
+
                 $item = TransferDisposalItem::create([
                     'request_id' => $request->id,
                     'asset_id' => $assetId,
                     'transfer_reason' => $asset['transferReason'] ?? null,
                     'disposal_reason' => $asset['disposalReason'] ?? null,
                     'condition_description' => $asset['conditionDescription'] ?? null,
+                    'status' => $itemStatus,
                 ]);
 
                 if (isset($asset['documentationPhotos']) && $asset['documentationPhotos'] instanceof UploadedFile) {
@@ -166,6 +171,75 @@ class TransferDisposalService
             );
 
             return $request->fresh();
+        });
+    }
+
+    public function approveTransferItemDest(string $itemId, BranchManager $manager): TransferDisposalItem
+    {
+        return DB::transaction(function () use ($itemId, $manager) {
+            $item = TransferDisposalItem::query()
+                ->with('request')
+                ->lockForUpdate()
+                ->findOrFail($itemId);
+
+            $req = $item->request;
+            if (! $req || (string) $req->recipient_branch_id !== (string) $manager->branch_id) {
+                throw new \RuntimeException('Only the destination branch manager may decide this item.');
+            }
+
+            if ($item->status?->value !== RequestStatus::PENDING->value) {
+                throw new \RuntimeException('Item is no longer pending at destination.');
+            }
+
+            $item->update([
+                'status' => RequestStatus::PENDING_FINAL_APPROVAL->value,
+                'dest_decided_by_id' => (string) $manager->id,
+                'dest_decided_at' => now(),
+            ]);
+
+            $this->timelineService->log(
+                $item,
+                TimelineEventType::APPROVED,
+                'Destination branch manager approved item',
+                $manager,
+            );
+
+            return $item->fresh(['request', 'asset']);
+        });
+    }
+
+    public function rejectTransferItemDest(string $itemId, BranchManager $manager, string $reason): TransferDisposalItem
+    {
+        return DB::transaction(function () use ($itemId, $manager, $reason) {
+            $item = TransferDisposalItem::query()
+                ->with('request')
+                ->lockForUpdate()
+                ->findOrFail($itemId);
+
+            $req = $item->request;
+            if (! $req || (string) $req->recipient_branch_id !== (string) $manager->branch_id) {
+                throw new \RuntimeException('Only the destination branch manager may decide this item.');
+            }
+
+            if ($item->status?->value !== RequestStatus::PENDING->value) {
+                throw new \RuntimeException('Item is no longer pending at destination.');
+            }
+
+            $item->update([
+                'status' => RequestStatus::REJECTED->value,
+                'rejection_reason' => $reason,
+                'dest_decided_by_id' => (string) $manager->id,
+                'dest_decided_at' => now(),
+            ]);
+
+            $this->timelineService->log(
+                $item,
+                TimelineEventType::REJECTED,
+                'Destination branch manager rejected item',
+                $manager,
+            );
+
+            return $item->fresh(['request', 'asset']);
         });
     }
 

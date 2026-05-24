@@ -30,6 +30,8 @@ class HandoverItem extends Model
         'recipient_note',
         'recipient_photo_path',
         'inspected_at',
+        'is_deducted',
+        'deduction',
     ];
 
     protected $casts = [
@@ -39,6 +41,8 @@ class HandoverItem extends Model
         'new_qty' => 'integer',
         'acquired_at_snapshot' => 'datetime',
         'inspected_at' => 'datetime',
+        'is_deducted' => 'boolean',
+        'deduction' => 'array',
     ];
 
     public function handover(): BelongsTo

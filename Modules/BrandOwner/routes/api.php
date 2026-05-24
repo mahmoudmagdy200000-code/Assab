@@ -4,10 +4,16 @@ use Illuminate\Support\Facades\Route;
 use Modules\BrandOwner\Http\Controllers\AuthController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerBranchesController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerController;
+use Modules\BrandOwner\Http\Controllers\BrandOwnerFixedAssetsDisposalController;
+use Modules\BrandOwner\Http\Controllers\BrandOwnerFixedAssetsHandoverReportController;
+use Modules\BrandOwner\Http\Controllers\BrandOwnerFixedAssetsModificationController;
+use Modules\BrandOwner\Http\Controllers\BrandOwnerFixedAssetsReviewAuditController;
+use Modules\BrandOwner\Http\Controllers\BrandOwnerFixedAssetsTransferController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerHomeController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerInventoryController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerReportsController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerReturnController;
+use Modules\BrandOwner\Http\Controllers\BrandOwnerSettingsController;
 use Modules\BrandOwner\Http\Controllers\CashSalesTransferController;
 use Modules\BrandOwner\Http\Controllers\OwnerPaymentFormController;
 use Modules\BrandOwner\Http\Controllers\OwnerPaymentLogController;
@@ -176,4 +182,88 @@ Route::prefix('brand-owner/dashboard')
 
         Route::get('/', [BrandOwnerHomeController::class, 'dashboard'])
             ->name('index');
+    });
+
+/*
+|--------------------------------------------------------------------------
+| Brand Owner - Fixed Assets Requests
+|--------------------------------------------------------------------------
+*/
+
+Route::prefix('brand-owner/fixed-assets/requests')
+    ->middleware(['auth:sanctum', 'brand.owner'])
+    ->name('api.brand-owner.fixed-assets.requests.')
+    ->group(function () {
+        // Modification
+        Route::get('modification', [BrandOwnerFixedAssetsModificationController::class, 'index']);
+        Route::get('modification/{id}', [BrandOwnerFixedAssetsModificationController::class, 'show'])
+            ->where('id', '[0-9a-f-]{36}');
+        Route::post('modification/{id}/approve', [BrandOwnerFixedAssetsModificationController::class, 'approve'])
+            ->where('id', '[0-9a-f-]{36}');
+        Route::post('modification/{id}/reject', [BrandOwnerFixedAssetsModificationController::class, 'reject'])
+            ->where('id', '[0-9a-f-]{36}');
+
+        // Transfer (branch-to-branch)
+        Route::get('transfer', [BrandOwnerFixedAssetsTransferController::class, 'index']);
+        Route::get('transfer/{id}', [BrandOwnerFixedAssetsTransferController::class, 'show'])
+            ->where('id', '[0-9a-f-]{36}');
+        Route::post('transfer/{id}/approve', [BrandOwnerFixedAssetsTransferController::class, 'approve'])
+            ->where('id', '[0-9a-f-]{36}');
+        Route::post('transfer/{id}/reject', [BrandOwnerFixedAssetsTransferController::class, 'reject'])
+            ->where('id', '[0-9a-f-]{36}');
+
+        // Disposal & external transfer
+        Route::get('disposal-and-external-transfer', [BrandOwnerFixedAssetsDisposalController::class, 'index']);
+        Route::get('disposal-and-external-transfer/{id}', [BrandOwnerFixedAssetsDisposalController::class, 'show'])
+            ->where('id', '[0-9a-f-]{36}');
+        Route::post('disposal-and-external-transfer/{id}/approve', [BrandOwnerFixedAssetsDisposalController::class, 'approve'])
+            ->where('id', '[0-9a-f-]{36}');
+        Route::post('disposal-and-external-transfer/{id}/reject', [BrandOwnerFixedAssetsDisposalController::class, 'reject'])
+            ->where('id', '[0-9a-f-]{36}');
+
+        // Handover reports (Major Discrepancy)
+        Route::get('handover-reports', [BrandOwnerFixedAssetsHandoverReportController::class, 'index']);
+        Route::get('handover-reports/{id}', [BrandOwnerFixedAssetsHandoverReportController::class, 'show'])
+            ->where('id', '[0-9a-f-]{36}');
+        Route::post('handover-reports/{id}/approve', [BrandOwnerFixedAssetsHandoverReportController::class, 'approve'])
+            ->where('id', '[0-9a-f-]{36}');
+        Route::post('handover-reports/{id}/salary-deduction', [BrandOwnerFixedAssetsHandoverReportController::class, 'salaryDeduction'])
+            ->where('id', '[0-9a-f-]{36}');
+        Route::post('handover-reports/{id}/reject', [BrandOwnerFixedAssetsHandoverReportController::class, 'reject'])
+            ->where('id', '[0-9a-f-]{36}');
+
+        // Review & Audit
+        Route::get('review-audit', [BrandOwnerFixedAssetsReviewAuditController::class, 'index']);
+        Route::get('review-audit/{id}', [BrandOwnerFixedAssetsReviewAuditController::class, 'show'])
+            ->where('id', '[0-9a-f-]{36}');
+        Route::post('review-audit/{id}/approve', [BrandOwnerFixedAssetsReviewAuditController::class, 'approve'])
+            ->where('id', '[0-9a-f-]{36}');
+        Route::post('review-audit/{id}/reject', [BrandOwnerFixedAssetsReviewAuditController::class, 'reject'])
+            ->where('id', '[0-9a-f-]{36}');
+    });
+
+/*
+|--------------------------------------------------------------------------
+| Brand Owner - Settings
+|--------------------------------------------------------------------------
+*/
+
+Route::prefix('brand-owner/settings')
+    ->middleware(['auth:sanctum', 'brand.owner'])
+    ->name('api.brand-owner.settings.')
+    ->group(function () {
+        Route::get('approval', [BrandOwnerSettingsController::class, 'showApproval']);
+        Route::patch('approval', [BrandOwnerSettingsController::class, 'updateApproval']);
+
+        Route::get('report', [BrandOwnerSettingsController::class, 'showReport']);
+        Route::patch('report', [BrandOwnerSettingsController::class, 'updateReport']);
+
+        Route::get('security', [BrandOwnerSettingsController::class, 'showSecurity']);
+        Route::patch('security', [BrandOwnerSettingsController::class, 'updateSecurity']);
+
+        Route::get('retention', [BrandOwnerSettingsController::class, 'showRetention']);
+        Route::patch('retention', [BrandOwnerSettingsController::class, 'updateRetention']);
+
+        Route::get('notifications', [BrandOwnerSettingsController::class, 'showNotifications']);
+        Route::patch('notifications', [BrandOwnerSettingsController::class, 'updateNotifications']);
     });

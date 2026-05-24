@@ -15,11 +15,13 @@ use Modules\FixedAssets\Enums\HandoverSignatureRole;
 use Modules\FixedAssets\Enums\HandoverStatus;
 use Modules\FixedAssets\Enums\RecipientInspectionResult;
 use Modules\FixedAssets\Enums\TimelineEventType;
+use Modules\FixedAssets\Enums\RequestStatus;
 use Modules\FixedAssets\Models\FixedAsset;
 use Modules\FixedAssets\Models\Handover;
 use Modules\FixedAssets\Models\HandoverItem;
 use Modules\FixedAssets\Models\HandoverSignature;
 use Modules\FixedAssets\Models\HandoverZoneApproval;
+use Modules\FixedAssets\Models\MajorDiscrepancyRequest;
 use RuntimeException;
 
 class HandoverService
@@ -361,6 +363,8 @@ class HandoverService
                 'completed_at' => now(),
             ]);
 
+            $this->autoCreateMajorDiscrepancies($handover);
+
             $this->timeline->log(
                 $handover,
                 TimelineEventType::HANDOVER_COMPLETED,
@@ -373,6 +377,33 @@ class HandoverService
 
             return $fresh;
         });
+    }
+
+    private function autoCreateMajorDiscrepancies(Handover $handover): void
+    {
+        $items = HandoverItem::query()
+            ->where('handover_id', $handover->id)
+            ->whereNotNull('recipient_inspection')
+            ->where('recipient_inspection', '!=', RecipientInspectionResult::EXCELLENT->value)
+            ->get();
+
+        foreach ($items as $item) {
+            $exists = MajorDiscrepancyRequest::query()
+                ->where('handover_item_id', $item->id)
+                ->exists();
+            if ($exists) {
+                continue;
+            }
+
+            MajorDiscrepancyRequest::create([
+                'handover_id' => (string) $handover->id,
+                'handover_item_id' => (string) $item->id,
+                'asset_id' => (string) $item->asset_id,
+                'branch_id' => (string) $handover->branch_id,
+                'status' => RequestStatus::PENDING->value,
+                'employee_responsible' => null,
+            ]);
+        }
     }
 
     public function signatureFor(Handover $handover, HandoverSignatureRole $role): ?HandoverSignature

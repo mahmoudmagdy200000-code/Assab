@@ -66,4 +66,42 @@ class TransferRequestController extends BaseController
             'Transfer approved successfully',
         );
     }
+
+    public function approveItemDest(string $itemId): JsonResponse
+    {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
+        $manager = auth()->user();
+
+        try {
+            $item = $this->service->approveTransferItemDest($itemId, $manager);
+        } catch (\Throwable $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        }
+
+        return $this->successResponse(
+            ['id' => (string) $item->id, 'status' => $item->status?->value ?? ''],
+            'Transfer item approved by destination',
+        );
+    }
+
+    public function rejectItemDest(Request $request, string $itemId): JsonResponse
+    {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
+        $manager = auth()->user();
+        $reason = (string) $request->input('reason', '');
+        if (strlen($reason) < 3) {
+            return $this->validationErrorResponse(['reason' => ['Reason is required (min 3 characters).']]);
+        }
+
+        try {
+            $item = $this->service->rejectTransferItemDest($itemId, $manager, $reason);
+        } catch (\Throwable $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        }
+
+        return $this->successResponse(
+            ['id' => (string) $item->id, 'status' => $item->status?->value ?? ''],
+            'Transfer item rejected by destination',
+        );
+    }
 }

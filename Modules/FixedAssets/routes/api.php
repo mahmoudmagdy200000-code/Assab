@@ -75,6 +75,11 @@ Route::middleware(['auth:sanctum', 'branch.manager'])
         Route::post('requests/transfers/{requestId}/approve', [TransferRequestController::class, 'approve'])
             ->name('requests.transfers.approve');
 
+        Route::post('requests/transfers/items/{itemId}/approve', [TransferRequestController::class, 'approveItemDest'])
+            ->name('requests.transfers.items.approve');
+        Route::post('requests/transfers/items/{itemId}/reject', [TransferRequestController::class, 'rejectItemDest'])
+            ->name('requests.transfers.items.reject');
+
         Route::get('requests/disposals', [DisposalRequestController::class, 'index'])
             ->name('requests.disposals.index');
         Route::get('requests/disposals/{requestId}', [DisposalRequestController::class, 'show'])
