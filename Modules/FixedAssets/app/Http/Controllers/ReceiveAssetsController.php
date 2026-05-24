@@ -3,6 +3,7 @@
 namespace Modules\FixedAssets\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Modules\FixedAssets\Http\Requests\ReceiveAssetsConfirmRequest;
 use Modules\FixedAssets\Services\ReceiveAssetsService;
@@ -26,32 +27,53 @@ class ReceiveAssetsController extends BaseController
         );
     }
 
-    public function confirm(ReceiveAssetsConfirmRequest $request): JsonResponse
+    public function show(string $requestId): JsonResponse
     {
         /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
 
-        $items = $request->input('items', []);
-        $files = $request->file('items', []);
-
-        foreach ($files as $key => $fileSet) {
-            if (isset($fileSet['image'])) {
-                $items[$key]['image'] = $fileSet['image'];
-            }
+        try {
+            $pending = $this->service->findPending($requestId, $manager->branch_id);
+        } catch (ModelNotFoundException $e) {
+            return $this->notFoundResponse("Pending receipt not found: {$requestId}");
         }
 
-        $session = $this->service->confirm(
-            $request->input('type'),
-            $items,
-            $manager,
+        return $this->successResponse(
+            (new ReceiveAssetsItemResource($pending))->resolve(),
+            'Pending asset retrieved successfully',
         );
+    }
+
+    public function confirm(ReceiveAssetsConfirmRequest $request, string $requestId): JsonResponse
+    {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
+        $manager = auth()->user();
+
+        try {
+            $session = $this->service->confirmSingle(
+                $requestId,
+                $request->input('type'),
+                [
+                    'assignedZoneId' => $request->input('assignedZoneId'),
+                    'assetTypeId' => $request->input('assetTypeId'),
+                    'assetCount' => (int) $request->input('assetCount'),
+                    'excellentCount' => (int) $request->input('excellentCount'),
+                    'needAttentionCount' => (int) $request->input('needAttentionCount'),
+                    'problemCount' => (int) $request->input('problemCount'),
+                    'image' => $request->file('image'),
+                ],
+                $manager,
+            );
+        } catch (ModelNotFoundException $e) {
+            return $this->notFoundResponse("Pending receipt not found: {$requestId}");
+        }
 
         return $this->createdResponse(
             [
                 'session_id' => (string) $session->id,
                 'received_count' => $session->items->count(),
             ],
-            'Assets received successfully',
+            'Asset received successfully',
         );
     }
 }
