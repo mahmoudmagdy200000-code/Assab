@@ -6,8 +6,9 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Modules\FixedAssets\Http\Requests\ReceiveAssetsConfirmRequest;
+use Modules\FixedAssets\Models\PendingReceipt;
+use Modules\FixedAssets\Models\TransferDisposalItem;
 use Modules\FixedAssets\Services\ReceiveAssetsService;
-use Modules\FixedAssets\Transformers\ReceiveAssetsItemResource;
 
 class ReceiveAssetsController extends BaseController
 {
@@ -22,7 +23,7 @@ class ReceiveAssetsController extends BaseController
         $list = $this->service->pendingList($manager->branch_id);
 
         return $this->successResponse(
-            ['data' => ReceiveAssetsItemResource::collection($list)->resolve()],
+            ['data' => $list->map(fn ($row) => $this->formatRow($row))->all()],
             'Pending assets retrieved successfully',
         );
     }
@@ -33,14 +34,14 @@ class ReceiveAssetsController extends BaseController
         $manager = auth()->user();
 
         try {
-            $pending = $this->service->findPending($requestId, $manager->branch_id);
+            $incoming = $this->service->findIncoming($requestId, $manager->branch_id);
         } catch (ModelNotFoundException $e) {
-            return $this->notFoundResponse("Pending receipt not found: {$requestId}");
+            return $this->notFoundResponse("Incoming asset not found: {$requestId}");
         }
 
         return $this->successResponse(
-            (new ReceiveAssetsItemResource($pending))->resolve(),
-            'Pending asset retrieved successfully',
+            $this->formatIncoming($incoming),
+            'Incoming asset retrieved successfully',
         );
     }
 
@@ -50,7 +51,7 @@ class ReceiveAssetsController extends BaseController
         $manager = auth()->user();
 
         try {
-            $session = $this->service->confirmSingle(
+            $result = $this->service->confirmSingle(
                 $requestId,
                 $request->input('type'),
                 [
@@ -65,15 +66,50 @@ class ReceiveAssetsController extends BaseController
                 $manager,
             );
         } catch (ModelNotFoundException $e) {
-            return $this->notFoundResponse("Pending receipt not found: {$requestId}");
+            return $this->notFoundResponse("Incoming asset not found: {$requestId}");
+        } catch (\RuntimeException $e) {
+            return $this->errorResponse($e->getMessage(), 422);
         }
 
-        return $this->createdResponse(
-            [
-                'session_id' => (string) $session->id,
-                'received_count' => $session->items->count(),
-            ],
-            'Asset received successfully',
-        );
+        return $this->createdResponse($result, 'Asset received successfully');
+    }
+
+    private function formatRow(array $row): array
+    {
+        return [
+            'id' => $row['id'],
+            'sourceType' => $row['source_type'],
+            'assetName' => $row['asset_name'],
+            'assetCode' => $row['asset_code'],
+            'assetImage' => $row['asset_image'] ? asset('storage/'.$row['asset_image']) : '',
+        ];
+    }
+
+    private function formatIncoming(array $incoming): array
+    {
+        if ($incoming['type'] === 'pending') {
+            /** @var PendingReceipt $p */
+            $p = $incoming['model'];
+
+            return [
+                'id' => (string) $p->id,
+                'sourceType' => 'pending',
+                'assetName' => (string) $p->asset_name,
+                'assetCode' => (string) $p->asset_code,
+                'assetImage' => $p->asset_image ? asset('storage/'.$p->asset_image) : '',
+            ];
+        }
+
+        /** @var TransferDisposalItem $i */
+        $i = $incoming['model'];
+        $asset = $i->asset;
+
+        return [
+            'id' => (string) $i->id,
+            'sourceType' => 'transfer',
+            'assetName' => (string) ($asset?->name ?? ''),
+            'assetCode' => (string) ($asset?->code ?? ''),
+            'assetImage' => $asset?->image ? asset('storage/'.$asset->image) : '',
+        ];
     }
 }
