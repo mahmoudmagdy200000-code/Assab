@@ -45,33 +45,49 @@ class ReceiveAssetsController extends BaseController
         );
     }
 
-    public function confirm(ReceiveAssetsConfirmRequest $request, string $requestId): JsonResponse
+    public function confirm(ReceiveAssetsConfirmRequest $request): JsonResponse
     {
         /** @var \Modules\BranchManagers\Models\BranchManager $manager */
         $manager = auth()->user();
 
-        try {
-            $result = $this->service->confirmSingle(
-                $requestId,
-                $request->input('type'),
-                [
-                    'assignedZoneId' => $request->input('assignedZoneId'),
-                    'assetTypeId' => $request->input('assetTypeId'),
-                    'assetCount' => (int) $request->input('assetCount'),
-                    'excellentCount' => (int) $request->input('excellentCount'),
-                    'needAttentionCount' => (int) $request->input('needAttentionCount'),
-                    'problemCount' => (int) $request->input('problemCount'),
-                    'image' => $request->file('image'),
-                ],
-                $manager,
-            );
-        } catch (ModelNotFoundException $e) {
-            return $this->notFoundResponse("Incoming asset not found: {$requestId}");
-        } catch (\RuntimeException $e) {
-            return $this->errorResponse($e->getMessage(), 422);
+        $type = $request->input('type');
+        $items = (array) $request->input('items', []);
+        $files = (array) $request->file('items', []);
+
+        $results = [];
+        $errors = [];
+
+        foreach ($items as $key => $item) {
+            $assetId = (string) ($item['assetId'] ?? $key);
+            $payload = [
+                'assignedZoneId' => $item['assignedZoneId'] ?? null,
+                'assetTypeId' => $item['assetTypeId'] ?? null,
+                'assetCount' => (int) ($item['assetCount'] ?? 0),
+                'excellentCount' => (int) ($item['excellentCount'] ?? 0),
+                'needAttentionCount' => (int) ($item['needAttentionCount'] ?? 0),
+                'problemCount' => (int) ($item['problemCount'] ?? 0),
+                'image' => $files[$key]['image'] ?? null,
+            ];
+
+            try {
+                $results[] = [
+                    'assetId' => $assetId,
+                ] + $this->service->confirmSingle($assetId, $type, $payload, $manager);
+            } catch (ModelNotFoundException $e) {
+                $errors[] = ['assetId' => $assetId, 'message' => "Incoming asset not found: {$assetId}"];
+            } catch (\RuntimeException $e) {
+                $errors[] = ['assetId' => $assetId, 'message' => $e->getMessage()];
+            }
         }
 
-        return $this->createdResponse($result, 'Asset received successfully');
+        if ($errors !== [] && $results === []) {
+            return $this->errorResponse('Failed to receive assets', 422, $errors);
+        }
+
+        return $this->createdResponse([
+            'received' => $results,
+            'failed' => $errors,
+        ], 'Assets received successfully');
     }
 
     private function formatRow(array $row): array

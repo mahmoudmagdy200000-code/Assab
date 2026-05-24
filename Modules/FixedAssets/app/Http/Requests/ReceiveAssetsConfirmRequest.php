@@ -18,28 +18,35 @@ class ReceiveAssetsConfirmRequest extends FormRequest
     {
         return [
             'type' => ['required', 'string', 'in:'.implode(',', ReceiveType::values())],
-            'assignedZoneId' => ['required', 'string'],
-            'assetTypeId' => ['required', 'string'],
-            'assetCount' => ['required', 'integer', 'min:0'],
-            'excellentCount' => ['required', 'integer', 'min:0'],
-            'needAttentionCount' => ['required', 'integer', 'min:0'],
-            'problemCount' => ['required', 'integer', 'min:0'],
-            'image' => ['required', 'file', 'image'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.assetId' => ['required', 'string'],
+            'items.*.assignedZoneId' => ['required', 'string'],
+            'items.*.assetTypeId' => ['required', 'string'],
+            'items.*.assetCount' => ['required', 'integer', 'min:0'],
+            'items.*.excellentCount' => ['required', 'integer', 'min:0'],
+            'items.*.needAttentionCount' => ['required', 'integer', 'min:0'],
+            'items.*.problemCount' => ['required', 'integer', 'min:0'],
+            'items.*.image' => ['required', 'file', 'image'],
         ];
     }
 
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $v) {
-            $assetCount = (int) $this->input('assetCount', -1);
-            $excellent = (int) $this->input('excellentCount', -1);
-            $needAttention = (int) $this->input('needAttentionCount', -1);
-            $problem = (int) $this->input('problemCount', -1);
+            $items = (array) $this->input('items', []);
+            foreach ($items as $key => $item) {
+                $assetCount = (int) ($item['assetCount'] ?? -1);
+                $excellent = (int) ($item['excellentCount'] ?? -1);
+                $needAttention = (int) ($item['needAttentionCount'] ?? -1);
+                $problem = (int) ($item['problemCount'] ?? -1);
 
-            if ($assetCount >= 0 && $excellent >= 0 && $needAttention >= 0 && $problem >= 0) {
+                if ($assetCount < 0 || $excellent < 0 || $needAttention < 0 || $problem < 0) {
+                    continue;
+                }
+
                 if ($excellent + $needAttention + $problem !== $assetCount) {
                     $v->errors()->add(
-                        'assetCount',
+                        "items.{$key}.assetCount",
                         'Sum of excellentCount + needAttentionCount + problemCount must equal assetCount.'
                     );
                 }
