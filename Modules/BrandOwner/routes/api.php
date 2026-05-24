@@ -2,7 +2,9 @@
 
 use Illuminate\Support\Facades\Route;
 use Modules\BrandOwner\Http\Controllers\AuthController;
+use Modules\BrandOwner\Http\Controllers\BrandOwnerAssetOverviewController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerBranchesController;
+use Modules\BrandOwner\Http\Controllers\BrandOwnerControlPanelController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerFixedAssetsDisposalController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerFixedAssetsHandoverReportController;
@@ -247,6 +249,29 @@ Route::prefix('brand-owner/fixed-assets/requests')
 | Brand Owner - Settings
 |--------------------------------------------------------------------------
 */
+
+/*
+|--------------------------------------------------------------------------
+| Brand Owner - Asset Overview & Control Panel
+|--------------------------------------------------------------------------
+*/
+
+Route::prefix('brand-owner')
+    ->middleware(['auth:sanctum', 'brand.owner'])
+    ->name('api.brand-owner.')
+    ->group(function () {
+        Route::get('asset-overview', [BrandOwnerAssetOverviewController::class, 'index'])
+            ->name('asset-overview.index');
+        Route::get('asset-overview/performance-summary', [BrandOwnerAssetOverviewController::class, 'performanceSummary'])
+            ->name('asset-overview.performance-summary');
+        Route::get('asset-overview/branch/{branchId}', [BrandOwnerAssetOverviewController::class, 'branchDetails'])
+            ->name('asset-overview.branch');
+        Route::post('asset-overview/export', [BrandOwnerAssetOverviewController::class, 'export'])
+            ->name('asset-overview.export');
+
+        Route::get('control-panel', [BrandOwnerControlPanelController::class, 'index'])
+            ->name('control-panel');
+    });
 
 Route::prefix('brand-owner/settings')
     ->middleware(['auth:sanctum', 'brand.owner'])
