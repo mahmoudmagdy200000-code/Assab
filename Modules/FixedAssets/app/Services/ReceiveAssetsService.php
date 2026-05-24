@@ -2,7 +2,6 @@
 
 namespace Modules\FixedAssets\Services;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
@@ -41,7 +40,11 @@ class ReceiveAssetsService
 
         $transfers = TransferDisposalItem::query()
             ->with(['request', 'asset:id,name,code,image,branch_id'])
-            ->whereHas('request', fn ($q) => $q->where('recipient_branch_id', $branchId))
+            ->whereHas('request', fn ($q) => $q->where('recipient_branch_id', $branchId)
+                ->where('status', '!=', RequestStatus::REJECTED->value))
+            ->where(function ($q) {
+                $q->whereNull('status')->orWhere('status', '!=', RequestStatus::REJECTED->value);
+            })
             ->orderBy('created_at')
             ->get()
             ->filter(fn (TransferDisposalItem $i) => $i->asset && (string) $i->asset->branch_id !== $branchId)
@@ -158,14 +161,8 @@ class ReceiveAssetsService
         $reqStatus = $item->request?->status?->value ?? $item->request?->status ?? null;
         $itemStatus = $item->status?->value ?? null;
 
-        $approvedReq = $reqStatus === RequestStatus::APPROVED->value;
-        $approvedItem = in_array($itemStatus, [
-            RequestStatus::APPROVED->value,
-            RequestStatus::PENDING_FINAL_APPROVAL->value,
-        ], true);
-
-        if (! $approvedReq && ! $approvedItem) {
-            throw new \RuntimeException('Transfer not yet approved — cannot receive.');
+        if ($reqStatus === RequestStatus::REJECTED->value || $itemStatus === RequestStatus::REJECTED->value) {
+            throw new \RuntimeException('Transfer rejected — cannot receive.');
         }
 
         $session = ReceiveSession::create([
