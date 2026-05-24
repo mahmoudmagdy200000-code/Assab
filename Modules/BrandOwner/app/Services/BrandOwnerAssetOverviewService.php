@@ -3,6 +3,8 @@
 namespace Modules\BrandOwner\Services;
 
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Modules\Branch\Models\Branch;
 use Modules\FixedAssets\Enums\AssetStatus;
 use Modules\FixedAssets\Models\FixedAsset;
@@ -10,6 +12,9 @@ use Modules\FixedAssets\Models\TransferDisposalItem;
 
 class BrandOwnerAssetOverviewService
 {
+    private const EXPORT_DIR = 'brand-owner/asset-overview';
+
+
     public function overview(): array
     {
         $branches = $this->branches();
@@ -58,12 +63,126 @@ class BrandOwnerAssetOverviewService
             throw new ModelNotFoundException("Branch not found: {$branchId}");
         }
 
+        $details = $this->branchObject($branch);
+        $path = $this->writeExportFile($details, $format);
+
         return [
             'branch_id' => (string) $branch->id,
             'branch_name' => (string) ($branch->name ?? ''),
             'format' => $format,
+            'url' => Storage::disk('public')->url($path),
             'message' => "Report exported successfully in {$format} format.",
         ];
+    }
+
+    private function writeExportFile(array $details, string $format): string
+    {
+        $isExcel = strtolower($format) === 'excel';
+        $extension = $isExcel ? 'csv' : 'pdf';
+        $filename = 'asset_overview_'.now()->format('Ymd_His').'_'.Str::random(6).'.'.$extension;
+        $path = self::EXPORT_DIR.'/'.$filename;
+
+        if ($isExcel) {
+            Storage::disk('public')->put($path, $this->exportCsv($details));
+
+            return $path;
+        }
+
+        $html = $this->exportHtml($details);
+        $pdf = $this->renderPdf($html);
+
+        if ($pdf !== null && substr($pdf, 0, 4) === '%PDF') {
+            Storage::disk('public')->put($path, $pdf);
+
+            return $path;
+        }
+
+        $htmlPath = self::EXPORT_DIR.'/'.str_replace('.pdf', '.html', $filename);
+        Storage::disk('public')->put($htmlPath, $html);
+
+        return $htmlPath;
+    }
+
+    private function exportCsv(array $details): string
+    {
+        $handle = fopen('php://temp', 'r+');
+        fputcsv($handle, ['Branch', $details['branch_name']]);
+        fputcsv($handle, ['Manager', $details['manager_name']]);
+        fputcsv($handle, ['Assets', $details['assets_count']]);
+        fputcsv($handle, ['Excellent', $details['excellent_count']]);
+        fputcsv($handle, ['Need Attention', $details['attention_count']]);
+        fputcsv($handle, ['Problem', $details['problem_count']]);
+        fputcsv($handle, []);
+        fputcsv($handle, ['Name', 'Code', 'Zone', 'Custodian', 'Custody Duration', 'Last Audit', 'Transfers']);
+
+        foreach ($details['assets'] ?? [] as $asset) {
+            fputcsv($handle, [
+                $asset['name'],
+                $asset['code'],
+                $asset['zone_name'],
+                $asset['custodian_name'],
+                $asset['custody_duration'],
+                $asset['last_audit_date'],
+                $asset['transfers_count'],
+            ]);
+        }
+
+        rewind($handle);
+        $csv = stream_get_contents($handle);
+        fclose($handle);
+
+        return $csv;
+    }
+
+    private function exportHtml(array $details): string
+    {
+        $rows = '';
+        foreach ($details['assets'] ?? [] as $a) {
+            $rows .= '<tr>'
+                .'<td>'.e($a['name']).'</td>'
+                .'<td>'.e($a['code']).'</td>'
+                .'<td>'.e($a['zone_name']).'</td>'
+                .'<td>'.e($a['custodian_name']).'</td>'
+                .'<td>'.e($a['custody_duration']).'</td>'
+                .'<td>'.e($a['last_audit_date']).'</td>'
+                .'<td>'.(int) $a['transfers_count'].'</td>'
+                .'</tr>';
+        }
+
+        return '<!doctype html><html><head><meta charset="utf-8"><title>Asset Overview</title>'
+            .'<style>body{font-family:Arial,sans-serif;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #ccc;padding:6px;text-align:left;}</style>'
+            .'</head><body>'
+            .'<h1>'.e($details['branch_name']).'</h1>'
+            .'<p>Manager: '.e($details['manager_name']).'</p>'
+            .'<p>Assets: '.(int) $details['assets_count']
+            .' | Excellent: '.(int) $details['excellent_count']
+            .' | Attention: '.(int) $details['attention_count']
+            .' | Problem: '.(int) $details['problem_count'].'</p>'
+            .'<table><thead><tr><th>Name</th><th>Code</th><th>Zone</th><th>Custodian</th><th>Custody</th><th>Last Audit</th><th>Transfers</th></tr></thead>'
+            .'<tbody>'.$rows.'</tbody></table>'
+            .'</body></html>';
+    }
+
+    private function renderPdf(string $html): ?string
+    {
+        if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
+            return \Barryvdh\DomPDF\Facade\Pdf::loadHTML($html)->setPaper('A4', 'portrait')->output();
+        }
+
+        if (app()->bound('dompdf.wrapper')) {
+            return app('dompdf.wrapper')->loadHTML($html)->setPaper('A4', 'portrait')->output();
+        }
+
+        if (class_exists(\Dompdf\Dompdf::class)) {
+            $dompdf = new \Dompdf\Dompdf;
+            $dompdf->loadHtml($html);
+            $dompdf->setPaper('A4', 'portrait');
+            $dompdf->render();
+
+            return $dompdf->output();
+        }
+
+        return null;
     }
 
     private function branches(): array
