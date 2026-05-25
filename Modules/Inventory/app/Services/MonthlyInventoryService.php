@@ -598,7 +598,9 @@ class MonthlyInventoryService
             }
 
             $old = $inventory->status->value;
-            $newStatus = MonthlyInventoryStatus::COMPLETED;
+            $newStatus = $actor instanceof Cashier
+                ? MonthlyInventoryStatus::PENDING_YOUR_CONFIRMATION
+                : MonthlyInventoryStatus::SUBMITTED;
 
             $inventory->update([
                 'status' => $newStatus,
@@ -608,8 +610,10 @@ class MonthlyInventoryService
             MonthlyInventoryTimeline::log(
                 $inventory,
                 MonthlyInventoryTimelineEventType::SUBMITTED,
-                'Submitted',
-                'Monthly inventory completed.',
+                $actor instanceof Cashier ? 'Submitted for Branch Manager confirmation' : 'Submitted for approval',
+                $actor instanceof Cashier
+                    ? 'Staff submitted the monthly inventory. Awaiting Branch Manager confirmation.'
+                    : 'Sent to management/finance for review.',
                 $old,
                 $newStatus->value
             );
@@ -645,24 +649,23 @@ class MonthlyInventoryService
 
             $old = $inventory->status->value;
             $inventory->update([
-                'status' => MonthlyInventoryStatus::COMPLETED,
-                'submitted_at' => $inventory->submitted_at ?? now(),
+                'status' => MonthlyInventoryStatus::SUBMITTED,
             ]);
 
             MonthlyInventoryTimeline::log(
                 $inventory,
                 MonthlyInventoryTimelineEventType::SUBMITTED,
                 'Confirmed by Branch Manager',
-                'Branch Manager confirmed staff submission. Monthly inventory completed.',
+                'Branch Manager confirmed staff submission. Sent to management/finance for review.',
                 $old,
-                MonthlyInventoryStatus::COMPLETED->value
+                MonthlyInventoryStatus::SUBMITTED->value
             );
 
             return $inventory->fresh();
         });
 
         $this->broadcastInventoryEvent($inventoryId, 'inventory.submitted', [
-            'status' => MonthlyInventoryStatus::COMPLETED->value,
+            'status' => MonthlyInventoryStatus::SUBMITTED->value,
             'confirmed_at' => now()->toIso8601String(),
         ]);
 
@@ -677,12 +680,8 @@ class MonthlyInventoryService
         return DB::transaction(function () use ($inventoryId) {
             $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
 
-            if (! in_array($inventory->status, [
-                MonthlyInventoryStatus::SUBMITTED,
-                MonthlyInventoryStatus::PENDING_FINANCE_REVIEW,
-                MonthlyInventoryStatus::COMPLETED,
-            ], true)) {
-                throw new \InvalidArgumentException('Only completed/submitted inventories can be approved.');
+            if ($inventory->status !== MonthlyInventoryStatus::SUBMITTED && $inventory->status !== MonthlyInventoryStatus::PENDING_FINANCE_REVIEW) {
+                throw new \InvalidArgumentException('Only submitted inventories can be approved.');
             }
 
             $old = $inventory->status->value;
@@ -712,12 +711,8 @@ class MonthlyInventoryService
         return DB::transaction(function () use ($inventoryId, $feedback, $author) {
             $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
 
-            if (! in_array($inventory->status, [
-                MonthlyInventoryStatus::SUBMITTED,
-                MonthlyInventoryStatus::PENDING_FINANCE_REVIEW,
-                MonthlyInventoryStatus::COMPLETED,
-            ], true)) {
-                throw new \InvalidArgumentException('Only completed/submitted inventories can be returned to draft.');
+            if ($inventory->status !== MonthlyInventoryStatus::SUBMITTED && $inventory->status !== MonthlyInventoryStatus::PENDING_FINANCE_REVIEW) {
+                throw new \InvalidArgumentException('Only submitted inventories can be returned to draft.');
             }
 
             $actor = $author ?? auth()->user();

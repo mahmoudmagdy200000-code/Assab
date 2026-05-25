@@ -342,7 +342,7 @@ class WasteDamageReportService
     }
 
     /**
-     * Submit the report (validate all items then set status to completed).
+     * Submit the report (validate all items then set status to pending — pending your confirmation).
      */
     public function submitReport(string $reportId, string $branchId, ?string $assignedToId = null): WasteDamageReport
     {
@@ -371,7 +371,7 @@ class WasteDamageReportService
         $oldStatus = $report->status->value;
 
         $this->reportRepository->update($report, [
-            'status' => WasteDamageReportStatus::COMPLETED,
+            'status' => WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION,
             'submitted_at' => now(),
         ]);
 
@@ -381,7 +381,7 @@ class WasteDamageReportService
             WasteDamageReportTimelineEventType::SUBMITTED->label(),
             null,
             $oldStatus,
-            WasteDamageReportStatus::COMPLETED->value
+            WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION->value
         );
 
         return $report->fresh();
