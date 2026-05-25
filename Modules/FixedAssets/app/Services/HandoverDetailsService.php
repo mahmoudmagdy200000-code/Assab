@@ -71,26 +71,19 @@ class HandoverDetailsService
             ? 'sender'
             : (((string) $handover->recipient_id === $viewerId && $handover->recipient_type === $viewerType) ? 'receiver' : 'sender');
 
-        $deductionItems = $handover->items
-            ->filter(fn ($it) => (bool) ($it->is_deducted ?? false))
-            ->map(function ($it) {
-                $raw = is_array($it->deduction) ? $it->deduction : [];
+        $firstDeducted = $handover->items
+            ->first(fn ($it) => (bool) ($it->is_deducted ?? false));
 
-                return [
-                    'id' => (string) $it->id,
-                    'assetId' => (string) $it->asset_id,
-                    'assetName' => (string) ($it->asset_name_snapshot ?? ''),
-                    'isDeducted' => true,
-                    'deduction' => [
-                        'employee_name' => (string) ($raw['employee_name'] ?? ''),
-                        'amount' => (float) ($raw['amount'] ?? 0),
-                        'reason' => (string) ($raw['reason'] ?? ''),
-                        'note' => (string) ($raw['note'] ?? ''),
-                    ],
-                ];
-            })
-            ->values()
-            ->all();
+        $isDeduction = $firstDeducted !== null;
+        $deductionDetails = null;
+        if ($isDeduction) {
+            $raw = is_array($firstDeducted->deduction) ? $firstDeducted->deduction : [];
+            $deductionDetails = [
+                'employee_name' => (string) ($raw['employee_name'] ?? ''),
+                'amount' => (float) ($raw['amount'] ?? 0),
+                'reason' => (string) ($raw['reason'] ?? ''),
+            ];
+        }
 
         return [
             'handoverId' => (string) $handover->id,
@@ -99,7 +92,8 @@ class HandoverDetailsService
             'initiatedDetails' => $initiated,
             'recipientName' => $recipientName,
             'completedDetails' => $completed,
-            'itemsDeductionStatus' => $deductionItems,
+            'isDeduction' => $isDeduction,
+            'deductionDetails' => $deductionDetails,
             'timeLine' => [
                 'timelines' => $handover->timelines
                     ->sortBy('occurred_at')
