@@ -29,6 +29,39 @@ class BrandOwnerFixedAssetsHandoverReportDetailsResource extends JsonResource
             ->count();
         $successRate = $total > 0 ? round((($total - $rejected) / $total) * 100, 2).'%' : '0%';
 
+        $rejectedRequests = $r->relationLoaded('groupedRequests')
+            ? $r->getRelation('groupedRequests')
+            : collect([$r]);
+
+        $rejectedItems = $rejectedRequests->map(function (MajorDiscrepancyRequest $m) {
+            $hi = $m->handoverItem;
+
+            return [
+                'id' => (string) $m->id,
+                'handover_item_id' => (string) ($m->handover_item_id ?? ''),
+                'asset_id' => (string) ($m->asset_id ?? ''),
+                'asset_name' => (string) ($hi?->asset_name_snapshot ?? ''),
+                'asset_image_url' => $hi?->asset_image_snapshot
+                    ? asset('storage/'.$hi->asset_image_snapshot)
+                    : '',
+                'affected_value' => $hi?->value_snapshot !== null
+                    ? (string) $hi->value_snapshot
+                    : '-',
+                'recipient_note' => (string) ($hi?->recipient_note ?? ''),
+                'evidence_image_url' => $hi?->recipient_photo_path
+                    ? asset('storage/'.$hi->recipient_photo_path)
+                    : '',
+                'status' => $m->status?->value ?? 'pending',
+                'employee_responsible' => (string) ($m->employee_responsible ?? ''),
+                'warning_note' => (string) ($m->warning_note ?? ''),
+                'salary_deduction_amount' => $m->salary_deduction_amount !== null
+                    ? (string) $m->salary_deduction_amount
+                    : '',
+                'salary_deduction_reason' => (string) ($m->salary_deduction_reason ?? ''),
+                'rejection_reason' => (string) ($m->rejection_reason ?? ''),
+            ];
+        })->values()->all();
+
         $start = $handover?->started_at;
         $end = $handover?->completed_at;
         $duration = ($start && $end) ? gmdate('H:i:s', max(0, $end->diffInSeconds($start))) : '-';
@@ -97,6 +130,7 @@ class BrandOwnerFixedAssetsHandoverReportDetailsResource extends JsonResource
                 ? (string) $r->salary_deduction_amount
                 : '',
             'salary_deduction_reason' => (string) ($r->salary_deduction_reason ?? ''),
+            'items' => $rejectedItems,
             'timelines' => TimelineItemResource::collection($r->timelines ?? collect())->resolve(),
         ];
     }

@@ -55,6 +55,17 @@ class BrandOwnerFixedAssetsHandoverReportService
             throw new ModelNotFoundException();
         }
 
+        $siblings = MajorDiscrepancyRequest::query()
+            ->with([
+                'handoverItem:id,handover_id,asset_name_snapshot,asset_image_snapshot,value_snapshot,recipient_note,recipient_photo_path',
+                'asset:id,name,image',
+            ])
+            ->where('handover_id', $req->handover_id)
+            ->orderBy('created_at')
+            ->get();
+
+        $req->setRelation('groupedRequests', $siblings);
+
         return $req;
     }
 
