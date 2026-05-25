@@ -11,7 +11,6 @@ use Modules\Inventory\Http\Controllers\Concerns\ResolvesInventoryActor;
 use Modules\Inventory\Http\Requests\WasteDamage\StoreWasteDamageReportItemRequest;
 use Modules\Inventory\Http\Requests\WasteDamage\StoreWasteDamageReportRequest;
 use Modules\Inventory\Http\Requests\WasteDamage\UpdateWasteDamageReportItemRequest;
-use Modules\Inventory\Models\WasteDamageReport;
 use Modules\Inventory\Services\InventorySessionService;
 use Modules\Inventory\Services\WasteDamageProductService;
 use Modules\Inventory\Services\WasteDamageReportService;
@@ -118,7 +117,11 @@ class WasteDamageReportController extends BaseController
     }
 
     /**
-     * Create draft report (optionally with multiple items in one request, like daily inventory).
+     * Create reports from a multi-item payload.
+     * Each item produces its OWN independent report (1 item per report).
+     * Shared request data (branch, actor, assignment) is duplicated across all reports.
+     * Each report+item pair is committed in its own DB transaction, so a failure on one
+     * item does not roll back previously-saved reports.
      * Send items[].photo as image file (multipart); photo is stored and path saved.
      */
     public function store(StoreWasteDamageReportRequest $request): JsonResponse
@@ -135,85 +138,84 @@ class WasteDamageReportController extends BaseController
             $assignedToType = $request->validated('assigned_to_type', 'personal');
             $assignedToId = $request->validated('assigned_to_id');
             $items = $request->validated('items', []);
+            $actorBranchManagerId = $actor->isManager() ? $createdById : null;
+            $actorCashierId = $actor->isCashier() ? $createdById : null;
 
-            $report = $this->findReusableReportForActor($actor, $branchId, $assignedToType, $assignedToId);
+            // No items: create a single empty report.
+            if (empty($items)) {
+                $report = $this->reportService->createReport(
+                    $branchId,
+                    $createdById,
+                    $assignedToType,
+                    $assignedToId,
+                    $createdByType
+                );
+                $report->loadMissing('assignedTo');
 
-            if (! $report) {
-                $report = $this->reportService->createReport($branchId, $createdById, $assignedToType, $assignedToId, $createdByType);
-            }
-
-            if (! empty($items)) {
-                $items = $this->storeItemPhotosForReport($request, $report->id, $items);
-                $this->reportService->addItemsToReport(
-                    $report,
-                    $items,
-                    $actor->isManager() ? $createdById : null,
-                    $actor->isCashier() ? $createdById : null,
+                return $this->createdResponse(
+                    new WasteDamageReportResource($report),
+                    'Waste & damage report created successfully'
                 );
             }
 
-            $report->loadMissing('assignedTo');
+            // One report per item. Each pair in its own transaction.
+            $createdReports = [];
+            foreach ($items as $index => $itemData) {
+                $report = \Illuminate\Support\Facades\DB::transaction(function () use (
+                    $branchId,
+                    $createdById,
+                    $assignedToType,
+                    $assignedToId,
+                    $createdByType,
+                    $itemData,
+                    $index,
+                    $request,
+                    $actorBranchManagerId,
+                    $actorCashierId
+                ) {
+                    $report = $this->reportService->createReport(
+                        $branchId,
+                        $createdById,
+                        $assignedToType,
+                        $assignedToId,
+                        $createdByType
+                    );
+
+                    if ($request->hasFile("items.{$index}.photo")) {
+                        $itemData['photo_path'] = $request->file("items.{$index}.photo")->store(
+                            sprintf('waste-damage/reports/%s', $report->id),
+                            'public'
+                        );
+                    }
+
+                    $this->reportService->addItemsToReport(
+                        $report,
+                        [$itemData],
+                        $actorBranchManagerId,
+                        $actorCashierId,
+                    );
+
+                    return $report;
+                });
+
+                $report->loadMissing([
+                    'assignedTo',
+                    'items.item',
+                    'items.responsibleEmployees.cashier.branch',
+                    'items.responsibleEmployees.branchManager',
+                ]);
+                $createdReports[] = $report;
+            }
 
             return $this->createdResponse(
-                new WasteDamageReportResource($report),
-                'Waste & damage report created successfully'
+                WasteDamageReportResource::collection(collect($createdReports)),
+                count($createdReports).' waste & damage report(s) created successfully'
             );
         } catch (ValidationException $e) {
             return $this->validationErrorResponse($e->errors(), $e->getMessage());
         } catch (\Exception $e) {
             return $this->handleException($e, 'creating waste & damage report');
         }
-    }
-
-    /**
-     * Find an existing editable (DRAFT/PENDING) report to reuse instead of creating a new empty one.
-     *   - Cashier: latest report assigned to them.
-     *   - Manager creating staff task: latest staff-assigned report for the same cashier in branch.
-     *   - Manager creating personal task: their latest personal report in branch.
-     */
-    private function findReusableReportForActor(
-        \Modules\Inventory\Support\InventoryActor $actor,
-        string $branchId,
-        string $assignedToType = 'personal',
-        ?string $assignedToId = null,
-    ): ?WasteDamageReport {
-        $query = WasteDamageReport::where('branch_id', $branchId)
-            ->whereIn('status', [
-                WasteDamageReportStatus::DRAFT->value,
-                WasteDamageReportStatus::PENDING->value,
-            ]);
-
-        if ($actor->isCashier()) {
-            $query->where('assigned_to_type', 'staff')->where('assigned_to_id', $actor->getActorId());
-        } elseif ($assignedToType === 'staff' && $assignedToId) {
-            $query->where('assigned_to_type', 'staff')->where('assigned_to_id', $assignedToId);
-        } else {
-            $query->where('created_by', $actor->getActorId())->where('assigned_to_type', 'personal');
-        }
-
-        return $query->orderByDesc('created_at')->first();
-    }
-
-    /**
-     * Store uploaded photos for items (items.0.photo, items.1.photo, ...) and return items with photo_path set.
-     *
-     * @param  array<int, array<string, mixed>>  $items
-     * @return array<int, array<string, mixed>>
-     */
-    private function storeItemPhotosForReport(Request $request, string $reportId, array $items): array
-    {
-        $basePath = sprintf('waste-damage/reports/%s', $reportId);
-
-        foreach (array_keys($items) as $index) {
-            $key = "items.{$index}.photo";
-            if (! $request->hasFile($key)) {
-                continue;
-            }
-            $path = $request->file($key)->store($basePath, 'public');
-            $items[$index]['photo_path'] = $path;
-        }
-
-        return $items;
     }
 
     /**
