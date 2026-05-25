@@ -4,7 +4,6 @@ namespace Modules\BrandOwner\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 use Modules\FixedAssets\Enums\HandoverSignatureRole;
-use Modules\FixedAssets\Models\HandoverItem;
 use Modules\FixedAssets\Models\MajorDiscrepancyRequest;
 use Modules\FixedAssets\Transformers\TimelineItemResource;
 
@@ -15,8 +14,6 @@ class BrandOwnerFixedAssetsHandoverReportDetailsResource extends JsonResource
         /** @var MajorDiscrepancyRequest $r */
         $r = $this->resource;
         $handover = $r->handover;
-        /** @var HandoverItem|null $item */
-        $item = $r->handoverItem;
         $signatures = $handover?->signatures ?? collect();
 
         $sender = $signatures->firstWhere('role', HandoverSignatureRole::SENDER);
@@ -33,39 +30,30 @@ class BrandOwnerFixedAssetsHandoverReportDetailsResource extends JsonResource
             ? $r->getRelation('groupedRequests')
             : collect([$r]);
 
-        $rejectedItems = $rejectedRequests->map(function (MajorDiscrepancyRequest $m) {
+        $assets = $rejectedRequests->map(function (MajorDiscrepancyRequest $m) {
             $hi = $m->handoverItem;
-            $isDeducted = (bool) ($hi?->is_deducted ?? false);
-            $raw = is_array($hi?->deduction) ? $hi->deduction : [];
 
             return [
-                'id' => (string) $m->id,
-                'handover_item_id' => (string) ($m->handover_item_id ?? ''),
-                'asset_id' => (string) ($m->asset_id ?? ''),
-                'asset_name' => (string) ($hi?->asset_name_snapshot ?? ''),
-                'asset_image_url' => $hi?->asset_image_snapshot
+                'image_url' => $hi?->asset_image_snapshot
                     ? asset('storage/'.$hi->asset_image_snapshot)
                     : '',
+                'name' => (string) ($hi?->asset_name_snapshot ?? ''),
+                'subtitle' => (string) ($hi?->asset_type_name_snapshot ?? ''),
                 'affected_value' => $hi?->value_snapshot !== null
                     ? (string) $hi->value_snapshot
                     : '-',
-                'recipient_note' => (string) ($hi?->recipient_note ?? ''),
+                'evidence_caption' => (string) ($hi?->recipient_note ?? ''),
                 'evidence_image_url' => $hi?->recipient_photo_path
                     ? asset('storage/'.$hi->recipient_photo_path)
                     : '',
-                'status' => $m->status?->value ?? 'pending',
-                'employee_responsible' => (string) ($m->employee_responsible ?? ''),
-                'warning_note' => (string) ($m->warning_note ?? ''),
-                'rejection_reason' => (string) ($m->rejection_reason ?? ''),
-                'isDeducted' => $isDeducted,
-                'deduction' => $isDeducted ? [
-                    'employee_name' => (string) ($raw['employee_name'] ?? ''),
-                    'amount' => (float) ($raw['amount'] ?? 0),
-                    'reason' => (string) ($raw['reason'] ?? ''),
-                    'note' => (string) ($raw['note'] ?? ''),
-                ] : null,
             ];
         })->values()->all();
+
+        $totalAffected = $rejectedRequests->sum(fn (MajorDiscrepancyRequest $m) => (float) ($m->handoverItem?->value_snapshot ?? 0));
+        $totalHandoverValue = (float) $items->sum(fn ($it) => (float) ($it->value_snapshot ?? 0));
+        $impactRatio = $totalHandoverValue > 0
+            ? round(($totalAffected / $totalHandoverValue) * 100, 2).'%'
+            : '-';
 
         $start = $handover?->started_at;
         $end = $handover?->completed_at;
@@ -74,8 +62,6 @@ class BrandOwnerFixedAssetsHandoverReportDetailsResource extends JsonResource
         return [
             'id' => (string) $r->id,
             'status' => $r->status?->value ?? 'pending',
-            'approved_on' => $r->bo_decided_at?->toIso8601String() ?? '',
-            'cancellation' => $r->cancellation,
             'route_details' => [
                 'request_id' => (string) ($handover?->id ?? ''),
                 'session_code' => (string) ($handover?->session_code ?? ''),
@@ -88,20 +74,7 @@ class BrandOwnerFixedAssetsHandoverReportDetailsResource extends JsonResource
                     ?? '',
                 'session_duration' => $duration,
             ],
-            'asset_details' => [
-                'image_url' => $item?->asset_image_snapshot
-                    ? asset('storage/'.$item->asset_image_snapshot)
-                    : '',
-                'name' => (string) ($item?->asset_name_snapshot ?? ''),
-                'subtitle' => (string) ($item?->asset_type_name_snapshot ?? ''),
-                'affected_value' => $item?->value_snapshot !== null
-                    ? (string) $item->value_snapshot
-                    : '-',
-                'evidence_caption' => (string) ($item?->recipient_note ?? ''),
-                'evidence_image_url' => $item?->recipient_photo_path
-                    ? asset('storage/'.$item->recipient_photo_path)
-                    : '',
-            ],
+            'assets' => $assets,
             'signature_details' => [
                 'sender' => [
                     'name' => (string) ($sender?->signed_by_name_snapshot ?? ''),
@@ -116,20 +89,25 @@ class BrandOwnerFixedAssetsHandoverReportDetailsResource extends JsonResource
                     'name' => (string) ($receiver?->signed_by_name_snapshot ?? ''),
                     'role_label' => 'Receiver',
                     'signed_at' => $receiver?->signed_at?->toIso8601String() ?? '',
-                    'note' => (string) ($item?->recipient_note ?? ''),
+                    'note' => '',
                     'image_url' => $receiver?->signature_image_path
                         ? asset('storage/'.$receiver->signature_image_path)
                         : '',
                 ],
             ],
             'financial_analysis' => [
-                'total_affected_value' => $item?->value_snapshot !== null
-                    ? (string) $item->value_snapshot
-                    : '-',
-                'impact_ratio' => '-',
+                'total_affected_value' => $totalAffected > 0 ? (string) $totalAffected : '-',
+                'impact_ratio' => $impactRatio,
                 'employee_record' => (string) ($r->employee_responsible ?? ''),
             ],
-            'items' => $rejectedItems,
+            'employee_responsible' => (string) ($r->employee_responsible ?? ''),
+            'warning_note' => (string) ($r->warning_note ?? ''),
+            'salary_deduction_amount' => $r->salary_deduction_amount !== null
+                ? (string) $r->salary_deduction_amount
+                : '',
+            'salary_deduction_reason' => (string) ($r->salary_deduction_reason ?? ''),
+            'approved_on' => $r->bo_decided_at?->toIso8601String() ?? '',
+            'cancellation' => $r->cancellation,
             'timelines' => TimelineItemResource::collection($r->timelines ?? collect())->resolve(),
         ];
     }
