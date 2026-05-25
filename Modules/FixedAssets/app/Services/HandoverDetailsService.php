@@ -72,13 +72,23 @@ class HandoverDetailsService
             : (((string) $handover->recipient_id === $viewerId && $handover->recipient_type === $viewerType) ? 'receiver' : 'sender');
 
         $deductionItems = $handover->items
-            ->map(fn ($it) => [
-                'id' => (string) $it->id,
-                'assetId' => (string) $it->asset_id,
-                'assetName' => (string) ($it->asset_name_snapshot ?? ''),
-                'isDeducted' => (bool) ($it->is_deducted ?? false),
-                'deduction' => $it->deduction,
-            ])
+            ->map(function ($it) {
+                $isDeducted = (bool) ($it->is_deducted ?? false);
+                $raw = is_array($it->deduction) ? $it->deduction : [];
+
+                return [
+                    'id' => (string) $it->id,
+                    'assetId' => (string) $it->asset_id,
+                    'assetName' => (string) ($it->asset_name_snapshot ?? ''),
+                    'isDeducted' => $isDeducted,
+                    'deduction' => $isDeducted ? [
+                        'employee_name' => (string) ($raw['employee_name'] ?? ''),
+                        'amount' => (float) ($raw['amount'] ?? 0),
+                        'reason' => (string) ($raw['reason'] ?? ''),
+                        'note' => (string) ($raw['note'] ?? ''),
+                    ] : null,
+                ];
+            })
             ->values()
             ->all();
 
