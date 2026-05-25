@@ -599,9 +599,7 @@ class MonthlyInventoryService
             }
 
             $old = $inventory->status->value;
-            $newStatus = $actor instanceof Cashier
-                ? MonthlyInventoryStatus::PENDING_YOUR_CONFIRMATION
-                : MonthlyInventoryStatus::SUBMITTED;
+            $newStatus = MonthlyInventoryStatus::COMPLETED;
 
             $inventory->update([
                 'status' => $newStatus,
@@ -611,10 +609,8 @@ class MonthlyInventoryService
             MonthlyInventoryTimeline::log(
                 $inventory,
                 MonthlyInventoryTimelineEventType::SUBMITTED,
-                $actor instanceof Cashier ? 'Submitted for Branch Manager confirmation' : 'Submitted for approval',
-                $actor instanceof Cashier
-                    ? 'Staff submitted the monthly inventory. Awaiting Branch Manager confirmation.'
-                    : 'Sent to management/finance for review.',
+                'Submitted',
+                'Monthly inventory completed.',
                 $old,
                 $newStatus->value
             );
