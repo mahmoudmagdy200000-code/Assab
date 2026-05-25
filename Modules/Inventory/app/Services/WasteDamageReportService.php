@@ -342,6 +342,60 @@ class WasteDamageReportService
     }
 
     /**
+     * Confirm staff submission (Branch Manager). Status PENDING_YOUR_CONFIRMATION -> COMPLETED.
+     * Optional overrides let the manager edit the staff-submitted quantities before confirming.
+     * Total value per item is recomputed from new quantity * price_per_unit.
+     *
+     * @param  array<int, array{itemId: string, quantity: float|int}>  $itemOverrides
+     */
+    public function confirmStaffSubmission(string $reportId, string $branchId, array $itemOverrides = []): WasteDamageReport
+    {
+        return DB::transaction(function () use ($reportId, $branchId, $itemOverrides) {
+            $report = $this->reportRepository->findByBranch($reportId, $branchId, ['items']);
+            if (! $report) {
+                throw ValidationException::withMessages(['report' => ['Report not found.']]);
+            }
+
+            if (! $report->status->isPendingYourConfirmation()) {
+                throw ValidationException::withMessages(['report' => ['Report is not pending your confirmation.']]);
+            }
+
+            if (! empty($itemOverrides)) {
+                $reportItemIds = $report->items->pluck('id')->all();
+                foreach ($itemOverrides as $override) {
+                    $itemId = $override['itemId'] ?? null;
+                    if (! $itemId || ! in_array($itemId, $reportItemIds, true)) {
+                        throw new \InvalidArgumentException("Item {$itemId} does not belong to this report.");
+                    }
+                    $item = WasteDamageReportItem::find($itemId);
+                    if ($item) {
+                        $quantity = (float) $override['quantity'];
+                        $item->quantity = $quantity;
+                        $item->total_value = round($quantity * (float) $item->price_per_unit, 2);
+                        $item->save();
+                    }
+                }
+            }
+
+            $oldStatus = $report->status->value;
+            $this->reportRepository->update($report, [
+                'status' => WasteDamageReportStatus::COMPLETED,
+            ]);
+
+            WasteDamageReportTimeline::log(
+                $report->fresh(),
+                WasteDamageReportTimelineEventType::APPROVED,
+                'Confirmed by Branch Manager',
+                'Branch Manager confirmed staff submission.',
+                $oldStatus,
+                WasteDamageReportStatus::COMPLETED->value
+            );
+
+            return $report->fresh(['items.item', 'items.responsibleEmployees.cashier.branch', 'items.responsibleEmployees.branchManager', 'assignedTo', 'createdBy']);
+        });
+    }
+
+    /**
      * Submit the report (validate all items then set status to pending — pending your confirmation).
      */
     public function submitReport(string $reportId, string $branchId, ?string $assignedToId = null): WasteDamageReport

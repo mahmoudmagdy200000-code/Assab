@@ -385,15 +385,29 @@ class InventorySessionService
 
     /**
      * Confirm cashier's submission (Branch Manager). Status PENDING_YOUR_CONFIRMATION -> PENDING (awaiting Account Manager).
+     *
+     * @param  array<int, array{itemId: string, quantity: float|int}>  $itemOverrides  Final quantities the manager wants applied before confirming.
      */
-    public function confirmCashierSubmission(string $sessionId, BranchManager $manager): InventorySession
+    public function confirmCashierSubmission(string $sessionId, BranchManager $manager, array $itemOverrides = []): InventorySession
     {
-        return DB::transaction(function () use ($sessionId, $manager) {
+        return DB::transaction(function () use ($sessionId, $manager, $itemOverrides) {
             $session = InventorySession::where('id', $sessionId)
                 ->where('branch_id', $manager->branch_id)
                 ->where('status', InventorySessionStatus::PENDING_YOUR_CONFIRMATION)
                 ->where('assigned_to_type', 'staff')
                 ->firstOrFail();
+
+            if (! empty($itemOverrides)) {
+                $sessionItemIds = $session->items()->pluck('id')->all();
+                foreach ($itemOverrides as $override) {
+                    $itemId = $override['itemId'] ?? null;
+                    if (! $itemId || ! in_array($itemId, $sessionItemIds, true)) {
+                        throw new \InvalidArgumentException("Item {$itemId} does not belong to this session.");
+                    }
+                    InventoryItem::where('id', $itemId)
+                        ->update(['quantity_inventory' => $override['quantity']]);
+                }
+            }
 
             $oldStatus = $session->status->value;
             $session->status = InventorySessionStatus::PENDING;

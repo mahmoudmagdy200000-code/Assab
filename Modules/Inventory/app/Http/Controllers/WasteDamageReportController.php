@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Modules\Inventory\Enums\WasteDamageReportStatus;
 use Modules\Inventory\Http\Controllers\Concerns\ResolvesInventoryActor;
+use Modules\Inventory\Http\Requests\WasteDamage\ConfirmWasteDamageReportRequest;
 use Modules\Inventory\Http\Requests\WasteDamage\StoreWasteDamageReportItemRequest;
 use Modules\Inventory\Http\Requests\WasteDamage\StoreWasteDamageReportRequest;
 use Modules\Inventory\Http\Requests\WasteDamage\UpdateWasteDamageReportItemRequest;
@@ -444,6 +445,35 @@ class WasteDamageReportController extends BaseController
             return $this->validationErrorResponse($e->errors(), $e->getMessage());
         } catch (\Exception $e) {
             return $this->handleException($e, 'removing report item');
+        }
+    }
+
+    /**
+     * Confirm staff submission (Branch Manager). Status PENDING_YOUR_CONFIRMATION -> COMPLETED.
+     * Optional body: items[] with final quantities the manager wants to apply before confirming.
+     * Body shape: { "items": [{"itemId": "<report_item_uuid>", "quantity": 5}] }
+     */
+    public function confirmSubmission(ConfirmWasteDamageReportRequest $request, string $id): JsonResponse
+    {
+        try {
+            $manager = $this->resolveInventoryActor()->requireManager();
+            if (! $manager->branch_id) {
+                return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
+            }
+
+            $overrides = $request->validated('items', []);
+            $report = $this->reportService->confirmStaffSubmission($id, $manager->branch_id, $overrides);
+
+            return $this->successResponse(
+                new WasteDamageReportResource($report),
+                'Staff submission confirmed successfully'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e->errors(), $e->getMessage());
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'confirming staff submission');
         }
     }
 

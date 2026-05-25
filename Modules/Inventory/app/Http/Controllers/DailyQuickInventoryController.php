@@ -11,6 +11,7 @@ use Modules\Inventory\Enums\InventorySessionStatus;
 use Modules\Inventory\Http\Controllers\Concerns\ResolvesInventoryActor;
 use Modules\Inventory\Http\Requests\AddInventoryItemRequest;
 use Modules\Inventory\Http\Requests\ApproveInventorySessionRequest;
+use Modules\Inventory\Http\Requests\ConfirmInventorySessionRequest;
 use Modules\Inventory\Http\Requests\CreateInventorySessionRequest;
 use Modules\Inventory\Http\Requests\RejectInventorySessionRequest;
 use Modules\Inventory\Http\Requests\UpdateInventoryItemRequest;
@@ -303,19 +304,24 @@ class DailyQuickInventoryController extends BaseController
 
     /**
      * Confirm cashier submission (Branch Manager). Status PENDING_YOUR_CONFIRMATION -> PENDING (sent to Account Manager).
+     * Optional body: items[] with final quantities the manager wants to override before confirming.
+     * Body shape: { "items": [{"itemId": "<inventory_item_uuid>", "quantity": 5}] }
      *
      * @group Daily Quick Inventory
      */
-    public function confirmSubmission(string $id): JsonResponse
+    public function confirmSubmission(ConfirmInventorySessionRequest $request, string $id): JsonResponse
     {
         try {
             $manager = $this->resolveInventoryActor()->requireManager();
-            $session = $this->sessionService->confirmCashierSubmission($id, $manager);
+            $overrides = $request->validated('items', []);
+            $session = $this->sessionService->confirmCashierSubmission($id, $manager, $overrides);
 
             return $this->successResponse(
                 new InventorySessionResource($session),
                 'Staff submission confirmed successfully'
             );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
         } catch (\Exception $e) {
             return $this->handleException($e, 'confirming staff submission');
         }
