@@ -125,8 +125,50 @@ class InventorySessionService
         return DB::transaction(function () use ($data, $creator) {
             $creatorType = $creator instanceof Cashier ? 'cashier' : 'branch_manager';
 
-            // Cashiers can only create personal sessions (assigned to themselves)
+            // Cashier: reuse existing active session assigned to them by branch manager (no duplicate session).
             if ($creator instanceof Cashier) {
+                $existingAssigned = InventorySession::where('branch_id', $creator->branch_id)
+                    ->where('assigned_to_type', 'staff')
+                    ->where('assigned_to_id', $creator->id)
+                    ->whereIn('status', [
+                        InventorySessionStatus::PENDING,
+                        InventorySessionStatus::DRAFT,
+                        InventorySessionStatus::PENDING_YOUR_ACTION,
+                    ])
+                    ->whereNull('submitted_at')
+                    ->orderByDesc('created_at')
+                    ->first();
+
+                if ($existingAssigned) {
+                    if (! empty($data['items']) && is_array($data['items'])) {
+                        foreach ($data['items'] as $itemData) {
+                            $item = $this->addItemToSessionByIdentifier(
+                                $existingAssigned->id,
+                                $itemData['item_id'],
+                                $creator,
+                                $itemData['quantity'] ?? 0,
+                                $itemData['notes'] ?? null
+                            );
+
+                            if (isset($itemData['quantity']) || array_key_exists('notes', $itemData)) {
+                                $updates = [];
+                                if (isset($itemData['quantity'])) {
+                                    $updates['quantity_inventory'] = $itemData['quantity'];
+                                }
+                                if (array_key_exists('notes', $itemData)) {
+                                    $updates['notes'] = $itemData['notes'];
+                                }
+                                if ($updates) {
+                                    $item->update($updates);
+                                }
+                            }
+                        }
+                    }
+
+                    return $existingAssigned->fresh(['items.item', 'items.purchaseOrderItem.purchaseOrder']);
+                }
+
+                // No assigned session — cashier may only create personal sessions.
                 $data['assigned_to_type'] = 'personal';
             }
 
