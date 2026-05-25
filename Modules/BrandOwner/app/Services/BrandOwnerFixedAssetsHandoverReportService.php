@@ -17,13 +17,23 @@ class BrandOwnerFixedAssetsHandoverReportService
 {
     public function list(): Collection
     {
-        return MajorDiscrepancyRequest::query()
+        $rows = MajorDiscrepancyRequest::query()
             ->with([
                 'handoverItem:id,handover_id,asset_name_snapshot,asset_image_snapshot',
                 'branch:id,name',
             ])
             ->orderByDesc('created_at')
             ->get();
+
+        $grouped = [];
+        foreach ($rows->groupBy('handover_id') as $group) {
+            /** @var MajorDiscrepancyRequest $first */
+            $first = $group->first();
+            $first->setRelation('groupedRequests', $group->values());
+            $grouped[] = $first;
+        }
+
+        return new Collection($grouped);
     }
 
     public function find(string $id): MajorDiscrepancyRequest
