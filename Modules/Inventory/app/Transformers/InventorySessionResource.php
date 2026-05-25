@@ -48,6 +48,7 @@ class InventorySessionResource extends JsonResource
             'notes' => $this->notes,
             'items_count' => $this->when(isset($this->items_count), $this->items_count),
             'items' => InventoryItemResource::collection($this->whenLoaded('items')),
+            'isStaffInventored' => $this->assigned_to_type === 'staff' && $this->submitted_at !== null,
             'submitted_at' => $this->submitted_at?->format('Y-m-d H:i:s'),
             'rejected_at' => $this->rejected_at?->format('Y-m-d H:i:s'),
             'rejection_comment' => $this->rejection_comment,

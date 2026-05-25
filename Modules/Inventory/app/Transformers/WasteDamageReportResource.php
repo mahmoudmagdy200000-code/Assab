@@ -71,6 +71,7 @@ class WasteDamageReportResource extends JsonResource
             ] : null),
             'status' => $this->status->value,
             'status_label' => $this->status->listLabel(),
+            'isStaffInventored' => ($this->assigned_to_type ?? 'personal') === 'staff' && $this->submitted_at !== null,
             'submitted_at' => $this->submitted_at?->format('Y-m-d H:i:s'),
             'submission_date' => $dateForSubmission->format('F j, Y'),
             'report_type' => $this->resolveReportType(),
