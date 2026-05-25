@@ -35,6 +35,8 @@ class BrandOwnerFixedAssetsHandoverReportDetailsResource extends JsonResource
 
         $rejectedItems = $rejectedRequests->map(function (MajorDiscrepancyRequest $m) {
             $hi = $m->handoverItem;
+            $isDeducted = (bool) ($hi?->is_deducted ?? false);
+            $raw = is_array($hi?->deduction) ? $hi->deduction : [];
 
             return [
                 'id' => (string) $m->id,
@@ -54,11 +56,14 @@ class BrandOwnerFixedAssetsHandoverReportDetailsResource extends JsonResource
                 'status' => $m->status?->value ?? 'pending',
                 'employee_responsible' => (string) ($m->employee_responsible ?? ''),
                 'warning_note' => (string) ($m->warning_note ?? ''),
-                'salary_deduction_amount' => $m->salary_deduction_amount !== null
-                    ? (string) $m->salary_deduction_amount
-                    : '',
-                'salary_deduction_reason' => (string) ($m->salary_deduction_reason ?? ''),
                 'rejection_reason' => (string) ($m->rejection_reason ?? ''),
+                'isDeducted' => $isDeducted,
+                'deduction' => $isDeducted ? [
+                    'employee_name' => (string) ($raw['employee_name'] ?? ''),
+                    'amount' => (float) ($raw['amount'] ?? 0),
+                    'reason' => (string) ($raw['reason'] ?? ''),
+                    'note' => (string) ($raw['note'] ?? ''),
+                ] : null,
             ];
         })->values()->all();
 
@@ -124,12 +129,6 @@ class BrandOwnerFixedAssetsHandoverReportDetailsResource extends JsonResource
                 'impact_ratio' => '-',
                 'employee_record' => (string) ($r->employee_responsible ?? ''),
             ],
-            'employee_responsible' => (string) ($r->employee_responsible ?? ''),
-            'warning_note' => (string) ($r->warning_note ?? ''),
-            'salary_deduction_amount' => $r->salary_deduction_amount !== null
-                ? (string) $r->salary_deduction_amount
-                : '',
-            'salary_deduction_reason' => (string) ($r->salary_deduction_reason ?? ''),
             'items' => $rejectedItems,
             'timelines' => TimelineItemResource::collection($r->timelines ?? collect())->resolve(),
         ];
