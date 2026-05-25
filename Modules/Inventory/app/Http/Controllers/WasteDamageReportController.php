@@ -11,6 +11,7 @@ use Modules\Inventory\Http\Controllers\Concerns\ResolvesInventoryActor;
 use Modules\Inventory\Http\Requests\WasteDamage\StoreWasteDamageReportItemRequest;
 use Modules\Inventory\Http\Requests\WasteDamage\StoreWasteDamageReportRequest;
 use Modules\Inventory\Http\Requests\WasteDamage\UpdateWasteDamageReportItemRequest;
+use Modules\Inventory\Models\WasteDamageReport;
 use Modules\Inventory\Services\InventorySessionService;
 use Modules\Inventory\Services\WasteDamageProductService;
 use Modules\Inventory\Services\WasteDamageReportService;
@@ -140,6 +141,52 @@ class WasteDamageReportController extends BaseController
             $items = $request->validated('items', []);
             $actorBranchManagerId = $actor->isManager() ? $createdById : null;
             $actorCashierId = $actor->isCashier() ? $createdById : null;
+
+            // Cashier: reuse existing active report assigned to them by branch manager (no duplicate report).
+            if ($actor->isCashier()) {
+                $existingAssigned = WasteDamageReport::where('branch_id', $branchId)
+                    ->where('assigned_to_type', 'staff')
+                    ->where('assigned_to_id', $createdById)
+                    ->whereIn('status', [
+                        WasteDamageReportStatus::PENDING,
+                        WasteDamageReportStatus::DRAFT,
+                    ])
+                    ->whereNull('submitted_at')
+                    ->orderByDesc('created_at')
+                    ->first();
+
+                if ($existingAssigned) {
+                    if (! empty($items)) {
+                        foreach ($items as $index => $itemData) {
+                            if ($request->hasFile("items.{$index}.photo")) {
+                                $itemData['photo_path'] = $request->file("items.{$index}.photo")->store(
+                                    sprintf('waste-damage/reports/%s', $existingAssigned->id),
+                                    'public'
+                                );
+                            }
+
+                            $this->reportService->addItemsToReport(
+                                $existingAssigned,
+                                [$itemData],
+                                $actorBranchManagerId,
+                                $actorCashierId,
+                            );
+                        }
+                    }
+
+                    $existingAssigned->loadMissing([
+                        'assignedTo',
+                        'items.item',
+                        'items.responsibleEmployees.cashier.branch',
+                        'items.responsibleEmployees.branchManager',
+                    ]);
+
+                    return $this->successResponse(
+                        new WasteDamageReportResource($existingAssigned),
+                        'Items added to assigned waste & damage report successfully'
+                    );
+                }
+            }
 
             // No items: create a single empty report.
             if (empty($items)) {
