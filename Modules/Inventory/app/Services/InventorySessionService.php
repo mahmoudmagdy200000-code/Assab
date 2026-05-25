@@ -142,7 +142,7 @@ class InventorySessionService
                 'inventory_date' => $data['inventory_date'] ?? null,
                 'start_time' => $data['start_time'] ?? null,
                 'notes' => $data['notes'] ?? null,
-                'status' => $isStaffAssignment ? InventorySessionStatus::PENDING : InventorySessionStatus::DRAFT,
+                'status' => InventorySessionStatus::PENDING,
             ];
 
             // Validate assigned cashier belongs to same branch (only managers can assign staff)
@@ -174,7 +174,7 @@ class InventorySessionService
                 'Created',
                 'Daily inventory session created.',
                 null,
-                InventorySessionStatus::DRAFT->value
+                InventorySessionStatus::PENDING->value
             );
 
             return $session->fresh(['items.item', 'items.purchaseOrderItem.purchaseOrder']);
@@ -260,7 +260,7 @@ class InventorySessionService
         return DB::transaction(function () use ($sessionId, $data, $manager) {
             $session = InventorySession::where('id', $sessionId)
                 ->where('branch_id', $manager->branch_id)
-                ->where('status', InventorySessionStatus::DRAFT)
+                ->whereIn('status', [InventorySessionStatus::DRAFT, InventorySessionStatus::PENDING])
                 ->where(function ($q) use ($manager) {
                     $q->whereNull('created_by')->orWhere('created_by', $manager->id);
                 })
@@ -302,7 +302,8 @@ class InventorySessionService
                     ->where('status', InventorySessionStatus::PENDING)
                     ->whereNull('submitted_at');
             } else {
-                $query->where('status', InventorySessionStatus::DRAFT)
+                $query->whereIn('status', [InventorySessionStatus::DRAFT, InventorySessionStatus::PENDING])
+                    ->whereNull('submitted_at')
                     ->where(function ($q) use ($actor) {
                         $q->whereNull('created_by')->orWhere('created_by', $actor->id);
                     });
@@ -522,7 +523,8 @@ class InventorySessionService
             $session = InventorySession::where('id', $sessionId)
                 ->where('branch_id', $manager->branch_id)
                 ->where('created_by', $manager->id)
-                ->where('status', InventorySessionStatus::DRAFT)
+                ->whereIn('status', [InventorySessionStatus::DRAFT, InventorySessionStatus::PENDING])
+                ->whereNull('submitted_at')
                 ->firstOrFail();
 
             // Get purchase order item
@@ -569,7 +571,8 @@ class InventorySessionService
                         ->where('status', InventorySessionStatus::PENDING)
                         ->whereNull('submitted_at');
                 } else {
-                    $query->whereIn('status', [InventorySessionStatus::DRAFT, InventorySessionStatus::REJECTED])
+                    $query->whereIn('status', [InventorySessionStatus::DRAFT, InventorySessionStatus::PENDING, InventorySessionStatus::REJECTED])
+                        ->whereNull('submitted_at')
                         ->where(function ($q) use ($actor) {
                             $q->whereNull('created_by')->orWhere('created_by', $actor->id);
                         });
@@ -602,7 +605,8 @@ class InventorySessionService
         return DB::transaction(function () use ($itemId, $manager) {
             $item = InventoryItem::whereHas('inventorySession', function ($query) use ($manager) {
                 $query->where('branch_id', $manager->branch_id)
-                    ->where('status', InventorySessionStatus::DRAFT);
+                    ->whereIn('status', [InventorySessionStatus::DRAFT, InventorySessionStatus::PENDING])
+                    ->whereNull('submitted_at');
             })
                 ->where('id', $itemId)
                 ->firstOrFail();

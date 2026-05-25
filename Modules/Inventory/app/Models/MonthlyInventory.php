@@ -57,7 +57,7 @@ class MonthlyInventory extends Model
                 $model->inventory_number = static::generateInventoryNumber();
             }
             if (empty($model->status)) {
-                $model->status = MonthlyInventoryStatus::IN_PROGRESS;
+                $model->status = MonthlyInventoryStatus::PENDING;
             }
             if (empty($model->start_time)) {
                 $model->start_time = now();

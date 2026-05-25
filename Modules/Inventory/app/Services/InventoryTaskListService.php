@@ -112,6 +112,7 @@ class InventoryTaskListService
         return MonthlyInventory::query()
             ->where('branch_id', $branchId)
             ->whereIn('status', [
+                MonthlyInventoryStatus::PENDING->value,
                 MonthlyInventoryStatus::IN_PROGRESS->value,
                 MonthlyInventoryStatus::DRAFT->value,
                 MonthlyInventoryStatus::RETURNED_TO_DRAFT->value,

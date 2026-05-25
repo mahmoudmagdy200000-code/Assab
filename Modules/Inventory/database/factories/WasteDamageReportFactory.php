@@ -20,7 +20,7 @@ class WasteDamageReportFactory extends Factory
         return [
             'branch_id' => $branch->id,
             'created_by' => $manager->id,
-            'status' => WasteDamageReportStatus::DRAFT,
+            'status' => WasteDamageReportStatus::PENDING,
             'submitted_at' => null,
         ];
     }

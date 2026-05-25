@@ -164,6 +164,7 @@ class MonthlyInventoryRepository
             ->all();
 
         $statuses = [
+            MonthlyInventoryStatus::PENDING->value,
             MonthlyInventoryStatus::IN_PROGRESS->value,
             MonthlyInventoryStatus::DRAFT->value,
             MonthlyInventoryStatus::COMPLETED->value,
@@ -203,6 +204,7 @@ class MonthlyInventoryRepository
             ->all();
 
         $statuses = [
+            MonthlyInventoryStatus::PENDING->value,
             MonthlyInventoryStatus::IN_PROGRESS->value,
             MonthlyInventoryStatus::DRAFT->value,
             MonthlyInventoryStatus::COMPLETED->value,

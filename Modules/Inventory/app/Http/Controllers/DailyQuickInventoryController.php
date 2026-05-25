@@ -625,7 +625,11 @@ class DailyQuickInventoryController extends BaseController
 
             $session = InventorySession::where('id', $id)
                 ->where('branch_id', $manager->branch_id)
-                ->where('status', \Modules\Inventory\Enums\InventorySessionStatus::DRAFT)
+                ->whereIn('status', [
+                    \Modules\Inventory\Enums\InventorySessionStatus::DRAFT,
+                    \Modules\Inventory\Enums\InventorySessionStatus::PENDING,
+                ])
+                ->whereNull('submitted_at')
                 ->where(function ($q) use ($manager) {
                     $q->whereNull('created_by')->orWhere('created_by', $manager->id);
                 })

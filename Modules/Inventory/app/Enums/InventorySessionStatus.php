@@ -50,7 +50,7 @@ enum InventorySessionStatus: string
 
     public function isEditable(): bool
     {
-        return in_array($this, [self::DRAFT, self::REJECTED], true);
+        return in_array($this, [self::DRAFT, self::PENDING, self::REJECTED], true);
     }
 
     public function canResubmit(): bool
@@ -60,6 +60,6 @@ enum InventorySessionStatus: string
 
     public function canSubmit(): bool
     {
-        return $this === self::DRAFT;
+        return in_array($this, [self::DRAFT, self::PENDING], true);
     }
 }

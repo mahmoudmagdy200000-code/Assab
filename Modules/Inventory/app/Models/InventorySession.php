@@ -66,7 +66,7 @@ class InventorySession extends Model
             }
 
             if (empty($session->status)) {
-                $session->status = InventorySessionStatus::DRAFT;
+                $session->status = InventorySessionStatus::PENDING;
             }
 
             // Only set start_time automatically for personal assignments
