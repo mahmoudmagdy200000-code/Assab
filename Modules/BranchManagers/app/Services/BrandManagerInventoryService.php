@@ -81,7 +81,7 @@ class BrandManagerInventoryService
 
         $oldStatus = $session->status->value;
         $session->update([
-            'status' => InventorySessionStatus::APPROVED,
+            'status' => InventorySessionStatus::COMPLETED,
             'approved_at' => now(),
             'approved_by' => $manager->id,
         ]);
@@ -92,7 +92,7 @@ class BrandManagerInventoryService
             'Approved by branch manager',
             null,
             $oldStatus,
-            InventorySessionStatus::APPROVED->value,
+            InventorySessionStatus::COMPLETED->value,
         );
 
         return $session->fresh();
@@ -132,7 +132,7 @@ class BrandManagerInventoryService
 
         $oldStatus = $report->status->value;
         $report->update([
-            'status' => WasteDamageReportStatus::APPROVED,
+            'status' => WasteDamageReportStatus::COMPLETED,
             'approved_at' => now(),
             'approved_by' => $manager->id,
         ]);
@@ -143,7 +143,7 @@ class BrandManagerInventoryService
             'Approved by branch manager',
             null,
             $oldStatus,
-            WasteDamageReportStatus::APPROVED->value,
+            WasteDamageReportStatus::COMPLETED->value,
         );
 
         return $report->fresh();
