@@ -399,7 +399,7 @@ class WasteDamageReportController extends BaseController
     }
 
     /**
-     * Submit report. Cashier may submit reports assigned to them. Manager submission completes; cashier submission awaits confirmation.
+     * Submit report. Cashier may submit reports assigned to them.
      */
     public function submit(string $id): JsonResponse
     {
@@ -411,7 +411,7 @@ class WasteDamageReportController extends BaseController
             }
 
             $assignedToId = $actor->isCashier() ? $actor->getActorId() : null;
-            $report = $this->reportService->submitReport($id, $branchId, $assignedToId, $actor->isManager());
+            $report = $this->reportService->submitReport($id, $branchId, $assignedToId);
             $report->load(['items.item', 'items.responsibleEmployees.cashier.branch']);
 
             return $this->successResponse(
@@ -422,35 +422,6 @@ class WasteDamageReportController extends BaseController
             return $this->validationErrorResponse($e->errors(), $e->getMessage());
         } catch (\Exception $e) {
             return $this->handleException($e, 'submitting report');
-        }
-    }
-
-    /**
-     * Manager confirms a cashier-submitted report (PENDING_YOUR_CONFIRMATION -> COMPLETED).
-     */
-    public function confirm(string $id): JsonResponse
-    {
-        try {
-            $actor = $this->resolveInventoryActor();
-            if (! $actor->isManager()) {
-                return $this->errorResponse('Only branch managers can confirm reports.', 403);
-            }
-            $branchId = $actor->getBranchId();
-            if (! $branchId) {
-                return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
-            }
-
-            $report = $this->reportService->confirmReport($id, $branchId);
-            $report->load(['items.item', 'items.responsibleEmployees.cashier.branch']);
-
-            return $this->successResponse(
-                new WasteDamageReportResource($report),
-                'Report confirmed successfully'
-            );
-        } catch (ValidationException $e) {
-            return $this->validationErrorResponse($e->errors(), $e->getMessage());
-        } catch (\Exception $e) {
-            return $this->handleException($e, 'confirming report');
         }
     }
 
