@@ -33,21 +33,22 @@ class DashboardTransferDemoSeeder extends Seeder
             return;
         }
 
+        $sourceBranch = Branch::query()->where('id', '!=', $branch->id)->first() ?? $branch;
+
         $assets = FixedAsset::query()
-            ->where('branch_id', $branch->id)
+            ->where('branch_id', $sourceBranch->id)
             ->take(2)
             ->get();
 
         if ($assets->isEmpty()) {
-            $this->command?->warn('No assets found for the branch.');
+            $this->command?->warn('No assets found for source branch.');
 
             return;
         }
 
         $alreadySeeded = TransferDisposalRequest::query()
-            ->where('branch_id', $branch->id)
+            ->where('recipient_branch_id', $branch->id)
             ->where('kind', TransferDisposalKind::EXTERNAL_TRANSFER->value)
-            ->where('requested_by_id', $manager->id)
             ->exists();
 
         if ($alreadySeeded) {
@@ -56,11 +57,13 @@ class DashboardTransferDemoSeeder extends Seeder
             return;
         }
 
+        $sourceManager = BranchManager::query()->where('branch_id', $sourceBranch->id)->first() ?? $manager;
+
         $request = TransferDisposalRequest::create([
             'kind' => TransferDisposalKind::EXTERNAL_TRANSFER->value,
-            'branch_id' => $branch->id,
-            'requested_by_id' => $manager->id,
-            'recipient_branch_id' => null,
+            'branch_id' => $sourceBranch->id,
+            'requested_by_id' => $sourceManager->id,
+            'recipient_branch_id' => $branch->id,
             'auto_approve' => false,
             'direction' => null,
             'status' => RequestStatus::PENDING->value,
@@ -81,11 +84,11 @@ class DashboardTransferDemoSeeder extends Seeder
             'timelineable_id' => $request->id,
             'event_type' => TimelineEventType::SUBMITTED->value,
             'name' => 'Transfer initiated from dashboard',
-            'actor_image_path' => $manager->image,
-            'actor_id' => $manager->id,
+            'actor_image_path' => $sourceManager->image,
+            'actor_id' => $sourceManager->id,
             'occurred_at' => now()->subHours(2),
         ]);
 
-        $this->command?->info('Dashboard transfer seeded for branch: '.$branch->name);
+        $this->command?->info('Dashboard transfer seeded to branch: '.$branch->name.' from '.$sourceBranch->name);
     }
 }
