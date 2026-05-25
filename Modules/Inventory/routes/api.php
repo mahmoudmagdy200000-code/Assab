@@ -112,5 +112,6 @@ Route::middleware(['auth:sanctum', 'branch.manager.or.cashier', 'log.throttle'])
         Route::put('/reports/{id}/items/{itemId}', [WasteDamageReportController::class, 'updateItem'])->name('inventory.waste-damage.reports.items.update');
         Route::delete('/reports/{id}/items/{itemId}', [WasteDamageReportController::class, 'deleteItem'])->name('inventory.waste-damage.reports.items.delete');
         Route::post('/reports/{id}/submit', [WasteDamageReportController::class, 'submit'])->name('inventory.waste-damage.reports.submit');
+        Route::post('/reports/{id}/confirm', [WasteDamageReportController::class, 'confirm'])->name('inventory.waste-damage.reports.confirm');
     });
 });

@@ -342,9 +342,9 @@ class WasteDamageReportService
     }
 
     /**
-     * Submit the report (validate all items then set status to pending — pending your confirmation).
+     * Submit the report. Manager submission completes the report; cashier submission awaits manager confirmation.
      */
-    public function submitReport(string $reportId, string $branchId, ?string $assignedToId = null): WasteDamageReport
+    public function submitReport(string $reportId, string $branchId, ?string $assignedToId = null, bool $submittedByManager = false): WasteDamageReport
     {
         $report = $this->reportRepository->findByBranch($reportId, $branchId, ['items'], $assignedToId);
         if (! $report) {
@@ -369,9 +369,12 @@ class WasteDamageReportService
         }
 
         $oldStatus = $report->status->value;
+        $newStatus = $submittedByManager
+            ? WasteDamageReportStatus::COMPLETED
+            : WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION;
 
         $this->reportRepository->update($report, [
-            'status' => WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION,
+            'status' => $newStatus,
             'submitted_at' => now(),
         ]);
 
@@ -381,7 +384,39 @@ class WasteDamageReportService
             WasteDamageReportTimelineEventType::SUBMITTED->label(),
             null,
             $oldStatus,
-            WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION->value
+            $newStatus->value
+        );
+
+        return $report->fresh();
+    }
+
+    /**
+     * Manager confirms cashier's submitted report. PENDING_YOUR_CONFIRMATION -> COMPLETED.
+     */
+    public function confirmReport(string $reportId, string $branchId): WasteDamageReport
+    {
+        $report = $this->reportRepository->findByBranch($reportId, $branchId);
+        if (! $report) {
+            throw ValidationException::withMessages(['report' => ['Report not found.']]);
+        }
+
+        if ($report->status !== WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION) {
+            throw ValidationException::withMessages(['report' => ['Report is not awaiting confirmation.']]);
+        }
+
+        $oldStatus = $report->status->value;
+
+        $this->reportRepository->update($report, [
+            'status' => WasteDamageReportStatus::COMPLETED,
+        ]);
+
+        WasteDamageReportTimeline::log(
+            $report->fresh(),
+            WasteDamageReportTimelineEventType::APPROVED,
+            'Confirmed by Branch Manager',
+            'Branch Manager confirmed staff submission. Report completed.',
+            $oldStatus,
+            WasteDamageReportStatus::COMPLETED->value
         );
 
         return $report->fresh();

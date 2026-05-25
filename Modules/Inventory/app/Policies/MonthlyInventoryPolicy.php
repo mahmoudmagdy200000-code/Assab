@@ -71,7 +71,7 @@ class MonthlyInventoryPolicy
     {
         return $user instanceof BranchManager
             && $user->branch_id === $inventory->branch_id
-            && in_array($inventory->status->value, ['submitted', 'pending_finance_review'], true);
+            && in_array($inventory->status->value, ['submitted', 'pending_finance_review', 'completed'], true);
     }
 
     public function confirmSubmission(BranchManager|Cashier $user, MonthlyInventory $inventory): bool
@@ -85,7 +85,7 @@ class MonthlyInventoryPolicy
     {
         return $user instanceof BranchManager
             && $user->branch_id === $inventory->branch_id
-            && in_array($inventory->status->value, ['submitted', 'pending_finance_review'], true);
+            && in_array($inventory->status->value, ['submitted', 'pending_finance_review', 'completed'], true);
     }
 
     public function export(BranchManager|Cashier $user, MonthlyInventory $inventory): bool

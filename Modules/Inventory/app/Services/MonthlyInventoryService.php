@@ -600,7 +600,7 @@ class MonthlyInventoryService
             $old = $inventory->status->value;
             $newStatus = $actor instanceof Cashier
                 ? MonthlyInventoryStatus::PENDING_YOUR_CONFIRMATION
-                : MonthlyInventoryStatus::SUBMITTED;
+                : MonthlyInventoryStatus::COMPLETED;
 
             $inventory->update([
                 'status' => $newStatus,
@@ -610,10 +610,10 @@ class MonthlyInventoryService
             MonthlyInventoryTimeline::log(
                 $inventory,
                 MonthlyInventoryTimelineEventType::SUBMITTED,
-                $actor instanceof Cashier ? 'Submitted for Branch Manager confirmation' : 'Submitted for approval',
+                $actor instanceof Cashier ? 'Submitted for Branch Manager confirmation' : 'Submitted',
                 $actor instanceof Cashier
                     ? 'Staff submitted the monthly inventory. Awaiting Branch Manager confirmation.'
-                    : 'Sent to management/finance for review.',
+                    : 'Monthly inventory completed by Branch Manager.',
                 $old,
                 $newStatus->value
             );
@@ -649,23 +649,24 @@ class MonthlyInventoryService
 
             $old = $inventory->status->value;
             $inventory->update([
-                'status' => MonthlyInventoryStatus::SUBMITTED,
+                'status' => MonthlyInventoryStatus::COMPLETED,
+                'submitted_at' => $inventory->submitted_at ?? now(),
             ]);
 
             MonthlyInventoryTimeline::log(
                 $inventory,
                 MonthlyInventoryTimelineEventType::SUBMITTED,
                 'Confirmed by Branch Manager',
-                'Branch Manager confirmed staff submission. Sent to management/finance for review.',
+                'Branch Manager confirmed staff submission. Monthly inventory completed.',
                 $old,
-                MonthlyInventoryStatus::SUBMITTED->value
+                MonthlyInventoryStatus::COMPLETED->value
             );
 
             return $inventory->fresh();
         });
 
         $this->broadcastInventoryEvent($inventoryId, 'inventory.submitted', [
-            'status' => MonthlyInventoryStatus::SUBMITTED->value,
+            'status' => MonthlyInventoryStatus::COMPLETED->value,
             'confirmed_at' => now()->toIso8601String(),
         ]);
 
@@ -680,8 +681,12 @@ class MonthlyInventoryService
         return DB::transaction(function () use ($inventoryId) {
             $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
 
-            if ($inventory->status !== MonthlyInventoryStatus::SUBMITTED && $inventory->status !== MonthlyInventoryStatus::PENDING_FINANCE_REVIEW) {
-                throw new \InvalidArgumentException('Only submitted inventories can be approved.');
+            if (! in_array($inventory->status, [
+                MonthlyInventoryStatus::SUBMITTED,
+                MonthlyInventoryStatus::PENDING_FINANCE_REVIEW,
+                MonthlyInventoryStatus::COMPLETED,
+            ], true)) {
+                throw new \InvalidArgumentException('Only completed/submitted inventories can be approved.');
             }
 
             $old = $inventory->status->value;
@@ -711,8 +716,12 @@ class MonthlyInventoryService
         return DB::transaction(function () use ($inventoryId, $feedback, $author) {
             $inventory = MonthlyInventory::where('id', $inventoryId)->firstOrFail();
 
-            if ($inventory->status !== MonthlyInventoryStatus::SUBMITTED && $inventory->status !== MonthlyInventoryStatus::PENDING_FINANCE_REVIEW) {
-                throw new \InvalidArgumentException('Only submitted inventories can be returned to draft.');
+            if (! in_array($inventory->status, [
+                MonthlyInventoryStatus::SUBMITTED,
+                MonthlyInventoryStatus::PENDING_FINANCE_REVIEW,
+                MonthlyInventoryStatus::COMPLETED,
+            ], true)) {
+                throw new \InvalidArgumentException('Only completed/submitted inventories can be returned to draft.');
             }
 
             $actor = $author ?? auth()->user();
