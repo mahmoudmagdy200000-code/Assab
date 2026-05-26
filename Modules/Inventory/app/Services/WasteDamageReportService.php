@@ -356,11 +356,12 @@ class WasteDamageReportService
                 throw ValidationException::withMessages(['report' => ['Report not found.']]);
             }
 
+            $isLegacyPendingYourConfirmation = $report->status === WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION;
             $isStaffSubmitted = $report->status === WasteDamageReportStatus::PENDING
                 && $report->assigned_to_type === 'staff'
                 && $report->submitted_at !== null;
 
-            if (! $isStaffSubmitted) {
+            if (! $isStaffSubmitted && ! $isLegacyPendingYourConfirmation) {
                 throw ValidationException::withMessages(['report' => ['Report is not pending your confirmation.']]);
             }
 

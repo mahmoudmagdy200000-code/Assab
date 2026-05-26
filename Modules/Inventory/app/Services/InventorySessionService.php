@@ -392,10 +392,14 @@ class InventorySessionService
         return DB::transaction(function () use ($sessionId, $manager, $itemOverrides) {
             $session = InventorySession::where('id', $sessionId)
                 ->where('branch_id', $manager->branch_id)
-                ->where('status', InventorySessionStatus::PENDING)
                 ->where('assigned_to_type', 'staff')
-                ->whereNotNull('submitted_at')
                 ->whereNull('manager_confirmed_at')
+                ->where(function ($q) {
+                    $q->where(function ($qq) {
+                        $qq->where('status', InventorySessionStatus::PENDING)
+                            ->whereNotNull('submitted_at');
+                    })->orWhere('status', InventorySessionStatus::PENDING_YOUR_CONFIRMATION);
+                })
                 ->firstOrFail();
 
             if (! empty($itemOverrides)) {
