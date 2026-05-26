@@ -42,7 +42,7 @@ class WasteDamageReportRepository
     }
 
     /**
-     * @param  array{branch_id?: string, status?: string, assigned_to_id?: string}  $filters
+     * @param  array{branch_id?: string, status?: string, assigned_to_id?: string, unsubmitted_only?: bool}  $filters
      */
     public function getPaginated(array $filters, int $perPage = 15): LengthAwarePaginator
     {
@@ -58,6 +58,10 @@ class WasteDamageReportRepository
 
         if (! empty($filters['status'])) {
             $query->where('status', $filters['status']);
+        }
+
+        if (! empty($filters['unsubmitted_only'])) {
+            $query->whereNull('submitted_at');
         }
 
         $query->orderByDesc('created_at');

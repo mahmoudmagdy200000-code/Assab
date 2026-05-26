@@ -33,12 +33,16 @@ class DailyQuickInventoryController extends BaseController
         private readonly InventorySessionService $sessionService
     ) {}
 
-    /** Scope session query by current actor (manager: branch; cashier: assigned to them). */
+    /** Scope session query by current actor (manager: branch; cashier: assigned to them and not yet submitted). */
     private function sessionsQueryForActor(BranchManager|Cashier $actor): Builder
     {
         $query = InventorySession::where('branch_id', $actor->branch_id);
         if ($actor instanceof Cashier) {
-            $query->where('assigned_to_type', 'staff')->where('assigned_to_id', $actor->id);
+            // Cashier: once submitted, the task is done from their side and disappears
+            // from their listing (no surprise rows after manager split/confirm).
+            $query->where('assigned_to_type', 'staff')
+                ->where('assigned_to_id', $actor->id)
+                ->whereNull('submitted_at');
         }
 
         return $query;

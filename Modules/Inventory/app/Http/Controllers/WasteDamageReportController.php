@@ -294,11 +294,14 @@ class WasteDamageReportController extends BaseController
                 return $this->errorResponse('Invalid status. Allowed: draft, pending, completed, approved, rejected.', 422);
             }
             $assignedToId = $actor->isCashier() ? $actor->getActorId() : null;
+            // Cashier: once they submit (submitted_at != null), the task is done from their side
+            // and disappears from their listing (no surprise rows after manager split/confirm).
             $reports = $this->reportService->listReportsByBranch(
                 $branchId,
                 $perPage > 0 ? $perPage : 15,
                 $status ? (string) $status : null,
-                $assignedToId
+                $assignedToId,
+                $actor->isCashier()
             );
             $reports->loadCount('items');
             $reports->load([

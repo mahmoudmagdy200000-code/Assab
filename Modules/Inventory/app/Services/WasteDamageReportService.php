@@ -34,7 +34,7 @@ class WasteDamageReportService
     /**
      * List reports for branch (paginated). Optionally filter by status and by assignee (for cashier scope).
      */
-    public function listReportsByBranch(string $branchId, int $perPage = 15, ?string $status = null, ?string $assignedToId = null): LengthAwarePaginator
+    public function listReportsByBranch(string $branchId, int $perPage = 15, ?string $status = null, ?string $assignedToId = null, bool $unsubmittedOnly = false): LengthAwarePaginator
     {
         $filters = ['branch_id' => $branchId];
         if ($status !== null && $status !== '') {
@@ -42,6 +42,9 @@ class WasteDamageReportService
         }
         if ($assignedToId !== null && $assignedToId !== '') {
             $filters['assigned_to_id'] = $assignedToId;
+        }
+        if ($unsubmittedOnly) {
+            $filters['unsubmitted_only'] = true;
         }
 
         return $this->reportRepository->getPaginated($filters, $perPage);
