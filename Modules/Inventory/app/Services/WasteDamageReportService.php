@@ -345,12 +345,19 @@ class WasteDamageReportService
 
     /**
      * Confirm staff submission (Branch Manager). Status PENDING (with staff submitted_at) -> COMPLETED.
-     * Optional overrides let the manager edit the staff-submitted quantities before confirming.
+     *
+     * On confirm, a multi-item report is split into one report per item: the original report
+     * keeps the first item, and (N-1) clones are created with the same shared metadata
+     * (branch, creator, assignment, submitted_at). Each item is reassigned to its own report
+     * so the Brand Owner sees one request per item.
+     *
+     * Optional overrides let the manager edit staff-submitted quantities before confirming.
      * Total value per item is recomputed from new quantity * price_per_unit.
      *
      * @param  array<int, array{itemId: string, quantity: float|int}>  $itemOverrides
+     * @return \Illuminate\Support\Collection<int, WasteDamageReport>
      */
-    public function confirmStaffSubmission(string $reportId, string $branchId, array $itemOverrides = []): WasteDamageReport
+    public function confirmStaffSubmission(string $reportId, string $branchId, array $itemOverrides = []): \Illuminate\Support\Collection
     {
         return DB::transaction(function () use ($reportId, $branchId, $itemOverrides) {
             $report = $this->reportRepository->findByBranch($reportId, $branchId, ['items']);
@@ -376,17 +383,26 @@ class WasteDamageReportService
                     if ($item) {
                         $quantity = (float) $override['quantity'];
                         $item->quantity = $quantity;
-                        $item->total_value = round($quantity * (float) $item->price_per_unit, 2);
+                        $item->total_value = round(-1 * $quantity * (float) $item->price_per_unit, 2);
                         $item->save();
                     }
                 }
             }
 
+            $items = $report->items()->get();
+            if ($items->isEmpty()) {
+                throw ValidationException::withMessages(['report' => ['Report has no items to confirm.']]);
+            }
+
+            $relations = ['items.item', 'items.responsibleEmployees.cashier.branch', 'items.responsibleEmployees.branchManager', 'assignedTo', 'createdBy'];
             $oldStatus = $report->status->value;
+            $confirmed = collect();
+
+            // First item stays in the original report.
+            $items->shift();
             $this->reportRepository->update($report, [
                 'status' => WasteDamageReportStatus::COMPLETED,
             ]);
-
             WasteDamageReportTimeline::log(
                 $report->fresh(),
                 WasteDamageReportTimelineEventType::APPROVED,
@@ -395,8 +411,41 @@ class WasteDamageReportService
                 $oldStatus,
                 WasteDamageReportStatus::COMPLETED->value
             );
+            $confirmed->push($report->fresh($relations));
 
-            return $report->fresh(['items.item', 'items.responsibleEmployees.cashier.branch', 'items.responsibleEmployees.branchManager', 'assignedTo', 'createdBy']);
+            // Remaining items each get their own cloned report.
+            foreach ($items as $item) {
+                $clone = $this->reportRepository->create([
+                    'branch_id' => $report->branch_id,
+                    'created_by' => $report->created_by,
+                    'created_by_type' => $report->created_by_type,
+                    'assigned_to_type' => $report->assigned_to_type,
+                    'assigned_to_id' => $report->assigned_to_id,
+                    'status' => WasteDamageReportStatus::COMPLETED,
+                    'submitted_at' => $report->submitted_at,
+                ]);
+
+                $item->waste_damage_report_id = $clone->id;
+                $item->save();
+
+                WasteDamageReportTimeline::log(
+                    $clone->fresh(),
+                    WasteDamageReportTimelineEventType::CREATED,
+                    WasteDamageReportTimelineEventType::CREATED->label()
+                );
+                WasteDamageReportTimeline::log(
+                    $clone->fresh(),
+                    WasteDamageReportTimelineEventType::APPROVED,
+                    'Confirmed by Branch Manager',
+                    'Branch Manager confirmed staff submission.',
+                    null,
+                    WasteDamageReportStatus::COMPLETED->value
+                );
+
+                $confirmed->push($clone->fresh($relations));
+            }
+
+            return $confirmed;
         });
     }
 

@@ -177,7 +177,6 @@ class BrandOwnerInventoryService
     {
         return [
             WasteDamageReportStatus::PENDING->value,
-            WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION->value,
             WasteDamageReportStatus::APPROVED->value,
             WasteDamageReportStatus::REJECTED->value,
             WasteDamageReportStatus::COMPLETED->value,
@@ -201,10 +200,7 @@ class BrandOwnerInventoryService
 
     private function guardWasteActionable(WasteDamageReport $report): void
     {
-        $actionable = in_array($report->status, [
-            WasteDamageReportStatus::PENDING,
-            WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION,
-        ], true);
+        $actionable = $report->status === WasteDamageReportStatus::PENDING;
 
         if (! $actionable) {
             throw ValidationException::withMessages([

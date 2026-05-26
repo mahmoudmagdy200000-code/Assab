@@ -314,11 +314,11 @@ class DailyQuickInventoryController extends BaseController
         try {
             $manager = $this->resolveInventoryActor()->requireManager();
             $overrides = $request->validated('items', []);
-            $session = $this->sessionService->confirmCashierSubmission($id, $manager, $overrides);
+            $sessions = $this->sessionService->confirmCashierSubmission($id, $manager, $overrides);
 
             return $this->successResponse(
-                new InventorySessionResource($session),
-                'Staff submission confirmed successfully'
+                InventorySessionResource::collection($sessions),
+                $sessions->count().' staff submission(s) confirmed successfully'
             );
         } catch (\InvalidArgumentException $e) {
             return $this->errorResponse($e->getMessage(), 400);

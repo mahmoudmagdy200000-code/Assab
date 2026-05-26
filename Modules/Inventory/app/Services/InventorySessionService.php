@@ -404,11 +404,17 @@ class InventorySessionService
 
     /**
      * Confirm cashier's submission (Branch Manager). Session stays PENDING; sets
-     * manager_confirmed_at so Account Manager picks it up.
+     * manager_confirmed_at so Account Manager / Brand Owner picks it up.
+     *
+     * On confirm, a multi-item session is split into one session per item: the original
+     * session keeps the first item, and (N-1) clones are created with the same shared
+     * metadata (branch, creator, assignment, inventory_date, submitted_at). Each item is
+     * reassigned to its own session so the Brand Owner sees one request per item.
      *
      * @param  array<int, array{itemId: string, quantity: float|int}>  $itemOverrides  Final quantities the manager wants applied before confirming.
+     * @return \Illuminate\Support\Collection<int, InventorySession>
      */
-    public function confirmCashierSubmission(string $sessionId, BranchManager $manager, array $itemOverrides = []): InventorySession
+    public function confirmCashierSubmission(string $sessionId, BranchManager $manager, array $itemOverrides = []): \Illuminate\Support\Collection
     {
         return DB::transaction(function () use ($sessionId, $manager, $itemOverrides) {
             // Gate: staff submission awaiting Branch Manager confirmation (isStaffInventored=true).
@@ -433,9 +439,19 @@ class InventorySessionService
                 }
             }
 
-            $session->manager_confirmed_at = now();
-            $session->save();
+            $items = $session->items()->get();
+            if ($items->isEmpty()) {
+                throw new \InvalidArgumentException('Session has no items to confirm.');
+            }
 
+            $relations = ['items.item', 'items.purchaseOrderItem.purchaseOrder', 'assignedTo', 'createdBy'];
+            $confirmed = collect();
+            $confirmedAt = now();
+
+            // First item stays in the original session.
+            $items->shift();
+            $session->manager_confirmed_at = $confirmedAt;
+            $session->save();
             InventorySessionTimeline::log(
                 $session,
                 DailyInventoryTimelineEventType::SUBMITTED,
@@ -444,8 +460,50 @@ class InventorySessionService
                 InventorySessionStatus::PENDING->value,
                 InventorySessionStatus::PENDING->value
             );
+            $confirmed->push($session->fresh($relations));
 
-            return $session->fresh(['items.item', 'items.purchaseOrderItem.purchaseOrder', 'assignedTo', 'createdBy']);
+            // Remaining items each get their own cloned session.
+            foreach ($items as $item) {
+                $clone = InventorySession::create([
+                    'branch_id' => $session->branch_id,
+                    'created_by' => $session->created_by,
+                    'created_by_type' => $session->created_by_type,
+                    'assigned_to_type' => $session->assigned_to_type,
+                    'assigned_to_id' => $session->assigned_to_id,
+                    'inventory_date' => $session->inventory_date,
+                    'start_time' => $session->start_time,
+                    'end_time' => $session->end_time,
+                    'time_taken' => $session->time_taken,
+                    'status' => InventorySessionStatus::PENDING,
+                    'notes' => $session->notes,
+                    'submitted_at' => $session->submitted_at,
+                    'manager_confirmed_at' => $confirmedAt,
+                ]);
+
+                $item->inventory_session_id = $clone->id;
+                $item->save();
+
+                InventorySessionTimeline::log(
+                    $clone,
+                    DailyInventoryTimelineEventType::CREATED,
+                    'Created',
+                    'Daily inventory session created from confirmation split.',
+                    null,
+                    InventorySessionStatus::PENDING->value
+                );
+                InventorySessionTimeline::log(
+                    $clone,
+                    DailyInventoryTimelineEventType::SUBMITTED,
+                    'Confirmed by Branch Manager',
+                    'Branch Manager confirmed staff submission. Sent to Account Manager for approval.',
+                    InventorySessionStatus::PENDING->value,
+                    InventorySessionStatus::PENDING->value
+                );
+
+                $confirmed->push($clone->fresh($relations));
+            }
+
+            return $confirmed;
         });
     }
 

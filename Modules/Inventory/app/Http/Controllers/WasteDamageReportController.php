@@ -472,11 +472,11 @@ class WasteDamageReportController extends BaseController
             }
 
             $overrides = $request->validated('items', []);
-            $report = $this->reportService->confirmStaffSubmission($id, $manager->branch_id, $overrides);
+            $reports = $this->reportService->confirmStaffSubmission($id, $manager->branch_id, $overrides);
 
             return $this->successResponse(
-                new WasteDamageReportResource($report),
-                'Staff submission confirmed successfully'
+                WasteDamageReportResource::collection($reports),
+                $reports->count().' staff submission(s) confirmed successfully'
             );
         } catch (\InvalidArgumentException $e) {
             return $this->errorResponse($e->getMessage(), 400);
