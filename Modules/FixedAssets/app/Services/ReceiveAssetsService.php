@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\FixedAssets\Enums\AssetStatus;
@@ -16,6 +17,7 @@ use Modules\FixedAssets\Models\PendingReceipt;
 use Modules\FixedAssets\Models\ReceiveItem;
 use Modules\FixedAssets\Models\ReceiveSession;
 use Modules\FixedAssets\Models\TransferDisposalItem;
+use Modules\FixedAssets\Models\TransferDisposalRequest;
 
 class ReceiveAssetsService
 {
@@ -80,7 +82,79 @@ class ReceiveAssetsService
             return ['type' => 'transfer', 'model' => $item];
         }
 
+        $fallback = $this->resolveIncomingFallback($requestId, $branchId);
+        if ($fallback) {
+            return $fallback;
+        }
+
         throw new ModelNotFoundException("Incoming asset not found: {$requestId}");
+    }
+
+    /**
+     * Tolerate clients that send request_id, asset_id, or pending receipt's source id
+     * instead of the TransferDisposalItem.id / PendingReceipt.id expected by the list endpoint.
+     *
+     * @return array{type: string, model: mixed}|null
+     */
+    private function resolveIncomingFallback(string $id, string $branchId): ?array
+    {
+        $byRequest = TransferDisposalItem::query()
+            ->with(['request', 'asset:id,name,code,image,branch_id,zone_id,asset_type_id'])
+            ->where('request_id', $id)
+            ->whereHas('request', fn ($q) => $q->where('recipient_branch_id', $branchId))
+            ->orderBy('created_at')
+            ->get();
+
+        if ($byRequest->count() === 1) {
+            Log::info('ReceiveAssets fallback: matched by request_id', [
+                'request_id' => $id,
+                'branch_id' => $branchId,
+                'item_id' => (string) $byRequest->first()->id,
+            ]);
+            return ['type' => 'transfer', 'model' => $byRequest->first()];
+        }
+
+        if ($byRequest->count() > 1) {
+            Log::warning('ReceiveAssets fallback: ambiguous request_id with multiple items', [
+                'request_id' => $id,
+                'branch_id' => $branchId,
+                'item_count' => $byRequest->count(),
+            ]);
+        }
+
+        $byAsset = TransferDisposalItem::query()
+            ->with(['request', 'asset:id,name,code,image,branch_id,zone_id,asset_type_id'])
+            ->where('asset_id', $id)
+            ->whereHas('request', fn ($q) => $q->where('recipient_branch_id', $branchId)
+                ->where('status', '!=', RequestStatus::REJECTED->value))
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhere('status', '!=', RequestStatus::REJECTED->value);
+            })
+            ->orderByDesc('created_at')
+            ->first();
+
+        if ($byAsset) {
+            Log::info('ReceiveAssets fallback: matched by asset_id', [
+                'asset_id' => $id,
+                'branch_id' => $branchId,
+                'item_id' => (string) $byAsset->id,
+            ]);
+            return ['type' => 'transfer', 'model' => $byAsset];
+        }
+
+        $existsElsewhere = PendingReceipt::query()->where('id', $id)->exists()
+            || TransferDisposalItem::query()->where('id', $id)->exists()
+            || TransferDisposalRequest::query()->where('id', $id)->exists();
+
+        if ($existsElsewhere) {
+            Log::warning('ReceiveAssets 404: id exists but not for this branch', [
+                'id' => $id,
+                'viewer_branch_id' => $branchId,
+            ]);
+        }
+
+        return null;
     }
 
     public function confirmSingle(string $requestId, string $type, array $itemPayload, BranchManager $manager): array
