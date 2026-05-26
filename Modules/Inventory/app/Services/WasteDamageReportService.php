@@ -48,9 +48,11 @@ class WasteDamageReportService
     }
 
     /**
-     * Counts by status for filter tabs (Draft, Pending, Pending your confirmation, Completed).
+     * Counts by status for filter tabs (Draft, Pending, Completed).
+     * Staff-submitted reports awaiting Branch Manager confirmation are counted under `pending`
+     * (flagged client-side via `isStaffInventored` on each report).
      *
-     * @return array{draft: int, pending: int, pending_your_confirmation: int, completed: int}
+     * @return array{draft: int, pending: int, completed: int}
      */
     public function getFilterCountsByBranch(string $branchId): array
     {
@@ -356,13 +358,11 @@ class WasteDamageReportService
                 throw ValidationException::withMessages(['report' => ['Report not found.']]);
             }
 
-            $isLegacyPendingYourConfirmation = $report->status === WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION;
-            $isStaffSubmitted = $report->status === WasteDamageReportStatus::PENDING
-                && $report->assigned_to_type === 'staff'
+            $isStaffInventored = $report->assigned_to_type === 'staff'
                 && $report->submitted_at !== null;
 
-            if (! $isStaffSubmitted && ! $isLegacyPendingYourConfirmation) {
-                throw ValidationException::withMessages(['report' => ['Report is not pending your confirmation.']]);
+            if (! $isStaffInventored || $report->status === WasteDamageReportStatus::COMPLETED) {
+                throw ValidationException::withMessages(['report' => ['Report is not awaiting your confirmation.']]);
             }
 
             if (! empty($itemOverrides)) {

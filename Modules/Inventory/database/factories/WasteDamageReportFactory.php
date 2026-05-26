@@ -33,10 +33,15 @@ class WasteDamageReportFactory extends Factory
         ]);
     }
 
-    public function pendingYourConfirmation(): static
+    /**
+     * Staff-submitted report awaiting Branch Manager confirmation
+     * (the `isStaffInventored` UI flag is derived from staff assignment + submitted_at).
+     */
+    public function staffSubmitted(): static
     {
         return $this->state(fn (array $attributes) => [
-            'status' => WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION,
+            'status' => WasteDamageReportStatus::PENDING,
+            'assigned_to_type' => 'staff',
             'submitted_at' => now(),
         ]);
     }

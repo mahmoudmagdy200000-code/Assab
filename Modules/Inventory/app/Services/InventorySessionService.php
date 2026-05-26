@@ -411,16 +411,14 @@ class InventorySessionService
     public function confirmCashierSubmission(string $sessionId, BranchManager $manager, array $itemOverrides = []): InventorySession
     {
         return DB::transaction(function () use ($sessionId, $manager, $itemOverrides) {
+            // Gate: staff submission awaiting Branch Manager confirmation (isStaffInventored=true).
+            // Discrepancy-review flow uses status=PENDING_YOUR_CONFIRMATION and is handled separately.
             $session = InventorySession::where('id', $sessionId)
                 ->where('branch_id', $manager->branch_id)
                 ->where('assigned_to_type', 'staff')
+                ->whereNotNull('submitted_at')
                 ->whereNull('manager_confirmed_at')
-                ->where(function ($q) {
-                    $q->where(function ($qq) {
-                        $qq->where('status', InventorySessionStatus::PENDING)
-                            ->whereNotNull('submitted_at');
-                    })->orWhere('status', InventorySessionStatus::PENDING_YOUR_CONFIRMATION);
-                })
+                ->whereIn('status', [InventorySessionStatus::PENDING, InventorySessionStatus::DRAFT])
                 ->firstOrFail();
 
             if (! empty($itemOverrides)) {

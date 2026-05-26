@@ -66,9 +66,11 @@ class WasteDamageReportRepository
     }
 
     /**
-     * Counts by status for filter tabs: Draft, Pending (staff), Pending your confirmation, Completed.
+     * Counts by status for filter tabs: Draft, Pending, Completed.
+     * Staff-submitted reports awaiting Branch Manager confirmation are counted under `pending`
+     * (clients differentiate via `isStaffInventored`).
      *
-     * @return array{draft: int, pending: int, pending_your_confirmation: int, completed: int}
+     * @return array{draft: int, pending: int, completed: int}
      */
     public function getFilterCountsByBranch(string $branchId): array
     {
@@ -82,7 +84,6 @@ class WasteDamageReportRepository
         return [
             'draft' => (int) ($counts['draft'] ?? 0),
             'pending' => (int) ($counts['pending'] ?? 0),
-            'pending_your_confirmation' => (int) ($counts['pending_your_confirmation'] ?? 0),
             'completed' => (int) ($counts['completed'] ?? 0),
         ];
     }
