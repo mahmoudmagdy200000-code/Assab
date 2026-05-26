@@ -140,7 +140,8 @@ class InventorySessionService
                     ->first();
 
                 if ($existingAssigned) {
-                    if (! empty($data['items']) && is_array($data['items'])) {
+                    $itemsProvided = ! empty($data['items']) && is_array($data['items']);
+                    if ($itemsProvided) {
                         foreach ($data['items'] as $itemData) {
                             $item = $this->addItemToSessionByIdentifier(
                                 $existingAssigned->id,
@@ -162,6 +163,26 @@ class InventorySessionService
                                     $item->update($updates);
                                 }
                             }
+                        }
+
+                        // Cashier's POST /sessions is the full submission — mark submitted so
+                        // isStaffInventored=true and Branch Manager can confirm.
+                        if ($existingAssigned->submitted_at === null) {
+                            $oldStatus = $existingAssigned->status->value;
+                            $existingAssigned->end_time = now();
+                            $existingAssigned->calculateTimeTaken();
+                            $existingAssigned->status = InventorySessionStatus::PENDING;
+                            $existingAssigned->submitted_at = now();
+                            $existingAssigned->save();
+
+                            InventorySessionTimeline::log(
+                                $existingAssigned,
+                                DailyInventoryTimelineEventType::SUBMITTED,
+                                'Submitted',
+                                'Staff submitted this daily inventory for Branch Manager confirmation.',
+                                $oldStatus,
+                                InventorySessionStatus::PENDING->value
+                            );
                         }
                     }
 

@@ -173,6 +173,16 @@ class WasteDamageReportController extends BaseController
                                 $actorCashierId,
                             );
                         }
+
+                        // Cashier's POST /reports is the full submission — mark submitted so
+                        // isStaffInventored=true and Branch Manager can confirm.
+                        $existingAssigned->refresh();
+                        if ($existingAssigned->submitted_at === null) {
+                            $existingAssigned->forceFill([
+                                'status' => WasteDamageReportStatus::PENDING,
+                                'submitted_at' => now(),
+                            ])->save();
+                        }
                     }
 
                     $existingAssigned->loadMissing([
