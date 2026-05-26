@@ -95,6 +95,10 @@ class ReceiveAssetsController extends BaseController
         return [
             'id' => $row['id'],
             'sourceType' => $row['source_type'],
+            'type' => $row['type'],
+            'fromBranchId' => $row['from_branch_id'],
+            'fromBranchName' => $row['from_branch_name'],
+            'toBranchId' => $row['to_branch_id'],
             'assetName' => $row['asset_name'],
             'assetCode' => $row['asset_code'],
             'assetImage' => $row['asset_image'] ? asset('storage/'.$row['asset_image']) : '',
@@ -103,6 +107,10 @@ class ReceiveAssetsController extends BaseController
 
     private function formatIncoming(array $incoming): array
     {
+        /** @var \Modules\BranchManagers\Models\BranchManager $manager */
+        $manager = auth()->user();
+        $viewerBranchId = (string) ($manager?->branch_id ?? '');
+
         if ($incoming['type'] === 'pending') {
             /** @var PendingReceipt $p */
             $p = $incoming['model'];
@@ -110,6 +118,10 @@ class ReceiveAssetsController extends BaseController
             return [
                 'id' => (string) $p->id,
                 'sourceType' => 'pending',
+                'type' => 'from_finance',
+                'fromBranchId' => '',
+                'fromBranchName' => '',
+                'toBranchId' => $viewerBranchId,
                 'assetName' => (string) $p->asset_name,
                 'assetCode' => (string) $p->asset_code,
                 'assetImage' => $p->asset_image ? asset('storage/'.$p->asset_image) : '',
@@ -119,10 +131,15 @@ class ReceiveAssetsController extends BaseController
         /** @var TransferDisposalItem $i */
         $i = $incoming['model'];
         $asset = $i->asset;
+        $req = $i->request;
 
         return [
             'id' => (string) $i->id,
             'sourceType' => 'transfer',
+            'type' => 'from_branch',
+            'fromBranchId' => (string) ($req?->branch_id ?? ''),
+            'fromBranchName' => (string) ($req?->branch?->name ?? ''),
+            'toBranchId' => $viewerBranchId,
             'assetName' => (string) ($asset?->name ?? ''),
             'assetCode' => (string) ($asset?->code ?? ''),
             'assetImage' => $asset?->image ? asset('storage/'.$asset->image) : '',

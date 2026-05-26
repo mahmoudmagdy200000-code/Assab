@@ -35,13 +35,17 @@ class ReceiveAssetsService
             ->map(fn (PendingReceipt $p) => [
                 'id' => (string) $p->id,
                 'source_type' => 'pending',
+                'type' => 'from_finance',
+                'from_branch_id' => '',
+                'from_branch_name' => '',
+                'to_branch_id' => $branchId,
                 'asset_name' => (string) $p->asset_name,
                 'asset_code' => (string) $p->asset_code,
                 'asset_image' => $p->asset_image,
             ]);
 
         $transfers = TransferDisposalItem::query()
-            ->with(['request', 'asset:id,name,code,image,branch_id'])
+            ->with(['request.branch:id,name', 'asset:id,name,code,image,branch_id'])
             ->whereHas('request', fn ($q) => $q->where('recipient_branch_id', $branchId)
                 ->where('status', '!=', RequestStatus::REJECTED->value))
             ->where(function ($q) {
@@ -53,6 +57,10 @@ class ReceiveAssetsService
             ->map(fn (TransferDisposalItem $i) => [
                 'id' => (string) $i->id,
                 'source_type' => 'transfer',
+                'type' => 'from_branch',
+                'from_branch_id' => (string) ($i->request?->branch_id ?? ''),
+                'from_branch_name' => (string) ($i->request?->branch?->name ?? ''),
+                'to_branch_id' => $branchId,
                 'asset_name' => (string) ($i->asset?->name ?? ''),
                 'asset_code' => (string) ($i->asset?->code ?? ''),
                 'asset_image' => $i->asset?->image,
