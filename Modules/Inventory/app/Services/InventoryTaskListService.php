@@ -157,6 +157,7 @@ class InventoryTaskListService
                 WasteDamageReportStatus::DRAFT->value,
                 WasteDamageReportStatus::PENDING->value,
             ])
+            ->whereNull('submitted_at')
             ->orderByDesc('created_at')
             ->limit($limit)
             ->get()

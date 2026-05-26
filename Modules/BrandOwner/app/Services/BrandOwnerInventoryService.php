@@ -18,11 +18,13 @@ class BrandOwnerInventoryService
 {
     public function listDailyInventoryRequests(int $perPage): LengthAwarePaginator
     {
+        // Show all statuses normally, except hide PENDING staff submissions that are not
+        // yet confirmed by the Branch Manager (they appear only after manager_confirmed_at is set).
         return InventorySession::query()
             ->with(['branch:id,name'])
-            ->where('status', InventorySessionStatus::PENDING)
             ->where(function ($q) {
-                $q->where('assigned_to_type', '!=', 'staff')
+                $q->where('status', '!=', InventorySessionStatus::PENDING->value)
+                    ->orWhere('assigned_to_type', '!=', 'staff')
                     ->orWhereNotNull('manager_confirmed_at');
             })
             ->orderByDesc('created_at')
@@ -31,12 +33,13 @@ class BrandOwnerInventoryService
 
     public function listWasteDamageRequests(int $perPage): LengthAwarePaginator
     {
+        // Same rule as daily: hide PENDING staff submissions until the Branch Manager confirms.
         return WasteDamageReport::query()
             ->with(['branch:id,name', 'items:id,waste_damage_report_id,problem_type'])
             ->withCount('items')
-            ->where('status', WasteDamageReportStatus::PENDING)
             ->where(function ($q) {
-                $q->where('assigned_to_type', '!=', 'staff')
+                $q->where('status', '!=', WasteDamageReportStatus::PENDING->value)
+                    ->orWhere('assigned_to_type', '!=', 'staff')
                     ->orWhereNotNull('manager_confirmed_at');
             })
             ->orderByDesc('created_at')
