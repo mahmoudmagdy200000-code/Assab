@@ -37,6 +37,7 @@ class InventorySession extends Model
         'rejection_comment',
         'approved_at',
         'approved_by',
+        'manager_confirmed_at',
     ];
 
     protected $casts = [
@@ -48,6 +49,7 @@ class InventorySession extends Model
         'submitted_at' => 'datetime',
         'rejected_at' => 'datetime',
         'approved_at' => 'datetime',
+        'manager_confirmed_at' => 'datetime',
     ];
 
     protected $appends = [

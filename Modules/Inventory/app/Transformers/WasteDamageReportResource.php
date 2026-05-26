@@ -77,14 +77,14 @@ class WasteDamageReportResource extends JsonResource
             'report_type' => $this->resolveReportType(),
             'display_title' => $this->resolveDisplayTitle(),
             'items_count' => (int) (isset($this->items_count) ? $this->items_count : ($this->relationLoaded('items') ? $this->items->count() : 0)),
-            'is_editable' => $this->status->isEditable(),
+            'is_editable' => $this->status->isEditable() && $this->submitted_at === null,
             'items' => WasteDamageReportItemResource::collection($this->whenLoaded('items')),
             'timelines' => $this->relationLoaded('timelines')
                 ? UnifiedTimelineResource::collection($this->timelines)->resolve()
                 : [],
             'created_at' => $this->created_at->format('Y-m-d H:i:s'),
             'updated_at' => $this->updated_at->format('Y-m-d H:i:s'),
-            'report_submitted' => $this->when($this->status->isSubmitted(), fn () => [
+            'report_submitted' => $this->when($this->submitted_at !== null, fn () => [
                 'status' => $this->status->detailStatusLabel(),
                 'message' => $this->buildSubmissionMessage(),
             ]),

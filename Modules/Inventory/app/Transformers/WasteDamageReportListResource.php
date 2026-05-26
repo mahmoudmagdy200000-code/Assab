@@ -54,7 +54,7 @@ class WasteDamageReportListResource extends JsonResource
             'status_label' => $this->status->listLabel(),
             'submission_date' => $dateForSubmission->format('F j, Y'),
             'items_count' => (int) (isset($this->items_count) ? $this->items_count : ($this->relationLoaded('items') ? $this->items->count() : 0)),
-            'is_editable' => $this->status->isEditable(),
+            'is_editable' => $this->status->isEditable() && $this->submitted_at === null,
             'details' => (new WasteDamageReportResource($this->resource))->toArray($request),
         ];
     }

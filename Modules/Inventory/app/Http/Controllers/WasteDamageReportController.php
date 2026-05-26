@@ -281,7 +281,7 @@ class WasteDamageReportController extends BaseController
             $perPage = (int) $request->get('per_page', 15);
             $status = $request->get('status');
             if ($status !== null && $status !== '' && WasteDamageReportStatus::tryFrom($status) === null) {
-                return $this->errorResponse('Invalid status. Allowed: draft, pending, pending_your_confirmation, completed.', 422);
+                return $this->errorResponse('Invalid status. Allowed: draft, pending, completed, approved, rejected.', 422);
             }
             $assignedToId = $actor->isCashier() ? $actor->getActorId() : null;
             $reports = $this->reportService->listReportsByBranch(
@@ -449,7 +449,7 @@ class WasteDamageReportController extends BaseController
     }
 
     /**
-     * Confirm staff submission (Branch Manager). Status PENDING_YOUR_CONFIRMATION -> COMPLETED.
+     * Confirm staff submission (Branch Manager). Status PENDING (staff-submitted) -> COMPLETED.
      * Optional body: items[] with final quantities the manager wants to apply before confirming.
      * Body shape: { "items": [{"itemId": "<report_item_uuid>", "quantity": 5}] }
      */

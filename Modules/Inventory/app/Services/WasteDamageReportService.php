@@ -189,7 +189,7 @@ class WasteDamageReportService
     public function addItem(string $reportId, string $branchId, array $data, ?string $actorBranchManagerId, ?string $actorCashierId = null, ?string $assignedToId = null): WasteDamageReportItem
     {
         $report = $this->reportRepository->findByBranch($reportId, $branchId, [], $assignedToId);
-        if (! $report || ! $report->status->isEditable()) {
+        if (! $report || ! $report->status->isEditable() || $report->submitted_at !== null) {
             throw ValidationException::withMessages(['report' => [self::REPORT_NOT_EDITABLE_MESSAGE]]);
         }
 
@@ -255,7 +255,7 @@ class WasteDamageReportService
     public function updateItem(string $reportId, string $itemId, string $branchId, array $data, ?string $actorBranchManagerId, ?string $actorCashierId = null, ?string $assignedToId = null): WasteDamageReportItem
     {
         $report = $this->reportRepository->findByBranch($reportId, $branchId, [], $assignedToId);
-        if (! $report || ! $report->status->isEditable()) {
+        if (! $report || ! $report->status->isEditable() || $report->submitted_at !== null) {
             throw ValidationException::withMessages(['report' => [self::REPORT_NOT_EDITABLE_MESSAGE]]);
         }
 
@@ -328,7 +328,7 @@ class WasteDamageReportService
     public function deleteItem(string $reportId, string $itemId, string $branchId, ?string $assignedToId = null): void
     {
         $report = $this->reportRepository->findByBranch($reportId, $branchId, [], $assignedToId);
-        if (! $report || ! $report->status->isEditable()) {
+        if (! $report || ! $report->status->isEditable() || $report->submitted_at !== null) {
             throw ValidationException::withMessages(['report' => [self::REPORT_NOT_EDITABLE_MESSAGE]]);
         }
 
@@ -342,7 +342,7 @@ class WasteDamageReportService
     }
 
     /**
-     * Confirm staff submission (Branch Manager). Status PENDING_YOUR_CONFIRMATION -> COMPLETED.
+     * Confirm staff submission (Branch Manager). Status PENDING (with staff submitted_at) -> COMPLETED.
      * Optional overrides let the manager edit the staff-submitted quantities before confirming.
      * Total value per item is recomputed from new quantity * price_per_unit.
      *
@@ -356,7 +356,11 @@ class WasteDamageReportService
                 throw ValidationException::withMessages(['report' => ['Report not found.']]);
             }
 
-            if (! $report->status->isPendingYourConfirmation()) {
+            $isStaffSubmitted = $report->status === WasteDamageReportStatus::PENDING
+                && $report->assigned_to_type === 'staff'
+                && $report->submitted_at !== null;
+
+            if (! $isStaffSubmitted) {
                 throw ValidationException::withMessages(['report' => ['Report is not pending your confirmation.']]);
             }
 
@@ -405,7 +409,7 @@ class WasteDamageReportService
             throw ValidationException::withMessages(['report' => ['Report not found.']]);
         }
 
-        if (! $report->status->isEditable()) {
+        if (! $report->status->isEditable() || $report->submitted_at !== null) {
             throw ValidationException::withMessages(['report' => ['Report is already submitted.']]);
         }
 
@@ -423,9 +427,13 @@ class WasteDamageReportService
         }
 
         $oldStatus = $report->status->value;
+        $isStaffSubmission = $report->assigned_to_type === 'staff';
+        $newStatus = $isStaffSubmission
+            ? WasteDamageReportStatus::PENDING
+            : WasteDamageReportStatus::COMPLETED;
 
         $this->reportRepository->update($report, [
-            'status' => WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION,
+            'status' => $newStatus,
             'submitted_at' => now(),
         ]);
 
@@ -435,7 +443,7 @@ class WasteDamageReportService
             WasteDamageReportTimelineEventType::SUBMITTED->label(),
             null,
             $oldStatus,
-            WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION->value
+            $newStatus->value
         );
 
         return $report->fresh();

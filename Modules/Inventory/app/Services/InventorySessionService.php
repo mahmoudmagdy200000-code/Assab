@@ -358,9 +358,7 @@ class InventorySessionService
             }
 
             $oldStatus = $session->status->value;
-            $newStatus = $actor instanceof Cashier
-                ? InventorySessionStatus::PENDING_YOUR_CONFIRMATION
-                : InventorySessionStatus::PENDING;
+            $newStatus = InventorySessionStatus::PENDING;
 
             $session->end_time = now();
             $session->calculateTimeTaken();
@@ -384,7 +382,8 @@ class InventorySessionService
     }
 
     /**
-     * Confirm cashier's submission (Branch Manager). Status PENDING_YOUR_CONFIRMATION -> PENDING (awaiting Account Manager).
+     * Confirm cashier's submission (Branch Manager). Session stays PENDING; sets
+     * manager_confirmed_at so Account Manager picks it up.
      *
      * @param  array<int, array{itemId: string, quantity: float|int}>  $itemOverrides  Final quantities the manager wants applied before confirming.
      */
@@ -393,8 +392,10 @@ class InventorySessionService
         return DB::transaction(function () use ($sessionId, $manager, $itemOverrides) {
             $session = InventorySession::where('id', $sessionId)
                 ->where('branch_id', $manager->branch_id)
-                ->where('status', InventorySessionStatus::PENDING_YOUR_CONFIRMATION)
+                ->where('status', InventorySessionStatus::PENDING)
                 ->where('assigned_to_type', 'staff')
+                ->whereNotNull('submitted_at')
+                ->whereNull('manager_confirmed_at')
                 ->firstOrFail();
 
             if (! empty($itemOverrides)) {
@@ -409,8 +410,7 @@ class InventorySessionService
                 }
             }
 
-            $oldStatus = $session->status->value;
-            $session->status = InventorySessionStatus::PENDING;
+            $session->manager_confirmed_at = now();
             $session->save();
 
             InventorySessionTimeline::log(
@@ -418,7 +418,7 @@ class InventorySessionService
                 DailyInventoryTimelineEventType::SUBMITTED,
                 'Confirmed by Branch Manager',
                 'Branch Manager confirmed staff submission. Sent to Account Manager for approval.',
-                $oldStatus,
+                InventorySessionStatus::PENDING->value,
                 InventorySessionStatus::PENDING->value
             );
 
@@ -435,6 +435,9 @@ class InventorySessionService
             $session = InventorySession::where('id', $sessionId)->firstOrFail();
             if ($session->status !== InventorySessionStatus::PENDING) {
                 throw new \InvalidArgumentException('Only pending sessions can be rejected.');
+            }
+            if ($session->assigned_to_type === 'staff' && $session->manager_confirmed_at === null) {
+                throw new \InvalidArgumentException('Branch Manager must confirm staff submission before Account Manager can act.');
             }
 
             $actor = auth()->user();
@@ -499,6 +502,10 @@ class InventorySessionService
         return DB::transaction(function () use ($sessionId, $sales, $recordedWaste) {
             $session = InventorySession::where('id', $sessionId)
                 ->where('status', InventorySessionStatus::PENDING)
+                ->where(function ($q) {
+                    $q->where('assigned_to_type', '!=', 'staff')
+                        ->orWhereNotNull('manager_confirmed_at');
+                })
                 ->with('items')
                 ->firstOrFail();
 

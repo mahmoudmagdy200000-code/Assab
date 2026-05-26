@@ -303,7 +303,7 @@ class DailyQuickInventoryController extends BaseController
     }
 
     /**
-     * Confirm cashier submission (Branch Manager). Status PENDING_YOUR_CONFIRMATION -> PENDING (sent to Account Manager).
+     * Confirm cashier submission (Branch Manager). Stays PENDING; sets manager_confirmed_at so Account Manager picks it up.
      * Optional body: items[] with final quantities the manager wants to override before confirming.
      * Body shape: { "items": [{"itemId": "<inventory_item_uuid>", "quantity": 5}] }
      *
@@ -349,7 +349,8 @@ class DailyQuickInventoryController extends BaseController
 
     /**
      * Get all inventory sessions. Optional filter by status (e.g. ?status=draft).
-     * Valid status values: draft, pending, approved, rejected, pending_your_action, pending_your_confirmation, completed.
+     * Valid status values: draft, pending, approved, rejected, completed.
+     * Staff submission state is indicated by `isStaffInventored` on each session, not a separate status.
      *
      * @group Daily Quick Inventory
      */
