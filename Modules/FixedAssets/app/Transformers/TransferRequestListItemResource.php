@@ -3,6 +3,7 @@
 namespace Modules\FixedAssets\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Log;
 use Modules\FixedAssets\Enums\AssetStatus;
 use Modules\FixedAssets\Enums\TransferDisposalKind;
 use Modules\FixedAssets\Models\TransferDisposalItem;
@@ -16,7 +17,7 @@ class TransferRequestListItemResource extends JsonResource
         $req = $i->request;
         $asset = $i->asset;
 
-        $viewerBranchId = (string) (auth()->user()?->branch_id ?? '');
+        $viewerBranchId = $this->resolveViewerBranchId();
         $type = $this->resolveType($req, $viewerBranchId);
 
         return [
@@ -26,9 +27,26 @@ class TransferRequestListItemResource extends JsonResource
             'condition' => $asset?->status?->value ?? AssetStatus::EXCELLENT->value,
             'date_and_time' => $i->created_at?->toIso8601String() ?? '',
             'type' => $type,
+            'from_branch_id' => (string) ($req?->branch_id ?? ''),
             'from_branch_name' => (string) ($req?->branch?->name ?? ''),
+            'to_branch_id' => (string) ($req?->recipient_branch_id ?? ''),
             'to_branch_name' => (string) ($req?->recipientBranch?->name ?? ''),
         ];
+    }
+
+    private function resolveViewerBranchId(): string
+    {
+        $user = auth()->user();
+        if (! $user) {
+            return '';
+        }
+
+        $branchId = $user->branch_id ?? null;
+        if ($branchId === null && method_exists($user, 'getAttribute')) {
+            $branchId = $user->getAttribute('branch_id');
+        }
+
+        return (string) ($branchId ?? '');
     }
 
     private function resolveType(?object $req, string $viewerBranchId): string
@@ -41,10 +59,24 @@ class TransferRequestListItemResource extends JsonResource
             return 'from_finance';
         }
 
-        if ((string) $req->recipient_branch_id === $viewerBranchId) {
-            return 'from_branch';
+        $recipientId = (string) ($req->recipient_branch_id ?? '');
+        $senderId = (string) ($req->branch_id ?? '');
+
+        $type = match (true) {
+            $viewerBranchId !== '' && $viewerBranchId === $recipientId => 'from_branch',
+            $viewerBranchId !== '' && $viewerBranchId === $senderId => 'to_branch',
+            default => 'to_branch',
+        };
+
+        if ($viewerBranchId === '' || ($viewerBranchId !== $recipientId && $viewerBranchId !== $senderId)) {
+            Log::warning('TransferRequestList: viewer branch matches neither sender nor recipient', [
+                'viewer_branch_id' => $viewerBranchId,
+                'sender_branch_id' => $senderId,
+                'recipient_branch_id' => $recipientId,
+                'request_id' => (string) ($req->id ?? ''),
+            ]);
         }
 
-        return 'to_branch';
+        return $type;
     }
 }

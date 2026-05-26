@@ -5,6 +5,7 @@ namespace Modules\FixedAssets\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
 use Modules\FixedAssets\Http\Requests\ReceiveAssetsConfirmRequest;
 use Modules\FixedAssets\Models\PendingReceipt;
 use Modules\FixedAssets\Models\TransferDisposalItem;
@@ -134,17 +135,38 @@ class ReceiveAssetsController extends BaseController
         $i = $incoming['model'];
         $asset = $i->asset;
         $req = $i->request;
-        $role = $incoming['viewer_role'] ?? 'recipient';
-        $type = $role === 'recipient' ? 'from_branch' : 'to_branch';
+
+        $senderBranchId = (string) ($req?->branch_id ?? '');
+        $recipientBranchId = (string) ($req?->recipient_branch_id ?? '');
+
+        if ($viewerBranchId !== '' && $viewerBranchId === $recipientBranchId) {
+            $role = 'recipient';
+            $type = 'from_branch';
+        } elseif ($viewerBranchId !== '' && $viewerBranchId === $senderBranchId) {
+            $role = 'sender';
+            $type = 'to_branch';
+        } else {
+            $role = $incoming['viewer_role'] ?? 'recipient';
+            $type = $role === 'recipient' ? 'from_branch' : 'to_branch';
+        }
+
+        Log::info('ReceiveAssets formatIncoming', [
+            'item_id' => (string) $i->id,
+            'viewer_branch_id' => $viewerBranchId,
+            'sender_branch_id' => $senderBranchId,
+            'recipient_branch_id' => $recipientBranchId,
+            'computed_role' => $role,
+            'computed_type' => $type,
+        ]);
 
         return [
             'id' => (string) $i->id,
             'sourceType' => 'transfer',
             'type' => $type,
             'viewerRole' => $role,
-            'fromBranchId' => (string) ($req?->branch_id ?? ''),
+            'fromBranchId' => $senderBranchId,
             'fromBranchName' => (string) ($req?->branch?->name ?? ''),
-            'toBranchId' => (string) ($req?->recipient_branch_id ?? ''),
+            'toBranchId' => $recipientBranchId,
             'toBranchName' => (string) ($req?->recipientBranch?->name ?? ''),
             'assetName' => (string) ($asset?->name ?? ''),
             'assetCode' => (string) ($asset?->code ?? ''),
