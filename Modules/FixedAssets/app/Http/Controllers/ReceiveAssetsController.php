@@ -34,7 +34,7 @@ class ReceiveAssetsController extends BaseController
         $manager = auth()->user();
 
         try {
-            $incoming = $this->service->findIncoming($requestId, $manager->branch_id);
+            $incoming = $this->service->findIncoming($requestId, $manager->branch_id, recipientOnly: false);
         } catch (ModelNotFoundException) {
             return $this->notFoundResponse("Incoming asset not found: {$requestId}");
         }
@@ -119,9 +119,11 @@ class ReceiveAssetsController extends BaseController
                 'id' => (string) $p->id,
                 'sourceType' => 'pending',
                 'type' => 'from_finance',
+                'viewerRole' => 'recipient',
                 'fromBranchId' => '',
                 'fromBranchName' => '',
                 'toBranchId' => $viewerBranchId,
+                'toBranchName' => '',
                 'assetName' => (string) $p->asset_name,
                 'assetCode' => (string) $p->asset_code,
                 'assetImage' => $p->asset_image ? asset('storage/'.$p->asset_image) : '',
@@ -132,14 +134,18 @@ class ReceiveAssetsController extends BaseController
         $i = $incoming['model'];
         $asset = $i->asset;
         $req = $i->request;
+        $role = $incoming['viewer_role'] ?? 'recipient';
+        $type = $role === 'recipient' ? 'from_branch' : 'to_branch';
 
         return [
             'id' => (string) $i->id,
             'sourceType' => 'transfer',
-            'type' => 'from_branch',
+            'type' => $type,
+            'viewerRole' => $role,
             'fromBranchId' => (string) ($req?->branch_id ?? ''),
             'fromBranchName' => (string) ($req?->branch?->name ?? ''),
-            'toBranchId' => $viewerBranchId,
+            'toBranchId' => (string) ($req?->recipient_branch_id ?? ''),
+            'toBranchName' => (string) ($req?->recipientBranch?->name ?? ''),
             'assetName' => (string) ($asset?->name ?? ''),
             'assetCode' => (string) ($asset?->code ?? ''),
             'assetImage' => $asset?->image ? asset('storage/'.$asset->image) : '',

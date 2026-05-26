@@ -69,7 +69,7 @@ class ReceiveAssetsService
         return $pending->concat($transfers)->values();
     }
 
-    public function findIncoming(string $requestId, string $branchId): array
+    public function findIncoming(string $requestId, string $branchId, bool $recipientOnly = true): array
     {
         $pending = PendingReceipt::query()
             ->where('id', $requestId)
@@ -77,20 +77,32 @@ class ReceiveAssetsService
             ->first();
 
         if ($pending) {
-            return ['type' => 'pending', 'model' => $pending];
+            return ['type' => 'pending', 'model' => $pending, 'viewer_role' => 'recipient'];
         }
 
         $item = TransferDisposalItem::query()
-            ->with(['request', 'asset:id,name,code,image,branch_id,zone_id,asset_type_id'])
+            ->with(['request.branch:id,name', 'request.recipientBranch:id,name', 'asset:id,name,code,image,branch_id,zone_id,asset_type_id'])
             ->where('id', $requestId)
-            ->whereHas('request', fn ($q) => $q->where('recipient_branch_id', $branchId))
+            ->whereHas('request', function ($q) use ($branchId, $recipientOnly) {
+                if ($recipientOnly) {
+                    $q->where('recipient_branch_id', $branchId);
+                    return;
+                }
+                $q->where(function ($q2) use ($branchId) {
+                    $q2->where('recipient_branch_id', $branchId)
+                        ->orWhere('branch_id', $branchId);
+                });
+            })
             ->first();
 
         if ($item) {
-            return ['type' => 'transfer', 'model' => $item];
+            $role = (string) $item->request?->recipient_branch_id === $branchId
+                ? 'recipient'
+                : 'sender';
+            return ['type' => 'transfer', 'model' => $item, 'viewer_role' => $role];
         }
 
-        $fallback = $this->resolveIncomingFallback($requestId, $branchId);
+        $fallback = $this->resolveIncomingFallback($requestId, $branchId, $recipientOnly);
         if ($fallback) {
             return $fallback;
         }
@@ -104,37 +116,53 @@ class ReceiveAssetsService
      *
      * @return array{type: string, model: mixed}|null
      */
-    private function resolveIncomingFallback(string $id, string $branchId): ?array
+    private function resolveIncomingFallback(string $id, string $branchId, bool $recipientOnly = true): ?array
     {
         $byRequest = TransferDisposalItem::query()
-            ->with(['request', 'asset:id,name,code,image,branch_id,zone_id,asset_type_id'])
+            ->with(['request.branch:id,name', 'request.recipientBranch:id,name', 'asset:id,name,code,image,branch_id,zone_id,asset_type_id'])
             ->where('request_id', $id)
-            ->whereHas('request', fn ($q) => $q->where('recipient_branch_id', $branchId))
+            ->whereHas('request', function ($q) use ($branchId, $recipientOnly) {
+                if ($recipientOnly) {
+                    $q->where('recipient_branch_id', $branchId);
+                    return;
+                }
+                $q->where(function ($q2) use ($branchId) {
+                    $q2->where('recipient_branch_id', $branchId)
+                        ->orWhere('branch_id', $branchId);
+                });
+            })
             ->orderBy('created_at')
             ->get();
 
         if ($byRequest->count() === 1) {
+            $first = $byRequest->first();
+            $role = (string) $first->request?->recipient_branch_id === $branchId ? 'recipient' : 'sender';
             Log::info('ReceiveAssets fallback: matched by request_id', [
-                'request_id' => $id,
-                'branch_id' => $branchId,
-                'item_id' => (string) $byRequest->first()->id,
+                'request_id' => $id, 'branch_id' => $branchId, 'item_id' => (string) $first->id, 'role' => $role,
             ]);
-            return ['type' => 'transfer', 'model' => $byRequest->first()];
+            return ['type' => 'transfer', 'model' => $first, 'viewer_role' => $role];
         }
 
         if ($byRequest->count() > 1) {
             Log::warning('ReceiveAssets fallback: ambiguous request_id with multiple items', [
-                'request_id' => $id,
-                'branch_id' => $branchId,
-                'item_count' => $byRequest->count(),
+                'request_id' => $id, 'branch_id' => $branchId, 'item_count' => $byRequest->count(),
             ]);
         }
 
         $byAsset = TransferDisposalItem::query()
-            ->with(['request', 'asset:id,name,code,image,branch_id,zone_id,asset_type_id'])
+            ->with(['request.branch:id,name', 'request.recipientBranch:id,name', 'asset:id,name,code,image,branch_id,zone_id,asset_type_id'])
             ->where('asset_id', $id)
-            ->whereHas('request', fn ($q) => $q->where('recipient_branch_id', $branchId)
-                ->where('status', '!=', RequestStatus::REJECTED->value))
+            ->whereHas('request', function ($q) use ($branchId, $recipientOnly) {
+                $q->where('status', '!=', RequestStatus::REJECTED->value);
+                if ($recipientOnly) {
+                    $q->where('recipient_branch_id', $branchId);
+                    return;
+                }
+                $q->where(function ($q2) use ($branchId) {
+                    $q2->where('recipient_branch_id', $branchId)
+                        ->orWhere('branch_id', $branchId);
+                });
+            })
             ->where(function ($q) {
                 $q->whereNull('status')
                     ->orWhere('status', '!=', RequestStatus::REJECTED->value);
@@ -143,12 +171,11 @@ class ReceiveAssetsService
             ->first();
 
         if ($byAsset) {
+            $role = (string) $byAsset->request?->recipient_branch_id === $branchId ? 'recipient' : 'sender';
             Log::info('ReceiveAssets fallback: matched by asset_id', [
-                'asset_id' => $id,
-                'branch_id' => $branchId,
-                'item_id' => (string) $byAsset->id,
+                'asset_id' => $id, 'branch_id' => $branchId, 'item_id' => (string) $byAsset->id, 'role' => $role,
             ]);
-            return ['type' => 'transfer', 'model' => $byAsset];
+            return ['type' => 'transfer', 'model' => $byAsset, 'viewer_role' => $role];
         }
 
         $existsElsewhere = PendingReceipt::query()->where('id', $id)->exists()
@@ -157,8 +184,7 @@ class ReceiveAssetsService
 
         if ($existsElsewhere) {
             Log::warning('ReceiveAssets 404: id exists but not for this branch', [
-                'id' => $id,
-                'viewer_branch_id' => $branchId,
+                'id' => $id, 'viewer_branch_id' => $branchId,
             ]);
         }
 
