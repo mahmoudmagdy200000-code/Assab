@@ -37,6 +37,7 @@ class WasteDamageReport extends Model
         'rejected_at',
         'rejected_by',
         'rejection_comment',
+        'manager_confirmed_at',
     ];
 
     protected $casts = [
@@ -44,6 +45,7 @@ class WasteDamageReport extends Model
         'submitted_at' => 'datetime',
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
+        'manager_confirmed_at' => 'datetime',
     ];
 
     /**

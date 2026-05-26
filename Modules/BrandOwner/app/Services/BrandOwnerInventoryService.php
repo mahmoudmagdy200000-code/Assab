@@ -20,7 +20,11 @@ class BrandOwnerInventoryService
     {
         return InventorySession::query()
             ->with(['branch:id,name'])
-            ->whereIn('status', $this->dailyVisibleStatuses())
+            ->where('status', InventorySessionStatus::PENDING)
+            ->where(function ($q) {
+                $q->where('assigned_to_type', '!=', 'staff')
+                    ->orWhereNotNull('manager_confirmed_at');
+            })
             ->orderByDesc('created_at')
             ->paginate($perPage);
     }
@@ -30,7 +34,11 @@ class BrandOwnerInventoryService
         return WasteDamageReport::query()
             ->with(['branch:id,name', 'items:id,waste_damage_report_id,problem_type'])
             ->withCount('items')
-            ->whereIn('status', $this->wasteVisibleStatuses())
+            ->where('status', WasteDamageReportStatus::PENDING)
+            ->where(function ($q) {
+                $q->where('assigned_to_type', '!=', 'staff')
+                    ->orWhereNotNull('manager_confirmed_at');
+            })
             ->orderByDesc('created_at')
             ->paginate($perPage);
     }
@@ -155,41 +163,10 @@ class BrandOwnerInventoryService
         return $report->fresh();
     }
 
-    /**
-     * @return array<int, string>
-     */
-    private function dailyVisibleStatuses(): array
-    {
-        return [
-            InventorySessionStatus::PENDING->value,
-            InventorySessionStatus::PENDING_YOUR_ACTION->value,
-            InventorySessionStatus::PENDING_YOUR_CONFIRMATION->value,
-            InventorySessionStatus::APPROVED->value,
-            InventorySessionStatus::REJECTED->value,
-            InventorySessionStatus::COMPLETED->value,
-        ];
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function wasteVisibleStatuses(): array
-    {
-        return [
-            WasteDamageReportStatus::PENDING->value,
-            WasteDamageReportStatus::APPROVED->value,
-            WasteDamageReportStatus::REJECTED->value,
-            WasteDamageReportStatus::COMPLETED->value,
-        ];
-    }
-
     private function guardDailyActionable(InventorySession $session): void
     {
-        $actionable = in_array($session->status, [
-            InventorySessionStatus::PENDING,
-            InventorySessionStatus::PENDING_YOUR_ACTION,
-            InventorySessionStatus::PENDING_YOUR_CONFIRMATION,
-        ], true);
+        $actionable = $session->status === InventorySessionStatus::PENDING
+            && ($session->assigned_to_type !== 'staff' || $session->manager_confirmed_at !== null);
 
         if (! $actionable) {
             throw ValidationException::withMessages([
@@ -200,7 +177,8 @@ class BrandOwnerInventoryService
 
     private function guardWasteActionable(WasteDamageReport $report): void
     {
-        $actionable = $report->status === WasteDamageReportStatus::PENDING;
+        $actionable = $report->status === WasteDamageReportStatus::PENDING
+            && ($report->assigned_to_type !== 'staff' || $report->manager_confirmed_at !== null);
 
         if (! $actionable) {
             throw ValidationException::withMessages([

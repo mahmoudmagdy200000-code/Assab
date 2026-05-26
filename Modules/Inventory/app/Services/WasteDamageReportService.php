@@ -344,7 +344,8 @@ class WasteDamageReportService
     }
 
     /**
-     * Confirm staff submission (Branch Manager). Status PENDING (with staff submitted_at) -> COMPLETED.
+     * Confirm staff submission (Branch Manager). Status stays PENDING; sets manager_confirmed_at
+     * so the Brand Owner picks it up. Final approval (status -> COMPLETED) is the Brand Owner's call.
      *
      * On confirm, a multi-item report is split into one report per item: the original report
      * keeps the first item, and (N-1) clones are created with the same shared metadata
@@ -368,7 +369,7 @@ class WasteDamageReportService
             $isStaffInventored = $report->assigned_to_type === 'staff'
                 && $report->submitted_at !== null;
 
-            if (! $isStaffInventored || $report->status === WasteDamageReportStatus::COMPLETED) {
+            if (! $isStaffInventored || $report->manager_confirmed_at !== null) {
                 throw ValidationException::withMessages(['report' => ['Report is not awaiting your confirmation.']]);
             }
 
@@ -395,21 +396,19 @@ class WasteDamageReportService
             }
 
             $relations = ['items.item', 'items.responsibleEmployees.cashier.branch', 'items.responsibleEmployees.branchManager', 'assignedTo', 'createdBy'];
-            $oldStatus = $report->status->value;
             $confirmed = collect();
+            $confirmedAt = now();
 
             // First item stays in the original report.
             $items->shift();
             $this->reportRepository->update($report, [
-                'status' => WasteDamageReportStatus::COMPLETED,
+                'manager_confirmed_at' => $confirmedAt,
             ]);
             WasteDamageReportTimeline::log(
                 $report->fresh(),
                 WasteDamageReportTimelineEventType::APPROVED,
                 'Confirmed by Branch Manager',
-                'Branch Manager confirmed staff submission.',
-                $oldStatus,
-                WasteDamageReportStatus::COMPLETED->value
+                'Branch Manager confirmed staff submission. Sent to Brand Owner for approval.'
             );
             $confirmed->push($report->fresh($relations));
 
@@ -421,8 +420,9 @@ class WasteDamageReportService
                     'created_by_type' => $report->created_by_type,
                     'assigned_to_type' => $report->assigned_to_type,
                     'assigned_to_id' => $report->assigned_to_id,
-                    'status' => WasteDamageReportStatus::COMPLETED,
+                    'status' => WasteDamageReportStatus::PENDING,
                     'submitted_at' => $report->submitted_at,
+                    'manager_confirmed_at' => $confirmedAt,
                 ]);
 
                 $item->waste_damage_report_id = $clone->id;
@@ -437,9 +437,7 @@ class WasteDamageReportService
                     $clone->fresh(),
                     WasteDamageReportTimelineEventType::APPROVED,
                     'Confirmed by Branch Manager',
-                    'Branch Manager confirmed staff submission.',
-                    null,
-                    WasteDamageReportStatus::COMPLETED->value
+                    'Branch Manager confirmed staff submission. Sent to Brand Owner for approval.'
                 );
 
                 $confirmed->push($clone->fresh($relations));
@@ -477,10 +475,10 @@ class WasteDamageReportService
         }
 
         $oldStatus = $report->status->value;
-        $isStaffSubmission = $report->assigned_to_type === 'staff';
-        $newStatus = $isStaffSubmission
-            ? WasteDamageReportStatus::PENDING
-            : WasteDamageReportStatus::COMPLETED;
+        // Both personal and staff submissions go to PENDING; the Brand Owner does the final approval.
+        // For staff submissions, the Branch Manager still has to confirm (manager_confirmed_at)
+        // before the report is visible to the Brand Owner.
+        $newStatus = WasteDamageReportStatus::PENDING;
 
         $this->reportRepository->update($report, [
             'status' => $newStatus,

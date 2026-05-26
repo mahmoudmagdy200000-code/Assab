@@ -74,7 +74,7 @@ class WasteDamageReportResource extends JsonResource
             'isStaffInventored' => ($this->assigned_to_type ?? 'personal') === 'staff' && $this->submitted_at !== null,
             'isBranchManagerConfirm' => ($this->assigned_to_type ?? 'personal') === 'staff'
                 && $this->submitted_at !== null
-                && $this->status === \Modules\Inventory\Enums\WasteDamageReportStatus::COMPLETED,
+                && $this->manager_confirmed_at !== null,
             'submitted_at' => $this->submitted_at?->format('Y-m-d H:i:s'),
             'submission_date' => $dateForSubmission->format('F j, Y'),
             'report_type' => $this->resolveReportType(),
