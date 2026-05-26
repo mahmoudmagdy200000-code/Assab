@@ -68,6 +68,10 @@ return Application::configure(basePath: dirname(__DIR__))
         // Recurring orders are scheduled in RecurringOrderServiceProvider::registerCommandSchedules()
     })
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->api(prepend: [
+            \App\Http\Middleware\ParseMultipartFormDataMiddleware::class,
+        ]);
+
         $middleware->alias([
             'apilocale' => \App\Http\Middleware\ApiLocaleMiddleware::class,
             'localize' => \Mcamara\LaravelLocalization\Middleware\LaravelLocalizationRoutes::class,
