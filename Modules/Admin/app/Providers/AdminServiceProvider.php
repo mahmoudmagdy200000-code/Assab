@@ -2,8 +2,10 @@
 
 namespace Modules\Admin\Providers;
 
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\ServiceProvider;
+use Modules\Admin\Console\Commands\CheckExpiringSubscriptions;
 use Nwidart\Modules\Traits\PathNamespace;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -36,6 +38,9 @@ class AdminServiceProvider extends ServiceProvider
     {
         $this->app->register(EventServiceProvider::class);
         $this->app->register(RouteServiceProvider::class);
+
+        // ASAB tenant context is resolved per-request and shared across the container.
+        $this->app->scoped(\Modules\Admin\Support\TenantContext::class);
     }
 
     /**
@@ -43,7 +48,9 @@ class AdminServiceProvider extends ServiceProvider
      */
     protected function registerCommands(): void
     {
-        // $this->commands([]);
+        $this->commands([
+            CheckExpiringSubscriptions::class,
+        ]);
     }
 
     /**
@@ -51,10 +58,13 @@ class AdminServiceProvider extends ServiceProvider
      */
     protected function registerCommandSchedules(): void
     {
-        // $this->app->booted(function () {
-        //     $schedule = $this->app->make(Schedule::class);
-        //     $schedule->command('inspire')->hourly();
-        // });
+        $this->app->booted(function () {
+            $schedule = $this->app->make(Schedule::class);
+            // Daily subscription-expiry sweep (BACKEND_API_SPEC.md §8 subscription.expiring)
+            $schedule->command('asab:subscriptions-expiry')
+                ->dailyAt('06:00')
+                ->timezone('Asia/Riyadh');
+        });
     }
 
     /**

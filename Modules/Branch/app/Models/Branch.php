@@ -23,6 +23,18 @@ class Branch extends Model
         'image',
         'opening_hours',
         'closing_hours',
+        // ASAB SaaS hierarchy (additive — see add_asab_hierarchy_to_branches migration)
+        'phone',
+        'email',
+        'address',
+        'city',
+        'is_active',
+        'manager',
+        'status',
+        'asab_company_id',
+        'asab_brand_id',
+        'asab_restaurant_id',
+        'asab_manager_user_id',
     ];
 
     protected $casts = [

@@ -6,11 +6,12 @@ use Illuminate\Database\Seeder;
 
 class AdminDatabaseSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
-        // $this->call([]);
+        $this->call([
+            AsabRolePermissionSeeder::class,
+            AsabDemoSeeder::class,
+            AsabOperationSeeder::class,
+        ]);
     }
 }
