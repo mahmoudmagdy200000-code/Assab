@@ -65,6 +65,13 @@ class SupplierSeeder extends Seeder
             Supplier::create($supplierData);
         }
 
+        // Random demo suppliers require fakerphp/faker (dev-only). Skip when absent (e.g. prod --no-dev).
+        if (! class_exists(\Faker\Factory::class)) {
+            $this->command?->warn('Faker not installed; skipping random demo suppliers (kept 5 deterministic suppliers).');
+
+            return;
+        }
+
         // Create additional random suppliers
         Supplier::factory()->count(15)->create();
 
