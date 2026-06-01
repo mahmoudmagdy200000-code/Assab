@@ -398,6 +398,7 @@ Route::prefix('v1')->group(function () {
                     // ca-billing (§5.1.6)
                     Route::get('me/billing/summary', [CompanyBillingController::class, 'summary']);
                     Route::get('me/billing/invoices/export', [CompanyBillingController::class, 'export']);
+                    Route::get('me/exports/{jobId}/download', [CompanyExportController::class, 'download']);
                     Route::get('me/billing/invoices', [CompanyBillingController::class, 'invoices']);
                     Route::get('me/billing/invoices/{id}', [CompanyBillingController::class, 'show']);
                     Route::get('me/billing/invoices/{id}/pdf', [CompanyBillingController::class, 'pdf']);
@@ -459,7 +460,7 @@ Route::prefix('v1')->group(function () {
                     Route::post('operations/{id}/approve', [OperationController::class, 'approve']);
                     Route::patch('operations/{id}/sales-details', [AccountantController::class, 'reconciliation']);
                     Route::post('operations/{id}/sales-variance/assign', [AccountantCompanyController::class, 'salesVarianceAssign']);
-                    Route::get('operations/{id}/export', [CompanyExportController::class, 'job']);
+                    Route::get('operations/{id}/export', [CompanyExportController::class, 'operation']);
                     Route::get('branches/{branchId}/employees/lookup', [AccountantCompanyController::class, 'employeeLookup']);
 
                     Route::post('expense-invoices/{invoiceId}/verify', [AccountantCompanyController::class, 'verifyExpense']);
@@ -478,7 +479,7 @@ Route::prefix('v1')->group(function () {
                     Route::get('branches/{branchId}/inventory-list', [InventoryController::class, 'dailyList']);
                     Route::put('branches/{branchId}/inventory-list', [InventoryController::class, 'saveDailyList']);
 
-                    Route::get('waste/export', [CompanyExportController::class, 'job']);
+                    Route::get('waste/export', [CompanyExportController::class, 'waste']);
                     Route::get('waste', [WasteController::class, 'index']);
                     Route::post('waste/bulk-approve', [WasteController::class, 'bulkApprove']);
                     Route::patch('waste/{id}/products/{idx}', [WasteController::class, 'classifyProduct']);
@@ -492,16 +493,16 @@ Route::prefix('v1')->group(function () {
                     Route::patch('assets/{id}', [AccountantCompanyController::class, 'updateAsset']);
 
                     Route::get('shifts/configs', [AccountantCompanyController::class, 'shiftConfigs']);
-                    Route::get('shifts/export', [CompanyExportController::class, 'job']);
+                    Route::get('shifts/export', [CompanyExportController::class, 'shifts']);
                     Route::get('shifts', [ShiftController::class, 'index']);
                     Route::post('shifts/{id}/close', [ShiftController::class, 'close']);
                     Route::put('brands/{brandId}/shift-config', [AccountantCompanyController::class, 'saveShiftConfig']);
 
-                    Route::get('employees/payroll/export', [CompanyExportController::class, 'job']);
+                    Route::get('employees/payroll/export', [CompanyExportController::class, 'payroll']);
                     Route::get('employees', [EmployeeController::class, 'index']);
                     Route::get('employees/{id}/movements', [EmployeeController::class, 'statement']);
 
-                    Route::get('cash-custody/export', [CompanyExportController::class, 'job']);
+                    Route::get('cash-custody/export', [CompanyExportController::class, 'cashCustody']);
                     Route::get('cash-custody', [CashCustodyController::class, 'index']);
                     Route::get('cash-custody/{id}/transactions', [AccountantCompanyController::class, 'cashTransactions']);
                     Route::post('cash-custody/{id}/transactions/{txnId}/approve', [AccountantCompanyController::class, 'approveTransaction']);

@@ -5,12 +5,15 @@ namespace Modules\Admin\Http\Controllers\Company;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Jobs\GenerateCompanyExportJob;
 use Modules\Admin\Models\BillingAddress;
 use Modules\Admin\Models\BillingInvoice;
 use Modules\Admin\Models\PaymentMethod;
 use Modules\Admin\Models\PaymentTransaction;
 use Modules\Admin\Services\BillingService;
+use Modules\Admin\Services\ExportService;
 use Modules\Admin\Services\SubscriptionService;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Billing & payments (COMPANY_DASHBOARD_API_SPEC.md §5.1.6).
@@ -84,19 +87,35 @@ class BillingController extends AsabController
         });
     }
 
-    public function pdf(Request $request, string $id): JsonResponse
+    /** GET /billing/invoices/{id}/pdf — application/pdf binary (spec §5.1.6). */
+    public function pdf(Request $request, ExportService $exports, \Modules\Admin\Services\AuditService $audit, string $id): Response
     {
-        return $this->run(function () use ($request, $id) {
-            $inv = BillingInvoice::where('company_id', $request->user()->company_id)->findOrFail($id);
+        $inv = BillingInvoice::where('company_id', $request->user()->company_id)->findOrFail($id);
+        $audit->record('invoice.download', $request->user(), 'billing_invoice', $inv->id, request: $request);
 
-            // PDF rendering deferred to an async generator; expose the data + a stable URL.
-            return $this->ok(['publicId' => $inv->public_id, 'downloadUrl' => null, 'note' => 'PDF generation deferred to async renderer']);
-        });
+        return $exports->invoicePdf($inv);
     }
 
+    /** GET /billing/invoices/export — async; returns 202 + jobId, file delivered via notification. */
     public function export(Request $request): JsonResponse
     {
-        return $this->run(fn () => $this->ok(['jobId' => 'job_'.strtoupper(bin2hex(random_bytes(6)))], 202));
+        return $this->run(function () use ($request) {
+            $data = $request->validate([
+                'format' => 'sometimes|in:xlsx,csv',
+                'dateFrom' => 'sometimes|date',
+                'dateTo' => 'sometimes|date',
+            ]);
+            $jobId = 'job_'.strtoupper(bin2hex(random_bytes(6)));
+            GenerateCompanyExportJob::dispatch(
+                $jobId,
+                $request->user()->company_id,
+                $request->user()->id,
+                'billing-invoices',
+                ['format' => $data['format'] ?? 'xlsx', 'from' => $data['dateFrom'] ?? null, 'to' => $data['dateTo'] ?? null],
+            );
+
+            return $this->ok(['jobId' => $jobId, 'status' => 'queued'], 202);
+        });
     }
 
     public function paymentMethods(Request $request): JsonResponse

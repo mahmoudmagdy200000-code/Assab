@@ -109,21 +109,21 @@ class CrossController extends AsabController
         });
     }
 
-    public function reportDownload(Request $request, ReportService $reports, string $key): JsonResponse
+    public function reportDownload(Request $request, ReportService $reports, \Modules\Admin\Services\ExportService $exports, string $key)
     {
-        return $this->run(function () use ($request, $reports, $key) {
-            $format = $request->query('format', 'json');
-            if ($format !== 'json') {
-                return $this->ok(['jobId' => 'job_'.strtoupper(bin2hex(random_bytes(6))), 'format' => $format], 202);
-            }
-            $report = $reports->build([
-                'reportKey' => $key,
-                'period' => ['from' => $request->query('from'), 'to' => $request->query('to')],
-                'branchIds' => $request->query('branchIds'),
-            ]);
+        $format = $request->query('format', 'json');
+        $report = $reports->build([
+            'reportKey' => $key,
+            'period' => ['from' => $request->query('period') ?? $request->query('from'), 'to' => $request->query('to')],
+            'branchIds' => (array) ($request->query('branchIds') ?? array_filter([$request->query('branchId')])),
+        ]);
 
-            return $this->ok($report);
-        });
+        // pdf|xlsx → real binary stream; json → the raw payload (spec §7.4).
+        if (in_array($format, ['pdf', 'xlsx'], true)) {
+            return $exports->report($report, $format);
+        }
+
+        return $this->run(fn () => $this->ok($report));
     }
 
     public function userPreferences(Request $request): JsonResponse

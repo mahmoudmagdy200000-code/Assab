@@ -190,13 +190,114 @@ class AccountantCompanyController extends AsabController
         });
     }
 
+    /**
+     * POST /assets/import — parse an uploaded Excel/CSV and create assets.
+     * Header-driven mapping (Arabic + English), monetary values read as SAR →
+     * halalas. Returns the real parsed-row count (spec §5.3.7, Response 202).
+     */
     public function importAssets(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $request->validate(['file' => 'required|file']);
+            $request->validate(['file' => 'required|file|mimes:xlsx,xls,csv,txt']);
+            $companyId = $request->user()->company_id;
+            $userId = $request->user()->id;
+            $path = $request->file('file')->getRealPath();
+            $ext = strtolower($request->file('file')->getClientOriginalExtension());
 
-            return $this->ok(['jobId' => 'job_'.strtoupper(bin2hex(random_bytes(6))), 'parsedRows' => 0], 202);
+            $reader = $ext === 'csv' || $ext === 'txt'
+                ? new \OpenSpout\Reader\CSV\Reader
+                : new \OpenSpout\Reader\XLSX\Reader;
+            $reader->open($path);
+
+            $map = [];          // column index → field
+            $parsed = 0;
+            $created = 0;
+
+            DB::transaction(function () use ($reader, &$map, &$parsed, &$created, $companyId, $userId) {
+                $seq = (int) (Asset::withoutGlobalScopes()->where('company_id', $companyId)->count());
+                foreach ($reader->getSheetIterator() as $sheet) {
+                    $isHeader = true;
+                    foreach ($sheet->getRowIterator() as $row) {
+                        $cells = $row->toArray();
+                        if ($isHeader) {
+                            $map = $this->mapAssetHeaders($cells);
+                            $isHeader = false;
+
+                            continue;
+                        }
+                        $name = $this->cell($cells, $map, 'name');
+                        if ($name === null || trim((string) $name) === '') {
+                            continue; // skip blank rows
+                        }
+                        $parsed++;
+                        $cost = $this->toHalalas($this->cell($cells, $map, 'cost'));
+                        Asset::create([
+                            'company_id' => $companyId,
+                            'public_id' => 'FA-'.str_pad((string) (++$seq), 4, '0', STR_PAD_LEFT),
+                            'name' => (string) $name,
+                            'category' => (string) ($this->cell($cells, $map, 'category') ?? 'غير مصنف'),
+                            'branch_id' => $this->cell($cells, $map, 'branchId') ?: null,
+                            'cost' => $cost,
+                            'book_value' => $cost,
+                            'useful_life_months' => (int) ($this->cell($cells, $map, 'usefulLife') ?? 0) ?: null,
+                            'case_type' => 'acc_register',
+                            'status' => 'active',
+                            'submitted_by_id' => $userId,
+                            'purchased_at' => now(),
+                        ]);
+                        $created++;
+                    }
+                    break; // first sheet only
+                }
+            });
+            $reader->close();
+
+            return $this->ok([
+                'jobId' => 'job_'.strtoupper(bin2hex(random_bytes(6))),
+                'parsedRows' => $parsed,
+                'createdRows' => $created,
+            ], 202);
         });
+    }
+
+    /** Build a column-index → field map from a header row (Arabic/English tolerant). */
+    private function mapAssetHeaders(array $headers): array
+    {
+        $aliases = [
+            'name' => ['name', 'asset', 'الاسم', 'اسم', 'الأصل', 'اسم الأصل'],
+            'category' => ['category', 'الفئة', 'التصنيف', 'النوع'],
+            'cost' => ['cost', 'value', 'price', 'amount', 'القيمة', 'التكلفة', 'السعر', 'المبلغ'],
+            'branchId' => ['branchid', 'branch', 'الفرع', 'فرع'],
+            'usefulLife' => ['usefullife', 'useful_life_months', 'life', 'العمر', 'العمر الإنتاجي', 'العمر الانتاجي'],
+        ];
+        $map = [];
+        foreach ($headers as $idx => $h) {
+            $norm = mb_strtolower(trim((string) $h));
+            foreach ($aliases as $field => $names) {
+                if (in_array($norm, $names, true) || in_array(str_replace(' ', '', $norm), $names, true)) {
+                    $map[$field] = $idx;
+                    break;
+                }
+            }
+        }
+
+        return $map;
+    }
+
+    private function cell(array $cells, array $map, string $field): mixed
+    {
+        return isset($map[$field]) ? ($cells[$map[$field]] ?? null) : null;
+    }
+
+    /** A spreadsheet money value (SAR, possibly decimal) → integer halalas. */
+    private function toHalalas(mixed $v): int
+    {
+        if ($v === null || $v === '') {
+            return 0;
+        }
+        $n = (float) preg_replace('/[^0-9.\-]/', '', (string) $v);
+
+        return (int) round($n * 100);
     }
 
     public function shiftConfigs(Request $request): JsonResponse
