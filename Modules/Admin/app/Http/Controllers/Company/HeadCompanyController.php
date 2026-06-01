@@ -31,12 +31,18 @@ class HeadCompanyController extends AsabController
             $prevTo = now()->subMonth()->endOfMonth()->toDateString().' 23:59:59';
             $prevSales = (int) $base()->where('module_key', 'sales')->whereBetween('operation_date', [$prevFrom, $prevTo])->sum('amount');
 
-            $pipeline = ['submit' => 0, 'review' => 0, 'approved' => 0, 'final' => 0, 'erp' => 0, 'reports' => 0, 'rejected' => 0];
-            $pipeline['approved'] = $base()->where('status', Operation::STATUS_APPROVED)->count();
-            $pipeline['final'] = $base()->where('status', Operation::STATUS_FINAL)->count();
-            $pipeline['erp'] = $base()->where('erp_posted', true)->count();
-            $pipeline['rejected'] = $base()->where('status', Operation::STATUS_REJECTED)->count();
-            $pipeline['submit'] = $base()->where('status', Operation::STATUS_PENDING)->count();
+            // Map our 4 statuses onto the spec's funnel stages: a freshly-submitted
+            // op sits in the accountant "review" queue (pending) until approved → head "final".
+            $pending = $base()->where('status', Operation::STATUS_PENDING)->count();
+            $pipeline = [
+                'submit' => $pending,
+                'review' => $pending,
+                'approved' => $base()->where('status', Operation::STATUS_APPROVED)->count(),
+                'final' => $base()->where('status', Operation::STATUS_FINAL)->where('erp_posted', false)->count(),
+                'erp' => $base()->where('erp_posted', true)->count(),
+                'reports' => 0,
+                'rejected' => $base()->where('status', Operation::STATUS_REJECTED)->count(),
+            ];
 
             return $this->ok([
                 'kpis' => [

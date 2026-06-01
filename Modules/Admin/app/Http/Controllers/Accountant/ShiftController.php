@@ -15,7 +15,13 @@ class ShiftController extends AsabController
     /** Combined entry for /company/me/shifts?status=live|closed (COMPANY_DASHBOARD_API_SPEC.md §5.3.9). */
     public function index(Request $request): JsonResponse
     {
-        return $request->query('status', 'closed') === 'live' ? $this->live() : $this->history($request);
+        if ($request->query('status', 'closed') === 'live') {
+            return $this->run(fn () => $this->listResponse(
+                Shift::whereIn('status', ['active', 'late'])->orderByDesc('started_at')->get()->map([$this, 'present'])->all()
+            ));
+        }
+
+        return $this->history($request);
     }
 
     public function live(): JsonResponse

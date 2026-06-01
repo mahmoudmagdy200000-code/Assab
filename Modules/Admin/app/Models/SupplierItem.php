@@ -13,7 +13,7 @@ class SupplierItem extends Model
     protected $table = 'asab_supplier_items';
 
     protected $fillable = [
-        'supplier_user_id', 'code', 'name', 'unit', 'price', 'min_qty', 'status',
+        'company_id', 'supplier_user_id', 'code', 'name', 'unit', 'price', 'min_qty', 'status',
     ];
 
     protected $casts = [

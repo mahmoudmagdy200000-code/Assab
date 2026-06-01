@@ -40,11 +40,27 @@ class AccountantCompanyController extends AsabController
                     'approvalRatePct' => 100,
                 ],
                 'pendingByModule' => $byModule,
-                'needsAttention' => $base()->where('match', 'diff')->whereIn('status', ['pending', 'approved'])->limit(10)->get()
-                    ->map(fn (Operation $o) => ['id' => $o->id, 'publicId' => $o->public_id, 'moduleKey' => $o->module_key, 'diffNote' => $o->diff_note])->all(),
+                'needsAttention' => $this->needsAttention($base()),
                 'rejectedReuploadNeededCount' => $base()->where('status', Operation::STATUS_REJECTED)->count(),
             ]);
         });
+    }
+
+    private const MODULE_LABELS = [
+        'sales' => 'المبيعات', 'expenses' => 'المصروفات', 'purchases' => 'المشتريات', 'inventory' => 'المخزون',
+        'shifts' => 'الورديات', 'employees' => 'الموظفين', 'cash' => 'النقدية', 'waste' => 'الهدر',
+    ];
+
+    /** @return array<int, array<string, mixed>> spec §5.3.1 needsAttention shape */
+    private function needsAttention($base): array
+    {
+        $ops = (clone $base)->where('match', 'diff')->whereIn('status', ['pending', 'approved'])->limit(10)->get();
+        $branchNames = \Modules\Branch\Models\Branch::whereIn('id', $ops->pluck('branch_id')->filter()->unique())->pluck('name', 'id');
+
+        return $ops->map(fn (Operation $o) => [
+            'operationId' => $o->id, 'refNum' => $o->public_id, 'branch' => $branchNames[$o->branch_id] ?? '—',
+            'moduleLabel' => self::MODULE_LABELS[$o->module_key] ?? $o->module_key, 'match' => $o->match, 'diff' => $o->diff_note,
+        ])->all();
     }
 
     public function salesVarianceAssign(Request $request, string $id): JsonResponse

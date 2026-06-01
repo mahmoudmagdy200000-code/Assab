@@ -69,15 +69,19 @@ class ProcurementCompanyController extends AsabController
     public function grouped(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $groups = Operation::where('company_id', $request->user()->company_id)->where('module_key', 'purchases')
-                ->where('status', Operation::STATUS_PENDING)->get()
-                ->groupBy(fn (Operation $o) => $o->payload['supplierId'] ?? 'unknown')
-                ->map(function ($ops, $supplierId) {
+            $ops = Operation::where('company_id', $request->user()->company_id)->where('module_key', 'purchases')
+                ->where('status', Operation::STATUS_PENDING)->get();
+            $branchNames = \Modules\Branch\Models\Branch::whereIn('id', $ops->pluck('branch_id')->filter()->unique())
+                ->pluck('name', 'id');
+
+            $groups = $ops->groupBy(fn (Operation $o) => $o->payload['supplierId'] ?? 'unknown')
+                ->map(function ($ops, $supplierId) use ($branchNames) {
                     $supplier = AsabSupplier::find($supplierId);
 
                     return [
                         'groupId' => $supplierId, 'supplierId' => $supplierId, 'supplierName' => $supplier?->name ?? '—',
-                        'orderCount' => $ops->count(), 'branches' => $ops->pluck('branch_id')->unique()->values()->all(),
+                        'orderCount' => $ops->count(),
+                        'branches' => $ops->pluck('branch_id')->filter()->unique()->map(fn ($id) => $branchNames[$id] ?? '—')->values()->all(),
                         'totalHalalas' => (int) $ops->sum('amount'), 'pending' => $ops->count(), 'orderIds' => $ops->pluck('id')->all(),
                     ];
                 })->values()->all();
@@ -89,13 +93,25 @@ class ProcurementCompanyController extends AsabController
     public function sent(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $rows = Operation::where('company_id', $request->user()->company_id)->where('module_key', 'purchases')
+            $ops = Operation::where('company_id', $request->user()->company_id)->where('module_key', 'purchases')
                 ->whereIn('status', [Operation::STATUS_APPROVED, Operation::STATUS_FINAL])
-                ->whereNotNull('payload->sentAt')->orderByDesc('operation_date')->get()
-                ->map(fn (Operation $o) => [
+                ->whereNotNull('payload->sentAt')->orderByDesc('operation_date')->get();
+            $supplierNames = AsabSupplier::whereIn('id', $ops->pluck('payload.supplierId')->filter()->unique())->pluck('name', 'id');
+
+            $rows = $ops->map(function (Operation $o) use ($supplierNames) {
+                $sentAt = $o->payload['sentAt'] ?? null;
+                $eta = $o->payload['deliveryDate'] ?? null;
+                $sentCarbon = $sentAt ? \Illuminate\Support\Carbon::parse($sentAt) : null;
+                $etaCarbon = $eta ? \Illuminate\Support\Carbon::parse($eta) : null;
+
+                return [
                     'id' => $o->id, 'publicId' => $o->public_id, 'supplierId' => $o->payload['supplierId'] ?? null,
-                    'sentAt' => $o->payload['sentAt'] ?? null, 'totalHalalas' => $o->amount, 'inTransit' => true,
-                ])->all();
+                    'supplierName' => $supplierNames[$o->payload['supplierId'] ?? ''] ?? '—',
+                    'sentAt' => $sentAt, 'sentDateLabel' => optional($sentCarbon)->diffForHumans(),
+                    'totalHalalas' => $o->amount, 'inTransit' => $o->status === Operation::STATUS_APPROVED,
+                    'eta' => $eta, 'etaLabel' => optional($etaCarbon)->diffForHumans(),
+                ];
+            })->all();
 
             return $this->listResponse($rows);
         });
@@ -109,8 +125,8 @@ class ProcurementCompanyController extends AsabController
                 'lastPriceHalalas' => 'sometimes|integer|min:0', 'code' => 'sometimes|nullable|string|max:32',
             ]);
             $item = SupplierItem::create([
-                'name' => $data['name'], 'unit' => $data['unit'], 'price' => $data['lastPriceHalalas'] ?? 0,
-                'code' => $data['code'] ?? null, 'status' => 'active',
+                'company_id' => $request->user()->company_id, 'name' => $data['name'], 'unit' => $data['unit'],
+                'price' => $data['lastPriceHalalas'] ?? 0, 'code' => $data['code'] ?? null, 'status' => 'active',
             ]);
             if (! empty($data['lastPriceHalalas'])) {
                 ProcurementItemPrice::create(['company_id' => $request->user()->company_id, 'item_id' => $item->id, 'price' => $data['lastPriceHalalas'], 'recorded_at' => now()]);
@@ -123,7 +139,7 @@ class ProcurementCompanyController extends AsabController
     public function updateItem(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $item = SupplierItem::findOrFail($id);
+            $item = SupplierItem::where('company_id', $request->user()->company_id)->findOrFail($id);
             $data = $request->validate(['name' => 'sometimes|string|max:200', 'unit' => 'sometimes|string|max:16', 'lastPriceHalalas' => 'sometimes|integer|min:0', 'status' => 'sometimes|string|max:16']);
             if (isset($data['lastPriceHalalas']) && $data['lastPriceHalalas'] !== (int) $item->price) {
                 ProcurementItemPrice::create(['company_id' => $request->user()->company_id, 'item_id' => $item->id, 'price' => $data['lastPriceHalalas'], 'recorded_at' => now()]);
@@ -139,8 +155,8 @@ class ProcurementCompanyController extends AsabController
 
     public function destroyItem(Request $request, string $id): JsonResponse
     {
-        return $this->run(function () use ($id) {
-            SupplierItem::findOrFail($id)->delete();
+        return $this->run(function () use ($request, $id) {
+            SupplierItem::where('company_id', $request->user()->company_id)->findOrFail($id)->delete();
 
             return $this->noContent();
         });

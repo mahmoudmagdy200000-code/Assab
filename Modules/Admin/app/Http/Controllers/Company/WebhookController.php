@@ -19,8 +19,21 @@ class WebhookController extends AsabController
     public function handle(Request $request, string $provider): JsonResponse
     {
         $payload = $request->all();
-        $eventId = $payload['id'] ?? ('evt_'.strtoupper(bin2hex(random_bytes(8))));
-        $eventType = $payload['type'] ?? ($payload['event'] ?? 'unknown');
+        $eventId = $payload['id'] ?? null;
+        $eventType = $payload['type'] ?? ($payload['event'] ?? null);
+
+        // event_id + event_type are mandatory: idempotency and routing depend on them.
+        if (! $eventId || ! $eventType) {
+            return $this->fail('INVALID_WEBHOOK', 'Missing event id or type', 'حدث Webhook غير صالح', [], 400);
+        }
+
+        $signature = $request->header('Stripe-Signature') ?? $request->header('X-Signature');
+        [$verified, $secretConfigured] = $this->verifySignature($provider, $request, $signature);
+
+        // In production a provider secret is configured — reject unverified events.
+        if ($secretConfigured && ! $verified) {
+            return $this->fail('INVALID_SIGNATURE', 'Webhook signature verification failed', 'فشل التحقق من توقيع Webhook', [], 401);
+        }
 
         // Idempotency: ignore a replayed event.
         if (WebhookEvent::where('event_id', $eventId)->exists()) {
@@ -29,9 +42,7 @@ class WebhookController extends AsabController
 
         $event = WebhookEvent::create([
             'provider' => $provider, 'event_id' => $eventId, 'event_type' => $eventType, 'payload' => $payload,
-            'signature' => $request->header('Stripe-Signature') ?? $request->header('X-Signature'),
-            'signature_verified' => true, // mock verification
-            'received_at' => now(),
+            'signature' => $signature, 'signature_verified' => $verified, 'received_at' => now(),
         ]);
 
         try {
@@ -42,6 +53,26 @@ class WebhookController extends AsabController
         }
 
         return $this->ok(['received' => true]);
+    }
+
+    /**
+     * Verify the provider HMAC signature when a secret is configured.
+     *
+     * @return array{0: bool, 1: bool} [verified, secretConfigured]
+     */
+    private function verifySignature(string $provider, Request $request, ?string $signature): array
+    {
+        $secret = config("services.{$provider}.webhook_secret");
+        if (! $secret) {
+            // No secret configured (dev): cannot verify — record as unverified but allow processing.
+            return [false, false];
+        }
+        if (! $signature) {
+            return [false, true];
+        }
+        $expected = hash_hmac('sha256', $request->getContent(), $secret);
+
+        return [hash_equals($expected, $signature) || str_contains($signature, $expected), true];
     }
 
     private function process(string $eventType, array $payload): void
