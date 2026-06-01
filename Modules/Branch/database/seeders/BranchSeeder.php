@@ -18,7 +18,8 @@ class BranchSeeder extends Seeder
                 'location' => '123 Main St, City, Country',
 
                 'image' => 'branches/main_branch.jpg',
-                'opening_hours' => '08:00 - 22:00',
+                'opening_hours' => '08:00:00',
+                'closing_hours' => '22:00:00',
                 'map_coordinates' => '37.7749,-122.4194',
             ]
         );
@@ -28,7 +29,8 @@ class BranchSeeder extends Seeder
                 'location' => '123 Main St, City, Country',
 
                 'image' => 'branches/main_branch.jpg',
-                'opening_hours' => '08:00 - 22:00',
+                'opening_hours' => '08:00:00',
+                'closing_hours' => '22:00:00',
                 'map_coordinates' => '37.7749,-122.4194',
             ]
         );
