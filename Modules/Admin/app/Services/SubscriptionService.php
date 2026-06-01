@@ -22,6 +22,7 @@ class SubscriptionService
     public function __construct(
         private readonly PlanLimitService $limits,
         private readonly NotificationService $notifications,
+        private readonly RealtimeBroadcaster $rt,
     ) {}
 
     public function priceFor(Plan $plan, string $cycle): ?int
@@ -154,6 +155,7 @@ class SubscriptionService
 
             $msg = $type === 'downgrade' ? 'subscription.downgraded' : 'subscription.upgraded';
             $this->notifyAdmins($sub->company_id, $msg, 'تم تحديث خطة الاشتراك', 'الخطة الجديدة: '.$target->name_ar);
+            $this->rt->subscriptionUpdated($sub->fresh('plan'));
 
             return ['subscription' => $sub->fresh('plan'), 'change' => $change, 'prorationInvoice' => $invoice];
         });
@@ -185,6 +187,7 @@ class SubscriptionService
             'invoice_id' => $inv->id, 'description' => 'فرق ترقية متناسب — '.$target->name_ar,
             'quantity' => 1, 'unit_price' => $proration, 'amount' => $proration, 'line_type' => 'proration', 'sort_order' => 1,
         ]);
+        $this->rt->invoiceCreated($inv);
 
         return $inv;
     }

@@ -121,6 +121,9 @@ class AssetController extends AsabController
             foreach ($created as $asset) {
                 $rt->assetConfirmationNeeded($asset);
             }
+            foreach (($draft->target_branches ?: [null]) as $branchId) {
+                $rt->assetDraftConfirmed($draft->fresh(), $branchId);
+            }
 
             return $this->created(['createdAssets' => array_map([$this, 'present'], $created)]);
         });

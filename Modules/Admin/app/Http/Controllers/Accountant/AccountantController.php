@@ -117,9 +117,9 @@ class AccountantController extends AsabController
         });
     }
 
-    public function convertToAsset(Request $request, string $invoiceId): JsonResponse
+    public function convertToAsset(Request $request, \Modules\Admin\Services\RealtimeBroadcaster $rt, string $invoiceId): JsonResponse
     {
-        return $this->run(function () use ($request) {
+        return $this->run(function () use ($request, $rt) {
             $data = $request->validate([
                 'assetName' => 'required|string|max:200',
                 'category' => 'required|string|max:32',
@@ -149,6 +149,9 @@ class AccountantController extends AsabController
                 'status' => 'draft',
                 'created_by_id' => $request->user()->id,
             ]);
+            foreach (($data['targetBranches'] ?: [null]) as $branchId) {
+                $rt->assetDraftCreated($draft, $branchId);
+            }
 
             return $this->created(['draftId' => $draft->draft_id, 'status' => 'draft']);
         });

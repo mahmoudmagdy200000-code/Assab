@@ -11,6 +11,7 @@ use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\NotificationService;
 use Modules\Admin\Services\PlanLimitService;
+use Modules\Admin\Services\RealtimeBroadcaster;
 
 /**
  * Brands / restaurants / branches management (COMPANY_DASHBOARD_API_SPEC.md §5.1.4).
@@ -21,6 +22,7 @@ class OrgController extends AsabController
     public function __construct(
         private readonly PlanLimitService $limits,
         private readonly NotificationService $notifications,
+        private readonly RealtimeBroadcaster $rt,
     ) {}
 
     public function tree(Request $request): JsonResponse
@@ -172,6 +174,7 @@ class OrgController extends AsabController
                 'asab_manager_user_id' => $data['managerUserId'] ?? null,
             ]);
             $this->notifications->pushToRole($companyId, 'company-admin', 'branch.created', 'تمت إضافة فرع جديد', $branch->name);
+            $this->rt->branchChanged($companyId, 'created', $branch->id, $branch->name);
 
             return $this->created(['id' => $branch->id, 'name' => $branch->name, 'city' => $branch->city, 'status' => 'active']);
         });
@@ -190,6 +193,7 @@ class OrgController extends AsabController
                 'status' => $data['status'] ?? null, 'location' => $data['address'] ?? $data['city'] ?? null,
             ], fn ($v) => $v !== null);
             $branch->update($attrs);
+            $this->rt->branchChanged($request->user()->company_id, 'updated', $branch->id, $branch->name);
 
             return $this->ok(['id' => $branch->id, 'name' => $branch->name, 'status' => $branch->status]);
         });

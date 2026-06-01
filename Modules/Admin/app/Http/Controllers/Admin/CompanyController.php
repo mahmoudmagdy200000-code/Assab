@@ -131,6 +131,14 @@ class CompanyController extends AsabController
             $company = AsabCompany::findOrFail($id);
             $company->update(['status' => $status]);
 
+            // Notify the company's dashboard in real time when it is suspended (spec §8).
+            if ($status === 'suspended') {
+                $sub = \Modules\Admin\Models\CompanySubscription::withoutGlobalScopes()->where('company_id', $company->id)->first();
+                if ($sub) {
+                    app(\Modules\Admin\Services\RealtimeBroadcaster::class)->subscriptionSuspended($sub);
+                }
+            }
+
             return $this->ok($this->present($company));
         });
     }

@@ -78,9 +78,9 @@ class SupportController extends AsabController
         });
     }
 
-    public function reply(Request $request, string $id): JsonResponse
+    public function reply(Request $request, \Modules\Admin\Services\RealtimeBroadcaster $rt, string $id): JsonResponse
     {
-        return $this->run(function () use ($request, $id) {
+        return $this->run(function () use ($request, $rt, $id) {
             $ticket = $this->findOwned($request, $id);
             $data = $request->validate(['body' => 'required|string|min:1', 'attachments' => 'sometimes|array']);
             $msg = TicketMessage::create([
@@ -88,6 +88,11 @@ class SupportController extends AsabController
                 'body' => $data['body'], 'created_at' => now(),
             ]);
             $ticket->update(['status' => $ticket->status === 'waiting_customer' ? 'open' : $ticket->status]);
+
+            // Notify the ticket opener of a new reply (spec §8) — unless they wrote it themselves.
+            if ($ticket->opened_by_id && $ticket->opened_by_id !== $request->user()->id) {
+                $rt->supportTicketReplied($msg, $ticket->opened_by_id);
+            }
 
             return $this->created(['id' => $msg->id, 'ticketId' => $ticket->id, 'body' => $msg->body]);
         });

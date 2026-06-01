@@ -12,6 +12,7 @@ use Modules\Admin\Models\CompanyInvitation;
 use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Services\NotificationService;
 use Modules\Admin\Services\PlanLimitService;
+use Modules\Admin\Services\RealtimeBroadcaster;
 
 /**
  * Company user management + invitations (COMPANY_DASHBOARD_API_SPEC.md §5.1.3 / §4.2).
@@ -23,6 +24,7 @@ class UserController extends AsabController
     public function __construct(
         private readonly PlanLimitService $limits,
         private readonly NotificationService $notifications,
+        private readonly RealtimeBroadcaster $rt,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -83,6 +85,7 @@ class UserController extends AsabController
                 'expires_at' => now()->addDays(7), 'created_at' => now(),
             ]);
             $this->notifications->push($request->user()->id, 'user.invited', 'تم إرسال دعوة', $data['email']);
+            $this->rt->userInvited($companyId, $inv);
 
             return $this->created($this->presentInvite($inv));
         });
@@ -132,6 +135,9 @@ class UserController extends AsabController
             if (isset($data['name']) || isset($data['phone'])) {
                 $cu->user?->update(array_filter(['name' => $data['name'] ?? null, 'phone' => $data['phone'] ?? null], fn ($v) => $v !== null));
             }
+            if (isset($data['roleKey'])) {
+                $this->rt->userLifecycle($request->user()->company_id, 'role_changed', $cu->fresh());
+            }
 
             return $this->ok($this->present($cu->fresh('user'), AsabRole::pluck('name_ar', 'key')));
         });
@@ -149,6 +155,9 @@ class UserController extends AsabController
             }
             $new = $cu->status === 'active' ? 'inactive' : 'active';
             $cu->update(['status' => $new]);
+            if ($new === 'inactive') {
+                $this->rt->userLifecycle($request->user()->company_id, 'suspended', $cu->fresh());
+            }
 
             return $this->ok(['id' => $cu->id, 'status' => $new]);
         });

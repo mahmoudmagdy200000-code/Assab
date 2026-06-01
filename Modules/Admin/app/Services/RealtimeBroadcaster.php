@@ -2,15 +2,24 @@
 
 namespace Modules\Admin\Services;
 
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Modules\Admin\Events\AsabRealtimeEvent;
 use Modules\Admin\Models\AsabNotification;
 use Modules\Admin\Models\AsabSubscription;
 use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\Asset;
+use Modules\Admin\Models\AssetDraft;
+use Modules\Admin\Models\BillingInvoice;
+use Modules\Admin\Models\CompanyInvitation;
+use Modules\Admin\Models\CompanySubscription;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\ErpBatch;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Reminder;
+use Modules\Admin\Models\Shift;
+use Modules\Admin\Models\TicketMessage;
 
 /**
  * Central, fail-safe real-time dispatcher (BACKEND_API_SPEC.md §8).
@@ -33,22 +42,22 @@ class RealtimeBroadcaster
 
     public function operationStatusChanged(Operation $op, string $oldStatus, string $newStatus, AsabUser $actor): void
     {
-        $this->safe(fn () => $this->emit(
-            'operations.brand.'.$this->brandIdForBranch($op->branch_id),
-            'operation.status_changed',
-            [
-                'operationId' => $op->public_id,
-                'oldStatus' => $oldStatus,
-                'newStatus' => $newStatus,
-                'actor' => ['id' => $actor->id, 'name' => $actor->name],
-            ],
-        ));
+        // Spec §8: emitted to BOTH company and brand rooms; payload keys from/to/by.
+        $payload = [
+            'operationId' => $op->public_id,
+            'from' => $oldStatus,
+            'to' => $newStatus,
+            'by' => ['id' => $actor->id, 'name' => $actor->name],
+        ];
+        $this->safe(fn () => $this->emit('operations.company.'.$op->company_id, 'operation.status_changed', $payload));
+        $this->safe(fn () => $this->emit('operations.brand.'.$this->brandIdForBranch($op->branch_id), 'operation.status_changed', $payload));
     }
 
     public function operationCreated(Operation $op): void
     {
+        // Spec §8: operation.created → company room.
         $this->safe(fn () => $this->emit(
-            'operations.brand.'.$this->brandIdForBranch($op->branch_id),
+            'operations.company.'.$op->company_id,
             'operation.created',
             [
                 'operationId' => $op->public_id,
@@ -75,11 +84,9 @@ class RealtimeBroadcaster
 
     public function erpBatchCompleted(ErpBatch $batch): void
     {
-        $this->safe(fn () => $this->emit(
-            'operations.company.'.$batch->company_id,
-            'erp.batch.completed',
-            ['batchId' => $batch->batch_id, 'status' => $batch->status],
-        ));
+        // Spec §8: erp.batch.completed → the head accountant(s).
+        $payload = ['batchId' => $batch->batch_id, 'status' => $batch->status, 'companyId' => $batch->company_id];
+        $this->safe(fn () => $this->toUsers($this->roleUserIds($batch->company_id, 'head'), 'erp.batch.completed', $payload));
     }
 
     public function reminderResponded(Reminder $reminder): void
@@ -111,10 +118,122 @@ class RealtimeBroadcaster
 
     public function subscriptionExpiring(AsabSubscription $sub, int $daysLeft): void
     {
-        $this->safe(fn () => $this->emit(
-            'operations.company.'.$sub->company_id,
+        // Spec §8: subscription.expiring → admin user(s); payload { daysRemaining }.
+        $this->safe(fn () => $this->toUsers(
+            $this->roleUserIds($sub->company_id, 'company-admin'),
             'subscription.expiring',
-            ['subscriptionId' => $sub->id, 'daysLeft' => $daysLeft],
+            ['subscriptionId' => $sub->id, 'daysRemaining' => $daysLeft],
+        ));
+    }
+
+    // ── Company-dashboard §8 events (COMPANY_DASHBOARD_API_SPEC.md §8.2) ─────
+
+    public function subscriptionUpdated(CompanySubscription $sub): void
+    {
+        $this->safe(fn () => $this->emit('operations.company.'.$sub->company_id, 'subscription.updated', $this->subscriptionPayload($sub)));
+    }
+
+    public function subscriptionSuspended(CompanySubscription $sub): void
+    {
+        $this->safe(fn () => $this->emit('operations.company.'.$sub->company_id, 'subscription.suspended', $this->subscriptionPayload($sub)));
+    }
+
+    public function invoiceCreated(BillingInvoice $inv): void
+    {
+        $this->safe(fn () => $this->toUsers($this->roleUserIds($inv->company_id, 'company-admin'), 'invoice.created', $this->invoicePayload($inv)));
+    }
+
+    public function invoicePaid(BillingInvoice $inv): void
+    {
+        $this->safe(fn () => $this->toUsers($this->roleUserIds($inv->company_id, 'company-admin'), 'invoice.paid', $this->invoicePayload($inv)));
+    }
+
+    public function invoicePaymentFailed(BillingInvoice $inv): void
+    {
+        $this->safe(fn () => $this->toUsers($this->roleUserIds($inv->company_id, 'company-admin'), 'invoice.payment_failed', $this->invoicePayload($inv)));
+    }
+
+    public function quotaWarning(string $companyId, string $resource, int $used, int $max): void
+    {
+        $this->safe(fn () => $this->toUsers($this->roleUserIds($companyId, 'company-admin'), 'quota.warning', compact('resource', 'used', 'max')));
+    }
+
+    public function quotaExceeded(string $companyId, string $resource, int $used, int $max): void
+    {
+        $this->safe(fn () => $this->toUsers($this->roleUserIds($companyId, 'company-admin'), 'quota.exceeded', compact('resource', 'used', 'max')));
+    }
+
+    public function userInvited(string $companyId, CompanyInvitation $inv): void
+    {
+        $this->safe(fn () => $this->toUsers($this->roleUserIds($companyId, 'company-admin'), 'user.invited', [
+            'id' => $inv->id, 'email' => $inv->email, 'roleKey' => $inv->role_key, 'status' => $inv->status,
+        ]));
+    }
+
+    /** @param  'joined'|'role_changed'|'suspended'  $action */
+    public function userLifecycle(string $companyId, string $action, CompanyUser $member): void
+    {
+        $user = $member->user_id ? AsabUser::find($member->user_id) : null;
+        $payload = [
+            'id' => $member->id, 'userId' => $member->user_id, 'name' => $user?->name,
+            'email' => $user?->email, 'roleKey' => $member->role_key, 'status' => $member->status,
+        ];
+        $this->safe(fn () => $this->toUsers($this->roleUserIds($companyId, 'company-admin'), 'user.'.$action, $payload));
+    }
+
+    public function supportTicketReplied(TicketMessage $msg, string $openerUserId): void
+    {
+        $this->safe(fn () => $this->toUsers([$openerUserId], 'support.ticket_replied', [
+            'id' => $msg->id, 'ticketId' => $msg->ticket_id, 'body' => $msg->body,
+            'authorType' => $msg->author_type, 'createdAt' => optional($msg->created_at)->toIso8601String(),
+        ]));
+    }
+
+    /** @param  'created'|'updated'  $action */
+    public function branchChanged(string $companyId, string $action, string $branchId, ?string $name = null): void
+    {
+        $this->safe(fn () => $this->emit('operations.company.'.$companyId, 'branch.'.$action, ['branchId' => $branchId, 'name' => $name]));
+    }
+
+    /** @param  'opened'|'closed'  $action */
+    public function shiftChanged(Shift $shift, string $action): void
+    {
+        $payload = [
+            'id' => $shift->id, 'branchId' => $shift->branch_id, 'status' => $shift->status,
+            'supervisor' => $shift->supervisor_name,
+            'startedAt' => optional($shift->started_at)->toIso8601String(),
+            'endedAt' => optional($shift->ended_at)->toIso8601String(),
+        ];
+        // Branch room + the brand's accountants (spec §8).
+        $this->safe(fn () => $this->emit('reminders.branch.'.$shift->branch_id, 'shift.'.$action, $payload));
+        $this->safe(fn () => $this->emit('operations.brand.'.$this->brandIdForBranch($shift->branch_id), 'shift.'.$action, $payload));
+    }
+
+    public function purchaseRequestNew(string $companyId, array $payload): void
+    {
+        $this->safe(fn () => $this->toUsers($this->roleUserIds($companyId, 'procurement'), 'purchase_request.new', $payload));
+    }
+
+    public function inventoryFlagSent(string $branchId, array $items): void
+    {
+        $this->safe(fn () => $this->emit('reminders.branch.'.$branchId, 'inventory.flag_sent', ['branchId' => $branchId, 'items' => $items]));
+    }
+
+    public function assetDraftCreated(AssetDraft $draft, ?string $branchId): void
+    {
+        $this->safe(fn () => $this->emit(
+            'operations.brand.'.$this->brandIdForBranch($branchId),
+            'asset_draft.created',
+            ['id' => $draft->id, 'draftId' => $draft->draft_id, 'name' => $draft->asset_name, 'status' => $draft->status],
+        ));
+    }
+
+    public function assetDraftConfirmed(AssetDraft $draft, ?string $branchId): void
+    {
+        $this->safe(fn () => $this->emit(
+            'reminders.branch.'.$branchId,
+            'asset_draft.confirmed',
+            ['id' => $draft->id, 'draftId' => $draft->draft_id, 'status' => $draft->status],
         ));
     }
 
@@ -146,6 +265,42 @@ class RealtimeBroadcaster
             'refId' => $n->ref_id,
             'readAt' => optional($n->read_at)->toIso8601String(),
             'createdAt' => optional($n->created_at)->toIso8601String(),
+        ];
+    }
+
+    /** Emit one event onto each user's private notifications channel. */
+    private function toUsers(iterable $userIds, string $event, array $payload): void
+    {
+        foreach ($userIds as $uid) {
+            $this->emit('notifications.user.'.$uid, $event, $payload);
+        }
+    }
+
+    /** User ids holding a role within a company. */
+    private function roleUserIds(string $companyId, string $roleKey): Collection
+    {
+        return AsabUserRole::query()
+            ->where('role_key', $roleKey)
+            ->whereHas('user', fn ($q) => $q->where('company_id', $companyId))
+            ->pluck('user_id')->unique()->values();
+    }
+
+    /** @return array<string, mixed> */
+    private function subscriptionPayload(CompanySubscription $sub): array
+    {
+        return [
+            'id' => $sub->id, 'companyId' => $sub->company_id, 'planId' => $sub->plan_id,
+            'status' => $sub->status, 'billingCycle' => $sub->billing_cycle,
+            'currentPeriodEnd' => optional($sub->current_period_end)->toIso8601String(),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function invoicePayload(BillingInvoice $inv): array
+    {
+        return [
+            'id' => $inv->id, 'publicId' => $inv->public_id, 'companyId' => $inv->company_id,
+            'totalHalalas' => $inv->total, 'amountDueHalalas' => $inv->amount_due, 'status' => $inv->status,
         ];
     }
 

@@ -17,6 +17,8 @@ use Modules\Admin\Models\SubscriptionQuotaUsage;
  */
 class PlanLimitService
 {
+    public function __construct(private readonly RealtimeBroadcaster $rt) {}
+
     public function planFor(string $companyId): ?Plan
     {
         return optional(
@@ -63,7 +65,12 @@ class PlanLimitService
     public function assertCanAdd(string $companyId, string $resource): void
     {
         $q = $this->quotas($companyId)[$resource] ?? null;
-        if ($q && $q['max'] !== null && $q['used'] >= $q['max']) {
+        if (! $q || $q['max'] === null) {
+            return;
+        }
+        if ($q['used'] >= $q['max']) {
+            $this->rt->quotaExceeded($companyId, $resource, $q['used'], $q['max']);
+
             throw new AsabException(
                 'QUOTA_EXCEEDED',
                 "Plan limit reached for {$resource}",
@@ -71,6 +78,10 @@ class PlanLimitService
                 409,
                 ['resource' => $resource, 'used' => $q['used'], 'max' => $q['max']],
             );
+        }
+        // Approaching the cap (this add would put usage at >=80%): warn the admins.
+        if (($q['used'] + 1) / $q['max'] >= 0.8) {
+            $this->rt->quotaWarning($companyId, $resource, $q['used'] + 1, $q['max']);
         }
     }
 

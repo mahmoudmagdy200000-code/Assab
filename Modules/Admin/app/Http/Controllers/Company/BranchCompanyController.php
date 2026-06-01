@@ -10,6 +10,7 @@ use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Shift;
 use Modules\Admin\Services\NotificationService;
 use Modules\Admin\Services\OperationFactory;
+use Modules\Admin\Services\RealtimeBroadcaster;
 
 /**
  * Company-scoped Branch Manager surface — NEW endpoints beyond the shared
@@ -20,6 +21,7 @@ class BranchCompanyController extends AsabController
     public function __construct(
         private readonly OperationFactory $factory,
         private readonly NotificationService $notifications,
+        private readonly RealtimeBroadcaster $rt,
     ) {}
 
     /** Resolve the branch the current branch-manager owns. */
@@ -96,6 +98,11 @@ class BranchCompanyController extends AsabController
                 'urgency' => $data['urgency'] ?? 'normal', 'notes' => $data['notes'] ?? null, 'kind' => 'branch_request',
             ], $request->user(), $this->branchId($request));
             $this->notifications->pushToRole($request->user()->company_id, 'procurement', 'purchase.request', 'طلب شراء جديد من فرع', $data['item']);
+            $this->rt->purchaseRequestNew($request->user()->company_id, [
+                'operationId' => $op->id, 'publicId' => $op->public_id, 'item' => $data['item'],
+                'qty' => $data['qty'], 'unit' => $data['unit'], 'urgency' => $data['urgency'] ?? 'normal',
+                'branchId' => $this->branchId($request),
+            ]);
 
             return $this->created(['id' => $op->id, 'publicId' => $op->public_id, 'status' => $op->status]);
         });
@@ -142,6 +149,7 @@ class BranchCompanyController extends AsabController
                 'supervisor_user_id' => $request->user()->id, 'supervisor_name' => $request->user()->name,
                 'started_at' => now(), 'status' => 'active', 'cash_expected' => $data['openingCashHalalas'],
             ]);
+            $this->rt->shiftChanged($shift, 'opened');
 
             return $this->created($this->present($shift));
         });

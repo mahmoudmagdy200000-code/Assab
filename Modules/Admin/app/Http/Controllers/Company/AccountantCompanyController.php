@@ -144,16 +144,17 @@ class AccountantCompanyController extends AsabController
         });
     }
 
-    public function inventorySendNotification(Request $request, string $branchId): JsonResponse
+    public function inventorySendNotification(Request $request, \Modules\Admin\Services\RealtimeBroadcaster $rt, string $branchId): JsonResponse
     {
-        return $this->run(function () use ($request, $branchId) {
-            $request->validate(['itemIndices' => 'sometimes|array', 'note' => 'sometimes|string']);
+        return $this->run(function () use ($request, $rt, $branchId) {
+            $data = $request->validate(['itemIndices' => 'sometimes|array', 'note' => 'sometimes|string']);
             $op = $this->latestInventoryOp($request, $branchId);
             if ($op) {
                 $payload = $op->payload ?? [];
                 $payload['notifSentAt'] = now()->toIso8601String();
                 $op->update(['payload' => $payload]);
             }
+            $rt->inventoryFlagSent($branchId, $data['itemIndices'] ?? []);
 
             return $this->ok(['notifSentAt' => now()->toIso8601String()]);
         });

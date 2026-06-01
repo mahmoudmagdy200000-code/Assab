@@ -81,9 +81,9 @@ class OnboardController extends AsabController
     }
 
     /** Public — accept an invitation token and create/activate the user. */
-    public function acceptInvitation(Request $request): JsonResponse
+    public function acceptInvitation(Request $request, \Modules\Admin\Services\RealtimeBroadcaster $rt): JsonResponse
     {
-        return $this->run(function () use ($request) {
+        return $this->run(function () use ($request, $rt) {
             $data = $request->validate([
                 'token' => 'required|string', 'name' => 'required|string|max:200',
                 'password' => 'required|string|min:8', 'phone' => 'sometimes|nullable|string|max:32',
@@ -116,6 +116,11 @@ class OnboardController extends AsabController
 
                 return $user;
             });
+
+            $member = CompanyUser::where('company_id', $inv->company_id)->where('user_id', $result->id)->first();
+            if ($member) {
+                $rt->userLifecycle($inv->company_id, 'joined', $member);
+            }
 
             $tokens = $this->auth->issueTokens($result);
 

@@ -12,6 +12,7 @@ use Modules\Admin\Models\PaymentMethod;
 use Modules\Admin\Models\PaymentTransaction;
 use Modules\Admin\Services\BillingService;
 use Modules\Admin\Services\ExportService;
+use Modules\Admin\Services\RealtimeBroadcaster;
 use Modules\Admin\Services\SubscriptionService;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -23,6 +24,7 @@ class BillingController extends AsabController
     public function __construct(
         private readonly BillingService $billing,
         private readonly SubscriptionService $subscriptions,
+        private readonly RealtimeBroadcaster $rt,
     ) {}
 
     public function summary(Request $request): JsonResponse
@@ -192,6 +194,9 @@ class BillingController extends AsabController
         return $this->run(function () use ($request, $id) {
             $data = $request->validate(['paymentMethodId' => 'sometimes|string']);
             $r = $this->billing->pay($request->user()->company_id, $id, $data['paymentMethodId'] ?? null);
+            if ($r['invoice']->status === 'paid') {
+                $this->rt->invoicePaid($r['invoice']);
+            }
 
             return $this->ok([
                 'invoice' => ['id' => $r['invoice']->id, 'publicId' => $r['invoice']->public_id, 'status' => $r['invoice']->status, 'amountDue' => $r['invoice']->amount_due],

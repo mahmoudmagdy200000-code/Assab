@@ -8,6 +8,7 @@ use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\BillingInvoice;
 use Modules\Admin\Models\PaymentTransaction;
 use Modules\Admin\Models\WebhookEvent;
+use Modules\Admin\Services\RealtimeBroadcaster;
 
 /**
  * Payment-gateway webhooks (COMPANY_DASHBOARD_API_SPEC.md §6). Public, no auth —
@@ -16,7 +17,7 @@ use Modules\Admin\Models\WebhookEvent;
  */
 class WebhookController extends AsabController
 {
-    public function handle(Request $request, string $provider): JsonResponse
+    public function handle(Request $request, RealtimeBroadcaster $rt, string $provider): JsonResponse
     {
         $payload = $request->all();
         $eventId = $payload['id'] ?? null;
@@ -46,7 +47,7 @@ class WebhookController extends AsabController
         ]);
 
         try {
-            $this->process($eventType, $payload);
+            $this->process($eventType, $payload, $rt);
             $event->update(['processed_at' => now()]);
         } catch (\Throwable $e) {
             $event->update(['processing_error' => $e->getMessage()]);
@@ -75,7 +76,7 @@ class WebhookController extends AsabController
         return [hash_equals($expected, $signature) || str_contains($signature, $expected), true];
     }
 
-    private function process(string $eventType, array $payload): void
+    private function process(string $eventType, array $payload, RealtimeBroadcaster $rt): void
     {
         $invoicePublicId = $payload['data']['invoicePublicId'] ?? ($payload['invoicePublicId'] ?? null);
         if (! $invoicePublicId) {
@@ -93,6 +94,7 @@ class WebhookController extends AsabController
                 'provider_response' => $payload, 'processed_at' => now(), 'created_at' => now(),
             ]);
             $invoice->update(['amount_paid' => $invoice->total, 'amount_due' => 0, 'status' => 'paid', 'paid_at' => now()]);
+            $rt->invoicePaid($invoice->fresh());
         } elseif (str_contains($eventType, 'payment_failed') || str_contains($eventType, 'failed')) {
             PaymentTransaction::create([
                 'invoice_id' => $invoice->id, 'amount' => $invoice->amount_due, 'currency' => $invoice->currency,
@@ -101,6 +103,7 @@ class WebhookController extends AsabController
                 'processed_at' => now(), 'created_at' => now(),
             ]);
             $invoice->update(['status' => 'overdue']);
+            $rt->invoicePaymentFailed($invoice->fresh());
         }
     }
 }

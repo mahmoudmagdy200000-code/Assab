@@ -50,9 +50,9 @@ class ShiftController extends AsabController
         });
     }
 
-    public function close(Request $request, string $id): JsonResponse
+    public function close(Request $request, \Modules\Admin\Services\RealtimeBroadcaster $rt, string $id): JsonResponse
     {
-        return $this->run(function () use ($request, $id) {
+        return $this->run(function () use ($request, $rt, $id) {
             $data = $request->validate([
                 'cashInDrawer' => 'required|integer',
                 'salesSystem' => 'required|integer',
@@ -68,6 +68,7 @@ class ShiftController extends AsabController
                 'variance' => $variance,
                 'notes' => $data['notes'] ?? null,
             ]);
+            $rt->shiftChanged($shift->fresh(), 'closed');
 
             return $this->ok($this->present($shift->fresh()));
         });
