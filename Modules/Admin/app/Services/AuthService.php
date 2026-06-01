@@ -151,7 +151,7 @@ class AuthService
         $user->tokens()->where('id', $id)->delete();
     }
 
-    private function issueTokens(AsabUser $user): array
+    public function issueTokens(AsabUser $user): array
     {
         return [
             'accessToken' => $user->createToken('access')->plainTextToken,

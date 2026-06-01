@@ -12,6 +12,7 @@ class AsabRolePermissionSeeder extends Seeder
     {
         $roles = [
             ['key' => 'admin', 'name_ar' => 'أمين النظام', 'name_en' => 'Admin'],
+            ['key' => 'company-admin', 'name_ar' => 'أدمن الشركة', 'name_en' => 'Company Admin'],
             ['key' => 'head', 'name_ar' => 'رئيس الحسابات', 'name_en' => 'Head Accountant'],
             ['key' => 'accountant', 'name_ar' => 'المحاسب', 'name_en' => 'Accountant'],
             ['key' => 'branch', 'name_ar' => 'مدير الفرع', 'name_en' => 'Branch Manager'],
@@ -27,6 +28,7 @@ class AsabRolePermissionSeeder extends Seeder
 
         $matrix = [
             'admin' => 'final',       // admin manages everything
+            'company-admin' => 'view', // sees own company; NO operation approval power
             'head' => 'final',        // final approver
             'accountant' => 'approve',
             'branch' => 'submit',
@@ -37,8 +39,11 @@ class AsabRolePermissionSeeder extends Seeder
         foreach ($matrix as $roleKey => $default) {
             foreach ($modules as $module) {
                 $perm = $default;
-                // Admin-only modules
-                if (in_array($module, ['إدارة المستخدمين', 'إدارة الاشتراكات', 'الصلاحيات'], true)) {
+                // Management modules: platform admin everywhere; company-admin over users/subscriptions only.
+                if (in_array($module, ['إدارة المستخدمين', 'إدارة الاشتراكات'], true)) {
+                    $perm = in_array($roleKey, ['admin', 'company-admin'], true) ? 'final' : 'none';
+                }
+                if ($module === 'الصلاحيات') {
                     $perm = $roleKey === 'admin' ? 'final' : 'none';
                 }
                 if ($module === 'تصدير ERP') {

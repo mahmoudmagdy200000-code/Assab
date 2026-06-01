@@ -100,6 +100,15 @@ class RealtimeBroadcaster
         ));
     }
 
+    public function moduleChanged(string $companyId, string $moduleKey, bool $isActive): void
+    {
+        $this->safe(fn () => $this->emit(
+            'operations.company.'.$companyId,
+            'module.changed',
+            ['moduleKey' => $moduleKey, 'isActive' => $isActive],
+        ));
+    }
+
     public function subscriptionExpiring(AsabSubscription $sub, int $daysLeft): void
     {
         $this->safe(fn () => $this->emit(

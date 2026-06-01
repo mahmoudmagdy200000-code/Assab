@@ -12,6 +12,7 @@ class AdminDatabaseSeeder extends Seeder
             AsabRolePermissionSeeder::class,
             AsabDemoSeeder::class,
             AsabOperationSeeder::class,
+            CompanyDashboardSeeder::class,
         ]);
     }
 }

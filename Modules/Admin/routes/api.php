@@ -35,6 +35,15 @@ use Modules\Admin\Http\Controllers\Shared\ReportController;
 use Modules\Admin\Http\Controllers\Shared\SearchController;
 use Modules\Admin\Http\Controllers\Shared\UploadController;
 use Modules\Admin\Http\Controllers\Supplier\SupplierController;
+use Modules\Admin\Http\Controllers\Company\DashboardController as CompanyDashboardController;
+use Modules\Admin\Http\Controllers\Company\SubscriptionController as CompanySubscriptionController;
+use Modules\Admin\Http\Controllers\Company\UserController as CompanyUserController;
+use Modules\Admin\Http\Controllers\Company\OrgController as CompanyOrgController;
+use Modules\Admin\Http\Controllers\Company\ModuleController as CompanyModuleController;
+use Modules\Admin\Http\Controllers\Company\BillingController as CompanyBillingController;
+use Modules\Admin\Http\Controllers\Company\SettingsController as CompanySettingsController;
+use Modules\Admin\Http\Controllers\Company\SupportController as CompanySupportController;
+use Modules\Admin\Http\Controllers\Company\OnboardController;
 
 /*
  | ASAB API — spec base /api/v1 (module RouteServiceProvider adds the /api prefix).
@@ -47,6 +56,9 @@ Route::prefix('v1')->group(function () {
     Route::post('auth/refresh', [AuthController::class, 'refresh']);
     Route::post('auth/forgot-password', [AuthController::class, 'forgotPassword']);
     Route::post('auth/reset-password', [AuthController::class, 'resetPassword']);
+
+    // Company invitation acceptance — public (token-authenticated; §4.2)
+    Route::post('company/invitations/accept', [OnboardController::class, 'acceptInvitation']);
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('auth/me', [AuthController::class, 'me']);
@@ -315,6 +327,95 @@ Route::prefix('v1')->group(function () {
                 Route::delete('items/{id}', [SupplierController::class, 'destroyItem']);
                 Route::get('reports', [SupplierController::class, 'reports']);
             });
+
+            /*
+             | ---- Company Dashboard (بوابة الشركات; COMPANY_DASHBOARD_API_SPEC.md) ----
+             | B2B portal scoped to one company. company-admin manages subscription,
+             | users, brands, modules, billing, settings; support open to any role.
+             */
+            Route::get('plans', [CompanySubscriptionController::class, 'plans'])
+                ->middleware(['asab.tenant', 'asab.role:company-admin,head']);
+
+            Route::middleware(['asab.tenant', 'asab.role:company-admin', 'asab.idempotency', 'asab.audit'])
+                ->prefix('company')
+                ->group(function () {
+                    Route::post('onboard', [OnboardController::class, 'onboard']);
+
+                    // Invitations (§4.2)
+                    Route::get('invitations', [CompanyUserController::class, 'invitations']);
+                    Route::post('invitations', [CompanyUserController::class, 'invite']);
+                    Route::post('invitations/{id}/revoke', [CompanyUserController::class, 'revokeInvitation']);
+
+                    // ca-dashboard (§5.1.1)
+                    Route::get('me/dashboard', [CompanyDashboardController::class, 'index']);
+
+                    // ca-subscription (§5.1.2)
+                    Route::get('me/subscription', [CompanySubscriptionController::class, 'show']);
+                    Route::post('me/subscription/upgrade', [CompanySubscriptionController::class, 'upgrade']);
+                    Route::post('me/subscription/downgrade', [CompanySubscriptionController::class, 'downgrade']);
+                    Route::post('me/subscription/cancel', [CompanySubscriptionController::class, 'cancel']);
+                    Route::post('me/subscription/reactivate', [CompanySubscriptionController::class, 'reactivate']);
+                    Route::post('me/subscription/contact-sales', [CompanySubscriptionController::class, 'contactSales']);
+                    Route::post('me/subscription/billing-cycle', [CompanySubscriptionController::class, 'billingCycle']);
+
+                    // ca-users (§5.1.3)
+                    Route::get('me/users', [CompanyUserController::class, 'index']);
+                    Route::post('me/users', [CompanyUserController::class, 'invite']);
+                    Route::patch('me/users/{id}', [CompanyUserController::class, 'update']);
+                    Route::post('me/users/{id}/toggle-status', [CompanyUserController::class, 'toggleStatus']);
+                    Route::delete('me/users/{id}', [CompanyUserController::class, 'destroy']);
+                    Route::post('me/users/{id}/resend-invite', [CompanyUserController::class, 'resendInvite']);
+
+                    // ca-branches (§5.1.4)
+                    Route::get('me/brands', [CompanyOrgController::class, 'tree']);
+                    Route::post('me/brands', [CompanyOrgController::class, 'storeBrand']);
+                    Route::patch('me/brands/{id}', [CompanyOrgController::class, 'updateBrand']);
+                    Route::delete('me/brands/{id}', [CompanyOrgController::class, 'destroyBrand']);
+                    Route::post('me/restaurants', [CompanyOrgController::class, 'storeRestaurant']);
+                    Route::patch('me/restaurants/{id}', [CompanyOrgController::class, 'updateRestaurant']);
+                    Route::delete('me/restaurants/{id}', [CompanyOrgController::class, 'destroyRestaurant']);
+                    Route::post('me/branches', [CompanyOrgController::class, 'storeBranch']);
+                    Route::patch('me/branches/{id}', [CompanyOrgController::class, 'updateBranch']);
+                    Route::delete('me/branches/{id}', [CompanyOrgController::class, 'destroyBranch']);
+                    Route::post('me/branches/{id}/transfer-manager', [CompanyOrgController::class, 'transferManager']);
+
+                    // ca-modules (§5.1.5)
+                    Route::get('me/modules', [CompanyModuleController::class, 'index']);
+                    Route::patch('me/modules/{moduleKey}', [CompanyModuleController::class, 'toggle']);
+
+                    // ca-billing (§5.1.6)
+                    Route::get('me/billing/summary', [CompanyBillingController::class, 'summary']);
+                    Route::get('me/billing/invoices/export', [CompanyBillingController::class, 'export']);
+                    Route::get('me/billing/invoices', [CompanyBillingController::class, 'invoices']);
+                    Route::get('me/billing/invoices/{id}', [CompanyBillingController::class, 'show']);
+                    Route::get('me/billing/invoices/{id}/pdf', [CompanyBillingController::class, 'pdf']);
+                    Route::post('me/billing/invoices/{id}/pay', [CompanyBillingController::class, 'pay']);
+                    Route::get('me/billing/payment-methods', [CompanyBillingController::class, 'paymentMethods']);
+                    Route::post('me/billing/payment-methods', [CompanyBillingController::class, 'addPaymentMethod']);
+                    Route::post('me/billing/payment-methods/{id}/set-default', [CompanyBillingController::class, 'setDefaultPaymentMethod']);
+                    Route::delete('me/billing/payment-methods/{id}', [CompanyBillingController::class, 'deletePaymentMethod']);
+                    Route::get('me/billing/address', [CompanyBillingController::class, 'address']);
+                    Route::put('me/billing/address', [CompanyBillingController::class, 'updateAddress']);
+
+                    // ca-settings (§5.1.7)
+                    Route::get('me/settings', [CompanySettingsController::class, 'show']);
+                    Route::put('me/settings', [CompanySettingsController::class, 'update']);
+                    Route::post('me/settings/logo', [CompanySettingsController::class, 'uploadLogo']);
+                    Route::patch('me/preferences', [CompanySettingsController::class, 'updatePreferences']);
+                });
+
+            // ca-support (§5.1.8) — any company role may open/view their tickets
+            Route::middleware(['asab.tenant', 'asab.role:company-admin,head,accountant,branch,procurement', 'asab.idempotency'])
+                ->prefix('company/me/support')
+                ->group(function () {
+                    Route::get('channels', [CompanySupportController::class, 'channels']);
+                    Route::get('tickets', [CompanySupportController::class, 'index']);
+                    Route::post('tickets', [CompanySupportController::class, 'store']);
+                    Route::get('tickets/{id}', [CompanySupportController::class, 'show']);
+                    Route::post('tickets/{id}/reply', [CompanySupportController::class, 'reply']);
+                    Route::post('tickets/{id}/close', [CompanySupportController::class, 'close']);
+                    Route::post('tickets/{id}/attachments', [CompanySupportController::class, 'addAttachment']);
+                });
         });
     });
 });
