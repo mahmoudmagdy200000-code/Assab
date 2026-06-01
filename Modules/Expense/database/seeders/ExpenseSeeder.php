@@ -21,6 +21,14 @@ class ExpenseSeeder extends Seeder
 {
     public function run(): void
     {
+        // This seeder generates random demo data and requires fakerphp/faker (dev-only).
+        // Skip entirely when faker is absent (e.g. production installed with --no-dev).
+        if (! class_exists(\Faker\Factory::class)) {
+            $this->command?->warn('Faker not installed; skipping ExpenseSeeder demo data.');
+
+            return;
+        }
+
         $branchManagers = BranchManager::all();
 
         if ($branchManagers->isEmpty()) {
