@@ -15,7 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withBroadcasting(
         __DIR__.'/../routes/channels.php',
-        ['middleware' => ['auth:sanctum']],
+        ['middleware' => ['auth:sanctum,asab']],
     )
     ->withSchedule(function (Schedule $schedule) {
         // Send shift reminders 15 minutes before shift starts
@@ -86,6 +86,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'cashier' => \Modules\Cashier\Http\Middleware\CashierMiddleware::class,
             'brand.owner' => \Modules\BrandOwner\Http\Middleware\BrandOwnerMiddleware::class,
             'supplier' => \Modules\Supplier\Http\Middleware\SupplierMiddleware::class,
+            'asab.tenant' => \Modules\Admin\Http\Middleware\ResolveTenant::class,
+            'asab.role' => \Modules\Admin\Http\Middleware\EnsureAsabRole::class,
+            'asab.idempotency' => \Modules\Admin\Http\Middleware\IdempotencyKey::class,
+            'asab.audit' => \Modules\Admin\Http\Middleware\AuditMutations::class,
             'overload.shed' => \App\Http\Middleware\OverloadSheddingMiddleware::class,
             'log.throttle' => \App\Http\Middleware\LogThrottledRequestsMiddleware::class,
         ]);

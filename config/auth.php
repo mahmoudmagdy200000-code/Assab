@@ -56,6 +56,10 @@ return [
             'driver' => 'sanctum',
             'provider' => 'brand_owners',
         ],
+        'asab' => [
+            'driver' => 'sanctum',
+            'provider' => 'asab_users',
+        ],
     ],
 
     /*
@@ -103,6 +107,11 @@ return [
         'brand_owners' => [
             'driver' => 'eloquent',
             'model' => Modules\BrandOwner\Models\BrandOwner::class,
+        ],
+
+        'asab_users' => [
+            'driver' => 'eloquent',
+            'model' => Modules\Admin\Models\AsabUser::class,
         ],
 
     ],

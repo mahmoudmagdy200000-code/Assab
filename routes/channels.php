@@ -82,6 +82,42 @@ Broadcast::channel('inventory.monthly.{inventoryId}.pending', $authorizeInventor
 // Product completed events (product.updated)
 Broadcast::channel('inventory.monthly.{inventoryId}.completed', $authorizeInventoryChannel, ['guards' => ['sanctum']]);
 
+/*
+|--------------------------------------------------------------------------
+| ASAB real-time channels (BACKEND_API_SPEC.md §8) — `asab` guard.
+| Channel base names match the spec; Echo adds the `private-` transport prefix.
+|--------------------------------------------------------------------------
+*/
+Broadcast::channel('notifications.user.{userId}', function ($user, $userId) {
+    return (string) $user->getKey() === (string) $userId;
+}, ['guards' => ['asab']]);
+
+Broadcast::channel('operations.brand.{brandId}', function ($user, $brandId) {
+    if (method_exists($user, 'hasAsabRole') && $user->hasAsabRole('admin')) {
+        return true;
+    }
+
+    return \Modules\Admin\Models\AsabBrand::query()
+        ->whereKey($brandId)->where('company_id', $user->company_id)->exists();
+}, ['guards' => ['asab']]);
+
+Broadcast::channel('operations.company.{companyId}', function ($user, $companyId) {
+    if (method_exists($user, 'hasAsabRole') && $user->hasAsabRole('admin')) {
+        return true;
+    }
+
+    return (string) $user->company_id === (string) $companyId;
+}, ['guards' => ['asab']]);
+
+Broadcast::channel('reminders.branch.{branchId}', function ($user, $branchId) {
+    if (method_exists($user, 'hasAsabRole') && $user->hasAsabRole('admin')) {
+        return true;
+    }
+
+    return \Modules\Branch\Models\Branch::query()
+        ->whereKey($branchId)->where('asab_company_id', $user->company_id)->exists();
+}, ['guards' => ['asab']]);
+
 // Fixed Assets handover session channel — only sender and recipient may subscribe
 Broadcast::channel('handover-session.{sessionId}', function ($user, $sessionId) {
     $handover = Handover::query()
