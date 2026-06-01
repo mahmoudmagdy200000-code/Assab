@@ -10,7 +10,6 @@ use Modules\Admin\Http\Controllers\Accountant\ReminderController;
 use Modules\Admin\Http\Controllers\Accountant\ShiftController;
 use Modules\Admin\Http\Controllers\Accountant\WasteController;
 use Modules\Admin\Http\Controllers\Admin\AuditLogController;
-use Modules\Admin\Http\Controllers\Admin\UploadController as AdminUploadController;
 use Modules\Admin\Http\Controllers\Admin\BranchController;
 use Modules\Admin\Http\Controllers\Admin\BrandController;
 use Modules\Admin\Http\Controllers\Admin\CompanyController;
@@ -20,9 +19,27 @@ use Modules\Admin\Http\Controllers\Admin\PermissionMatrixController;
 use Modules\Admin\Http\Controllers\Admin\RestaurantController;
 use Modules\Admin\Http\Controllers\Admin\SettingsController;
 use Modules\Admin\Http\Controllers\Admin\SubscriptionController;
+use Modules\Admin\Http\Controllers\Admin\UploadController as AdminUploadController;
 use Modules\Admin\Http\Controllers\Admin\UserController;
 use Modules\Admin\Http\Controllers\Auth\AuthController;
 use Modules\Admin\Http\Controllers\Branch\BranchDashboardController;
+use Modules\Admin\Http\Controllers\Company\AccountantCompanyController;
+use Modules\Admin\Http\Controllers\Company\BillingController as CompanyBillingController;
+use Modules\Admin\Http\Controllers\Company\BranchCompanyController;
+use Modules\Admin\Http\Controllers\Company\CrossController;
+use Modules\Admin\Http\Controllers\Company\DashboardController as CompanyDashboardController;
+use Modules\Admin\Http\Controllers\Company\ExportController as CompanyExportController;
+use Modules\Admin\Http\Controllers\Company\HeadCompanyController;
+use Modules\Admin\Http\Controllers\Company\ModuleController as CompanyModuleController;
+use Modules\Admin\Http\Controllers\Company\OnboardController;
+use Modules\Admin\Http\Controllers\Company\OrgController as CompanyOrgController;
+use Modules\Admin\Http\Controllers\Company\PersonalReminderController;
+use Modules\Admin\Http\Controllers\Company\ProcurementCompanyController;
+use Modules\Admin\Http\Controllers\Company\SettingsController as CompanySettingsController;
+use Modules\Admin\Http\Controllers\Company\SubscriptionController as CompanySubscriptionController;
+use Modules\Admin\Http\Controllers\Company\SupportController as CompanySupportController;
+use Modules\Admin\Http\Controllers\Company\UserController as CompanyUserController;
+use Modules\Admin\Http\Controllers\Company\WebhookController;
 use Modules\Admin\Http\Controllers\Head\HeadController;
 use Modules\Admin\Http\Controllers\Operations\OperationController;
 use Modules\Admin\Http\Controllers\Procurement\ProcurementController;
@@ -35,15 +52,6 @@ use Modules\Admin\Http\Controllers\Shared\ReportController;
 use Modules\Admin\Http\Controllers\Shared\SearchController;
 use Modules\Admin\Http\Controllers\Shared\UploadController;
 use Modules\Admin\Http\Controllers\Supplier\SupplierController;
-use Modules\Admin\Http\Controllers\Company\DashboardController as CompanyDashboardController;
-use Modules\Admin\Http\Controllers\Company\SubscriptionController as CompanySubscriptionController;
-use Modules\Admin\Http\Controllers\Company\UserController as CompanyUserController;
-use Modules\Admin\Http\Controllers\Company\OrgController as CompanyOrgController;
-use Modules\Admin\Http\Controllers\Company\ModuleController as CompanyModuleController;
-use Modules\Admin\Http\Controllers\Company\BillingController as CompanyBillingController;
-use Modules\Admin\Http\Controllers\Company\SettingsController as CompanySettingsController;
-use Modules\Admin\Http\Controllers\Company\SupportController as CompanySupportController;
-use Modules\Admin\Http\Controllers\Company\OnboardController;
 
 /*
  | ASAB API — spec base /api/v1 (module RouteServiceProvider adds the /api prefix).
@@ -59,6 +67,10 @@ Route::prefix('v1')->group(function () {
 
     // Company invitation acceptance — public (token-authenticated; §4.2)
     Route::post('company/invitations/accept', [OnboardController::class, 'acceptInvitation']);
+
+    // Payment-gateway webhooks — public, provider-signature verified (§6)
+    Route::post('webhooks/{provider}', [WebhookController::class, 'handle'])
+        ->where('provider', 'stripe|tap|hyperpay|moyasar');
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('auth/me', [AuthController::class, 'me']);
@@ -416,6 +428,168 @@ Route::prefix('v1')->group(function () {
                     Route::post('tickets/{id}/close', [CompanySupportController::class, 'close']);
                     Route::post('tickets/{id}/attachments', [CompanySupportController::class, 'addAttachment']);
                 });
+
+            /*
+             | ---- Company Dashboard role surfaces (§5.2–§5.5, §7) ----
+             | All under /company/me/*, tenant-scoped. Reuse existing controllers
+             | where the logic is identical; new Company controllers for new logic.
+             */
+            Route::prefix('company/me')->middleware(['asab.tenant', 'asab.idempotency', 'asab.audit'])->group(function () {
+
+                // Head (§5.2)
+                Route::middleware('asab.role:head')->group(function () {
+                    Route::get('head/dashboard', [HeadCompanyController::class, 'dashboard']);
+                    Route::get('head/accountants/performance', [HeadCompanyController::class, 'accountantsPerformance']);
+                    Route::get('head/reminders', [PersonalReminderController::class, 'index']);
+                    Route::patch('head/reminders/{id}', [PersonalReminderController::class, 'update']);
+                    Route::post('head/reminders/mark-all-done', [PersonalReminderController::class, 'markAllDone']);
+                    Route::post('operations/{id}/post-to-erp', [HeadCompanyController::class, 'postToErp']);
+                });
+
+                // Accountant (§5.3)
+                Route::middleware('asab.role:accountant')->group(function () {
+                    Route::get('accountant/dashboard', [AccountantCompanyController::class, 'dashboard']);
+                    Route::get('accountant/reminders', [PersonalReminderController::class, 'index']);
+                    Route::post('accountant/reminders', [PersonalReminderController::class, 'store']);
+                    Route::patch('accountant/reminders/{id}', [PersonalReminderController::class, 'update']);
+                    Route::delete('accountant/reminders/{id}', [PersonalReminderController::class, 'destroy']);
+
+                    Route::get('operations', [OperationController::class, 'index']);
+                    Route::post('operations/bulk-approve', [OperationController::class, 'bulkApprove']);
+                    Route::post('operations/{id}/approve', [OperationController::class, 'approve']);
+                    Route::patch('operations/{id}/sales-details', [AccountantController::class, 'reconciliation']);
+                    Route::post('operations/{id}/sales-variance/assign', [AccountantCompanyController::class, 'salesVarianceAssign']);
+                    Route::get('operations/{id}/export', [CompanyExportController::class, 'job']);
+                    Route::get('branches/{branchId}/employees/lookup', [AccountantCompanyController::class, 'employeeLookup']);
+
+                    Route::post('expense-invoices/{invoiceId}/verify', [AccountantCompanyController::class, 'verifyExpense']);
+                    Route::delete('expense-invoices/{invoiceId}/verify', [AccountantCompanyController::class, 'unverifyExpense']);
+                    Route::get('expense-invoices/{invoiceId}/attachments', [AccountantCompanyController::class, 'expenseAttachments']);
+                    Route::post('expense-invoices/{invoiceId}/convert-to-asset-draft', [AccountantController::class, 'convertToAsset']);
+                    Route::post('asset-drafts/{draftId}/confirm', [AssetController::class, 'confirmDraft']);
+                    Route::post('asset-drafts/{draftId}/discard', [AssetController::class, 'discardDraft']);
+
+                    Route::get('inventory/branches', [InventoryController::class, 'index']);
+                    Route::post('inventory/branches/{branchId}/flag', [InventoryController::class, 'flagBranch']);
+                    Route::post('inventory/branches/{branchId}/flag-items', [InventoryController::class, 'flagItems']);
+                    Route::post('inventory/branches/{branchId}/send-notification', [AccountantCompanyController::class, 'inventorySendNotification']);
+                    Route::post('inventory/branches/{branchId}/mark-confirmed', [AccountantCompanyController::class, 'inventoryMarkConfirmed']);
+                    Route::get('inventory/items', [InventoryController::class, 'catalog']);
+                    Route::get('branches/{branchId}/inventory-list', [InventoryController::class, 'dailyList']);
+                    Route::put('branches/{branchId}/inventory-list', [InventoryController::class, 'saveDailyList']);
+
+                    Route::get('waste/export', [CompanyExportController::class, 'job']);
+                    Route::get('waste', [WasteController::class, 'index']);
+                    Route::post('waste/bulk-approve', [WasteController::class, 'bulkApprove']);
+                    Route::patch('waste/{id}/products/{idx}', [WasteController::class, 'classifyProduct']);
+                    Route::put('waste/{id}/products/{idx}/allocations', [WasteController::class, 'allocations']);
+                    Route::post('waste/{id}/approve', [WasteController::class, 'approve']);
+                    Route::post('waste/{id}/reject', [WasteController::class, 'reject']);
+
+                    Route::get('assets', [AssetController::class, 'index']);
+                    Route::post('assets', [AssetController::class, 'store']);
+                    Route::post('assets/import', [AccountantCompanyController::class, 'importAssets']);
+                    Route::patch('assets/{id}', [AccountantCompanyController::class, 'updateAsset']);
+
+                    Route::get('shifts/configs', [AccountantCompanyController::class, 'shiftConfigs']);
+                    Route::get('shifts/export', [CompanyExportController::class, 'job']);
+                    Route::get('shifts', [ShiftController::class, 'index']);
+                    Route::post('shifts/{id}/close', [ShiftController::class, 'close']);
+                    Route::put('brands/{brandId}/shift-config', [AccountantCompanyController::class, 'saveShiftConfig']);
+
+                    Route::get('employees/payroll/export', [CompanyExportController::class, 'job']);
+                    Route::get('employees', [EmployeeController::class, 'index']);
+                    Route::get('employees/{id}/movements', [EmployeeController::class, 'statement']);
+
+                    Route::get('cash-custody/export', [CompanyExportController::class, 'job']);
+                    Route::get('cash-custody', [CashCustodyController::class, 'index']);
+                    Route::get('cash-custody/{id}/transactions', [AccountantCompanyController::class, 'cashTransactions']);
+                    Route::post('cash-custody/{id}/transactions/{txnId}/approve', [AccountantCompanyController::class, 'approveTransaction']);
+                    Route::post('cash-custody/{id}/transactions/{txnId}/reject', [AccountantCompanyController::class, 'rejectTransaction']);
+                    Route::post('cash-custody/{id}/settle', [AccountantCompanyController::class, 'settleCustody']);
+                });
+
+                // Branch Manager (§5.4)
+                Route::middleware('asab.role:branch')->prefix('branch')->group(function () {
+                    Route::get('overview', [BranchDashboardController::class, 'overview']);
+                    Route::post('upload/sign-attachment', [UploadController::class, 'presignedUrl']);
+                    Route::post('upload', [BranchCompanyController::class, 'upload']);
+                    Route::get('employees', [BranchDashboardController::class, 'employees']);
+                    Route::get('items', [BranchDashboardController::class, 'items']);
+                    Route::post('items/count', [BranchCompanyController::class, 'itemsCount']);
+                    Route::get('purchase-requests', [BranchCompanyController::class, 'purchaseRequests']);
+                    Route::post('purchase-requests', [BranchCompanyController::class, 'storePurchaseRequest']);
+                    Route::get('suppliers', [BranchDashboardController::class, 'suppliers']);
+                    Route::post('suppliers/request-new', [BranchCompanyController::class, 'requestNewSupplier']);
+                    Route::get('shifts/active', [BranchCompanyController::class, 'activeShift']);
+                    Route::post('shifts/open', [BranchCompanyController::class, 'openShift']);
+                    Route::post('shifts/{id}/close', [ShiftController::class, 'close']);
+                    Route::get('settings', [BranchDashboardController::class, 'settings']);
+                    Route::put('settings', [BranchDashboardController::class, 'updateSettings']);
+                });
+
+                // Procurement (§5.5)
+                Route::middleware('asab.role:procurement')->prefix('procurement')->group(function () {
+                    Route::get('overview', [ProcurementController::class, 'overview']);
+                    Route::get('orders/grouped', [ProcurementCompanyController::class, 'grouped']);
+                    Route::get('orders/sent', [ProcurementCompanyController::class, 'sent']);
+                    Route::get('orders', [ProcurementController::class, 'orders']);
+                    Route::post('orders', [ProcurementCompanyController::class, 'storeOrder']);
+                    Route::post('orders/grouped/{groupId}/send', [ProcurementController::class, 'send']);
+                    Route::post('orders/{id}/approve', [ProcurementController::class, 'approve']);
+                    Route::post('orders/{id}/reject', [ProcurementController::class, 'reject']);
+                    Route::patch('orders/{id}', [ProcurementCompanyController::class, 'updateOrder']);
+                    Route::delete('orders/{id}', [ProcurementCompanyController::class, 'destroyOrder']);
+                    Route::get('items/{id}/price-history', [ProcurementCompanyController::class, 'priceHistory']);
+                    Route::get('items', [ProcurementController::class, 'items']);
+                    Route::post('items', [ProcurementCompanyController::class, 'storeItem']);
+                    Route::patch('items/{id}', [ProcurementCompanyController::class, 'updateItem']);
+                    Route::delete('items/{id}', [ProcurementCompanyController::class, 'destroyItem']);
+                });
+
+                // Suppliers — read for all roles; write for procurement/company-admin; rate for procurement/branch
+                Route::middleware('asab.role:company-admin,head,accountant,branch,procurement')
+                    ->get('suppliers', [ProcurementController::class, 'suppliers']);
+                Route::middleware('asab.role:procurement,company-admin')->group(function () {
+                    Route::post('suppliers', [ProcurementCompanyController::class, 'storeSupplier']);
+                    Route::patch('suppliers/{id}', [ProcurementCompanyController::class, 'updateSupplier']);
+                    Route::post('suppliers/{id}/toggle-active', [ProcurementCompanyController::class, 'toggleSupplier']);
+                });
+                Route::middleware('asab.role:procurement,branch')
+                    ->post('suppliers/{id}/ratings', [ProcurementCompanyController::class, 'rateSupplier']);
+
+                // Cross-cutting (§7) — any company role
+                Route::middleware('asab.role:company-admin,head,accountant,branch,procurement')->group(function () {
+                    Route::get('notifications', [NotificationController::class, 'index']);
+                    Route::patch('notifications/{id}/read', [NotificationController::class, 'markRead']);
+                    Route::post('notifications/mark-all-read', [NotificationController::class, 'markAllRead']);
+                    Route::delete('notifications/{id}', [CrossController::class, 'notificationDestroy']);
+
+                    Route::get('lookups/brands', [LookupController::class, 'brands']);
+                    Route::get('lookups/restaurants', [LookupController::class, 'restaurants']);
+                    Route::get('lookups/branches', [LookupController::class, 'branches']);
+                    Route::get('lookups/users', [LookupController::class, 'users']);
+                    Route::get('lookups/cities', [CrossController::class, 'cities']);
+                    Route::get('lookups/units', [CrossController::class, 'units']);
+                    Route::get('lookups/asset-categories', [CrossController::class, 'assetCategories']);
+                    Route::get('lookups/inventory-categories', [CrossController::class, 'inventoryCategories']);
+                    Route::get('lookups/expense-categories', [CrossController::class, 'expenseCategories']);
+                    Route::get('lookups/supplier-categories', [CrossController::class, 'supplierCategories']);
+
+                    Route::get('reports/{key}/download', [CrossController::class, 'reportDownload']);
+                    Route::get('reports', [ReportController::class, 'catalog']);
+                    Route::get('procurement/reports', [ReportController::class, 'catalog']);
+                    Route::get('procurement/reports/{key}/download', [CrossController::class, 'reportDownload']);
+                    Route::get('search', [SearchController::class, 'index']);
+                });
+
+                // Audit log — company-admin (full) + head (read-only)
+                Route::middleware('asab.role:company-admin,head')->get('audit-logs', [CrossController::class, 'auditLogs']);
+            });
+
+            // Per-user UI preferences (§7)
+            Route::middleware(['asab.tenant', 'asab.role:company-admin,head,accountant,branch,procurement'])
+                ->patch('users/me/preferences', [CrossController::class, 'userPreferences']);
         });
     });
 });

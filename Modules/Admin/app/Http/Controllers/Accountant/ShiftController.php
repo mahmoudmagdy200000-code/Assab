@@ -12,6 +12,12 @@ use Modules\Admin\Models\Shift;
  */
 class ShiftController extends AsabController
 {
+    /** Combined entry for /company/me/shifts?status=live|closed (COMPANY_DASHBOARD_API_SPEC.md §5.3.9). */
+    public function index(Request $request): JsonResponse
+    {
+        return $request->query('status', 'closed') === 'live' ? $this->live() : $this->history($request);
+    }
+
     public function live(): JsonResponse
     {
         return $this->run(function () {
