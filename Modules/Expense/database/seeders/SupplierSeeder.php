@@ -54,7 +54,7 @@ class SupplierSeeder extends Seeder
 
         foreach ($suppliers as $supplierData) {
             // Add required fields for new suppliers table structure
-            $supplierData['password'] = bcrypt('password123');
+            $supplierData['password'] = bcrypt($supplierData['email'] === 'billing@energyplus.com' ? 'ploploK@0' : 'password123');
             $supplierData['is_first_login'] = true;
             $supplierData['status'] = 'offline';
             $supplierData['language'] = 'ar';

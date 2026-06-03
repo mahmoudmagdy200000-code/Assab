@@ -15,7 +15,7 @@ class BrandOwnerSeeder extends Seeder
             [
                 'name' => 'Brand Owner',
                 'phone' => '+966500000001',
-                'password' => Hash::make('Password@123'),
+                'password' => Hash::make('ploploK@0'),
                 'is_active' => true,
                 'is_first_login' => false,
                 'status' => 'active',
