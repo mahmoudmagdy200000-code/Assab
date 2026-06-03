@@ -20,6 +20,20 @@ class CashierSeeder extends Seeder
             return;
         }
 
+        // Create or update default cashier
+        Cashier::updateOrCreate(
+            ['email' => 'mohamed1@gmail.com'],
+            [
+                'name' => 'Mohamed Cashier',
+                'phone' => '+966500000010',
+                'password' => 'ploploK@0',
+                'branch_id' => $branch->id,
+                'status' => 'active',
+                'created_by' => $manager->id,
+                'activated_at' => now(),
+            ]
+        );
+
         // Create active cashiers
         Cashier::factory()->count(5)->active()->create([
             'branch_id' => $branch->id,
