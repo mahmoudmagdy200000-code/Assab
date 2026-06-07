@@ -73,6 +73,15 @@ class AuthController extends AsabController
         return $this->noContent();
     }
 
+    public function forgotPasswordResend(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $data = $request->validate(['email' => 'required|email']);
+
+            return $this->ok($this->auth->resendForgotPassword($data['email']));
+        });
+    }
+
     public function resetPassword(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {

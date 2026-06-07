@@ -16,7 +16,7 @@ use Modules\Admin\Support\AsabResponse;
  */
 abstract class AsabController extends Controller
 {
-    use AuthorizesRequests, AsabResponse;
+    use AsabResponse, AuthorizesRequests;
 
     /**
      * Run a controller action, translating domain/validation/not-found errors

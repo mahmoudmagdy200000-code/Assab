@@ -5,14 +5,82 @@ namespace Modules\Admin\Http\Controllers\Accountant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\AutoReminderRule;
 use Modules\Admin\Models\Reminder;
+use Modules\Admin\Models\ReminderBroadcast;
+use Modules\Admin\Services\NotificationService;
 
 /**
  * Reminders + auto-reminder rules (BACKEND_API_SPEC.md §6.3.12).
  */
 class ReminderController extends AsabController
 {
+    /** POST /reminders/broadcast — bulk reminder to an audience (MISSING_Dashboard §11.5). */
+    public function broadcast(Request $request, NotificationService $notifier): JsonResponse
+    {
+        return $this->run(function () use ($request, $notifier) {
+            $data = $request->validate([
+                'messageAr' => 'required|string|max:1000',
+                'messageEn' => 'sometimes|nullable|string|max:1000',
+                'audience' => 'required|in:all-branch-managers,all-accountants,all-suppliers,specific-branches',
+                'branchIds' => 'sometimes|array',
+                'branchIds.*' => 'string',
+            ]);
+            $companyId = $request->user()->company_id;
+            $sent = $this->dispatchBroadcast($notifier, $companyId, $data);
+
+            $log = ReminderBroadcast::create([
+                'company_id' => $companyId,
+                'sender_user_id' => $request->user()->id,
+                'message_ar' => $data['messageAr'],
+                'message_en' => $data['messageEn'] ?? null,
+                'audience' => $data['audience'],
+                'branch_ids' => $data['branchIds'] ?? [],
+                'sent_count' => $sent,
+                'failed_count' => 0,
+                'created_at' => now(),
+            ]);
+
+            return $this->ok(['sentCount' => $sent, 'failedCount' => 0, 'broadcastId' => $log->id]);
+        });
+    }
+
+    private function dispatchBroadcast(NotificationService $notifier, string $companyId, array $data): int
+    {
+        $type = 'reminder.broadcast';
+        $title = $data['messageAr'];
+        $body = $data['messageEn'] ?? null;
+
+        return match ($data['audience']) {
+            'all-branch-managers' => $notifier->pushToRole($companyId, 'branch', $type, $title, $body),
+            'all-accountants' => $notifier->pushToRole($companyId, 'accountant', $type, $title, $body),
+            'all-suppliers' => $notifier->pushToRole($companyId, 'supplier', $type, $title, $body),
+            'specific-branches' => $this->pushToBranchManagers($notifier, $companyId, $data['branchIds'] ?? [], $type, $title, $body),
+            default => 0,
+        };
+    }
+
+    private function pushToBranchManagers(NotificationService $notifier, string $companyId, array $branchIds, string $type, string $title, ?string $body): int
+    {
+        if (empty($branchIds)) {
+            return 0;
+        }
+        $roles = AsabUserRole::where('role_key', 'branch')
+            ->whereHas('user', fn ($q) => $q->where('company_id', $companyId))->get();
+
+        $count = 0;
+        foreach ($roles as $role) {
+            $assigned = $role->branch_ids ?? [];
+            if (is_array($assigned) && array_intersect($assigned, $branchIds)) {
+                $notifier->push($role->user_id, $type, $title, $body);
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
     public function send(string $id): JsonResponse
     {
         return $this->run(function () use ($id) {

@@ -6,9 +6,13 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AuditLog;
+use Modules\Admin\Services\ExportService;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class AuditLogController extends AsabController
 {
+    public function __construct(private readonly ExportService $exports) {}
+
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
@@ -50,5 +54,40 @@ class AuditLogController extends AsabController
                 'after' => $l->after,
             ], $p->items()));
         });
+    }
+
+    /** GET /admin/audit-logs/export?format=xlsx&userFilter=&actionType=&dateFrom=&dateTo= */
+    public function export(Request $request): BinaryFileResponse
+    {
+        $format = $request->query('format', 'xlsx') === 'csv' ? 'csv' : 'xlsx';
+
+        return $this->exports->auditLogs($format, [
+            'action' => $request->query('actionType', $request->query('action')),
+            'actorUserId' => $request->query('actorUserId'),
+            'userFilter' => $request->query('userFilter'),
+            'dateFrom' => $request->query('dateFrom'),
+            'dateTo' => $request->query('dateTo'),
+        ]);
+    }
+
+    /** GET /admin/audit-logs/filters — action-type dropdown metadata. */
+    public function filters(): JsonResponse
+    {
+        return $this->run(fn () => $this->ok(['actionTypes' => self::actionTypes()]));
+    }
+
+    /** Canonical audit action-type vocabulary (shared by UI filter + exports). */
+    public static function actionTypes(): array
+    {
+        return [
+            ['value' => 'users', 'labelAr' => 'مستخدمين', 'labelEn' => 'Users'],
+            ['value' => 'approvals', 'labelAr' => 'اعتمادات', 'labelEn' => 'Approvals'],
+            ['value' => 'subscriptions', 'labelAr' => 'اشتراكات', 'labelEn' => 'Subscriptions'],
+            ['value' => 'rejection', 'labelAr' => 'رفض', 'labelEn' => 'Rejection'],
+            ['value' => 'export', 'labelAr' => 'تصدير', 'labelEn' => 'Export'],
+            ['value' => 'inventory', 'labelAr' => 'مخزون', 'labelEn' => 'Inventory'],
+            ['value' => 'permissions', 'labelAr' => 'صلاحيات', 'labelEn' => 'Permissions'],
+            ['value' => 'purchases', 'labelAr' => 'مشتريات', 'labelEn' => 'Purchases'],
+        ];
     }
 }

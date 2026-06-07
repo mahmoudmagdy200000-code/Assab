@@ -36,18 +36,22 @@ class OrgController extends AsabController
             $restaurantCount = 0;
             $data = $brands->map(function (AsabBrand $b) use (&$branchCount, &$restaurantCount, $branchesByRestaurant, $salesByBranch) {
                 $brandSales = 0;
+                $brandTarget = 0;
                 $brandBranches = 0;
-                $restaurants = $b->restaurants->map(function (AsabRestaurant $r) use (&$brandSales, &$brandBranches, $branchesByRestaurant, $salesByBranch) {
-                    $branches = collect($branchesByRestaurant[$r->id] ?? [])->map(function ($br) use (&$brandSales, &$brandBranches, $salesByBranch) {
+                $restaurants = $b->restaurants->map(function (AsabRestaurant $r) use (&$brandSales, &$brandTarget, &$brandBranches, $branchesByRestaurant, $salesByBranch) {
+                    $branches = collect($branchesByRestaurant[$r->id] ?? [])->map(function ($br) use (&$brandSales, &$brandTarget, &$brandBranches, $salesByBranch) {
                         $brandBranches++;
                         $sales = (int) ($salesByBranch[$br->id]['sales'] ?? 0);
+                        $target = (int) ($br->asab_monthly_target ?? 0);
                         $brandSales += $sales;
+                        $brandTarget += $target;
 
                         return [
                             'id' => $br->id, 'name' => $br->name, 'city' => $br->location,
                             'managerUserId' => $br->asab_manager_user_id, 'managerName' => $br->manager,
                             'salesMonthHalalas' => $sales, 'expensesMonthHalalas' => (int) ($salesByBranch[$br->id]['expenses'] ?? 0),
-                            'targetHalalas' => 0, 'pctOfTarget' => 0, 'status' => $br->status ?? 'active',
+                            'targetHalalas' => $target, 'pctOfTarget' => $target > 0 ? (int) round($sales / $target * 100) : 0,
+                            'status' => $br->status ?? 'active',
                         ];
                     })->all();
 
@@ -59,7 +63,8 @@ class OrgController extends AsabController
                 return [
                     'id' => $b->id, 'name' => $b->name, 'abbr' => $b->abbr, 'color' => $b->color,
                     'restaurants' => $restaurants, 'totalBranches' => $brandBranches,
-                    'totalSalesHalalas' => $brandSales, 'totalTargetHalalas' => 0, 'pctOfTarget' => 0,
+                    'totalSalesHalalas' => $brandSales, 'totalTargetHalalas' => $brandTarget,
+                    'pctOfTarget' => $brandTarget > 0 ? (int) round($brandSales / $brandTarget * 100) : 0,
                 ];
             })->all();
 
@@ -172,6 +177,7 @@ class OrgController extends AsabController
                 'manager' => $data['managerName'] ?? null, 'status' => 'active',
                 'asab_company_id' => $companyId, 'asab_brand_id' => $restaurant->brand_id, 'asab_restaurant_id' => $restaurant->id,
                 'asab_manager_user_id' => $data['managerUserId'] ?? null,
+                'asab_monthly_target' => $data['targetHalalas'] ?? null,
             ]);
             $this->notifications->pushToRole($companyId, 'company-admin', 'branch.created', 'تمت إضافة فرع جديد', $branch->name);
             $this->rt->branchChanged($companyId, 'created', $branch->id, $branch->name);
@@ -187,10 +193,12 @@ class OrgController extends AsabController
             $data = $request->validate([
                 'name' => 'sometimes|string|max:200', 'manager' => 'sometimes|nullable|string|max:200',
                 'status' => 'sometimes|in:active,inactive', 'address' => 'sometimes|nullable|string', 'city' => 'sometimes|nullable|string|max:80',
+                'targetHalalas' => 'sometimes|integer|min:0',
             ]);
             $attrs = array_filter([
                 'name' => $data['name'] ?? null, 'manager' => $data['manager'] ?? null,
                 'status' => $data['status'] ?? null, 'location' => $data['address'] ?? $data['city'] ?? null,
+                'asab_monthly_target' => $data['targetHalalas'] ?? null,
             ], fn ($v) => $v !== null);
             $branch->update($attrs);
             $this->rt->branchChanged($request->user()->company_id, 'updated', $branch->id, $branch->name);
@@ -233,7 +241,7 @@ class OrgController extends AsabController
     /** @return array{0: array, 1: array} [salesByBranch, branchesByRestaurant] */
     private function branchAggregates(string $companyId): array
     {
-        $branches = $this->branchQuery($companyId)->get(['id', 'name', 'location', 'status', 'manager', 'asab_manager_user_id', 'asab_restaurant_id']);
+        $branches = $this->branchQuery($companyId)->get(['id', 'name', 'location', 'status', 'manager', 'asab_manager_user_id', 'asab_restaurant_id', 'asab_monthly_target']);
         $byRestaurant = $branches->groupBy('asab_restaurant_id')->map(fn ($g) => $g->all())->all();
 
         $from = now()->startOfMonth()->toDateString();

@@ -6,12 +6,15 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabNotification;
+use Modules\Admin\Services\NotificationPreferenceService;
 
 /**
  * Per-user notifications (BACKEND_API_SPEC.md §7.1).
  */
 class NotificationController extends AsabController
 {
+    public function __construct(private readonly NotificationPreferenceService $preferences) {}
+
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
@@ -56,6 +59,34 @@ class NotificationController extends AsabController
             AsabNotification::where('user_id', $request->user()->id)->whereNull('read_at')->update(['read_at' => now()]);
 
             return $this->noContent();
+        });
+    }
+
+    /** GET /notifications/preferences (MISSING_Dashboard §7.1). */
+    public function preferences(Request $request): JsonResponse
+    {
+        return $this->run(fn () => $this->ok($this->preferences->get($request->user())));
+    }
+
+    /** PATCH /notifications/preferences (MISSING_Dashboard §7.2) — partial body. */
+    public function updatePreferences(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $data = $request->validate([
+                'channels' => 'sometimes|array',
+                'channels.inApp.enabled' => 'sometimes|boolean',
+                'channels.email.enabled' => 'sometimes|boolean',
+                'channels.email.address' => 'sometimes|nullable|email',
+                'channels.push.enabled' => 'sometimes|boolean',
+                'channels.whatsapp.enabled' => 'sometimes|boolean',
+                'events' => 'sometimes|array',
+                'quietHours' => 'sometimes|array',
+                'quietHours.enabled' => 'sometimes|boolean',
+                'quietHours.startsAt' => 'sometimes|string',
+                'quietHours.endsAt' => 'sometimes|string',
+            ]);
+
+            return $this->ok($this->preferences->update($request->user(), $data));
         });
     }
 }

@@ -3,12 +3,19 @@
 namespace Modules\Admin\Services;
 
 use Illuminate\Support\Carbon;
+use Modules\Admin\Models\AsabBrand;
+use Modules\Admin\Models\AsabSupplier;
+use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Models\Asset;
+use Modules\Admin\Models\AuditLog;
 use Modules\Admin\Models\BillingInvoice;
 use Modules\Admin\Models\CashCustody;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\EmployeeMovement;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Models\Reminder;
 use Modules\Admin\Models\Shift;
+use Modules\Admin\Models\SupplierItem;
 use Mpdf\Mpdf;
 use Mpdf\Output\Destination;
 use OpenSpout\Common\Entity\Row;
@@ -62,6 +69,51 @@ class ExportService
         }
 
         return \Modules\Branch\Models\Branch::whereIn('id', $ids)->pluck('name', 'id');
+    }
+
+    /** Map of user id → name (submitters / reviewers). */
+    private function userNames(iterable $ids): \Illuminate\Support\Collection
+    {
+        $ids = collect($ids)->filter()->unique()->values();
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        return AsabUser::whereIn('id', $ids)->pluck('name', 'id');
+    }
+
+    /** Map of supplier id → name. */
+    private function supplierNames(iterable $ids): \Illuminate\Support\Collection
+    {
+        $ids = collect($ids)->filter()->unique()->values();
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        return AsabSupplier::whereIn('id', $ids)->pluck('name', 'id');
+    }
+
+    /** Map of branch id → brand name (operations carry no brand column). */
+    private function brandNamesByBranch(iterable $branchIds): \Illuminate\Support\Collection
+    {
+        $branchToBrand = $this->branchToBrandId($branchIds);
+        if ($branchToBrand->isEmpty()) {
+            return collect();
+        }
+        $brandNames = AsabBrand::whereIn('id', $branchToBrand->filter()->unique()->values())->pluck('name', 'id');
+
+        return $branchToBrand->map(fn ($brandId) => $brandId ? ($brandNames[$brandId] ?? '—') : '—');
+    }
+
+    /** Map of branch id → brand id (legacy Branch table). */
+    private function branchToBrandId(iterable $branchIds): \Illuminate\Support\Collection
+    {
+        $branchIds = collect($branchIds)->filter()->unique()->values();
+        if ($branchIds->isEmpty()) {
+            return collect();
+        }
+
+        return \Modules\Branch\Models\Branch::whereIn('id', $branchIds)->pluck('asab_brand_id', 'id');
     }
 
     public function operation(string $format, string $opId): BinaryFileResponse
@@ -214,6 +266,290 @@ class ExportService
         ])->all();
 
         return $this->make($format, 'cash-custody', $headings, $rows);
+    }
+
+    // ── Operations / list exports (sync xlsx/csv; honour list filters) ──────
+
+    /**
+     * Operations export — sales/expenses/purchases (and a shared all-module
+     * variant when moduleKey is null). Honours the same filters as the list.
+     *
+     * @param  array{moduleKey?:?string,status?:?string,branchId?:?string,brandId?:?string,dateFrom?:?string,dateTo?:?string}  $filters
+     */
+    public function operations(string $format, string $companyId, array $filters): BinaryFileResponse
+    {
+        $module = $filters['moduleKey'] ?? null;
+        $ops = $this->filteredOperations($companyId, $filters);
+        $branchNames = $this->branchNames($ops->pluck('branch_id'));
+
+        if ($module === 'purchases') {
+            $supplierNames = $this->supplierNames($ops->map(fn (Operation $o) => $o->payload['supplierId'] ?? null));
+            $headings = ['رقم الطلب', 'المورد', 'الفرع', 'الإجمالي (ر.س)', 'عدد الأصناف', 'حالة الاعتماد', 'حالة الإرسال'];
+            $rows = $ops->map(function (Operation $o) use ($branchNames, $supplierNames) {
+                $payload = $o->payload ?? [];
+                $items = $payload['items'] ?? [];
+
+                return [
+                    $o->public_id,
+                    $supplierNames[$payload['supplierId'] ?? ''] ?? '—',
+                    $branchNames[$o->branch_id] ?? '—',
+                    $this->sar($o->amount),
+                    (string) (is_array($items) ? count($items) : 0),
+                    $o->status,
+                    ! empty($payload['sentAt']) ? 'مُرسل' : 'لم يُرسل',
+                ];
+            })->all();
+
+            return $this->make($format, 'operations-purchases', $headings, $rows);
+        }
+
+        $isExpense = $module === 'expenses';
+        $brandByBranch = $this->brandNamesByBranch($ops->pluck('branch_id'));
+        $userNames = $this->userNames($ops->pluck('submitted_by_id')->merge($ops->pluck('reviewed_by_id')));
+
+        $headings = ['رقم العملية', 'الفرع', 'العلامة التجارية', 'الوحدة', 'المبلغ (ر.س)', 'الحالة', 'المطابقة', 'مُقدّم من', 'التاريخ', 'روجع بواسطة', 'تاريخ المراجعة', 'ملاحظات'];
+        if ($isExpense) {
+            $headings = array_merge($headings, ['المورد', 'رقم الفاتورة', 'مُتحقَّق', 'حُوِّل لأصل']);
+        }
+
+        $rows = $ops->map(function (Operation $o) use ($branchNames, $brandByBranch, $userNames, $isExpense) {
+            $payload = $o->payload ?? [];
+            $row = [
+                $o->public_id,
+                $branchNames[$o->branch_id] ?? '—',
+                $brandByBranch[$o->branch_id] ?? '—',
+                $o->module_key,
+                $this->sar($o->amount),
+                $o->status,
+                $o->match ?? '—',
+                $userNames[$o->submitted_by_id] ?? '—',
+                optional($o->operation_date)->toDateString() ?? optional($o->created_at)->toDateString(),
+                $userNames[$o->reviewed_by_id] ?? '—',
+                optional($o->reviewed_at)->toDateTimeString() ?? '',
+                $o->diff_note ?? '',
+            ];
+            if ($isExpense) {
+                $firstInv = is_array($payload['invoices'] ?? null) ? ($payload['invoices'][0] ?? []) : [];
+                $row[] = $payload['vendor'] ?? ($firstInv['vendor'] ?? '—');
+                $row[] = $payload['invNum'] ?? ($firstInv['invNum'] ?? '—');
+                $row[] = ! empty($payload['verified']) ? 'نعم' : 'لا';
+                $row[] = ! empty($payload['convertedToAsset']) ? 'نعم' : 'لا';
+            }
+
+            return $row;
+        })->all();
+
+        return $this->make($format, 'operations'.($module ? '-'.$module : ''), $headings, $rows);
+    }
+
+    /**
+     * Tenant-scoped operations matching the list filters. brandId is resolved
+     * post-load via the branch→brand map (operations carry no brand column).
+     *
+     * @param  array<string,?string>  $filters
+     */
+    private function filteredOperations(string $companyId, array $filters): \Illuminate\Support\Collection
+    {
+        $q = Operation::where('company_id', $companyId);
+        if (! empty($filters['moduleKey'])) {
+            $q->where('module_key', $filters['moduleKey']);
+        }
+        if (! empty($filters['status'])) {
+            $q->where('status', $filters['status']);
+        }
+        if (! empty($filters['branchId'])) {
+            $q->where('branch_id', $filters['branchId']);
+        }
+        if (! empty($filters['dateFrom'])) {
+            $q->whereDate('operation_date', '>=', $filters['dateFrom']);
+        }
+        if (! empty($filters['dateTo'])) {
+            $q->whereDate('operation_date', '<=', $filters['dateTo']);
+        }
+        $ops = $q->orderByDesc('operation_date')->limit(10000)->get();
+
+        if (! empty($filters['brandId'])) {
+            $branchToBrand = $this->branchToBrandId($ops->pluck('branch_id'));
+            $ops = $ops->filter(fn (Operation $o) => ($branchToBrand[$o->branch_id] ?? null) === $filters['brandId'])->values();
+        }
+
+        return $ops;
+    }
+
+    /** Fixed-assets register export. */
+    public function assets(string $format, string $companyId, ?string $category, ?string $branchId): BinaryFileResponse
+    {
+        $q = Asset::where('company_id', $companyId);
+        if ($category) {
+            $q->where('category', $category);
+        }
+        if ($branchId) {
+            $q->where('branch_id', $branchId);
+        }
+        $assets = $q->orderBy('public_id')->limit(10000)->get();
+        $branchNames = $this->branchNames($assets->pluck('branch_id'));
+
+        $headings = ['رمز الأصل', 'الاسم', 'التصنيف', 'الفرع', 'تاريخ الشراء', 'سعر الشراء (ر.س)', 'العمر الإنتاجي (شهر)', 'الإهلاك الشهري (ر.س)', 'القيمة الدفترية (ر.س)', 'العهدة', 'الحالة'];
+        $rows = $assets->map(function (Asset $a) use ($branchNames) {
+            $life = max(1, (int) $a->useful_life_months);
+            $monthlyDep = (int) round(((int) $a->cost) / $life);
+
+            return [
+                $a->public_id,
+                $a->name,
+                $a->category,
+                $branchNames[$a->branch_id] ?? '—',
+                optional($a->purchased_at)->toDateString() ?? '',
+                $this->sar($a->cost),
+                (string) $a->useful_life_months,
+                $this->sar($monthlyDep),
+                $this->sar($a->book_value),
+                $a->custodian ?? '—',
+                $a->status,
+            ];
+        })->all();
+
+        return $this->make($format, 'fixed-assets', $headings, $rows);
+    }
+
+    /** Accountant reminders export. */
+    public function reminders(string $format, string $companyId): BinaryFileResponse
+    {
+        $reminders = Reminder::where('company_id', $companyId)->orderByDesc('created_at')->limit(10000)->get();
+        $branchNames = $this->branchNames($reminders->pluck('branch_id'));
+
+        $headings = ['الفرع', 'العنصر الناقص', 'أيام التأخير', 'آخر تذكير مُرسل', 'الرد', 'نوع التذكير'];
+        $rows = $reminders->map(fn (Reminder $r) => [
+            $branchNames[$r->branch_id] ?? '—',
+            $r->report_type ?? ($r->module_key ?? '—'),
+            (string) ($r->days_missing ?? 0),
+            optional($r->sent_at)->toDateTimeString() ?? '—',
+            $r->response ?? ($r->reminder_status ?? '—'),
+            $r->module_key ?? '—',
+        ])->all();
+
+        return $this->make($format, 'reminders', $headings, $rows);
+    }
+
+    /** Company suppliers export (procurement portal). */
+    public function companySuppliers(string $format, string $companyId): BinaryFileResponse
+    {
+        $suppliers = AsabSupplier::where('company_id', $companyId)->orderBy('name')->limit(10000)->get();
+        $orderCounts = Operation::where('company_id', $companyId)->where('module_key', 'purchases')
+            ->limit(20000)->get(['payload'])
+            ->groupBy(fn (Operation $o) => $o->payload['supplierId'] ?? null)->map->count();
+
+        $headings = ['اسم المورد', 'التصنيف', 'الجوال', 'البريد', 'التقييم', 'عدد الطلبات', 'نشط'];
+        $rows = $suppliers->map(fn (AsabSupplier $s) => [
+            $s->name,
+            $s->category ?? '—',
+            $s->contact_phone ?? '—',
+            $s->contact_email ?? '—',
+            number_format(((int) $s->rating) / 10, 1, '.', ''),
+            (string) ($orderCounts[$s->id] ?? 0),
+            $s->status === 'active' ? 'نعم' : 'لا',
+        ])->all();
+
+        return $this->make($format, 'suppliers', $headings, $rows);
+    }
+
+    /** Company procurement catalog export. */
+    public function procurementItems(string $format, string $companyId): BinaryFileResponse
+    {
+        $items = SupplierItem::where('company_id', $companyId)->orderBy('name')->limit(10000)->get();
+
+        $headings = ['رمز الصنف', 'الاسم', 'الوحدة', 'آخر سعر (ر.س)', 'نشط'];
+        $rows = $items->map(fn (SupplierItem $i) => [
+            $i->code ?? '—',
+            $i->name,
+            $i->unit ?? '—',
+            $this->sar($i->price),
+            $i->status === 'active' ? 'نعم' : 'لا',
+        ])->all();
+
+        return $this->make($format, 'procurement-items', $headings, $rows);
+    }
+
+    /** Supplier-portal catalog export (scoped to the supplier user). */
+    public function supplierItems(string $format, string $userId): BinaryFileResponse
+    {
+        $items = SupplierItem::where('supplier_user_id', $userId)->orderBy('name')->limit(10000)->get();
+
+        $headings = ['رمز الصنف', 'الاسم', 'الوحدة', 'السعر (ر.س)', 'أقل كمية', 'نشط'];
+        $rows = $items->map(fn (SupplierItem $i) => [
+            $i->code ?? '—',
+            $i->name,
+            $i->unit ?? '—',
+            $this->sar($i->price),
+            (string) ($i->min_qty ?? ''),
+            $i->status === 'active' ? 'نعم' : 'لا',
+        ])->all();
+
+        return $this->make($format, 'supplier-items', $headings, $rows);
+    }
+
+    /** Supplier-portal orders export (accepted/rejected purchase operations). */
+    public function supplierOrders(string $format, ?string $status): BinaryFileResponse
+    {
+        $q = Operation::where('module_key', 'purchases');
+        if ($status === 'accepted') {
+            $q->whereIn('status', ['confirmed', 'approved', 'final-approved', 'delivered']);
+        } elseif ($status === 'rejected') {
+            $q->where('status', 'rejected');
+        }
+        $ops = $q->orderByDesc('operation_date')->limit(10000)->get();
+        $branchNames = $this->branchNames($ops->pluck('branch_id'));
+
+        $headings = ['رقم الطلب', 'الفرع', 'الإجمالي (ر.س)', 'الحالة', 'التاريخ'];
+        $rows = $ops->map(fn (Operation $o) => [
+            $o->public_id,
+            $branchNames[$o->branch_id] ?? '—',
+            $this->sar($o->amount),
+            $o->status,
+            optional($o->operation_date)->toDateString() ?? '',
+        ])->all();
+
+        return $this->make($format, 'supplier-orders', $headings, $rows);
+    }
+
+    /**
+     * Platform audit-log export.
+     *
+     * @param  array{action?:?string,actorUserId?:?string,userFilter?:?string,dateFrom?:?string,dateTo?:?string}  $filters
+     */
+    public function auditLogs(string $format, array $filters): BinaryFileResponse
+    {
+        $q = AuditLog::query();
+        if (! empty($filters['action'])) {
+            $q->where('action', $filters['action']);
+        }
+        if (! empty($filters['actorUserId'])) {
+            $q->where('actor_user_id', $filters['actorUserId']);
+        }
+        if (! empty($filters['userFilter'])) {
+            $q->where('actor_label', 'like', '%'.$filters['userFilter'].'%');
+        }
+        if (! empty($filters['dateFrom'])) {
+            $q->where('occurred_at', '>=', $filters['dateFrom']);
+        }
+        if (! empty($filters['dateTo'])) {
+            $q->where('occurred_at', '<=', $filters['dateTo']);
+        }
+        $logs = $q->orderByDesc('occurred_at')->limit(10000)->get();
+
+        $headings = ['التاريخ', 'الوقت', 'المستخدم', 'الإجراء', 'النوع', 'العنصر المستهدف', 'عنوان IP', 'ملاحظات'];
+        $rows = $logs->map(fn (AuditLog $l) => [
+            optional($l->occurred_at)->toDateString() ?? '',
+            optional($l->occurred_at)->format('H:i:s') ?? '',
+            $l->actor_label ?? '—',
+            $l->action ?? '—',
+            $l->entity_type ?? '—',
+            $l->entity_id ?? '—',
+            $l->ip ?? '—',
+            $l->description ?? '',
+        ])->all();
+
+        return $this->make($format, 'audit-logs', $headings, $rows);
     }
 
     // ── Billing invoices export (async job target) ──────────────────────────

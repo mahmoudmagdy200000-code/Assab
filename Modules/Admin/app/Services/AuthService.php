@@ -4,6 +4,7 @@ namespace Modules\Admin\Services;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\PersonalAccessToken;
 use Modules\Admin\Exceptions\AsabException;
@@ -11,6 +12,9 @@ use Modules\Admin\Models\AsabUser;
 
 class AuthService
 {
+    /** Minimum seconds between password-reset (re)sends per email. */
+    private const RESEND_COOLDOWN = 60;
+
     public function __construct(private readonly PermissionResolver $permissions) {}
 
     /**
@@ -115,6 +119,31 @@ class AuthService
             ['token' => $token, 'created_at' => now()],
         );
         // Mail dispatch is environment-dependent; the token row is the contract here.
+    }
+
+    /**
+     * Resend the reset token, rate-limited per email (MISSING_Dashboard §8.1).
+     * Always returns ok:true for unknown emails (no enumeration); throws
+     * RATE_LIMITED (429) while a cooldown is active.
+     */
+    public function resendForgotPassword(string $email): array
+    {
+        $key = 'pwd-reset-resend:'.sha1(Str::lower($email));
+
+        if (RateLimiter::tooManyAttempts($key, 1)) {
+            throw new AsabException(
+                'RATE_LIMITED',
+                'Please wait before requesting another reset',
+                'يرجى الانتظار قبل إعادة الإرسال',
+                429,
+                ['nextResendAvailableAt' => now()->addSeconds(RateLimiter::availableIn($key))->toIso8601String()],
+            );
+        }
+
+        RateLimiter::hit($key, self::RESEND_COOLDOWN);
+        $this->forgotPassword($email); // no-ops on unknown email
+
+        return ['ok' => true, 'nextResendAvailableAt' => now()->addSeconds(self::RESEND_COOLDOWN)->toIso8601String()];
     }
 
     public function resetPassword(string $token, string $newPassword): void

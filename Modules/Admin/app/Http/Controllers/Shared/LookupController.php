@@ -8,6 +8,7 @@ use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Services\ExceptionService;
 use Modules\Branch\Models\Branch;
 
 /**
@@ -103,5 +104,21 @@ class LookupController extends AsabController
             ['key' => 'employees', 'labelAr' => 'الموظفين', 'labelEn' => 'Employees', 'icon' => '👥'],
             ['key' => 'cash', 'labelAr' => 'النقدية', 'labelEn' => 'Cash', 'icon' => '💵'],
         ]);
+    }
+
+    /** Exception-type dropdown metadata (MISSING_Dashboard §3.4). */
+    public function exceptions(): JsonResponse
+    {
+        $rows = [];
+        foreach (ExceptionService::TYPES as $value => $meta) {
+            $rows[] = [
+                'value' => $value,
+                'labelAr' => $meta['labelAr'],
+                'labelEn' => $meta['labelEn'],
+                'defaultSeverity' => $meta['defaultSeverity'],
+            ];
+        }
+
+        return $this->listResponse($rows);
     }
 }

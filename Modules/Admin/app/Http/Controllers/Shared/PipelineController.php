@@ -3,82 +3,38 @@
 namespace Modules\Admin\Http\Controllers\Shared;
 
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
-use Modules\Admin\Models\Operation;
+use Modules\Admin\Services\PipelineService;
 
 /**
- * Pipeline overview + module aggregation grid (BACKEND_API_SPEC.md §7.9 / §7.10).
+ * Pipeline overview + module aggregation grid (MISSING_Dashboard §3.1–3.2).
+ * Company-scoped for non-admin roles; admin may pass ?companyId= for a
+ * cross-tenant view.
  */
 class PipelineController extends AsabController
 {
-    private const MODULES = [
-        'sales' => 'المبيعات', 'expenses' => 'المصروفات', 'purchases' => 'المشتريات',
-        'inventory' => 'المخزون', 'waste' => 'الهدر', 'shifts' => 'الورديات',
-        'employees' => 'الموظفين', 'cash' => 'النقدية',
-    ];
+    public function __construct(private readonly PipelineService $pipeline) {}
 
-    public function overview(): JsonResponse
+    public function overview(Request $request): JsonResponse
     {
-        return $this->run(function () {
-            $byStatus = Operation::query()->selectRaw('status, count(*) as c')->groupBy('status')->pluck('c', 'status');
-
-            $stages = [
-                ['stageId' => 'submit', 'label' => 'رُفع من الفرع', 'count' => (int) ($byStatus['pending'] ?? 0)],
-                ['stageId' => 'review', 'label' => 'قيد المراجعة', 'count' => (int) ($byStatus['pending'] ?? 0)],
-                ['stageId' => 'approved', 'label' => 'موافق عليه', 'count' => (int) ($byStatus['approved'] ?? 0)],
-                ['stageId' => 'final', 'label' => 'معتمد نهائياً', 'count' => (int) ($byStatus['final-approved'] ?? 0)],
-                ['stageId' => 'erp', 'label' => 'مُرحَّل لـ ERP', 'count' => Operation::where('erp_posted', true)->count()],
-            ];
-
-            return $this->ok([
-                'stages' => $stages,
-                'rejectedCount' => (int) ($byStatus['rejected'] ?? 0),
-                'totalOperations' => Operation::count(),
-            ]);
-        });
+        return $this->run(fn () => $this->ok($this->pipeline->overview($this->companyScope($request))));
     }
 
-    public function aggregation(): JsonResponse
+    public function aggregation(Request $request): JsonResponse
     {
-        return $this->run(function () {
-            $rows = [];
-            foreach (self::MODULES as $key => $label) {
-                $base = Operation::where('module_key', $key);
-                $counts = [
-                    'pending' => (clone $base)->where('status', 'pending')->count(),
-                    'approved' => (clone $base)->where('status', 'approved')->count(),
-                    'final' => (clone $base)->where('status', 'final-approved')->count(),
-                    'erp' => (clone $base)->where('erp_posted', true)->count(),
-                ];
-                $total = array_sum($counts);
-                $rows[] = [
-                    'moduleKey' => $key,
-                    'label' => $label,
-                    'state' => $this->state($counts, $total),
-                    'counts' => $counts,
-                    'totalAmount' => (int) (clone $base)->sum('amount'),
-                ];
-            }
-
-            return $this->listResponse($rows);
-        });
+        return $this->run(fn () => $this->ok([
+            'modules' => $this->pipeline->aggregation(
+                $this->companyScope($request),
+                $request->query('dateFrom'),
+                $request->query('dateTo'),
+            ),
+        ]));
     }
 
-    private function state(array $counts, int $total): string
+    /** Only an admin may target another company; everyone else is token-scoped. */
+    private function companyScope(Request $request): ?string
     {
-        if ($total === 0) {
-            return 'empty';
-        }
-        if ($counts['erp'] === $total) {
-            return 'exported';
-        }
-        if ($counts['final'] > 0) {
-            return 'ready_erp';
-        }
-        if ($counts['approved'] > 0) {
-            return 'ready_consolidation';
-        }
-
-        return 'incomplete';
+        return $request->user()->hasAsabRole('admin') ? $request->query('companyId') : null;
     }
 }

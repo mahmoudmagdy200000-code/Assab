@@ -219,6 +219,16 @@ class RealtimeBroadcaster
         $this->safe(fn () => $this->emit('reminders.branch.'.$branchId, 'inventory.flag_sent', ['branchId' => $branchId, 'items' => $items]));
     }
 
+    /** Daily inventory variance allocated to employees (MISSING_Dashboard §9.2). */
+    public function inventoryVarianceAllocated(string $branchId, string $date, int $totalValueHalalas): void
+    {
+        $this->safe(fn () => $this->emit(
+            'operations.brand.'.$this->brandIdForBranch($branchId),
+            'inventory.variance_allocated',
+            ['branchId' => $branchId, 'date' => $date, 'totalValueHalalas' => $totalValueHalalas],
+        ));
+    }
+
     public function assetDraftCreated(AssetDraft $draft, ?string $branchId): void
     {
         $this->safe(fn () => $this->emit(

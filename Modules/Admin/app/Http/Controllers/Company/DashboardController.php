@@ -5,9 +5,9 @@ namespace Modules\Admin\Http\Controllers\Company;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
-use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Services\CompanyDashboardService;
 use Modules\Admin\Services\PlanLimitService;
 use Modules\Admin\Services\SubscriptionService;
 
@@ -19,6 +19,7 @@ class DashboardController extends AsabController
     public function __construct(
         private readonly PlanLimitService $limits,
         private readonly SubscriptionService $subscriptions,
+        private readonly CompanyDashboardService $dashboard,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -51,13 +52,26 @@ class DashboardController extends AsabController
                     'branches' => $quotas['branches'], 'users' => $quotas['users'],
                     'storage' => ['usedGb' => 0, 'maxGb' => $sub->plan->storage_gb],
                 ],
-                'kpis' => [
+                // Existing fields kept; enriched with the spec kpis + totals (§5.2).
+                'kpis' => array_merge([
                     'monthlySalesHalalas' => $sales, 'monthlyExpensesHalalas' => $expenses, 'netProfitHalalas' => $net,
                     'salesDeltaPct' => $this->delta($sales, $prevSales), 'profitDeltaPct' => $this->delta($net, $prevNet),
-                    'branchCompletionRate' => 0, 'branchesAboveTarget' => 0, 'totalBranches' => $quotas['branches']['used'],
-                ],
-                'brandPerformance' => $this->brandPerformance($companyId, $from, $to),
+                    'totalBranches' => $quotas['branches']['used'],
+                ], $this->dashboard->kpis($companyId, $from, $to)),
+                'totals' => $this->dashboard->totals($companyId),
+                'brandPerformance' => $this->dashboard->brandBreakdown($companyId, $from, $to)['brands'],
             ]);
+        });
+    }
+
+    /** GET /company/me/dashboard/brand-performance (MISSING_Dashboard §5.1). */
+    public function brandPerformance(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $from = $request->query('dateFrom', now()->startOfMonth()->toDateString());
+            $to = $request->query('dateTo', now()->endOfMonth()->toDateString());
+
+            return $this->ok($this->dashboard->brandBreakdown($request->user()->company_id, $from, $to));
         });
     }
 
@@ -80,16 +94,6 @@ class DashboardController extends AsabController
         $len = max(1, $f->diffInDays($t) + 1);
 
         return $this->periodTotals($companyId, $f->copy()->subDays($len)->toDateString(), $f->copy()->subDay()->toDateString());
-    }
-
-    private function brandPerformance(string $companyId, string $from, string $to): array
-    {
-        return AsabBrand::where('company_id', $companyId)->withCount('restaurants')->get()->map(function (AsabBrand $b) {
-            return [
-                'brandId' => $b->id, 'name' => $b->name, 'abbr' => $b->abbr, 'color' => $b->color,
-                'branchCount' => 0, 'salesHalalas' => 0, 'targetHalalas' => 0, 'pctOfTarget' => 0,
-            ];
-        })->all();
     }
 
     private function delta(int $current, int $prior): float

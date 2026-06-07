@@ -54,6 +54,51 @@ class ExportController extends AsabController
     }
 
     /**
+     * GET /company/me/operations/export — sales/expenses/purchases bulk export
+     * (also serves the shared GET /operations/export when no moduleKey is given).
+     */
+    public function operationsExport(Request $request): BinaryFileResponse
+    {
+        return $this->exports->operations($this->format($request), $request->user()->company_id, [
+            'moduleKey' => $request->query('moduleKey'),
+            'status' => $request->query('status'),
+            'branchId' => $request->query('branchId'),
+            'brandId' => $request->query('brandId'),
+            'dateFrom' => $request->query('dateFrom'),
+            'dateTo' => $request->query('dateTo'),
+        ]);
+    }
+
+    /** GET /company/me/assets/export — fixed-assets register. */
+    public function assetsExport(Request $request): BinaryFileResponse
+    {
+        return $this->exports->assets(
+            $this->format($request),
+            $request->user()->company_id,
+            $request->query('category'),
+            $request->query('branchId'),
+        );
+    }
+
+    /** GET /company/me/accountant/reminders/export */
+    public function remindersExport(Request $request): BinaryFileResponse
+    {
+        return $this->exports->reminders($this->format($request), $request->user()->company_id);
+    }
+
+    /** GET /company/me/suppliers/export */
+    public function suppliersExport(Request $request): BinaryFileResponse
+    {
+        return $this->exports->companySuppliers($this->format($request), $request->user()->company_id);
+    }
+
+    /** GET /company/me/procurement/items/export */
+    public function procurementItemsExport(Request $request): BinaryFileResponse
+    {
+        return $this->exports->procurementItems($this->format($request), $request->user()->company_id);
+    }
+
+    /**
      * GET /exports/{jobId}/download — fetch a file produced by an async export job.
      * Files live under the company namespace, so a user can only ever reach its own.
      */
