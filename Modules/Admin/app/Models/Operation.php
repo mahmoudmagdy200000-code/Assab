@@ -19,8 +19,11 @@ class Operation extends Model
     protected $table = 'asab_operations';
 
     public const STATUS_PENDING = 'pending';
+
     public const STATUS_APPROVED = 'approved';
+
     public const STATUS_REJECTED = 'rejected';
+
     public const STATUS_FINAL = 'final-approved';
 
     protected $fillable = [

@@ -5,56 +5,44 @@ namespace Modules\Admin\Http\Controllers\Shared;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
-use Modules\Admin\Models\Operation;
+use Modules\Admin\Services\ExceptionService;
 
 /**
- * Risk panel — derived exceptions (BACKEND_API_SPEC.md §7.8).
+ * Risk / exception panel (MISSING_Dashboard §3.3). Returns a paginated list of
+ * derived, per-record exceptions filterable by severity / moduleKey / branchId.
  */
 class ExceptionController extends AsabController
 {
+    public function __construct(private readonly ExceptionService $service) {}
+
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $forRole = $request->query('forRole', 'accountant');
-            $items = [];
+            $user = $request->user();
+            $companyId = $user->hasAsabRole('admin') ? $request->query('companyId') : $user->company_id;
 
-            $stuck = Operation::where('status', 'pending')->where('submitted_at', '<', now()->subDays(2))->count();
-            if ($stuck > 0) {
-                $items[] = $this->item('high', '⏳', 'عمليات معلّقة أكثر من يومين', $stuck, $forRole, 'مراجعة العمليات المعلّقة', 'review-pending');
+            $rows = $this->service->all($companyId, $request->query('branchId'));
+
+            if ($severity = $request->query('severity')) {
+                $rows = $rows->where('severity', $severity)->values();
+            }
+            if ($moduleKey = $request->query('moduleKey')) {
+                $rows = $rows->where('moduleKey', $moduleKey)->values();
             }
 
-            $diffs = Operation::where('match', 'diff')->whereIn('status', ['pending', 'approved'])->count();
-            if ($diffs > 0) {
-                $items[] = $this->item('medium', '⚠️', 'فروقات غير محلولة', $diffs, $forRole, 'حل الفروقات', 'review-diffs');
-            }
+            $page = max(1, (int) $request->query('page', 1));
+            $pageSize = min(100, max(1, (int) $request->query('pageSize', 20)));
+            $total = $rows->count();
 
-            $pendingErp = Operation::where('status', 'final-approved')->where('erp_posted', false)->count();
-            if ($pendingErp > 0) {
-                $items[] = $this->item('medium', '📤', 'عمليات بانتظار التصدير لـ ERP', $pendingErp, 'head', 'تصدير لـ ERP', 'head-erp');
-            }
-
-            $corrections = Operation::where('is_correction', true)->where('status', 'pending')->count();
-            if ($corrections > 0) {
-                $items[] = $this->item('high', '🔧', 'عمليات تعديل بانتظار المراجعة', $corrections, $forRole, 'مراجعة التعديلات', 'review-corrections');
-            }
-
-            return $this->ok(['items' => $items]);
+            return $this->listResponse(
+                $rows->forPage($page, $pageSize)->values()->all(),
+                [
+                    'page' => $page,
+                    'pageSize' => $pageSize,
+                    'total' => $total,
+                    'totalPages' => (int) ceil($total / $pageSize),
+                ],
+            );
         });
-    }
-
-    private function item(string $severity, string $icon, string $label, int $count, string $owner, string $action, string $navTarget): array
-    {
-        return [
-            'severity' => $severity,
-            'icon' => $icon,
-            'label' => $label,
-            'count' => $count,
-            'owner' => $owner,
-            'action' => $action,
-            'age' => '',
-            'impact' => '',
-            'navTarget' => $navTarget,
-            'navLabel' => $action,
-        ];
     }
 }

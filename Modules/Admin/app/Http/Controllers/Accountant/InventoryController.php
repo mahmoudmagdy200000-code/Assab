@@ -9,6 +9,7 @@ use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\BranchInventoryList;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Services\InventoryReconciliationService;
 
 /**
  * Accountant inventory review + per-branch daily-list management
@@ -16,6 +17,8 @@ use Modules\Admin\Models\Operation;
  */
 class InventoryController extends AsabController
 {
+    public function __construct(private readonly InventoryReconciliationService $reconciliation) {}
+
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
@@ -161,6 +164,39 @@ class InventoryController extends AsabController
             });
 
             return $this->ok(['savedCount' => count($data['items']), 'pushedAt' => now()->toIso8601String()]);
+        });
+    }
+
+    /** GET /accountant/inventory/branches/{branchId}/daily-reconciliation?date= (MISSING_Dashboard §9.1). */
+    public function dailyReconciliation(Request $request, string $branchId): JsonResponse
+    {
+        return $this->run(function () use ($request, $branchId) {
+            $date = $request->query('date', now()->toDateString());
+
+            return $this->ok($this->reconciliation->snapshot($request->user()->company_id, $branchId, $date));
+        });
+    }
+
+    /** POST /accountant/inventory/branches/{branchId}/daily-variance-allocation (MISSING_Dashboard §9.2). */
+    public function saveDailyVarianceAllocation(Request $request, string $branchId): JsonResponse
+    {
+        return $this->run(function () use ($request, $branchId) {
+            $data = $request->validate([
+                'date' => 'required|date',
+                'items' => 'required|array|min:1',
+                'items.*.itemId' => 'required|string',
+                'items.*.allocations' => 'required|array|min:1',
+                'items.*.allocations.*.employeeId' => 'required|string',
+                'items.*.allocations.*.qty' => 'required|numeric|min:0',
+            ]);
+
+            return $this->ok($this->reconciliation->allocate(
+                $request->user()->company_id,
+                $branchId,
+                $data['date'],
+                $data['items'],
+                $request->user()->id,
+            ));
         });
     }
 }

@@ -8,6 +8,7 @@ use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\ErpBatchService;
+use Modules\Admin\Services\HeadMetricsService;
 
 /**
  * Company-scoped Head Accountant surface (COMPANY_DASHBOARD_API_SPEC.md §5.2).
@@ -16,7 +17,10 @@ use Modules\Admin\Services\ErpBatchService;
  */
 class HeadCompanyController extends AsabController
 {
-    public function __construct(private readonly ErpBatchService $erp) {}
+    public function __construct(
+        private readonly ErpBatchService $erp,
+        private readonly HeadMetricsService $metrics,
+    ) {}
 
     public function dashboard(Request $request): JsonResponse
     {
@@ -45,15 +49,17 @@ class HeadCompanyController extends AsabController
             ];
 
             return $this->ok([
-                'kpis' => [
+                // Existing fields kept; enriched per MISSING_Dashboard §4.1.
+                'kpis' => array_merge([
                     'awaitingMyApprovalCount' => $pipeline['approved'],
                     'finalApprovedCount' => $pipeline['final'],
                     'erpPostedCount' => $pipeline['erp'],
                     'rejectedCount' => $pipeline['rejected'],
                     'monthlySalesHalalas' => $monthSales,
                     'salesDeltaPct' => $prevSales ? round(($monthSales - $prevSales) / $prevSales * 100, 1) : 0.0,
-                ],
+                ], $this->metrics->dashboardKpis($companyId)),
                 'pipelineCounts' => $pipeline,
+                'weeklyPerformance' => $this->metrics->weeklyPerformance($companyId),
                 'brandPerformance' => AsabBrand::where('company_id', $companyId)->get()
                     ->map(fn (AsabBrand $b) => ['brandId' => $b->id, 'name' => $b->name, 'abbr' => $b->abbr, 'color' => $b->color, 'salesHalalas' => 0, 'pctOfTarget' => 0])->all(),
                 'awaitingFinalApprovalPreview' => $base()->where('status', Operation::STATUS_APPROVED)
@@ -65,23 +71,20 @@ class HeadCompanyController extends AsabController
 
     public function accountantsPerformance(Request $request): JsonResponse
     {
+        return $this->run(fn () => $this->ok($this->metrics->accountantsPerformance(
+            $request->user()->company_id,
+            $request->query('dateFrom'),
+            $request->query('dateTo'),
+        )));
+    }
+
+    /** GET /company/me/head/movements/recent?limit=10 (MISSING_Dashboard §4.3). */
+    public function movementsRecent(Request $request): JsonResponse
+    {
         return $this->run(function () use ($request) {
-            $companyId = $request->user()->company_id;
-            $rows = \Modules\Admin\Models\AsabUserRole::where('role_key', 'accountant')
-                ->whereHas('user', fn ($q) => $q->where('company_id', $companyId))->with('user')->get()
-                ->map(function ($r) use ($companyId) {
-                    $ops = Operation::where('company_id', $companyId)->where('approved_by_id', $r->user_id);
-                    $thisMonth = (clone $ops)->whereBetween('approved_at', [now()->startOfMonth(), now()->endOfMonth()])->count();
+            $limit = min(50, max(1, (int) $request->query('limit', 10)));
 
-                    return [
-                        'userId' => $r->user_id, 'name' => $r->user?->name, 'opsThisMonth' => $thisMonth,
-                        'pendingCount' => Operation::where('company_id', $companyId)->where('status', Operation::STATUS_PENDING)->count(),
-                        'approvalRate' => 100, 'avgReviewMinutes' => 0,
-                        'status' => $r->user?->status === 'active' ? 'active' : 'inactive',
-                    ];
-                })->all();
-
-            return $this->listResponse($rows);
+            return $this->listResponse($this->metrics->recentMovements($request->user()->company_id, $limit));
         });
     }
 

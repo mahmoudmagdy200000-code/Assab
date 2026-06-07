@@ -35,6 +35,7 @@ class Branch extends Model
         'asab_brand_id',
         'asab_restaurant_id',
         'asab_manager_user_id',
+        'asab_monthly_target',
     ];
 
     protected $casts = [
@@ -42,6 +43,7 @@ class Branch extends Model
         'lng' => 'decimal:8',
         'opening_hours' => 'datetime',
         'closing_hours' => 'datetime',
+        'asab_monthly_target' => 'integer',
     ];
 
     public function managers()

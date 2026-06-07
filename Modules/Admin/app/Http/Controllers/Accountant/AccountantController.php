@@ -4,7 +4,9 @@ namespace Modules\Admin\Http\Controllers\Accountant;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Models\AuditLog;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Reminder;
 
@@ -14,6 +16,37 @@ use Modules\Admin\Models\Reminder;
  */
 class AccountantController extends AsabController
 {
+    /** GET /accountant/dashboard/activity-heatmap (MISSING_Dashboard §11.2). */
+    public function activityHeatmap(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $from = $request->query('dateFrom', now()->subDays(30)->toDateString());
+            $to = $request->query('dateTo', now()->toDateString()).' 23:59:59';
+
+            $logs = AuditLog::where('actor_user_id', $request->user()->id)
+                ->whereBetween('occurred_at', [$from, $to])
+                ->limit(50000)->get(['occurred_at']);
+
+            $hours = array_fill(0, 24, 0);
+            $days = array_fill(0, 7, 0);
+            foreach ($logs as $log) {
+                if (! $log->occurred_at) {
+                    continue;
+                }
+                $at = Carbon::parse($log->occurred_at);
+                $hours[(int) $at->hour]++;
+                $days[(int) $at->dayOfWeek]++;
+            }
+
+            $dayLabels = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+            return $this->ok([
+                'hours' => array_map(fn ($h, $c) => ['hour' => $h, 'count' => $c], array_keys($hours), $hours),
+                'byDay' => array_map(fn ($d, $c) => ['day' => $d, 'dayAr' => $dayLabels[$d], 'totalCount' => $c], array_keys($days), $days),
+            ]);
+        });
+    }
+
     public function dashboard(): JsonResponse
     {
         return $this->run(function () {

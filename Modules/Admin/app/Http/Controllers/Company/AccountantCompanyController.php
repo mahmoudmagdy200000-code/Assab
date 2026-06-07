@@ -13,8 +13,8 @@ use Modules\Admin\Models\BrandShiftConfig;
 use Modules\Admin\Models\CashCustody;
 use Modules\Admin\Models\CashTransaction;
 use Modules\Admin\Models\Employee;
-use Modules\Admin\Models\EmployeeMovement;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Services\SalesVarianceService;
 
 /**
  * Company-scoped Accountant surface — the endpoints with NEW logic beyond what
@@ -22,6 +22,8 @@ use Modules\Admin\Models\Operation;
  */
 class AccountantCompanyController extends AsabController
 {
+    public function __construct(private readonly SalesVarianceService $salesVariance) {}
+
     public function dashboard(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
@@ -68,30 +70,15 @@ class AccountantCompanyController extends AsabController
         return $this->run(function () use ($request, $id) {
             $data = $request->validate([
                 'allocations' => 'required|array|min:1',
-                'allocations.*.empNumber' => 'required|string',
-                'allocations.*.amountHalalas' => 'required|integer',
+                'allocations.*.employeeId' => 'sometimes|string',
+                'allocations.*.empNumber' => 'sometimes|string',
+                'allocations.*.amountHalalas' => 'required|integer|min:1',
+                'notes' => 'sometimes|nullable|string|max:1000',
             ]);
             $op = Operation::where('company_id', $request->user()->company_id)
                 ->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id))->where('module_key', 'sales')->firstOrFail();
 
-            DB::transaction(function () use ($op, $data, $request) {
-                $payload = $op->payload ?? [];
-                $payload['variance_allocations'] = $data['allocations'];
-                $op->update(['payload' => $payload]);
-
-                foreach ($data['allocations'] as $a) {
-                    $emp = Employee::where('company_id', $request->user()->company_id)
-                        ->where('branch_id', $op->branch_id)->where('emp_number', $a['empNumber'])->first();
-                    if ($emp) {
-                        EmployeeMovement::create([
-                            'employee_id' => $emp->id, 'movement_date' => now(), 'description' => 'تحميل فرق كاش — '.$op->public_id,
-                            'movement_type' => 'debit', 'amount' => $a['amountHalalas'], 'ref_operation_id' => $op->id, 'created_by_id' => $request->user()->id,
-                        ]);
-                    }
-                }
-            });
-
-            return $this->ok(['id' => $op->id, 'salesDetails' => ['varianceAllocations' => $data['allocations']]]);
+            return $this->ok($this->salesVariance->assign($op, $data['allocations'], $data['notes'] ?? null, $request->user()));
         });
     }
 

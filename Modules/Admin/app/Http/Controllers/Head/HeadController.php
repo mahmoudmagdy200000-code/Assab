@@ -5,41 +5,45 @@ namespace Modules\Admin\Http\Controllers\Head;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
-use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\ErpBatchService;
+use Modules\Admin\Services\HeadMetricsService;
 
 /**
  * Head Accountant (رئيس الحسابات) dashboard + ERP (BACKEND_API_SPEC.md §6.2).
  */
 class HeadController extends AsabController
 {
-    public function __construct(private readonly ErpBatchService $erp) {}
+    public function __construct(
+        private readonly ErpBatchService $erp,
+        private readonly HeadMetricsService $metrics,
+    ) {}
 
-    public function dashboard(): JsonResponse
+    public function dashboard(Request $request): JsonResponse
     {
-        return $this->run(function () {
+        return $this->run(function () use ($request) {
+            $companyId = $request->user()->company_id;
             $byStatus = Operation::query()->selectRaw('status, count(*) as c')->groupBy('status')->pluck('c', 'status');
             $awaiting = (int) ($byStatus['approved'] ?? 0);
             $final = (int) ($byStatus['final-approved'] ?? 0);
             $rejected = (int) ($byStatus['rejected'] ?? 0);
             $erpPosted = Operation::where('erp_posted', true)->count();
-            $total = max(1, array_sum($byStatus->all()));
 
             return $this->ok([
-                'kpis' => [
+                // Existing fields kept; enriched per MISSING_Dashboard §4.1.
+                'kpis' => array_merge([
                     'awaitingApproval' => $awaiting,
                     'finalApprovedAwaitingErp' => Operation::where('status', Operation::STATUS_FINAL)->where('erp_posted', false)->count(),
                     'erpPosted' => $erpPosted,
                     'rejected' => $rejected,
-                    'performanceRate' => (int) round((($final + $erpPosted) / $total) * 100),
-                ],
+                ], $this->metrics->dashboardKpis($companyId)),
                 'pipeline' => [
                     ['stageId' => 'review', 'count' => (int) ($byStatus['pending'] ?? 0)],
                     ['stageId' => 'approved', 'count' => $awaiting],
                     ['stageId' => 'final', 'count' => $final],
                     ['stageId' => 'erp', 'count' => $erpPosted],
                 ],
+                'weeklyPerformance' => $this->metrics->weeklyPerformance($companyId),
             ]);
         });
     }
@@ -59,36 +63,22 @@ class HeadController extends AsabController
         return $this->listByStatus($request, Operation::STATUS_REJECTED);
     }
 
-    public function accountantsPerformance(): JsonResponse
+    public function accountantsPerformance(Request $request): JsonResponse
     {
-        return $this->run(function () {
-            $accountants = AsabUser::whereHas('roleAssignments', fn ($r) => $r->where('role_key', 'accountant'))->get();
+        return $this->run(fn () => $this->ok($this->metrics->accountantsPerformance(
+            $request->user()->company_id,
+            $request->query('dateFrom'),
+            $request->query('dateTo'),
+        )));
+    }
 
-            $rows = $accountants->map(function ($a) {
-                $reviewed = Operation::where('approved_by_id', $a->id)->count();
-                $approved = Operation::where('approved_by_id', $a->id)->whereIn('status', ['approved', 'final-approved'])->count();
-                $rate = $reviewed > 0 ? (int) round(($approved / $reviewed) * 100) : 0;
+    /** GET /head/movements/recent?limit=10 (MISSING_Dashboard §4.3). */
+    public function movementsRecent(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $limit = min(50, max(1, (int) $request->query('limit', 10)));
 
-                return [
-                    'id' => $a->id,
-                    'name' => $a->name,
-                    'reviewedCount' => $reviewed,
-                    'approvedCount' => $approved,
-                    'pendingCount' => Operation::where('status', 'pending')->count(),
-                    'rate' => $rate,
-                    'rating' => $rate >= 90 ? 5 : ($rate >= 75 ? 4 : 3),
-                    'level' => $rate >= 90 ? 'ممتاز' : ($rate >= 75 ? 'جيد' : 'مقبول'),
-                ];
-            })->values()->all();
-
-            return $this->ok([
-                'accountants' => $rows,
-                'overall' => [
-                    'reviewed' => array_sum(array_column($rows, 'reviewedCount')),
-                    'approved' => array_sum(array_column($rows, 'approvedCount')),
-                    'pending' => Operation::where('status', 'pending')->count(),
-                ],
-            ]);
+            return $this->listResponse($this->metrics->recentMovements($request->user()->company_id, $limit));
         });
     }
 

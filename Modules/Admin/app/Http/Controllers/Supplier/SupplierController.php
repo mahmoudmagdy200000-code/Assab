@@ -8,12 +8,16 @@ use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\SupplierItem;
+use Modules\Admin\Services\ExportService;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
  * Supplier (المورد; BACKEND_API_SPEC.md §6.6) portal — orders + catalog.
  */
 class SupplierController extends AsabController
 {
+    public function __construct(private readonly ExportService $exports) {}
+
     public function overview(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
@@ -166,6 +170,22 @@ class SupplierController extends AsabController
 
             return $this->noContent();
         });
+    }
+
+    /** GET /asab/supplier/items/export?format=xlsx|csv */
+    public function itemsExport(Request $request): BinaryFileResponse
+    {
+        $format = $request->query('format', 'xlsx') === 'csv' ? 'csv' : 'xlsx';
+
+        return $this->exports->supplierItems($format, $request->user()->id);
+    }
+
+    /** GET /asab/supplier/orders/export?status=accepted|rejected&format=xlsx|csv */
+    public function ordersExport(Request $request): BinaryFileResponse
+    {
+        $format = $request->query('format', 'xlsx') === 'csv' ? 'csv' : 'xlsx';
+
+        return $this->exports->supplierOrders($format, $request->query('status'));
     }
 
     public function reports(Request $request): JsonResponse

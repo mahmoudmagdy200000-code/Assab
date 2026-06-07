@@ -48,8 +48,11 @@ use Modules\Admin\Http\Controllers\Shared\ExceptionController;
 use Modules\Admin\Http\Controllers\Shared\LookupController;
 use Modules\Admin\Http\Controllers\Shared\NotificationController;
 use Modules\Admin\Http\Controllers\Shared\PipelineController;
+use Modules\Admin\Http\Controllers\Shared\QuickStatsController;
 use Modules\Admin\Http\Controllers\Shared\ReportController;
+use Modules\Admin\Http\Controllers\Shared\SavedFilterController;
 use Modules\Admin\Http\Controllers\Shared\SearchController;
+use Modules\Admin\Http\Controllers\Shared\TablePrefController;
 use Modules\Admin\Http\Controllers\Shared\UploadController;
 use Modules\Admin\Http\Controllers\Supplier\SupplierController;
 
@@ -63,6 +66,7 @@ Route::prefix('v1')->group(function () {
     Route::post('auth/login', [AuthController::class, 'login']);
     Route::post('auth/refresh', [AuthController::class, 'refresh']);
     Route::post('auth/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('auth/forgot-password/resend', [AuthController::class, 'forgotPasswordResend']);
     Route::post('auth/reset-password', [AuthController::class, 'resetPassword']);
 
     // Company invitation acceptance — public (token-authenticated; §4.2)
@@ -143,6 +147,8 @@ Route::prefix('v1')->group(function () {
                 Route::post('permissions/clone', [PermissionMatrixController::class, 'clone']);
 
                 // Audit + settings + reports
+                Route::get('audit-logs/export', [AuditLogController::class, 'export']);
+                Route::get('audit-logs/filters', [AuditLogController::class, 'filters']);
                 Route::get('audit-logs', [AuditLogController::class, 'index']);
                 Route::get('settings', [SettingsController::class, 'show']);
                 Route::patch('settings', [SettingsController::class, 'update']);
@@ -162,6 +168,8 @@ Route::prefix('v1')->group(function () {
 
             // Approval pipeline (§5)
             Route::get('operations', [OperationController::class, 'index']);
+            // Bulk export (head/accountant) — must precede operations/{id} so "export" isn't captured as an id.
+            Route::get('operations/export', [CompanyExportController::class, 'operationsExport'])->middleware('asab.role:accountant,head');
             Route::post('operations/bulk-approve', [OperationController::class, 'bulkApprove'])->middleware('asab.role:accountant,head');
             Route::get('operations/{id}', [OperationController::class, 'show']);
             Route::get('operations/{id}/audit-trail', [OperationController::class, 'auditTrail']);
@@ -192,8 +200,10 @@ Route::prefix('v1')->group(function () {
             Route::get('lookups/users', [LookupController::class, 'users']);
             Route::get('lookups/employees', [LookupController::class, 'employees']);
             Route::get('lookups/modules', [LookupController::class, 'modules']);
-            Route::get('lookups/exceptions', [ExceptionController::class, 'index']);
+            Route::get('lookups/exceptions', [LookupController::class, 'exceptions']);
 
+            Route::get('notifications/preferences', [NotificationController::class, 'preferences']);
+            Route::patch('notifications/preferences', [NotificationController::class, 'updatePreferences']);
             Route::get('notifications', [NotificationController::class, 'index']);
             Route::post('notifications/{id}/read', [NotificationController::class, 'markRead']);
             Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
@@ -226,6 +236,7 @@ Route::prefix('v1')->group(function () {
                 Route::get('operations/final-approved', [HeadController::class, 'finalApproved']);
                 Route::get('operations/rejected', [HeadController::class, 'rejected']);
                 Route::get('accountants/performance', [HeadController::class, 'accountantsPerformance']);
+                Route::get('movements/recent', [HeadController::class, 'movementsRecent']);
                 Route::get('erp/preflight', [HeadController::class, 'erpPreflight']);
                 Route::get('erp/eligible-operations', [HeadController::class, 'erpEligible']);
                 Route::get('erp/batches', [HeadController::class, 'erpBatches']);
@@ -236,6 +247,7 @@ Route::prefix('v1')->group(function () {
             // ---- Accountant (المحاسب; §6.3) ----
             Route::middleware('asab.role:accountant,head')->prefix('accountant')->group(function () {
                 Route::get('dashboard', [AccountantController::class, 'dashboard']);
+                Route::get('dashboard/activity-heatmap', [AccountantController::class, 'activityHeatmap']);
                 Route::get('operations', [AccountantController::class, 'operations']);
                 Route::patch('operations/{id}/reconciliation', [AccountantController::class, 'reconciliation']);
                 Route::post('expense-invoices/{invoiceId}/convert-to-asset', [AccountantController::class, 'convertToAsset']);
@@ -256,6 +268,8 @@ Route::prefix('v1')->group(function () {
                 Route::post('inventory/catalog', [InventoryController::class, 'storeCatalogItem']);
                 Route::get('inventory/branches/{branchId}/daily-list', [InventoryController::class, 'dailyList']);
                 Route::put('inventory/branches/{branchId}/daily-list', [InventoryController::class, 'saveDailyList']);
+                Route::get('inventory/branches/{branchId}/daily-reconciliation', [InventoryController::class, 'dailyReconciliation']);
+                Route::post('inventory/branches/{branchId}/daily-variance-allocation', [InventoryController::class, 'saveDailyVarianceAllocation']);
 
                 // Waste (§6.3.7)
                 Route::get('waste', [WasteController::class, 'index']);
@@ -284,6 +298,7 @@ Route::prefix('v1')->group(function () {
             // Reminders (§6.3.12) — accountant + head
             Route::middleware('asab.role:accountant,head')->group(function () {
                 Route::get('reminders', [AccountantController::class, 'reminders']);
+                Route::post('reminders/broadcast', [ReminderController::class, 'broadcast']);
                 Route::post('reminders/{id}/send', [ReminderController::class, 'send']);
                 Route::post('reminders/bulk-send', [ReminderController::class, 'bulkSend']);
                 Route::post('reminders/{id}/respond', [ReminderController::class, 'respond']);
@@ -328,10 +343,12 @@ Route::prefix('v1')->group(function () {
             // /api/v1/supplier/* (mobile portal, different auth guard). Keeping both.
             Route::middleware('asab.role:supplier')->prefix('asab/supplier')->group(function () {
                 Route::get('overview', [SupplierController::class, 'overview']);
+                Route::get('orders/export', [SupplierController::class, 'ordersExport']);
                 Route::get('orders', [SupplierController::class, 'orders']);
                 Route::post('orders/{id}/accept', [SupplierController::class, 'accept']);
                 Route::post('orders/{id}/reject', [SupplierController::class, 'reject']);
                 Route::post('orders/{id}/mark-delivered', [SupplierController::class, 'markDelivered']);
+                Route::get('items/export', [SupplierController::class, 'itemsExport']);
                 Route::get('items', [SupplierController::class, 'items']);
                 Route::post('items', [SupplierController::class, 'storeItem']);
                 Route::patch('items/{id}', [SupplierController::class, 'updateItem']);
@@ -359,6 +376,7 @@ Route::prefix('v1')->group(function () {
                     Route::post('invitations/{id}/revoke', [CompanyUserController::class, 'revokeInvitation']);
 
                     // ca-dashboard (§5.1.1)
+                    Route::get('me/dashboard/brand-performance', [CompanyDashboardController::class, 'brandPerformance']);
                     Route::get('me/dashboard', [CompanyDashboardController::class, 'index']);
 
                     // ca-subscription (§5.1.2)
@@ -441,6 +459,7 @@ Route::prefix('v1')->group(function () {
                 Route::middleware('asab.role:head')->group(function () {
                     Route::get('head/dashboard', [HeadCompanyController::class, 'dashboard']);
                     Route::get('head/accountants/performance', [HeadCompanyController::class, 'accountantsPerformance']);
+                    Route::get('head/movements/recent', [HeadCompanyController::class, 'movementsRecent']);
                     Route::get('head/reminders', [PersonalReminderController::class, 'index']);
                     Route::patch('head/reminders/{id}', [PersonalReminderController::class, 'update']);
                     Route::post('head/reminders/mark-all-done', [PersonalReminderController::class, 'markAllDone']);
@@ -450,11 +469,13 @@ Route::prefix('v1')->group(function () {
                 // Accountant (§5.3)
                 Route::middleware('asab.role:accountant')->group(function () {
                     Route::get('accountant/dashboard', [AccountantCompanyController::class, 'dashboard']);
+                    Route::get('accountant/reminders/export', [CompanyExportController::class, 'remindersExport']);
                     Route::get('accountant/reminders', [PersonalReminderController::class, 'index']);
                     Route::post('accountant/reminders', [PersonalReminderController::class, 'store']);
                     Route::patch('accountant/reminders/{id}', [PersonalReminderController::class, 'update']);
                     Route::delete('accountant/reminders/{id}', [PersonalReminderController::class, 'destroy']);
 
+                    Route::get('operations/export', [CompanyExportController::class, 'operationsExport']);
                     Route::get('operations', [OperationController::class, 'index']);
                     Route::post('operations/bulk-approve', [OperationController::class, 'bulkApprove']);
                     Route::post('operations/{id}/approve', [OperationController::class, 'approve']);
@@ -487,6 +508,7 @@ Route::prefix('v1')->group(function () {
                     Route::post('waste/{id}/approve', [WasteController::class, 'approve']);
                     Route::post('waste/{id}/reject', [WasteController::class, 'reject']);
 
+                    Route::get('assets/export', [CompanyExportController::class, 'assetsExport']);
                     Route::get('assets', [AssetController::class, 'index']);
                     Route::post('assets', [AssetController::class, 'store']);
                     Route::post('assets/import', [AccountantCompanyController::class, 'importAssets']);
@@ -541,6 +563,7 @@ Route::prefix('v1')->group(function () {
                     Route::post('orders/{id}/reject', [ProcurementController::class, 'reject']);
                     Route::patch('orders/{id}', [ProcurementCompanyController::class, 'updateOrder']);
                     Route::delete('orders/{id}', [ProcurementCompanyController::class, 'destroyOrder']);
+                    Route::get('items/export', [CompanyExportController::class, 'procurementItemsExport']);
                     Route::get('items/{id}/price-history', [ProcurementCompanyController::class, 'priceHistory']);
                     Route::get('items', [ProcurementController::class, 'items']);
                     Route::post('items', [ProcurementCompanyController::class, 'storeItem']);
@@ -549,8 +572,10 @@ Route::prefix('v1')->group(function () {
                 });
 
                 // Suppliers — read for all roles; write for procurement/company-admin; rate for procurement/branch
-                Route::middleware('asab.role:company-admin,head,accountant,branch,procurement')
-                    ->get('suppliers', [ProcurementController::class, 'suppliers']);
+                Route::middleware('asab.role:company-admin,head,accountant,branch,procurement')->group(function () {
+                    Route::get('suppliers/export', [CompanyExportController::class, 'suppliersExport']);
+                    Route::get('suppliers', [ProcurementController::class, 'suppliers']);
+                });
                 Route::middleware('asab.role:procurement,company-admin')->group(function () {
                     Route::post('suppliers', [ProcurementCompanyController::class, 'storeSupplier']);
                     Route::patch('suppliers/{id}', [ProcurementCompanyController::class, 'updateSupplier']);
@@ -588,9 +613,23 @@ Route::prefix('v1')->group(function () {
                 Route::middleware('asab.role:company-admin,head')->get('audit-logs', [CrossController::class, 'auditLogs']);
             });
 
-            // Per-user UI preferences (§7)
+            // Per-user UI preferences + cross-cutting (§7 / §11)
             Route::middleware(['asab.tenant', 'asab.role:company-admin,head,accountant,branch,procurement'])
-                ->patch('users/me/preferences', [CrossController::class, 'userPreferences']);
+                ->prefix('users/me')->group(function () {
+                    Route::patch('preferences', [CrossController::class, 'userPreferences']);
+
+                    // Saved filter presets (§11.1)
+                    Route::get('saved-filters', [SavedFilterController::class, 'index']);
+                    Route::post('saved-filters', [SavedFilterController::class, 'store']);
+                    Route::delete('saved-filters/{id}', [SavedFilterController::class, 'destroy']);
+
+                    // Header quick-stats (§11.3)
+                    Route::get('quick-stats', [QuickStatsController::class, 'index']);
+
+                    // Persistent table column layout (§11.4)
+                    Route::get('table-prefs', [TablePrefController::class, 'show']);
+                    Route::put('table-prefs', [TablePrefController::class, 'upsert']);
+                });
         });
     });
 });
