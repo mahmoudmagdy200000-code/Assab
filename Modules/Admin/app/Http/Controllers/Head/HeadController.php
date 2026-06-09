@@ -82,17 +82,6 @@ class HeadController extends AsabController
         });
     }
 
-    public function conditionalApprove(Request $request, string $id): JsonResponse
-    {
-        return $this->run(function () use ($request, $id) {
-            $data = $request->validate(['conditionalNote' => 'required|string|max:500']);
-            $op = Operation::where('id', $id)->orWhere('public_id', $id)->firstOrFail();
-            $service = app(\Modules\Admin\Services\OperationService::class);
-
-            return $this->ok($this->present($service->finalApprove($op, $request->user(), true, $data['conditionalNote'])));
-        });
-    }
-
     public function reportsInternal(Request $request): JsonResponse
     {
         return $this->run(function () {

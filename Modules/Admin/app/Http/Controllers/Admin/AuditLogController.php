@@ -56,6 +56,29 @@ class AuditLogController extends AsabController
         });
     }
 
+    /** GET /admin/audit-logs/{id} — full entry with before/after diff (FE request §1.3). */
+    public function show(string $id): JsonResponse
+    {
+        return $this->run(function () use ($id) {
+            $l = AuditLog::findOrFail($id);
+
+            return $this->ok([
+                'id' => $l->id,
+                'action' => $l->action,
+                'actorName' => $l->actor_label,
+                'actorRole' => $l->actor_role,
+                'entityType' => $l->entity_type,
+                'entityId' => $l->entity_id,
+                'description' => $l->description,
+                'before' => $l->before,
+                'after' => $l->after,
+                'ip' => $l->ip,
+                'userAgent' => $l->user_agent,
+                'occurredAt' => optional($l->occurred_at)->toIso8601String(),
+            ]);
+        });
+    }
+
     /** GET /admin/audit-logs/export?format=xlsx&userFilter=&actionType=&dateFrom=&dateTo= */
     public function export(Request $request): BinaryFileResponse
     {

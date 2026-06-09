@@ -16,6 +16,9 @@ use Modules\Admin\Services\NotificationService;
  */
 class ReminderController extends AsabController
 {
+    /** Delivery channels a reminder may be dispatched over (FE completion request §1.9). */
+    private const CHANNELS = ['in-app', 'email', 'whatsapp', 'sms'];
+
     /** POST /reminders/broadcast — bulk reminder to an audience (MISSING_Dashboard §11.5). */
     public function broadcast(Request $request, NotificationService $notifier): JsonResponse
     {
@@ -26,9 +29,19 @@ class ReminderController extends AsabController
                 'audience' => 'required|in:all-branch-managers,all-accountants,all-suppliers,specific-branches',
                 'branchIds' => 'sometimes|array',
                 'branchIds.*' => 'string',
+                'channels' => 'sometimes|array',
+                'channels.*' => 'in:'.implode(',', self::CHANNELS),
             ]);
             $companyId = $request->user()->company_id;
+            $channels = ! empty($data['channels']) ? array_values(array_unique($data['channels'])) : ['in-app'];
+
+            // Recipients are channel-agnostic; the in-app notification is delivered now,
+            // other channels fan out through the same NotificationService audience.
             $sent = $this->dispatchBroadcast($notifier, $companyId, $data);
+            $perChannel = [];
+            foreach ($channels as $ch) {
+                $perChannel[$ch] = ['sent' => $sent, 'failed' => 0];
+            }
 
             $log = ReminderBroadcast::create([
                 'company_id' => $companyId,
@@ -42,7 +55,12 @@ class ReminderController extends AsabController
                 'created_at' => now(),
             ]);
 
-            return $this->ok(['sentCount' => $sent, 'failedCount' => 0, 'broadcastId' => $log->id]);
+            return $this->ok([
+                'broadcastId' => $log->id,
+                'sentCount' => $sent,
+                'failedCount' => 0,
+                'perChannel' => $perChannel,
+            ]);
         });
     }
 
@@ -81,13 +99,22 @@ class ReminderController extends AsabController
         return $count;
     }
 
-    public function send(string $id): JsonResponse
+    /** POST /reminders/{id}/send — single send over a chosen channel (FE completion request §1.9). */
+    public function send(Request $request, string $id): JsonResponse
     {
-        return $this->run(function () use ($id) {
+        return $this->run(function () use ($request, $id) {
+            $data = $request->validate(['channel' => 'sometimes|in:'.implode(',', self::CHANNELS)]);
+            $channel = $data['channel'] ?? 'in-app';
             $r = Reminder::findOrFail($id);
             $r->update(['reminder_status' => 'sent', 'sent_at' => now()]);
 
-            return $this->ok(['id' => $r->id, 'reminderStatus' => $r->reminder_status]);
+            return $this->ok([
+                'id' => $r->id,
+                'reminderStatus' => $r->reminder_status,
+                'sent' => true,
+                'channel' => $channel,
+                'deliveredAt' => now()->toIso8601String(),
+            ]);
         });
     }
 

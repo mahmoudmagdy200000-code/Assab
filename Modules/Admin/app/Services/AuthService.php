@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Services;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
@@ -15,13 +16,28 @@ class AuthService
     /** Minimum seconds between password-reset (re)sends per email. */
     private const RESEND_COOLDOWN = 60;
 
-    public function __construct(private readonly PermissionResolver $permissions) {}
+    /** Lifetime of the interim two-factor login token. */
+    private const TWO_FACTOR_TOKEN_TTL = 300;
+
+    public function __construct(
+        private readonly PermissionResolver $permissions,
+        private readonly TwoFactorService $twoFactor,
+    ) {}
 
     /**
-     * @return array spec-exact { accessToken, refreshToken, expiresIn, user }
+     * Password (and optional 2FA) login (FE completion request §3.1).
+     * When 2FA is enabled and no code is supplied, returns
+     * { requires2fa:true, twoFactorToken } — no access token yet.
+     *
+     * @return array spec-exact { accessToken, refreshToken, expiresIn, user } | { requires2fa, twoFactorToken }
      */
-    public function login(string $email, string $password): array
+    public function login(string $email, string $password, ?string $code = null, ?string $twoFactorToken = null): array
     {
+        // Step-up path: client returns with the interim token + a code.
+        if ($twoFactorToken) {
+            return $this->completeTwoFactorLogin($twoFactorToken, $code);
+        }
+
         $user = AsabUser::where('email', $email)->first();
 
         if (! $user || ! Hash::check($password, $user->password)) {
@@ -32,6 +48,42 @@ class AuthService
             throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
         }
 
+        if ($user->twoFactorEnabled()) {
+            if ($code === null || $code === '') {
+                $token = Str::random(48);
+                Cache::put('2fa-login:'.$token, $user->id, self::TWO_FACTOR_TOKEN_TTL);
+                if ($user->two_factor_method === 'sms') {
+                    $this->twoFactor->sendSmsCode($user);
+                }
+
+                return ['requires2fa' => true, 'twoFactorToken' => $token];
+            }
+            if (! $this->twoFactor->verify($user, $code)) {
+                throw new AsabException('TWO_FACTOR_INVALID_CODE', 'Invalid verification code', 'رمز التحقق غير صحيح', 422);
+            }
+        }
+
+        $user->forceFill(['last_login_at' => now()])->saveQuietly();
+
+        return $this->issueTokens($user);
+    }
+
+    /** Resolve the interim token + verify the code, then issue tokens. */
+    private function completeTwoFactorLogin(string $twoFactorToken, ?string $code): array
+    {
+        $userId = Cache::get('2fa-login:'.$twoFactorToken);
+        if (! $userId) {
+            throw new AsabException('TWO_FACTOR_TOKEN_INVALID', 'Two-factor session expired', 'انتهت جلسة المصادقة الثنائية', 401);
+        }
+        $user = AsabUser::find($userId);
+        if (! $user) {
+            throw new AsabException('TWO_FACTOR_TOKEN_INVALID', 'Two-factor session invalid', 'جلسة المصادقة الثنائية غير صالحة', 401);
+        }
+        if ($code === null || ! $this->twoFactor->verify($user, $code)) {
+            throw new AsabException('TWO_FACTOR_INVALID_CODE', 'Invalid verification code', 'رمز التحقق غير صحيح', 422);
+        }
+
+        Cache::forget('2fa-login:'.$twoFactorToken);
         $user->forceFill(['last_login_at' => now()])->saveQuietly();
 
         return $this->issueTokens($user);

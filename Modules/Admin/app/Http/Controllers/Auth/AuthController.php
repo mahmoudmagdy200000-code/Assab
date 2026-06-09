@@ -16,12 +16,19 @@ class AuthController extends AsabController
     {
         return $this->run(function () use ($request) {
             $data = $request->validate([
-                'email' => 'required|email',
-                'password' => 'required|string',
+                'email' => 'required_without:twoFactorToken|email',
+                'password' => 'required_without:twoFactorToken|string',
+                'code' => 'sometimes|nullable|string',
+                'twoFactorToken' => 'sometimes|nullable|string',
                 'rememberMe' => 'sometimes|boolean',
             ]);
 
-            return $this->ok($this->auth->login($data['email'], $data['password']));
+            return $this->ok($this->auth->login(
+                $data['email'] ?? '',
+                $data['password'] ?? '',
+                $data['code'] ?? null,
+                $data['twoFactorToken'] ?? null,
+            ));
         });
     }
 

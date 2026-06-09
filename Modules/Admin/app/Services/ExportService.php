@@ -116,6 +116,67 @@ class ExportService
         return \Modules\Branch\Models\Branch::whereIn('id', $branchIds)->pluck('asab_brand_id', 'id');
     }
 
+    /**
+     * GET /company/me/inventory/export — variance sheet across the company's
+     * branches (FE completion request §1.8). Same variance math as the
+     * reconciliation snapshot; one row per counted item.
+     *
+     * @param  array{brandId?:?string, branchId?:?string, date?:?string}  $filters
+     */
+    public function inventory(string $format, string $companyId, array $filters): BinaryFileResponse
+    {
+        $q = Operation::where('company_id', $companyId)->where('module_key', 'inventory');
+
+        if (! empty($filters['branchId'])) {
+            $q->where('branch_id', $filters['branchId']);
+        } elseif (! empty($filters['brandId'])) {
+            $branchIds = \Modules\Branch\Models\Branch::where('asab_brand_id', $filters['brandId'])->pluck('id');
+            $q->whereIn('branch_id', $branchIds);
+        }
+        if (! empty($filters['date'])) {
+            $q->whereDate('operation_date', $filters['date']);
+        }
+
+        $ops = $q->orderByDesc('operation_date')->get();
+        $branchNames = $this->branchNames($ops->pluck('branch_id'));
+        $userNames = $this->userNames($ops->pluck('submitted_by_id'));
+
+        $rows = [];
+        foreach ($ops as $op) {
+            $items = is_array($op->payload['items'] ?? null) ? $op->payload['items'] : [];
+            $countedAt = optional($op->operation_date)->toIso8601String();
+            $countedBy = $op->payload['countedBy'] ?? ($userNames[$op->submitted_by_id] ?? '—');
+
+            foreach ($items as $it) {
+                $expected = (float) ($it['expectedQty'] ?? $it['expected'] ?? $it['systemQty'] ?? 0);
+                $actual = (float) ($it['actualQty'] ?? $it['actual'] ?? $it['countedQty'] ?? 0);
+                $varianceQty = round($expected - $actual, 3);
+                $variancePct = $expected != 0.0 ? round($varianceQty / $expected * 100, 2) : 0.0;
+                $unitPrice = (int) ($it['unitPriceHalalas'] ?? $it['priceHalalas'] ?? 0);
+                $varianceValue = (int) round(abs($varianceQty) * $unitPrice);
+
+                $rows[] = [
+                    $branchNames[$op->branch_id] ?? $op->branch_id,
+                    $it['name'] ?? ($it['itemName'] ?? '—'),
+                    $it['category'] ?? '—',
+                    $it['unit'] ?? '—',
+                    $expected,
+                    $actual,
+                    $varianceQty,
+                    $variancePct,
+                    $this->sar($varianceValue),
+                    $countedAt,
+                    $countedBy,
+                ];
+            }
+        }
+
+        return $this->make($format, 'inventory-variance', [
+            'Branch', 'Item', 'Category', 'Unit', 'Expected Qty', 'Actual Qty',
+            'Variance Qty', 'Variance Pct', 'Variance Value (SAR)', 'Last Counted At', 'Counted By',
+        ], $rows);
+    }
+
     public function operation(string $format, string $opId): BinaryFileResponse
     {
         $op = Operation::where(fn ($q) => $q->where('id', $opId)->orWhere('public_id', $opId))->firstOrFail();

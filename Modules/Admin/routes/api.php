@@ -14,6 +14,7 @@ use Modules\Admin\Http\Controllers\Admin\BranchController;
 use Modules\Admin\Http\Controllers\Admin\BrandController;
 use Modules\Admin\Http\Controllers\Admin\CompanyController;
 use Modules\Admin\Http\Controllers\Admin\DistributionController;
+use Modules\Admin\Http\Controllers\Admin\JobMonitorController;
 use Modules\Admin\Http\Controllers\Admin\OverviewController;
 use Modules\Admin\Http\Controllers\Admin\PermissionMatrixController;
 use Modules\Admin\Http\Controllers\Admin\RestaurantController;
@@ -22,8 +23,11 @@ use Modules\Admin\Http\Controllers\Admin\SubscriptionController;
 use Modules\Admin\Http\Controllers\Admin\UploadController as AdminUploadController;
 use Modules\Admin\Http\Controllers\Admin\UserController;
 use Modules\Admin\Http\Controllers\Auth\AuthController;
+use Modules\Admin\Http\Controllers\Auth\SsoController as AuthSsoController;
+use Modules\Admin\Http\Controllers\Auth\TwoFactorController;
 use Modules\Admin\Http\Controllers\Branch\BranchDashboardController;
 use Modules\Admin\Http\Controllers\Company\AccountantCompanyController;
+use Modules\Admin\Http\Controllers\Company\ApiKeyController;
 use Modules\Admin\Http\Controllers\Company\BillingController as CompanyBillingController;
 use Modules\Admin\Http\Controllers\Company\BranchCompanyController;
 use Modules\Admin\Http\Controllers\Company\CrossController;
@@ -36,19 +40,25 @@ use Modules\Admin\Http\Controllers\Company\OrgController as CompanyOrgController
 use Modules\Admin\Http\Controllers\Company\PersonalReminderController;
 use Modules\Admin\Http\Controllers\Company\ProcurementCompanyController;
 use Modules\Admin\Http\Controllers\Company\SettingsController as CompanySettingsController;
+use Modules\Admin\Http\Controllers\Company\SsoController as CompanySsoController;
 use Modules\Admin\Http\Controllers\Company\SubscriptionController as CompanySubscriptionController;
+use Modules\Admin\Http\Controllers\Company\SupportChatController;
 use Modules\Admin\Http\Controllers\Company\SupportController as CompanySupportController;
+use Modules\Admin\Http\Controllers\Company\TenantWebhookController;
 use Modules\Admin\Http\Controllers\Company\UserController as CompanyUserController;
 use Modules\Admin\Http\Controllers\Company\WebhookController;
 use Modules\Admin\Http\Controllers\Head\HeadController;
 use Modules\Admin\Http\Controllers\Operations\OperationController;
 use Modules\Admin\Http\Controllers\Procurement\ProcurementController;
+use Modules\Admin\Http\Controllers\Shared\DataPrivacyController;
 use Modules\Admin\Http\Controllers\Shared\ErpController;
 use Modules\Admin\Http\Controllers\Shared\ExceptionController;
 use Modules\Admin\Http\Controllers\Shared\LookupController;
 use Modules\Admin\Http\Controllers\Shared\NotificationController;
+use Modules\Admin\Http\Controllers\Shared\OnboardingController;
 use Modules\Admin\Http\Controllers\Shared\PipelineController;
 use Modules\Admin\Http\Controllers\Shared\QuickStatsController;
+use Modules\Admin\Http\Controllers\Shared\ReportBuilderController;
 use Modules\Admin\Http\Controllers\Shared\ReportController;
 use Modules\Admin\Http\Controllers\Shared\SavedFilterController;
 use Modules\Admin\Http\Controllers\Shared\SearchController;
@@ -76,12 +86,26 @@ Route::prefix('v1')->group(function () {
     Route::post('webhooks/{provider}', [WebhookController::class, 'handle'])
         ->where('provider', 'stripe|tap|hyperpay|moyasar');
 
+    // SSO sign-in callback — public (FE completion request §3.2)
+    Route::post('auth/sso/{provider}/callback', [AuthSsoController::class, 'callback']);
+
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('auth/me', [AuthController::class, 'me']);
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::post('auth/change-password', [AuthController::class, 'changePassword']);
         Route::get('auth/sessions', [AuthController::class, 'sessions']);
         Route::delete('auth/sessions/{id}', [AuthController::class, 'deleteSession']);
+
+        // Two-factor auth (§3.1) — account-level, any authenticated AsabUser
+        Route::post('auth/2fa/setup', [TwoFactorController::class, 'setup']);
+        Route::post('auth/2fa/verify', [TwoFactorController::class, 'verify']);
+        Route::post('auth/2fa/disable', [TwoFactorController::class, 'disable']);
+        Route::get('users/me/2fa-status', [TwoFactorController::class, 'status']);
+
+        // GDPR / Saudi PDPL self-service (§3.4)
+        Route::post('users/me/data-export', [DataPrivacyController::class, 'requestExport']);
+        Route::get('users/me/data-export/{jobId}', [DataPrivacyController::class, 'exportStatus']);
+        Route::post('users/me/account-deletion-request', [DataPrivacyController::class, 'requestDeletion']);
 
         // ---- Admin (أمين النظام; §6.1) ----
         Route::middleware(['asab.tenant', 'asab.role:admin', 'asab.idempotency', 'asab.audit'])
@@ -108,8 +132,10 @@ Route::prefix('v1')->group(function () {
                 Route::patch('brands/{id}', [BrandController::class, 'update']);
                 Route::delete('brands/{id}', [BrandController::class, 'destroy']);
                 Route::post('brands/{brandId}/restaurants', [RestaurantController::class, 'store']);
+                Route::post('brands/{brandId}/auto-reminder', [BrandController::class, 'autoReminder']);
                 Route::patch('restaurants/{id}', [RestaurantController::class, 'update']);
                 Route::delete('restaurants/{id}', [RestaurantController::class, 'destroy']);
+                Route::post('restaurants/{restaurantId}/subscription/renew', [RestaurantController::class, 'renewSubscription']);
                 Route::get('restaurants/subscriptions', [SubscriptionController::class, 'restaurants']);
                 Route::get('branches', [BranchController::class, 'index']);
                 Route::post('restaurants/{restaurantId}/branches', [BranchController::class, 'store']);
@@ -146,14 +172,25 @@ Route::prefix('v1')->group(function () {
                 Route::patch('permissions/cell', [PermissionMatrixController::class, 'updateCell']);
                 Route::post('permissions/clone', [PermissionMatrixController::class, 'clone']);
 
+                // Permission matrix version history (FE completion request §2.3)
+                Route::get('permissions/history', [PermissionMatrixController::class, 'history']);
+                Route::get('permissions/history/{snapshotId}', [PermissionMatrixController::class, 'historyShow']);
+                Route::post('permissions/history/{snapshotId}/restore', [PermissionMatrixController::class, 'restore']);
+
                 // Audit + settings + reports
                 Route::get('audit-logs/export', [AuditLogController::class, 'export']);
                 Route::get('audit-logs/filters', [AuditLogController::class, 'filters']);
                 Route::get('audit-logs', [AuditLogController::class, 'index']);
+                Route::get('audit-logs/{id}', [AuditLogController::class, 'show']);
                 Route::get('settings', [SettingsController::class, 'show']);
                 Route::patch('settings', [SettingsController::class, 'update']);
                 Route::get('reports/catalog', [ReportController::class, 'catalog']);
                 Route::post('reports/generate', [ReportController::class, 'generate']);
+
+                // Background-job monitoring (FE completion request §3.6)
+                Route::get('jobs', [JobMonitorController::class, 'index']);
+                Route::post('jobs/{id}/retry', [JobMonitorController::class, 'retry']);
+                Route::post('jobs/{id}/cancel', [JobMonitorController::class, 'cancel']);
 
                 // Excel/CSV bulk uploads (§6.1.5)
                 Route::post('brands/{brandId}/upload/{type}', [AdminUploadController::class, 'brandUpload']);
@@ -175,8 +212,8 @@ Route::prefix('v1')->group(function () {
             Route::get('operations/{id}/audit-trail', [OperationController::class, 'auditTrail']);
             Route::post('operations/{id}/approve', [OperationController::class, 'approve'])->middleware('asab.role:accountant,head');
             Route::post('operations/{id}/reject', [OperationController::class, 'reject'])->middleware('asab.role:accountant,head');
+            // Conditional approval is the isConditional flag on final-approve (FE completion request §1.6).
             Route::post('operations/{id}/final-approve', [OperationController::class, 'finalApprove'])->middleware('asab.role:head');
-            Route::post('operations/{id}/conditional-approve', [HeadController::class, 'conditionalApprove'])->middleware('asab.role:head');
             Route::post('operations/{id}/correction', [OperationController::class, 'correction'])->middleware('asab.role:accountant,head');
 
             // ERP (§5 / §7.4)
@@ -228,6 +265,13 @@ Route::prefix('v1')->group(function () {
             Route::post('reports/menu-engineering', [ReportController::class, 'menuEngineering']);
             Route::post('reports/breakeven', [ReportController::class, 'breakeven']);
             Route::post('reports/cash-flow', [ReportController::class, 'cashFlow']);
+
+            // Custom report builder (FE completion request §2.4)
+            Route::middleware('asab.role:accountant,head,company-admin')->prefix('reports/builder')->group(function () {
+                Route::get('fields', [ReportBuilderController::class, 'fields']);
+                Route::post('preview', [ReportBuilderController::class, 'preview']);
+                Route::post('save', [ReportBuilderController::class, 'save']);
+            });
 
             // ---- Head Accountant (رئيس الحسابات; §6.2) ----
             Route::middleware('asab.role:head')->prefix('head')->group(function () {
@@ -433,6 +477,24 @@ Route::prefix('v1')->group(function () {
                     Route::put('me/settings', [CompanySettingsController::class, 'update']);
                     Route::post('me/settings/logo', [CompanySettingsController::class, 'uploadLogo']);
                     Route::patch('me/preferences', [CompanySettingsController::class, 'updatePreferences']);
+
+                    // API keys (FE completion request §3.3)
+                    Route::get('me/api-keys', [ApiKeyController::class, 'index']);
+                    Route::post('me/api-keys', [ApiKeyController::class, 'store']);
+                    Route::delete('me/api-keys/{id}', [ApiKeyController::class, 'destroy']);
+
+                    // SSO config (FE completion request §3.2, Enterprise)
+                    Route::get('me/sso', [CompanySsoController::class, 'show']);
+                    Route::put('me/sso', [CompanySsoController::class, 'update']);
+                    Route::delete('me/sso', [CompanySsoController::class, 'destroy']);
+
+                    // Outbound webhooks (FE completion request §3.5)
+                    Route::get('me/webhooks', [TenantWebhookController::class, 'index']);
+                    Route::post('me/webhooks', [TenantWebhookController::class, 'store']);
+                    Route::get('me/webhooks/{id}/deliveries', [TenantWebhookController::class, 'deliveries']);
+                    Route::patch('me/webhooks/{id}', [TenantWebhookController::class, 'update']);
+                    Route::delete('me/webhooks/{id}', [TenantWebhookController::class, 'destroy']);
+                    Route::post('me/webhooks/{id}/test', [TenantWebhookController::class, 'test']);
                 });
 
             // ca-support (§5.1.8) — any company role may open/view their tickets
@@ -440,6 +502,13 @@ Route::prefix('v1')->group(function () {
                 ->prefix('company/me/support')
                 ->group(function () {
                     Route::get('channels', [CompanySupportController::class, 'channels']);
+
+                    // Live chat (FE completion request §2.1)
+                    Route::post('chat/start', [SupportChatController::class, 'start']);
+                    Route::get('chat/{sessionId}', [SupportChatController::class, 'show']);
+                    Route::post('chat/{sessionId}/message', [SupportChatController::class, 'message']);
+                    Route::post('chat/{sessionId}/close', [SupportChatController::class, 'close']);
+
                     Route::get('tickets', [CompanySupportController::class, 'index']);
                     Route::post('tickets', [CompanySupportController::class, 'store']);
                     Route::get('tickets/{id}', [CompanySupportController::class, 'show']);
@@ -491,6 +560,7 @@ Route::prefix('v1')->group(function () {
                     Route::post('asset-drafts/{draftId}/confirm', [AssetController::class, 'confirmDraft']);
                     Route::post('asset-drafts/{draftId}/discard', [AssetController::class, 'discardDraft']);
 
+                    Route::get('inventory/export', [CompanyExportController::class, 'inventoryExport']);
                     Route::get('inventory/branches', [InventoryController::class, 'index']);
                     Route::post('inventory/branches/{branchId}/flag', [InventoryController::class, 'flagBranch']);
                     Route::post('inventory/branches/{branchId}/flag-items', [InventoryController::class, 'flagItems']);
@@ -617,6 +687,10 @@ Route::prefix('v1')->group(function () {
             Route::middleware(['asab.tenant', 'asab.role:company-admin,head,accountant,branch,procurement'])
                 ->prefix('users/me')->group(function () {
                     Route::patch('preferences', [CrossController::class, 'userPreferences']);
+
+                    // Onboarding tour state (FE completion request §2.2)
+                    Route::get('onboarding-state', [OnboardingController::class, 'show']);
+                    Route::patch('onboarding-state', [OnboardingController::class, 'update']);
 
                     // Saved filter presets (§11.1)
                     Route::get('saved-filters', [SavedFilterController::class, 'index']);

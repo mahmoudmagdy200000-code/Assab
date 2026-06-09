@@ -5,12 +5,38 @@ namespace Modules\Admin\Http\Controllers\Admin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRestaurant;
+use Modules\Admin\Services\AsabSubscriptionService;
+use Modules\Admin\Services\RealtimeBroadcaster;
 
 class RestaurantController extends AsabController
 {
+    /**
+     * POST /admin/restaurants/{restaurantId}/subscription/renew — renew the
+     * restaurant's subscription by id (FE completion request §1.1). The admin
+     * UI only holds the restaurant id, not the subscription id.
+     */
+    public function renewSubscription(Request $request, AsabSubscriptionService $subs, RealtimeBroadcaster $rt, string $restaurantId): JsonResponse
+    {
+        return $this->run(function () use ($request, $subs, $rt, $restaurantId) {
+            AsabRestaurant::findOrFail($restaurantId);
+            $data = $request->validate(['months' => 'sometimes|integer|min:1|max:60']);
+
+            $sub = $subs->forRestaurant($restaurantId);
+            if (! $sub) {
+                throw new AsabException('NOT_FOUND', 'No subscription for restaurant', 'لا يوجد اشتراك لهذا المطعم', 404);
+            }
+
+            $fresh = $subs->renew($sub, (int) ($data['months'] ?? 12));
+            $rt->asabSubscriptionUpdated($fresh);
+
+            return $this->ok($subs->presentWithNames($fresh));
+        });
+    }
+
     public function store(Request $request, string $brandId): JsonResponse
     {
         return $this->run(function () use ($request, $brandId) {
