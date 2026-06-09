@@ -76,16 +76,33 @@ class OperationController extends AsabController
         });
     }
 
+    /**
+     * POST /operations/{id}/final-approve — head accountant final approval.
+     * Conditional approval is the `isConditional` flag form (FE completion
+     * request §1.6); the standalone conditional-approve endpoint was retired.
+     */
     public function finalApprove(Request $request, string $id): JsonResponse
     {
-        return $this->run(fn () => $this->ok($this->present(
-            $this->service->finalApprove(
-                $this->find($id),
-                $request->user(),
-                (bool) $request->input('isConditional', false),
-                $request->input('conditionalNote'),
-            ),
-        )));
+        return $this->run(function () use ($request, $id) {
+            $data = $request->validate([
+                'isConditional' => 'sometimes|boolean',
+                'conditionalNote' => 'required_if:isConditional,true|nullable|string|max:1000',
+                'conditions' => 'sometimes|array',
+                'conditions.*.id' => 'sometimes|string',
+                'conditions.*.text' => 'required_with:conditions|string|max:500',
+                'conditions.*.dueAt' => 'sometimes|nullable|date',
+            ]);
+
+            return $this->ok($this->present(
+                $this->service->finalApprove(
+                    $this->find($id),
+                    $request->user(),
+                    (bool) ($data['isConditional'] ?? false),
+                    $data['conditionalNote'] ?? null,
+                    $data['conditions'] ?? [],
+                ),
+            ));
+        });
     }
 
     public function bulkApprove(Request $request): JsonResponse
@@ -100,20 +117,44 @@ class OperationController extends AsabController
     public function correction(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
+            // FE completion request §1.5 body: { reason, notes?, correctedFields? }.
+            // Legacy callers send { correctionReason, amount, diffNote } — accept both.
             $data = $request->validate([
-                'correctionReason' => 'required|string|max:500',
+                'reason' => 'sometimes|string|max:500',
+                'correctionReason' => 'sometimes|string|max:500',
+                'notes' => 'sometimes|nullable|string|max:1000',
+                'correctedFields' => 'sometimes|array',
                 'amount' => 'sometimes|integer|min:0',
                 'diffNote' => 'sometimes|string|max:255',
             ]);
+
+            $reason = $data['reason'] ?? $data['correctionReason'] ?? null;
+            if ($reason === null) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'reason' => ['The reason field is required.'],
+                ]);
+            }
+            if (isset($data['notes'])) {
+                $reason = trim($reason.' — '.$data['notes']);
+            }
+
+            $fields = $data['correctedFields'] ?? [];
             $original = $this->find($id);
             $overrides = array_filter([
-                'amount' => $data['amount'] ?? null,
-                'diff_note' => $data['diffNote'] ?? null,
+                'amount' => $data['amount'] ?? ($fields['amount'] ?? null),
+                'diff_note' => $data['diffNote'] ?? ($fields['diffNote'] ?? null),
             ], fn ($v) => $v !== null);
 
-            return $this->created($this->present(
-                $this->service->correction($original, $request->user(), $data['correctionReason'], $overrides),
-            ));
+            $correction = $this->service->correction($original, $request->user(), $reason, $overrides);
+
+            // FE completion request §1.5 — return the linkage, not the full operation.
+            return $this->created([
+                'originalOperationId' => $original->id,
+                'correctionOperationId' => $correction->id,
+                'publicId' => $correction->public_id,
+                'status' => $correction->status,
+                'createdAt' => optional($correction->created_at)->toIso8601String(),
+            ]);
         });
     }
 

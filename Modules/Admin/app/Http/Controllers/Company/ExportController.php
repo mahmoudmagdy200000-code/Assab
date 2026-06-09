@@ -29,6 +29,16 @@ class ExportController extends AsabController
         return $this->exports->operation($this->format($request), $id);
     }
 
+    /** GET /company/me/inventory/export — variance sheet (FE completion request §1.8). */
+    public function inventoryExport(Request $request): BinaryFileResponse
+    {
+        return $this->exports->inventory($this->format($request), $request->user()->company_id, [
+            'brandId' => $request->query('brandId'),
+            'branchId' => $request->query('branchId'),
+            'date' => $request->query('date'),
+        ]);
+    }
+
     /** GET /waste/export */
     public function waste(Request $request): BinaryFileResponse
     {

@@ -7,9 +7,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabSubscription;
+use Modules\Admin\Services\AsabSubscriptionService;
 
 class SubscriptionController extends AsabController
 {
+    public function __construct(private readonly AsabSubscriptionService $subs) {}
+
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
@@ -44,19 +47,9 @@ class SubscriptionController extends AsabController
     {
         return $this->run(function () use ($request, $id) {
             $sub = AsabSubscription::findOrFail($id);
-            $months = (int) $request->input('months', 12);
+            $fresh = $this->subs->renew($sub, (int) $request->input('months', 12));
 
-            DB::transaction(function () use ($sub, $months) {
-                $base = $sub->expires_at && $sub->expires_at->isFuture() ? $sub->expires_at : now();
-                $expires = $base->copy()->addMonths($months);
-                $sub->update([
-                    'status' => 'active',
-                    'expires_at' => $expires,
-                    'days_left' => (int) now()->diffInDays($expires),
-                ]);
-            });
-
-            return $this->ok($this->present($sub->fresh()));
+            return $this->ok($this->present($fresh));
         });
     }
 
@@ -105,18 +98,6 @@ class SubscriptionController extends AsabController
 
     private function present(AsabSubscription $s): array
     {
-        return [
-            'id' => $s->id,
-            'companyId' => $s->company_id,
-            'brandId' => $s->brand_id,
-            'restaurantId' => $s->restaurant_id,
-            'plan' => $s->plan,
-            'status' => $s->status,
-            'expiresAt' => optional($s->expires_at)->toIso8601String(),
-            'daysLeft' => $s->days_left,
-            'monthlyPrice' => $s->monthly_price,
-            'autoRenew' => (bool) $s->auto_renew,
-            'reminderEnabled' => (bool) $s->reminder_enabled,
-        ];
+        return $this->subs->present($s);
     }
 }

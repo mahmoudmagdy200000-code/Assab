@@ -30,12 +30,15 @@ class UploadController extends AsabController
         'fixed-assets' => ['اسم الأصل', 'الفئة', 'اسم الفرع', 'رقم الفاتورة', 'التكلفة (ر.س)', 'العمر الافتراضي (شهر)', 'أمين العهدة', 'ملاحظات'],
     ];
 
-    public function brandUpload(Request $request, string $brandId, string $type): JsonResponse
+    public function brandUpload(Request $request, \Modules\Admin\Services\RealtimeBroadcaster $rt, string $brandId, string $type): JsonResponse
     {
-        return $this->run(function () use ($request, $brandId, $type) {
+        return $this->run(function () use ($request, $rt, $brandId, $type) {
             $brand = AsabBrand::findOrFail($brandId);
             $request->validate(['file' => 'required|file']);
             $rows = $this->parse($request->file('file'));
+
+            // FE completion request §1.7 (Option B) — emit a processing tick, then a terminal tick.
+            $rt->brandUploadProgress($brand->company_id, $brand->id, $type, 'processing', 0, 0, 0);
 
             $count = 0;
             $errors = [];
@@ -68,7 +71,8 @@ class UploadController extends AsabController
                 }
             });
 
-            $this->stampStatus('brand', $brand->id, $type, $count, $request);
+            $this->stampStatus('brand', $brand->id, $type, $count, $request, $errors);
+            $rt->brandUploadProgress($brand->company_id, $brand->id, $type, 'done', 100, $count, count($errors));
 
             return $this->ok(['uploadedCount' => $count, 'errors' => $errors]);
         });
@@ -105,7 +109,7 @@ class UploadController extends AsabController
                 }
             });
 
-            $this->stampStatus('restaurant', $restaurant->id, 'employees', $count, $request);
+            $this->stampStatus('restaurant', $restaurant->id, 'employees', $count, $request, $errors);
 
             return $this->ok(['uploadedCount' => $count, 'errors' => $errors]);
         });
@@ -147,7 +151,7 @@ class UploadController extends AsabController
                 }
             });
 
-            $this->stampStatus('branch', $branch->id, 'fixed-assets', $count, $request);
+            $this->stampStatus('branch', $branch->id, 'fixed-assets', $count, $request, $errors);
 
             return $this->ok(['assetCount' => $count, 'errors' => $errors]);
         });
@@ -167,17 +171,30 @@ class UploadController extends AsabController
     public function status(string $brandId): JsonResponse
     {
         return $this->run(function () use ($brandId) {
-            $statuses = UploadStatus::where('owner_id', $brandId)->orWhere(function ($q) use ($brandId) {
-                $brand = AsabBrand::find($brandId);
-                if ($brand) {
-                    $restIds = AsabRestaurant::where('brand_id', $brand->id)->pluck('id');
-                    $q->whereIn('owner_id', $restIds);
-                }
-            })->get()->keyBy(fn ($s) => $s->owner_type.':'.$s->upload_type);
+            $brand = AsabBrand::find($brandId);
+            $restIds = $brand ? AsabRestaurant::where('brand_id', $brand->id)->pluck('id') : collect();
 
+            $rows = UploadStatus::where('owner_id', $brandId)
+                ->orWhereIn('owner_id', $restIds)
+                ->get();
+
+            $statuses = $rows->keyBy(fn ($s) => $s->owner_type.':'.$s->upload_type);
             $has = fn ($k) => $statuses->has($k);
 
+            // FE completion request §1.7 (Option A) — per-upload progress for polling.
+            $uploads = $rows->map(fn (UploadStatus $s) => [
+                'type' => $s->upload_type,
+                'status' => $s->status ?? ($s->uploaded_count > 0 ? 'done' : 'queued'),
+                'progressPct' => (int) ($s->progress_pct ?? ($s->uploaded_count > 0 ? 100 : 0)),
+                'parsedRows' => (int) ($s->parsed_rows ?? $s->uploaded_count),
+                'failedRows' => (int) ($s->failed_rows ?? 0),
+                'failureReason' => $s->failure_reason,
+                'startedAt' => optional($s->started_at)->toIso8601String(),
+                'finishedAt' => optional($s->finished_at)->toIso8601String(),
+            ])->values()->all();
+
             return $this->ok([
+                'uploads' => $uploads,
                 'shared' => [
                     'sales' => $has('brand:sales-items'),
                     'materials' => $has('brand:raw-materials'),
@@ -203,11 +220,24 @@ class UploadController extends AsabController
         return array_values(array_filter($rows, fn ($r) => count(array_filter($r)) > 0));
     }
 
-    private function stampStatus(string $ownerType, string $ownerId, string $type, int $count, Request $request): void
+    /** @param  array<int, array{row:int, message:string}>  $errors */
+    private function stampStatus(string $ownerType, string $ownerId, string $type, int $count, Request $request, array $errors = []): void
     {
+        $status = $errors && $count === 0 ? 'failed' : 'done';
         UploadStatus::updateOrCreate(
             ['owner_type' => $ownerType, 'owner_id' => $ownerId, 'upload_type' => $type],
-            ['uploaded_count' => $count, 'uploaded_at' => now(), 'uploaded_by_id' => $request->user()->id],
+            [
+                'uploaded_count' => $count,
+                'uploaded_at' => now(),
+                'uploaded_by_id' => $request->user()->id,
+                'status' => $status,
+                'progress_pct' => 100,
+                'parsed_rows' => $count,
+                'failed_rows' => count($errors),
+                'failure_reason' => $errors[0]['message'] ?? null,
+                'started_at' => now(),
+                'finished_at' => now(),
+            ],
         );
     }
 }

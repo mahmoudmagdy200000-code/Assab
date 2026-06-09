@@ -12,6 +12,7 @@
         "php": "^8.2",
         "barryvdh/laravel-dompdf": "^3.1",
         "endroid/qr-code": "^6.0",
+        "firebase/php-jwt": "^7.0",
         "irabbi360/laravel-api-inspector": "^1.2",
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.2",
@@ -21,6 +22,7 @@
         "nesbot/carbon": "^3.10",
         "nwidart/laravel-modules": "^12.0",
         "openspout/openspout": "^5.3",
+        "pragmarx/google2fa": "^9.0",
         "pusher/pusher-php-server": "^7.2"
     },
     "require-dev": {

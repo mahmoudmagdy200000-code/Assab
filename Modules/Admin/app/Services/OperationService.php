@@ -78,11 +78,14 @@ class OperationService
         return $fresh;
     }
 
-    public function finalApprove(Operation $op, AsabUser $actor, bool $conditional = false, ?string $conditionalNote = null): Operation
+    /**
+     * @param  array<int, array{id?:string, text:string, dueAt?:string}>  $conditions
+     */
+    public function finalApprove(Operation $op, AsabUser $actor, bool $conditional = false, ?string $conditionalNote = null, array $conditions = []): Operation
     {
         $this->assertStatus($op, Operation::STATUS_APPROVED, 'OP_NOT_APPROVED');
 
-        $fresh = DB::transaction(function () use ($op, $actor, $conditional, $conditionalNote) {
+        $fresh = DB::transaction(function () use ($op, $actor, $conditional, $conditionalNote, $conditions) {
             $op->update([
                 'status' => Operation::STATUS_FINAL,
                 'final_approved_by_id' => $actor->id,
@@ -90,9 +93,10 @@ class OperationService
                 'is_conditional' => $conditional,
                 'conditional_note' => $conditionalNote,
             ]);
-            $this->step($op, 'final', 'اعتمده رئيس الحسابات نهائياً — سجل مُغلق', $actor, $conditionalNote, [
+            $this->step($op, 'final', 'اعتمده رئيس الحسابات نهائياً — سجل مُغلق', $actor, $conditionalNote, array_filter([
                 'isConditional' => $conditional,
-            ]);
+                'conditions' => $conditional ? array_values($conditions) : null,
+            ], fn ($v) => $v !== null));
 
             return $op->fresh();
         });

@@ -85,6 +85,26 @@ class BrandController extends AsabController
         });
     }
 
+    /**
+     * POST /admin/brands/{brandId}/auto-reminder — toggle the brand-level
+     * auto-reminder switch (FE completion request §1.2). The toggle lives on the
+     * brand row in AdminSubscriptions, not on a subscription id.
+     */
+    public function autoReminder(Request $request, string $brandId): JsonResponse
+    {
+        return $this->run(function () use ($request, $brandId) {
+            $data = $request->validate(['enabled' => 'required|boolean']);
+            $brand = AsabBrand::findOrFail($brandId);
+            $brand->update(['auto_reminder_enabled' => $data['enabled']]);
+
+            return $this->ok([
+                'brandId' => $brand->id,
+                'enabled' => (bool) $brand->auto_reminder_enabled,
+                'updatedAt' => optional($brand->updated_at)->toIso8601String(),
+            ]);
+        });
+    }
+
     private function present(AsabBrand $b, bool $withChildren = false): array
     {
         $data = [

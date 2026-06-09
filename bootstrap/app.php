@@ -90,6 +90,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'asab.role' => \Modules\Admin\Http\Middleware\EnsureAsabRole::class,
             'asab.idempotency' => \Modules\Admin\Http\Middleware\IdempotencyKey::class,
             'asab.audit' => \Modules\Admin\Http\Middleware\AuditMutations::class,
+            'asab.apikey' => \Modules\Admin\Http\Middleware\AuthenticateApiKey::class,
             'overload.shed' => \App\Http\Middleware\OverloadSheddingMiddleware::class,
             'log.throttle' => \App\Http\Middleware\LogThrottledRequestsMiddleware::class,
         ]);

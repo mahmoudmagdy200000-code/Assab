@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabCompany;
+use Modules\Admin\Services\CompanyProvisioningService;
 
 class CompanyController extends AsabController
 {
@@ -32,9 +33,14 @@ class CompanyController extends AsabController
         });
     }
 
-    public function store(Request $request): JsonResponse
+    /**
+     * POST /admin/companies — create a company (FE completion request §1.4).
+     * Side-effects: auto-create the company-admin account + welcome email, and
+     * (for annual billing) provision the first invoice.
+     */
+    public function store(Request $request, CompanyProvisioningService $provisioning): JsonResponse
     {
-        return $this->run(function () use ($request) {
+        return $this->run(function () use ($request, $provisioning) {
             $data = $request->validate([
                 'name' => 'required|string|max:200',
                 'logo' => 'nullable|string|max:255',
@@ -43,28 +49,48 @@ class CompanyController extends AsabController
                 'contactPhone' => 'nullable|string|max:32',
                 'city' => 'nullable|string|max:80',
                 'plan' => 'required|in:Basic,Professional,Enterprise',
+                'billingCycle' => 'sometimes|in:monthly,annual',
+                'branchesLimitOverride' => 'sometimes|integer|min:1|max:1000',
                 'modules' => 'nullable|array',
+                'modules.*' => 'string',
                 'adminEmail' => 'nullable|email|max:191',
             ]);
 
-            $company = DB::transaction(fn () => AsabCompany::create([
-                'name' => $data['name'],
-                'logo' => $data['logo'] ?? null,
-                'contact_name' => $data['contactName'] ?? null,
-                'contact_email' => $data['contactEmail'] ?? null,
-                'contact_phone' => $data['contactPhone'] ?? null,
-                'city' => $data['city'] ?? null,
-                'plan' => $data['plan'],
-                'status' => 'trial',
-                'max_branches' => $this->planLimit($data['plan'], 'branches'),
-                'max_users' => $this->planLimit($data['plan'], 'users'),
-                'modules' => $data['modules'] ?? [],
-                'admin_email' => $data['adminEmail'] ?? null,
-                'start_date' => now(),
-                'next_billing' => now()->addMonth(),
-            ]));
+            $adminEmail = $data['contactEmail'] ?? $data['adminEmail'] ?? null;
+            $billingCycle = $data['billingCycle'] ?? 'monthly';
 
-            return $this->created($this->present($company));
+            [$company, $adminUser] = DB::transaction(function () use ($data, $provisioning, $adminEmail, $billingCycle) {
+                $company = AsabCompany::create([
+                    'name' => $data['name'],
+                    'logo' => $data['logo'] ?? null,
+                    'contact_name' => $data['contactName'] ?? null,
+                    'contact_email' => $data['contactEmail'] ?? null,
+                    'contact_phone' => $data['contactPhone'] ?? null,
+                    'city' => $data['city'] ?? null,
+                    'plan' => $data['plan'],
+                    'status' => 'trial',
+                    'max_branches' => $data['branchesLimitOverride'] ?? $this->planLimit($data['plan'], 'branches'),
+                    'max_users' => $this->planLimit($data['plan'], 'users'),
+                    'modules' => $data['modules'] ?? [],
+                    'admin_email' => $adminEmail,
+                    'start_date' => now(),
+                    'next_billing' => $billingCycle === 'annual' ? now()->addYear() : now()->addMonth(),
+                ]);
+
+                $adminUser = $adminEmail
+                    ? $provisioning->createAdminUser($company, $adminEmail, $data['contactName'] ?? null, $data['contactPhone'] ?? null)
+                    : null;
+
+                if ($billingCycle === 'annual') {
+                    $provisioning->createAnnualInvoice($company, $data['plan']);
+                }
+
+                return [$company, $adminUser];
+            });
+
+            return $this->created(array_merge($this->present($company), [
+                'adminUserId' => $adminUser?->id,
+            ]));
         });
     }
 

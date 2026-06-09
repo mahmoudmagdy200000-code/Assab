@@ -15,13 +15,14 @@ class AsabBrand extends Model
 
     protected $fillable = [
         'company_id', 'name', 'abbr', 'color', 'owner', 'owner_email',
-        'plan', 'sub_status', 'expires', 'days_left', 'modules', 'status',
+        'plan', 'sub_status', 'expires', 'days_left', 'modules', 'status', 'auto_reminder_enabled',
     ];
 
     protected $casts = [
         'modules' => 'array',
         'expires' => 'datetime',
         'days_left' => 'integer',
+        'auto_reminder_enabled' => 'boolean',
     ];
 
     public function restaurants()

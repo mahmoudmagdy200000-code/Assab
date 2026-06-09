@@ -118,6 +118,17 @@ Broadcast::channel('reminders.branch.{branchId}', function ($user, $branchId) {
         ->whereKey($branchId)->where('asab_company_id', $user->company_id)->exists();
 }, ['guards' => ['asab']]);
 
+// Live support chat (FE completion request §2.1) — opener or assigned agent only.
+Broadcast::channel('chat.session.{sessionId}', function ($user, $sessionId) {
+    return \Modules\Admin\Models\SupportChatSession::query()
+        ->whereKey($sessionId)
+        ->where('company_id', $user->company_id)
+        ->where(function ($q) use ($user) {
+            $q->where('user_id', $user->getKey())->orWhere('agent_user_id', $user->getKey());
+        })
+        ->exists();
+}, ['guards' => ['asab']]);
+
 // Fixed Assets handover session channel — only sender and recipient may subscribe
 Broadcast::channel('handover-session.{sessionId}', function ($user, $sessionId) {
     $handover = Handover::query()

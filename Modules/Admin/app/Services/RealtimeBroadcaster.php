@@ -138,6 +138,72 @@ class RealtimeBroadcaster
         $this->safe(fn () => $this->emit('operations.company.'.$sub->company_id, 'subscription.suspended', $this->subscriptionPayload($sub)));
     }
 
+    // ── FE completion-request §1 / §2 events ───────────────────────────────
+
+    /** Admin-layer (per-restaurant/brand) subscription change — FE request §1.1. */
+    public function asabSubscriptionUpdated(\Modules\Admin\Models\AsabSubscription $sub): void
+    {
+        $this->safe(fn () => $this->emit('operations.company.'.$sub->company_id, 'subscription.updated', [
+            'id' => $sub->id,
+            'companyId' => $sub->company_id,
+            'brandId' => $sub->brand_id,
+            'restaurantId' => $sub->restaurant_id,
+            'plan' => $sub->plan,
+            'status' => $sub->status,
+            'expiresAt' => optional($sub->expires_at)->toIso8601String(),
+        ]));
+    }
+
+    /** Brand bulk-upload progress tick — FE request §1.7 (Option B). */
+    public function brandUploadProgress(
+        string $companyId,
+        string $brandId,
+        string $type,
+        string $status,
+        int $progressPct,
+        int $parsedRows,
+        int $failedRows
+    ): void {
+        $this->safe(fn () => $this->emit('operations.company.'.$companyId, 'brand.upload.progress', [
+            'brandId' => $brandId,
+            'type' => $type,
+            'status' => $status,
+            'progressPct' => $progressPct,
+            'parsedRows' => $parsedRows,
+            'failedRows' => $failedRows,
+        ]));
+    }
+
+    /** Cross-admin permission-matrix change — FE request §2.3 / §4.4. */
+    public function permissionsMatrixUpdated(?string $companyId): void
+    {
+        $this->safe(fn () => $this->emit('operations.company.'.($companyId ?: 'platform'), 'permissions.matrix.updated', [
+            'updatedAt' => now()->toIso8601String(),
+        ]));
+    }
+
+    // ── Live support chat — FE request §2.1 (channel chat.session.{id}) ─────
+
+    public function chatMessageNew(\Modules\Admin\Models\SupportChatMessage $msg): void
+    {
+        $this->safe(fn () => $this->emit('chat.session.'.$msg->session_id, 'message.new', [
+            'id' => $msg->id,
+            'authorType' => $msg->author_type,
+            'text' => $msg->text,
+            'sentAt' => optional($msg->sent_at)->toIso8601String(),
+        ]));
+    }
+
+    public function chatAgentJoined(string $sessionId, string $agentName): void
+    {
+        $this->safe(fn () => $this->emit('chat.session.'.$sessionId, 'agent.joined', ['agentName' => $agentName]));
+    }
+
+    public function chatSessionClosed(string $sessionId, string $closedBy, ?string $reason = null): void
+    {
+        $this->safe(fn () => $this->emit('chat.session.'.$sessionId, 'session.closed', ['closedBy' => $closedBy, 'reason' => $reason]));
+    }
+
     public function invoiceCreated(BillingInvoice $inv): void
     {
         $this->safe(fn () => $this->toUsers($this->roleUserIds($inv->company_id, 'company-admin'), 'invoice.created', $this->invoicePayload($inv)));
