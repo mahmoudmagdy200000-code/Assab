@@ -15,7 +15,7 @@ class Asset extends Model
 
     protected $fillable = [
         'company_id', 'public_id', 'name', 'category', 'branch_id', 'cost', 'book_value',
-        'useful_life_months', 'case_type', 'status', 'inv_num', 'submitted_by_id', 'custodian', 'purchased_at',
+        'useful_life_months', 'case_type', 'status', 'inv_num', 'submitted_by_id', 'custodian', 'purchased_at', 'notes',
     ];
 
     protected $casts = [

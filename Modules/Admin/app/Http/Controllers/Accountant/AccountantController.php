@@ -5,6 +5,8 @@ namespace Modules\Admin\Http\Controllers\Accountant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AuditLog;
 use Modules\Admin\Models\Operation;
@@ -136,17 +138,135 @@ class AccountantController extends AsabController
                 return $this->fail('OP_ALREADY_FINAL', 'Operation is final-approved', 'العملية معتمدة نهائياً', [], 409);
             }
             $data = $request->validate([
+                // canonical fields
                 'cashAmount' => 'sometimes|integer',
                 'bankAmount' => 'sometimes|integer',
+                // doc aliases (halalas)
+                'cashHalalas' => 'sometimes|integer',
+                'bankHalalas' => 'sometimes|integer',
                 'deliveryApps' => 'sometimes|array',
+                'deliveryApps.*.name' => 'sometimes|string|max:80',
+                'deliveryApps.*.amountHalalas' => 'sometimes|integer',
                 'varianceReason' => 'sometimes|string|max:80',
                 'varianceAllocations' => 'sometimes|array',
             ]);
+
+            // Read doc aliases, falling back to the existing field names (non-breaking).
+            $cash = (int) ($data['cashHalalas'] ?? $data['cashAmount'] ?? 0);
+            $bank = (int) ($data['bankHalalas'] ?? $data['bankAmount'] ?? 0);
+            $deliveryApps = $data['deliveryApps'] ?? [];
+            $deliveryTotal = array_sum(array_map(fn ($a) => (int) ($a['amountHalalas'] ?? 0), $deliveryApps));
+            $totalCollection = $cash + $bank + $deliveryTotal;
+
+            // Expected/total sales for this operation: the operation amount, with payload fallbacks.
+            $expected = (int) (
+                $op->amount
+                ?? ($op->payload['expectedHalalas']
+                    ?? ($op->payload['totalSalesHalalas']
+                        ?? ($op->payload['totalHalalas'] ?? 0)))
+            );
+            $variance = $totalCollection - $expected;
+
             $payload = $op->payload ?? [];
-            $payload['reconciliation'] = array_merge($payload['reconciliation'] ?? [], $data);
+            $payload['reconciliation'] = array_merge($payload['reconciliation'] ?? [], $data, [
+                'totalCollectionHalalas' => $totalCollection,
+                'varianceHalalas' => $variance,
+            ]);
             $op->update(['payload' => $payload]);
 
-            return $this->ok(['id' => $op->id, 'reconciliation' => $payload['reconciliation']]);
+            return $this->ok([
+                'id' => $op->id,
+                'reconciliation' => $payload['reconciliation'],
+                'totalCollectionHalalas' => $totalCollection,
+                'varianceHalalas' => $variance,
+            ]);
+        });
+    }
+
+    /**
+     * PATCH /operations/{id}/sales-lines/{rowId} — update one sales line inside
+     * the operation's sales-lines payload (Accountant sales review).
+     */
+    public function salesLineUpdate(Request $request, string $id, string $rowId): JsonResponse
+    {
+        return $this->run(function () use ($request, $id, $rowId) {
+            $op = Operation::where('id', $id)->orWhere('public_id', $id)->firstOrFail();
+            if ($op->status === Operation::STATUS_FINAL) {
+                return $this->fail('OP_ALREADY_FINAL', 'Operation is final-approved', 'العملية معتمدة نهائياً', [], 409);
+            }
+            $data = $request->validate([
+                'amountBeforeTaxHalalas' => 'sometimes|integer',
+                'vatHalalas' => 'sometimes|integer',
+                'amountAfterTaxHalalas' => 'sometimes|integer',
+            ]);
+
+            $updated = DB::transaction(function () use ($op, $rowId, $data) {
+                $payload = $op->payload ?? [];
+                // Tolerant of both 'salesLines' (doc) and 'sales_lines' (legacy) keys.
+                $key = isset($payload['salesLines']) ? 'salesLines' : (isset($payload['sales_lines']) ? 'sales_lines' : 'salesLines');
+                $lines = $payload[$key] ?? [];
+
+                $found = null;
+                foreach ($lines as $idx => $line) {
+                    $lineId = $line['id'] ?? $line['rowId'] ?? (string) $idx;
+                    if ((string) $lineId === (string) $rowId) {
+                        $lines[$idx] = array_merge($line, array_filter([
+                            'amountBeforeTaxHalalas' => $data['amountBeforeTaxHalalas'] ?? null,
+                            'vatHalalas' => $data['vatHalalas'] ?? null,
+                            'amountAfterTaxHalalas' => $data['amountAfterTaxHalalas'] ?? null,
+                        ], fn ($v) => $v !== null));
+                        $found = $lines[$idx];
+                        break;
+                    }
+                }
+
+                if ($found === null) {
+                    throw new \Modules\Admin\Exceptions\AsabException('NOT_FOUND', 'Sales line not found', 'سطر المبيعات غير موجود', 404);
+                }
+
+                $payload[$key] = $lines;
+                $op->update(['payload' => $payload]);
+
+                return $found;
+            });
+
+            return $this->ok(['operationId' => $op->id, 'rowId' => $rowId, 'row' => $updated]);
+        });
+    }
+
+    /**
+     * POST /operations/{id}/notes — append an accountant note to the operation.
+     */
+    public function addNote(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $op = Operation::where('id', $id)->orWhere('public_id', $id)->firstOrFail();
+            $data = $request->validate(['note' => 'required|string']);
+
+            $noteId = (string) Str::uuid();
+            $createdAt = now()->toIso8601String();
+
+            $note = DB::transaction(function () use ($op, $request, $data, $noteId, $createdAt) {
+                $payload = $op->payload ?? [];
+                $notes = $payload['accountantNotes'] ?? [];
+                $entry = [
+                    'id' => $noteId,
+                    'note' => $data['note'],
+                    'authorId' => $request->user()->id,
+                    'createdAt' => $createdAt,
+                ];
+                $notes[] = $entry;
+                $payload['accountantNotes'] = $notes;
+                $op->update(['payload' => $payload]);
+
+                return $entry;
+            });
+
+            return $this->created([
+                'id' => $note['id'],
+                'note' => $note['note'],
+                'createdAt' => $note['createdAt'],
+            ]);
         });
     }
 

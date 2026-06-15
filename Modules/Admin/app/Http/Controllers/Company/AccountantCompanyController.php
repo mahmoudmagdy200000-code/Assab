@@ -78,7 +78,13 @@ class AccountantCompanyController extends AsabController
             $op = Operation::where('company_id', $request->user()->company_id)
                 ->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id))->where('module_key', 'sales')->firstOrFail();
 
-            return $this->ok($this->salesVariance->assign($op, $data['allocations'], $data['notes'] ?? null, $request->user()));
+            $result = $this->salesVariance->assign($op, $data['allocations'], $data['notes'] ?? null, $request->user());
+            // Doc superset: surface remainingVarianceHalalas if the service output lacks it.
+            if (! array_key_exists('remainingVarianceHalalas', $result)) {
+                $result['remainingVarianceHalalas'] = $result['remainingUnallocatedHalalas'] ?? 0;
+            }
+
+            return $this->ok($result);
         });
     }
 
@@ -150,14 +156,16 @@ class AccountantCompanyController extends AsabController
     public function inventoryMarkConfirmed(Request $request, string $branchId): JsonResponse
     {
         return $this->run(function () use ($request, $branchId) {
+            $data = $request->validate(['confirmed' => 'sometimes|boolean']);
+            $confirmed = $data['confirmed'] ?? true;
             $op = $this->latestInventoryOp($request, $branchId);
             if ($op) {
                 $payload = $op->payload ?? [];
-                $payload['isConfirmed'] = true;
+                $payload['isConfirmed'] = $confirmed;
                 $op->update(['payload' => $payload]);
             }
 
-            return $this->ok(['branchId' => $branchId, 'isConfirmed' => true]);
+            return $this->ok(['branchId' => $branchId, 'isConfirmed' => $confirmed]);
         });
     }
 
@@ -167,14 +175,28 @@ class AccountantCompanyController extends AsabController
             $asset = Asset::where('company_id', $request->user()->company_id)->findOrFail($id);
             $data = $request->validate([
                 'name' => 'sometimes|string|max:200', 'category' => 'sometimes|string|max:32', 'custodian' => 'sometimes|nullable|string|max:200',
-                'status' => 'sometimes|string|max:24', 'bookValue' => 'sometimes|integer|min:0',
+                'status' => 'sometimes|string|max:24',
+                // 'bookValue' is canonical; 'bookValueHalalas' is the doc alias — accept either.
+                'bookValue' => 'sometimes|integer|min:0', 'bookValueHalalas' => 'sometimes|integer|min:0',
+                'branchId' => 'sometimes|nullable|string', 'note' => 'sometimes|nullable|string',
             ]);
+            $bookValue = $data['bookValue'] ?? ($data['bookValueHalalas'] ?? null);
             $asset->update(array_filter([
                 'name' => $data['name'] ?? null, 'category' => $data['category'] ?? null,
-                'custodian' => $data['custodian'] ?? null, 'status' => $data['status'] ?? null, 'book_value' => $data['bookValue'] ?? null,
+                'custodian' => $data['custodian'] ?? null, 'status' => $data['status'] ?? null, 'book_value' => $bookValue,
+                'branch_id' => $data['branchId'] ?? null, 'notes' => $data['note'] ?? null,
             ], fn ($v) => $v !== null));
 
-            return $this->ok(['id' => $asset->id, 'name' => $asset->name, 'status' => $asset->status, 'bookValue' => $asset->book_value]);
+            return $this->ok([
+                'id' => $asset->id,
+                'name' => $asset->name,
+                'status' => $asset->status,
+                'branchId' => $asset->branch_id,
+                'bookValue' => $asset->book_value,
+                'bookValueHalalas' => $asset->book_value,
+                'note' => $asset->notes,
+                'notes' => $asset->notes,
+            ]);
         });
     }
 
@@ -200,8 +222,10 @@ class AccountantCompanyController extends AsabController
             $map = [];          // column index → field
             $parsed = 0;
             $created = 0;
+            $imported = [];     // created asset summaries (doc superset)
+            $errors = [];       // per-row import errors (doc superset)
 
-            DB::transaction(function () use ($reader, &$map, &$parsed, &$created, $companyId, $userId) {
+            DB::transaction(function () use ($reader, &$map, &$parsed, &$created, &$imported, &$errors, $companyId, $userId) {
                 $seq = (int) (Asset::withoutGlobalScopes()->where('company_id', $companyId)->count());
                 foreach ($reader->getSheetIterator() as $sheet) {
                     $isHeader = true;
@@ -219,7 +243,7 @@ class AccountantCompanyController extends AsabController
                         }
                         $parsed++;
                         $cost = $this->toHalalas($this->cell($cells, $map, 'cost'));
-                        Asset::create([
+                        $asset = Asset::create([
                             'company_id' => $companyId,
                             'public_id' => 'FA-'.str_pad((string) (++$seq), 4, '0', STR_PAD_LEFT),
                             'name' => (string) $name,
@@ -233,6 +257,16 @@ class AccountantCompanyController extends AsabController
                             'submitted_by_id' => $userId,
                             'purchased_at' => now(),
                         ]);
+                        $imported[] = [
+                            'id' => $asset->id,
+                            'publicId' => $asset->public_id,
+                            'name' => $asset->name,
+                            'category' => $asset->category,
+                            'branchId' => $asset->branch_id,
+                            'cost' => $asset->cost,
+                            'priceHalalas' => $asset->cost,
+                            'bookValueHalalas' => $asset->book_value,
+                        ];
                         $created++;
                     }
                     break; // first sheet only
@@ -244,6 +278,9 @@ class AccountantCompanyController extends AsabController
                 'jobId' => 'job_'.strtoupper(bin2hex(random_bytes(6))),
                 'parsedRows' => $parsed,
                 'createdRows' => $created,
+                'count' => $created,
+                'imported' => $imported,
+                'errors' => $errors,
             ], 202);
         });
     }

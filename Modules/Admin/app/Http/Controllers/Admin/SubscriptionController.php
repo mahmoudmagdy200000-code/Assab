@@ -56,10 +56,13 @@ class SubscriptionController extends AsabController
     public function changePlan(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $data = $request->validate(['plan' => 'required|in:فضي,ذهبي,بلاتيني']);
+            // Doc §1.5c: accept English plan keys too, mapping them to the stored
+            // Arabic values before persisting (non-breaking — Arabic still accepted).
+            $data = $request->validate(['plan' => 'required|in:silver,gold,platinum,فضي,ذهبي,بلاتيني']);
+            $plan = ['silver' => 'فضي', 'gold' => 'ذهبي', 'platinum' => 'بلاتيني'][$data['plan']] ?? $data['plan'];
             $sub = AsabSubscription::findOrFail($id);
-            $price = ['فضي' => 100000, 'ذهبي' => 175000, 'بلاتيني' => 250000][$data['plan']] ?? $sub->monthly_price;
-            DB::transaction(fn () => $sub->update(['plan' => $data['plan'], 'monthly_price' => $price]));
+            $price = ['فضي' => 100000, 'ذهبي' => 175000, 'بلاتيني' => 250000][$plan] ?? $sub->monthly_price;
+            DB::transaction(fn () => $sub->update(['plan' => $plan, 'monthly_price' => $price]));
 
             return $this->ok($this->present($sub->fresh()));
         });

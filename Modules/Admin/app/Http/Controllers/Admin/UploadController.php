@@ -74,7 +74,13 @@ class UploadController extends AsabController
             $this->stampStatus('brand', $brand->id, $type, $count, $request, $errors);
             $rt->brandUploadProgress($brand->company_id, $brand->id, $type, 'done', 100, $count, count($errors));
 
-            return $this->ok(['uploadedCount' => $count, 'errors' => $errors]);
+            return $this->ok([
+                'uploadId' => (string) \Illuminate\Support\Str::uuid(),
+                'rowsImported' => $count,
+                'uploadedCount' => $count,
+                'errors' => $errors,
+                'status' => 'done',
+            ]);
         });
     }
 
@@ -111,7 +117,13 @@ class UploadController extends AsabController
 
             $this->stampStatus('restaurant', $restaurant->id, 'employees', $count, $request, $errors);
 
-            return $this->ok(['uploadedCount' => $count, 'errors' => $errors]);
+            return $this->ok([
+                'uploadId' => (string) \Illuminate\Support\Str::uuid(),
+                'rowsImported' => $count,
+                'uploadedCount' => $count,
+                'errors' => $errors,
+                'status' => 'done',
+            ]);
         });
     }
 
@@ -157,14 +169,33 @@ class UploadController extends AsabController
         });
     }
 
-    public function template(string $type): Response
+    public function template(Request $request, string $type): Response
     {
         $headers = self::TEMPLATES[$type] ?? [];
-        $csv = "\xEF\xBB\xBF".implode(',', $headers)."\n"; // UTF-8 BOM for Excel Arabic
 
-        return response($csv, 200, [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => "attachment; filename=\"{$type}-template.csv\"",
+        // CSV stays available via ?format=csv (UTF-8 BOM for Excel Arabic).
+        if ($request->query('format') === 'csv') {
+            $csv = "\xEF\xBB\xBF".implode(',', $headers)."\n";
+
+            return response($csv, 200, [
+                'Content-Type' => 'text/csv; charset=UTF-8',
+                'Content-Disposition' => "attachment; filename=\"{$type}-template.csv\"",
+            ]);
+        }
+
+        // Default: a real .xlsx workbook with the same header row (OpenSpout).
+        $tmp = tempnam(sys_get_temp_dir(), 'tpl_').'.xlsx';
+        $writer = new \OpenSpout\Writer\XLSX\Writer;
+        $writer->openToFile($tmp);
+        $writer->addRow(\OpenSpout\Common\Entity\Row::fromValues($headers));
+        $writer->close();
+
+        $contents = file_get_contents($tmp);
+        @unlink($tmp);
+
+        return response($contents, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => "attachment; filename=\"{$type}-template.xlsx\"",
         ]);
     }
 

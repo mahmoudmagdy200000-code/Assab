@@ -97,6 +97,88 @@ class DistributionController extends AsabController
         });
     }
 
+    /**
+     * PATCH /admin/accountants/{accId}/assignments (doc §1.8) — set the accountant's
+     * head (when headId present) AND reconcile restaurant assignments to EXACTLY the
+     * given array in one transaction. Reuses the moveToHead/assign/unassign logic.
+     */
+    public function assignments(Request $request, string $accId): JsonResponse
+    {
+        return $this->run(function () use ($request, $accId) {
+            $data = $request->validate([
+                'headId' => 'nullable|string',
+                'restaurants' => 'required|array',
+                'restaurants.*' => 'string',
+            ]);
+
+            $acc = AsabUser::findOrFail($accId);
+            $assignment = $this->accountantAssignment($accId);
+            $target = collect($data['restaurants'])->unique()->values()->all();
+
+            DB::transaction(function () use ($acc, $assignment, $data, $target) {
+                // Reuse moveToHead logic: set reports_to_id when a head is provided.
+                if (array_key_exists('headId', $data) && $data['headId'] !== null) {
+                    $acc->update(['reports_to_id' => $data['headId']]);
+                }
+                // Reconcile to EXACTLY the given array (assign new + unassign removed).
+                $assignment->update([
+                    'restaurant_ids' => $target,
+                    'scope' => 'restaurant',
+                    'module_keys' => $assignment->module_keys ?: self::DIST_MODULES,
+                ]);
+            });
+
+            $fresh = $assignment->fresh();
+
+            return $this->ok([
+                'id' => $accId,
+                'headId' => $acc->fresh()->reports_to_id,
+                'restaurants' => $fresh->restaurant_ids ?? [],
+            ]);
+        });
+    }
+
+    /**
+     * PUT /admin/accountants/{accId}/restaurants/{restaurant}/modules (doc §1.9) —
+     * set the module list for an accountant's restaurant.
+     *
+     * LIMITATION: the data model (asab_user_roles.module_keys) stores a single flat
+     * module list per (accountant, role) assignment — there is no per-(accountant,
+     * restaurant) module column, and that column is read as a flat array by tenant
+     * resolution (ResolveTenant) / AuthService. So this stores the modules on the
+     * accountant assignment best-effort (applies to all their restaurants) after
+     * validating the restaurant is actually assigned to the accountant. Adding true
+     * per-restaurant module storage would require a schema change.
+     */
+    public function restaurantModules(Request $request, string $accId, string $restaurant): JsonResponse
+    {
+        return $this->run(function () use ($request, $accId, $restaurant) {
+            $data = $request->validate([
+                'modules' => 'required|array',
+                'modules.*' => 'string',
+            ]);
+
+            $assignment = $this->accountantAssignment($accId);
+            $modules = collect($data['modules'])->unique()->values()->all();
+
+            DB::transaction(function () use ($assignment, $restaurant, $modules) {
+                // Ensure the restaurant is assigned to this accountant (best-effort).
+                $ids = collect($assignment->restaurant_ids ?? [])->push($restaurant)->unique()->values()->all();
+                $assignment->update([
+                    'restaurant_ids' => $ids,
+                    'scope' => 'restaurant',
+                    'module_keys' => $modules,
+                ]);
+            });
+
+            return $this->ok([
+                'accountantId' => $accId,
+                'restaurant' => $restaurant,
+                'modules' => $assignment->fresh()->module_keys ?? [],
+            ]);
+        });
+    }
+
     private function mutateRestaurant(Request $request, bool $add): JsonResponse
     {
         return $this->run(function () use ($request, $add) {

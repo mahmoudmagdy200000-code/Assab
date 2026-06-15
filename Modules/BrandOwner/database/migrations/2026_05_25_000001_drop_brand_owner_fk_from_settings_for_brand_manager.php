@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -23,6 +24,12 @@ return new class extends Migration
 
     public function up(): void
     {
+        // SQLite (test driver) does not support dropping foreign keys by name and
+        // does not enforce these FKs anyway — skip; MySQL/production runs the drop.
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         foreach ($this->tables as $table => $fk) {
             if (! Schema::hasTable($table)) {
                 continue;

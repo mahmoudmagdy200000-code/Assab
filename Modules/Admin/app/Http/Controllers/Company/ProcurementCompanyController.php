@@ -26,13 +26,19 @@ class ProcurementCompanyController extends AsabController
         return $this->run(function () use ($request) {
             $data = $request->validate([
                 'supplierId' => 'required|string', 'brandId' => 'sometimes|nullable|string', 'branchId' => 'sometimes|nullable|string',
-                'items' => 'required|array|min:1', 'description' => 'sometimes|nullable|string',
-                'urgency' => 'sometimes|in:normal,urgent', 'deliveryDate' => 'sometimes|nullable|date',
+                'items' => 'required|array|min:1',
+                // items accept {itemId, qty} (doc shape) alongside the legacy {id, totalHalalas/unitPriceHalalas}.
+                'items.*.itemId' => 'sometimes|string', 'items.*.qty' => 'sometimes|numeric|min:0',
+                'description' => 'sometimes|nullable|string',
+                'urgency' => 'sometimes|in:normal,urgent',
+                // doc field `deadline`; `deliveryDate` kept as the legacy field.
+                'deliveryDate' => 'sometimes|nullable|date', 'deadline' => 'sometimes|nullable|date',
             ]);
+            $deliveryDate = $data['deliveryDate'] ?? $data['deadline'] ?? null;
             $total = collect($data['items'])->sum(fn ($i) => (int) ($i['totalHalalas'] ?? (($i['qty'] ?? 0) * ($i['unitPriceHalalas'] ?? 0))));
             $op = $this->factory->createFromUpload('purchases', [
                 'supplierId' => $data['supplierId'], 'items' => $data['items'], 'description' => $data['description'] ?? null,
-                'urgency' => $data['urgency'] ?? 'normal', 'deliveryDate' => $data['deliveryDate'] ?? null, 'origin' => 'procurement',
+                'urgency' => $data['urgency'] ?? 'normal', 'deliveryDate' => $deliveryDate, 'origin' => 'procurement',
             ], $request->user(), $data['branchId'] ?? null, $total);
 
             return $this->created(['id' => $op->id, 'publicId' => $op->public_id, 'status' => $op->status, 'totalHalalas' => $total]);
@@ -45,15 +51,25 @@ class ProcurementCompanyController extends AsabController
             $op = $this->order($request, $id);
             $data = $request->validate([
                 'supplierId' => 'sometimes|string', 'items' => 'sometimes|array', 'description' => 'sometimes|nullable|string',
-                'urgency' => 'sometimes|in:normal,urgent', 'deliveryDate' => 'sometimes|nullable|date',
+                'urgency' => 'sometimes|in:normal,urgent',
+                'deliveryDate' => 'sometimes|nullable|date', 'deadline' => 'sometimes|nullable|date',
+                // optional status transition (validated against the pipeline's allowed values).
+                'status' => 'sometimes|in:'.implode(',', [
+                    Operation::STATUS_PENDING, Operation::STATUS_APPROVED, Operation::STATUS_REJECTED, Operation::STATUS_FINAL,
+                ]),
             ]);
+            $deliveryDate = $data['deliveryDate'] ?? $data['deadline'] ?? null;
             $payload = array_merge($op->payload ?? [], array_filter([
                 'supplierId' => $data['supplierId'] ?? null, 'items' => $data['items'] ?? null,
-                'description' => $data['description'] ?? null, 'urgency' => $data['urgency'] ?? null, 'deliveryDate' => $data['deliveryDate'] ?? null,
+                'description' => $data['description'] ?? null, 'urgency' => $data['urgency'] ?? null, 'deliveryDate' => $deliveryDate,
             ], fn ($v) => $v !== null));
-            $op->update(['payload' => $payload]);
+            $update = ['payload' => $payload];
+            if (! empty($data['status'])) {
+                $update['status'] = $data['status'];
+            }
+            $op->update($update);
 
-            return $this->ok(['id' => $op->id, 'publicId' => $op->public_id, 'status' => $op->status]);
+            return $this->ok(['id' => $op->id, 'publicId' => $op->public_id, 'status' => $op->fresh()->status]);
         });
     }
 
@@ -122,17 +138,23 @@ class ProcurementCompanyController extends AsabController
         return $this->run(function () use ($request) {
             $data = $request->validate([
                 'name' => 'required|string|max:200', 'unit' => 'required|string|max:16',
-                'lastPriceHalalas' => 'sometimes|integer|min:0', 'code' => 'sometimes|nullable|string|max:32',
+                'lastPriceHalalas' => 'sometimes|integer|min:0',
+                // doc field `defaultPriceHalalas` is an alias for lastPriceHalalas.
+                'defaultPriceHalalas' => 'sometimes|integer|min:0',
+                'category' => 'sometimes|nullable|string|max:80', 'supplierId' => 'sometimes|nullable|string',
+                'code' => 'sometimes|nullable|string|max:32',
             ]);
+            $price = $data['lastPriceHalalas'] ?? $data['defaultPriceHalalas'] ?? null;
             $item = SupplierItem::create([
                 'company_id' => $request->user()->company_id, 'name' => $data['name'], 'unit' => $data['unit'],
-                'price' => $data['lastPriceHalalas'] ?? 0, 'code' => $data['code'] ?? null, 'status' => 'active',
+                'price' => $price ?? 0, 'category' => $data['category'] ?? null, 'supplier_id' => $data['supplierId'] ?? null,
+                'code' => $data['code'] ?? null, 'status' => 'active',
             ]);
-            if (! empty($data['lastPriceHalalas'])) {
-                ProcurementItemPrice::create(['company_id' => $request->user()->company_id, 'item_id' => $item->id, 'price' => $data['lastPriceHalalas'], 'recorded_at' => now()]);
+            if (! empty($price)) {
+                ProcurementItemPrice::create(['company_id' => $request->user()->company_id, 'item_id' => $item->id, 'price' => $price, 'recorded_at' => now()]);
             }
 
-            return $this->created(['id' => $item->id, 'name' => $item->name, 'unit' => $item->unit, 'lastPriceHalalas' => $item->price]);
+            return $this->created(['id' => $item->id, 'name' => $item->name, 'unit' => $item->unit, 'category' => $item->category, 'supplierId' => $item->supplier_id, 'lastPriceHalalas' => $item->price]);
         });
     }
 
@@ -181,15 +203,18 @@ class ProcurementCompanyController extends AsabController
                 'contactName' => 'sometimes|nullable|string|max:200', 'contactPhone' => 'sometimes|nullable|string|max:32',
                 'contactEmail' => 'sometimes|nullable|email', 'commercialReg' => 'sometimes|nullable|string|max:32',
                 'paymentTerms' => 'sometimes|nullable|string|max:80', 'brandId' => 'sometimes|nullable|string',
+                // doc aliases: `phone` -> contactPhone, `email` -> contactEmail.
+                'phone' => 'sometimes|nullable|string|max:32', 'email' => 'sometimes|nullable|email',
             ]);
             $sup = AsabSupplier::create([
                 'company_id' => $request->user()->company_id, 'brand_id' => $data['brandId'] ?? null, 'name' => $data['name'],
                 'category' => $data['category'] ?? null, 'contact_name' => $data['contactName'] ?? null,
-                'contact_phone' => $data['contactPhone'] ?? null, 'contact_email' => $data['contactEmail'] ?? null,
+                'contact_phone' => $data['contactPhone'] ?? $data['phone'] ?? null,
+                'contact_email' => $data['contactEmail'] ?? $data['email'] ?? null,
                 'commercial_reg' => $data['commercialReg'] ?? null, 'payment_terms' => $data['paymentTerms'] ?? null, 'status' => 'active',
             ]);
 
-            return $this->created(['id' => $sup->id, 'name' => $sup->name, 'status' => $sup->status]);
+            return $this->created(['id' => $sup->id, 'name' => $sup->name, 'category' => $sup->category, 'status' => $sup->status]);
         });
     }
 

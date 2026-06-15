@@ -47,10 +47,14 @@ class AssetController extends AsabController
                 'category' => 'required|string|max:32',
                 'branchId' => 'required|string',
                 'invNum' => 'nullable|string|max:64',
-                'cost' => 'required|integer|min:0',
+                // 'cost' is the canonical field; 'priceHalalas' is the doc alias — accept either.
+                'cost' => 'required_without:priceHalalas|integer|min:0',
+                'priceHalalas' => 'required_without:cost|integer|min:0',
                 'usefulLifeMonths' => 'required|integer|min:1',
                 'custodian' => 'nullable|string|max:200',
+                'notes' => 'nullable|string',
             ]);
+            $cost = $data['cost'] ?? $data['priceHalalas'];
             $asset = Asset::create([
                 'company_id' => $request->user()->company_id,
                 'public_id' => $this->nextAssetId(),
@@ -58,12 +62,13 @@ class AssetController extends AsabController
                 'category' => $data['category'],
                 'branch_id' => $data['branchId'],
                 'inv_num' => $data['invNum'] ?? null,
-                'cost' => $data['cost'],
-                'book_value' => $data['cost'],
+                'cost' => $cost,
+                'book_value' => $cost,
                 'useful_life_months' => $data['usefulLifeMonths'],
                 'case_type' => 'acc_register',
                 'status' => 'pending_branch',
                 'custodian' => $data['custodian'] ?? null,
+                'notes' => $data['notes'] ?? null,
                 'submitted_by_id' => $request->user()->id,
                 'purchased_at' => now(),
             ]);
@@ -153,11 +158,14 @@ class AssetController extends AsabController
             'category' => $a->category,
             'branchId' => $a->branch_id,
             'cost' => $a->cost,
+            'priceHalalas' => $a->cost,
             'bookValue' => $a->book_value,
+            'bookValueHalalas' => $a->book_value,
             'usefulLifeMonths' => $a->useful_life_months,
             'status' => $a->status,
             'invNum' => $a->inv_num,
             'custodian' => $a->custodian,
+            'notes' => $a->notes,
         ];
     }
 

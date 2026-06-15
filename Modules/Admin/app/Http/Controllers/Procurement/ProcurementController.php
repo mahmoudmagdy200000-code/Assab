@@ -82,17 +82,65 @@ class ProcurementController extends AsabController
         return $this->run(function () use ($request, $id) {
             $data = $request->validate([
                 'reason' => 'required|string|max:500',
-                'rejectedItemIds' => 'required|array',
+                // doc field `rejectedItemIds`; `itemIds` accepted as an alias (non-breaking).
+                'rejectedItemIds' => 'sometimes|array',
+                'itemIds' => 'sometimes|array',
                 'note' => 'nullable|string',
             ]);
+            $rejectedItemIds = $data['rejectedItemIds'] ?? $data['itemIds'] ?? null;
+            if (empty($rejectedItemIds)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'rejectedItemIds' => ['The rejectedItemIds field is required.'],
+                ]);
+            }
             $op = $this->find($id);
-            DB::transaction(function () use ($op, $data) {
+            DB::transaction(function () use ($op, $rejectedItemIds, $data) {
                 $payload = $op->payload ?? [];
-                $payload['partialReject'] = ['reason' => $data['reason'], 'rejectedItemIds' => $data['rejectedItemIds'], 'note' => $data['note'] ?? null];
+                $payload['partialReject'] = ['reason' => $data['reason'], 'rejectedItemIds' => array_values($rejectedItemIds), 'note' => $data['note'] ?? null];
                 $op->update(['status' => 'partial_reject', 'payload' => $payload]);
             });
 
             return $this->ok($this->present($op->fresh()));
+        });
+    }
+
+    /**
+     * Bulk-approve purchase orders (COMPANY_DASHBOARD_API_SPEC.md §5.3d).
+     * Either an explicit `orderIds` list, or all pending orders filtered by
+     * `branch` and/or `supplier`. Each transition runs through the shared
+     * approval pipeline; the whole batch is atomic.
+     */
+    public function bulkApprove(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $data = $request->validate([
+                'orderIds' => 'sometimes|array',
+                'orderIds.*' => 'string',
+                'branch' => 'sometimes|nullable|string',
+                'supplier' => 'sometimes|nullable|string',
+            ]);
+
+            $q = Operation::where('module_key', 'purchases')->where('status', Operation::STATUS_PENDING);
+            if (! empty($data['orderIds'])) {
+                $ids = $data['orderIds'];
+                $q->where(fn ($w) => $w->whereIn('id', $ids)->orWhereIn('public_id', $ids));
+            }
+            if (! empty($data['branch'])) {
+                $q->where('branch_id', $data['branch']);
+            }
+            if (! empty($data['supplier'])) {
+                $q->where('payload->supplierId', $data['supplier']);
+            }
+
+            $approved = [];
+            DB::transaction(function () use ($q, $request, &$approved) {
+                foreach ($q->get() as $op) {
+                    $this->service->approve($op, $request->user());
+                    $approved[] = $op->id;
+                }
+            });
+
+            return $this->ok(['approved' => $approved, 'count' => count($approved)]);
         });
     }
 
@@ -119,9 +167,13 @@ class ProcurementController extends AsabController
     {
         return $this->run(function () use ($groupId) {
             $affected = Operation::where('payload->consolidatedGroupId', $groupId)->get();
-            DB::transaction(function () use ($affected) {
+            $sentAt = now()->toIso8601String();
+            DB::transaction(function () use ($affected, $sentAt) {
                 foreach ($affected as $op) {
-                    $op->update(['status' => 'final-approved']);
+                    // Stamp sentAt on the payload so the company "sent" listing surfaces it.
+                    $payload = $op->payload ?? [];
+                    $payload['sentAt'] = $sentAt;
+                    $op->update(['status' => 'final-approved', 'payload' => $payload]);
                 }
             });
 
