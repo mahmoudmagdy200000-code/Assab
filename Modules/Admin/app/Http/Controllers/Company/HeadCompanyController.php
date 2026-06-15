@@ -88,6 +88,129 @@ class HeadCompanyController extends AsabController
         });
     }
 
+    /**
+     * GET /company/me/erp/preview — eligible-ops preview honoring all filters
+     * (MISSING_Dashboard "Head ERP preview"). Reuses ErpBatchService::eligible
+     * for the default final-approved/not-posted set, then layers restaurant,
+     * period (today/week/month/custom) and an optional status override on top.
+     */
+    public function erpPreview(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $companyId = $request->user()->company_id;
+
+            $data = $request->validate([
+                'moduleKey' => 'sometimes|nullable|string',
+                'restaurantId' => 'sometimes|nullable|string',
+                'branchId' => 'sometimes|nullable|string',
+                'status' => 'sometimes|nullable|string|in:pending,approved,rejected,final-approved',
+                'period' => 'sometimes|nullable|array',
+                'period.type' => 'sometimes|nullable|string|in:today,week,month,custom',
+                'period.from' => 'sometimes|nullable|date',
+                'period.to' => 'sometimes|nullable|date',
+            ]);
+
+            [$dateFrom, $dateTo] = $this->resolvePeriod($data['period'] ?? []);
+            $statusOverride = $data['status'] ?? null;
+
+            // Shared filter map understood by ErpBatchService::eligible().
+            $filters = array_filter([
+                'moduleKey' => $data['moduleKey'] ?? null,
+                'branchId' => $data['branchId'] ?? null,
+                'dateFrom' => $dateFrom,
+                'dateTo' => $dateTo,
+            ], fn ($v) => $v !== null && $v !== '');
+
+            if ($statusOverride) {
+                // Status override: build the base query directly (eligible() pins
+                // final-approved/not-posted), then reuse the same filter handling.
+                $query = Operation::where('company_id', $companyId)->where('status', $statusOverride);
+                $this->applyEligibleFilters($query, $filters);
+            } else {
+                // Default: final-approved & not yet ERP-posted, via the service.
+                $query = $this->erp->eligible(['filters' => $filters]);
+            }
+
+            // Restaurant scope → resolve to that restaurant's branch ids.
+            if (! empty($data['restaurantId'])) {
+                $branchIds = \Modules\Branch\Models\Branch::where('asab_company_id', $companyId)
+                    ->where('asab_restaurant_id', $data['restaurantId'])
+                    ->pluck('id')->all();
+                $query->whereIn('branch_id', $branchIds ?: ['__none__']);
+            }
+
+            $ops = $query->orderByDesc('operation_date')->get();
+
+            return $this->ok([
+                'data' => $ops->map(fn (Operation $o) => $this->presentOp($o))->all(),
+                'meta' => [
+                    'count' => $ops->count(),
+                    'totalAmountHalalas' => (int) $ops->sum('amount'),
+                    'branches' => $ops->pluck('branch_id')->filter()->unique()->count(),
+                ],
+            ]);
+        });
+    }
+
+    /**
+     * Derive [dateFrom, dateTo] (Y-m-d / Y-m-d H:i:s) from the period filter.
+     * type=today|week|month use the current window; custom honors from/to.
+     *
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function resolvePeriod(array $period): array
+    {
+        $type = $period['type'] ?? null;
+
+        return match ($type) {
+            'today' => [now()->startOfDay()->toDateTimeString(), now()->endOfDay()->toDateTimeString()],
+            'week' => [now()->startOfWeek()->toDateTimeString(), now()->endOfWeek()->toDateTimeString()],
+            'month' => [now()->startOfMonth()->toDateTimeString(), now()->endOfMonth()->toDateTimeString()],
+            'custom' => [
+                ! empty($period['from']) ? \Illuminate\Support\Carbon::parse($period['from'])->startOfDay()->toDateTimeString() : null,
+                ! empty($period['to']) ? \Illuminate\Support\Carbon::parse($period['to'])->endOfDay()->toDateTimeString() : null,
+            ],
+            default => [
+                ! empty($period['from']) ? \Illuminate\Support\Carbon::parse($period['from'])->startOfDay()->toDateTimeString() : null,
+                ! empty($period['to']) ? \Illuminate\Support\Carbon::parse($period['to'])->endOfDay()->toDateTimeString() : null,
+            ],
+        };
+    }
+
+    /** Apply the same module/branch/date filters ErpBatchService::eligible uses. */
+    private function applyEligibleFilters($query, array $filters): void
+    {
+        if (! empty($filters['moduleKey']) && $filters['moduleKey'] !== 'all') {
+            $query->where('module_key', $filters['moduleKey']);
+        }
+        if (! empty($filters['branchId'])) {
+            $query->where('branch_id', $filters['branchId']);
+        }
+        if (! empty($filters['dateFrom'])) {
+            $query->where('operation_date', '>=', $filters['dateFrom']);
+        }
+        if (! empty($filters['dateTo'])) {
+            $query->where('operation_date', '<=', $filters['dateTo']);
+        }
+    }
+
+    /** Spec-shaped operation row, mirroring HeadController::present. */
+    private function presentOp(Operation $op): array
+    {
+        return [
+            'id' => $op->id,
+            'publicId' => $op->public_id,
+            'branchId' => $op->branch_id,
+            'moduleKey' => $op->module_key,
+            'amount' => $op->amount,
+            'match' => $op->match,
+            'status' => $op->status,
+            'rejectReason' => $op->reject_reason,
+            'erpPosted' => (bool) $op->erp_posted,
+            'operationDate' => optional($op->operation_date)->toIso8601String(),
+        ];
+    }
+
     public function postToErp(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {

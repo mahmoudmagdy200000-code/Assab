@@ -57,12 +57,12 @@ class SupplierController extends AsabController
     public function accept(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $data = $request->validate(['deliveryDate' => 'required|date', 'note' => 'nullable|string']);
+            $data = $request->validate(['deliveryDate' => 'nullable|date', 'note' => 'nullable|string']);
             $op = $this->find($id);
             DB::transaction(function () use ($op, $data) {
                 $payload = $op->payload ?? [];
-                $payload['supplierResponse'] = ['accepted' => true, 'deliveryDate' => $data['deliveryDate'], 'note' => $data['note'] ?? null];
-                $op->update(['status' => 'confirmed', 'payload' => $payload]);
+                $payload['supplierResponse'] = ['accepted' => true, 'deliveryDate' => $data['deliveryDate'] ?? null, 'note' => $data['note'] ?? null];
+                $op->update(['status' => 'accepted', 'payload' => $payload]);
             });
 
             return $this->ok($this->present($op->fresh()));
@@ -115,17 +115,26 @@ class SupplierController extends AsabController
                 'code' => 'nullable|string|max:32',
                 'name' => 'required|string|max:200',
                 'unit' => 'nullable|string|max:16',
-                'price' => 'required|integer|min:0',
+                // priceHalalas is the doc field name; price is the legacy alias. Money is integer halalas.
+                'price' => 'required_without:priceHalalas|integer|min:0',
+                'priceHalalas' => 'required_without:price|integer|min:0',
                 'minQty' => 'nullable|integer|min:0',
+                'maxQty' => 'nullable|integer|min:0',
+                'available' => 'nullable|boolean',
+                'leadTimeDays' => 'nullable|integer|min:0',
             ]);
+            $available = $data['available'] ?? true;
             $item = SupplierItem::create([
                 'supplier_user_id' => $request->user()->id,
                 'code' => $data['code'] ?? null,
                 'name' => $data['name'],
                 'unit' => $data['unit'] ?? null,
-                'price' => $data['price'],
+                'price' => $data['priceHalalas'] ?? $data['price'],
                 'min_qty' => $data['minQty'] ?? null,
-                'status' => 'active',
+                'max_qty' => $data['maxQty'] ?? null,
+                'available' => $available,
+                'lead_time_days' => $data['leadTimeDays'] ?? null,
+                'status' => $available ? 'active' : 'inactive',
             ]);
 
             return $this->created($this->presentItem($item));
@@ -139,15 +148,29 @@ class SupplierController extends AsabController
             $data = $request->validate([
                 'name' => 'sometimes|string|max:200',
                 'unit' => 'sometimes|string|max:16',
+                // priceHalalas is the doc field name; price is the legacy alias. Money is integer halalas.
                 'price' => 'sometimes|integer|min:0',
+                'priceHalalas' => 'sometimes|integer|min:0',
                 'minQty' => 'sometimes|integer|min:0',
+                'maxQty' => 'sometimes|integer|min:0',
+                'available' => 'sometimes|boolean',
+                'leadTimeDays' => 'sometimes|integer|min:0',
             ]);
-            $item->update(array_filter([
+            $updates = array_filter([
                 'name' => $data['name'] ?? null,
                 'unit' => $data['unit'] ?? null,
-                'price' => $data['price'] ?? null,
+                'price' => $data['priceHalalas'] ?? $data['price'] ?? null,
                 'min_qty' => $data['minQty'] ?? null,
-            ], fn ($v) => $v !== null));
+                'max_qty' => $data['maxQty'] ?? null,
+                'lead_time_days' => $data['leadTimeDays'] ?? null,
+            ], fn ($v) => $v !== null);
+            // available is a boolean: handle separately so an explicit false is not dropped by array_filter.
+            if ($request->has('available')) {
+                $updates['available'] = $data['available'];
+                // Keep the legacy status flag in sync with availability.
+                $updates['status'] = $data['available'] ? 'active' : 'inactive';
+            }
+            $item->update($updates);
 
             return $this->ok($this->presentItem($item->fresh()));
         });
@@ -157,7 +180,9 @@ class SupplierController extends AsabController
     {
         return $this->run(function () use ($request, $id) {
             $item = SupplierItem::where('supplier_user_id', $request->user()->id)->findOrFail($id);
-            $item->update(['status' => $item->status === 'active' ? 'inactive' : 'active']);
+            $nowActive = $item->status !== 'active';
+            // Keep the availability flag in sync with the toggled status.
+            $item->update(['status' => $nowActive ? 'active' : 'inactive', 'available' => $nowActive]);
 
             return $this->ok($this->presentItem($item->fresh()));
         });
@@ -222,7 +247,11 @@ class SupplierController extends AsabController
             'name' => $i->name,
             'unit' => $i->unit,
             'price' => $i->price,
+            'priceHalalas' => $i->price,
             'minQty' => $i->min_qty,
+            'maxQty' => $i->max_qty,
+            'available' => $i->available,
+            'leadTimeDays' => $i->lead_time_days,
             'status' => $i->status,
         ];
     }

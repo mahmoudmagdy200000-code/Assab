@@ -32,8 +32,13 @@ class BrandController extends AsabController
                 'name' => 'required|string|max:120',
                 'abbr' => 'nullable|string|max:8',
                 'color' => 'nullable|string|max:16',
+                // Doc §1.2: owner is the brand owner's display NAME (persisted to the
+                // brand `owner` attribute, previously never set). ownerEmail stays.
+                'owner' => 'nullable|string|max:191',
                 'ownerEmail' => 'nullable|email|max:191',
-                'plan' => 'nullable|string|max:32',
+                // Doc §1.2: plan is silver|gold|platinum. Kept nullable + max:32 so any
+                // already-broader callers don't break (non-breaking superset).
+                'plan' => 'nullable|in:silver,gold,platinum,فضي,ذهبي,بلاتيني',
                 'modules' => 'nullable|array',
             ]);
 
@@ -42,6 +47,7 @@ class BrandController extends AsabController
                 'name' => $data['name'],
                 'abbr' => $data['abbr'] ?? null,
                 'color' => $data['color'] ?? null,
+                'owner' => $data['owner'] ?? null,
                 'owner_email' => $data['ownerEmail'] ?? null,
                 'plan' => $data['plan'] ?? null,
                 'sub_status' => 'active',

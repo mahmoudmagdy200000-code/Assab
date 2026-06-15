@@ -164,13 +164,45 @@ class BranchDashboardController extends AsabController
     public function updateSettings(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $payload = $request->all();
-            \Modules\Admin\Models\Setting::updateOrCreate(
+            $data = $request->validate([
+                'branchName' => 'sometimes|nullable|string|max:200',
+                'manager' => 'sometimes|nullable|string|max:200',
+                'phone' => 'sometimes|nullable|string|max:32',
+                'address' => 'sometimes|nullable|string|max:500',
+                'openTime' => 'sometimes|nullable|string|max:16',
+                'closeTime' => 'sometimes|nullable|string|max:16',
+                'shiftDuration' => 'sometimes|nullable|integer|min:0',
+                'taxNumber' => 'sometimes|nullable|string|max:64',
+                'bankAccount' => 'sometimes|nullable|string|max:64',
+                'cashLimitHalalas' => 'sometimes|nullable|integer|min:0',
+                'wasteThreshold' => 'sometimes|nullable|numeric|min:0',
+                'autoReminders' => 'sometimes|boolean',
+                'requireImages' => 'sometimes|boolean',
+            ]);
+
+            // Typed mapping into the Setting payload (no $request->all()).
+            $payload = [
+                'branchName' => $data['branchName'] ?? null,
+                'manager' => $data['manager'] ?? null,
+                'phone' => $data['phone'] ?? null,
+                'address' => $data['address'] ?? null,
+                'openTime' => $data['openTime'] ?? null,
+                'closeTime' => $data['closeTime'] ?? null,
+                'shiftDuration' => isset($data['shiftDuration']) ? (int) $data['shiftDuration'] : null,
+                'taxNumber' => $data['taxNumber'] ?? null,
+                'bankAccount' => $data['bankAccount'] ?? null,
+                'cashLimitHalalas' => isset($data['cashLimitHalalas']) ? (int) $data['cashLimitHalalas'] : null,
+                'wasteThreshold' => $data['wasteThreshold'] ?? null,
+                'autoReminders' => (bool) ($data['autoReminders'] ?? false),
+                'requireImages' => (bool) ($data['requireImages'] ?? false),
+            ];
+
+            $row = \Modules\Admin\Models\Setting::updateOrCreate(
                 ['company_id' => $request->user()->company_id, 'group_key' => 'branch:'.$this->branchId($request)],
                 ['payload' => $payload],
             );
 
-            return $this->ok($payload);
+            return $this->ok($row->payload);
         });
     }
 

@@ -554,7 +554,7 @@ class ExportService
     {
         $q = Operation::where('module_key', 'purchases');
         if ($status === 'accepted') {
-            $q->whereIn('status', ['confirmed', 'approved', 'final-approved', 'delivered']);
+            $q->whereIn('status', ['accepted', 'confirmed', 'approved', 'final-approved', 'delivered']);
         } elseif ($status === 'rejected') {
             $q->where('status', 'rejected');
         }

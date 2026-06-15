@@ -24,14 +24,31 @@ class ReminderController extends AsabController
     {
         return $this->run(function () use ($request, $notifier) {
             $data = $request->validate([
-                'messageAr' => 'required|string|max:1000',
+                // 'messageAr' is canonical; 'message' is the doc alias.
+                'messageAr' => 'required_without:message|string|max:1000',
+                'message' => 'required_without:messageAr|string|max:1000',
                 'messageEn' => 'sometimes|nullable|string|max:1000',
-                'audience' => 'required|in:all-branch-managers,all-accountants,all-suppliers,specific-branches',
+                // 'audience' is canonical; 'target' is the doc alias ("all" | branchId).
+                'audience' => 'required_without:target|in:all-branch-managers,all-accountants,all-suppliers,specific-branches',
+                'target' => 'required_without:audience|string',
                 'branchIds' => 'sometimes|array',
                 'branchIds.*' => 'string',
+                'module' => 'sometimes|nullable|string|max:32',
                 'channels' => 'sometimes|array',
                 'channels.*' => 'in:'.implode(',', self::CHANNELS),
             ]);
+
+            // Map doc aliases onto the canonical fields (non-breaking).
+            $data['messageAr'] = $data['messageAr'] ?? $data['message'];
+            if (empty($data['audience']) && isset($data['target'])) {
+                if ($data['target'] === 'all') {
+                    $data['audience'] = 'all-branch-managers';
+                } else {
+                    $data['audience'] = 'specific-branches';
+                    $data['branchIds'] = $data['branchIds'] ?? [$data['target']];
+                }
+            }
+
             $companyId = $request->user()->company_id;
             $channels = ! empty($data['channels']) ? array_values(array_unique($data['channels'])) : ['in-app'];
 
@@ -56,6 +73,7 @@ class ReminderController extends AsabController
             ]);
 
             return $this->ok([
+                'ok' => true,
                 'broadcastId' => $log->id,
                 'sentCount' => $sent,
                 'failedCount' => 0,

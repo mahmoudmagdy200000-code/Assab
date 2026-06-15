@@ -72,13 +72,26 @@ class InventoryController extends AsabController
     public function flagItems(Request $request, string $branchId): JsonResponse
     {
         return $this->run(function () use ($request, $branchId) {
-            $data = $request->validate(['itemIndices' => 'required|array']);
+            $data = $request->validate([
+                // 'itemIndices' is canonical; 'itemIndexes' is the doc alias — accept either.
+                'itemIndices' => 'required_without:itemIndexes|array',
+                'itemIndexes' => 'required_without:itemIndices|array',
+                'note' => 'sometimes|nullable|string',
+            ]);
+            $indices = $data['itemIndices'] ?? $data['itemIndexes'];
             $op = Operation::where('module_key', 'inventory')->where('branch_id', $branchId)->latest('operation_date')->firstOrFail();
             $payload = $op->payload ?? [];
-            $payload['flaggedItemIndices'] = $data['itemIndices'];
+            $payload['flaggedItemIndices'] = $indices;
+            if (array_key_exists('note', $data) && $data['note'] !== null) {
+                $payload['flagNote'] = $data['note'];
+            }
             $op->update(['payload' => $payload]);
 
-            return $this->ok(['branchId' => $branchId, 'flaggedItemIndices' => $data['itemIndices']]);
+            return $this->ok(array_filter([
+                'branchId' => $branchId,
+                'flaggedItemIndices' => $indices,
+                'note' => $data['note'] ?? null,
+            ], fn ($v) => $v !== null));
         });
     }
 
@@ -129,6 +142,54 @@ class InventoryController extends AsabController
             ]);
 
             return $this->created(['id' => $item->id, 'name' => $item->name]);
+        });
+    }
+
+    /**
+     * PUT /inventory/catalog — create catalog items from full definitions (if missing),
+     * link them to a branch's daily list, and notify the branch.
+     * Body: {branchId, items:[{name,category,unit}]}.
+     */
+    public function storeCatalog(Request $request, \Modules\Admin\Services\RealtimeBroadcaster $rt): JsonResponse
+    {
+        return $this->run(function () use ($request, $rt) {
+            $data = $request->validate([
+                'branchId' => 'required|string',
+                'items' => 'required|array|min:1',
+                'items.*.name' => 'required|string|max:200',
+                'items.*.category' => 'required|string|max:80',
+                'items.*.unit' => 'required|string|max:16',
+            ]);
+            $branchId = $data['branchId'];
+            $brandId = $rt->brandIdForBranch($branchId);
+
+            $result = DB::transaction(function () use ($data, $branchId, $brandId, $request) {
+                $out = [];
+                foreach ($data['items'] as $row) {
+                    // Create from the full definition only when no matching catalog item exists for the brand.
+                    $item = InventoryCatalogItem::firstOrCreate(
+                        ['brand_id' => $brandId, 'name' => $row['name'], 'category' => $row['category']],
+                        ['unit' => $row['unit'], 'status' => 'active'],
+                    );
+                    // Link to the branch's daily list (idempotent).
+                    BranchInventoryList::firstOrCreate(
+                        ['branch_id' => $branchId, 'catalog_item_id' => $item->id],
+                        ['added_by_id' => $request->user()->id],
+                    );
+                    $out[] = [
+                        'id' => $item->id,
+                        'name' => $item->name,
+                        'category' => $item->category,
+                        'unit' => $item->unit,
+                    ];
+                }
+
+                return $out;
+            });
+
+            $rt->inventoryFlagSent($branchId, $result);
+
+            return $this->created(['branchId' => $branchId, 'items' => $result, 'notifiedBranch' => true]);
         });
     }
 

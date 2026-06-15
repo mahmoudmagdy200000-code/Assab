@@ -198,6 +198,19 @@ Route::prefix('v1')->group(function () {
                 Route::post('branches/{branchId}/upload/fixed-assets', [AdminUploadController::class, 'fixedAssets']);
                 Route::get('upload/templates/{type}', [AdminUploadController::class, 'template']);
                 Route::get('brands/{brandId}/upload-status', [AdminUploadController::class, 'status']);
+
+                // Doc-conformance: plural 'uploads' aliases (FE wiring §1.6)
+                Route::post('brands/{brandId}/uploads/{type}', [AdminUploadController::class, 'brandUpload']);
+                Route::post('restaurants/{restaurantId}/uploads/employees', [AdminUploadController::class, 'employees']);
+                Route::get('uploads/templates/{type}', [AdminUploadController::class, 'template']);
+
+                // Report distribution (FE wiring §1.7)
+                Route::post('reports/{reportKey}/send', [ReportController::class, 'send']);
+                Route::post('reports/{reportKey}/upload', [ReportController::class, 'uploadReport']);
+
+                // Accountant assignment & per-restaurant modules (FE wiring §1.8, §1.9)
+                Route::patch('accountants/{accId}/assignments', [DistributionController::class, 'assignments']);
+                Route::put('accountants/{accId}/restaurants/{restaurant}/modules', [DistributionController::class, 'restaurantModules']);
             });
 
         // ---- Shared (auth + tenant) ----
@@ -350,6 +363,9 @@ Route::prefix('v1')->group(function () {
                 Route::post('reminders/rules', [ReminderController::class, 'storeRule']);
                 Route::patch('reminders/rules/{id}', [ReminderController::class, 'updateRule']);
                 Route::delete('reminders/rules/{id}', [ReminderController::class, 'deleteRule']);
+                // Doc-conformance aliases (FE wiring §2.11)
+                Route::post('accountant/reminder-rules', [ReminderController::class, 'storeRule']);
+                Route::patch('accountant/reminder-rules/{id}', [ReminderController::class, 'updateRule']);
                 Route::post('reminders/rules/{id}/toggle', [ReminderController::class, 'toggleRule']);
             });
 
@@ -475,6 +491,8 @@ Route::prefix('v1')->group(function () {
                     // ca-settings (§5.1.7)
                     Route::get('me/settings', [CompanySettingsController::class, 'show']);
                     Route::put('me/settings', [CompanySettingsController::class, 'update']);
+                    // Doc-conformance: PATCH alias for company settings (FE wiring §7.1)
+                    Route::patch('me/settings', [CompanySettingsController::class, 'update']);
                     Route::post('me/settings/logo', [CompanySettingsController::class, 'uploadLogo']);
                     Route::patch('me/preferences', [CompanySettingsController::class, 'updatePreferences']);
 
@@ -533,6 +551,8 @@ Route::prefix('v1')->group(function () {
                     Route::patch('head/reminders/{id}', [PersonalReminderController::class, 'update']);
                     Route::post('head/reminders/mark-all-done', [PersonalReminderController::class, 'markAllDone']);
                     Route::post('operations/{id}/post-to-erp', [HeadCompanyController::class, 'postToErp']);
+                    // Filtered ERP batch preview (FE wiring §3.1)
+                    Route::get('erp/preview', [HeadCompanyController::class, 'erpPreview']);
                 });
 
                 // Accountant (§5.3)
@@ -550,6 +570,11 @@ Route::prefix('v1')->group(function () {
                     Route::post('operations/{id}/approve', [OperationController::class, 'approve']);
                     Route::patch('operations/{id}/sales-details', [AccountantController::class, 'reconciliation']);
                     Route::post('operations/{id}/sales-variance/assign', [AccountantCompanyController::class, 'salesVarianceAssign']);
+                    // Doc-conformance (FE wiring §2.5, §2.6, §2.7)
+                    Route::patch('operations/{id}/reconciliation', [AccountantController::class, 'reconciliation']);
+                    Route::post('operations/{id}/variance-allocations', [AccountantCompanyController::class, 'salesVarianceAssign']);
+                    Route::patch('operations/{id}/sales-lines/{rowId}', [AccountantController::class, 'salesLineUpdate']);
+                    Route::post('operations/{id}/notes', [AccountantController::class, 'addNote']);
                     Route::get('operations/{id}/export', [CompanyExportController::class, 'operation']);
                     Route::get('branches/{branchId}/employees/lookup', [AccountantCompanyController::class, 'employeeLookup']);
 
@@ -569,6 +594,10 @@ Route::prefix('v1')->group(function () {
                     Route::get('inventory/items', [InventoryController::class, 'catalog']);
                     Route::get('branches/{branchId}/inventory-list', [InventoryController::class, 'dailyList']);
                     Route::put('branches/{branchId}/inventory-list', [InventoryController::class, 'saveDailyList']);
+                    // Doc-conformance (FE wiring §2.8, §2.9)
+                    Route::put('inventory/catalog', [InventoryController::class, 'storeCatalog']);
+                    Route::post('inventory/branches/{branchId}/confirm', [AccountantCompanyController::class, 'inventoryMarkConfirmed']);
+                    Route::post('inventory/branches/{branchId}/flagged-items', [InventoryController::class, 'flagItems']);
 
                     Route::get('waste/export', [CompanyExportController::class, 'waste']);
                     Route::get('waste', [WasteController::class, 'index']);
@@ -608,6 +637,8 @@ Route::prefix('v1')->group(function () {
                     Route::post('upload/sign-attachment', [UploadController::class, 'presignedUrl']);
                     Route::post('upload', [BranchCompanyController::class, 'upload']);
                     Route::get('employees', [BranchDashboardController::class, 'employees']);
+                    // Doc-conformance: branch manager adds an employee (FE wiring §4.3)
+                    Route::post('employees', [BranchCompanyController::class, 'storeEmployee']);
                     Route::get('items', [BranchDashboardController::class, 'items']);
                     Route::post('items/count', [BranchCompanyController::class, 'itemsCount']);
                     Route::get('purchase-requests', [BranchCompanyController::class, 'purchaseRequests']);
@@ -615,10 +646,14 @@ Route::prefix('v1')->group(function () {
                     Route::get('suppliers', [BranchDashboardController::class, 'suppliers']);
                     Route::post('suppliers/request-new', [BranchCompanyController::class, 'requestNewSupplier']);
                     Route::get('shifts/active', [BranchCompanyController::class, 'activeShift']);
+                    // Doc-conformance: brand shift config (FE wiring §4.6) — literal segment before shifts/{id}
+                    Route::put('shifts/config', [BranchCompanyController::class, 'saveShiftConfig']);
                     Route::post('shifts/open', [BranchCompanyController::class, 'openShift']);
                     Route::post('shifts/{id}/close', [ShiftController::class, 'close']);
                     Route::get('settings', [BranchDashboardController::class, 'settings']);
                     Route::put('settings', [BranchDashboardController::class, 'updateSettings']);
+                    // Doc-conformance: PATCH alias for settings (FE wiring §4.2)
+                    Route::patch('settings', [BranchDashboardController::class, 'updateSettings']);
                 });
 
                 // Procurement (§5.5)
@@ -629,6 +664,10 @@ Route::prefix('v1')->group(function () {
                     Route::get('orders', [ProcurementController::class, 'orders']);
                     Route::post('orders', [ProcurementCompanyController::class, 'storeOrder']);
                     Route::post('orders/grouped/{groupId}/send', [ProcurementController::class, 'send']);
+                    // Doc-conformance (FE wiring §5.3d, §5.3c, §5.4) — literal 'orders/approve' before 'orders/{id}/...'
+                    Route::post('orders/approve', [ProcurementController::class, 'bulkApprove']);
+                    Route::post('orders/{id}/partial-reject', [ProcurementController::class, 'partialReject']);
+                    Route::post('grouped/{groupId}/send', [ProcurementController::class, 'send']);
                     Route::post('orders/{id}/approve', [ProcurementController::class, 'approve']);
                     Route::post('orders/{id}/reject', [ProcurementController::class, 'reject']);
                     Route::patch('orders/{id}', [ProcurementCompanyController::class, 'updateOrder']);
@@ -648,6 +687,8 @@ Route::prefix('v1')->group(function () {
                 });
                 Route::middleware('asab.role:procurement,company-admin')->group(function () {
                     Route::post('suppliers', [ProcurementCompanyController::class, 'storeSupplier']);
+                    // Doc-conformance: procurement-prefixed alias (FE wiring §5.5)
+                    Route::post('procurement/suppliers', [ProcurementCompanyController::class, 'storeSupplier']);
                     Route::patch('suppliers/{id}', [ProcurementCompanyController::class, 'updateSupplier']);
                     Route::post('suppliers/{id}/toggle-active', [ProcurementCompanyController::class, 'toggleSupplier']);
                 });

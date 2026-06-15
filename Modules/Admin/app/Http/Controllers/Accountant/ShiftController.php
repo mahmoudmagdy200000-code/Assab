@@ -53,6 +53,11 @@ class ShiftController extends AsabController
     public function close(Request $request, \Modules\Admin\Services\RealtimeBroadcaster $rt, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $rt, $id) {
+            // Doc aliases: cashInDrawerHalalas->cashInDrawer, salesSystemHalalas->salesSystem.
+            $request->merge([
+                'cashInDrawer' => $request->input('cashInDrawer', $request->input('cashInDrawerHalalas')),
+                'salesSystem' => $request->input('salesSystem', $request->input('salesSystemHalalas')),
+            ]);
             $data = $request->validate([
                 'cashInDrawer' => 'required|integer',
                 'salesSystem' => 'required|integer',
@@ -70,7 +75,13 @@ class ShiftController extends AsabController
             ]);
             $rt->shiftChanged($shift->fresh(), 'closed');
 
-            return $this->ok($this->present($shift->fresh()));
+            // Superset response: present() keys + varianceHalalas + createdAt.
+            $fresh = $shift->fresh();
+
+            return $this->ok(array_merge($this->present($fresh), [
+                'varianceHalalas' => $fresh->variance,
+                'createdAt' => optional($fresh->created_at)->toIso8601String(),
+            ]));
         });
     }
 

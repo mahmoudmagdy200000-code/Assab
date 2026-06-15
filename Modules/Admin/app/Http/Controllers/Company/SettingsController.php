@@ -26,6 +26,9 @@ class SettingsController extends AsabController
     {
         return $this->run(function () use ($request) {
             $data = $request->validate([
+                // Doc body (COMPANY settings): {name, city, crNumber, email}. `name`/`city`
+                // are aliases mapped to the existing legalName/displayName + primaryCity columns.
+                'name' => 'sometimes|string|max:200', 'city' => 'sometimes|string|max:80',
                 'legalName' => 'sometimes|string|max:200', 'displayName' => 'sometimes|string|max:200',
                 'primaryCity' => 'sometimes|string|max:80', 'crNumber' => 'sometimes|nullable|string|max:32',
                 'taxId' => 'sometimes|nullable|string|max:32', 'email' => 'sometimes|nullable|email',
@@ -35,6 +38,11 @@ class SettingsController extends AsabController
                 'vatPercentage' => 'sometimes|integer|min:0|max:100', 'fiscalYearStart' => 'sometimes|string|max:8',
                 'brandColor' => 'sometimes|nullable|string|max:16',
             ]);
+
+            // Doc alias `name` -> legal_name + display_name (fall back to the old camelCase keys).
+            $name = $data['name'] ?? $data['legalName'] ?? null;
+            $city = $data['city'] ?? $data['primaryCity'] ?? null;
+
             $map = [
                 'legalName' => 'legal_name', 'displayName' => 'display_name', 'primaryCity' => 'primary_city',
                 'crNumber' => 'cr_number', 'taxId' => 'tax_id', 'email' => 'email', 'phone' => 'phone',
@@ -48,7 +56,21 @@ class SettingsController extends AsabController
                     $attrs[$col] = $data[$in];
                 }
             }
-            $s = CompanySettings::firstOrCreate(['company_id' => $request->user()->company_id], ['legal_name' => $data['legalName'] ?? '']);
+            // Apply doc aliases last so an explicit `name`/`city` wins over the legacy keys.
+            if ($name !== null) {
+                $attrs['legal_name'] = $name;
+                if (! array_key_exists('displayName', $data) && ! array_key_exists('display_name', $attrs)) {
+                    $attrs['display_name'] = $name;
+                }
+            }
+            if (array_key_exists('name', $data) && array_key_exists('displayName', $data)) {
+                $attrs['display_name'] = $data['displayName'];
+            }
+            if ($city !== null) {
+                $attrs['primary_city'] = $city;
+            }
+
+            $s = CompanySettings::firstOrCreate(['company_id' => $request->user()->company_id], ['legal_name' => $name ?? '']);
             $s->update($attrs);
 
             return $this->ok($this->present($s->fresh()));
@@ -100,7 +122,10 @@ class SettingsController extends AsabController
     private function present(CompanySettings $s): array
     {
         return [
-            'companyId' => $s->company_id, 'legalName' => $s->legal_name, 'displayName' => $s->display_name,
+            'companyId' => $s->company_id,
+            // Doc field names (superset) — mirror the persisted columns.
+            'name' => $s->legal_name, 'city' => $s->primary_city,
+            'legalName' => $s->legal_name, 'displayName' => $s->display_name,
             'logoEmoji' => $s->logo_emoji, 'logoUrl' => $s->logo_url, 'primaryCity' => $s->primary_city,
             'crNumber' => $s->cr_number, 'taxId' => $s->tax_id, 'email' => $s->email, 'phone' => $s->phone,
             'website' => $s->website, 'addressLine' => $s->address_line, 'defaultCurrency' => $s->default_currency,
