@@ -40,19 +40,25 @@ class AuditLogController extends AsabController
 
             $p = $q->orderByDesc('occurred_at')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
-            return $this->paginated($p, array_map(fn ($l) => [
-                'id' => $l->id,
-                'action' => $l->action,
-                'actorName' => $l->actor_label,
-                'actorRole' => $l->actor_role,
-                'entityType' => $l->entity_type,
-                'entityId' => $l->entity_id,
-                'description' => $l->description,
-                'ip' => $l->ip,
-                'occurredAt' => optional($l->occurred_at)->toIso8601String(),
-                'before' => $l->before,
-                'after' => $l->after,
-            ], $p->items()));
+            return $this->paginated($p, array_map(function ($l) {
+                $human = self::humanize($l->action, $l->entity_type);
+
+                return [
+                    'id' => $l->id,
+                    'action' => $l->action,
+                    'descriptionAr' => $human['ar'],
+                    'descriptionEn' => $human['en'],
+                    'actorName' => $l->actor_label,
+                    'actorRole' => $l->actor_role,
+                    'entityType' => $l->entity_type,
+                    'entityId' => $l->entity_id,
+                    'description' => $l->description,
+                    'ip' => $l->ip,
+                    'occurredAt' => optional($l->occurred_at)->toIso8601String(),
+                    'before' => $l->before,
+                    'after' => $l->after,
+                ];
+            }, $p->items()));
         });
     }
 
@@ -61,10 +67,13 @@ class AuditLogController extends AsabController
     {
         return $this->run(function () use ($id) {
             $l = AuditLog::findOrFail($id);
+            $human = self::humanize($l->action, $l->entity_type);
 
             return $this->ok([
                 'id' => $l->id,
                 'action' => $l->action,
+                'descriptionAr' => $human['ar'],
+                'descriptionEn' => $human['en'],
                 'actorName' => $l->actor_label,
                 'actorRole' => $l->actor_role,
                 'entityType' => $l->entity_type,
@@ -97,6 +106,47 @@ class AuditLogController extends AsabController
     public function filters(): JsonResponse
     {
         return $this->run(fn () => $this->ok(['actionTypes' => self::actionTypes()]));
+    }
+
+    /**
+     * Turn a raw "{verb}.{entity}" audit action (e.g. "post.companies") into a
+     * human label (FE wiring B3) so the UI doesn't reverse-engineer codes. Falls
+     * back to a "{verb} {entity}" gloss for anything not in the maps.
+     *
+     * @return array{ar:string, en:string}
+     */
+    public static function humanize(?string $action, ?string $entityType = null): array
+    {
+        $verbs = [
+            'post' => ['ar' => 'إنشاء', 'en' => 'Created'],
+            'put' => ['ar' => 'تعديل', 'en' => 'Updated'],
+            'patch' => ['ar' => 'تعديل', 'en' => 'Updated'],
+            'delete' => ['ar' => 'حذف', 'en' => 'Deleted'],
+        ];
+        $entities = [
+            'companies' => ['ar' => 'شركة', 'en' => 'company'],
+            'subscriptions' => ['ar' => 'اشتراك', 'en' => 'subscription'],
+            'users' => ['ar' => 'مستخدم', 'en' => 'user'],
+            'brands' => ['ar' => 'علامة تجارية', 'en' => 'brand'],
+            'restaurants' => ['ar' => 'مطعم', 'en' => 'restaurant'],
+            'branches' => ['ar' => 'فرع', 'en' => 'branch'],
+            'permissions' => ['ar' => 'الصلاحيات', 'en' => 'permissions'],
+            'settings' => ['ar' => 'الإعدادات', 'en' => 'settings'],
+            'accountants' => ['ar' => 'توزيع المحاسبين', 'en' => 'accountant distribution'],
+            'reports' => ['ar' => 'تقرير', 'en' => 'report'],
+            'notifications' => ['ar' => 'الإشعارات', 'en' => 'notifications'],
+        ];
+
+        [$verbKey, $entityKey] = array_pad(explode('.', (string) $action, 2), 2, null);
+        $entityKey = $entityKey ?: $entityType;
+
+        $verb = $verbs[$verbKey] ?? ['ar' => (string) $verbKey, 'en' => (string) $verbKey];
+        $entity = $entities[$entityKey] ?? ['ar' => (string) $entityKey, 'en' => (string) $entityKey];
+
+        return [
+            'ar' => trim($verb['ar'].' '.$entity['ar']),
+            'en' => trim($verb['en'].' '.$entity['en']),
+        ];
     }
 
     /** Canonical audit action-type vocabulary (shared by UI filter + exports). */

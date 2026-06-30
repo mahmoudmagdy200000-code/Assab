@@ -93,7 +93,9 @@ class LookupController extends AsabController
 
     public function modules(): JsonResponse
     {
-        return $this->listResponse([
+        // `value` mirrors `key` so consumers expecting either field bind cleanly
+        // (FE distribution matrix reads `value`; gating/tenant code reads `key`).
+        $modules = [
             ['key' => 'sales', 'labelAr' => 'المبيعات', 'labelEn' => 'Sales', 'icon' => '💰'],
             ['key' => 'expenses', 'labelAr' => 'المصروفات', 'labelEn' => 'Expenses', 'icon' => '🧾'],
             ['key' => 'purchases', 'labelAr' => 'المشتريات', 'labelEn' => 'Purchases', 'icon' => '🛒'],
@@ -103,7 +105,9 @@ class LookupController extends AsabController
             ['key' => 'shifts', 'labelAr' => 'الورديات', 'labelEn' => 'Shifts', 'icon' => '🕐'],
             ['key' => 'employees', 'labelAr' => 'الموظفين', 'labelEn' => 'Employees', 'icon' => '👥'],
             ['key' => 'cash', 'labelAr' => 'النقدية', 'labelEn' => 'Cash', 'icon' => '💵'],
-        ]);
+        ];
+
+        return $this->listResponse(array_map(fn ($m) => ['value' => $m['key']] + $m, $modules));
     }
 
     /** Exception-type dropdown metadata (MISSING_Dashboard §3.4). */

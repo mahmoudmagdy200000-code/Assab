@@ -337,4 +337,56 @@ class AdminDashboardBatch1Test extends TestCase
             ->assertJsonStructure(['data' => [['key', 'category']]])
             ->assertJsonPath('data.0.category', 'core');
     }
+
+    // ---- B1 / B2 / B3 follow-ups ----
+
+    public function test_b1_admin_notification_preferences_get_and_patch(): void
+    {
+        $get = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/v1/admin/notifications/preferences');
+
+        $get->assertStatus(200)->assertJsonStructure([
+            'channels' => ['inApp' => ['enabled'], 'email' => ['enabled', 'address'], 'push' => ['enabled'], 'whatsapp' => ['enabled']],
+            'events',
+            'quietHours' => ['enabled', 'startsAt', 'endsAt'],
+        ]);
+
+        $patch = $this->actingAs($this->admin, 'sanctum')
+            ->patchJson('/api/v1/admin/notifications/preferences', [
+                'channels' => ['push' => ['enabled' => true]],
+            ]);
+
+        $patch->assertStatus(200)->assertJsonPath('channels.push.enabled', true);
+    }
+
+    public function test_b2_admin_modules_lookup_exposes_value_and_key(): void
+    {
+        $res = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/v1/admin/lookups/modules');
+
+        $res->assertStatus(200)
+            ->assertJsonStructure(['data' => [['value', 'key', 'labelAr', 'labelEn']]])
+            ->assertJsonPath('data.0.value', 'sales')
+            ->assertJsonPath('data.0.key', 'sales');
+    }
+
+    public function test_b3_audit_logs_include_human_labels(): void
+    {
+        AuditLog::create([
+            'actor_user_id' => $this->admin->id,
+            'actor_label' => 'أمين النظام',
+            'actor_role' => 'admin',
+            'action' => 'post.companies',
+            'entity_type' => 'companies',
+            'description' => 'POST companies',
+            'occurred_at' => now(),
+        ]);
+
+        $res = $this->actingAs($this->admin, 'sanctum')->getJson('/api/v1/admin/audit-logs');
+
+        $res->assertStatus(200)
+            ->assertJsonStructure(['data' => [['action', 'descriptionAr', 'descriptionEn']], 'meta'])
+            ->assertJsonPath('data.0.descriptionAr', 'إنشاء شركة')
+            ->assertJsonPath('data.0.descriptionEn', 'Created company');
+    }
 }
