@@ -192,6 +192,14 @@ Route::prefix('v1')->group(function () {
                 Route::get('audit-logs/{id}', [AuditLogController::class, 'show']);
                 Route::get('settings', [SettingsController::class, 'show']);
                 Route::patch('settings', [SettingsController::class, 'update']);
+
+                // Notification preferences + module lookup, admin-scoped (FE wiring B1/B2).
+                // The shared copies live at /notifications/preferences & /lookups/modules,
+                // but the admin SPA calls them under /admin and a platform admin has no
+                // companyId for the /company/me/* variants — so expose them here too.
+                Route::get('notifications/preferences', [NotificationController::class, 'preferences']);
+                Route::patch('notifications/preferences', [NotificationController::class, 'updatePreferences']);
+                Route::get('lookups/modules', [LookupController::class, 'modules']);
                 Route::get('reports/catalog', [ReportController::class, 'catalog']);
                 Route::post('reports/generate', [ReportController::class, 'generate']);
 
