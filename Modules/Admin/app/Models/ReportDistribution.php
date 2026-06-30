@@ -16,12 +16,14 @@ class ReportDistribution extends Model
 
     protected $fillable = [
         'company_id', 'report_key', 'restaurant_id', 'channels',
-        'period_from', 'period_to', 'sent', 'sent_at', 'sent_by_id',
+        'period_from', 'period_to', 'sent', 'sent_at', 'sent_by_id', 'viewed', 'viewed_at',
     ];
 
     protected $casts = [
         'channels' => 'array',
         'sent' => 'boolean',
         'sent_at' => 'datetime',
+        'viewed' => 'boolean',
+        'viewed_at' => 'datetime',
     ];
 }

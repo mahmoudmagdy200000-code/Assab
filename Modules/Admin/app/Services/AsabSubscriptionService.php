@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Services;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRestaurant;
@@ -14,16 +15,30 @@ use Modules\Admin\Models\AsabSubscription;
  */
 class AsabSubscriptionService
 {
+    /**
+     * Renewal date math, shared by subscription renew and brand-level renew/activate
+     * (Admin dashboard contract batch 1, A1/A2) so the "extend from later of now /
+     * current expiry" rule lives in exactly one place (DRY).
+     *
+     * @return array{expires: Carbon, daysLeft: int}
+     */
+    public function computeRenewal(?Carbon $currentExpiry, int $months = 12): array
+    {
+        $base = $currentExpiry && $currentExpiry->isFuture() ? $currentExpiry : now();
+        $expires = $base->copy()->addMonths(max(1, $months));
+
+        return ['expires' => $expires, 'daysLeft' => (int) now()->diffInDays($expires)];
+    }
+
     /** Extend a subscription by N months from the later of now / current expiry. */
     public function renew(AsabSubscription $sub, int $months = 12): AsabSubscription
     {
         return DB::transaction(function () use ($sub, $months) {
-            $base = $sub->expires_at && $sub->expires_at->isFuture() ? $sub->expires_at : now();
-            $expires = $base->copy()->addMonths(max(1, $months));
+            $renewal = $this->computeRenewal($sub->expires_at, $months);
             $sub->update([
                 'status' => 'active',
-                'expires_at' => $expires,
-                'days_left' => (int) now()->diffInDays($expires),
+                'expires_at' => $renewal['expires'],
+                'days_left' => $renewal['daysLeft'],
             ]);
 
             return $sub->fresh();
@@ -37,8 +52,31 @@ class AsabSubscriptionService
             ->orderByDesc('expires_at')->first();
     }
 
-    /** @return array<string, mixed> */
-    public function present(AsabSubscription $s): array
+    /**
+     * Build a brandId => [{id,name}] map for a set of subscriptions in ONE query,
+     * so present() can include each subscription's brand restaurants without N+1.
+     *
+     * @param  iterable<AsabSubscription>  $subs
+     * @return array<string, array<int, array{id:string, name:?string}>>
+     */
+    public function restaurantsByBrand(iterable $subs): array
+    {
+        $brandIds = collect($subs)->pluck('brand_id')->filter()->unique();
+        if ($brandIds->isEmpty()) {
+            return [];
+        }
+
+        return AsabRestaurant::whereIn('brand_id', $brandIds)->get(['id', 'name', 'brand_id'])
+            ->groupBy('brand_id')
+            ->map(fn ($group) => $group->map(fn ($r) => ['id' => $r->id, 'name' => $r->name])->values()->all())
+            ->all();
+    }
+
+    /**
+     * @param  array<string, array<int, array{id:string, name:?string}>>  $restaurantsByBrand
+     * @return array<string, mixed>
+     */
+    public function present(AsabSubscription $s, array $restaurantsByBrand = []): array
     {
         return [
             'id' => $s->id,
@@ -52,6 +90,8 @@ class AsabSubscriptionService
             'monthlyPrice' => $s->monthly_price,
             'autoRenew' => (bool) $s->auto_renew,
             'reminderEnabled' => (bool) $s->reminder_enabled,
+            'modules' => $s->modules ?? [],
+            'restaurants' => $restaurantsByBrand[$s->brand_id] ?? [],
         ];
     }
 
