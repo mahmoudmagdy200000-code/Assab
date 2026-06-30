@@ -122,6 +122,9 @@ Route::prefix('v1')->group(function () {
                 Route::post('companies/{id}/suspend', [CompanyController::class, 'suspend']);
                 Route::post('companies/{id}/activate', [CompanyController::class, 'activate']);
                 Route::post('companies/{id}/upgrade', [CompanyController::class, 'upgrade']);
+                Route::post('companies/{id}/admin/reset-password', [CompanyController::class, 'resetAdminPassword']);
+                Route::post('companies/{id}/impersonate', [CompanyController::class, 'impersonate']);
+                Route::post('companies/{id}/send-reminder', [CompanyController::class, 'sendReminder']);
                 Route::get('companies/{id}/modules', [CompanyController::class, 'modules']);
                 Route::patch('companies/{id}/modules', [CompanyController::class, 'updateModules']);
                 Route::get('companies/{id}/usage', [CompanyController::class, 'usage']);
@@ -133,6 +136,8 @@ Route::prefix('v1')->group(function () {
                 Route::delete('brands/{id}', [BrandController::class, 'destroy']);
                 Route::post('brands/{brandId}/restaurants', [RestaurantController::class, 'store']);
                 Route::post('brands/{brandId}/auto-reminder', [BrandController::class, 'autoReminder']);
+                Route::post('brands/{brandId}/subscription/renew', [BrandController::class, 'renewSubscription']);
+                Route::post('brands/{brandId}/subscription/activate', [BrandController::class, 'activateSubscription']);
                 Route::patch('restaurants/{id}', [RestaurantController::class, 'update']);
                 Route::delete('restaurants/{id}', [RestaurantController::class, 'destroy']);
                 Route::post('restaurants/{restaurantId}/subscription/renew', [RestaurantController::class, 'renewSubscription']);
@@ -150,6 +155,7 @@ Route::prefix('v1')->group(function () {
                 Route::delete('users/{id}', [UserController::class, 'destroy']);
                 Route::post('users/{id}/activate', [UserController::class, 'activate']);
                 Route::post('users/{id}/deactivate', [UserController::class, 'deactivate']);
+                Route::post('users/{id}/reset-password', [UserController::class, 'resetPassword']);
 
                 // Distribution
                 Route::get('distribution', [DistributionController::class, 'index']);
@@ -160,8 +166,10 @@ Route::prefix('v1')->group(function () {
 
                 // Subscriptions
                 Route::get('subscriptions', [SubscriptionController::class, 'index']);
+                Route::post('subscriptions', [SubscriptionController::class, 'store']);
                 Route::post('subscriptions/{id}/renew', [SubscriptionController::class, 'renew']);
                 Route::post('subscriptions/{id}/change-plan', [SubscriptionController::class, 'changePlan']);
+                Route::patch('subscriptions/{id}/modules', [SubscriptionController::class, 'updateModules']);
                 Route::post('subscriptions/{id}/toggle-auto-reminder', [SubscriptionController::class, 'toggleAutoReminder']);
                 Route::post('subscriptions/{id}/suspend', [SubscriptionController::class, 'suspend']);
                 Route::post('subscriptions/{id}/activate', [SubscriptionController::class, 'activate']);
@@ -205,8 +213,11 @@ Route::prefix('v1')->group(function () {
                 Route::get('uploads/templates/{type}', [AdminUploadController::class, 'template']);
 
                 // Report distribution (FE wiring §1.7)
+                Route::get('reports/periods', [ReportController::class, 'periods']);
                 Route::post('reports/{reportKey}/send', [ReportController::class, 'send']);
                 Route::post('reports/{reportKey}/upload', [ReportController::class, 'uploadReport']);
+                Route::get('reports/{reportKey}/preview', [ReportController::class, 'preview']);
+                Route::get('reports/{reportKey}/status', [ReportController::class, 'status']);
 
                 // Accountant assignment & per-restaurant modules (FE wiring §1.8, §1.9)
                 Route::patch('accountants/{accId}/assignments', [DistributionController::class, 'assignments']);

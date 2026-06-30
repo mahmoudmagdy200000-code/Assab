@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRestaurant;
+use Modules\Admin\Services\AsabSubscriptionService;
+use Modules\Branch\Models\Branch;
 
 class BrandController extends AsabController
 {
@@ -111,6 +113,66 @@ class BrandController extends AsabController
         });
     }
 
+    /**
+     * POST /admin/brands/{brandId}/subscription/renew — extend the brand's
+     * subscription by N months (Admin dashboard contract batch 1, A1). The brand
+     * row carries its own subscription state (sub_status/expires/days_left), the
+     * same fields the Overview tree reads, so renewal lives here (not on a
+     * subscription id), mirroring autoReminder().
+     */
+    public function renewSubscription(Request $request, AsabSubscriptionService $subs, string $brandId): JsonResponse
+    {
+        return $this->run(function () use ($request, $subs, $brandId) {
+            $data = $request->validate(['months' => 'sometimes|integer|min:1|max:36']);
+            $brand = AsabBrand::findOrFail($brandId);
+            $renewal = $subs->computeRenewal($brand->expires, (int) ($data['months'] ?? 12));
+
+            DB::transaction(fn () => $brand->update([
+                'sub_status' => 'active',
+                'expires' => $renewal['expires'],
+                'days_left' => $renewal['daysLeft'],
+            ]));
+
+            return $this->ok($this->presentSubscription($brand->fresh()));
+        });
+    }
+
+    /**
+     * POST /admin/brands/{brandId}/subscription/activate — reactivate an expired
+     * brand (Admin dashboard contract batch 1, A2). Starts a fresh 12-month term
+     * when the brand has no future expiry, otherwise just flips the status.
+     */
+    public function activateSubscription(AsabSubscriptionService $subs, string $brandId): JsonResponse
+    {
+        return $this->run(function () use ($subs, $brandId) {
+            $brand = AsabBrand::findOrFail($brandId);
+
+            $payload = ['sub_status' => 'active'];
+            if (! $brand->expires || $brand->expires->isPast()) {
+                $renewal = $subs->computeRenewal(null, 12);
+                $payload['expires'] = $renewal['expires'];
+                $payload['days_left'] = $renewal['daysLeft'];
+            } else {
+                $payload['days_left'] = (int) now()->diffInDays($brand->expires);
+            }
+
+            DB::transaction(fn () => $brand->update($payload));
+
+            return $this->ok($this->presentSubscription($brand->fresh()));
+        });
+    }
+
+    /** Brand subscription response shape (A1/A2). */
+    private function presentSubscription(AsabBrand $b): array
+    {
+        return [
+            'brandId' => $b->id,
+            'subStatus' => $b->sub_status,
+            'daysLeft' => $b->days_left,
+            'expiresAt' => optional($b->expires)->toIso8601String(),
+        ];
+    }
+
     private function present(AsabBrand $b, bool $withChildren = false): array
     {
         $data = [
@@ -129,10 +191,23 @@ class BrandController extends AsabController
         ];
 
         if ($withChildren) {
-            $data['restaurants'] = AsabRestaurant::where('brand_id', $b->id)->orderBy('name')->get()
-                ->map(fn ($r) => [
-                    'id' => $r->id, 'name' => $r->name, 'city' => $r->city, 'status' => $r->status,
-                ])->all();
+            $restaurants = AsabRestaurant::where('brand_id', $b->id)->orderBy('name')->get();
+
+            // One query for all branches under this brand's restaurants (no per-row N+1).
+            $branchesByRestaurant = Branch::whereIn('asab_restaurant_id', $restaurants->pluck('id'))
+                ->orderBy('name')->get(['id', 'name', 'manager', 'asab_restaurant_id'])
+                ->groupBy('asab_restaurant_id');
+
+            $data['restaurants'] = $restaurants->map(fn ($r) => [
+                'id' => $r->id,
+                'name' => $r->name,
+                'city' => $r->city,
+                'status' => $r->status,
+                'accountants' => $r->accountant_count,
+                'branches' => ($branchesByRestaurant[$r->id] ?? collect())
+                    ->map(fn ($br) => ['id' => $br->id, 'name' => $br->name, 'manager' => $br->manager])
+                    ->values()->all(),
+            ])->all();
         }
 
         return $data;

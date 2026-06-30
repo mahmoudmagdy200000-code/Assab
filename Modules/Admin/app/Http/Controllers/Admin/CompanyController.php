@@ -5,9 +5,20 @@ namespace Modules\Admin\Http\Controllers\Admin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
+use Modules\Admin\Models\AsabRestaurant;
+use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Notifications\SubscriptionReminderNotification;
+use Modules\Admin\Notifications\UserPasswordResetNotification;
+use Modules\Admin\Services\AuditService;
 use Modules\Admin\Services\CompanyProvisioningService;
+use Modules\Admin\Services\NotificationService;
+use Modules\Branch\Models\Branch;
 
 class CompanyController extends AsabController
 {
@@ -26,10 +37,19 @@ class CompanyController extends AsabController
                     ? $q->where('plan', $filter)
                     : $q->where('status', $filter);
             }
+            // Explicit plan/status params (contract batch 1, Part C) — alongside `filter`.
+            if (($plan = $request->query('plan')) && $plan !== 'all') {
+                $q->where('plan', $plan);
+            }
+            if (($status = $request->query('status')) && $status !== 'all') {
+                $q->where('status', $status);
+            }
 
             $p = $q->orderByDesc('created_at')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
-            return $this->paginated($p, array_map([$this, 'present'], $p->items()));
+            $counts = $this->buildCounts(collect($p->items())->pluck('id')->all());
+
+            return $this->paginated($p, array_map(fn ($c) => $this->present($c, $counts), $p->items()));
         });
     }
 
@@ -214,6 +234,157 @@ class CompanyController extends AsabController
         });
     }
 
+    /**
+     * POST /admin/companies/{id}/admin/reset-password (contract batch 1, A6).
+     * Resets the company-admin's password and emails it — never returns plaintext.
+     */
+    public function resetAdminPassword(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $data = $request->validate(['notify' => 'sometimes|boolean']);
+            $company = AsabCompany::findOrFail($id);
+            $admin = $this->resolveCompanyAdmin($company);
+            if (! $admin) {
+                throw new AsabException('NOT_FOUND', 'Company has no admin account', 'لا يوجد حساب مدير لهذه الشركة', 404);
+            }
+
+            $temporaryPassword = Str::password(12);
+            $resetAt = now();
+
+            DB::transaction(function () use ($admin, $temporaryPassword) {
+                $admin->forceFill(['password' => $temporaryPassword])->save();
+                $admin->tokens()->delete();
+            });
+
+            if ($data['notify'] ?? true) {
+                try {
+                    $admin->notify(new UserPasswordResetNotification($temporaryPassword));
+                } catch (\Throwable $e) {
+                    Log::warning('Company-admin reset email failed: '.$e->getMessage());
+                }
+            }
+
+            return $this->ok(['ok' => true, 'emailedTo' => $admin->email, 'resetAt' => $resetAt->toIso8601String()]);
+        });
+    }
+
+    /**
+     * POST /admin/companies/{id}/impersonate (contract batch 1, A7) — security-sensitive.
+     * Mints a short-lived (30-min), no-refresh Sanctum token as the company-admin
+     * and writes an explicit audit entry. Admin-only (enforced by route middleware).
+     */
+    public function impersonate(Request $request, AuditService $audit, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $audit, $id) {
+            $company = AsabCompany::findOrFail($id);
+            $admin = $this->resolveCompanyAdmin($company);
+            if (! $admin) {
+                throw new AsabException('NOT_FOUND', 'Company has no admin account', 'لا يوجد حساب مدير لهذه الشركة', 404);
+            }
+
+            $expiresAt = now()->addMinutes(30);
+            $token = $admin->createToken('impersonation', ['*'], $expiresAt)->plainTextToken;
+
+            $audit->record(
+                'impersonate',
+                $request->user(),
+                'company',
+                $company->id,
+                'Admin impersonated company-admin '.$admin->email,
+                [],
+                ['targetUserId' => $admin->id],
+                $request,
+            );
+
+            return $this->ok([
+                'token' => $token,
+                'expiresAt' => $expiresAt->toIso8601String(),
+                'userId' => $admin->id,
+            ]);
+        });
+    }
+
+    /**
+     * POST /admin/companies/{id}/send-reminder (contract batch 1, A8).
+     * Dispatches a renewal reminder to the company-admin over the chosen channels.
+     */
+    public function sendReminder(Request $request, NotificationService $notifications, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $notifications, $id) {
+            $data = $request->validate([
+                'channels' => 'required|array|min:1',
+                'channels.*' => 'in:email,inApp',
+                'message' => 'sometimes|nullable|string|max:500',
+            ]);
+
+            $company = AsabCompany::findOrFail($id);
+            $channels = array_values(array_unique($data['channels']));
+            $message = $data['message'] ?? 'تذكير بتجديد اشتراك '.$company->name;
+            $sentAt = now();
+
+            if (in_array('inApp', $channels, true)) {
+                $notifications->pushToRole($company->id, 'company-admin', 'subscription.reminder', 'تذكير بالتجديد', $message);
+            }
+            if (in_array('email', $channels, true)) {
+                $admin = $this->resolveCompanyAdmin($company);
+                if ($admin) {
+                    try {
+                        $admin->notify(new SubscriptionReminderNotification($company->name, $message));
+                    } catch (\Throwable $e) {
+                        Log::warning('Reminder email failed: '.$e->getMessage());
+                    }
+                }
+            }
+
+            return $this->ok(['ok' => true, 'sentAt' => $sentAt->toIso8601String(), 'channels' => $channels]);
+        });
+    }
+
+    /** Resolve a company's admin user — by role first, then admin_email fallback. */
+    private function resolveCompanyAdmin(AsabCompany $company): ?AsabUser
+    {
+        $user = AsabUser::where('company_id', $company->id)
+            ->whereHas('roleAssignments', fn ($r) => $r->where('role_key', 'company-admin'))
+            ->first();
+
+        if (! $user && $company->admin_email) {
+            $user = AsabUser::where('email', $company->admin_email)->first();
+        }
+
+        return $user;
+    }
+
+    /**
+     * Aggregate brand/restaurant/user/branch counts for a set of companies in one
+     * grouped query each, so present() never queries per row (contract batch 1, Part B).
+     *
+     * @param  array<int, string>  $companyIds
+     * @return array{brands:array, restaurants:array, users:array, branches:array}
+     */
+    private function buildCounts(array $companyIds): array
+    {
+        if (empty($companyIds)) {
+            return ['brands' => [], 'restaurants' => [], 'users' => [], 'branches' => []];
+        }
+
+        $countBy = fn ($query, string $column) => $query->whereIn($column, $companyIds)
+            ->selectRaw("{$column} as cid, count(*) as c")->groupBy($column)->pluck('c', 'cid')->all();
+
+        $branches = [];
+        try {
+            $branches = $countBy(Branch::query(), 'asab_company_id');
+        } catch (\Throwable $e) {
+            $branches = [];
+        }
+
+        return [
+            'brands' => $countBy(AsabBrand::query(), 'company_id'),
+            'restaurants' => $countBy(AsabRestaurant::query(), 'company_id'),
+            'users' => $countBy(AsabUser::query(), 'company_id'),
+            'branches' => $branches,
+        ];
+    }
+
     private function companyBranchCount(string $companyId): int
     {
         try {
@@ -234,8 +405,15 @@ class CompanyController extends AsabController
         return $map[$plan][$kind] ?? 5;
     }
 
-    private function present(AsabCompany $c): array
+    /**
+     * @param  array{brands:array, restaurants:array, users:array, branches:array}|null  $counts
+     *                                                                                            Precomputed count maps (from buildCounts) — when omitted, computed for this
+     *                                                                                            single company so single-resource endpoints stay correct without N+1 on lists.
+     */
+    private function present(AsabCompany $c, ?array $counts = null): array
     {
+        $counts ??= $this->buildCounts([$c->id]);
+
         return [
             'id' => $c->id,
             'name' => $c->name,
@@ -246,9 +424,14 @@ class CompanyController extends AsabController
             'city' => $c->city,
             'plan' => $c->plan,
             'status' => $c->status,
+            'brands' => (int) ($counts['brands'][$c->id] ?? 0),
+            'restaurants' => (int) ($counts['restaurants'][$c->id] ?? 0),
+            'users' => (int) ($counts['users'][$c->id] ?? 0),
+            'usedBranches' => (int) ($counts['branches'][$c->id] ?? 0),
             'maxBranches' => $c->max_branches,
             'maxUsers' => $c->max_users,
             'monthlyRevenue' => $c->monthly_revenue,
+            'daysLeft' => $c->next_billing ? (int) now()->diffInDays($c->next_billing, false) : null,
             'startDate' => optional($c->start_date)->toIso8601String(),
             'nextBilling' => optional($c->next_billing)->toIso8601String(),
             'modules' => $c->modules ?? [],

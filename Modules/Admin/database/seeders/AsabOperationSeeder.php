@@ -69,6 +69,7 @@ class AsabOperationSeeder extends Seeder
         if ($status === Operation::STATUS_FINAL) {
             $out['final_approved_at'] = now()->subHours(6);
         }
+
         return $out;
     }
 

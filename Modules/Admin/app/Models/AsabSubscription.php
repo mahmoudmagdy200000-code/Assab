@@ -15,7 +15,7 @@ class AsabSubscription extends Model
 
     protected $fillable = [
         'company_id', 'brand_id', 'restaurant_id', 'plan', 'status',
-        'expires_at', 'days_left', 'monthly_price', 'auto_renew', 'reminder_enabled',
+        'expires_at', 'days_left', 'monthly_price', 'auto_renew', 'reminder_enabled', 'modules',
     ];
 
     protected $casts = [
@@ -24,6 +24,7 @@ class AsabSubscription extends Model
         'monthly_price' => 'integer',
         'auto_renew' => 'boolean',
         'reminder_enabled' => 'boolean',
+        'modules' => 'array',
     ];
 
     public function restaurant()
