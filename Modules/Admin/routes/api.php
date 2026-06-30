@@ -318,6 +318,15 @@ Route::prefix('v1')->group(function () {
                 Route::get('erp/batches', [HeadController::class, 'erpBatches']);
                 Route::get('reports/internal', [HeadController::class, 'reportsInternal']);
                 Route::get('reports/owner', [HeadController::class, 'reportsOwner']);
+
+                // Personal reminders for the platform head surface (B-H6). The
+                // company surface already exposes these under /company/me/head/*;
+                // the platform head SPA calls them under /head/* — so mirror here.
+                Route::get('reminders', [PersonalReminderController::class, 'index']);
+                Route::post('reminders', [PersonalReminderController::class, 'store']);
+                Route::post('reminders/mark-all-done', [PersonalReminderController::class, 'markAllDone']);
+                Route::patch('reminders/{id}', [PersonalReminderController::class, 'update']);
+                Route::delete('reminders/{id}', [PersonalReminderController::class, 'destroy']);
             });
 
             // ---- Accountant (المحاسب; §6.3) ----

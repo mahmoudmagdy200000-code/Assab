@@ -69,11 +69,14 @@ class HeadMetricsService
             ['day' => 'Sat', 'dayAr' => 'السبت'],
         ];
 
+        // `thisW`/`lastW` are FE-contract aliases (B-H2) for thisWeek/lastWeek.
         return collect($days)->map(fn ($d, $i) => [
             'day' => $d['day'],
             'dayAr' => $d['dayAr'],
             'thisWeek' => $thisWeek[$i] ?? 0,
             'lastWeek' => $lastWeek[$i] ?? 0,
+            'thisW' => $thisWeek[$i] ?? 0,
+            'lastW' => $lastWeek[$i] ?? 0,
         ])->all();
     }
 
@@ -101,9 +104,8 @@ class HeadMetricsService
         $monthStart = now()->startOfMonth();
         $lastMonthStart = now()->subMonthNoOverflow()->startOfMonth();
         $lastMonthEnd = $monthStart->copy()->subSecond();
-        $queueDepth = (int) $this->scoped($companyId)->where('status', 'pending')->count();
 
-        return $accountants->map(function (AsabUser $a) use ($companyId, $from, $to, $lastMonthStart, $lastMonthEnd, $queueDepth) {
+        return $accountants->map(function (AsabUser $a) use ($companyId, $from, $to, $lastMonthStart, $lastMonthEnd) {
             $base = function () use ($companyId, $a, $from, $to): Builder {
                 $q = $this->scoped($companyId)->where('approved_by_id', $a->id);
                 if ($from) {
@@ -133,21 +135,37 @@ class HeadMetricsService
                 ? 0.0
                 : round($reviewedOps->avg(fn ($o) => $o->submitted_at->diffInMinutes($o->reviewed_at)), 1);
 
-            [$level, $levelLabelAr] = $this->level($rate);
+            [$level, $levelLabelAr, $levelCls] = $this->level($rate);
+            $branchIds = $this->accountantBranchIds($a);
+            $pending = empty($branchIds)
+                ? 0
+                : (int) $this->scoped($companyId)->where('status', 'pending')->whereIn('branch_id', $branchIds)->count();
+            $rating = round(min(5, $rate / 20), 1);
 
+            // Canonical keys + FE-contract aliases (B-H3): rate/prevRate/avgTime/
+            // reviewed/approved/pending/branches + levelCls + per-accountant movements.
             return [
                 'id' => $a->id,
                 'name' => $a->name,
-                'branchesAssignedCount' => $this->branchesAssignedCount($a),
+                'branchesAssignedCount' => count($branchIds),
+                'branches' => count($branchIds),
                 'reviewedCount' => $reviewed,
+                'reviewed' => $reviewed,
                 'approvedCount' => $approved,
-                'pendingCount' => $queueDepth,
+                'approved' => $approved,
+                'pendingCount' => $pending,
+                'pending' => $pending,
                 'approvalRatePct' => $rate,
+                'rate' => $rate,
                 'previousMonthRatePct' => $prevRate,
-                'rating' => round(min(5, $rate / 20), 1),
+                'prevRate' => $prevRate,
+                'rating' => $rating,
                 'avgReviewMinutes' => $avgReviewMinutes,
+                'avgTime' => $avgReviewMinutes,
                 'level' => $level,
                 'levelLabelAr' => $levelLabelAr,
+                'levelCls' => $levelCls,
+                'recentMovements' => $this->accountantMovements($companyId, $a->id, 5),
             ];
         })->values()->all();
     }
@@ -187,7 +205,8 @@ class HeadMetricsService
         return trim($verb.' '.($module ? (self::MODULE_LABELS[$module] ?? $module) : ''));
     }
 
-    private function branchesAssignedCount(AsabUser $a): int
+    /** @return string[] branch ids assigned to the accountant's role. */
+    private function accountantBranchIds(AsabUser $a): array
     {
         $assignment = $a->roleAssignments->firstWhere('role_key', 'accountant');
         $ids = $assignment?->branch_ids ?? [];
@@ -195,16 +214,40 @@ class HeadMetricsService
             $ids = json_decode($ids, true) ?: [];
         }
 
-        return is_array($ids) ? count($ids) : 0;
+        return is_array($ids) ? array_values($ids) : [];
     }
 
+    /** Recent approval-ledger movements performed BY one accountant (B-H3). */
+    private function accountantMovements(string $companyId, string $accountantId, int $limit): array
+    {
+        $steps = ApprovalStep::where('actor_user_id', $accountantId)
+            ->whereIn('operation_id', Operation::where('company_id', $companyId)->select('id'))
+            ->orderByDesc('occurred_at')->limit($limit)->get();
+
+        $modules = Operation::whereIn('id', $steps->pluck('operation_id')->unique()->values())
+            ->get(['id', 'module_key'])->pluck('module_key', 'id');
+
+        return $steps->map(function (ApprovalStep $s) use ($modules) {
+            $module = $modules[$s->operation_id] ?? null;
+
+            return [
+                'id' => $s->id,
+                'actionAr' => $s->note ?: $this->actionLabel($s->action, $module),
+                'timeAr' => optional($s->occurred_at)->diffForHumans(),
+                'module' => $module,
+                'moduleLabelAr' => $module ? (self::MODULE_LABELS[$module] ?? $module) : null,
+            ];
+        })->all();
+    }
+
+    /** @return array{0:string,1:string,2:string} [levelKey, labelAr, cssToken] */
     private function level(int $rate): array
     {
         return match (true) {
-            $rate >= 90 => ['excellent', 'ممتاز'],
-            $rate >= 75 => ['good', 'جيد'],
-            $rate >= 60 => ['acceptable', 'مقبول'],
-            default => ['needs_improvement', 'يحتاج تحسين'],
+            $rate >= 90 => ['excellent', 'ممتاز', 'emerald'],
+            $rate >= 75 => ['good', 'جيد', 'blue'],
+            $rate >= 60 => ['acceptable', 'مقبول', 'amber'],
+            default => ['needs_improvement', 'يحتاج تحسين', 'red'],
         };
     }
 

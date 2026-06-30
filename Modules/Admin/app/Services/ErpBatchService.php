@@ -95,9 +95,23 @@ class ErpBatchService
         $eligible = Operation::where('status', Operation::STATUS_FINAL)->where('erp_posted', false)->count();
         $unresolvedDiffs = Operation::where('match', 'diff')->whereIn('status', ['pending', 'approved'])->count();
 
+        // labelAr/labelEn are the FE-contract fields (B-H4); `label` kept as the
+        // Arabic back-compat alias.
         $checks = [
-            ['ok' => $eligible > 0, 'label' => "عمليات جاهزة للتصدير: {$eligible}", 'severity' => $eligible > 0 ? 'info' : 'warning'],
-            ['ok' => $unresolvedDiffs === 0, 'label' => "فروقات غير محلولة: {$unresolvedDiffs}", 'severity' => $unresolvedDiffs === 0 ? 'info' : 'warning'],
+            [
+                'ok' => $eligible > 0,
+                'labelAr' => "عمليات جاهزة للتصدير: {$eligible}",
+                'labelEn' => "Operations ready to export: {$eligible}",
+                'label' => "عمليات جاهزة للتصدير: {$eligible}",
+                'severity' => $eligible > 0 ? 'info' : 'warning',
+            ],
+            [
+                'ok' => $unresolvedDiffs === 0,
+                'labelAr' => "فروقات غير محلولة: {$unresolvedDiffs}",
+                'labelEn' => "Unresolved discrepancies: {$unresolvedDiffs}",
+                'label' => "فروقات غير محلولة: {$unresolvedDiffs}",
+                'severity' => $unresolvedDiffs === 0 ? 'info' : 'warning',
+            ],
         ];
 
         return [
