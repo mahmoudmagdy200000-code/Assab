@@ -138,6 +138,7 @@ Route::prefix('v1')->group(function () {
                 Route::post('brands/{brandId}/auto-reminder', [BrandController::class, 'autoReminder']);
                 Route::post('brands/{brandId}/subscription/renew', [BrandController::class, 'renewSubscription']);
                 Route::post('brands/{brandId}/subscription/activate', [BrandController::class, 'activateSubscription']);
+                Route::post('brands/{brandId}/owner/reset-password', [BrandController::class, 'resetOwnerPassword']);
                 Route::patch('restaurants/{id}', [RestaurantController::class, 'update']);
                 Route::delete('restaurants/{id}', [RestaurantController::class, 'destroy']);
                 Route::post('restaurants/{restaurantId}/subscription/renew', [RestaurantController::class, 'renewSubscription']);

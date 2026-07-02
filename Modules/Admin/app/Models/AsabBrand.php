@@ -14,7 +14,7 @@ class AsabBrand extends Model
     protected $table = 'asab_brands';
 
     protected $fillable = [
-        'company_id', 'name', 'abbr', 'color', 'owner', 'owner_email',
+        'company_id', 'name', 'abbr', 'color', 'owner', 'owner_email', 'owner_user_id',
         'plan', 'sub_status', 'expires', 'days_left', 'modules', 'status', 'auto_reminder_enabled',
     ];
 
@@ -33,5 +33,10 @@ class AsabBrand extends Model
     public function company()
     {
         return $this->belongsTo(AsabCompany::class, 'company_id');
+    }
+
+    public function owner()
+    {
+        return $this->belongsTo(AsabUser::class, 'owner_user_id');
     }
 }

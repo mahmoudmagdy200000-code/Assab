@@ -18,6 +18,7 @@ class AsabRolePermissionSeeder extends Seeder
             ['key' => 'branch', 'name_ar' => 'مدير الفرع', 'name_en' => 'Branch Manager'],
             ['key' => 'procurement', 'name_ar' => 'مدير المشتريات', 'name_en' => 'Procurement Manager'],
             ['key' => 'supplier', 'name_ar' => 'المورد', 'name_en' => 'Supplier'],
+            ['key' => 'brand-owner', 'name_ar' => 'مالك العلامة التجارية', 'name_en' => 'Brand Owner'],
         ];
         foreach ($roles as $r) {
             AsabRole::updateOrCreate(['key' => $r['key']], $r);
@@ -34,6 +35,7 @@ class AsabRolePermissionSeeder extends Seeder
             'branch' => 'submit',
             'procurement' => 'review',
             'supplier' => 'view',
+            'brand-owner' => 'view',   // owns a brand; read-only baseline, no operation approval power
         ];
 
         foreach ($matrix as $roleKey => $default) {
