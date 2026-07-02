@@ -17,6 +17,7 @@ class UserController extends AsabController
     private const ROLE_LABELS = [
         'accountant' => 'محاسب', 'head' => 'رئيس حسابات', 'branch' => 'مدير فرع',
         'procurement' => 'مدير مشتريات', 'supplier' => 'مورد', 'admin' => 'أدمن',
+        'brand-owner' => 'مالك العلامة التجارية',
     ];
 
     public function index(Request $request): JsonResponse
@@ -55,7 +56,7 @@ class UserController extends AsabController
                 'name' => 'required|string|max:200',
                 'email' => 'required|email|max:191|unique:asab_users,email',
                 'phone' => 'nullable|string|max:32',
-                'role' => 'required|in:admin,head,accountant,branch,procurement,supplier',
+                'role' => 'required|in:admin,head,accountant,branch,procurement,supplier,brand-owner',
                 'companyId' => 'nullable|string',
                 'brands' => 'nullable|array',
                 'restaurants' => 'nullable|array',
@@ -246,6 +247,7 @@ class UserController extends AsabController
         return [
             'admin' => 'admin-overview', 'head' => 'head-dashboard', 'accountant' => 'acc-dashboard',
             'branch' => 'branch-overview', 'procurement' => 'proc-overview', 'supplier' => 'sup-overview',
+            'brand-owner' => 'brand-owner-dashboard',
         ][$role] ?? 'admin-overview';
     }
 

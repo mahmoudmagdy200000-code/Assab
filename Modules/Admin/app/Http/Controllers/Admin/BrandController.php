@@ -5,10 +5,16 @@ namespace Modules\Admin\Http\Controllers\Admin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRestaurant;
+use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Notifications\UserPasswordResetNotification;
 use Modules\Admin\Services\AsabSubscriptionService;
+use Modules\Admin\Services\BrandOwnerProvisioningService;
 use Modules\Branch\Models\Branch;
 
 class BrandController extends AsabController
@@ -26,9 +32,9 @@ class BrandController extends AsabController
         });
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, BrandOwnerProvisioningService $ownerProvisioning): JsonResponse
     {
-        return $this->run(function () use ($request) {
+        return $this->run(function () use ($request, $ownerProvisioning) {
             $data = $request->validate([
                 'companyId' => 'required|string',
                 'name' => 'required|string|max:120',
@@ -44,20 +50,36 @@ class BrandController extends AsabController
                 'modules' => 'nullable|array',
             ]);
 
-            $brand = DB::transaction(fn () => AsabBrand::create([
-                'company_id' => $data['companyId'],
-                'name' => $data['name'],
-                'abbr' => $data['abbr'] ?? null,
-                'color' => $data['color'] ?? null,
-                'owner' => $data['owner'] ?? null,
-                'owner_email' => $data['ownerEmail'] ?? null,
-                'plan' => $data['plan'] ?? null,
-                'sub_status' => 'active',
-                'modules' => $data['modules'] ?? [],
-                'status' => 'active',
-            ]));
+            // B-A6: when an ownerEmail is supplied, provision/link a brand-owner login
+            // and email a one-time password — inside the same transaction so a conflict
+            // (422) or failure rolls back the brand too.
+            [$brand, $owner] = DB::transaction(function () use ($data, $ownerProvisioning) {
+                $brand = AsabBrand::create([
+                    'company_id' => $data['companyId'],
+                    'name' => $data['name'],
+                    'abbr' => $data['abbr'] ?? null,
+                    'color' => $data['color'] ?? null,
+                    'owner' => $data['owner'] ?? null,
+                    'owner_email' => $data['ownerEmail'] ?? null,
+                    'plan' => $data['plan'] ?? null,
+                    'sub_status' => 'active',
+                    'modules' => $data['modules'] ?? [],
+                    'status' => 'active',
+                ]);
 
-            return $this->created($this->present($brand));
+                $owner = null;
+                if (! empty($data['ownerEmail'])) {
+                    $owner = $ownerProvisioning->provision($brand, $data['ownerEmail'], $data['owner'] ?? null);
+                    $brand->update(['owner_user_id' => $owner['user']->id]);
+                }
+
+                return [$brand, $owner];
+            });
+
+            return $this->created(array_merge($this->present($brand->fresh()), [
+                'ownerUserId' => $owner['user']->id ?? null,
+                'emailSent' => $owner['emailSent'] ?? false,
+            ]));
         });
     }
 
@@ -162,6 +184,56 @@ class BrandController extends AsabController
         });
     }
 
+    /**
+     * POST /admin/brands/{brandId}/owner/reset-password (B-A6) — regenerate the
+     * brand owner's password and email it. Never returns plaintext. Mirrors
+     * CompanyController@resetAdminPassword; locates the owner via owner_user_id
+     * (falling back to owner_email) since brand ownership is not a company role.
+     */
+    public function resetOwnerPassword(Request $request, string $brandId): JsonResponse
+    {
+        return $this->run(function () use ($request, $brandId) {
+            $data = $request->validate(['notify' => 'sometimes|boolean']);
+            $brand = AsabBrand::findOrFail($brandId);
+            $owner = $this->resolveBrandOwner($brand);
+            if (! $owner) {
+                throw new AsabException('NOT_FOUND', 'Brand has no owner account', 'لا يوجد حساب مالك لهذه العلامة التجارية', 404);
+            }
+
+            $temporaryPassword = Str::password(12);
+            $resetAt = now();
+
+            DB::transaction(function () use ($owner, $temporaryPassword) {
+                $owner->forceFill(['password' => $temporaryPassword])->save();
+                $owner->tokens()->delete();
+            });
+
+            if ($data['notify'] ?? true) {
+                try {
+                    $owner->notify(new UserPasswordResetNotification($temporaryPassword));
+                } catch (\Throwable $e) {
+                    Log::warning('Brand-owner reset email failed: '.$e->getMessage());
+                }
+            }
+
+            return $this->ok(['ok' => true, 'emailedTo' => $owner->email, 'resetAt' => $resetAt->toIso8601String()]);
+        });
+    }
+
+    /** Resolve a brand's owner user — by stored owner_user_id first, then owner_email. */
+    private function resolveBrandOwner(AsabBrand $b): ?AsabUser
+    {
+        if ($b->owner_user_id && ($user = AsabUser::find($b->owner_user_id))) {
+            return $user;
+        }
+
+        if ($b->owner_email) {
+            return AsabUser::where('email', $b->owner_email)->first();
+        }
+
+        return null;
+    }
+
     /** Brand subscription response shape (A1/A2). */
     private function presentSubscription(AsabBrand $b): array
     {
@@ -183,6 +255,7 @@ class BrandController extends AsabController
             'color' => $b->color,
             'owner' => $b->owner,
             'ownerEmail' => $b->owner_email,
+            'ownerUserId' => $b->owner_user_id,
             'plan' => $b->plan,
             'subStatus' => $b->sub_status,
             'daysLeft' => $b->days_left,
