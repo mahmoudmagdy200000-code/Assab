@@ -181,27 +181,89 @@ class ProcurementController extends AsabController
         });
     }
 
-    public function suppliers(): JsonResponse
+    /**
+     * Suppliers list — reads the SAME store the supplier CRUD and the Excel
+     * export use (asab_suppliers), so created suppliers actually appear here.
+     * Response keys are a superset of the old {id, name, category} shape.
+     */
+    public function suppliers(Request $request): JsonResponse
     {
-        try {
-            $items = \Modules\Supplier\Models\Supplier::orderBy('name')->limit(200)->get()
-                ->map(fn ($s) => ['id' => $s->id, 'name' => $s->name ?? null, 'category' => $s->category ?? null])->all();
-        } catch (\Throwable $e) {
-            $items = [];
-        }
+        return $this->run(function () use ($request) {
+            $q = \Modules\Admin\Models\AsabSupplier::query()->orderBy('name');
 
-        return $this->listResponse($items);
+            if ($search = $request->query('search')) {
+                $q->where(fn ($w) => $w->where('name', 'like', "%{$search}%")
+                    ->orWhere('category', 'like', "%{$search}%"));
+            }
+            if ($category = $request->query('category')) {
+                $q->where('category', $category);
+            }
+            if ($status = $request->query('status')) {
+                $q->where('status', $status);
+            }
+
+            $perPage = min((int) $request->query('pageSize', 50), 100);
+            $p = $q->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
+
+            return $this->paginated($p, array_map(fn ($s) => [
+                'id' => $s->id,
+                'name' => $s->name,
+                'category' => $s->category,
+                'contactName' => $s->contact_name,
+                'contactPhone' => $s->contact_phone,
+                'contactEmail' => $s->contact_email,
+                'paymentTerms' => $s->payment_terms,
+                'rating' => (int) ($s->rating ?? 0),   // 0–50 scale (stars × 10)
+                'status' => $s->status,
+                'isActive' => $s->status === 'active',
+            ], $p->items()));
+        });
     }
 
-    public function items(): JsonResponse
+    /**
+     * Items catalog list — reads the SAME store the item CRUD and the Excel
+     * export use (asab_supplier_items), so created/imported items actually
+     * appear here. Response keys are a superset of the old {id, name} shape.
+     */
+    public function items(Request $request): JsonResponse
     {
-        try {
-            $items = \Modules\Purchase\Models\Item::limit(500)->get()->map(fn ($i) => ['id' => $i->id, 'name' => $i->name ?? null])->all();
-        } catch (\Throwable $e) {
-            $items = [];
-        }
+        return $this->run(function () use ($request) {
+            $q = \Modules\Admin\Models\SupplierItem::query()
+                ->when($request->user()->company_id, fn ($w, $companyId) => $w->where('company_id', $companyId))
+                ->orderBy('name');
 
-        return $this->listResponse($items);
+            if ($search = $request->query('search')) {
+                $q->where(fn ($w) => $w->where('name', 'like', "%{$search}%")
+                    ->orWhere('code', 'like', "%{$search}%")
+                    ->orWhere('category', 'like', "%{$search}%"));
+            }
+            if ($category = $request->query('category')) {
+                $q->where('category', $category);
+            }
+            if ($supplier = $request->query('supplierId')) {
+                $q->where('supplier_id', $supplier);
+            }
+
+            $perPage = min((int) $request->query('pageSize', 50), 100);
+            $p = $q->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
+
+            $supplierNames = \Modules\Admin\Models\AsabSupplier::whereIn(
+                'id', collect($p->items())->pluck('supplier_id')->filter()->unique(),
+            )->pluck('name', 'id');
+
+            return $this->paginated($p, array_map(fn ($i) => [
+                'id' => $i->id,
+                'code' => $i->code,
+                'name' => $i->name,
+                'unit' => $i->unit,
+                'category' => $i->category,
+                'supplierId' => $i->supplier_id,
+                'supplierName' => $i->supplier_id ? ($supplierNames[$i->supplier_id] ?? null) : null,
+                'lastPriceHalalas' => (int) $i->price,
+                'available' => (bool) $i->available,
+                'status' => $i->status,
+            ], $p->items()));
+        });
     }
 
     private function find(string $id): Operation

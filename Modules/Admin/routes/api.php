@@ -745,16 +745,24 @@ Route::prefix('v1')->group(function () {
                 Route::middleware('asab.role:company-admin,head,accountant,branch,procurement')->group(function () {
                     Route::get('suppliers/export', [CompanyExportController::class, 'suppliersExport']);
                     Route::get('suppliers', [ProcurementController::class, 'suppliers']);
+                    // Alias: the procurement SPA naturally calls it under its own prefix.
+                    Route::get('procurement/suppliers', [ProcurementController::class, 'suppliers']);
+                    Route::get('procurement/suppliers/export', [CompanyExportController::class, 'suppliersExport']);
                 });
                 Route::middleware('asab.role:procurement,company-admin')->group(function () {
                     Route::post('suppliers', [ProcurementCompanyController::class, 'storeSupplier']);
-                    // Doc-conformance: procurement-prefixed alias (FE wiring §5.5)
-                    Route::post('procurement/suppliers', [ProcurementCompanyController::class, 'storeSupplier']);
                     Route::patch('suppliers/{id}', [ProcurementCompanyController::class, 'updateSupplier']);
                     Route::post('suppliers/{id}/toggle-active', [ProcurementCompanyController::class, 'toggleSupplier']);
+                    // Procurement-prefixed aliases (FE wiring §5.5 — the SPA calls
+                    // everything under its own /procurement prefix).
+                    Route::post('procurement/suppliers', [ProcurementCompanyController::class, 'storeSupplier']);
+                    Route::patch('procurement/suppliers/{id}', [ProcurementCompanyController::class, 'updateSupplier']);
+                    Route::post('procurement/suppliers/{id}/toggle-active', [ProcurementCompanyController::class, 'toggleSupplier']);
                 });
-                Route::middleware('asab.role:procurement,branch')
-                    ->post('suppliers/{id}/ratings', [ProcurementCompanyController::class, 'rateSupplier']);
+                Route::middleware('asab.role:procurement,branch')->group(function () {
+                    Route::post('suppliers/{id}/ratings', [ProcurementCompanyController::class, 'rateSupplier']);
+                    Route::post('procurement/suppliers/{id}/ratings', [ProcurementCompanyController::class, 'rateSupplier']);
+                });
 
                 // Cross-cutting (§7) — any company role
                 Route::middleware('asab.role:company-admin,head,accountant,branch,procurement')->group(function () {
