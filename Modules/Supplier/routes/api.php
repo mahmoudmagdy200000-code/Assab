@@ -5,7 +5,6 @@ use Modules\Supplier\Http\Controllers\Auth\AuthController;
 use Modules\Supplier\Http\Controllers\Auth\PasswordResetController;
 use Modules\Supplier\Http\Controllers\OrderController;
 use Modules\Supplier\Http\Controllers\PendingOrderController;
-use Modules\Supplier\Http\Controllers\SupplierController;
 
 /*
 |--------------------------------------------------------------------------
@@ -139,9 +138,4 @@ Route::middleware(['auth:sanctum', \Modules\Supplier\Http\Middleware\SupplierMid
     Route::put('/settings/account', [\Modules\Supplier\Http\Controllers\SettingsController::class, 'updateAccountSettings']);
     Route::put('/settings/system', [\Modules\Supplier\Http\Controllers\SettingsController::class, 'updateSystemSettings']);
     Route::put('/settings/notifications', [\Modules\Supplier\Http\Controllers\SettingsController::class, 'updateNotificationSettings']);
-});
-
-// Admin/System routes (for managing suppliers)
-Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
-    Route::apiResource('suppliers', SupplierController::class)->names('supplier');
 });

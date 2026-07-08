@@ -11,10 +11,10 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\Asset;
-use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\UploadStatus;
 use Modules\Branch\Models\Branch;
+use Modules\Purchase\Models\Item as PurchaseItem;
 
 /**
  * Admin Excel/CSV bulk uploads (BACKEND_API_SPEC.md §6.1.5). Parses CSV rows
@@ -22,19 +22,28 @@ use Modules\Branch\Models\Branch;
  */
 class UploadController extends AsabController
 {
+    // Item templates use 'التصنيف' for the grouping column to match the mobile
+    // app's item labels (client meeting: rename the 'category' field).
     private const TEMPLATES = [
-        'sales-items' => ['رمز الصنف', 'اسم الصنف', 'الفئة', 'وحدة البيع', 'السعر'],
-        'raw-materials' => ['رمز المادة', 'اسم المادة', 'الفئة', 'وحدة القياس', 'التكلفة'],
+        'sales-items' => ['رمز الصنف', 'اسم الصنف', 'التصنيف', 'وحدة البيع', 'السعر'],
+        'raw-materials' => ['رمز المادة', 'اسم المادة', 'التصنيف', 'وحدة القياس', 'التكلفة'],
         'suppliers' => ['رقم المورد', 'اسم المورد', 'الفئة', 'جهة الاتصال', 'شروط الدفع'],
-        'employees' => ['الاسم', 'رقم الهوية', 'الوظيفة', 'الراتب', 'تاريخ التعيين'],
         'fixed-assets' => ['اسم الأصل', 'الفئة', 'اسم الفرع', 'رقم الفاتورة', 'التكلفة (ر.س)', 'العمر الافتراضي (شهر)', 'أمين العهدة', 'ملاحظات'],
     ];
+
+    /** Upload types accepted by brandUpload(); anything else is a client error. */
+    private const BRAND_UPLOAD_TYPES = ['sales-items', 'raw-materials', 'suppliers'];
 
     public function brandUpload(Request $request, \Modules\Admin\Services\RealtimeBroadcaster $rt, string $brandId, string $type): JsonResponse
     {
         return $this->run(function () use ($request, $rt, $brandId, $type) {
+            if (! in_array($type, self::BRAND_UPLOAD_TYPES, true)) {
+                return $this->fail('INVALID_INPUT', 'Unknown upload type', 'نوع رفع غير معروف', [], 400);
+            }
+
             $brand = AsabBrand::findOrFail($brandId);
-            $request->validate(['file' => 'required|file']);
+            // Legacy .xls is not supported by the OpenSpout XLSX reader — reject at validation.
+            $request->validate(['file' => 'required|file|mimes:xlsx,csv,txt']);
             $rows = $this->parse($request->file('file'));
 
             // FE completion request §1.7 (Option B) — emit a processing tick, then a terminal tick.
@@ -46,14 +55,8 @@ class UploadController extends AsabController
                 foreach ($rows as $i => $row) {
                     try {
                         if ($type === 'sales-items' || $type === 'raw-materials') {
-                            InventoryCatalogItem::create([
-                                'brand_id' => $brand->id,
-                                'name' => $row[1] ?? $row['اسم الصنف'] ?? $row['اسم المادة'] ?? '',
-                                'category' => $row[2] ?? $row['الفئة'] ?? null,
-                                'unit' => $row[3] ?? null,
-                                'status' => 'active',
-                            ]);
-                        } elseif ($type === 'suppliers') {
+                            $this->importCatalogRow($brand, $type, $row);
+                        } else {
                             AsabSupplier::create([
                                 'company_id' => $brand->company_id,
                                 'brand_id' => $brand->id,
@@ -84,54 +87,56 @@ class UploadController extends AsabController
         });
     }
 
-    public function employees(Request $request, string $restaurantId): JsonResponse
+    /**
+     * One catalog row: sales items and raw materials share the brand catalog
+     * table but stay separable via `type`, and the price column is persisted
+     * in halalas. Raw materials additionally upsert into the Purchase module's
+     * items table so uploaded materials actually reach the purchasing flows.
+     */
+    private function importCatalogRow(AsabBrand $brand, string $type, array $row): void
     {
-        return $this->run(function () use ($request, $restaurantId) {
-            $restaurant = AsabRestaurant::findOrFail($restaurantId);
-            $request->validate(['file' => 'required|file']);
-            $rows = $this->parse($request->file('file'));
-            $branchId = optional(Branch::where('asab_restaurant_id', $restaurant->id)->first())->id;
+        $code = trim((string) ($row[0] ?? ''));
+        $name = trim((string) ($row[1] ?? $row['اسم الصنف'] ?? $row['اسم المادة'] ?? ''));
+        $category = $row[2] ?? $row['التصنيف'] ?? $row['الفئة'] ?? null;
+        $unit = $row[3] ?? null;
+        $priceHalalas = (int) round(((float) ($row[4] ?? 0)) * 100);
 
-            $count = 0;
-            $errors = [];
-            DB::transaction(function () use ($rows, $restaurant, $branchId, &$count, &$errors) {
-                foreach ($rows as $i => $row) {
-                    try {
-                        Employee::create([
-                            'company_id' => $restaurant->company_id,
-                            'branch_id' => $branchId,
-                            'emp_number' => $row[1] ?? $row['رقم الهوية'] ?? (string) ($i + 1),
-                            'name' => $row[0] ?? $row['الاسم'] ?? '',
-                            'national_id' => $row[1] ?? null,
-                            'role' => $row[2] ?? $row['الوظيفة'] ?? 'موظف',
-                            'monthly_salary' => (int) round(((float) ($row[3] ?? 0)) * 100),
-                            'hire_date' => $row[4] ?? now(),
-                            'status' => 'active',
-                        ]);
-                        $count++;
-                    } catch (\Throwable $e) {
-                        $errors[] = ['row' => $i + 2, 'message' => $e->getMessage()];
-                    }
-                }
-            });
+        InventoryCatalogItem::create([
+            'brand_id' => $brand->id,
+            'type' => $type === 'raw-materials' ? InventoryCatalogItem::TYPE_RAW_MATERIAL : InventoryCatalogItem::TYPE_SALES_ITEM,
+            'name' => $name,
+            'category' => $category,
+            'unit' => $unit,
+            'unit_price' => $priceHalalas,
+            'status' => 'active',
+        ]);
 
-            $this->stampStatus('restaurant', $restaurant->id, 'employees', $count, $request, $errors);
+        if ($type === 'raw-materials' && $name !== '') {
+            // Create-only into the (global) purchasing items table: never
+            // overwrite an existing row — another brand may own that code.
+            $existing = PurchaseItem::withTrashed()
+                ->where($code !== '' ? 'code' : 'name', $code !== '' ? $code : $name)
+                ->first();
 
-            return $this->ok([
-                'uploadId' => (string) \Illuminate\Support\Str::uuid(),
-                'rowsImported' => $count,
-                'uploadedCount' => $count,
-                'errors' => $errors,
-                'status' => 'done',
-            ]);
-        });
+            if ($existing === null) {
+                PurchaseItem::create([
+                    'name' => $name,
+                    'code' => $code !== '' ? $code : null,
+                    'unit' => $unit,
+                    'category' => $category,
+                    'is_active' => true,
+                ]);
+            } elseif ($existing->trashed()) {
+                $existing->restore();
+            }
+        }
     }
 
     public function fixedAssets(Request $request, string $branchId): JsonResponse
     {
         return $this->run(function () use ($request, $branchId) {
             $branch = Branch::findOrFail($branchId);
-            $request->validate(['file' => 'required|file']);
+            $request->validate(['file' => 'required|file|mimes:xlsx,csv,txt']);
             $rows = $this->parse($request->file('file'));
 
             $count = 0;
@@ -171,7 +176,10 @@ class UploadController extends AsabController
 
     public function template(Request $request, string $type): Response
     {
-        $headers = self::TEMPLATES[$type] ?? [];
+        // Unknown/retired template types (e.g. the dropped employees upload)
+        // must 404, not hand out an empty workbook.
+        abort_unless(isset(self::TEMPLATES[$type]), 404);
+        $headers = self::TEMPLATES[$type];
 
         // CSV stays available via ?format=csv (UTF-8 BOM for Excel Arabic).
         if ($request->query('format') === 'csv') {
@@ -238,10 +246,35 @@ class UploadController extends AsabController
         });
     }
 
-    /** @return array<int, array> */
+    /**
+     * Parse an uploaded CSV or XLSX into positional row arrays. XLSX support
+     * matters because template() hands out .xlsx files by default — the same
+     * file must round-trip through the upload endpoints.
+     *
+     * @return array<int, array>
+     */
     private function parse($file): array
     {
-        $rows = array_map('str_getcsv', file($file->getRealPath()));
+        $ext = strtolower($file->getClientOriginalExtension());
+
+        if ($ext === 'xlsx') {
+            $reader = new \OpenSpout\Reader\XLSX\Reader;
+            $reader->open($file->getRealPath());
+            $rows = [];
+            foreach ($reader->getSheetIterator() as $sheet) {
+                foreach ($sheet->getRowIterator() as $row) {
+                    $rows[] = array_map(
+                        fn ($cell) => $cell instanceof \DateTimeInterface ? $cell->format('Y-m-d') : $cell,
+                        $row->toArray(),
+                    );
+                }
+                break; // first sheet only, matching the single-sheet templates
+            }
+            $reader->close();
+        } else {
+            $rows = array_map('str_getcsv', file($file->getRealPath()));
+        }
+
         if (empty($rows)) {
             return [];
         }

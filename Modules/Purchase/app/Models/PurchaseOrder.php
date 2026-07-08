@@ -36,6 +36,7 @@ class PurchaseOrder extends Model
         'from_branch_id',
         'to_branch_id',
         'supplier_id',
+        'group_id',
         'quality_level',
         'processing_time',
         'priority',
@@ -82,6 +83,9 @@ class PurchaseOrder extends Model
         'closed_at',
         'canceled_at',
         'rejected_at',
+        'decided_by_asab_user_id',
+        'decided_at',
+        'decision_source',
     ];
 
     protected $casts = [
@@ -115,6 +119,7 @@ class PurchaseOrder extends Model
         'closed_at' => 'datetime',
         'canceled_at' => 'datetime',
         'rejected_at' => 'datetime',
+        'decided_at' => 'datetime',
     ];
 
     protected $appends = [
@@ -174,6 +179,11 @@ class PurchaseOrder extends Model
     {
         // Reference Supplier module's Supplier model
         return $this->belongsTo(\Modules\Supplier\Models\Supplier::class, 'supplier_id');
+    }
+
+    public function group(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseOrderGroup::class, 'group_id');
     }
 
     public function parentOrder(): BelongsTo
@@ -316,6 +326,11 @@ class PurchaseOrder extends Model
     public function scopeByRequestedBy($query, string $userId)
     {
         return $query->where('requested_by', $userId);
+    }
+
+    public function scopeDecidedBy($query, string $asabUserId)
+    {
+        return $query->where('decided_by_asab_user_id', $asabUserId);
     }
 
     public function scopePending($query)

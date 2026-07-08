@@ -41,6 +41,8 @@ class AdminServiceProvider extends ServiceProvider
 
         // ASAB tenant context is resolved per-request and shared across the container.
         $this->app->scoped(\Modules\Admin\Support\TenantContext::class);
+        // Branch-scope resolution memoizes per request; must share one instance.
+        $this->app->scoped(\Modules\Admin\Services\TenantBranchResolver::class);
     }
 
     /**

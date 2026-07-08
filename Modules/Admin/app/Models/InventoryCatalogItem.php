@@ -12,7 +12,11 @@ class InventoryCatalogItem extends Model
 
     protected $table = 'asab_inventory_catalog';
 
-    protected $fillable = ['brand_id', 'name', 'category', 'unit', 'status', 'unit_price'];
+    public const TYPE_SALES_ITEM = 'sales_item';
+
+    public const TYPE_RAW_MATERIAL = 'raw_material';
+
+    protected $fillable = ['brand_id', 'type', 'name', 'category', 'unit', 'status', 'unit_price'];
 
     protected $casts = ['unit_price' => 'integer'];
 }

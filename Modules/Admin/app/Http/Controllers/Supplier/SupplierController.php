@@ -2,10 +2,12 @@
 
 namespace Modules\Admin\Http\Controllers\Supplier;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\SupplierItem;
 use Modules\Admin\Services\ExportService;
@@ -13,6 +15,9 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
  * Supplier (المورد; BACKEND_API_SPEC.md §6.6) portal — orders + catalog.
+ * Every order query is scoped to the supplier records linked to the logged-in
+ * user (asab_suppliers.user_id): a supplier must never see or decide another
+ * supplier's orders (zero-trust guardrail).
  */
 class SupplierController extends AsabController
 {
@@ -21,7 +26,7 @@ class SupplierController extends AsabController
     public function overview(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $base = Operation::where('module_key', 'purchases');
+            $base = $this->ownOrders($request);
             $userId = $request->user()->id;
 
             return $this->ok([
@@ -42,7 +47,7 @@ class SupplierController extends AsabController
     {
         return $this->run(function () use ($request) {
             $perPage = min((int) $request->query('pageSize', 20), 100);
-            $q = Operation::where('module_key', 'purchases');
+            $q = $this->ownOrders($request);
             if ($status = $request->query('status')) {
                 $q->where('status', $status);
             }
@@ -58,7 +63,7 @@ class SupplierController extends AsabController
     {
         return $this->run(function () use ($request, $id) {
             $data = $request->validate(['deliveryDate' => 'nullable|date', 'note' => 'nullable|string']);
-            $op = $this->find($id);
+            $op = $this->find($request, $id);
             DB::transaction(function () use ($op, $data) {
                 $payload = $op->payload ?? [];
                 $payload['supplierResponse'] = ['accepted' => true, 'deliveryDate' => $data['deliveryDate'] ?? null, 'note' => $data['note'] ?? null];
@@ -73,7 +78,7 @@ class SupplierController extends AsabController
     {
         return $this->run(function () use ($request, $id) {
             $data = $request->validate(['reason' => 'required|string|max:500', 'note' => 'nullable|string']);
-            $op = $this->find($id);
+            $op = $this->find($request, $id);
             DB::transaction(function () use ($op, $data) {
                 $payload = $op->payload ?? [];
                 $payload['supplierResponse'] = ['accepted' => false, 'reason' => $data['reason'], 'note' => $data['note'] ?? null];
@@ -88,7 +93,7 @@ class SupplierController extends AsabController
     {
         return $this->run(function () use ($request, $id) {
             $data = $request->validate(['deliveredAt' => 'nullable|date', 'deliveryNote' => 'nullable|string']);
-            $op = $this->find($id);
+            $op = $this->find($request, $id);
             DB::transaction(function () use ($op, $data) {
                 $payload = $op->payload ?? [];
                 $payload['delivery'] = ['deliveredAt' => $data['deliveredAt'] ?? now()->toIso8601String(), 'note' => $data['deliveryNote'] ?? null];
@@ -210,13 +215,13 @@ class SupplierController extends AsabController
     {
         $format = $request->query('format', 'xlsx') === 'csv' ? 'csv' : 'xlsx';
 
-        return $this->exports->supplierOrders($format, $request->query('status'));
+        return $this->exports->supplierOrders($format, $request->query('status'), $this->ownSupplierIds($request));
     }
 
     public function reports(Request $request): JsonResponse
     {
-        return $this->run(function () {
-            $base = Operation::where('module_key', 'purchases')->where('status', '!=', 'rejected');
+        return $this->run(function () use ($request) {
+            $base = $this->ownOrders($request)->where('status', '!=', 'rejected');
 
             return $this->ok([
                 'totalRevenue' => (int) (clone $base)->sum('amount'),
@@ -229,9 +234,23 @@ class SupplierController extends AsabController
         });
     }
 
-    private function find(string $id): Operation
+    /** Supplier records owned by the logged-in dashboard user. @return string[] */
+    private function ownSupplierIds(Request $request): array
     {
-        return Operation::where('module_key', 'purchases')->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id))->firstOrFail();
+        return AsabSupplier::where('user_id', $request->user()->id)->pluck('id')->all();
+    }
+
+    /** Purchase operations assigned to this user's suppliers only. */
+    private function ownOrders(Request $request): Builder
+    {
+        return Operation::where('module_key', 'purchases')
+            ->whereIn('payload->supplierId', $this->ownSupplierIds($request));
+    }
+
+    private function find(Request $request, string $id): Operation
+    {
+        return $this->ownOrders($request)
+            ->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id))->firstOrFail();
     }
 
     private function present(Operation $o): array

@@ -34,4 +34,22 @@ abstract class AsabController extends Controller
             return $this->fail('NOT_FOUND', 'Resource not found', 'العنصر غير موجود', [], 404);
         }
     }
+
+    /**
+     * Constrain an Operation (or other branch_id-keyed) query to the branches
+     * of the current user's role assignment, below the company_id global scope.
+     * Zero-trust: a scoped accountant sees only operations from their assigned
+     * brand/restaurant/branch tree; company-wide roles are unaffected.
+     */
+    protected function scopeToAssignedBranches($query)
+    {
+        $branchIds = app(\Modules\Admin\Services\TenantBranchResolver::class)
+            ->operationBranchIds(app(\Modules\Admin\Support\TenantContext::class));
+
+        if ($branchIds !== null) {
+            $query->whereIn('branch_id', $branchIds);
+        }
+
+        return $query;
+    }
 }

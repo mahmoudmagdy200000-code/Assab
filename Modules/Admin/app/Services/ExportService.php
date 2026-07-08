@@ -549,10 +549,17 @@ class ExportService
         return $this->make($format, 'supplier-items', $headings, $rows);
     }
 
-    /** Supplier-portal orders export (accepted/rejected purchase operations). */
-    public function supplierOrders(string $format, ?string $status): BinaryFileResponse
+    /**
+     * Supplier-portal orders export (accepted/rejected purchase operations).
+     *
+     * @param  string[]|null  $supplierIds  restrict to these asab_suppliers ids (null = unrestricted)
+     */
+    public function supplierOrders(string $format, ?string $status, ?array $supplierIds = null): BinaryFileResponse
     {
         $q = Operation::where('module_key', 'purchases');
+        if ($supplierIds !== null) {
+            $q->whereIn('payload->supplierId', $supplierIds);
+        }
         if ($status === 'accepted') {
             $q->whereIn('status', ['accepted', 'confirmed', 'approved', 'final-approved', 'delivered']);
         } elseif ($status === 'rejected') {

@@ -52,7 +52,8 @@ class AccountantController extends AsabController
     public function dashboard(): JsonResponse
     {
         return $this->run(function () {
-            $byStatus = Operation::query()->selectRaw('status, count(*) as c')->groupBy('status')->pluck('c', 'status');
+            $byStatus = $this->scopeToAssignedBranches(Operation::query())
+                ->selectRaw('status, count(*) as c')->groupBy('status')->pluck('c', 'status');
             $pending = (int) ($byStatus['pending'] ?? 0);
             $approved = (int) ($byStatus['approved'] ?? 0);
             $final = (int) ($byStatus['final-approved'] ?? 0);
@@ -64,10 +65,12 @@ class AccountantController extends AsabController
                     'iApproved' => $approved,
                     'finalApproved' => $final,
                     'approvalRate' => (int) round((($approved + $final) / $total) * 100),
-                    'overdueCount' => Operation::where('status', 'pending')->where('submitted_at', '<', now()->subDays(2))->count(),
+                    'overdueCount' => $this->scopeToAssignedBranches(Operation::where('status', 'pending'))
+                        ->where('submitted_at', '<', now()->subDays(2))->count(),
                 ],
                 'modules' => $this->moduleCounts(),
-                'recentOperations' => Operation::orderByDesc('created_at')->limit(8)->get()->map(fn ($o) => $this->present($o))->all(),
+                'recentOperations' => $this->scopeToAssignedBranches(Operation::query())
+                    ->orderByDesc('created_at')->limit(8)->get()->map(fn ($o) => $this->present($o))->all(),
             ]);
         });
     }
@@ -76,7 +79,7 @@ class AccountantController extends AsabController
     {
         return $this->run(function () use ($request) {
             $perPage = min((int) $request->query('pageSize', 20), 100);
-            $q = Operation::query();
+            $q = $this->scopeToAssignedBranches(Operation::query());
             if ($module = $request->query('moduleKey')) {
                 $q->where('module_key', $module);
             }
@@ -133,7 +136,7 @@ class AccountantController extends AsabController
     public function reconciliation(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $op = Operation::where('id', $id)->orWhere('public_id', $id)->firstOrFail();
+            $op = $this->findAssigned($id);
             if ($op->status === Operation::STATUS_FINAL) {
                 return $this->fail('OP_ALREADY_FINAL', 'Operation is final-approved', 'العملية معتمدة نهائياً', [], 409);
             }
@@ -190,7 +193,7 @@ class AccountantController extends AsabController
     public function salesLineUpdate(Request $request, string $id, string $rowId): JsonResponse
     {
         return $this->run(function () use ($request, $id, $rowId) {
-            $op = Operation::where('id', $id)->orWhere('public_id', $id)->firstOrFail();
+            $op = $this->findAssigned($id);
             if ($op->status === Operation::STATUS_FINAL) {
                 return $this->fail('OP_ALREADY_FINAL', 'Operation is final-approved', 'العملية معتمدة نهائياً', [], 409);
             }
@@ -240,7 +243,7 @@ class AccountantController extends AsabController
     public function addNote(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $op = Operation::where('id', $id)->orWhere('public_id', $id)->firstOrFail();
+            $op = $this->findAssigned($id);
             $data = $request->validate(['note' => 'required|string']);
 
             $noteId = (string) Str::uuid();
@@ -310,12 +313,19 @@ class AccountantController extends AsabController
         });
     }
 
+    private function findAssigned(string $id): Operation
+    {
+        return $this->scopeToAssignedBranches(
+            Operation::where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id)),
+        )->firstOrFail();
+    }
+
     private function moduleCounts(): array
     {
         $modules = ['sales' => 'المبيعات', 'expenses' => 'المصروفات', 'purchases' => 'المشتريات', 'inventory' => 'المخزون', 'waste' => 'الهدر', 'cash' => 'النقدية'];
         $out = [];
         foreach ($modules as $key => $label) {
-            $base = Operation::where('module_key', $key);
+            $base = $this->scopeToAssignedBranches(Operation::where('module_key', $key));
             $out[] = [
                 'key' => $key,
                 'label' => $label,

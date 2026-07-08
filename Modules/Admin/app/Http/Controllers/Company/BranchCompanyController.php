@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\Storage;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\Attachment;
-use Modules\Admin\Models\BrandShiftConfig;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Shift;
@@ -328,52 +327,6 @@ class BranchCompanyController extends AsabController
             ->count() + 1;
 
         return 'EMP-'.str_pad((string) $n, 4, '0', STR_PAD_LEFT);
-    }
-
-    /**
-     * NEW (§5.4): persist a per-brand shift configuration from the doc body
-     * {brandId, numShifts, durationHours, firstStart, shifts:[{start,end}],
-     * restaurantOverrides:{}}. Stored on BrandShiftConfig keyed by brand.
-     */
-    public function saveShiftConfig(Request $request): JsonResponse
-    {
-        return $this->run(function () use ($request) {
-            $data = $request->validate([
-                'brandId' => 'required|string',
-                'numShifts' => 'required|integer|min:1|max:24',
-                'durationHours' => 'required|integer|min:1|max:24',
-                'firstStart' => 'required|string|max:16',
-                'shifts' => 'sometimes|array',
-                'shifts.*.start' => 'required_with:shifts|string|max:16',
-                'shifts.*.end' => 'required_with:shifts|string|max:16',
-                'restaurantOverrides' => 'sometimes|array',
-            ]);
-
-            $cfg = DB::transaction(function () use ($data) {
-                $cfg = BrandShiftConfig::firstOrNew(['brand_id' => $data['brandId']]);
-                $cfg->num_shifts = $data['numShifts'];
-                $cfg->duration_hours = $data['durationHours'];
-                $cfg->first_shift_start = $data['firstStart'];
-                $cfg->shifts = [
-                    'firstStart' => $data['firstStart'],
-                    'shifts' => $data['shifts'] ?? [],
-                    'restaurantOverrides' => $data['restaurantOverrides'] ?? [],
-                ];
-                $cfg->save();
-
-                return $cfg;
-            });
-
-            return $this->ok([
-                'id' => $cfg->id,
-                'brandId' => $cfg->brand_id,
-                'numShifts' => $cfg->num_shifts,
-                'durationHours' => $cfg->duration_hours,
-                'firstStart' => $cfg->first_shift_start,
-                'shifts' => $cfg->shifts['shifts'] ?? [],
-                'restaurantOverrides' => $cfg->shifts['restaurantOverrides'] ?? [],
-            ]);
-        });
     }
 
     private function present(Shift $s): array
