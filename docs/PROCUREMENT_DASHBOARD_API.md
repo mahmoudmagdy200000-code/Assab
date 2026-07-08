@@ -250,6 +250,7 @@ GET .../procurement/purchase-orders/groups/{groupId}
 
 | UI | Endpoint |
 |---|---|
+| جدول الأصناف | `GET .../procurement/items?search=&category=&supplierId=&page=&pageSize=` → paginated; row: `{ id, code, name, unit, category, supplierId, supplierName, lastPriceHalalas, available, status }` — same store as create/export, so created/imported items appear here |
 | إضافة صنف | `POST .../procurement/items` body `{ name*, unit*, lastPriceHalalas?, category?, supplierId?, code? }` → 201 `{ id, name, unit, category, supplierId, lastPriceHalalas }` |
 | تعديل | `PATCH .../procurement/items/{id}` `{ name?, unit?, lastPriceHalalas?, status? }` — a price change auto-appends to price history |
 | حذف | `DELETE .../procurement/items/{id}` → 204 |
@@ -257,19 +258,29 @@ GET .../procurement/purchase-orders/groups/{groupId}
 | Excel | `GET .../procurement/items/export?format=xlsx|csv` → binary download (prices in SAR) |
 | التصنيفات dropdown | `GET /api/v1/company/me/lookups/supplier-categories` → static list (food/beverages/packaging/equipment/services with Arabic names) |
 
-⚠️ **Known gap:** `GET .../procurement/items` (the list) currently returns only `{ id, name }` from a *different* legacy table — items you create via POST will **not** appear in it, and the columns الاستهلاك الشهري / المخزون الحالي / آخر طلب have no backend source yet. Until the enrichment lands, build the table from your own created items + price-history, or hide those columns. (Backend follow-up is tracked.)
+⚠️ **Known gap:** the columns الاستهلاك الشهري / المخزون الحالي / آخر طلب have no backend source yet — hide them or compute client-side until the enrichment lands. (Backend follow-up is tracked.)
 
 ### 2.6 الموردون (Suppliers)
 
+All supplier endpoints are also mounted under the procurement prefix (`/api/v1/company/me/procurement/suppliers...`) — use whichever prefix your client is set up for; behavior is identical.
+
 | UI | Endpoint |
 |---|---|
-| إضافة مورد | `POST /api/v1/company/me/suppliers` body `{ name*, category?, contactName?, contactPhone?, contactEmail?, commercialReg?, paymentTerms?, brandId? }` → 201 |
-| تعديل | `PATCH /api/v1/company/me/suppliers/{id}` |
-| إخفاء / تفعيل | `POST /api/v1/company/me/suppliers/{id}/toggle-active` → 200 `{ id, isActive, status }` |
-| تقييم (نجوم) | `POST /api/v1/company/me/suppliers/{id}/ratings` body `{ rating: 1..5, comment? }` → 201 `{ supplierId, ratingAvg }` — **ratingAvg is 0–50 (= stars × 10)**, divide by 10 for stars |
-| Excel | `GET /api/v1/company/me/suppliers/export?format=xlsx|csv` |
+| القائمة | `GET .../procurement/suppliers` (alias of `GET /company/me/suppliers`) |
+| إضافة مورد | `POST .../procurement/suppliers` body `{ name*, category?, contactName?, contactPhone?, contactEmail?, commercialReg?, paymentTerms?, brandId? }` → 201 |
+| تعديل | `PATCH .../procurement/suppliers/{id}` |
+| إخفاء / تفعيل | `POST .../procurement/suppliers/{id}/toggle-active` → 200 `{ id, isActive, status }` |
+| تقييم (نجوم) | `POST .../procurement/suppliers/{id}/ratings` body `{ rating: 1..5, comment? }` → 201 `{ supplierId, ratingAvg }` — **ratingAvg is 0–50 (= stars × 10)**, divide by 10 for stars |
+| Excel | `GET .../procurement/suppliers/export?format=xlsx|csv` |
 
-⚠️ **Known gaps:** `GET /api/v1/company/me/suppliers` (the read list) currently reads a legacy table (returns `{ id, name, category }` only) — newly created suppliers won't show there yet; the cards' الالتزام % / الشهري / سجل التسليمات have no backend fields yet. مقارنة الأسعار is available per item via price-history (§2.5). (Backend follow-ups are tracked.)
+**List row shape** (`GET .../procurement/suppliers` — paginated, `?search=&category=&status=&page=&pageSize=`):
+```json
+{ "id": "uuid", "name": "...", "category": "...|null", "contactName": "...|null", "contactPhone": "...|null",
+  "contactEmail": "...|null", "paymentTerms": "...|null", "rating": 45, "status": "active|inactive", "isActive": true }
+```
+(`rating` is 0–50 = stars × 10. Created suppliers appear here — same store as the CRUD/export.)
+
+⚠️ **Known gaps:** the cards' الالتزام % / الإنفاق الشهري / سجل التسليمات have no backend fields yet. مقارنة الأسعار is available per item via price-history (§2.5). (Backend follow-ups are tracked.)
 
 ### 2.7 التقارير (Reports)
 
@@ -349,7 +360,7 @@ GET    .../procurement/orders/grouped   ·   GET .../procurement/orders/sent
 7. Group/`sent` status is **derived live** — poll or refetch to update tracking chips.
 8. Send `Idempotency-Key` (UUID) on every mutation on `/company/me/*` to make retries safe.
 9. `pageSize` is capped at 100 server-side.
-10. Items/Suppliers **read lists** are legacy-backed (see §2.5/§2.6 gaps) — don't expect your created rows there until the backend follow-up lands.
+10. Items/Suppliers lists are paginated (`{ data, meta }`); created rows appear immediately (same store as the CRUD/exports).
 
 ---
 
@@ -373,20 +384,20 @@ GET    /procurement/purchase-orders/groups/{groupId}
 GET    /procurement/overview
 
 # Items
-GET    /procurement/items                 # thin (id,name) — see gap §2.5
+GET    /procurement/items                 ?search=&category=&supplierId=&page=&pageSize=
 POST   /procurement/items
 PATCH  /procurement/items/{id}
 DELETE /procurement/items/{id}
 GET    /procurement/items/{id}/price-history
 GET    /procurement/items/export          ?format=xlsx|csv
 
-# Suppliers (note: /company/me/suppliers, not under /procurement)
-GET    /suppliers                         # thin — see gap §2.6
-POST   /suppliers
-PATCH  /suppliers/{id}
-POST   /suppliers/{id}/toggle-active
-POST   /suppliers/{id}/ratings
-GET    /suppliers/export                  ?format=xlsx|csv
+# Suppliers (also available without the /procurement prefix at /company/me/suppliers*)
+GET    /procurement/suppliers
+POST   /procurement/suppliers
+PATCH  /procurement/suppliers/{id}
+POST   /procurement/suppliers/{id}/toggle-active
+POST   /procurement/suppliers/{id}/ratings
+GET    /procurement/suppliers/export      ?format=xlsx|csv
 GET    /lookups/supplier-categories
 
 # Notifications
