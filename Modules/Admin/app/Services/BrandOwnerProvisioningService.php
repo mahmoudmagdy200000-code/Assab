@@ -9,13 +9,17 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Notifications\BrandOwnerWelcomeNotification;
+use Modules\BrandOwner\Models\BrandOwner as MobileBrandOwner;
 
 /**
  * Provisioning side-effects for admin "Add Brand" with an ownerEmail (B-A6):
  * ensure a brand-owner login exists and is linked to the brand, and email a
- * one-time password for freshly-created accounts. Mirrors CompanyProvisioningService;
- * kept out of the controller so the HTTP layer stays thin (SRP). Runs inside the
- * caller's DB transaction.
+ * one-time password for freshly-created accounts. The same credentials are
+ * provisioned into the mobile app's brand_owners table so the emailed
+ * password works on BOTH the dashboard and the mobile app (client meeting:
+ * "brand owner receives login credentials via email to access the mobile app").
+ * Mirrors CompanyProvisioningService; kept out of the controller so the HTTP
+ * layer stays thin (SRP). Runs inside the caller's DB transaction.
  */
 class BrandOwnerProvisioningService
 {
@@ -38,21 +42,29 @@ class BrandOwnerProvisioningService
             );
         }
 
-        // Fresh account -> generate a one-time password; existing account -> link only.
-        $oneTimePassword = null;
+        $displayName = $name ?: ($brand->owner ?: $brand->name);
+        $mobileOwner = MobileBrandOwner::withTrashed()->where('email', $email)->first();
+
+        // One shared one-time password when either account is being created;
+        // accounts that already exist keep their current password.
+        $oneTimePassword = (! $existing || ! $mobileOwner || $mobileOwner->trashed())
+            ? Str::password(12)
+            : null;
+
         if ($existing) {
             $user = $existing;
         } else {
-            $oneTimePassword = Str::password(12);
             $user = AsabUser::create([
                 'company_id' => $brand->company_id,
-                'name' => $name ?: ($brand->owner ?: $brand->name),
+                'name' => $displayName,
                 'email' => $email,
                 'password' => $oneTimePassword, // hashed by the model's 'hashed' cast
                 'status' => 'active',
                 'default_page' => 'brand-owner-dashboard',
             ]);
         }
+
+        $this->provisionMobileOwner($mobileOwner, $email, $displayName, $oneTimePassword);
 
         // Upsert the brand-owner role assignment, merging this brand into brand_ids.
         $assignment = AsabUserRole::firstOrNew([
@@ -75,5 +87,39 @@ class BrandOwnerProvisioningService
         }
 
         return ['user' => $user, 'emailSent' => $emailSent];
+    }
+
+    /**
+     * Ensure the mobile app can authenticate this owner: create (or restore)
+     * the legacy brand_owners row with the shared one-time password and the
+     * first-login flag so the app forces a password reset. An existing live
+     * account keeps its current password.
+     */
+    private function provisionMobileOwner(?MobileBrandOwner $mobileOwner, string $email, string $displayName, ?string $oneTimePassword): void
+    {
+        if ($mobileOwner && ! $mobileOwner->trashed()) {
+            return;
+        }
+
+        if ($mobileOwner) {
+            $mobileOwner->restore();
+            $mobileOwner->update([
+                'password' => $oneTimePassword, // hashed by the model's 'hashed' cast
+                'is_active' => true,
+                'is_first_login' => true,
+                'status' => 'active',
+            ]);
+
+            return;
+        }
+
+        MobileBrandOwner::create([
+            'name' => $displayName,
+            'email' => $email,
+            'password' => $oneTimePassword, // hashed by the model's 'hashed' cast
+            'is_active' => true,
+            'is_first_login' => true,
+            'status' => 'active',
+        ]);
     }
 }

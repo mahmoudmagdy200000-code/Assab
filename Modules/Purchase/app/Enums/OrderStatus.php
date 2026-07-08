@@ -132,7 +132,7 @@ enum OrderStatus: string
             self::DELAYED_APPROVED => [self::PREPARING, self::ON_THE_WAY, self::DELIVERED],
             self::DELAYED_CONFIRMED => [self::PREPARING, self::ON_THE_WAY, self::DELIVERED],
             self::DELAYED_CANCELED => [],
-            self::VARIANCE => [self::PENDING, self::CONFIRMED, self::PREPARING, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
+            self::VARIANCE => [self::PENDING, self::CONFIRMED, self::REJECTED, self::PREPARING, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
             self::DELIVERED => [self::CLOSED],
             self::CLOSED => [],
 

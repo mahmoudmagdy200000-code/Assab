@@ -111,7 +111,9 @@ class InventoryController extends AsabController
     public function catalog(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $q = InventoryCatalogItem::query();
+            // Inventory catalog = sales items; uploaded raw materials belong to
+            // the purchasing module and are excluded unless explicitly requested.
+            $q = InventoryCatalogItem::where('type', $request->query('type', InventoryCatalogItem::TYPE_SALES_ITEM));
             if ($brand = $request->query('brandId')) {
                 $q->where('brand_id', $brand);
             }

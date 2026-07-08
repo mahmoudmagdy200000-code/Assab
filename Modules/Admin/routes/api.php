@@ -50,6 +50,7 @@ use Modules\Admin\Http\Controllers\Company\WebhookController;
 use Modules\Admin\Http\Controllers\Head\HeadController;
 use Modules\Admin\Http\Controllers\Operations\OperationController;
 use Modules\Admin\Http\Controllers\Procurement\ProcurementController;
+use Modules\Admin\Http\Controllers\Procurement\ProcurementPurchaseOrderController;
 use Modules\Admin\Http\Controllers\Shared\DataPrivacyController;
 use Modules\Admin\Http\Controllers\Shared\ErpController;
 use Modules\Admin\Http\Controllers\Shared\ExceptionController;
@@ -209,16 +210,15 @@ Route::prefix('v1')->group(function () {
                 Route::post('jobs/{id}/retry', [JobMonitorController::class, 'retry']);
                 Route::post('jobs/{id}/cancel', [JobMonitorController::class, 'cancel']);
 
-                // Excel/CSV bulk uploads (§6.1.5)
+                // Excel/CSV bulk uploads (§6.1.5). The employees upload was dropped
+                // per the client meeting (avoid confusion with user management).
                 Route::post('brands/{brandId}/upload/{type}', [AdminUploadController::class, 'brandUpload']);
-                Route::post('restaurants/{restaurantId}/upload/employees', [AdminUploadController::class, 'employees']);
                 Route::post('branches/{branchId}/upload/fixed-assets', [AdminUploadController::class, 'fixedAssets']);
                 Route::get('upload/templates/{type}', [AdminUploadController::class, 'template']);
                 Route::get('brands/{brandId}/upload-status', [AdminUploadController::class, 'status']);
 
                 // Doc-conformance: plural 'uploads' aliases (FE wiring §1.6)
                 Route::post('brands/{brandId}/uploads/{type}', [AdminUploadController::class, 'brandUpload']);
-                Route::post('restaurants/{restaurantId}/uploads/employees', [AdminUploadController::class, 'employees']);
                 Route::get('uploads/templates/{type}', [AdminUploadController::class, 'template']);
 
                 // Report distribution (FE wiring §1.7)
@@ -425,12 +425,31 @@ Route::prefix('v1')->group(function () {
                 Route::post('orders/{groupId}/send', [ProcurementController::class, 'send']);
                 Route::get('suppliers', [ProcurementController::class, 'suppliers']);
                 Route::get('items', [ProcurementController::class, 'items']);
+
+                // Mobile purchase-order pipeline (meeting flow: app request → dashboard
+                // decision). Literal segments before the {id} route.
+                Route::get('purchase-orders/approved-by-me', [ProcurementPurchaseOrderController::class, 'approvedByMe']);
+                Route::post('purchase-orders/bulk-approve', [ProcurementPurchaseOrderController::class, 'bulkApprove']);
+                Route::get('purchase-orders/grouped', [ProcurementPurchaseOrderController::class, 'grouped']);
+                Route::post('purchase-orders/grouped/send', [ProcurementPurchaseOrderController::class, 'sendGroup']);
+                Route::get('purchase-orders/sent', [ProcurementPurchaseOrderController::class, 'sent']);
+                Route::get('purchase-orders/groups/{groupId}', [ProcurementPurchaseOrderController::class, 'groupShow']);
+                Route::get('purchase-orders', [ProcurementPurchaseOrderController::class, 'index']);
+                Route::get('purchase-orders/{id}', [ProcurementPurchaseOrderController::class, 'show']);
+                Route::post('purchase-orders/{id}/approve', [ProcurementPurchaseOrderController::class, 'approve']);
+                Route::post('purchase-orders/{id}/partial-approve', [ProcurementPurchaseOrderController::class, 'partialApprove']);
+                Route::post('purchase-orders/{id}/reject', [ProcurementPurchaseOrderController::class, 'reject']);
             });
 
             // ---- Supplier (المورد; §6.6) ----
             // Namespaced under asab/supplier: the legacy Supplier module already owns
             // /api/v1/supplier/* (mobile portal, different auth guard). Keeping both.
+            // Hidden for now per the client meeting (main features first); flip
+            // FEATURE_ASAB_SUPPLIER_PORTAL to re-enable.
             Route::middleware('asab.role:supplier')->prefix('asab/supplier')->group(function () {
+                if (! config('features.asab_supplier_portal')) {
+                    return;
+                }
                 Route::get('overview', [SupplierController::class, 'overview']);
                 Route::get('orders/export', [SupplierController::class, 'ordersExport']);
                 Route::get('orders', [SupplierController::class, 'orders']);
@@ -675,8 +694,8 @@ Route::prefix('v1')->group(function () {
                     Route::get('suppliers', [BranchDashboardController::class, 'suppliers']);
                     Route::post('suppliers/request-new', [BranchCompanyController::class, 'requestNewSupplier']);
                     Route::get('shifts/active', [BranchCompanyController::class, 'activeShift']);
-                    // Doc-conformance: brand shift config (FE wiring §4.6) — literal segment before shifts/{id}
-                    Route::put('shifts/config', [BranchCompanyController::class, 'saveShiftConfig']);
+                    // Shift timings are set by the admin/accountant surfaces only; the
+                    // branch-manager role is read-only on them (client requirement §6.4).
                     Route::post('shifts/open', [BranchCompanyController::class, 'openShift']);
                     Route::post('shifts/{id}/close', [ShiftController::class, 'close']);
                     Route::get('settings', [BranchDashboardController::class, 'settings']);
@@ -707,6 +726,19 @@ Route::prefix('v1')->group(function () {
                     Route::post('items', [ProcurementCompanyController::class, 'storeItem']);
                     Route::patch('items/{id}', [ProcurementCompanyController::class, 'updateItem']);
                     Route::delete('items/{id}', [ProcurementCompanyController::class, 'destroyItem']);
+
+                    // Mobile purchase-order pipeline (same bridge as the platform surface).
+                    Route::get('purchase-orders/approved-by-me', [ProcurementPurchaseOrderController::class, 'approvedByMe']);
+                    Route::post('purchase-orders/bulk-approve', [ProcurementPurchaseOrderController::class, 'bulkApprove']);
+                    Route::get('purchase-orders/grouped', [ProcurementPurchaseOrderController::class, 'grouped']);
+                    Route::post('purchase-orders/grouped/send', [ProcurementPurchaseOrderController::class, 'sendGroup']);
+                    Route::get('purchase-orders/sent', [ProcurementPurchaseOrderController::class, 'sent']);
+                    Route::get('purchase-orders/groups/{groupId}', [ProcurementPurchaseOrderController::class, 'groupShow']);
+                    Route::get('purchase-orders', [ProcurementPurchaseOrderController::class, 'index']);
+                    Route::get('purchase-orders/{id}', [ProcurementPurchaseOrderController::class, 'show']);
+                    Route::post('purchase-orders/{id}/approve', [ProcurementPurchaseOrderController::class, 'approve']);
+                    Route::post('purchase-orders/{id}/partial-approve', [ProcurementPurchaseOrderController::class, 'partialApprove']);
+                    Route::post('purchase-orders/{id}/reject', [ProcurementPurchaseOrderController::class, 'reject']);
                 });
 
                 // Suppliers — read for all roles; write for procurement/company-admin; rate for procurement/branch

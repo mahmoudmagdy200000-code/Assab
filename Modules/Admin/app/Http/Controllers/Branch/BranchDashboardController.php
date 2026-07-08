@@ -151,27 +151,42 @@ class BranchDashboardController extends AsabController
     public function settings(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $row = \Modules\Admin\Models\Setting::where('group_key', 'branch:'.$this->branchId($request))->first();
+            $branchId = $this->branchId($request);
+            $row = \Modules\Admin\Models\Setting::where('group_key', 'branch:'.$branchId)->first();
 
-            return $this->ok($row->payload ?? [
+            $payload = $row->payload ?? [
                 'workingHours' => ['open' => '08:00', 'close' => '23:00'],
                 'autoCloseShift' => false,
                 'cashAlertThreshold' => 0,
-            ]);
+            ];
+
+            // Read-only view of the admin-set shift configuration (client
+            // requirement §6.4: branch managers see timings, never edit them).
+            $brandId = optional(\Modules\Branch\Models\Branch::find($branchId))->asab_brand_id;
+            $cfg = $brandId ? \Modules\Admin\Models\BrandShiftConfig::where('brand_id', $brandId)->first() : null;
+            $payload['shiftConfig'] = $cfg ? [
+                'numShifts' => $cfg->num_shifts,
+                'durationHours' => $cfg->duration_hours,
+                'firstStart' => $cfg->first_shift_start,
+                'shifts' => $cfg->shifts,
+                'readOnly' => true,
+            ] : null;
+
+            return $this->ok($payload);
         });
     }
 
     public function updateSettings(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
+            // Shift timings (openTime/closeTime/shiftDuration) are intentionally
+            // NOT accepted here: they are set by the admin and read-only for the
+            // branch-manager role (client requirement §6.4).
             $data = $request->validate([
                 'branchName' => 'sometimes|nullable|string|max:200',
                 'manager' => 'sometimes|nullable|string|max:200',
                 'phone' => 'sometimes|nullable|string|max:32',
                 'address' => 'sometimes|nullable|string|max:500',
-                'openTime' => 'sometimes|nullable|string|max:16',
-                'closeTime' => 'sometimes|nullable|string|max:16',
-                'shiftDuration' => 'sometimes|nullable|integer|min:0',
                 'taxNumber' => 'sometimes|nullable|string|max:64',
                 'bankAccount' => 'sometimes|nullable|string|max:64',
                 'cashLimitHalalas' => 'sometimes|nullable|integer|min:0',
@@ -180,15 +195,19 @@ class BranchDashboardController extends AsabController
                 'requireImages' => 'sometimes|boolean',
             ]);
 
-            // Typed mapping into the Setting payload (no $request->all()).
+            $existing = \Modules\Admin\Models\Setting::where('company_id', $request->user()->company_id)
+                ->where('group_key', 'branch:'.$this->branchId($request))->first()->payload ?? [];
+
+            // Typed mapping into the Setting payload (no $request->all());
+            // admin-set shift timings are carried over untouched.
             $payload = [
                 'branchName' => $data['branchName'] ?? null,
                 'manager' => $data['manager'] ?? null,
                 'phone' => $data['phone'] ?? null,
                 'address' => $data['address'] ?? null,
-                'openTime' => $data['openTime'] ?? null,
-                'closeTime' => $data['closeTime'] ?? null,
-                'shiftDuration' => isset($data['shiftDuration']) ? (int) $data['shiftDuration'] : null,
+                'openTime' => $existing['openTime'] ?? null,
+                'closeTime' => $existing['closeTime'] ?? null,
+                'shiftDuration' => $existing['shiftDuration'] ?? null,
                 'taxNumber' => $data['taxNumber'] ?? null,
                 'bankAccount' => $data['bankAccount'] ?? null,
                 'cashLimitHalalas' => isset($data['cashLimitHalalas']) ? (int) $data['cashLimitHalalas'] : null,
@@ -208,8 +227,8 @@ class BranchDashboardController extends AsabController
 
     public function confirmAsset(Request $request, string $id): JsonResponse
     {
-        return $this->run(function () use ($id) {
-            $asset = \Modules\Admin\Models\Asset::findOrFail($id);
+        return $this->run(function () use ($request, $id) {
+            $asset = \Modules\Admin\Models\Asset::where('branch_id', $this->branchId($request))->findOrFail($id);
             $asset->update(['status' => 'pending_accountant']);
 
             return $this->ok(['id' => $asset->id, 'status' => $asset->status]);
@@ -218,8 +237,9 @@ class BranchDashboardController extends AsabController
 
     public function reconfirmInventory(Request $request, string $id): JsonResponse
     {
-        return $this->run(function () use ($id) {
-            $op = \Modules\Admin\Models\Operation::where('id', $id)->orWhere('public_id', $id)->firstOrFail();
+        return $this->run(function () use ($request, $id) {
+            $op = \Modules\Admin\Models\Operation::where('branch_id', $this->branchId($request))
+                ->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id))->firstOrFail();
             $payload = $op->payload ?? [];
             $payload['branchReconfirmedAt'] = now()->toIso8601String();
             $op->update(['payload' => $payload]);
@@ -228,11 +248,20 @@ class BranchDashboardController extends AsabController
         });
     }
 
+    /**
+     * The branch this manager acts on. A branchId query param is honored only
+     * when it belongs to the caller's role assignment — never trusted raw.
+     */
     private function branchId(Request $request): ?string
     {
         $ctx = app(\Modules\Admin\Support\TenantContext::class);
 
-        return $request->query('branchId') ?? ($ctx->branchIds[0] ?? null);
+        $requested = $request->query('branchId');
+        if ($requested !== null && in_array($requested, $ctx->branchIds, true)) {
+            return $requested;
+        }
+
+        return $ctx->branchIds[0] ?? null;
     }
 
     private function requiredReports(?string $branchId): array

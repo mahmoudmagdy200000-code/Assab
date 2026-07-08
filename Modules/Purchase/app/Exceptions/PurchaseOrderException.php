@@ -45,4 +45,29 @@ class PurchaseOrderException extends RuntimeException
     {
         return new self("Failed to create order at index {$index}: {$message}");
     }
+
+    public static function notDecidable(string $status): self
+    {
+        return new self("Order cannot be decided in its current status: {$status}");
+    }
+
+    public static function decisionNotApplied(string $status): self
+    {
+        return new self("Decision could not be applied; order remains in status: {$status}");
+    }
+
+    public static function itemsNotInOrder(array $ids): self
+    {
+        return new self('Order items do not belong to this order: '.implode(', ', $ids));
+    }
+
+    public static function nothingToConsolidate(): self
+    {
+        return new self('No consolidatable orders for this supplier');
+    }
+
+    public static function supplierMismatch(string $orderNumber): self
+    {
+        return new self("Order {$orderNumber} belongs to a different supplier");
+    }
 }

@@ -16,7 +16,7 @@ class OperationController extends AsabController
     {
         return $this->run(function () use ($request) {
             $perPage = min((int) $request->query('pageSize', 20), 100);
-            $q = Operation::query();
+            $q = $this->scopeToAssignedBranches(Operation::query());
 
             foreach (['module_key' => 'moduleKey', 'status' => 'status', 'branch_id' => 'branchId', 'match' => 'match'] as $col => $param) {
                 if ($val = $request->query($param)) {
@@ -43,7 +43,9 @@ class OperationController extends AsabController
     public function show(string $id): JsonResponse
     {
         return $this->run(function () use ($id) {
-            $op = Operation::with('steps')->where('id', $id)->orWhere('public_id', $id)->firstOrFail();
+            $op = $this->scopeToAssignedBranches(
+                Operation::with('steps')->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id)),
+            )->firstOrFail();
             $data = $this->present($op);
             $data['payload'] = $op->payload;
             $data['auditTrail'] = $op->steps->map(fn ($s) => [
@@ -110,7 +112,14 @@ class OperationController extends AsabController
         return $this->run(function () use ($request) {
             $data = $request->validate(['operationIds' => 'required|array', 'operationIds.*' => 'string']);
 
-            return $this->ok($this->service->bulkApprove($data['operationIds'], $request->user()));
+            // Zero-trust: drop ids outside the caller's assigned branch scope
+            // before they reach the approval service.
+            $ids = $data['operationIds'];
+            $allowed = $this->scopeToAssignedBranches(
+                Operation::query()->where(fn ($q) => $q->whereIn('id', $ids)->orWhereIn('public_id', $ids)),
+            )->pluck('id')->all();
+
+            return $this->ok($this->service->bulkApprove($allowed, $request->user()));
         });
     }
 
@@ -161,7 +170,9 @@ class OperationController extends AsabController
     public function auditTrail(string $id): JsonResponse
     {
         return $this->run(function () use ($id) {
-            $op = Operation::with('steps')->where('id', $id)->orWhere('public_id', $id)->firstOrFail();
+            $op = $this->scopeToAssignedBranches(
+                Operation::with('steps')->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id)),
+            )->firstOrFail();
             $last = $op->steps->count() - 1;
 
             return $this->listResponse($op->steps->values()->map(fn ($s, $i) => [
@@ -186,12 +197,14 @@ class OperationController extends AsabController
 
     private function find(string $id): Operation
     {
-        return Operation::where('id', $id)->orWhere('public_id', $id)->firstOrFail();
+        return $this->scopeToAssignedBranches(
+            Operation::where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id)),
+        )->firstOrFail();
     }
 
     private function summary(Request $request): array
     {
-        $base = Operation::query();
+        $base = $this->scopeToAssignedBranches(Operation::query());
         if ($module = $request->query('moduleKey')) {
             $base->where('module_key', $module);
         }
