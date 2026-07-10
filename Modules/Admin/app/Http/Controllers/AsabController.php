@@ -43,13 +43,87 @@ abstract class AsabController extends Controller
      */
     protected function scopeToAssignedBranches($query)
     {
-        $branchIds = app(\Modules\Admin\Services\TenantBranchResolver::class)
-            ->operationBranchIds(app(\Modules\Admin\Support\TenantContext::class));
+        $branchIds = $this->assignedBranchIds();
 
         if ($branchIds !== null) {
             $query->whereIn('branch_id', $branchIds);
         }
 
         return $query;
+    }
+
+    /**
+     * Extra branch constraint for tenant-scoped (company_id global scope)
+     * queries. null = no extra constraint (admin or a company-wide assignment).
+     *
+     * @return string[]|null
+     */
+    protected function assignedBranchIds(): ?array
+    {
+        return app(\Modules\Admin\Services\TenantBranchResolver::class)
+            ->operationBranchIds(app(\Modules\Admin\Support\TenantContext::class));
+    }
+
+    /**
+     * Assert a branch id (path/query/body param) is inside the caller's
+     * assigned branch scope. Out-of-scope ids read as absent resources —
+     * the same 404 envelope a scoped firstOrFail produces. null branch ids
+     * fail closed for non-admin users. Uses legacyBranchIds (not
+     * operationBranchIds): the guarded tables carry no tenant scope, so
+     * scope=all users must still be pinned to their own company's branches;
+     * only the platform admin is unrestricted.
+     */
+    protected function assertBranchAssigned(?string $branchId): void
+    {
+        $branchIds = app(\Modules\Admin\Services\TenantBranchResolver::class)
+            ->legacyBranchIds(app(\Modules\Admin\Support\TenantContext::class));
+
+        if ($branchIds !== null && ! in_array($branchId, $branchIds, true)) {
+            throw (new ModelNotFoundException)->setModel(\Modules\Branch\Models\Branch::class);
+        }
+    }
+
+    /**
+     * Brand ids the caller may touch. null = platform admin (unrestricted);
+     * scope=all → every company brand; scoped → brands of the assigned branch
+     * tree plus directly assigned brand ids. Fail-closed (empty array) when
+     * nothing resolves.
+     *
+     * @return string[]|null
+     */
+    protected function assignedBrandIds(): ?array
+    {
+        $ctx = app(\Modules\Admin\Support\TenantContext::class);
+        if ($ctx->isAdmin) {
+            return null;
+        }
+        if (! $ctx->hasTenant()) {
+            return [];
+        }
+
+        $companyBrandIds = \Modules\Admin\Models\AsabBrand::query()
+            ->where('company_id', $ctx->companyId)->pluck('id')->all();
+        if ($ctx->scope === 'all') {
+            return $companyBrandIds;
+        }
+
+        $branchIds = app(\Modules\Admin\Services\TenantBranchResolver::class)->legacyBranchIds($ctx) ?? [];
+        $fromBranches = \Modules\Branch\Models\Branch::query()
+            ->whereIn('id', $branchIds)->whereNotNull('asab_brand_id')->pluck('asab_brand_id')->all();
+
+        return array_values(array_unique(array_merge(
+            $fromBranches,
+            array_intersect($ctx->brandIds, $companyBrandIds),
+        )));
+    }
+
+    /** Brand counterpart of assertBranchAssigned — same fail-closed 404 contract. */
+    protected function assertBrandAssigned(?string $brandId): void
+    {
+        $brandIds = $this->assignedBrandIds();
+
+        if ($brandIds !== null && ! in_array($brandId, $brandIds, true)) {
+            throw (new ModelNotFoundException)->setModel(\Modules\Admin\Models\AsabBrand::class);
+        }
     }
 }

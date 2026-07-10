@@ -19,7 +19,7 @@ class WasteController extends AsabController
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $q = Operation::where('module_key', 'waste');
+            $q = $this->scopeToAssignedBranches(Operation::where('module_key', 'waste'));
             if ($branch = $request->query('branchId')) {
                 $q->where('branch_id', $branch);
             }
@@ -106,10 +106,16 @@ class WasteController extends AsabController
     public function bulkApprove(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $data = $request->validate(['entryIds' => 'sometimes|array', 'branchId' => 'sometimes|string']);
-            $ids = $data['entryIds'] ?? Operation::where('module_key', 'waste')
-                ->when($data['branchId'] ?? null, fn ($q, $b) => $q->where('branch_id', $b))
-                ->where('status', 'pending')->pluck('id')->all();
+            $data = $request->validate(['entryIds' => 'sometimes|array', 'entryIds.*' => 'string', 'branchId' => 'sometimes|string']);
+            // Zero-trust: resolve ids through the branch-scoped query so
+            // out-of-scope entries are dropped before the approval service.
+            $ids = isset($data['entryIds'])
+                ? $this->scopeToAssignedBranches(Operation::where('module_key', 'waste'))
+                    ->where(fn ($q) => $q->whereIn('id', $data['entryIds'])->orWhereIn('public_id', $data['entryIds']))
+                    ->pluck('id')->all()
+                : $this->scopeToAssignedBranches(Operation::where('module_key', 'waste'))
+                    ->when($data['branchId'] ?? null, fn ($q, $b) => $q->where('branch_id', $b))
+                    ->where('status', 'pending')->pluck('id')->all();
 
             return $this->ok($this->service->bulkApprove($ids, $request->user()));
         });
@@ -117,6 +123,8 @@ class WasteController extends AsabController
 
     private function find(string $id): Operation
     {
-        return Operation::where('module_key', 'waste')->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id))->firstOrFail();
+        return $this->scopeToAssignedBranches(
+            Operation::where('module_key', 'waste')->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id)),
+        )->firstOrFail();
     }
 }

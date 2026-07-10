@@ -12,6 +12,7 @@ use Modules\Admin\Models\Attachment;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Shift;
+use Modules\Admin\Services\CashierProvisioningService;
 use Modules\Admin\Services\NotificationService;
 use Modules\Admin\Services\OperationFactory;
 use Modules\Admin\Services\RealtimeBroadcaster;
@@ -26,6 +27,7 @@ class BranchCompanyController extends AsabController
         private readonly OperationFactory $factory,
         private readonly NotificationService $notifications,
         private readonly RealtimeBroadcaster $rt,
+        private readonly CashierProvisioningService $cashiers,
     ) {}
 
     /** Resolve the branch the current branch-manager owns. */
@@ -295,27 +297,50 @@ class BranchCompanyController extends AsabController
                 'shift' => 'sometimes|nullable|string|max:16',
                 'nationalId' => 'sometimes|nullable|string|max:32',
                 'hireDate' => 'sometimes|nullable|date',
+                'email' => 'sometimes|nullable|email|max:255',
+                'phone' => 'sometimes|nullable|string|max:32',
             ]);
             $branchId = $this->branchId($request);
 
-            $emp = Employee::create([
-                'company_id' => $request->user()->company_id,
-                'branch_id' => $branchId,
-                'emp_number' => $this->nextEmpNumber($request->user()->company_id, $branchId),
-                'name' => $data['name'],
-                'national_id' => $data['nationalId'] ?? null,
-                'role' => $data['role'],
-                'monthly_salary' => $data['salaryHalalas'],
-                'shift_type' => $data['shift'] ?? null,
-                'hire_date' => $data['hireDate'] ?? now(),
-                'status' => 'active',
-            ]);
+            [$emp, $provision] = DB::transaction(function () use ($request, $data, $branchId) {
+                $emp = Employee::create([
+                    'company_id' => $request->user()->company_id,
+                    'branch_id' => $branchId,
+                    'emp_number' => $this->nextEmpNumber($request->user()->company_id, $branchId),
+                    'name' => $data['name'],
+                    'national_id' => $data['nationalId'] ?? null,
+                    'role' => $data['role'],
+                    'monthly_salary' => $data['salaryHalalas'],
+                    'shift_type' => $data['shift'] ?? null,
+                    'hire_date' => $data['hireDate'] ?? now(),
+                    'status' => 'active',
+                ]);
 
-            return $this->created([
+                // Cashier-role employees also get a mobile-app login (WS2 bridge).
+                $provision = null;
+                if ($this->cashiers->isCashierRole($data['role'])) {
+                    $provision = $this->cashiers->provision(
+                        $branchId, $request->user()->company_id,
+                        $data['name'], $data['email'] ?? null, $data['phone'] ?? null,
+                    );
+                    if ($provision['cashierId']) {
+                        $emp->forceFill(['legacy_cashier_id' => $provision['cashierId']])->save();
+                    }
+                }
+
+                return [$emp, $provision];
+            });
+
+            $payload = [
                 'id' => $emp->id, 'empNumber' => $emp->emp_number, 'name' => $emp->name,
                 'role' => $emp->role, 'monthlySalary' => $emp->monthly_salary,
                 'shiftType' => $emp->shift_type, 'branchId' => $emp->branch_id, 'status' => $emp->status,
-            ]);
+            ];
+            if ($provision !== null) {
+                $payload['cashier'] = $provision;
+            }
+
+            return $this->created($payload);
         });
     }
 

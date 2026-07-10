@@ -5,8 +5,10 @@ namespace Modules\Admin\Http\Controllers\Admin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabRestaurant;
+use Modules\Admin\Models\AsabUserRole;
 use Modules\Branch\Models\Branch;
 
 /**
@@ -43,6 +45,9 @@ class BranchController extends AsabController
                 'address' => 'nullable|string',
                 'phone' => 'nullable|string|max:32',
             ]);
+            if (! empty($data['managerUserId'])) {
+                $this->assertManagerAssignable($data['managerUserId']);
+            }
 
             $branch = DB::transaction(fn () => Branch::create([
                 'name' => $data['name'],
@@ -75,6 +80,9 @@ class BranchController extends AsabController
                 'phone' => 'sometimes|string|max:32',
                 'status' => 'sometimes|in:active,suspended',
             ]);
+            if (! empty($data['managerUserId'])) {
+                $this->assertManagerAssignable($data['managerUserId'], $branch->id);
+            }
             DB::transaction(fn () => $branch->update(array_filter([
                 'name' => $data['name'] ?? null,
                 'manager' => $data['manager'] ?? null,
@@ -96,6 +104,24 @@ class BranchController extends AsabController
 
             return $this->noContent();
         });
+    }
+
+    /**
+     * Manager assignment rules (client meeting): the user must hold the branch
+     * role, and a user may manage at most ONE branch.
+     */
+    private function assertManagerAssignable(string $userId, ?string $exceptBranchId = null): void
+    {
+        if (! AsabUserRole::where('user_id', $userId)->where('role_key', 'branch')->exists()) {
+            throw new AsabException('MANAGER_ROLE_INVALID', 'User does not have the branch manager role', 'المستخدم ليس بدور مدير فرع', 422);
+        }
+
+        $alreadyManaging = Branch::where('asab_manager_user_id', $userId)
+            ->when($exceptBranchId, fn ($q) => $q->where('id', '!=', $exceptBranchId))
+            ->exists();
+        if ($alreadyManaging) {
+            throw new AsabException('MANAGER_ALREADY_ASSIGNED', 'User already manages another branch', 'المستخدم مدير لفرع آخر بالفعل', 422);
+        }
     }
 
     private function present(Branch $b): array

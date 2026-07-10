@@ -10,6 +10,7 @@ class AdminDatabaseSeeder extends Seeder
     {
         $this->call([
             AsabRolePermissionSeeder::class,
+            AsabBrandPackageSeeder::class,
             AsabDemoSeeder::class,
             AsabOperationSeeder::class,
             CompanyDashboardSeeder::class,

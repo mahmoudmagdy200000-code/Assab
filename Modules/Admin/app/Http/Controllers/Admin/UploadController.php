@@ -142,12 +142,16 @@ class UploadController extends AsabController
             $count = 0;
             $errors = [];
             DB::transaction(function () use ($rows, $branch, $request, &$count, &$errors) {
+                // public_id is UNIQUE: seed the counter from the highest existing
+                // FA-#### suffix (withTrashed — soft-deleted rows still hold their
+                // id), not from count(), which collides after deletes.
+                $seq = $this->maxFixedAssetSequence();
                 foreach ($rows as $i => $row) {
                     try {
                         $cost = (int) round(((float) ($row[4] ?? 0)) * 100);
                         Asset::create([
                             'company_id' => $branch->asab_company_id ?? $request->user()->company_id,
-                            'public_id' => 'FA-'.str_pad((string) (Asset::count() + 1), 3, '0', STR_PAD_LEFT),
+                            'public_id' => $this->nextFixedAssetPublicId($seq),
                             'name' => $row[0] ?? $row['اسم الأصل'] ?? '',
                             'category' => $row[1] ?? null,
                             'branch_id' => $branch->id,
@@ -172,6 +176,29 @@ class UploadController extends AsabController
 
             return $this->ok(['assetCount' => $count, 'errors' => $errors]);
         });
+    }
+
+    /** Highest numeric FA- suffix across all assets, including soft-deleted. */
+    private function maxFixedAssetSequence(): int
+    {
+        // LENGTH-first ordering keeps FA-1000 above FA-999 (portable MySQL/SQLite).
+        $last = Asset::withTrashed()
+            ->where('public_id', 'like', 'FA-%')
+            ->orderByRaw('LENGTH(public_id) DESC')
+            ->orderBy('public_id', 'desc')
+            ->value('public_id');
+
+        return $last ? (int) substr($last, 3) : 0;
+    }
+
+    /** Next free FA-### id — skips ids taken since the sequence was seeded (e.g. a concurrent upload). */
+    private function nextFixedAssetPublicId(int &$seq): string
+    {
+        do {
+            $candidate = 'FA-'.str_pad((string) (++$seq), 3, '0', STR_PAD_LEFT);
+        } while (Asset::withTrashed()->where('public_id', $candidate)->exists());
+
+        return $candidate;
     }
 
     public function template(Request $request, string $type): Response

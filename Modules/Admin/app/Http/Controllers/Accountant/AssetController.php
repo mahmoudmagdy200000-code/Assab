@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Http\Controllers\Accountant;
 
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,7 +18,7 @@ class AssetController extends AsabController
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $q = Asset::query();
+            $q = $this->scopeToAssignedBranches(Asset::query());
             if (($status = $request->query('status')) && $status !== 'all') {
                 $q->where('status', $status);
             }
@@ -29,12 +30,12 @@ class AssetController extends AsabController
             return $this->ok([
                 'data' => $assets->map([$this, 'present'])->all(),
                 'summary' => [
-                    'pendingAccountant' => Asset::where('status', 'pending_accountant')->count(),
-                    'pendingBranch' => Asset::where('status', 'pending_branch')->count(),
-                    'confirmed' => Asset::where('status', 'confirmed')->count(),
-                    'bookValueTotal' => (int) Asset::sum('book_value'),
+                    'pendingAccountant' => $this->scopeToAssignedBranches(Asset::where('status', 'pending_accountant'))->count(),
+                    'pendingBranch' => $this->scopeToAssignedBranches(Asset::where('status', 'pending_branch'))->count(),
+                    'confirmed' => $this->scopeToAssignedBranches(Asset::where('status', 'confirmed'))->count(),
+                    'bookValueTotal' => (int) $this->scopeToAssignedBranches(Asset::query())->sum('book_value'),
                 ],
-                'drafts' => AssetDraft::where('status', 'draft')->get()->map([$this, 'presentDraft'])->all(),
+                'drafts' => $this->visibleDrafts($request)->map([$this, 'presentDraft'])->all(),
             ]);
         });
     }
@@ -54,6 +55,7 @@ class AssetController extends AsabController
                 'custodian' => 'nullable|string|max:200',
                 'notes' => 'nullable|string',
             ]);
+            $this->assertBranchAssigned($data['branchId']);
             $cost = $data['cost'] ?? $data['priceHalalas'];
             $asset = Asset::create([
                 'company_id' => $request->user()->company_id,
@@ -81,22 +83,22 @@ class AssetController extends AsabController
     public function confirm(string $id): JsonResponse
     {
         return $this->run(function () use ($id) {
-            $asset = Asset::findOrFail($id);
+            $asset = $this->scopeToAssignedBranches(Asset::query())->findOrFail($id);
             $asset->update(['status' => 'confirmed']);
 
             return $this->ok($this->present($asset));
         });
     }
 
-    public function drafts(): JsonResponse
+    public function drafts(Request $request): JsonResponse
     {
-        return $this->run(fn () => $this->listResponse(AssetDraft::where('status', 'draft')->get()->map([$this, 'presentDraft'])->all()));
+        return $this->run(fn () => $this->listResponse($this->visibleDrafts($request)->map([$this, 'presentDraft'])->all()));
     }
 
-    public function confirmDraft(string $draftId, \Modules\Admin\Services\RealtimeBroadcaster $rt): JsonResponse
+    public function confirmDraft(Request $request, string $draftId, \Modules\Admin\Services\RealtimeBroadcaster $rt): JsonResponse
     {
-        return $this->run(function () use ($draftId, $rt) {
-            $draft = AssetDraft::where('draft_id', $draftId)->orWhere('id', $draftId)->firstOrFail();
+        return $this->run(function () use ($request, $draftId, $rt) {
+            $draft = $this->findDraft($request, $draftId);
 
             $created = DB::transaction(function () use ($draft) {
                 $assets = [];
@@ -134,14 +136,45 @@ class AssetController extends AsabController
         });
     }
 
-    public function discardDraft(string $draftId): JsonResponse
+    public function discardDraft(Request $request, string $draftId): JsonResponse
     {
-        return $this->run(function () use ($draftId) {
-            $draft = AssetDraft::where('draft_id', $draftId)->orWhere('id', $draftId)->firstOrFail();
+        return $this->run(function () use ($request, $draftId) {
+            $draft = $this->findDraft($request, $draftId);
             $draft->update(['status' => 'discarded']);
 
             return $this->noContent();
         });
+    }
+
+    /** Pending drafts of the caller's company, filtered to their branch scope. */
+    private function visibleDrafts(Request $request): \Illuminate\Support\Collection
+    {
+        $branchIds = $this->assignedBranchIds();
+
+        return AssetDraft::where('company_id', $request->user()->company_id)
+            ->where('status', 'draft')->get()
+            ->filter(fn (AssetDraft $d) => $this->draftInScope($d, $branchIds))
+            ->values();
+    }
+
+    /** Company-scoped draft lookup; out-of-scope drafts read as absent (404). */
+    private function findDraft(Request $request, string $draftId): AssetDraft
+    {
+        $draft = AssetDraft::where('company_id', $request->user()->company_id)
+            ->where(fn ($q) => $q->where('draft_id', $draftId)->orWhere('id', $draftId))
+            ->firstOrFail();
+
+        if (! $this->draftInScope($draft, $this->assignedBranchIds())) {
+            throw (new ModelNotFoundException)->setModel(AssetDraft::class);
+        }
+
+        return $draft;
+    }
+
+    /** Scoped users only see drafts targeting at least one assigned branch. */
+    private function draftInScope(AssetDraft $draft, ?array $branchIds): bool
+    {
+        return $branchIds === null || array_intersect($draft->target_branches ?? [], $branchIds) !== [];
     }
 
     private function nextAssetId(): string

@@ -107,25 +107,37 @@ class DistributionController extends AsabController
         return $this->run(function () use ($request, $accId) {
             $data = $request->validate([
                 'headId' => 'nullable|string',
-                'restaurants' => 'required|array',
+                'brands' => 'sometimes|array|min:1',
+                'brands.*' => 'string',
+                'restaurants' => 'required_without:brands|array',
                 'restaurants.*' => 'string',
             ]);
 
             $acc = AsabUser::findOrFail($accId);
             $assignment = $this->accountantAssignment($accId);
-            $target = collect($data['restaurants'])->unique()->values()->all();
+            $brands = isset($data['brands']) ? collect($data['brands'])->unique()->values()->all() : null;
+            $restaurants = isset($data['restaurants']) ? collect($data['restaurants'])->unique()->values()->all() : null;
 
-            DB::transaction(function () use ($acc, $assignment, $data, $target) {
+            DB::transaction(function () use ($acc, $assignment, $data, $brands, $restaurants) {
                 // Reuse moveToHead logic: set reports_to_id when a head is provided.
                 if (array_key_exists('headId', $data) && $data['headId'] !== null) {
                     $acc->update(['reports_to_id' => $data['headId']]);
                 }
-                // Reconcile to EXACTLY the given array (assign new + unassign removed).
-                $assignment->update([
-                    'restaurant_ids' => $target,
-                    'scope' => 'restaurant',
-                    'module_keys' => $assignment->module_keys ?: self::DIST_MODULES,
-                ]);
+                $updates = ['module_keys' => $assignment->module_keys ?: self::DIST_MODULES];
+                if ($brands !== null) {
+                    // Accountants are BRAND-level (client meeting): a brands
+                    // payload writes brand scope; stale restaurant ids are
+                    // cleared unless restaurants were explicitly sent.
+                    $updates['brand_ids'] = $brands;
+                    $updates['scope'] = 'brand';
+                    $updates['restaurant_ids'] = $restaurants ?? [];
+                } else {
+                    // Backward compat: restaurants-only payloads keep the old
+                    // reconcile-to-EXACTLY-the-given-array restaurant scope.
+                    $updates['restaurant_ids'] = $restaurants;
+                    $updates['scope'] = 'restaurant';
+                }
+                $assignment->update($updates);
             });
 
             $fresh = $assignment->fresh();
@@ -133,6 +145,8 @@ class DistributionController extends AsabController
             return $this->ok([
                 'id' => $accId,
                 'headId' => $acc->fresh()->reports_to_id,
+                'scope' => $fresh->scope,
+                'brands' => $fresh->brand_ids ?? [],
                 'restaurants' => $fresh->restaurant_ids ?? [],
             ]);
         });

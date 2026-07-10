@@ -18,7 +18,7 @@ class CashCustodyController extends AsabController
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $q = CashCustody::with('transactions');
+            $q = $this->scopeToAssignedBranches(CashCustody::with('transactions'));
             if ($branch = $request->query('branchId')) {
                 $q->where('branch_id', $branch);
             }
@@ -54,7 +54,7 @@ class CashCustodyController extends AsabController
     public function settlementRequest(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $custody = CashCustody::findOrFail($id);
+            $custody = $this->scopeToAssignedBranches(CashCustody::query())->findOrFail($id);
             $req = SettlementRequest::create([
                 'custody_id' => $custody->id,
                 'requested_by_id' => $request->user()->id,
@@ -69,7 +69,7 @@ class CashCustodyController extends AsabController
     public function addTransaction(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $custody = CashCustody::findOrFail($id);
+            $custody = $this->scopeToAssignedBranches(CashCustody::query())->findOrFail($id);
             $data = $request->validate([
                 'txnType' => 'required|in:credit,debit',
                 'amount' => 'required|integer|min:1',

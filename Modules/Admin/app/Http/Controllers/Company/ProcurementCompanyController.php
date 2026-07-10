@@ -12,6 +12,7 @@ use Modules\Admin\Models\ProcurementItemPrice;
 use Modules\Admin\Models\SupplierItem;
 use Modules\Admin\Models\SupplierRating;
 use Modules\Admin\Services\OperationFactory;
+use Modules\Admin\Services\ProcurementCatalogBridgeService;
 
 /**
  * Company-scoped Procurement surface — NEW endpoints beyond the shared
@@ -19,7 +20,10 @@ use Modules\Admin\Services\OperationFactory;
  */
 class ProcurementCompanyController extends AsabController
 {
-    public function __construct(private readonly OperationFactory $factory) {}
+    public function __construct(
+        private readonly OperationFactory $factory,
+        private readonly ProcurementCatalogBridgeService $bridge,
+    ) {}
 
     public function storeOrder(Request $request): JsonResponse
     {
@@ -145,14 +149,20 @@ class ProcurementCompanyController extends AsabController
                 'code' => 'sometimes|nullable|string|max:32',
             ]);
             $price = $data['lastPriceHalalas'] ?? $data['defaultPriceHalalas'] ?? null;
-            $item = SupplierItem::create([
-                'company_id' => $request->user()->company_id, 'name' => $data['name'], 'unit' => $data['unit'],
-                'price' => $price ?? 0, 'category' => $data['category'] ?? null, 'supplier_id' => $data['supplierId'] ?? null,
-                'code' => $data['code'] ?? null, 'status' => 'active',
-            ]);
-            if (! empty($price)) {
-                ProcurementItemPrice::create(['company_id' => $request->user()->company_id, 'item_id' => $item->id, 'price' => $price, 'recorded_at' => now()]);
-            }
+            $item = DB::transaction(function () use ($request, $data, $price) {
+                $item = SupplierItem::create([
+                    'company_id' => $request->user()->company_id, 'name' => $data['name'], 'unit' => $data['unit'],
+                    'price' => $price ?? 0, 'category' => $data['category'] ?? null, 'supplier_id' => $data['supplierId'] ?? null,
+                    'code' => $data['code'] ?? null, 'status' => 'active',
+                ]);
+                if (! empty($price)) {
+                    ProcurementItemPrice::create(['company_id' => $request->user()->company_id, 'item_id' => $item->id, 'price' => $price, 'recorded_at' => now()]);
+                }
+                // Write-through to the mobile purchasing catalog (client meeting: dashboard items appear in the app).
+                $this->bridge->syncItem($item);
+
+                return $item;
+            });
 
             return $this->created(['id' => $item->id, 'name' => $item->name, 'unit' => $item->unit, 'category' => $item->category, 'supplierId' => $item->supplier_id, 'lastPriceHalalas' => $item->price]);
         });
@@ -163,13 +173,16 @@ class ProcurementCompanyController extends AsabController
         return $this->run(function () use ($request, $id) {
             $item = SupplierItem::where('company_id', $request->user()->company_id)->findOrFail($id);
             $data = $request->validate(['name' => 'sometimes|string|max:200', 'unit' => 'sometimes|string|max:16', 'lastPriceHalalas' => 'sometimes|integer|min:0', 'status' => 'sometimes|string|max:16']);
-            if (isset($data['lastPriceHalalas']) && $data['lastPriceHalalas'] !== (int) $item->price) {
-                ProcurementItemPrice::create(['company_id' => $request->user()->company_id, 'item_id' => $item->id, 'price' => $data['lastPriceHalalas'], 'recorded_at' => now()]);
-            }
-            $item->update(array_filter([
-                'name' => $data['name'] ?? null, 'unit' => $data['unit'] ?? null,
-                'price' => $data['lastPriceHalalas'] ?? null, 'status' => $data['status'] ?? null,
-            ], fn ($v) => $v !== null));
+            DB::transaction(function () use ($request, $item, $data) {
+                if (isset($data['lastPriceHalalas']) && $data['lastPriceHalalas'] !== (int) $item->price) {
+                    ProcurementItemPrice::create(['company_id' => $request->user()->company_id, 'item_id' => $item->id, 'price' => $data['lastPriceHalalas'], 'recorded_at' => now()]);
+                }
+                $item->update(array_filter([
+                    'name' => $data['name'] ?? null, 'unit' => $data['unit'] ?? null,
+                    'price' => $data['lastPriceHalalas'] ?? null, 'status' => $data['status'] ?? null,
+                ], fn ($v) => $v !== null));
+                $this->bridge->syncItem($item);
+            });
 
             return $this->ok(['id' => $item->id, 'name' => $item->name, 'lastPriceHalalas' => $item->price]);
         });
@@ -178,7 +191,12 @@ class ProcurementCompanyController extends AsabController
     public function destroyItem(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            SupplierItem::where('company_id', $request->user()->company_id)->findOrFail($id)->delete();
+            $item = SupplierItem::where('company_id', $request->user()->company_id)->findOrFail($id);
+            DB::transaction(function () use ($item) {
+                // Deactivate (never hard-delete) the bridged mobile rows first.
+                $this->bridge->deactivateItem($item);
+                $item->delete();
+            });
 
             return $this->noContent();
         });
@@ -206,13 +224,19 @@ class ProcurementCompanyController extends AsabController
                 // doc aliases: `phone` -> contactPhone, `email` -> contactEmail.
                 'phone' => 'sometimes|nullable|string|max:32', 'email' => 'sometimes|nullable|email',
             ]);
-            $sup = AsabSupplier::create([
-                'company_id' => $request->user()->company_id, 'brand_id' => $data['brandId'] ?? null, 'name' => $data['name'],
-                'category' => $data['category'] ?? null, 'contact_name' => $data['contactName'] ?? null,
-                'contact_phone' => $data['contactPhone'] ?? $data['phone'] ?? null,
-                'contact_email' => $data['contactEmail'] ?? $data['email'] ?? null,
-                'commercial_reg' => $data['commercialReg'] ?? null, 'payment_terms' => $data['paymentTerms'] ?? null, 'status' => 'active',
-            ]);
+            $sup = DB::transaction(function () use ($request, $data) {
+                $sup = AsabSupplier::create([
+                    'company_id' => $request->user()->company_id, 'brand_id' => $data['brandId'] ?? null, 'name' => $data['name'],
+                    'category' => $data['category'] ?? null, 'contact_name' => $data['contactName'] ?? null,
+                    'contact_phone' => $data['contactPhone'] ?? $data['phone'] ?? null,
+                    'contact_email' => $data['contactEmail'] ?? $data['email'] ?? null,
+                    'commercial_reg' => $data['commercialReg'] ?? null, 'payment_terms' => $data['paymentTerms'] ?? null, 'status' => 'active',
+                ]);
+                // Provision the login-capable mobile-world supplier so the real order flow can use it.
+                $this->bridge->provisionSupplier($sup);
+
+                return $sup;
+            });
 
             return $this->created(['id' => $sup->id, 'name' => $sup->name, 'category' => $sup->category, 'status' => $sup->status]);
         });
@@ -227,10 +251,13 @@ class ProcurementCompanyController extends AsabController
                 'contactName' => 'sometimes|nullable|string|max:200', 'contactPhone' => 'sometimes|nullable|string|max:32',
                 'contactEmail' => 'sometimes|nullable|email', 'paymentTerms' => 'sometimes|nullable|string|max:80',
             ]);
-            $sup->update(array_filter([
-                'name' => $data['name'] ?? null, 'category' => $data['category'] ?? null, 'contact_name' => $data['contactName'] ?? null,
-                'contact_phone' => $data['contactPhone'] ?? null, 'contact_email' => $data['contactEmail'] ?? null, 'payment_terms' => $data['paymentTerms'] ?? null,
-            ], fn ($v) => $v !== null));
+            DB::transaction(function () use ($sup, $data) {
+                $sup->update(array_filter([
+                    'name' => $data['name'] ?? null, 'category' => $data['category'] ?? null, 'contact_name' => $data['contactName'] ?? null,
+                    'contact_phone' => $data['contactPhone'] ?? null, 'contact_email' => $data['contactEmail'] ?? null, 'payment_terms' => $data['paymentTerms'] ?? null,
+                ], fn ($v) => $v !== null));
+                $this->bridge->syncSupplier($sup);
+            });
 
             return $this->ok(['id' => $sup->id, 'name' => $sup->name]);
         });
@@ -241,7 +268,10 @@ class ProcurementCompanyController extends AsabController
         return $this->run(function () use ($request, $id) {
             $sup = AsabSupplier::where('company_id', $request->user()->company_id)->findOrFail($id);
             $new = $sup->status === 'active' ? 'inactive' : 'active';
-            $sup->update(['status' => $new]);
+            DB::transaction(function () use ($sup, $new) {
+                $sup->update(['status' => $new]);
+                $this->bridge->syncSupplierActive($sup);
+            });
 
             return $this->ok(['id' => $sup->id, 'isActive' => $new === 'active', 'status' => $new]);
         });
