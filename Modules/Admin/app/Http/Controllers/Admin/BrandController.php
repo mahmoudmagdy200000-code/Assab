@@ -10,6 +10,7 @@ use Illuminate\Support\Str;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
+use Modules\Admin\Models\AsabBrandPackage;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Notifications\UserPasswordResetNotification;
@@ -35,6 +36,12 @@ class BrandController extends AsabController
     public function store(Request $request, BrandOwnerProvisioningService $ownerProvisioning): JsonResponse
     {
         return $this->run(function () use ($request, $ownerProvisioning) {
+            // WS6: legacy Arabic aliases map to package codes before validating
+            // against the asab_brand_packages catalog (silver/gold/platinum keep
+            // working via the seeded rows / legacy fallback).
+            if ($request->filled('plan')) {
+                $request->merge(['plan' => AsabBrandPackage::resolveCode((string) $request->input('plan'))]);
+            }
             $data = $request->validate([
                 'companyId' => 'required|string',
                 'name' => 'required|string|max:120',
@@ -44,9 +51,7 @@ class BrandController extends AsabController
                 // brand `owner` attribute, previously never set). ownerEmail stays.
                 'owner' => 'nullable|string|max:191',
                 'ownerEmail' => 'nullable|email|max:191',
-                // Doc §1.2: plan is silver|gold|platinum. Kept nullable + max:32 so any
-                // already-broader callers don't break (non-breaking superset).
-                'plan' => 'nullable|in:silver,gold,platinum,فضي,ذهبي,بلاتيني',
+                'plan' => ['nullable', 'string', 'max:32', AsabBrandPackage::codeRule()],
                 'modules' => 'nullable|array',
             ]);
 

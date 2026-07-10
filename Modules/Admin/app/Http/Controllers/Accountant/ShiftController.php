@@ -17,7 +17,7 @@ class ShiftController extends AsabController
     {
         if ($request->query('status', 'closed') === 'live') {
             return $this->run(fn () => $this->listResponse(
-                Shift::whereIn('status', ['active', 'late'])->orderByDesc('started_at')->get()->map([$this, 'present'])->all()
+                $this->scopeToAssignedBranches(Shift::whereIn('status', ['active', 'late']))->orderByDesc('started_at')->get()->map([$this, 'present'])->all()
             ));
         }
 
@@ -27,7 +27,7 @@ class ShiftController extends AsabController
     public function live(): JsonResponse
     {
         return $this->run(function () {
-            $active = Shift::whereIn('status', ['active', 'late'])->orderByDesc('started_at')->get();
+            $active = $this->scopeToAssignedBranches(Shift::whereIn('status', ['active', 'late']))->orderByDesc('started_at')->get();
 
             return $this->ok([
                 'active' => $active->map([$this, 'present'])->all(),
@@ -40,7 +40,7 @@ class ShiftController extends AsabController
     {
         return $this->run(function () use ($request) {
             $perPage = min((int) $request->query('pageSize', 20), 100);
-            $q = Shift::where('status', 'closed');
+            $q = $this->scopeToAssignedBranches(Shift::where('status', 'closed'));
             if ($branch = $request->query('branchId')) {
                 $q->where('branch_id', $branch);
             }
@@ -63,7 +63,7 @@ class ShiftController extends AsabController
                 'salesSystem' => 'required|integer',
                 'notes' => 'nullable|string',
             ]);
-            $shift = Shift::findOrFail($id);
+            $shift = $this->scopeToAssignedBranches(Shift::query())->findOrFail($id);
             $variance = $data['cashInDrawer'] - $data['salesSystem'];
             $shift->update([
                 'status' => 'closed',

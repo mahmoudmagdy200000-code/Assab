@@ -8,6 +8,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
+use Modules\Admin\Models\AsabBrandPackage;
 use Modules\Admin\Models\AsabSubscription;
 use Modules\Admin\Services\AsabSubscriptionService;
 
@@ -49,15 +50,17 @@ class SubscriptionController extends AsabController
 
     /**
      * POST /admin/subscriptions — create a brand subscription (Admin dashboard
-     * contract batch 1, A4). English plan keys are mapped to the stored Arabic
-     * values exactly like changePlan().
+     * contract batch 1, A4). Legacy aliases are mapped to package codes before
+     * validating against asab_brand_packages; name/price come from the table
+     * (WS6), falling back to the legacy catalog while it is unseeded.
      */
     public function store(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
+            $request->merge(['plan' => AsabBrandPackage::resolveCode((string) $request->input('plan', ''))]);
             $data = $request->validate([
                 'brandId' => 'required|string',
-                'plan' => 'required|in:silver,gold,platinum,فضي,ذهبي,بلاتيني',
+                'plan' => ['required', 'string', AsabBrandPackage::codeRule()],
                 'startDate' => 'sometimes|date',
                 'months' => 'required|integer|min:1|max:36',
                 'monthlyPrice' => 'sometimes|integer|min:0',
@@ -67,8 +70,9 @@ class SubscriptionController extends AsabController
             ]);
 
             $brand = AsabBrand::findOrFail($data['brandId']);
-            $plan = ['silver' => 'فضي', 'gold' => 'ذهبي', 'platinum' => 'بلاتيني'][$data['plan']] ?? $data['plan'];
-            $price = $data['monthlyPrice'] ?? (['فضي' => 100000, 'ذهبي' => 175000, 'بلاتيني' => 250000][$plan] ?? 0);
+            $package = AsabBrandPackage::catalogEntry($data['plan']);
+            $plan = $package['name'];
+            $price = $data['monthlyPrice'] ?? $package['price'];
             $start = isset($data['startDate']) ? Carbon::parse($data['startDate']) : now();
             $expires = $start->copy()->addMonths((int) $data['months']);
 
@@ -113,12 +117,14 @@ class SubscriptionController extends AsabController
     public function changePlan(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            // Doc §1.5c: accept English plan keys too, mapping them to the stored
-            // Arabic values before persisting (non-breaking — Arabic still accepted).
-            $data = $request->validate(['plan' => 'required|in:silver,gold,platinum,فضي,ذهبي,بلاتيني']);
-            $plan = ['silver' => 'فضي', 'gold' => 'ذهبي', 'platinum' => 'بلاتيني'][$data['plan']] ?? $data['plan'];
+            // Doc §1.5c + WS6: legacy Arabic aliases map to package codes, then
+            // the code is validated against asab_brand_packages (non-breaking).
+            $request->merge(['plan' => AsabBrandPackage::resolveCode((string) $request->input('plan', ''))]);
+            $data = $request->validate(['plan' => ['required', 'string', AsabBrandPackage::codeRule()]]);
             $sub = AsabSubscription::findOrFail($id);
-            $price = ['فضي' => 100000, 'ذهبي' => 175000, 'بلاتيني' => 250000][$plan] ?? $sub->monthly_price;
+            $package = AsabBrandPackage::catalogEntry($data['plan']);
+            $plan = $package['name'];
+            $price = $package['price'] ?? $sub->monthly_price;
             DB::transaction(fn () => $sub->update(['plan' => $plan, 'monthly_price' => $price]));
 
             return $this->ok($this->present($sub->fresh()));

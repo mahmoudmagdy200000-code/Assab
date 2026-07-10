@@ -16,6 +16,7 @@ use Modules\Admin\Http\Controllers\Admin\CompanyController;
 use Modules\Admin\Http\Controllers\Admin\DistributionController;
 use Modules\Admin\Http\Controllers\Admin\JobMonitorController;
 use Modules\Admin\Http\Controllers\Admin\OverviewController;
+use Modules\Admin\Http\Controllers\Admin\PackageController;
 use Modules\Admin\Http\Controllers\Admin\PermissionMatrixController;
 use Modules\Admin\Http\Controllers\Admin\RestaurantController;
 use Modules\Admin\Http\Controllers\Admin\SettingsController;
@@ -175,6 +176,12 @@ Route::prefix('v1')->group(function () {
                 Route::post('subscriptions/{id}/toggle-auto-reminder', [SubscriptionController::class, 'toggleAutoReminder']);
                 Route::post('subscriptions/{id}/suspend', [SubscriptionController::class, 'suspend']);
                 Route::post('subscriptions/{id}/activate', [SubscriptionController::class, 'activate']);
+
+                // Brand subscription packages (WS6)
+                Route::get('packages', [PackageController::class, 'index']);
+                Route::post('packages', [PackageController::class, 'store']);
+                Route::patch('packages/{id}', [PackageController::class, 'update']);
+                Route::delete('packages/{id}', [PackageController::class, 'destroy']);
 
                 // Permissions matrix
                 Route::get('permissions', [PermissionMatrixController::class, 'index']);

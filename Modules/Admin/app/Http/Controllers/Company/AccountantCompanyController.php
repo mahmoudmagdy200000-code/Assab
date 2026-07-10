@@ -28,7 +28,7 @@ class AccountantCompanyController extends AsabController
     {
         return $this->run(function () use ($request) {
             $companyId = $request->user()->company_id;
-            $base = fn () => Operation::where('company_id', $companyId);
+            $base = fn () => $this->scopeToAssignedBranches(Operation::where('company_id', $companyId));
             $byModule = $base()->where('status', Operation::STATUS_PENDING)
                 ->selectRaw('module_key, COUNT(*) as c')->groupBy('module_key')->pluck('c', 'module_key');
 
@@ -75,7 +75,7 @@ class AccountantCompanyController extends AsabController
                 'allocations.*.amountHalalas' => 'required|integer|min:1',
                 'notes' => 'sometimes|nullable|string|max:1000',
             ]);
-            $op = Operation::where('company_id', $request->user()->company_id)
+            $op = $this->scopeToAssignedBranches(Operation::where('company_id', $request->user()->company_id))
                 ->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id))->where('module_key', 'sales')->firstOrFail();
 
             $result = $this->salesVariance->assign($op, $data['allocations'], $data['notes'] ?? null, $request->user());
@@ -92,8 +92,8 @@ class AccountantCompanyController extends AsabController
     {
         return $this->run(function () use ($request, $branchId) {
             $num = $request->query('empNumber');
-            $emp = Employee::where('company_id', $request->user()->company_id)->where('branch_id', $branchId)
-                ->where('emp_number', $num)->first();
+            $emp = $this->scopeToAssignedBranches(Employee::where('company_id', $request->user()->company_id))
+                ->where('branch_id', $branchId)->where('emp_number', $num)->first();
             if (! $emp) {
                 throw new AsabException('NOT_FOUND', 'Employee not found', 'الموظف غير موجود', 404);
             }
@@ -172,7 +172,7 @@ class AccountantCompanyController extends AsabController
     public function updateAsset(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $asset = Asset::where('company_id', $request->user()->company_id)->findOrFail($id);
+            $asset = $this->scopeToAssignedBranches(Asset::where('company_id', $request->user()->company_id))->findOrFail($id);
             $data = $request->validate([
                 'name' => 'sometimes|string|max:200', 'category' => 'sometimes|string|max:32', 'custodian' => 'sometimes|nullable|string|max:200',
                 'status' => 'sometimes|string|max:24',
@@ -180,6 +180,9 @@ class AccountantCompanyController extends AsabController
                 'bookValue' => 'sometimes|integer|min:0', 'bookValueHalalas' => 'sometimes|integer|min:0',
                 'branchId' => 'sometimes|nullable|string', 'note' => 'sometimes|nullable|string',
             ]);
+            if (($data['branchId'] ?? null) !== null) {
+                $this->assertBranchAssigned($data['branchId']);
+            }
             $bookValue = $data['bookValue'] ?? ($data['bookValueHalalas'] ?? null);
             $asset->update(array_filter([
                 'name' => $data['name'] ?? null, 'category' => $data['category'] ?? null,
@@ -225,7 +228,10 @@ class AccountantCompanyController extends AsabController
             $imported = [];     // created asset summaries (doc superset)
             $errors = [];       // per-row import errors (doc superset)
 
-            DB::transaction(function () use ($reader, &$map, &$parsed, &$created, &$imported, &$errors, $companyId, $userId) {
+            $allowedBranchIds = app(\Modules\Admin\Services\TenantBranchResolver::class)
+                ->legacyBranchIds(app(\Modules\Admin\Support\TenantContext::class));
+
+            DB::transaction(function () use ($reader, &$map, &$parsed, &$created, &$imported, &$errors, $companyId, $userId, $allowedBranchIds) {
                 $seq = (int) (Asset::withoutGlobalScopes()->where('company_id', $companyId)->count());
                 foreach ($reader->getSheetIterator() as $sheet) {
                     $isHeader = true;
@@ -242,13 +248,22 @@ class AccountantCompanyController extends AsabController
                             continue; // skip blank rows
                         }
                         $parsed++;
+                        // Spreadsheet branch ids are caller data: only branches
+                        // inside the accountant's assigned scope may be stamped.
+                        $rowBranchId = $this->cell($cells, $map, 'branchId') ?: null;
+                        if ($rowBranchId !== null && $allowedBranchIds !== null
+                            && ! in_array((string) $rowBranchId, $allowedBranchIds, true)) {
+                            $errors[] = ['row' => $parsed + 1, 'message' => 'branch outside assigned scope'];
+
+                            continue;
+                        }
                         $cost = $this->toHalalas($this->cell($cells, $map, 'cost'));
                         $asset = Asset::create([
                             'company_id' => $companyId,
                             'public_id' => 'FA-'.str_pad((string) (++$seq), 4, '0', STR_PAD_LEFT),
                             'name' => (string) $name,
                             'category' => (string) ($this->cell($cells, $map, 'category') ?? 'غير مصنف'),
-                            'branch_id' => $this->cell($cells, $map, 'branchId') ?: null,
+                            'branch_id' => $rowBranchId,
                             'cost' => $cost,
                             'book_value' => $cost,
                             'useful_life_months' => (int) ($this->cell($cells, $map, 'usefulLife') ?? 0) ?: null,
@@ -363,7 +378,7 @@ class AccountantCompanyController extends AsabController
     public function cashTransactions(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $custody = CashCustody::where('company_id', $request->user()->company_id)->findOrFail($id);
+            $custody = $this->scopeToAssignedBranches(CashCustody::where('company_id', $request->user()->company_id))->findOrFail($id);
             $txns = CashTransaction::where('custody_id', $custody->id)->orderByDesc('txn_date')->get();
 
             return $this->ok([
@@ -379,7 +394,7 @@ class AccountantCompanyController extends AsabController
     public function approveTransaction(Request $request, string $id, string $txnId): JsonResponse
     {
         return $this->run(function () use ($request, $id, $txnId) {
-            $custody = CashCustody::where('company_id', $request->user()->company_id)->findOrFail($id);
+            $custody = $this->scopeToAssignedBranches(CashCustody::where('company_id', $request->user()->company_id))->findOrFail($id);
             $txn = CashTransaction::where('custody_id', $custody->id)->findOrFail($txnId);
             $txn->update(['status' => 'approved']);
 
@@ -391,7 +406,7 @@ class AccountantCompanyController extends AsabController
     {
         return $this->run(function () use ($request, $id, $txnId) {
             $request->validate(['reason' => 'required|string|max:255']);
-            $custody = CashCustody::where('company_id', $request->user()->company_id)->findOrFail($id);
+            $custody = $this->scopeToAssignedBranches(CashCustody::where('company_id', $request->user()->company_id))->findOrFail($id);
             $txn = CashTransaction::where('custody_id', $custody->id)->findOrFail($txnId);
             $txn->update(['status' => 'rejected']);
 
@@ -403,7 +418,7 @@ class AccountantCompanyController extends AsabController
     {
         return $this->run(function () use ($request, $id) {
             $data = $request->validate(['newDepositHalalas' => 'sometimes|integer|min:0']);
-            $custody = CashCustody::where('company_id', $request->user()->company_id)->findOrFail($id);
+            $custody = $this->scopeToAssignedBranches(CashCustody::where('company_id', $request->user()->company_id))->findOrFail($id);
             $custody->update([
                 'used' => 0, 'last_settlement_at' => now(), 'days_since_settlement' => 0,
                 'amount' => $custody->amount + ($data['newDepositHalalas'] ?? 0),
@@ -415,13 +430,15 @@ class AccountantCompanyController extends AsabController
 
     private function expenseOp(Request $request, string $invoiceId): Operation
     {
-        return Operation::where('company_id', $request->user()->company_id)
+        return $this->scopeToAssignedBranches(Operation::where('company_id', $request->user()->company_id))
             ->where(fn ($q) => $q->where('id', $invoiceId)->orWhere('public_id', $invoiceId))
             ->where('module_key', 'expenses')->firstOrFail();
     }
 
     private function latestInventoryOp(Request $request, string $branchId): ?Operation
     {
+        $this->assertBranchAssigned($branchId);
+
         return Operation::where('company_id', $request->user()->company_id)->where('branch_id', $branchId)
             ->where('module_key', 'inventory')->orderByDesc('operation_date')->first();
     }

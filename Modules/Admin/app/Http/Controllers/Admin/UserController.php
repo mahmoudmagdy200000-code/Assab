@@ -52,7 +52,7 @@ class UserController extends AsabController
     public function store(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $data = $request->validate([
+            $rules = [
                 'name' => 'required|string|max:200',
                 'email' => 'required|email|max:191|unique:asab_users,email',
                 'phone' => 'nullable|string|max:32',
@@ -66,7 +66,16 @@ class UserController extends AsabController
                 'reportsTo' => 'nullable|string',
                 'status' => 'nullable|in:active,inactive',
                 'sendLoginEmail' => 'sometimes|boolean',
-            ]);
+            ];
+            // Per-role assignment rules (client meeting): a branch manager runs
+            // exactly ONE branch; an accountant is assigned at BRAND level.
+            $role = $request->input('role');
+            if ($role === 'branch') {
+                $rules['branches'] = 'required|array|size:1';
+            } elseif ($role === 'accountant') {
+                $rules['brands'] = 'required|array|min:1';
+            }
+            $data = $request->validate($rules);
 
             // One temporary password: used for the account and (optionally) emailed
             // so the user can sign in (Admin dashboard batch 1, Part B).
@@ -85,15 +94,11 @@ class UserController extends AsabController
                     'default_page' => $this->defaultPage($data['role']),
                 ]);
 
-                AsabUserRole::create([
+                AsabUserRole::create(array_merge([
                     'user_id' => $user->id,
                     'role_key' => $data['role'],
-                    'scope' => $data['scope'] ?? 'all',
-                    'brand_ids' => $data['brands'] ?? [],
-                    'restaurant_ids' => $data['restaurants'] ?? [],
-                    'branch_ids' => $data['branches'] ?? [],
                     'module_keys' => $data['modules'] ?? [],
-                ]);
+                ], $this->assignmentAttributes($data['role'], $data)));
 
                 return $user;
             });
@@ -148,19 +153,42 @@ class UserController extends AsabController
     public function update(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $user = AsabUser::findOrFail($id);
-            $data = $request->validate([
+            $user = AsabUser::with('roleAssignments')->findOrFail($id);
+            $assignment = $user->roleAssignments->first();
+            $roleKey = $assignment->role_key ?? null;
+
+            // Role is immutable here; scope arrays are editable under the same
+            // per-role rules as store() (branch = one branch, accountant = brands).
+            $rules = [
                 'name' => 'sometimes|string|max:200',
                 'phone' => 'sometimes|string|max:32',
                 'status' => 'sometimes|in:active,inactive',
                 'reportsTo' => 'sometimes|string',
-            ]);
-            DB::transaction(fn () => $user->update(array_filter([
-                'name' => $data['name'] ?? null,
-                'phone' => $data['phone'] ?? null,
-                'status' => $data['status'] ?? null,
-                'reports_to_id' => $data['reportsTo'] ?? null,
-            ], fn ($v) => $v !== null)));
+                'brands' => 'sometimes|array',
+                'restaurants' => 'sometimes|array',
+                'branches' => 'sometimes|array',
+                'modules' => 'sometimes|array',
+                'scope' => 'sometimes|in:all,brand,restaurant,branch',
+            ];
+            if ($roleKey === 'branch') {
+                $rules['branches'] = 'sometimes|array|size:1';
+            } elseif ($roleKey === 'accountant') {
+                $rules['brands'] = 'sometimes|array|min:1';
+            }
+            $data = $request->validate($rules);
+
+            DB::transaction(function () use ($user, $assignment, $roleKey, $data) {
+                $user->update(array_filter([
+                    'name' => $data['name'] ?? null,
+                    'phone' => $data['phone'] ?? null,
+                    'status' => $data['status'] ?? null,
+                    'reports_to_id' => $data['reportsTo'] ?? null,
+                ], fn ($v) => $v !== null));
+
+                if ($assignment && ($updates = $this->assignmentUpdates($roleKey, $data)) !== []) {
+                    $assignment->update($updates);
+                }
+            });
 
             return $this->ok($this->present($user->fresh('roleAssignments')));
         });
@@ -214,7 +242,15 @@ class UserController extends AsabController
                     'status' => 'active',
                 ]);
                 $role = $data['role'] ?? 'accountant';
-                AsabUserRole::create(['user_id' => $user->id, 'role_key' => $role, 'scope' => 'all']);
+                // CSV carries no brand/branch columns; scoped roles fail closed
+                // (empty ids -> resolver returns nothing) until an admin assigns,
+                // instead of granting company-wide 'all' visibility.
+                $scope = match ($role) {
+                    'accountant' => 'brand',
+                    'branch' => 'branch',
+                    default => 'all',
+                };
+                AsabUserRole::create(['user_id' => $user->id, 'role_key' => $role, 'scope' => $scope]);
                 $imported++;
             }
 
@@ -240,6 +276,75 @@ class UserController extends AsabController
 
             return $this->ok($this->present($user->load('roleAssignments')));
         });
+    }
+
+    /**
+     * Role-forced assignment scope (client meeting): a branch manager runs
+     * exactly ONE branch (scope=branch); an accountant is assigned at BRAND
+     * level (scope=brand, branch/restaurant ids ignored). Other roles keep
+     * the payload as-is (admin/head default scope 'all').
+     */
+    private function assignmentAttributes(string $role, array $data): array
+    {
+        return match ($role) {
+            'branch' => [
+                'scope' => 'branch',
+                'brand_ids' => [],
+                'restaurant_ids' => [],
+                'branch_ids' => $data['branches'],
+            ],
+            'accountant' => [
+                'scope' => 'brand',
+                'brand_ids' => $data['brands'],
+                'restaurant_ids' => [],
+                'branch_ids' => [],
+            ],
+            default => [
+                'scope' => $data['scope'] ?? 'all',
+                'brand_ids' => $data['brands'] ?? [],
+                'restaurant_ids' => $data['restaurants'] ?? [],
+                'branch_ids' => $data['branches'] ?? [],
+            ],
+        };
+    }
+
+    /** Same per-role rules for partial (PATCH) assignment edits. */
+    private function assignmentUpdates(?string $roleKey, array $data): array
+    {
+        $updates = [];
+        if (array_key_exists('modules', $data)) {
+            $updates['module_keys'] = $data['modules'];
+        }
+
+        // The tenant resolver ORs every non-empty id array regardless of the
+        // scope string, so the forced arms must ZERO the foreign arrays too.
+        if ($roleKey === 'branch') {
+            if (array_key_exists('branches', $data)) {
+                $updates['branch_ids'] = $data['branches'];
+                $updates['brand_ids'] = [];
+                $updates['restaurant_ids'] = [];
+                $updates['scope'] = 'branch';
+            }
+        } elseif ($roleKey === 'accountant') {
+            // Accountants are brand-level: branch/restaurant arrays are ignored.
+            if (array_key_exists('brands', $data)) {
+                $updates['brand_ids'] = $data['brands'];
+                $updates['restaurant_ids'] = [];
+                $updates['branch_ids'] = [];
+                $updates['scope'] = 'brand';
+            }
+        } else {
+            foreach (['brands' => 'brand_ids', 'restaurants' => 'restaurant_ids', 'branches' => 'branch_ids'] as $key => $column) {
+                if (array_key_exists($key, $data)) {
+                    $updates[$column] = $data[$key];
+                }
+            }
+            if (array_key_exists('scope', $data)) {
+                $updates['scope'] = $data['scope'];
+            }
+        }
+
+        return $updates;
     }
 
     private function defaultPage(string $role): string

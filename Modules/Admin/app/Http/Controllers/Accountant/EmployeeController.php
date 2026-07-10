@@ -17,7 +17,7 @@ class EmployeeController extends AsabController
     {
         return $this->run(function () use ($request) {
             $perPage = min((int) $request->query('pageSize', 20), 100);
-            $q = Employee::query();
+            $q = $this->scopeToAssignedBranches(Employee::query());
             if ($branch = $request->query('branchId')) {
                 $q->where('branch_id', $branch);
             }
@@ -36,7 +36,7 @@ class EmployeeController extends AsabController
     public function statement(string $id): JsonResponse
     {
         return $this->run(function () use ($id) {
-            $employee = Employee::findOrFail($id);
+            $employee = $this->scopeToAssignedBranches(Employee::query())->findOrFail($id);
             $movements = EmployeeMovement::where('employee_id', $id)->orderByDesc('movement_date')->get();
             $credit = (int) $movements->where('movement_type', 'credit')->sum('amount');
             $debit = (int) $movements->where('movement_type', 'debit')->sum('amount');
@@ -60,7 +60,7 @@ class EmployeeController extends AsabController
     public function addMovement(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            Employee::findOrFail($id);
+            $this->scopeToAssignedBranches(Employee::query())->findOrFail($id);
             $data = $request->validate([
                 'movementType' => 'required|in:credit,debit',
                 'amount' => 'required|integer|min:1',

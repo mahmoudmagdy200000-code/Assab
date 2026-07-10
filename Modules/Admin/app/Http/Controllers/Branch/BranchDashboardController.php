@@ -4,9 +4,11 @@ namespace Modules\Admin\Http\Controllers\Branch;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Services\CashierProvisioningService;
 use Modules\Admin\Services\OperationFactory;
 
 /**
@@ -15,7 +17,10 @@ use Modules\Admin\Services\OperationFactory;
  */
 class BranchDashboardController extends AsabController
 {
-    public function __construct(private readonly OperationFactory $factory) {}
+    public function __construct(
+        private readonly OperationFactory $factory,
+        private readonly CashierProvisioningService $cashiers,
+    ) {}
 
     public function overview(Request $request): JsonResponse
     {
@@ -104,33 +109,74 @@ class BranchDashboardController extends AsabController
                 'monthlySalary' => 'required|integer|min:0',
                 'shiftType' => 'nullable|string|max:16',
                 'hireDate' => 'nullable|date',
+                'email' => 'nullable|email|max:255',
+                'phone' => 'nullable|string|max:32',
             ]);
+            $branchId = $this->branchId($request);
 
-            $emp = Employee::create([
-                'branch_id' => $this->branchId($request),
-                'emp_number' => $data['empNumber'],
-                'name' => $data['name'],
-                'national_id' => $data['nationalId'] ?? null,
-                'role' => $data['role'],
-                'monthly_salary' => $data['monthlySalary'],
-                'shift_type' => $data['shiftType'] ?? null,
-                'hire_date' => $data['hireDate'] ?? now(),
-                'status' => 'active',
-            ]);
+            [$emp, $provision] = DB::transaction(function () use ($request, $data, $branchId) {
+                $emp = Employee::create([
+                    'branch_id' => $branchId,
+                    'emp_number' => $data['empNumber'],
+                    'name' => $data['name'],
+                    'national_id' => $data['nationalId'] ?? null,
+                    'role' => $data['role'],
+                    'monthly_salary' => $data['monthlySalary'],
+                    'shift_type' => $data['shiftType'] ?? null,
+                    'hire_date' => $data['hireDate'] ?? now(),
+                    'status' => 'active',
+                ]);
 
-            return $this->created(['id' => $emp->id, 'empNumber' => $emp->emp_number, 'name' => $emp->name]);
+                // Cashier-role employees also get a mobile-app login (WS2 bridge).
+                $provision = null;
+                if ($this->cashiers->isCashierRole($data['role'])) {
+                    $provision = $this->cashiers->provision(
+                        $branchId, $request->user()->company_id,
+                        $data['name'], $data['email'] ?? null, $data['phone'] ?? null,
+                    );
+                    if ($provision['cashierId']) {
+                        $emp->forceFill(['legacy_cashier_id' => $provision['cashierId']])->save();
+                    }
+                }
+
+                return [$emp, $provision];
+            });
+
+            $payload = ['id' => $emp->id, 'empNumber' => $emp->emp_number, 'name' => $emp->name];
+            if ($provision !== null) {
+                $payload['cashier'] = $provision;
+            }
+
+            return $this->created($payload);
         });
     }
 
     public function items(Request $request): JsonResponse
     {
-        return $this->run(function () {
-            try {
-                $items = \Modules\Inventory\Models\InventoryItem::query()->limit(500)->get()
-                    ->map(fn ($i) => ['name' => $i->name ?? null, 'unit' => $i->unit ?? null, 'cat' => $i->category ?? null])->all();
-            } catch (\Throwable $e) {
-                $items = [];
+        return $this->run(function () use ($request) {
+            $branchId = $this->branchId($request);
+            $present = fn ($i) => ['id' => $i->id, 'name' => $i->name, 'unit' => $i->unit, 'cat' => $i->category];
+
+            // Items the admin/accountant assigned to this branch's daily list.
+            $listRows = \Modules\Admin\Models\BranchInventoryList::where('branch_id', $branchId)->limit(500)->get();
+            if ($listRows->isNotEmpty()) {
+                $items = \Modules\Admin\Models\InventoryCatalogItem::whereIn('id', $listRows->pluck('catalog_item_id'))
+                    ->orderBy('category')->orderBy('name')->get();
+                $configuredBy = \Modules\Admin\Models\AsabUser::whereKey($listRows->pluck('added_by_id')->filter()->first())
+                    ->value('name');
+
+                return $this->ok(['items' => $items->map($present)->all(), 'configuredBy' => $configuredBy]);
             }
+
+            // No branch list configured yet — fall back to the brand-wide sales catalog.
+            $brandId = \Modules\Branch\Models\Branch::whereKey($branchId)
+                ->where('asab_company_id', $request->user()->company_id)
+                ->value('asab_brand_id');
+            $items = $brandId
+                ? \Modules\Admin\Models\InventoryCatalogItem::where('brand_id', $brandId)
+                    ->where('type', \Modules\Admin\Models\InventoryCatalogItem::TYPE_SALES_ITEM)
+                    ->orderBy('category')->orderBy('name')->limit(500)->get()->map($present)->all()
+                : [];
 
             return $this->ok(['items' => $items, 'configuredBy' => null]);
         });
@@ -138,21 +184,33 @@ class BranchDashboardController extends AsabController
 
     public function suppliers(Request $request): JsonResponse
     {
-        try {
-            $items = \Modules\Supplier\Models\Supplier::orderBy('name')->limit(200)->get()
-                ->map(fn ($s) => ['id' => $s->id, 'name' => $s->name ?? null])->all();
-        } catch (\Throwable $e) {
-            $items = [];
-        }
+        return $this->run(function () {
+            // Company dashboard suppliers (asab_suppliers, tenant-scoped via
+            // BelongsToTenant) — same store/keys as the procurement surface.
+            $items = \Modules\Admin\Models\AsabSupplier::where('status', 'active')
+                ->orderBy('name')->limit(200)->get();
 
-        return $this->listResponse($items);
+            return $this->listResponse($items->map(fn ($s) => [
+                'id' => $s->id,
+                'name' => $s->name,
+                'category' => $s->category,
+                'contactName' => $s->contact_name,
+                'contactPhone' => $s->contact_phone,
+                'contactEmail' => $s->contact_email,
+                'paymentTerms' => $s->payment_terms,
+                'rating' => (int) ($s->rating ?? 0),
+                'status' => $s->status,
+                'isActive' => true,
+            ])->all());
+        });
     }
 
     public function settings(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
             $branchId = $this->branchId($request);
-            $row = \Modules\Admin\Models\Setting::where('group_key', 'branch:'.$branchId)->first();
+            $row = \Modules\Admin\Models\Setting::where('company_id', $request->user()->company_id)
+                ->where('group_key', 'branch:'.$branchId)->first();
 
             $payload = $row->payload ?? [
                 'workingHours' => ['open' => '08:00', 'close' => '23:00'],
@@ -160,9 +218,18 @@ class BranchDashboardController extends AsabController
                 'cashAlertThreshold' => 0,
             ];
 
+            // Branch identity comes from the admin-maintained Branch record and
+            // is read-only for this role (client requirement §6.4).
+            $branch = \Modules\Branch\Models\Branch::whereKey($branchId)
+                ->where('asab_company_id', $request->user()->company_id)->first();
+            $payload['branchName'] = $branch->name ?? null;
+            $payload['phone'] = $branch->phone ?? null;
+            $payload['address'] = $branch->address ?? null;
+            $payload['readOnlyFields'] = ['branchName', 'phone', 'address'];
+
             // Read-only view of the admin-set shift configuration (client
             // requirement §6.4: branch managers see timings, never edit them).
-            $brandId = optional(\Modules\Branch\Models\Branch::find($branchId))->asab_brand_id;
+            $brandId = $branch->asab_brand_id ?? null;
             $cfg = $brandId ? \Modules\Admin\Models\BrandShiftConfig::where('brand_id', $brandId)->first() : null;
             $payload['shiftConfig'] = $cfg ? [
                 'numShifts' => $cfg->num_shifts,
@@ -179,14 +246,13 @@ class BranchDashboardController extends AsabController
     public function updateSettings(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            // Shift timings (openTime/closeTime/shiftDuration) are intentionally
-            // NOT accepted here: they are set by the admin and read-only for the
-            // branch-manager role (client requirement §6.4).
+            // Shift timings (openTime/closeTime/shiftDuration) and branch
+            // identity (branchName/phone/address) are intentionally NOT
+            // accepted here: they are set by the admin and read-only for the
+            // branch-manager role (client requirement §6.4). Extra keys the FE
+            // still sends are silently ignored.
             $data = $request->validate([
-                'branchName' => 'sometimes|nullable|string|max:200',
                 'manager' => 'sometimes|nullable|string|max:200',
-                'phone' => 'sometimes|nullable|string|max:32',
-                'address' => 'sometimes|nullable|string|max:500',
                 'taxNumber' => 'sometimes|nullable|string|max:64',
                 'bankAccount' => 'sometimes|nullable|string|max:64',
                 'cashLimitHalalas' => 'sometimes|nullable|integer|min:0',
@@ -198,23 +264,26 @@ class BranchDashboardController extends AsabController
             $existing = \Modules\Admin\Models\Setting::where('company_id', $request->user()->company_id)
                 ->where('group_key', 'branch:'.$this->branchId($request))->first()->payload ?? [];
 
-            // Typed mapping into the Setting payload (no $request->all());
-            // admin-set shift timings are carried over untouched.
-            $payload = [
-                'branchName' => $data['branchName'] ?? null,
-                'manager' => $data['manager'] ?? null,
-                'phone' => $data['phone'] ?? null,
-                'address' => $data['address'] ?? null,
-                'openTime' => $existing['openTime'] ?? null,
-                'closeTime' => $existing['closeTime'] ?? null,
-                'shiftDuration' => $existing['shiftDuration'] ?? null,
-                'taxNumber' => $data['taxNumber'] ?? null,
-                'bankAccount' => $data['bankAccount'] ?? null,
-                'cashLimitHalalas' => isset($data['cashLimitHalalas']) ? (int) $data['cashLimitHalalas'] : null,
-                'wasteThreshold' => $data['wasteThreshold'] ?? null,
-                'autoReminders' => (bool) ($data['autoReminders'] ?? false),
-                'requireImages' => (bool) ($data['requireImages'] ?? false),
-            ];
+            // Typed partial merge over the stored payload (no $request->all());
+            // omitted keys — including admin-set shift timings — keep their value.
+            $updates = [];
+            foreach (['manager', 'taxNumber', 'bankAccount', 'wasteThreshold'] as $key) {
+                if (array_key_exists($key, $data)) {
+                    $updates[$key] = $data[$key];
+                }
+            }
+            if (array_key_exists('cashLimitHalalas', $data)) {
+                $updates['cashLimitHalalas'] = $data['cashLimitHalalas'] === null ? null : (int) $data['cashLimitHalalas'];
+            }
+            foreach (['autoReminders', 'requireImages'] as $key) {
+                if (array_key_exists($key, $data)) {
+                    $updates[$key] = (bool) $data[$key];
+                }
+            }
+
+            $payload = array_merge($existing, $updates);
+            // Admin-owned branch identity never lives in this payload.
+            unset($payload['branchName'], $payload['phone'], $payload['address'], $payload['readOnlyFields']);
 
             $row = \Modules\Admin\Models\Setting::updateOrCreate(
                 ['company_id' => $request->user()->company_id, 'group_key' => 'branch:'.$this->branchId($request)],

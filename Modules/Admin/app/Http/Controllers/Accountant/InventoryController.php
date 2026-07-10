@@ -23,7 +23,7 @@ class InventoryController extends AsabController
     {
         return $this->run(function () use ($request) {
             $type = $request->query('type', 'monthly');
-            $q = Operation::where('module_key', 'inventory');
+            $q = $this->scopeToAssignedBranches(Operation::where('module_key', 'inventory'));
             if ($branch = $request->query('branchId')) {
                 $q->where('branch_id', $branch);
             }
@@ -60,6 +60,7 @@ class InventoryController extends AsabController
     {
         return $this->run(function () use ($request, $branchId) {
             $data = $request->validate(['flagged' => 'required|boolean']);
+            $this->assertBranchAssigned($branchId);
             $op = Operation::where('module_key', 'inventory')->where('branch_id', $branchId)->latest('operation_date')->firstOrFail();
             $payload = $op->payload ?? [];
             $payload['isFlagged'] = $data['flagged'];
@@ -79,6 +80,7 @@ class InventoryController extends AsabController
                 'note' => 'sometimes|nullable|string',
             ]);
             $indices = $data['itemIndices'] ?? $data['itemIndexes'];
+            $this->assertBranchAssigned($branchId);
             $op = Operation::where('module_key', 'inventory')->where('branch_id', $branchId)->latest('operation_date')->firstOrFail();
             $payload = $op->payload ?? [];
             $payload['flaggedItemIndices'] = $indices;
@@ -98,6 +100,7 @@ class InventoryController extends AsabController
     public function sendConfirmation(string $branchId): JsonResponse
     {
         return $this->run(function () use ($branchId) {
+            $this->assertBranchAssigned($branchId);
             $op = Operation::where('module_key', 'inventory')->where('branch_id', $branchId)->latest('operation_date')->firstOrFail();
             $payload = $op->payload ?? [];
             $payload['sentToConfirm'] = true;
@@ -114,6 +117,10 @@ class InventoryController extends AsabController
             // Inventory catalog = sales items; uploaded raw materials belong to
             // the purchasing module and are excluded unless explicitly requested.
             $q = InventoryCatalogItem::where('type', $request->query('type', InventoryCatalogItem::TYPE_SALES_ITEM));
+            // The catalog table has no tenant scope: pin reads to the caller's brands.
+            if (($brandIds = $this->assignedBrandIds()) !== null) {
+                $q->whereIn('brand_id', $brandIds);
+            }
             if ($brand = $request->query('brandId')) {
                 $q->where('brand_id', $brand);
             }
@@ -138,6 +145,7 @@ class InventoryController extends AsabController
                 'category' => 'required|string|max:80',
                 'unit' => 'required|string|max:16',
             ]);
+            $this->assertBrandAssigned($data['brandId']);
             $item = InventoryCatalogItem::create([
                 'brand_id' => $data['brandId'], 'name' => $data['name'],
                 'category' => $data['category'], 'unit' => $data['unit'], 'status' => 'active',
@@ -163,6 +171,7 @@ class InventoryController extends AsabController
                 'items.*.unit' => 'required|string|max:16',
             ]);
             $branchId = $data['branchId'];
+            $this->assertBranchAssigned($branchId);
             $brandId = $rt->brandIdForBranch($branchId);
 
             $result = DB::transaction(function () use ($data, $branchId, $brandId, $request) {
@@ -198,6 +207,7 @@ class InventoryController extends AsabController
     public function dailyList(string $branchId): JsonResponse
     {
         return $this->run(function () use ($branchId) {
+            $this->assertBranchAssigned($branchId);
             $rows = BranchInventoryList::where('branch_id', $branchId)->get();
             $catalog = InventoryCatalogItem::whereIn('id', $rows->pluck('catalog_item_id'))->get()->keyBy('id');
 
@@ -214,6 +224,7 @@ class InventoryController extends AsabController
     {
         return $this->run(function () use ($request, $branchId) {
             $data = $request->validate(['items' => 'required|array', 'items.*' => 'string']);
+            $this->assertBranchAssigned($branchId);
 
             DB::transaction(function () use ($branchId, $data, $request) {
                 BranchInventoryList::where('branch_id', $branchId)->delete();
@@ -234,6 +245,7 @@ class InventoryController extends AsabController
     public function dailyReconciliation(Request $request, string $branchId): JsonResponse
     {
         return $this->run(function () use ($request, $branchId) {
+            $this->assertBranchAssigned($branchId);
             $date = $request->query('date', now()->toDateString());
 
             return $this->ok($this->reconciliation->snapshot($request->user()->company_id, $branchId, $date));
@@ -252,6 +264,7 @@ class InventoryController extends AsabController
                 'items.*.allocations.*.employeeId' => 'required|string',
                 'items.*.allocations.*.qty' => 'required|numeric|min:0',
             ]);
+            $this->assertBranchAssigned($branchId);
 
             return $this->ok($this->reconciliation->allocate(
                 $request->user()->company_id,

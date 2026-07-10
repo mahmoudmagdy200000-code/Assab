@@ -4,10 +4,13 @@ namespace Modules\Admin\Http\Controllers\Company;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRole;
+use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\CompanyInvitation;
 use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Services\NotificationService;
@@ -73,6 +76,10 @@ class UserController extends AsabController
             if ($data['roleKey'] === 'branch' && empty($data['branchId'])) {
                 throw new AsabException('INVALID_ROLE_SCOPE', 'branchId required for branch role', 'يلزم تحديد الفرع لمدير الفرع', 422);
             }
+            if ($data['roleKey'] === 'accountant' && empty($data['brandId'])) {
+                throw new AsabException('INVALID_ROLE_SCOPE', 'brandId required for accountant role', 'يلزم تحديد العلامة التجارية للمحاسب', 422);
+            }
+            $this->assertBrandInCompany($data['brandId'] ?? null, $companyId);
             if (CompanyUser::where('company_id', $companyId)->whereHas('user', fn ($u) => $u->where('email', $data['email']))->exists()) {
                 throw new AsabException('USER_ALREADY_MEMBER', 'Email already a member', 'البريد عضو بالفعل في الشركة', 409);
             }
@@ -128,13 +135,35 @@ class UserController extends AsabController
             if (isset($data['roleKey']) && $cu->role_key === 'company-admin' && $data['roleKey'] !== 'company-admin' && $this->isLastAdmin($cu)) {
                 throw new AsabException('LAST_ADMIN_CANNOT_DEMOTE', 'Cannot demote the last admin', 'لا يمكن تنزيل آخر أدمن', 409);
             }
+            $this->assertBrandInCompany($data['brandId'] ?? null, $request->user()->company_id);
 
-            $cu->update(array_filter([
-                'role_key' => $data['roleKey'] ?? null, 'brand_id' => $data['brandId'] ?? $cu->brand_id, 'branch_id' => $data['branchId'] ?? $cu->branch_id,
-            ], fn ($v) => $v !== null));
-            if (isset($data['name']) || isset($data['phone'])) {
-                $cu->user?->update(array_filter(['name' => $data['name'] ?? null, 'phone' => $data['phone'] ?? null], fn ($v) => $v !== null));
-            }
+            $effectiveRole = $data['roleKey'] ?? $cu->role_key;
+
+            DB::transaction(function () use ($cu, $data, $effectiveRole) {
+                $cu->update(array_filter([
+                    'role_key' => $data['roleKey'] ?? null, 'brand_id' => $data['brandId'] ?? $cu->brand_id, 'branch_id' => $data['branchId'] ?? $cu->branch_id,
+                ], fn ($v) => $v !== null));
+                if (isset($data['name']) || isset($data['phone'])) {
+                    $cu->user?->update(array_filter(['name' => $data['name'] ?? null, 'phone' => $data['phone'] ?? null], fn ($v) => $v !== null));
+                }
+                // A brand reassignment must reach the effective data scope:
+                // ResolveTenant reads asab_user_roles, not company_users.
+                // Stale branch/restaurant ids are cleared too — the resolver
+                // ORs every non-empty id array regardless of scope.
+                if (! empty($data['brandId']) && $effectiveRole === 'accountant') {
+                    // updateOrCreate: a member just role-changed to accountant may
+                    // have no accountant row yet — create it so the scope lands.
+                    AsabUserRole::updateOrCreate(
+                        ['user_id' => $cu->user_id, 'role_key' => 'accountant'],
+                        [
+                            'scope' => 'brand',
+                            'brand_ids' => [$data['brandId']],
+                            'restaurant_ids' => [],
+                            'branch_ids' => [],
+                        ]
+                    );
+                }
+            });
             if (isset($data['roleKey'])) {
                 $this->rt->userLifecycle($request->user()->company_id, 'role_changed', $cu->fresh());
             }
@@ -192,6 +221,15 @@ class UserController extends AsabController
     {
         return CompanyUser::where('company_id', $cu->company_id)->where('role_key', 'company-admin')
             ->where('status', 'active')->where('id', '!=', $cu->id)->doesntExist();
+    }
+
+    /** brandId feeds asab_user_roles.brand_ids (effective tenant scope) — never trust it raw. */
+    private function assertBrandInCompany(?string $brandId, string $companyId): void
+    {
+        if ($brandId !== null && $brandId !== ''
+            && AsabBrand::where('id', $brandId)->where('company_id', $companyId)->doesntExist()) {
+            throw new AsabException('INVALID_ROLE_SCOPE', 'brandId does not belong to this company', 'العلامة التجارية لا تتبع هذه الشركة', 422);
+        }
     }
 
     private function present(CompanyUser $cu, $roles): array
