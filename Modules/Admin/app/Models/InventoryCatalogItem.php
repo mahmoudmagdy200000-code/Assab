@@ -16,7 +16,11 @@ class InventoryCatalogItem extends Model
 
     public const TYPE_RAW_MATERIAL = 'raw_material';
 
-    protected $fillable = ['brand_id', 'type', 'name', 'category', 'unit', 'status', 'unit_price'];
+    protected $fillable = ['brand_id', 'type', 'name', 'code', 'category', 'unit', 'status', 'unit_price', 'min_level', 'expected_qty'];
 
-    protected $casts = ['unit_price' => 'integer'];
+    protected $casts = [
+        'unit_price' => 'integer',
+        'min_level' => 'decimal:3',
+        'expected_qty' => 'decimal:3',
+    ];
 }

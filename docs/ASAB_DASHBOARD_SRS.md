@@ -765,8 +765,15 @@ Works on both mobile and dashboard. Sidebar: نظرة عامة، رفع البي
 - **BRM-6.1** Request rows: item, qty, unit, urgency (عادي/عاجل⚡), status, date.
 - **BRM-6.2** New request modal: item, qty, unit (كجم/كرتون/قطعة/لتر), priority → pending.
 
-### BRM-7 Branch Settings — name, manager, phone editable; city read-only;
-shift timings read-only (meeting).
+### BRM-7 Branch Settings — manager + operational prefs editable; name, phone,
+address, city and shift timings read-only (meeting).
+
+> **Resolved 2026-07-12 (T12.10):** the client meeting (§6.4) overrides the
+> earlier draft — branch **identity** (name/phone/address/city) is admin-owned
+> and read-only for the branch-manager role; only `manager` and operational
+> prefs (tax/bank/cashLimit/waste threshold/reminders) are editable. Shift
+> timings stay read-only. The API returns `readOnlyFields:['branchName','phone',
+> 'address']` and silently ignores writes to them.
 
 ---
 

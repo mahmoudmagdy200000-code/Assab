@@ -8,8 +8,11 @@ use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Models\SupplierRequest;
+use Modules\Admin\Services\BranchOverviewService;
 use Modules\Admin\Services\CashierProvisioningService;
 use Modules\Admin\Services\ExpenseInvoiceService;
+use Modules\Admin\Services\OperationAttachmentService;
 use Modules\Admin\Services\OperationFactory;
 
 /**
@@ -22,25 +25,15 @@ class BranchDashboardController extends AsabController
         private readonly OperationFactory $factory,
         private readonly CashierProvisioningService $cashiers,
         private readonly ExpenseInvoiceService $invoices,
+        private readonly BranchOverviewService $overviewService,
+        private readonly OperationAttachmentService $attachments,
     ) {}
 
     public function overview(Request $request): JsonResponse
     {
-        return $this->run(function () use ($request) {
-            $branchId = $this->branchId($request);
-            $today = Operation::where('branch_id', $branchId)->whereDate('operation_date', today());
-
-            return $this->ok([
-                'branch' => ['id' => $branchId],
-                'kpis' => [
-                    'todaySales' => (int) (clone $today)->where('module_key', 'sales')->sum('amount'),
-                    'todayOrders' => (clone $today)->count(),
-                    'activeEmployees' => Employee::where('branch_id', $branchId)->where('status', 'active')->count(),
-                    'requiredReportsCount' => 6,
-                ],
-                'requiredReports' => $this->requiredReports($branchId),
-            ]);
-        });
+        return $this->run(fn () => $this->ok(
+            $this->overviewService->build($this->branchId($request), $request->user()->company_id),
+        ));
     }
 
     public function uploadStatus(Request $request): JsonResponse
@@ -63,23 +56,40 @@ class BranchDashboardController extends AsabController
                 return $this->fail('INVALID_INPUT', 'Unknown report type', 'نوع تقرير غير معروف', [], 400);
             }
 
+            // BRM-2.1 — validate the body (no raw $request->all()), accept
+            // multipart attachments, and stamp the dashboard channel.
+            $rules = [
+                'date' => 'sometimes|nullable|date',
+                'shift' => 'sometimes|nullable|in:صباحي,مسائي,كامل اليوم,morning,evening,full_day',
+                'totalSales' => 'sometimes|nullable|integer|min:0',
+                'amount' => 'sometimes|nullable|integer|min:0',
+                'note' => 'sometimes|nullable|string',
+                'attachments' => 'sometimes|array',
+                'attachments.*' => 'file|max:10240',
+            ];
             // ACC-2.2 — an expenses statement is a list of invoices, and its total
             // is the sum of them, never a number the client picks.
             if ($reportType === 'expenses') {
-                $request->validate($this->invoices->uploadRules());
+                $rules = array_merge($rules, $this->invoices->uploadRules());
             }
+            $data = $request->validate($rules);
 
-            $payload = $request->all();
             $amount = $reportType === 'expenses'
                 ? $this->invoices->statementTotal($request->input('invoices', []))
-                : (int) ($request->input('totalSales') ?? $request->input('amount') ?? 0);
+                : (int) ($data['totalSales'] ?? $data['amount'] ?? 0);
+
+            // Only validated keys enter the payload.
+            $payload = array_filter([
+                'date' => $data['date'] ?? null, 'shift' => $data['shift'] ?? null,
+                'totalSales' => $data['totalSales'] ?? null, 'amount' => $data['amount'] ?? null,
+                'note' => $data['note'] ?? null,
+                'invoices' => $reportType === 'expenses' ? ($data['invoices'] ?? null) : null,
+            ], fn ($v) => $v !== null);
+
             $op = $this->factory->createFromUpload(
-                $moduleMap[$reportType],
-                $payload,
-                $request->user(),
-                $this->branchId($request),
-                $amount,
+                $moduleMap[$reportType], $payload, $request->user(), $this->branchId($request), $amount, 'mobile', 'dashboard',
             );
+            $attachments = $this->attachments->store($request, $op, 'operation');
 
             return $this->created([
                 'id' => $op->id,
@@ -87,6 +97,8 @@ class BranchDashboardController extends AsabController
                 'moduleKey' => $op->module_key,
                 'status' => $op->status,
                 'origin' => $op->origin,
+                'channel' => $op->channel,
+                'attachments' => $attachments,
             ]);
         });
     }
@@ -94,17 +106,31 @@ class BranchDashboardController extends AsabController
     public function employees(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $items = Employee::where('branch_id', $this->branchId($request))->orderBy('name')->get();
+            $q = Employee::where('branch_id', $this->branchId($request))->orderBy('name');
 
-            return $this->listResponse($items->map(fn ($e) => [
+            if ($search = $request->query('search')) {
+                $q->where(fn ($w) => $w->where('name', 'like', "%{$search}%")
+                    ->orWhere('emp_number', 'like', "%{$search}%")
+                    ->orWhere('role', 'like', "%{$search}%"));
+            }
+            if ($status = $request->query('status')) {
+                $q->where('status', $status);
+            }
+
+            $perPage = min((int) $request->query('pageSize', 25), 100);
+            $p = $q->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
+
+            return $this->paginated($p, array_map(fn ($e) => [
                 'id' => $e->id,
                 'empNumber' => $e->emp_number,
                 'name' => $e->name,
                 'role' => $e->role,
                 'monthlySalary' => $e->monthly_salary,
                 'shiftType' => $e->shift_type,
+                'nationalId' => $e->national_id,
+                'hireDate' => optional($e->hire_date)->toDateString(),
                 'status' => $e->status,
-            ])->all());
+            ], $p->items()));
         });
     }
 
@@ -165,7 +191,13 @@ class BranchDashboardController extends AsabController
     {
         return $this->run(function () use ($request) {
             $branchId = $this->branchId($request);
-            $present = fn ($i) => ['id' => $i->id, 'name' => $i->name, 'unit' => $i->unit, 'cat' => $i->category];
+            $present = fn ($i) => [
+                'id' => $i->id, 'code' => $i->code, 'name' => $i->name, 'unit' => $i->unit,
+                'cat' => $i->category, 'category' => $i->category,
+                'priceHalalas' => (int) $i->unit_price,
+                'minLevel' => $i->min_level !== null ? (float) $i->min_level : null,
+                'expectedQty' => $i->expected_qty !== null ? (float) $i->expected_qty : null,
+            ] + $this->stockStatus($i);
 
             // Items the admin/accountant assigned to this branch's daily list.
             $listRows = \Modules\Admin\Models\BranchInventoryList::where('branch_id', $branchId)->limit(500)->get();
@@ -200,18 +232,45 @@ class BranchDashboardController extends AsabController
             $items = \Modules\Admin\Models\AsabSupplier::where('status', 'active')
                 ->orderBy('name')->limit(200)->get();
 
-            return $this->listResponse($items->map(fn ($s) => [
+            $rows = $items->map(fn ($s) => [
                 'id' => $s->id,
                 'name' => $s->name,
                 'category' => $s->category,
                 'contactName' => $s->contact_name,
                 'contactPhone' => $s->contact_phone,
                 'contactEmail' => $s->contact_email,
+                'commercialReg' => $s->commercial_reg,
+                'address' => $s->address ?? null,
                 'paymentTerms' => $s->payment_terms,
                 'rating' => (int) ($s->rating ?? 0),
                 'status' => $s->status,
+                'statusLabel' => SupplierRequest::STATUS_LABELS[SupplierRequest::STATUS_APPROVED],
                 'isActive' => true,
-            ])->all());
+                'isRequest' => false,
+            ])->all();
+
+            // BRM-3.3 — the branch's still-pending «طلب مورد جديد» rows, so the
+            // «قيد المراجعة» chip has a data source.
+            $pending = SupplierRequest::where('status', SupplierRequest::STATUS_PENDING)
+                ->orderByDesc('created_at')->limit(100)->get()
+                ->map(fn ($r) => [
+                    'id' => $r->id,
+                    'name' => $r->name,
+                    'category' => $r->category,
+                    'contactName' => null,
+                    'contactPhone' => $r->contact_phone,
+                    'contactEmail' => null,
+                    'commercialReg' => null,
+                    'address' => null,
+                    'paymentTerms' => null,
+                    'rating' => 0,
+                    'status' => $r->status,
+                    'statusLabel' => SupplierRequest::STATUS_LABELS[$r->status],
+                    'isActive' => false,
+                    'isRequest' => true,
+                ])->all();
+
+            return $this->listResponse(array_merge($rows, $pending));
         });
     }
 
@@ -325,6 +384,30 @@ class BranchDashboardController extends AsabController
 
             return $this->ok(['id' => $op->id, 'reconfirmed' => true]);
         });
+    }
+
+    /**
+     * BRM-4.1 stock status from the expected on-hand qty vs the reorder level:
+     * ≤ min = حرج, ≤ 1.5× min = منخفض, else كافٍ. Defaults to كافٍ when no
+     * threshold/expected qty is configured.
+     *
+     * @return array{stockStatus:string, stockStatusLabel:string}
+     */
+    private function stockStatus($item): array
+    {
+        $min = $item->min_level !== null ? (float) $item->min_level : null;
+        $expected = $item->expected_qty !== null ? (float) $item->expected_qty : null;
+
+        $key = 'ok';
+        if ($min !== null && $expected !== null) {
+            $key = match (true) {
+                $expected <= $min => 'critical',
+                $expected <= $min * 1.5 => 'low',
+                default => 'ok',
+            };
+        }
+
+        return ['stockStatus' => $key, 'stockStatusLabel' => ['ok' => 'كافٍ', 'low' => 'منخفض', 'critical' => 'حرج'][$key]];
     }
 
     /**
