@@ -52,4 +52,36 @@ class NotificationService
 
         return $userIds->count();
     }
+
+    /**
+     * Fan a notification out to users holding `$roleKey` whose assignment covers
+     * a specific branch (scope=all, or the branch / its restaurant / its brand in
+     * the assignment). Branch-targeted counterpart of pushToRole.
+     *
+     * @return int number of users notified
+     */
+    public function pushToBranch(string $companyId, string $branchId, string $roleKey, string $type, string $title, ?string $body = null, ?string $link = null, array $ref = []): int
+    {
+        $branch = \Modules\Branch\Models\Branch::where('id', $branchId)->first(['id', 'asab_brand_id', 'asab_restaurant_id']);
+        $brandId = $branch?->asab_brand_id;
+        $restaurantId = $branch?->asab_restaurant_id;
+
+        $roles = AsabUserRole::query()
+            ->where('role_key', $roleKey)
+            ->whereHas('user', fn ($q) => $q->where('company_id', $companyId))
+            ->get(['user_id', 'scope', 'brand_ids', 'restaurant_ids', 'branch_ids']);
+
+        $userIds = $roles->filter(function ($role) use ($branchId, $brandId, $restaurantId) {
+            return $role->scope === 'all'
+                || in_array($branchId, $role->branch_ids ?? [], true)
+                || ($restaurantId !== null && in_array($restaurantId, $role->restaurant_ids ?? [], true))
+                || ($brandId !== null && in_array($brandId, $role->brand_ids ?? [], true));
+        })->pluck('user_id')->unique();
+
+        foreach ($userIds as $uid) {
+            $this->push($uid, $type, $title, $body, $link, $ref);
+        }
+
+        return $userIds->count();
+    }
 }

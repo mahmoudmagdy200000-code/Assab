@@ -21,7 +21,15 @@ class InventoryReconciliationService
     /** A variance at/above this magnitude (% of expected) is flagged. */
     private const FLAG_PCT = 5.0;
 
-    public function __construct(private readonly RealtimeBroadcaster $rt) {}
+    /** Ledger category for daily-inventory variance charges (idempotency key). */
+    public const CATEGORY = 'inventory_variance';
+
+    private const EPSILON = 0.0001;
+
+    public function __construct(
+        private readonly RealtimeBroadcaster $rt,
+        private readonly EmployeeAllocationService $employeeAllocations,
+    ) {}
 
     /** §9.1 — read-only reconciliation snapshot for a branch + date. */
     public function snapshot(string $companyId, string $branchId, string $date): array
@@ -40,12 +48,26 @@ class InventoryReconciliationService
 
         foreach ($rawItems as $idx => $it) {
             $itemId = $this->itemId($it, $idx);
-            $expected = (float) ($it['expectedQty'] ?? $it['expected'] ?? $it['systemQty'] ?? 0);
+            // ACC-4.3 equation فتح + مشتريات − استهلاك − هدر ± تحويلات = إغلاق متوقّع.
+            $opening = (float) ($it['opening'] ?? $it['openingQty'] ?? 0);
+            $received = (float) ($it['received'] ?? $it['purchases'] ?? $it['purchasesQty'] ?? 0);
+            $consumed = (float) ($it['consumed'] ?? $it['sales'] ?? $it['consumedQty'] ?? 0);
+            $waste = (float) ($it['waste'] ?? $it['wasteQty'] ?? 0);
+            $transfers = (float) ($it['transfers'] ?? $it['transfersQty'] ?? 0);
+            $hasEquation = isset($it['opening']) || isset($it['openingQty']);
+            $expectedClosing = round($opening + $received - $consumed - $waste + $transfers, 3);
+
             $actual = (float) ($it['actualQty'] ?? $it['actual'] ?? $it['countedQty'] ?? 0);
+            // Expected closing drives the variance when the equation terms exist;
+            // otherwise fall back to the branch-supplied expected/system figure.
+            $expected = $hasEquation ? $expectedClosing : (float) ($it['expectedQty'] ?? $it['expected'] ?? $it['systemQty'] ?? 0);
             $varianceQty = round($expected - $actual, 3);
             $variancePct = $expected != 0.0 ? round($varianceQty / $expected * 100, 2) : 0.0;
             $unitPrice = (int) ($it['unitPriceHalalas'] ?? $it['priceHalalas'] ?? ($prices[$itemId] ?? 0));
             $varianceValue = (int) round(abs($varianceQty) * $unitPrice);
+
+            $minLevel = isset($it['minLevel']) ? (float) $it['minLevel'] : (isset($it['minQty']) ? (float) $it['minQty'] : null);
+            $stockStatus = $this->stockStatus($actual, $minLevel);
 
             $allocatedTo = array_map(fn (array $a) => [
                 'employeeId' => $a['employeeId'],
@@ -62,6 +84,17 @@ class InventoryReconciliationService
                 'itemId' => $itemId,
                 'itemName' => $it['name'] ?? ($it['itemName'] ?? '—'),
                 'unit' => $it['unit'] ?? null,
+                // ACC-4.3 daily equation terms.
+                'opening' => $opening,
+                'received' => $received,
+                'consumed' => $consumed,
+                'waste' => $waste,
+                'transfers' => $transfers,
+                'expectedClosing' => $expectedClosing,
+                'actualClosing' => $actual,
+                'equationMatch' => $hasEquation ? abs($expectedClosing - $actual) < self::EPSILON : null,
+                'minLevel' => $minLevel,
+                'stockStatus' => $stockStatus,
                 'expectedQty' => $expected,
                 'actualQty' => $actual,
                 'varianceQty' => $varianceQty,
@@ -101,6 +134,15 @@ class InventoryReconciliationService
             $stored = $payload['varianceAllocations'][$date] ?? [];
             $total = 0;
 
+            // Idempotency (T07.5): re-allocating the same op+date used to *add*
+            // a second set of debits while overwriting the payload record, so
+            // repeat saves silently multiplied the charge. Reverse this op+date's
+            // prior debits before re-inserting; the allocation is now replaceable.
+            EmployeeMovement::where('ref_operation_id', $op->id)
+                ->where('category', self::CATEGORY)
+                ->whereDate('movement_date', $date)
+                ->delete();
+
             foreach ($itemsAllocations as $ia) {
                 $itemId = (string) $ia['itemId'];
                 $unitPrice = (int) ($prices[$itemId] ?? 0);
@@ -123,6 +165,7 @@ class InventoryReconciliationService
                         'movement_date' => $date,
                         'description' => 'تحميل فرق جرد يومي — '.($itemId),
                         'movement_type' => 'debit',
+                        'category' => self::CATEGORY,
                         'amount' => $value,
                         'ref_operation_id' => $op->id,
                         'created_by_id' => $userId,
@@ -181,5 +224,19 @@ class InventoryReconciliationService
     private function itemId(array $it, int $idx): string
     {
         return (string) ($it['itemId'] ?? $it['catalogItemId'] ?? $it['id'] ?? ('row-'.$idx));
+    }
+
+    /** حرج / منخفض / طبيعي from the count against the item's minimum level. */
+    private function stockStatus(float $actual, ?float $minLevel): array
+    {
+        if ($minLevel === null || $minLevel <= 0.0) {
+            return ['key' => 'normal', 'labelAr' => 'طبيعي'];
+        }
+
+        return match (true) {
+            $actual <= 0.0 || $actual < $minLevel * 0.5 => ['key' => 'critical', 'labelAr' => 'حرج'],
+            $actual < $minLevel => ['key' => 'low', 'labelAr' => 'منخفض'],
+            default => ['key' => 'normal', 'labelAr' => 'طبيعي'],
+        };
     }
 }

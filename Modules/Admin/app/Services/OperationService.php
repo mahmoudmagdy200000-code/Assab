@@ -7,6 +7,7 @@ use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\ApprovalStep;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Support\OperationEnums;
 
 /**
  * The shared approval-pipeline state machine (BACKEND_API_SPEC.md §5).
@@ -47,21 +48,41 @@ class OperationService
         return $fresh;
     }
 
-    public function reject(Operation $op, AsabUser $actor, string $reason, ?string $notes = null): Operation
+    /**
+     * Reject back to the branch manager (SRS §5.4). `$reasonKey` is a key from
+     * OperationEnums::rejectionReasons() for the operation's module; the
+     * canonical Arabic label is what lands in `reject_reason` so existing
+     * readers (head lists, exports) keep working, while the key is preserved in
+     * the audit step's meta for analytics.
+     */
+    public function reject(Operation $op, AsabUser $actor, string $reasonKey, ?string $notes = null): Operation
     {
-        if (in_array($op->status, [Operation::STATUS_FINAL, Operation::STATUS_REJECTED], true)) {
-            throw new AsabException('OP_ALREADY_FINAL', 'Operation can no longer be rejected', 'لا يمكن رفض العملية', 409, ['currentStatus' => $op->status]);
+        $this->assertMutable($op, 'لا يمكن رفض العملية');
+
+        $reason = OperationEnums::resolveRejectionReason($reasonKey, $op->module_key);
+        if ($reason === null) {
+            throw new AsabException(
+                'INVALID_REJECT_REASON',
+                'Unknown rejection reason for this module',
+                'سبب الرفض غير معروف لهذا الموديول',
+                422,
+                ['allowed' => array_keys(OperationEnums::rejectionReasons($op->module_key))],
+            );
         }
 
         $prev = $op->status;
-        $fresh = DB::transaction(function () use ($op, $actor, $reason, $notes) {
+        $label = $reason['labelAr'];
+        $fresh = DB::transaction(function () use ($op, $actor, $reason, $label, $notes) {
             $op->update([
                 'status' => Operation::STATUS_REJECTED,
-                'reject_reason' => $reason,
+                'reject_reason' => $label,
                 'rejected_by_id' => $actor->id,
                 'rejected_at' => now(),
             ]);
-            $this->step($op, 'rejected', 'مرفوض — السبب: '.$reason, $actor, $notes);
+            $this->step($op, 'rejected', 'مرفوض — السبب: '.$label, $actor, $notes, [
+                'reasonKey' => $reason['key'],
+                'details' => $notes,
+            ]);
 
             return $op->fresh();
         });
@@ -70,7 +91,7 @@ class OperationService
         if ($fresh->submitted_by_id) {
             $this->notifications->push(
                 $fresh->submitted_by_id, 'operation.rejected',
-                'عمليتك مرفوضة', $fresh->public_id.' — السبب: '.$reason,
+                'عمليتك مرفوضة', $fresh->public_id.' — السبب: '.$label,
                 null, ['type' => 'operation', 'id' => $fresh->id],
             );
         }
@@ -114,13 +135,68 @@ class OperationService
     }
 
     /**
+     * «طلب توضيح» (SRS ACC-0.5 / ACC-1.4) — ask the submitter for more
+     * information without moving the operation off its stage. Non-terminal:
+     * the status is deliberately untouched.
+     */
+    public function requestClarification(Operation $op, AsabUser $actor, string $message): Operation
+    {
+        $this->assertMutable($op, 'لا يمكن طلب توضيح على عملية مُغلقة');
+
+        $fresh = DB::transaction(function () use ($op, $actor, $message) {
+            $this->step($op, 'review', 'طلب توضيح: '.$message, $actor, $message, ['clarification' => true]);
+
+            return $op->fresh();
+        });
+
+        if ($fresh->submitted_by_id) {
+            $this->notifications->push(
+                $fresh->submitted_by_id, 'operation.clarification_requested',
+                'طلب توضيح على عمليتك', $fresh->public_id.' — '.$message,
+                null, ['type' => 'operation', 'id' => $fresh->id],
+            );
+        }
+
+        return $fresh;
+    }
+
+    /**
+     * ACC-3.4 توثيق — the accountant stamps a purchase order as documented before
+     * it moves to the head accountant. Non-terminal and idempotent: re-documenting
+     * refreshes the timestamp and note. Status is unchanged; the payload carries
+     * the flag and an audit step records it.
+     */
+    public function document(Operation $op, AsabUser $actor, ?string $note = null): Operation
+    {
+        $this->assertMutable($op, 'لا يمكن توثيق عملية مُغلقة');
+
+        $fresh = DB::transaction(function () use ($op, $actor, $note) {
+            $payload = $op->payload ?? [];
+            $payload['documentation'] = [
+                'documentedAt' => now()->toIso8601String(),
+                'documentedById' => $actor->id,
+                'documentedBy' => $actor->name,
+                'note' => $note,
+            ];
+            $op->update(['payload' => $payload]);
+            $this->step($op, 'review', 'وثّق المحاسب مستندات الطلب', $actor, $note, ['documented' => true]);
+
+            return $op->fresh();
+        });
+
+        return $fresh;
+    }
+
+    /**
      * Create a corrective operation linked to an original (BACKEND_API_SPEC.md §5.3).
      */
     public function correction(Operation $original, AsabUser $actor, string $reason, array $overrides = []): Operation
     {
-        return DB::transaction(function () use ($original, $actor, $reason, $overrides) {
+        $prefix = explode('-', $original->public_id)[0] ?: 'OPS';
+
+        return OperationSequence::createWithPublicId($prefix, fn (string $publicId) => DB::transaction(function () use ($publicId, $original, $actor, $reason, $overrides) {
             $correction = Operation::create(array_merge([
-                'public_id' => $this->nextCorrectionId($original),
+                'public_id' => $publicId,
                 'company_id' => $original->company_id,
                 'branch_id' => $original->branch_id,
                 'module_key' => $original->module_key,
@@ -142,15 +218,7 @@ class OperationService
             $this->step($original, 'submit', 'أُنشئت عملية تعديل: '.$correction->public_id, $actor);
 
             return $correction->fresh();
-        });
-    }
-
-    private function nextCorrectionId(Operation $original): string
-    {
-        $prefix = explode('-', $original->public_id)[0] ?? 'OPS';
-        $n = Operation::where('public_id', 'like', "{$prefix}-%")->count() + 1;
-
-        return $prefix.'-'.str_pad((string) $n, 4, '0', STR_PAD_LEFT);
+        }));
     }
 
     /**
@@ -179,6 +247,24 @@ class OperationService
         return ['approved' => $approved, 'failed' => $failed];
     }
 
+    /**
+     * NFR-10 — a `final-approved` record is closed («مُغلق»); a `rejected` one
+     * is off-pipeline. Neither may be mutated. Every writer that touches an
+     * Operation outside the transitions above must call this first.
+     */
+    public function assertMutable(Operation $op, string $messageAr = 'لا يمكن تعديل عملية مُغلقة'): void
+    {
+        if (in_array($op->status, [Operation::STATUS_FINAL, Operation::STATUS_REJECTED], true)) {
+            throw new AsabException(
+                'OP_ALREADY_FINAL',
+                'Operation is locked and can no longer be modified',
+                $messageAr,
+                409,
+                ['currentStatus' => $op->status],
+            );
+        }
+    }
+
     private function assertStatus(Operation $op, string $expected, string $code = 'OP_NOT_PENDING'): void
     {
         if ($op->status !== $expected) {
@@ -190,6 +276,12 @@ class OperationService
                 ['currentStatus' => $op->status, 'requiredStatus' => $expected],
             );
         }
+    }
+
+    /** Public audit-step writer for callers that own their own mutation (e.g. the line editor). */
+    public function recordStep(Operation $op, string $stage, string $action, AsabUser $actor, ?string $note = null, array $meta = []): void
+    {
+        $this->step($op, $stage, $action, $actor, $note, $meta);
     }
 
     private function step(Operation $op, string $stage, string $action, AsabUser $actor, ?string $note = null, array $meta = []): void

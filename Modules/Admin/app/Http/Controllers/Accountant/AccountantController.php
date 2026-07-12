@@ -11,6 +11,15 @@ use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AuditLog;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Reminder;
+use Modules\Admin\Services\AccountantDashboardService;
+use Modules\Admin\Services\AssetDraftService;
+use Modules\Admin\Services\ExpenseKpiService;
+use Modules\Admin\Services\OperationService;
+use Modules\Admin\Services\PurchasePresenterService;
+use Modules\Admin\Services\PurchaseReceivingBridge;
+use Modules\Admin\Services\SalesReconciliationService;
+use Modules\Admin\Support\AssetEnums;
+use Modules\Admin\Support\TenantContext;
 
 /**
  * Accountant (المحاسب) dashboard + per-module review (BACKEND_API_SPEC.md §6.3).
@@ -18,6 +27,12 @@ use Modules\Admin\Models\Reminder;
  */
 class AccountantController extends AsabController
 {
+    public function __construct(
+        private readonly SalesReconciliationService $reconciler,
+        private readonly AccountantDashboardService $dashboards,
+        private readonly TenantContext $tenant,
+    ) {}
+
     /** GET /accountant/dashboard/activity-heatmap (MISSING_Dashboard §11.2). */
     public function activityHeatmap(Request $request): JsonResponse
     {
@@ -49,26 +64,18 @@ class AccountantController extends AsabController
         });
     }
 
-    public function dashboard(): JsonResponse
+    /** GET /accountant/dashboard — ACC-0 «ملخص اليوم» (internal dashboard surface). */
+    public function dashboard(Request $request): JsonResponse
     {
-        return $this->run(function () {
-            $byStatus = $this->scopeToAssignedBranches(Operation::query())
-                ->selectRaw('status, count(*) as c')->groupBy('status')->pluck('c', 'status');
-            $pending = (int) ($byStatus['pending'] ?? 0);
-            $approved = (int) ($byStatus['approved'] ?? 0);
-            $final = (int) ($byStatus['final-approved'] ?? 0);
-            $total = max(1, array_sum($byStatus->all()));
+        return $this->run(function () use ($request) {
+            $branchIds = $this->assignedBranchIds();
+            $actor = $request->user();
 
             return $this->ok([
-                'kpis' => [
-                    'awaitingReview' => $pending,
-                    'iApproved' => $approved,
-                    'finalApproved' => $final,
-                    'approvalRate' => (int) round((($approved + $final) / $total) * 100),
-                    'overdueCount' => $this->scopeToAssignedBranches(Operation::where('status', 'pending'))
-                        ->where('submitted_at', '<', now()->subDays(2))->count(),
-                ],
-                'modules' => $this->moduleCounts(),
+                'kpis' => $this->dashboards->kpis($actor, $branchIds),
+                'modules' => $this->dashboards->moduleGrid($actor, $branchIds),
+                'progressToday' => $this->dashboards->progressToday($actor, $branchIds),
+                'scope' => $this->dashboards->scope($actor, $branchIds, $this->tenant),
                 'recentOperations' => $this->scopeToAssignedBranches(Operation::query())
                     ->orderByDesc('created_at')->limit(8)->get()->map(fn ($o) => $this->present($o))->all(),
             ]);
@@ -89,6 +96,16 @@ class AccountantController extends AsabController
             if ($branch = $request->query('branchId')) {
                 $q->where('branch_id', $branch);
             }
+            // ACC-0.4 day pills (اليوم / أمس / هذا الأسبوع / هذا الشهر).
+            if ($from = $request->query('dateFrom')) {
+                $q->whereDate('operation_date', '>=', $from);
+            }
+            if ($to = $request->query('dateTo')) {
+                $q->whereDate('operation_date', '<=', $to);
+            }
+            if ($search = $request->query('search')) {
+                $q->where('public_id', 'like', "%{$search}%");
+            }
             $p = $q->orderByDesc('operation_date')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
             return $this->paginated($p, array_map(fn ($o) => $this->present($o), $p->items()), [
@@ -99,6 +116,21 @@ class AccountantController extends AsabController
                     'rejected' => (clone $q)->where('status', 'rejected')->count(),
                 ],
             ]);
+        });
+    }
+
+    /** GET /accountant/expenses/kpis — ACC-2.1 cards + the invoice-match split. */
+    public function expenseKpis(Request $request, ExpenseKpiService $kpis): JsonResponse
+    {
+        return $this->run(function () use ($request, $kpis) {
+            $request->validate(['dateFrom' => 'sometimes|date', 'dateTo' => 'sometimes|date|after_or_equal:dateFrom']);
+
+            return $this->ok($kpis->forRange(
+                $request->user()->company_id,
+                $this->assignedBranchIds(),
+                $request->query('dateFrom'),
+                $request->query('dateTo'),
+            ));
         });
     }
 
@@ -133,6 +165,13 @@ class AccountantController extends AsabController
         });
     }
 
+    /**
+     * PATCH …/sales-details — the accountant's reconciliation edit (ACC-1.4).
+     *
+     * Accepts the canonical `channels[]` (SRS §4.3 enum) or the legacy
+     * cash/bank/deliveryApps triple. The branch's total («مقفل») is never an
+     * input; the match badge is re-derived from the resulting variance.
+     */
     public function reconciliation(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
@@ -141,47 +180,30 @@ class AccountantController extends AsabController
                 return $this->fail('OP_ALREADY_FINAL', 'Operation is final-approved', 'العملية معتمدة نهائياً', [], 409);
             }
             $data = $request->validate([
-                // canonical fields
+                // canonical: one row per collection channel
+                'channels' => 'sometimes|array|min:1',
+                'channels.*.key' => 'required_with:channels|string|max:40',
+                'channels.*.actualAmountHalalas' => 'required_with:channels|integer',
+                'channels.*.posAmountHalalas' => 'sometimes|nullable|integer',
+                // legacy fields
                 'cashAmount' => 'sometimes|integer',
                 'bankAmount' => 'sometimes|integer',
-                // doc aliases (halalas)
                 'cashHalalas' => 'sometimes|integer',
                 'bankHalalas' => 'sometimes|integer',
                 'deliveryApps' => 'sometimes|array',
                 'deliveryApps.*.name' => 'sometimes|string|max:80',
                 'deliveryApps.*.amountHalalas' => 'sometimes|integer',
                 'varianceReason' => 'sometimes|string|max:80',
-                'varianceAllocations' => 'sometimes|array',
             ]);
 
-            // Read doc aliases, falling back to the existing field names (non-breaking).
-            $cash = (int) ($data['cashHalalas'] ?? $data['cashAmount'] ?? 0);
-            $bank = (int) ($data['bankHalalas'] ?? $data['bankAmount'] ?? 0);
-            $deliveryApps = $data['deliveryApps'] ?? [];
-            $deliveryTotal = array_sum(array_map(fn ($a) => (int) ($a['amountHalalas'] ?? 0), $deliveryApps));
-            $totalCollection = $cash + $bank + $deliveryTotal;
-
-            // Expected/total sales for this operation: the operation amount, with payload fallbacks.
-            $expected = (int) (
-                $op->amount
-                ?? ($op->payload['expectedHalalas']
-                    ?? ($op->payload['totalSalesHalalas']
-                        ?? ($op->payload['totalHalalas'] ?? 0)))
-            );
-            $variance = $totalCollection - $expected;
-
-            $payload = $op->payload ?? [];
-            $payload['reconciliation'] = array_merge($payload['reconciliation'] ?? [], $data, [
-                'totalCollectionHalalas' => $totalCollection,
-                'varianceHalalas' => $variance,
-            ]);
-            $op->update(['payload' => $payload]);
+            $reconciliation = $this->reconciler->save($op, $data);
 
             return $this->ok([
                 'id' => $op->id,
-                'reconciliation' => $payload['reconciliation'],
-                'totalCollectionHalalas' => $totalCollection,
-                'varianceHalalas' => $variance,
+                'reconciliation' => $reconciliation,
+                'totalCollectionHalalas' => $reconciliation['totals']['totalCollectionHalalas'],
+                'varianceHalalas' => $reconciliation['totals']['varianceHalalas'],
+                'match' => $op->fresh()->match,
             ]);
         });
     }
@@ -238,6 +260,96 @@ class AccountantController extends AsabController
     }
 
     /**
+     * PATCH /operations/{id}/purchase-lines/{rowId} — accountant edit of one
+     * purchase line (ACC-3.4). Recomputes the line total, operation `amount` and
+     * the 3-way `match` (a diverging unit price flips it to `diff` even when the
+     * quantity agrees), and records old→new in an audit step.
+     */
+    public function purchaseLineUpdate(Request $request, PurchasePresenterService $purchases, PurchaseReceivingBridge $receiving, OperationService $operations, string $id, string $rowId): JsonResponse
+    {
+        return $this->run(function () use ($request, $purchases, $receiving, $operations, $id, $rowId) {
+            $op = $this->findAssigned($id, 'purchases');
+            $operations->assertMutable($op, 'لا يمكن تعديل عملية شراء مُغلقة');
+
+            $data = $request->validate([
+                'ordQty' => 'sometimes|numeric|min:0',
+                'rcvQty' => 'sometimes|nullable|numeric|min:0',
+                'unitPriceHalalas' => 'sometimes|integer|min:0',
+            ]);
+
+            $result = DB::transaction(function () use ($op, $purchases, $receiving, $operations, $rowId, $data, $request) {
+                $received = $receiving->receivedByRow($op);
+                $lines = $purchases->lines($op, $received);
+
+                $target = collect($lines)->search(fn ($l) => $l['rowId'] === (string) $rowId);
+                if ($target === false) {
+                    throw new \Modules\Admin\Exceptions\AsabException('NOT_FOUND', 'Purchase line not found', 'سطر الشراء غير موجود', 404);
+                }
+                $before = $lines[$target];
+
+                // Persist raw canonical fields; the presenter re-derives the match.
+                // An explicit rcvQty edit overrides the legacy bridge for this line.
+                $raw = array_map(fn ($l) => $this->rawPurchaseLine($l), $lines);
+                $raw[$target] = array_merge($raw[$target], array_filter([
+                    'ordQty' => $data['ordQty'] ?? null,
+                    'unitPriceHalalas' => $data['unitPriceHalalas'] ?? null,
+                ], fn ($v) => $v !== null));
+                if (array_key_exists('rcvQty', $data)) {
+                    $raw[$target]['rcvQty'] = $data['rcvQty'];
+                }
+
+                $payload = $op->payload ?? [];
+                $payload['purchaseItems'] = $raw;
+                $op->update(['payload' => $payload]);
+
+                $derived = $purchases->lines($op->fresh(), $received);
+                $recompute = $purchases->recomputeMatch($derived);
+                $op->update([
+                    'payload' => array_merge($payload, ['purchaseItems' => $recompute['purchaseItems']]),
+                    'amount' => $recompute['amount'],
+                    'match' => $recompute['match'],
+                    'diff_note' => $recompute['diffNote'],
+                ]);
+
+                $after = collect($derived)->firstWhere('rowId', (string) $rowId);
+                $operations->recordStep(
+                    $op, 'review', 'عدّل المحاسب سطر الشراء: '.($before['item'] ?? $rowId), $request->user(),
+                    null, ['rowId' => (string) $rowId, 'before' => $this->purchaseLineSnapshot($before), 'after' => $this->purchaseLineSnapshot($after)],
+                );
+
+                return ['op' => $op->fresh(), 'line' => $after, 'match' => $recompute['match']];
+            });
+
+            return $this->ok([
+                'operationId' => $op->id,
+                'rowId' => $rowId,
+                'row' => $result['line'],
+                'match' => $result['match'],
+                'amount' => $result['op']->amount,
+            ]);
+        });
+    }
+
+    /** A derived line stripped back to its stored (raw) fields. */
+    private function rawPurchaseLine(array $line): array
+    {
+        return [
+            'rowId' => $line['rowId'], 'item' => $line['item'], 'itemId' => $line['itemId'], 'unit' => $line['unit'],
+            'ordQty' => $line['ordQty'], 'rcvQty' => $line['rcvQty'],
+            'unitPriceHalalas' => $line['unitPriceHalalas'], 'orderedUnitPriceHalalas' => $line['orderedUnitPriceHalalas'],
+        ];
+    }
+
+    /** @return array<string, mixed> compact before/after for the audit step */
+    private function purchaseLineSnapshot(?array $line): array
+    {
+        return $line === null ? [] : [
+            'ordQty' => $line['ordQty'], 'rcvQty' => $line['rcvQty'],
+            'unitPriceHalalas' => $line['unitPriceHalalas'], 'totalHalalas' => $line['totalHalalas'] ?? null,
+        ];
+    }
+
+    /**
      * POST /operations/{id}/notes — append an accountant note to the operation.
      */
     public function addNote(Request $request, string $id): JsonResponse
@@ -273,14 +385,23 @@ class AccountantController extends AsabController
         });
     }
 
-    public function convertToAsset(Request $request, \Modules\Admin\Services\RealtimeBroadcaster $rt, string $invoiceId): JsonResponse
+    /**
+     * POST …/expense-invoices/{invoiceId}/convert-to-asset-draft — ACC-2.4.
+     *
+     * `{invoiceId}` addresses the expenses **operation** (EXP-xxxx); the invoice
+     * inside it is picked by `invoiceIndex`. The draft's value is the invoice's
+     * pre-tax amount, and the invoice is stamped «محوّل» so it converts once.
+     */
+    public function convertToAsset(Request $request, AssetDraftService $drafts, string $invoiceId): JsonResponse
     {
-        return $this->run(function () use ($request, $rt) {
+        return $this->run(function () use ($request, $drafts, $invoiceId) {
             $data = $request->validate([
+                'invoiceIndex' => 'sometimes|integer|min:0',
                 'assetName' => 'required|string|max:200',
                 'category' => 'required|string|max:32',
-                'usefulLifeMonths' => 'required|integer|min:1',
-                'targetBranches' => 'required|array',
+                'usefulLifeMonths' => ['required', 'integer', AssetEnums::usefulLifeRule()],
+                'targetBranches' => 'required|array|min:1',
+                'targetBranches.*' => 'required|string',
                 'custodian' => 'required|string|max:200',
                 'qty' => 'required|integer|min:1',
                 'notes' => 'nullable|string',
@@ -288,53 +409,26 @@ class AccountantController extends AsabController
                 'vendor' => 'sometimes|string|max:200',
                 'invNum' => 'sometimes|string|max:64',
             ]);
-
-            $draft = \Modules\Admin\Models\AssetDraft::create([
-                'draft_id' => 'DRAFT-'.strtoupper(\Illuminate\Support\Str::random(8)),
-                'company_id' => $request->user()->company_id,
-                'inv_num' => $data['invNum'] ?? null,
-                'vendor' => $data['vendor'] ?? null,
-                'amount' => $data['amount'] ?? 0,
-                'asset_name' => $data['assetName'],
-                'category' => $data['category'],
-                'useful_life_months' => $data['usefulLifeMonths'],
-                'target_branches' => $data['targetBranches'],
-                'custodian' => $data['custodian'],
-                'qty' => $data['qty'],
-                'notes' => $data['notes'] ?? null,
-                'status' => 'draft',
-                'created_by_id' => $request->user()->id,
-            ]);
-            foreach (($data['targetBranches'] ?: [null]) as $branchId) {
-                $rt->assetDraftCreated($draft, $branchId);
+            // The wizard's branch checkboxes are caller data: an out-of-scope
+            // branch must not receive assets minted from someone else's invoice.
+            foreach ($data['targetBranches'] as $branchId) {
+                $this->assertBranchAssigned($branchId);
             }
 
-            return $this->created(['draftId' => $draft->draft_id, 'status' => 'draft']);
+            $op = $this->findAssigned($invoiceId, 'expenses');
+
+            return $this->created(
+                $drafts->convert($op, (int) ($data['invoiceIndex'] ?? 0), $data, $request->user()),
+            );
         });
     }
 
-    private function findAssigned(string $id): Operation
+    private function findAssigned(string $id, ?string $moduleKey = null): Operation
     {
         return $this->scopeToAssignedBranches(
-            Operation::where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id)),
+            Operation::where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id))
+                ->when($moduleKey !== null, fn ($q) => $q->where('module_key', $moduleKey)),
         )->firstOrFail();
-    }
-
-    private function moduleCounts(): array
-    {
-        $modules = ['sales' => 'المبيعات', 'expenses' => 'المصروفات', 'purchases' => 'المشتريات', 'inventory' => 'المخزون', 'waste' => 'الهدر', 'cash' => 'النقدية'];
-        $out = [];
-        foreach ($modules as $key => $label) {
-            $base = $this->scopeToAssignedBranches(Operation::where('module_key', $key));
-            $out[] = [
-                'key' => $key,
-                'label' => $label,
-                'pendingCount' => (clone $base)->where('status', 'pending')->count(),
-                'totalCount' => $base->count(),
-            ];
-        }
-
-        return $out;
     }
 
     private function present(Operation $op): array

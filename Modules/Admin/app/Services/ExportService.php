@@ -16,6 +16,8 @@ use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Reminder;
 use Modules\Admin\Models\Shift;
 use Modules\Admin\Models\SupplierItem;
+use Modules\Admin\Support\AssetEnums;
+use Modules\Admin\Support\SalesChannels;
 use Mpdf\Mpdf;
 use Mpdf\Output\Destination;
 use OpenSpout\Common\Entity\Row;
@@ -177,9 +179,21 @@ class ExportService
         ], $rows);
     }
 
-    public function operation(string $format, string $opId): BinaryFileResponse
+    /**
+     * Single-operation detail sheet.
+     *
+     * `$branchIds` is the caller's assigned-branch scope (null = company-wide):
+     * an operation outside it must read as absent, exactly like the API's
+     * scoped `firstOrFail`.
+     *
+     * @param  string[]|null  $branchIds
+     */
+    public function operation(string $format, string $opId, ?array $branchIds = null): BinaryFileResponse
     {
-        $op = Operation::where(fn ($q) => $q->where('id', $opId)->orWhere('public_id', $opId))->firstOrFail();
+        $op = Operation::query()
+            ->when($branchIds !== null, fn ($q) => $q->whereIn('branch_id', $branchIds))
+            ->where(fn ($q) => $q->where('id', $opId)->orWhere('public_id', $opId))
+            ->firstOrFail();
         $branch = $this->branchNames([$op->branch_id])->get($op->branch_id, '—');
 
         $headings = ['البند', 'القيمة'];
@@ -193,8 +207,21 @@ class ExportService
             ['التاريخ', optional($op->operation_date)->toDateString() ?? optional($op->created_at)->toDateString()],
         ];
 
-        // Append per-module line items from the payload so the sheet carries detail, not just the envelope.
         $payload = $op->payload ?? [];
+
+        // Sales: the channel reconciliation is the detail that matters.
+        $channels = $payload['reconciliation']['channels'] ?? [];
+        if (is_array($channels) && $channels !== []) {
+            $rows[] = ['', ''];
+            $rows[] = ['قناة التحصيل', 'المبلغ المُدخل (ر.س)'];
+            foreach ($channels as $channel) {
+                $rows[] = [SalesChannels::labelAr($channel['key']), $this->sar((int) ($channel['actualAmountHalalas'] ?? 0))];
+            }
+            $rows[] = ['إجمالي التحصيل', $this->sar((int) ($payload['reconciliation']['totalCollectionHalalas'] ?? 0))];
+            $rows[] = ['الفرق', $this->sar((int) ($payload['reconciliation']['varianceHalalas'] ?? 0))];
+        }
+
+        // Append per-module line items from the payload so the sheet carries detail, not just the envelope.
         $lines = $payload['invoices'] ?? ($payload['products'] ?? ($payload['items'] ?? []));
         if (is_array($lines) && $lines !== []) {
             $rows[] = ['', ''];
@@ -209,9 +236,12 @@ class ExportService
         return $this->make($format, 'operation-'.$op->public_id, $headings, $rows);
     }
 
-    public function waste(string $format, ?string $branchId): BinaryFileResponse
+    public function waste(string $format, ?string $branchId, ?array $branchIds = null): BinaryFileResponse
     {
         $q = Operation::where('module_key', 'waste');
+        if ($branchIds !== null) {
+            $q->whereIn('branch_id', $branchIds);
+        }
         if ($branchId) {
             $q->where('branch_id', $branchId);
         }
@@ -335,7 +365,7 @@ class ExportService
      * Operations export — sales/expenses/purchases (and a shared all-module
      * variant when moduleKey is null). Honours the same filters as the list.
      *
-     * @param  array{moduleKey?:?string,status?:?string,branchId?:?string,brandId?:?string,dateFrom?:?string,dateTo?:?string}  $filters
+     * @param  array{moduleKey?:?string,status?:?string,branchId?:?string,brandId?:?string,dateFrom?:?string,dateTo?:?string,branchIds?:?array}  $filters
      */
     public function operations(string $format, string $companyId, array $filters): BinaryFileResponse
     {
@@ -407,11 +437,17 @@ class ExportService
      * Tenant-scoped operations matching the list filters. brandId is resolved
      * post-load via the branch→brand map (operations carry no brand column).
      *
-     * @param  array<string,?string>  $filters
+     * `branchIds` is the caller's assigned-branch scope (null = company-wide):
+     * a branch-scoped accountant must never export outside their own branches.
+     *
+     * @param  array<string,mixed>  $filters
      */
     private function filteredOperations(string $companyId, array $filters): \Illuminate\Support\Collection
     {
         $q = Operation::where('company_id', $companyId);
+        if (($filters['branchIds'] ?? null) !== null) {
+            $q->whereIn('branch_id', $filters['branchIds']);
+        }
         if (! empty($filters['moduleKey'])) {
             $q->where('module_key', $filters['moduleKey']);
         }
@@ -437,10 +473,20 @@ class ExportService
         return $ops;
     }
 
-    /** Fixed-assets register export. */
-    public function assets(string $format, string $companyId, ?string $category, ?string $branchId): BinaryFileResponse
+    /**
+     * Fixed-assets register export.
+     *
+     * `$branchIds` is the caller's assigned-branch scope (null = company-wide);
+     * without it a branch-restricted accountant exported the whole register.
+     *
+     * @param  string[]|null  $branchIds
+     */
+    public function assets(string $format, string $companyId, ?string $category, ?string $branchId, ?array $branchIds = null): BinaryFileResponse
     {
         $q = Asset::where('company_id', $companyId);
+        if ($branchIds !== null) {
+            $q->whereIn('branch_id', $branchIds);
+        }
         if ($category) {
             $q->where('category', $category);
         }
@@ -450,25 +496,22 @@ class ExportService
         $assets = $q->orderBy('public_id')->limit(10000)->get();
         $branchNames = $this->branchNames($assets->pluck('branch_id'));
 
-        $headings = ['رمز الأصل', 'الاسم', 'التصنيف', 'الفرع', 'تاريخ الشراء', 'سعر الشراء (ر.س)', 'العمر الإنتاجي (شهر)', 'الإهلاك الشهري (ر.س)', 'القيمة الدفترية (ر.س)', 'العهدة', 'الحالة'];
-        $rows = $assets->map(function (Asset $a) use ($branchNames) {
-            $life = max(1, (int) $a->useful_life_months);
-            $monthlyDep = (int) round(((int) $a->cost) / $life);
-
-            return [
-                $a->public_id,
-                $a->name,
-                $a->category,
-                $branchNames[$a->branch_id] ?? '—',
-                optional($a->purchased_at)->toDateString() ?? '',
-                $this->sar($a->cost),
-                (string) $a->useful_life_months,
-                $this->sar($monthlyDep),
-                $this->sar($a->book_value),
-                $a->custodian ?? '—',
-                $a->status,
-            ];
-        })->all();
+        $headings = ['رمز الأصل', 'الاسم', 'التصنيف', 'الرقم التسلسلي', 'الفرع', 'تاريخ الشراء', 'سعر الشراء (ر.س)', 'العمر الإنتاجي (شهر)', 'الإهلاك الشهري (ر.س)', 'الإهلاك السنوي (ر.س)', 'القيمة الدفترية (ر.س)', 'العهدة', 'الحالة'];
+        $rows = $assets->map(fn (Asset $a) => [
+            $a->public_id,
+            $a->name,
+            AssetEnums::categoryLabelAr($a->category) ?? '—',
+            $a->serial ?? '—',
+            $branchNames[$a->branch_id] ?? '—',
+            optional($a->purchased_at)->toDateString() ?? '',
+            $this->sar($a->cost),
+            (string) $a->useful_life_months,
+            $this->sar(AssetEnums::monthlyDepreciation((int) $a->cost, $a->useful_life_months)),
+            $this->sar(AssetEnums::annualDepreciation((int) $a->cost, $a->useful_life_months)),
+            $this->sar($a->book_value),
+            $a->custodian ?? '—',
+            AssetEnums::statusLabelAr($a->status) ?? '—',
+        ])->all();
 
         return $this->make($format, 'fixed-assets', $headings, $rows);
     }

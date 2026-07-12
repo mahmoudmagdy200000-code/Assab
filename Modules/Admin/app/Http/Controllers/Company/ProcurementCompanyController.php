@@ -5,6 +5,7 @@ namespace Modules\Admin\Http\Controllers\Company;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\Operation;
@@ -12,6 +13,7 @@ use Modules\Admin\Models\ProcurementItemPrice;
 use Modules\Admin\Models\SupplierItem;
 use Modules\Admin\Models\SupplierRating;
 use Modules\Admin\Services\OperationFactory;
+use Modules\Admin\Services\OperationService;
 use Modules\Admin\Services\ProcurementCatalogBridgeService;
 
 /**
@@ -23,6 +25,7 @@ class ProcurementCompanyController extends AsabController
     public function __construct(
         private readonly OperationFactory $factory,
         private readonly ProcurementCatalogBridgeService $bridge,
+        private readonly OperationService $operations,
     ) {}
 
     public function storeOrder(Request $request): JsonResponse
@@ -40,47 +43,82 @@ class ProcurementCompanyController extends AsabController
             ]);
             $deliveryDate = $data['deliveryDate'] ?? $data['deadline'] ?? null;
             $total = collect($data['items'])->sum(fn ($i) => (int) ($i['totalHalalas'] ?? (($i['qty'] ?? 0) * ($i['unitPriceHalalas'] ?? 0))));
+            // origin is a first-class column (§5.2b) — the payload copy is kept
+            // for readers that still look there.
             $op = $this->factory->createFromUpload('purchases', [
                 'supplierId' => $data['supplierId'], 'items' => $data['items'], 'description' => $data['description'] ?? null,
                 'urgency' => $data['urgency'] ?? 'normal', 'deliveryDate' => $deliveryDate, 'origin' => 'procurement',
-            ], $request->user(), $data['branchId'] ?? null, $total);
+            ], $request->user(), $data['branchId'] ?? null, $total, 'procurement');
 
             return $this->created(['id' => $op->id, 'publicId' => $op->public_id, 'status' => $op->status, 'totalHalalas' => $total]);
         });
     }
 
+    /**
+     * PATCH /company/me/procurement/orders/{id} — edit a purchase order.
+     *
+     * A `final-approved` («مُغلق») or `rejected` operation is immutable
+     * (NFR-10), and a status change here goes through the pipeline state
+     * machine rather than writing the column directly — otherwise a locked
+     * accounting record could be reopened behind the head accountant's back.
+     */
     public function updateOrder(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
             $op = $this->order($request, $id);
+            $this->operations->assertMutable($op, 'لا يمكن تعديل أمر شراء مُغلق');
+
             $data = $request->validate([
                 'supplierId' => 'sometimes|string', 'items' => 'sometimes|array', 'description' => 'sometimes|nullable|string',
                 'urgency' => 'sometimes|in:normal,urgent',
                 'deliveryDate' => 'sometimes|nullable|date', 'deadline' => 'sometimes|nullable|date',
-                // optional status transition (validated against the pipeline's allowed values).
+                // Only the transitions the pipeline owns; reason is required to reject.
                 'status' => 'sometimes|in:'.implode(',', [
                     Operation::STATUS_PENDING, Operation::STATUS_APPROVED, Operation::STATUS_REJECTED, Operation::STATUS_FINAL,
                 ]),
+                'reason' => 'sometimes|string|max:500',
             ]);
             $deliveryDate = $data['deliveryDate'] ?? $data['deadline'] ?? null;
             $payload = array_merge($op->payload ?? [], array_filter([
                 'supplierId' => $data['supplierId'] ?? null, 'items' => $data['items'] ?? null,
                 'description' => $data['description'] ?? null, 'urgency' => $data['urgency'] ?? null, 'deliveryDate' => $deliveryDate,
             ], fn ($v) => $v !== null));
-            $update = ['payload' => $payload];
-            if (! empty($data['status'])) {
-                $update['status'] = $data['status'];
+            $op->update(['payload' => $payload]);
+
+            if (! empty($data['status']) && $data['status'] !== $op->status) {
+                $op = $this->transition($op, $request, $data['status'], $data['reason'] ?? null);
             }
-            $op->update($update);
 
             return $this->ok(['id' => $op->id, 'publicId' => $op->public_id, 'status' => $op->fresh()->status]);
         });
     }
 
+    /** Status changes are pipeline transitions, never column writes. */
+    private function transition(Operation $op, Request $request, string $target, ?string $reason): Operation
+    {
+        return match ($target) {
+            Operation::STATUS_APPROVED => $this->operations->approve($op, $request->user()),
+            Operation::STATUS_REJECTED => $this->operations->reject(
+                $op,
+                $request->user(),
+                $reason ?? throw new AsabException('REJECT_REASON_REQUIRED', 'A rejection reason is required', 'يجب إدخال سبب الرفض', 422),
+            ),
+            default => throw new AsabException(
+                'OP_STATUS_TRANSITION_FORBIDDEN',
+                'Use the pipeline endpoints for this transition',
+                'استخدم مسار الاعتماد لتغيير هذه الحالة',
+                422,
+                ['currentStatus' => $op->status, 'requestedStatus' => $target],
+            ),
+        };
+    }
+
     public function destroyOrder(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $this->order($request, $id)->delete();
+            $op = $this->order($request, $id);
+            $this->operations->assertMutable($op, 'لا يمكن حذف أمر شراء مُغلق');
+            $op->delete();
 
             return $this->noContent();
         });

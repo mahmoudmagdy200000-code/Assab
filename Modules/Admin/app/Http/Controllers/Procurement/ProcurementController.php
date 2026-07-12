@@ -205,6 +205,19 @@ class ProcurementController extends AsabController
             $perPage = min((int) $request->query('pageSize', 50), 100);
             $p = $q->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
+            // ACC-3.2 supplier cards need items + monthly orders. Two queries over
+            // the page's ids — never a per-row lookup. Order tally is grouped in
+            // PHP off the decoded payload to sidestep driver-specific JSON quoting.
+            $ids = collect($p->items())->pluck('id');
+            $itemsCount = \Modules\Admin\Models\SupplierItem::whereIn('supplier_id', $ids)
+                ->selectRaw('supplier_id, COUNT(*) as c')->groupBy('supplier_id')->pluck('c', 'supplier_id');
+            $monthlyOrders = \Modules\Admin\Models\Operation::where('module_key', 'purchases')
+                ->whereDate('operation_date', '>=', now()->subDays(30)->toDateString())
+                ->whereIn('payload->supplierId', $ids)
+                ->limit(10000)->get(['payload'])
+                ->groupBy(fn ($o) => $o->payload['supplierId'] ?? null)
+                ->map->count();
+
             return $this->paginated($p, array_map(fn ($s) => [
                 'id' => $s->id,
                 'name' => $s->name,
@@ -216,6 +229,8 @@ class ProcurementController extends AsabController
                 'rating' => (int) ($s->rating ?? 0),   // 0–50 scale (stars × 10)
                 'status' => $s->status,
                 'isActive' => $s->status === 'active',
+                'itemsCount' => (int) ($itemsCount[$s->id] ?? 0),
+                'monthlyOrderCount' => (int) ($monthlyOrders[$s->id] ?? 0),
             ], $p->items()));
         });
     }

@@ -1,0 +1,175 @@
+# T02 — Platform Admin Core
+> SRS: §6 ADM-1..4, ADM-7, ADM-8 (companies incl trial+grant portal account, brands, restaurants, branches, packages/subscriptions, users, distribution, permission matrix, audit, settings, uploads, job monitor). Pointer sections: **ADM-5 (Reports Manager) → T15 · ADM-6 (ERP Export screen) → T10.7** · Audited: 2026-07-10 · FE doc deliverable: docs/fe-wiring/FE-T02-admin-core.md
+> Status: ⬜ not started (audit complete)
+
+All routes below live in `Modules/Admin/routes/api.php` under `Route::middleware(['asab.tenant','asab.role:admin','asab.idempotency','asab.audit'])->prefix('admin')` (L113–115). Full path prefix at runtime: `/api/v1/admin/...`. `reports/*` under the same prefix (L212–213, L232–236) is **T15**, excluded here.
+
+## 1. Endpoint inventory (audited against code)
+
+Controllers: `Modules/Admin/app/Http/Controllers/Admin/*`, base `AsabController` (spec envelopes via `AsabResponse`).
+
+| # | Method | Path | Handler | Status | Notes |
+|---|---|---|---|---|---|
+| 1 | GET | admin/overview | OverviewController@index | 🟡 | L116. Real KPIs (brand/restaurant/branch/activeUser counts, expiring brands, role counts «محاسبون/رؤساء حسابات/مدراء فروع/أدمن»). Missing ADM-1.1 "+delta this month" for branches/users; `uptime` hardcoded '99.9%'; ADM-1.3 «تنبيهات الاشتراكات» not capped at 4; `brandHierarchy[].branchCount` hardcoded 0; per-brand restaurant count is an N+1 loop |
+| 2 | GET | admin/companies | CompanyController@index | 🟡 | L119. Paginated, plan/status filters, batched counts. ADM-8.2 requires search by company/**contact/city** — only `name` LIKE is searched (CompanyController.php:31–33) |
+| 3 | POST | admin/companies | CompanyController@store | ✅ | L120. Creates with `status='trial'`, provisions company-admin + welcome email via CompanyProvisioningService, annual invoice for annual cycle, DB::transaction |
+| 4 | GET | admin/companies/{id} | CompanyController@show | ✅ | L121 |
+| 5 | PATCH | admin/companies/{id} | CompanyController@update | ✅ | L122. Validated partial update in transaction |
+| 6 | DELETE | admin/companies/{id} | CompanyController@destroy | ✅ | L123. SoftDeletes |
+| 7 | POST | admin/companies/{id}/suspend | CompanyController@suspend | ✅ | L124. status→suspended + realtime `subscriptionSuspended` broadcast |
+| 8 | POST | admin/companies/{id}/activate | CompanyController@activate | ✅ | L125. status→active (manual trial conversion path; no conversion tracking — see Gaps) |
+| 9 | POST | admin/companies/{id}/upgrade | CompanyController@upgrade | ✅ | L126. Plan + max_branches/max_users recomputed |
+| 10 | POST | admin/companies/{id}/admin/reset-password | CompanyController@resetAdminPassword | ✅ | L127. Hashed via cast, tokens revoked, emailed, plaintext never returned |
+| 11 | POST | admin/companies/{id}/impersonate | CompanyController@impersonate | ✅ | L128. 30-min Sanctum token + explicit AuditService entry |
+| 12 | POST | admin/companies/{id}/send-reminder | CompanyController@sendReminder | ✅ | L129. email/inApp channels, Arabic default message |
+| 13 | GET | admin/companies/{id}/modules | CompanyController@modules | ✅ | L130 |
+| 14 | PATCH | admin/companies/{id}/modules | CompanyController@updateModules | ✅ | L131. Array validated (module keys not checked against catalog — cosmetic) |
+| 15 | GET | admin/companies/{id}/usage | CompanyController@usage | ✅ | L132. branches/users used-vs-max |
+| 16 | GET | admin/brands | BrandController@index | ✅ | L135. Accordion tree (restaurants + branches, single grouped query). Unpaginated — acceptable volume, see task T02.13 |
+| 17 | POST | admin/brands | BrandController@store | ✅ | L136. **B-A6 confirmed**: ownerEmail → BrandOwnerProvisioningService in same transaction, credentials emailed; package code validated against `asab_brand_packages` incl. Arabic aliases (فضي/ذهبي/بلاتيني) |
+| 18 | PATCH | admin/brands/{id} | BrandController@update | ✅ | L137. owner/ownerEmail not editable post-create (SRS doesn't require) |
+| 19 | DELETE | admin/brands/{id} | BrandController@destroy | ✅ | L138. SoftDeletes |
+| 20 | POST | admin/brands/{brandId}/restaurants | RestaurantController@store | ✅ | L139. ADM-2.2 name+city under brand, inherits company_id |
+| 21 | POST | admin/brands/{brandId}/auto-reminder | BrandController@autoReminder | ✅ | L140 |
+| 22 | POST | admin/brands/{brandId}/subscription/renew | BrandController@renewSubscription | ✅ | L141. Extends from later of now/expiry (AsabSubscriptionService::computeRenewal) |
+| 23 | POST | admin/brands/{brandId}/subscription/activate | BrandController@activateSubscription | ✅ | L142. ADM-2.4 reactivate: fresh 12-month term when expired ✓ |
+| 24 | POST | admin/brands/{brandId}/owner/reset-password | BrandController@resetOwnerPassword | ✅ | L143. Resolves via owner_user_id → owner_email; tokens revoked; emailed only |
+| 25 | PATCH | admin/restaurants/{id} | RestaurantController@update | ✅ | L144 |
+| 26 | DELETE | admin/restaurants/{id} | RestaurantController@destroy | ✅ | L145 |
+| 27 | POST | admin/restaurants/{restaurantId}/subscription/renew | RestaurantController@renewSubscription | ✅ | L146. 404s cleanly when restaurant has no subscription; realtime broadcast |
+| 28 | GET | admin/restaurants/subscriptions | SubscriptionController@restaurants | ✅ | L147. Restaurant-level rows with brand/restaurant names, no N+1 |
+| 29 | GET | admin/branches | BranchController@index | ✅ | L148. restaurantId/brandId filters. Unpaginated (task T02.13) |
+| 30 | POST | admin/restaurants/{restaurantId}/branches | BranchController@store | ✅ | L149. ADM-2.3; manager rules enforced (branch role + max one branch per manager, 422 with Arabic messages) |
+| 31 | PATCH | admin/branches/{id} | BranchController@update | ✅ | L150 |
+| 32 | DELETE | admin/branches/{id} | BranchController@destroy | ✅ | L151 |
+| 33 | GET | admin/users | UserController@index | ✅ | L154. search(name/email)/status/companyId/role/brand filters, paginated, role Arabic labels |
+| 34 | POST | admin/users | UserController@store | 🟡 | L155. Role rules ✓ (branch=exactly 1 branch, accountant=brand-level). ADM-3.1 violations: credentials emailed **only when `sendLoginEmail=true` (default false)** — SRS says auto-emailed always; no `05XXXXXXXX` mobile regex; head (`reportsTo`) not mandatory for accountants (ADM-3.4) |
+| 35 | POST | admin/users/import | UserController@import | 🟡 | L156. Works (CSV, Arabic headers, dupe skip, per-row errors) but: role column unvalidated (any string becomes role_key), rows not in DB::transaction, no credentials email, `company_id` taken from platform admin (null) |
+| 36 | PATCH | admin/users/{id} | UserController@update | ✅ | L157. Role-forced scope rules mirrored; foreign id arrays zeroed correctly |
+| 37 | DELETE | admin/users/{id} | UserController@destroy | ✅ | L158. Tokens revoked + soft delete in transaction |
+| 38 | POST | admin/users/{id}/activate | UserController@activate | ✅ | L159 |
+| 39 | POST | admin/users/{id}/deactivate | UserController@deactivate | ✅ | L160 |
+| 40 | POST | admin/users/{id}/reset-password | UserController@resetPassword | ✅ | L161. Temp password hashed, sessions revoked, emailed, never returned |
+| 41 | GET | admin/distribution | DistributionController@index | 🟡 | L164. Heads/accountants/free-vs-assigned restaurants + accModules map. ADM-3.3 per-restaurant module lists are **faked**: every restaurant echoes the same flat `module_keys` (no per-restaurant storage) |
+| 42 | POST | admin/distribution/assign-restaurant | DistributionController@assignRestaurant | ✅ | L165 |
+| 43 | DELETE | admin/distribution/assign-restaurant | DistributionController@unassignRestaurant | ✅ | L166. ADM-3.3 remove-assignment ✓ |
+| 44 | POST | admin/distribution/assign-modules | DistributionController@assignModules | 🟡 | L167. Writes ONE flat `module_keys` per accountant — applies to all their restaurants, not the (accountant, restaurant) pair the UI implies |
+| 45 | POST | admin/distribution/move-to-head | DistributionController@moveToHead | ✅ | L168 |
+| 46 | GET | admin/subscriptions | SubscriptionController@index | ✅ | L171. status filter; unpaginated (task T02.13) |
+| 47 | POST | admin/subscriptions | SubscriptionController@store | ✅ | L172. Package-catalog validation (WS6), price from package w/ override |
+| 48 | POST | admin/subscriptions/{id}/renew | SubscriptionController@renew | ✅ | L173 |
+| 49 | POST | admin/subscriptions/{id}/change-plan | SubscriptionController@changePlan | ✅ | L174. Arabic alias → code mapping |
+| 50 | PATCH | admin/subscriptions/{id}/modules | SubscriptionController@updateModules | ✅ | L175 |
+| 51 | POST | admin/subscriptions/{id}/toggle-auto-reminder | SubscriptionController@toggleAutoReminder | ✅ | L176 |
+| 52 | POST | admin/subscriptions/{id}/suspend | SubscriptionController@suspend | 🟡 | L177. Maps suspend→`status='expired'` (SubscriptionController.php:145–148): admin-suspended is indistinguishable from naturally expired |
+| 53 | POST | admin/subscriptions/{id}/activate | SubscriptionController@activate | 🟡 | L178. Flips status only — `expires_at`/`days_left` untouched, so ADM-2.4 "reactivate resets 365 days" is NOT applied here (brand-level activate L142 does it; the subscription-id path doesn't) |
+| 54 | GET | admin/packages | PackageController@index | ✅ | L181. Active + inactive, price-ordered |
+| 55 | POST | admin/packages | PackageController@store | ✅ | L182. Soft-delete-aware unique code, restore-on-recreate |
+| 56 | PATCH | admin/packages/{id} | PackageController@update | ✅ | L183 |
+| 57 | DELETE | admin/packages/{id} | PackageController@destroy | ✅ | L184. Soft delete |
+| 58 | GET | admin/permissions | PermissionMatrixController@index | ✅ | L187. module×role grid, 6 roles, legend keys+Arabic (عرض/رفع/مراجعة/اعتماد/اعتماد نهائي/لا شيء) |
+| 59 | PUT | admin/permissions | PermissionMatrixController@replace | ✅ | L188. Diff-counted, snapshot captured (history) |
+| 60 | PATCH | admin/permissions/cell | PermissionMatrixController@updateCell | ✅ | L189. Single-cell set (FE cycles locally; save = PUT) |
+| 61 | POST | admin/permissions/clone | PermissionMatrixController@clone | 🟡 | L190. ADM-7.1 says clone **replaces** target role's permissions — code updateOrCreates only modules the SOURCE has entries for; target-only modules keep old values; and no history snapshot is captured |
+| 62 | GET | admin/permissions/history | PermissionMatrixController@history | ✅ | L193. Paginated snapshots w/ Arabic summaries |
+| 63 | GET | admin/permissions/history/{snapshotId} | PermissionMatrixController@historyShow | ✅ | L194 |
+| 64 | POST | admin/permissions/history/{snapshotId}/restore | PermissionMatrixController@restore | ✅ | L195. Transaction + audit («استعادة صلاحيات من نسخة سابقة») + realtime + new snapshot |
+| 65 | GET | admin/audit-logs/export | AuditLogController@export | ✅ | L198. ADM-7.2 Excel/CSV via ExportService::auditLogs (ExportService.php:588, Arabic headings, 10k cap) |
+| 66 | GET | admin/audit-logs/filters | AuditLogController@filters | ✅ | L199. Action-type vocabulary key+Arabic |
+| 67 | GET | admin/audit-logs | AuditLogController@index | ✅ | L200. actor/action/entity/date/search filters, paginated, humanized ar/en labels, before/after |
+| 68 | GET | admin/audit-logs/{id} | AuditLogController@show | ✅ | L201. Full diff + userAgent |
+| 69 | GET | admin/settings | SettingsController@show | ✅ | L202. 4 buckets (notifications/backup/api/security) with defaults + back-compat aliases |
+| 70 | PATCH | admin/settings | SettingsController@update | ✅ | L203. Deep-merge per bucket, transaction |
+| 71 | GET | admin/notifications/preferences | Shared/NotificationController@preferences | ✅ | L209. Admin-scoped alias (platform admin has no /company/me) |
+| 72 | PATCH | admin/notifications/preferences | Shared/NotificationController@updatePreferences | ✅ | L210 |
+| 73 | GET | admin/lookups/modules | Shared/LookupController@modules | ✅ | L211. key+value+labelAr+labelEn+icon |
+| 74 | GET | admin/jobs | JobMonitorController@index | 🟡 | L216. Endpoint solid (status/type filters, paginated) BUT **no producer exists**: nothing in the repo ever creates a `JobRun` row (grep: only the controller+model reference it) — the list is permanently empty in production |
+| 75 | POST | admin/jobs/{id}/retry | JobMonitorController@retry | 🟡 | L217. Sets `status='retrying'`+attempt++ on the row only; never re-dispatches a queue job |
+| 76 | POST | admin/jobs/{id}/cancel | JobMonitorController@cancel | 🟡 | L218. Row-only flag; no signal reaches a running job |
+| 77 | POST | admin/brands/{brandId}/upload/{type} | UploadController@brandUpload | ✅ | L222. Types sales-items/raw-materials/suppliers (ADM-4.1/4.2); xlsx+csv; per-row errors; raw materials dual-write into Purchase items; realtime progress; status stamped |
+| 78 | POST | admin/branches/{branchId}/upload/fixed-assets | UploadController@fixedAssets | ✅ | L223. ADM-4.3; FA-### public_id collision-safe; per-row errors |
+| 79 | GET | admin/upload/templates/{type} | UploadController@template | ✅ | L224. ADM-4.5 «نموذج»: xlsx default / csv w/ BOM; employees type 404s (ADM-4.4 dropped ✓); Arabic headers verbatim (رمز الصنف، اسم الصنف، التصنيف، وحدة البيع، السعر …) |
+| 80 | GET | admin/brands/{brandId}/upload-status | UploadController@status | ✅ | L225. `asab_upload_status`-backed per-upload progress + completionPct |
+| 81 | POST | admin/brands/{brandId}/uploads/{type} | UploadController@brandUpload | ✅ | L228. Doc-conformance alias of #77 (canonical = singular `upload/`) |
+| 82 | GET | admin/uploads/templates/{type} | UploadController@template | ✅ | L229. Alias of #79 (canonical = `upload/templates/`) |
+| 83 | PATCH | admin/accountants/{accId}/assignments | DistributionController@assignments | 🟡 | L239. Brand-level + head reconcile in one transaction ✓, but `headId` is nullable — ADM-3.4 meeting rule "head accountant mandatory" unenforced |
+| 84 | PUT | admin/accountants/{accId}/restaurants/{restaurant}/modules | DistributionController@restaurantModules | 🟡 | L240. Self-documented LIMITATION (DistributionController.php:159–166): writes flat `module_keys` on the assignment — affects ALL the accountant's restaurants, not one |
+
+Summary: **70 ✅ · 14 🟡 · 3 ❌** (missing behaviors have no route — see Gaps).
+
+## 2. Answers to critical checks
+
+1. **Does CompanyController/model support `status='trial'`?** Partially yes. `CompanyController@store` hard-sets `'status' => 'trial'` on creation (CompanyController.php:91); `asab_companies.status` is an unconstrained `string(16)` default `'active'` (Modules/Admin/database/migrations/2026_06_02_000001_create_asab_layer_tables.php:44), so `trial` persists and filters (`?status=trial`, CompanyController.php:44–46) work. **But**: (a) nothing ever derives `warning/danger/expired` for companies from `next_billing` — the only lifecycle transitions are the manual `suspend`/`activate` endpoints; (b) ADM-8.4's full status set (trial+active+warning+danger+expired) is therefore only partially reachable.
+2. **Trial conversion KPI (ADM-8.1 «تجريبي — يحتاج تحويل»)?** ❌ Missing. No endpoint aggregates company KPIs at all — `GET /admin/companies` returns only a paginated page (no meta KPIs), and `GET /admin/overview` (OverviewController.php:14–45) aggregates brands/users, not companies. There is no trialCount, expiring≤30d count, or company monthly-revenue aggregate anywhere, and no record of trial→active conversions (activate() just flips the status field, CompanyController.php:169–190).
+3. **Grant-Groups-Portal-account action (ADM-8.3 «منح حساب بوابة المجموعات»)?** ❌ Missing as a standalone action. Provisioning exists ONLY as a side-effect of company creation: `store()` calls `CompanyProvisioningService::createAdminUser()` when `contactEmail`/`adminEmail` is present (CompanyController.php:100–102; CompanyProvisioningService.php:32–60 creates the `company-admin` AsabUser + role + one-time password + `CompanyAdminWelcomeNotification`). A company created without an email can never be granted a portal account afterwards — no `POST companies/{id}/grant-portal-account` route exists (grep for grant/منح across Modules/Admin: no handler).
+4. **Does brand create email owner credentials (B-A6 / ADM-2.1)?** ✅ Yes, fully. `BrandController@store` (BrandController.php:36–89) provisions inside the same DB transaction when `ownerEmail` present: `BrandOwnerProvisioningService::provision()` (BrandOwnerProvisioningService.php:31–90) creates/links the dashboard `AsabUser`, upserts the `brand-owner` role merging `brand_ids`, mirrors credentials into the mobile `brand_owners` table with `is_first_login=true` (BrandOwnerProvisioningService.php:98–124), enforces a cross-company email 422 guard, and sends `BrandOwnerWelcomeNotification` with the one-time password (best-effort; response returns `emailSent`). Package selection is part of the form (`plan` validated against `asab_brand_packages` with Arabic alias mapping, BrandController.php:42–54). Owner password reset also exists (`brands/{brandId}/owner/reset-password`, L143).
+
+## 3. Gaps
+
+1. **ADM-8.3** → No «منح حساب بوابة المجموعات» endpoint for an existing company → companies onboarded without a contact email (or pre-existing rows) can never get a company-admin login; the SRS button has no backend. Service logic already exists (`CompanyProvisioningService::createAdminUser`), only the route/handler is missing.
+2. **ADM-8.1** → No company-subscriptions KPI endpoint (active count · trial «يحتاج تحويل» · expiring ≤30 days · monthly revenue K SAR · managed branches+users) → the FE cannot compute these from a paginated list; header tiles of `admin-companies` have no data source.
+3. **ADM-8.2** → Company search matches `name` only (CompanyController.php:31–33) → «بحث بالشركة/جهة الاتصال/المدينة» silently returns nothing for contact/city terms.
+4. **ADM-8.4 / ADM-2.4** → No status auto-derivation for companies or brands. `asab:subscriptions-expiry` (CheckExpiringSubscriptions.php, scheduled in AdminServiceProvider) recomputes only `asab_subscriptions` rows; `asab_brands.sub_status/days_left` and `asab_companies.status` are written once at create/renew and go stale → Overview «تنبيهات الاشتراكات», the brand accordion badges, and company status pills drift from reality; `daysLeft` for companies is computed live but status never flips to warning/danger/expired.
+5. **ADM-3.1** → User-create credentials email is opt-in (`sendLoginEmail` default false, UserController.php:106–108) and mobile has no `05XXXXXXXX` validation → SRS requires auto-emailed credentials with "no manual password"; a user created without the flag has an unknown password until an admin resets it.
+6. **ADM-3.4** → Mandatory head accountant unenforced: `reportsTo` nullable on store; `headId` nullable on `accountants/{accId}/assignments` → accountants can exist with no supervising head, breaking the approval chain the meeting mandated.
+7. **ADM-3.3** → No per-(accountant, restaurant) module storage: `assign-modules` and `restaurants/{restaurant}/modules` write one flat `asab_user_roles.module_keys` (acknowledged LIMITATION, DistributionController.php:159–166) → by-module distribution mode is cosmetic; changing modules for one restaurant changes them for all.
+8. **ADM-2.4** → Subscription-id lifecycle semantics: `suspend` stores `'expired'` (conflates admin action with natural expiry) and `activate` doesn't reset the term (unlike brand-level activate which grants 12 months) → the «إعادة تفعيل (365 يوم)» promise doesn't hold on the `subscriptions/{id}` path.
+9. **ADM-7.1** → `permissions/clone` is not a true replace and skips history → target-role modules absent from the source keep stale permissions after a "clone"; the confirm dialog's "replaces target role's permissions" claim is wrong; the change is invisible in version history.
+10. **Job monitor (FE §3.6)** → No producer writes `JobRun` rows (repo-wide grep: only JobMonitorController + model) and retry/cancel mutate the row without touching the queue → the `admin-jobs` screen is permanently empty and its buttons are no-ops against real work.
+11. **ADM-1.1/1.3** → Overview lacks month-over-month deltas, caps, and real branch counts (branchCount 0 in hierarchy, uptime hardcoded, expiring list uncapped) → KPI cards render incomplete/wrong numbers.
+12. **users/import** → Unvalidated `role` column (any CSV string becomes a role_key), no transaction, no credentials delivery → typo'd roles create users no role-gate recognizes; partial imports on crash.
+
+## 4. Tasks (ordered, dependency-aware)
+
+- [ ] T02.1 Add company KPI aggregates — Files: `Modules/Admin/app/Http/Controllers/Admin/CompanyController.php` (new `kpis()` or `meta` on index), `Modules/Admin/routes/api.php` — Accept: `GET /api/v1/admin/companies/kpis` returns `{activeCount, trialCount, expiringSoonCount (≤30d by next_billing), monthlyRevenueTotal, managedBranches, managedUsers}` computed via grouped queries (no N+1); trial companies counted as «تجريبي — يحتاج تحويل»; Pest asserts counts against seeded fixtures.
+- [ ] T02.2 Extend company search to contact/city — Files: `CompanyController.php` — Accept: `?search=` matches `name|contact_name|contact_email|city` (single WHERE group); test proves a city-only term returns the company.
+- [ ] T02.3 Add grant-portal-account action (ADM-8.3) — Files: `CompanyController.php`, `routes/api.php` — Accept: `POST /api/v1/admin/companies/{id}/grant-portal-account` body `{email, name?, phone?}` reuses `CompanyProvisioningService::createAdminUser`; 409 `ALREADY_EXISTS` when `resolveCompanyAdmin()` finds one; 422 when email belongs to another company; sets `admin_email`; welcome email best-effort; audited; tests cover happy/conflict/cross-tenant.
+- [ ] T02.4 Derive brand + company subscription statuses on schedule (ADM-2.4/ADM-8.4) — Files: `Modules/Admin/app/Console/Commands/CheckExpiringSubscriptions.php` (extend or sibling command), `AdminServiceProvider.php` — Accept: daily run recomputes `asab_brands.sub_status/days_left` (active/warning≤7d/danger≤3d/expired<0) and flips `asab_companies.status` active→warning/danger/expired from `next_billing` while never overwriting `trial`/`suspended`; idempotent; unit-tested date math.
+- [ ] T02.5 Auto-email credentials on user create + phone rule (ADM-3.1) — Files: `Admin/UserController.php` — Accept: `store()` sends the temp password email by default (`sendLoginEmail` defaults true; explicit false still suppresses); `phone` validated `regex:/^05\d{8}$/` when present; existing tests updated; response still never contains the password.
+- [ ] T02.6 Enforce mandatory head for accountants (ADM-3.4) — Files: `Admin/UserController.php`, `Admin/DistributionController.php` — Accept: creating role=accountant without `reportsTo` → 422 with Arabic message; `PATCH accountants/{accId}/assignments` rejects clearing/omitting `headId` when the accountant has no `reports_to_id`; `moveToHead` validates target holds role `head`; tests for all three.
+- [ ] T02.7 Fix subscription suspend/activate semantics (ADM-2.4) — Files: `Admin/SubscriptionController.php`, `AsabSubscriptionService.php` — Accept: suspend stores `'suspended'` (list/status filters updated), activate on an expired/suspended sub resets the term via `computeRenewal(null, 12)` (365 days) mirroring brand activate; FE doc notes the enum addition; regression tests for both transitions.
+- [ ] T02.8 Make permissions clone a true replace + snapshot (ADM-7.1) — Files: `Admin/PermissionMatrixController.php` — Accept: after clone, EVERY module row of `toRole` equals `fromRole` (modules missing from source → `none` or deleted); `captureSnapshot()` called with an Arabic summary («نسخ صلاحيات {from} إلى {to}»); test seeds a target-only module and proves it's overwritten and history grew.
+- [ ] T02.9 Per-restaurant module storage for distribution (ADM-3.3) — Files: new migration (e.g. `asab_accountant_restaurant_modules` or JSON map column on `asab_user_roles`), `Admin/DistributionController.php`, `Services/TenantBranchResolver.php`/`AuthService` readers — Accept: `PUT accountants/{accId}/restaurants/{r}/modules` affects only that restaurant; `assign-modules` takes (accountant, restaurant) pair; `GET distribution` accModules reflects per-restaurant truth; tenant resolution unions per-restaurant modules; migration guarded for SQLite; tests prove restaurant A's modules unchanged when B is edited. (If the client de-scopes, replace with a signed-off note in the FE doc.)
+- [ ] T02.10 Wire real producers into the job monitor — Files: `Admin/UploadController.php`, `Services/ExportService.php`, `Services/ErpBatchService.php`, `Admin/JobMonitorController.php`, `Models/JobRun.php` — Accept: brand uploads/exports/ERP batches create+progress a `JobRun` row (queued→running→done/failed with `last_error`); `retry` re-dispatches the underlying job (store job class + payload on the row) and `cancel` sets a flag the job checks between chunks; `GET /admin/jobs` shows real rows in a feature test.
+- [ ] T02.11 Overview KPI fidelity (ADM-1.1/1.3) — Files: `Admin/OverviewController.php` — Accept: adds `branchDeltaThisMonth`/`userDeltaThisMonth` (created_at ≥ startOfMonth), caps `expiringBrands` at 4 ordered by days_left asc, fills `brandHierarchy[].branchCount` from one grouped Branch query (kills the restaurant-count N+1 too); uptime either wired to a real source or documented as static in the FE doc.
+- [ ] T02.12 Harden users/import — Files: `Admin/UserController.php` — Accept: role whitelist (`in: admin,head,accountant,branch,procurement,supplier,brand-owner`, bad rows → errors[] not created), whole import in `DB::transaction`, optional `sendLoginEmail` flag emails each created user; test with a mixed-validity CSV asserts imported/skipped/errors counts and rollback on hard failure.
+- [ ] T02.13 Cap/paginate unbounded admin lists — Files: `Admin/BrandController.php`, `Admin/BranchController.php`, `Admin/SubscriptionController.php` — Accept: `brands`, `branches`, `subscriptions` GET endpoints accept `page/pageSize` (default 20, max 100) or a documented hard `take()` cap; FE doc updated; existing consumers keep working (meta added, `data` shape unchanged).
+- [ ] T02.14 Write FE wiring doc from `docs/fe-wiring/_TEMPLATE.md` covering all ✅ endpoints — Files: `docs/fe-wiring/FE-T02-admin-core.md` — Accept: every ✅ (and post-fix 🟡) endpoint documented per protocol (§6 notes below): method+path+role+headers, request/response JSON from seeded data, enums with Arabic labels, pagination contract, screen mapping; master-plan board flipped.
+
+## 5. Tests required
+
+Pest feature tests (SQLite in-memory; run with `-d memory_limit=1024M`). Existing coverage: `tests/Feature/AdminDashboardBatch1Test.php` (17 cases), `BrandPackagesTest.php`, `UserAssignmentRulesTest.php` — do not duplicate; add:
+
+1. **Role denial**: every `/admin/*` group route returns 403 `WRONG_ROLE` for accountant/head/branch/procurement tokens and 401 unauthenticated (parameterized smoke over one route per controller).
+2. **Inactive admin**: admin with `status='inactive'` → 403 `USER_INACTIVE` (EnsureAsabRole path).
+3. **Companies**: create→`status=trial`+admin user+role `company-admin`+welcome notification (Notification::fake); annual cycle creates invoice with 15% VAT; suspend/activate transitions; upgrade recomputes limits; usage counts; KPI endpoint numbers (T02.1); search by contact/city (T02.2); grant-portal-account happy/409/422 cross-company (T02.3); impersonate returns expiring token AND writes audit row; reset-admin-password revokes tokens and never leaks plaintext.
+4. **Brands (B-A6)**: store with ownerEmail creates AsabUser + brand-owner role + mobile `brand_owners` row (`is_first_login=true`) + email, transaction rolls back brand on provisioning 422 (email owned by другая company → assert brand absent); owner reset-password 404 when no owner; renew extends from future expiry; activate on expired grants 12 months.
+5. **Restaurants/branches**: branch store under restaurant inherits brand/company ids; manager must hold `branch` role (422 `MANAGER_ROLE_INVALID`); second branch for same manager → 422 `MANAGER_ALREADY_ASSIGNED`; restaurant subscription renew 404 without subscription.
+6. **Users**: role rules (branch requires exactly 1 branch; accountant requires brands; accountant without reportsTo → 422 after T02.6); phone regex; credentials auto-email default (T02.5); reset-password revokes tokens; import mixed CSV (valid, dupe, bad role, missing email) → counts + no partial writes (T02.12).
+7. **Distribution**: assign/unassign restaurant reconciles arrays; `assignments` with brands sets scope=brand and clears restaurant_ids; per-restaurant modules isolation (T02.9); moveToHead rejects non-head target (T02.6).
+8. **Subscriptions**: store validates package code incl. Arabic alias «ذهبي»; suspend→`suspended` and activate resets 365 days (T02.7); toggle-auto-reminder persists.
+9. **Packages**: recreate soft-deleted code restores row; duplicate live code → 422.
+10. **Permissions**: PUT replace captures snapshot with changesCount; clone full-replace incl. target-only module (T02.8); restore reapplies snapshot + audit row; history pagination.
+11. **Audit**: any admin mutation (e.g. PATCH company) auto-creates an `audit_logs` row via `asab.audit` middleware with action `patch.companies`; export returns xlsx (binary) and csv honoring date filters; index filters by actor/action/date.
+12. **Settings**: partial PATCH deep-merges one bucket without wiping siblings; defaults returned when unset.
+13. **Uploads**: xlsx template round-trips through brandUpload; unknown type → 400; employees template → 404; raw-materials row appears in BOTH `InventoryCatalogItem` (type raw-material, price in halalas) and Purchase items (create-only, restores trashed); fixed-assets `public_id` uniqueness after soft-deletes; upload-status reflects counts/completionPct; per-row error rows reported with 1-based file line numbers.
+14. **Job monitor**: seeded JobRun filtering/pagination; after T02.10 — a faked upload creates a running row, retry re-dispatches (Queue::fake), cancel flag stops a chunked job.
+15. **Tenant isolation edge**: admin endpoints are platform-wide by design (asab.role:admin), but assert a company-admin token CANNOT reach `/admin/*` (403) and impersonation token is scoped to the target user.
+
+## 6. FE wiring notes
+
+- **Envelope differs from the repo-wide BaseController format** (intentional — `AsabResponse`, Modules/Admin/app/Support/AsabResponse.php): single resources are returned **bare** (no `{success,message,data}` wrapper); lists are `{data:[...], meta:{page,pageSize,total,totalPages}}`; deletes are `204` empty; errors are `{error:{code,message,messageAr,details?}, requestId}` with codes like `VALIDATION_ERROR`, `NOT_FOUND`, `WRONG_ROLE`, `MANAGER_ALREADY_ASSIGNED`, `EMAIL_CONFLICT`. The FE doc must show this shape, not `docs/API_RESPONSE_FORMAT.md`.
+- **Headers**: `Authorization: Bearer` (Sanctum) + `Accept-Language`; all mutations pass through `asab.idempotency` — FE should send an `Idempotency-Key` header on POSTs it may retry; every mutation is auto-audited (`asab.audit`).
+- **Canonical vs alias paths** (FE must call the canonical, aliases exist for doc conformance only): `POST brands/{brandId}/upload/{type}` is canonical (alias `.../uploads/{type}`, L228); `GET upload/templates/{type}` is canonical (alias `uploads/templates/{type}`, L229). Admin-scoped `notifications/preferences` and `lookups/modules` (L209–211) are the canonical copies for the admin SPA — the `/company/me/*` variants 403 for platform admins.
+- **Enums with Arabic labels (verbatim)**:
+  - Roles: `accountant` محاسب · `head` رئيس حسابات · `branch` مدير فرع · `procurement` مدير مشتريات · `supplier` مورد · `admin` أدمن · `brand-owner` مالك العلامة التجارية (Admin/UserController::ROLE_LABELS — `role` field returns the Arabic label, `roleKey` the key).
+  - Permission legend: `view` عرض · `submit` رفع · `review` مراجعة · `approve` اعتماد · `final` اعتماد نهائي · `none` لا شيء (PermissionMatrixController::LEGEND; role column order fixed: accountant, head, branch, procurement, supplier, admin).
+  - Module lookup: sales المبيعات · expenses المصروفات · purchases المشتريات · inventory المخزون · waste الهدر · assets الأصول · shifts الورديات · employees الموظفين · cash النقدية (each row has both `key` and mirror `value`).
+  - Audit action types: users مستخدمين · approvals اعتمادات · subscriptions اشتراكات · rejection رفض · export تصدير · inventory مخزون · permissions صلاحيات · purchases مشتريات; log rows carry `descriptionAr`/`descriptionEn` humanized from `{verb}.{entity}`.
+  - Company plans: `Basic|Professional|Enterprise` (limits 5/15, 20/60, 100/300 branches/users). Company status: `trial|active|suspended` today (+`warning|danger|expired` after T02.4).
+  - Brand packages: codes validated against `asab_brand_packages`; Arabic aliases فضي/ذهبي/بلاتيني resolve via `AsabBrandPackage::resolveCode` — FE may submit either, canonical is the code (`silver|gold|platinum` seeded).
+  - Brand/subscription `sub_status`/`status`: `active|warning|danger|expired`.
+  - Upload template headers (must render exactly): sales-items رمز الصنف، اسم الصنف، التصنيف، وحدة البيع، السعر · raw-materials رمز المادة، اسم المادة، التصنيف، وحدة القياس، التكلفة · suppliers رقم المورد، اسم المورد، الفئة، جهة الاتصال، شروط الدفع · fixed-assets اسم الأصل، الفئة، اسم الفرع، رقم الفاتورة، التكلفة (ر.س)، العمر الافتراضي (شهر)، أمين العهدة، ملاحظات.
+- **Money units**: catalog `unit_price` and asset `cost` are stored in **halalas** (×100 on upload); subscription `monthly_price` and package `price` are whole SAR integers — document per endpoint.
+- **Quirks to document**: user list `role` filter accepts both `role` and `roleFilter` query params; company list accepts legacy `filter` plus explicit `plan`/`status`; `subscriptions/{id}/suspend` currently writes `expired` (until T02.7); permission cell "cycling" is FE-local — persist with `PUT /admin/permissions` (snapshot) not per-cell PATCH; upload progress is available BOTH via polling (`brands/{id}/upload-status`) and realtime `brandUploadProgress` broadcasts; template download default is `.xlsx`, add `?format=csv` for CSV (UTF-8 BOM).
+- **Screen mapping** (SRS §6 sidebar): `admin-overview` الرئيسية → #1; `admin-users` المستخدمون → #33–40 + distribution #41–45, 83–84; `admin-restaurants` المطاعم والفروع → #16–32; `admin-subscriptions` الاشتراكات → #46–57 + brand renew/activate #21–24; `admin-companies` اشتراكات الشركات → #2–15 (+T02.1/T02.3); `admin-permissions` الصلاحيات → #58–64; `admin-audit` سجل النشاطات → #65–68; `admin-settings` إعدادات النظام → #69–70; رفع البيانات upload wizard → #77–82; jobs drawer → #74–76.

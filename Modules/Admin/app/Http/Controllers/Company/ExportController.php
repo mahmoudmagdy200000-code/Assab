@@ -26,7 +26,8 @@ class ExportController extends AsabController
     /** GET /operations/{id}/export — single operation detail sheet. */
     public function operation(Request $request, string $id): BinaryFileResponse
     {
-        return $this->exports->operation($this->format($request), $id);
+        // Zero-trust: an operation outside the caller's branches reads as absent.
+        return $this->exports->operation($this->format($request), $id, $this->assignedBranchIds());
     }
 
     /** GET /company/me/inventory/export — variance sheet (FE completion request §1.8). */
@@ -42,7 +43,8 @@ class ExportController extends AsabController
     /** GET /waste/export */
     public function waste(Request $request): BinaryFileResponse
     {
-        return $this->exports->waste($this->format($request), $request->query('branchId'));
+        // Zero-trust: a branch-scoped accountant exports only their branches.
+        return $this->exports->waste($this->format($request), $request->query('branchId'), $this->assignedBranchIds());
     }
 
     /** GET /shifts/export */
@@ -76,6 +78,8 @@ class ExportController extends AsabController
             'brandId' => $request->query('brandId'),
             'dateFrom' => $request->query('dateFrom'),
             'dateTo' => $request->query('dateTo'),
+            // Zero-trust: a branch-scoped accountant exports only their branches.
+            'branchIds' => $this->assignedBranchIds(),
         ]);
     }
 
@@ -87,6 +91,8 @@ class ExportController extends AsabController
             $request->user()->company_id,
             $request->query('category'),
             $request->query('branchId'),
+            // Zero-trust: a branch-scoped accountant exports only their branches.
+            $this->assignedBranchIds(),
         );
     }
 

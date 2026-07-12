@@ -5,12 +5,24 @@ namespace Modules\Admin\Http\Controllers\Operations;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Models\Attachment;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Services\ExpenseInvoiceService;
 use Modules\Admin\Services\OperationService;
+use Modules\Admin\Services\PurchasePresenterService;
+use Modules\Admin\Services\PurchaseReceivingBridge;
+use Modules\Admin\Services\SalesReconciliationService;
+use Modules\Admin\Support\OperationEnums;
 
 class OperationController extends AsabController
 {
-    public function __construct(private readonly OperationService $service) {}
+    public function __construct(
+        private readonly OperationService $service,
+        private readonly SalesReconciliationService $reconciler,
+        private readonly ExpenseInvoiceService $invoices,
+        private readonly PurchasePresenterService $purchases,
+        private readonly PurchaseReceivingBridge $receiving,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -18,26 +30,62 @@ class OperationController extends AsabController
             $perPage = min((int) $request->query('pageSize', 20), 100);
             $q = $this->scopeToAssignedBranches(Operation::query());
 
-            foreach (['module_key' => 'moduleKey', 'status' => 'status', 'branch_id' => 'branchId', 'match' => 'match'] as $col => $param) {
+            foreach (['module_key' => 'moduleKey', 'status' => 'status', 'branch_id' => 'branchId', 'match' => 'match', 'origin' => 'origin'] as $col => $param) {
                 if ($val = $request->query($param)) {
                     str_contains($val, ',')
                         ? $q->whereIn($col, explode(',', $val))
                         : $q->where($col, $val);
                 }
             }
+            if ($from = $request->query('dateFrom')) {
+                $q->whereDate('operation_date', '>=', $from);
+            }
+            if ($to = $request->query('dateTo')) {
+                $q->whereDate('operation_date', '<=', $to);
+            }
             if ($search = $request->query('search')) {
                 $q->where('public_id', 'like', "%{$search}%");
+            }
+            // ACC-3.2 purchases-only filters (payload-keyed).
+            if ($supplierId = $request->query('supplierId')) {
+                $q->where('payload->supplierId', $supplierId);
             }
 
             $p = $q->orderByDesc('operation_date')->orderByDesc('created_at')
                 ->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
+            $items = $p->items();
+            // ACC-3 order-source filter is derived, so it is applied post-load on
+            // the page (documented FE caveat: filters a page, not the full set).
+            if ($source = $request->query('source')) {
+                $items = array_values(array_filter($items, fn ($o) => $o->module_key === 'purchases'
+                    && $this->purchases->orderSource($o)['key'] === $source));
+            }
+
             return $this->paginated(
                 $p,
-                array_map([$this, 'present'], $p->items()),
+                array_map(fn ($o) => $this->present($o, $this->supplierNamesFor($p->items())), $items),
                 ['summary' => $this->summary($request)],
             );
         });
+    }
+
+    /**
+     * Supplier names for a page of operations in one query (no N+1). Keyed by
+     * supplier id; empty for a page with no purchases rows.
+     *
+     * @return array<string, string>
+     */
+    private function supplierNamesFor(array $ops): array
+    {
+        $ids = collect($ops)
+            ->filter(fn ($o) => $o->module_key === 'purchases')
+            ->map(fn ($o) => $o->payload['supplierId'] ?? null)
+            ->filter()->unique()->values();
+
+        return $ids->isEmpty()
+            ? []
+            : \Modules\Admin\Models\AsabSupplier::whereIn('id', $ids)->pluck('name', 'id')->all();
     }
 
     public function show(string $id): JsonResponse
@@ -48,6 +96,18 @@ class OperationController extends AsabController
             )->firstOrFail();
             $data = $this->present($op);
             $data['payload'] = $op->payload;
+            // ACC-1.4 «جدول المقارنة والتسوية» — computed, never stored.
+            if ($op->module_key === 'sales') {
+                $data['reconciliation'] = $this->reconciler->present($op);
+            }
+            // ACC-2.2 the statement's invoices with their VAT split and توثيق stamps.
+            if ($op->module_key === 'expenses') {
+                $data['expenses'] = $this->invoices->present($op);
+            }
+            // ACC-3.3 the 3-way match table + summary tiles + attachments.
+            if ($op->module_key === 'purchases') {
+                $data['purchases'] = $this->purchases->present($op, $this->receiving->receivedByRow($op));
+            }
             $data['auditTrail'] = $op->steps->map(fn ($s) => [
                 'stageId' => $s->stage_id,
                 'action' => $s->action,
@@ -60,6 +120,33 @@ class OperationController extends AsabController
         });
     }
 
+    /**
+     * GET /operations/{id}/attachments — the ACC-1.4 attachments panel
+     * (POS report, bank statement, aggregator sheets…).
+     */
+    public function attachments(string $id): JsonResponse
+    {
+        return $this->run(function () use ($id) {
+            $op = $this->find($id);
+
+            $rows = Attachment::where('owner_id', $op->id)
+                ->orderBy('uploaded_at')
+                ->get()
+                ->map(fn (Attachment $a) => [
+                    'id' => $a->id,
+                    'filename' => $a->filename,
+                    'mimeType' => $a->mime_type,
+                    'size' => $a->size,
+                    'publicUrl' => $a->public_url,
+                    'label' => $a->label,
+                    'verifiedAt' => optional($a->verified_at)->toIso8601String(),
+                    'uploadedAt' => optional($a->uploaded_at)->toIso8601String(),
+                ])->all();
+
+            return $this->listResponse($rows, ['total' => count($rows)]);
+        });
+    }
+
     public function approve(Request $request, string $id): JsonResponse
     {
         return $this->run(fn () => $this->ok($this->present(
@@ -67,13 +154,59 @@ class OperationController extends AsabController
         )));
     }
 
+    /**
+     * POST /operations/{id}/reject — return the record to the branch manager.
+     * `reason` is a key from GET /lookups/rejection-reasons (SRS §5.4); the raw
+     * Arabic label is still accepted for one release. `details`/`notes` carry
+     * the optional free text.
+     */
     public function reject(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $data = $request->validate(['reason' => 'required|string|max:500', 'notes' => 'nullable|string']);
+            $data = $request->validate([
+                'reason' => 'required|string|max:500',
+                'notes' => 'sometimes|nullable|string|max:1000',
+                'details' => 'sometimes|nullable|string|max:1000',
+            ]);
 
             return $this->ok($this->present(
-                $this->service->reject($this->find($id), $request->user(), $data['reason'], $data['notes'] ?? null),
+                $this->service->reject(
+                    $this->find($id),
+                    $request->user(),
+                    $data['reason'],
+                    $data['details'] ?? $data['notes'] ?? null,
+                ),
+            ));
+        });
+    }
+
+    /**
+     * POST /operations/{id}/request-clarification — «طلب توضيح».
+     * Non-terminal: asks the submitter for information, status is unchanged.
+     */
+    public function requestClarification(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $data = $request->validate(['message' => 'required|string|max:500']);
+
+            return $this->ok($this->present(
+                $this->service->requestClarification($this->find($id), $request->user(), $data['message']),
+            ));
+        });
+    }
+
+    /**
+     * POST /operations/{id}/document — «توثيق» (ACC-3.4).
+     * The accountant marks the purchase order documented before it reaches the
+     * head. Idempotent; status unchanged; 409 on a locked op.
+     */
+    public function document(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $data = $request->validate(['note' => 'sometimes|nullable|string|max:1000']);
+
+            return $this->ok($this->present(
+                $this->service->document($this->find($id), $request->user(), $data['note'] ?? null),
             ));
         });
     }
@@ -189,10 +322,7 @@ class OperationController extends AsabController
 
     private function stageIcon(string $stage): string
     {
-        return [
-            'submit' => '📋', 'review' => '👀', 'approved' => '✓',
-            'final' => '🔒', 'erp' => '📤', 'rejected' => '✗', 'reports' => '📊',
-        ][$stage] ?? '•';
+        return OperationEnums::stageIcon($stage);
     }
 
     private function find(string $id): Operation
@@ -209,17 +339,41 @@ class OperationController extends AsabController
             $base->where('module_key', $module);
         }
 
-        return [
+        $summary = [
             'total' => (clone $base)->count(),
             'pending' => (clone $base)->where('status', Operation::STATUS_PENDING)->count(),
             'approved' => (clone $base)->where('status', Operation::STATUS_APPROVED)->count(),
             'finalApproved' => (clone $base)->where('status', Operation::STATUS_FINAL)->count(),
             'rejected' => (clone $base)->where('status', Operation::STATUS_REJECTED)->count(),
         ];
+
+        // ACC-3.1 purchases KPI header — only on the purchases tab.
+        if ($request->query('moduleKey') === 'purchases') {
+            $today = now()->toDateString();
+            $summary['purchases'] = [
+                'todayTotalHalalas' => (int) (clone $base)->whereDate('operation_date', $today)->sum('amount'),
+                'pendingReview' => $summary['pending'],
+                'qtyDiscrepancies' => (clone $base)->whereIn('status', [Operation::STATUS_PENDING, Operation::STATUS_APPROVED])
+                    ->where('match', 'diff')->count(),
+                'approvedToday' => (clone $base)->where('status', Operation::STATUS_APPROVED)
+                    ->whereDate('operation_date', $today)->count(),
+            ];
+        }
+
+        return $summary;
     }
 
-    private function present(Operation $op): array
+    /**
+     * Enum fields stay bare keys (`status: "approved"`) for back-compat; the
+     * canonical Arabic label of each rides alongside as `*LabelAr` so no screen
+     * re-implements a label map (SRS §5, master-plan cross-cutting rule).
+     */
+    private function present(Operation $op, array $supplierNames = []): array
     {
+        $status = OperationEnums::status($op->status);
+        $origin = OperationEnums::origin($op->origin);
+        $match = OperationEnums::match($op->match);
+
         return [
             'id' => $op->id,
             'publicId' => $op->public_id,
@@ -229,11 +383,18 @@ class OperationController extends AsabController
             'sourceId' => $op->source_id,
             'amount' => $op->amount,
             'match' => $op->match,
+            'matchLabelAr' => $match['labelAr'],
             'diffNote' => $op->diff_note,
             'origin' => $op->origin,
+            'originLabelAr' => $origin['labelAr'],
+            'originIcon' => $origin['icon'],
             'attachmentCount' => $op->attachment_count,
             'status' => $op->status,
+            'statusLabelAr' => $status['labelAr'],
+            'statusLabelShortAr' => $status['labelShortAr'],
+            'stage' => OperationEnums::stageFor($op->status, (bool) $op->erp_posted),
             'rejectReason' => $op->reject_reason,
+            'rejectReasonKey' => OperationEnums::rejectionReasonKey($op->reject_reason, $op->module_key),
             'isConditional' => (bool) $op->is_conditional,
             'isCorrection' => (bool) $op->is_correction,
             'erpPosted' => (bool) $op->erp_posted,
@@ -242,6 +403,12 @@ class OperationController extends AsabController
             'approvedAt' => optional($op->approved_at)->toIso8601String(),
             'finalApprovedAt' => optional($op->final_approved_at)->toIso8601String(),
             'createdAt' => optional($op->created_at)->toIso8601String(),
+            // ACC-1.3 matching table columns; null until the op is reconciled.
+            'salesBreakdown' => $op->module_key === 'sales' ? $this->reconciler->breakdown($op) : null,
+            // ACC-3.2 purchases list-row projection; null for other modules.
+            'purchaseRow' => $op->module_key === 'purchases'
+                ? $this->purchases->row($op, $supplierNames[$op->payload['supplierId'] ?? ''] ?? null)
+                : null,
         ];
     }
 }

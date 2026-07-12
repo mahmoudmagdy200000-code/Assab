@@ -9,6 +9,7 @@ use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\CashierProvisioningService;
+use Modules\Admin\Services\ExpenseInvoiceService;
 use Modules\Admin\Services\OperationFactory;
 
 /**
@@ -20,6 +21,7 @@ class BranchDashboardController extends AsabController
     public function __construct(
         private readonly OperationFactory $factory,
         private readonly CashierProvisioningService $cashiers,
+        private readonly ExpenseInvoiceService $invoices,
     ) {}
 
     public function overview(Request $request): JsonResponse
@@ -61,8 +63,16 @@ class BranchDashboardController extends AsabController
                 return $this->fail('INVALID_INPUT', 'Unknown report type', 'نوع تقرير غير معروف', [], 400);
             }
 
+            // ACC-2.2 — an expenses statement is a list of invoices, and its total
+            // is the sum of them, never a number the client picks.
+            if ($reportType === 'expenses') {
+                $request->validate($this->invoices->uploadRules());
+            }
+
             $payload = $request->all();
-            $amount = (int) ($request->input('totalSales') ?? $request->input('amount') ?? 0);
+            $amount = $reportType === 'expenses'
+                ? $this->invoices->statementTotal($request->input('invoices', []))
+                : (int) ($request->input('totalSales') ?? $request->input('amount') ?? 0);
             $op = $this->factory->createFromUpload(
                 $moduleMap[$reportType],
                 $payload,

@@ -9,6 +9,10 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Services\ExceptionService;
+use Modules\Admin\Support\AssetEnums;
+use Modules\Admin\Support\ExpenseEnums;
+use Modules\Admin\Support\ModuleCatalog;
+use Modules\Admin\Support\OperationEnums;
 use Modules\Branch\Models\Branch;
 
 /**
@@ -95,19 +99,55 @@ class LookupController extends AsabController
     {
         // `value` mirrors `key` so consumers expecting either field bind cleanly
         // (FE distribution matrix reads `value`; gating/tenant code reads `key`).
-        $modules = [
-            ['key' => 'sales', 'labelAr' => 'المبيعات', 'labelEn' => 'Sales', 'icon' => '💰'],
-            ['key' => 'expenses', 'labelAr' => 'المصروفات', 'labelEn' => 'Expenses', 'icon' => '🧾'],
-            ['key' => 'purchases', 'labelAr' => 'المشتريات', 'labelEn' => 'Purchases', 'icon' => '🛒'],
-            ['key' => 'inventory', 'labelAr' => 'المخزون', 'labelEn' => 'Inventory', 'icon' => '📦'],
-            ['key' => 'waste', 'labelAr' => 'الهدر', 'labelEn' => 'Waste', 'icon' => '🗑️'],
-            ['key' => 'assets', 'labelAr' => 'الأصول', 'labelEn' => 'Assets', 'icon' => '🏷️'],
-            ['key' => 'shifts', 'labelAr' => 'الورديات', 'labelEn' => 'Shifts', 'icon' => '🕐'],
-            ['key' => 'employees', 'labelAr' => 'الموظفين', 'labelEn' => 'Employees', 'icon' => '👥'],
-            ['key' => 'cash', 'labelAr' => 'النقدية', 'labelEn' => 'Cash', 'icon' => '💵'],
-        ];
+        return $this->listResponse(array_map(
+            fn ($m) => ['value' => $m['key']] + $m,
+            ModuleCatalog::catalog(),
+        ));
+    }
 
-        return $this->listResponse(array_map(fn ($m) => ['value' => $m['key']] + $m, $modules));
+    /**
+     * GET /lookups/asset-enums — the fixed-assets register vocabulary (SRS §4.2
+     * categories, useful-life options, lifecycle + workflow statuses) alongside
+     * the expenses VAT rate and invoice-match badges (ACC-2).
+     */
+    public function assetEnums(): JsonResponse
+    {
+        return $this->ok(AssetEnums::catalog() + ['expenses' => ExpenseEnums::catalog()]);
+    }
+
+    /**
+     * GET /lookups/purchase-enums — the purchases vocabulary (ACC-3): order
+     * source, per-line match badges and the return-order status labels.
+     */
+    public function purchaseEnums(): JsonResponse
+    {
+        return $this->ok(\Modules\Admin\Support\PurchaseEnums::catalog());
+    }
+
+    /**
+     * GET /lookups/rejection-reasons?moduleKey=sales — the fixed §5.4 list the
+     * reject modal must render. Sales adds «تقرير POS مفقود» and
+     * «كشف البنك غير مرفق» on top of the generic seven.
+     */
+    public function rejectionReasons(Request $request): JsonResponse
+    {
+        $reasons = OperationEnums::rejectionReasons($request->query('moduleKey'));
+
+        return $this->listResponse(array_map(
+            fn ($key, $labelAr) => ['key' => $key, 'value' => $key, 'labelAr' => $labelAr],
+            array_keys($reasons),
+            array_values($reasons),
+        ));
+    }
+
+    /**
+     * GET /lookups/operation-enums — every pipeline enum (status, stages,
+     * origin, match, rollup, rejection reasons) with its canonical Arabic
+     * label, so no screen hardcodes a label map (SRS §5).
+     */
+    public function operationEnums(): JsonResponse
+    {
+        return $this->ok(OperationEnums::catalog());
     }
 
     /** Exception-type dropdown metadata (MISSING_Dashboard §3.4). */

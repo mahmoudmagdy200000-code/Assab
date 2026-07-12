@@ -14,10 +14,16 @@ use Modules\Branch\Models\Branch;
  */
 class TenantBranchResolver
 {
-    /** Memoized per request (registered scoped): the ids cannot change mid-request. */
-    private ?array $memo = null;
-
-    private bool $memoSet = false;
+    /**
+     * Memoized per resolved context, not per instance. The service is registered
+     * scoped, so one HTTP request normally sees one context — but a queue worker
+     * or a console command iterating tenants resolves it once and hands it a new
+     * context each time. Keying the cache on the context keeps those callers from
+     * inheriting the previous tenant's branch list.
+     *
+     * @var array<string, string[]|null>
+     */
+    private array $memo = [];
 
     /**
      * Branch ids visible in legacy (mobile-domain) tables.
@@ -27,18 +33,31 @@ class TenantBranchResolver
      */
     public function legacyBranchIds(TenantContext $ctx): ?array
     {
-        if ($this->memoSet) {
-            return $this->memo;
+        $key = $this->fingerprint($ctx);
+
+        if (array_key_exists($key, $this->memo)) {
+            return $this->memo[$key];
         }
 
-        return $this->memo = $this->resolve($ctx);
+        return $this->memo[$key] = $this->resolve($ctx);
+    }
+
+    /** Everything `resolve()` reads off the context. */
+    private function fingerprint(TenantContext $ctx): string
+    {
+        return implode('|', [
+            $ctx->isAdmin ? 'admin' : 'user',
+            $ctx->companyId ?? '-',
+            $ctx->scope,
+            implode(',', $ctx->branchIds),
+            implode(',', $ctx->restaurantIds),
+            implode(',', $ctx->brandIds),
+        ]);
     }
 
     /** @return string[]|null */
     private function resolve(TenantContext $ctx): ?array
     {
-        $this->memoSet = true;
-
         if ($ctx->isAdmin) {
             return null;
         }

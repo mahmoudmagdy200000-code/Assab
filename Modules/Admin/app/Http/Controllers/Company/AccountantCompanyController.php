@@ -14,7 +14,16 @@ use Modules\Admin\Models\CashCustody;
 use Modules\Admin\Models\CashTransaction;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Services\AccountantDashboardService;
+use Modules\Admin\Services\AssetSequence;
+use Modules\Admin\Services\ExpenseInvoiceService;
+use Modules\Admin\Services\ExpenseKpiService;
+use Modules\Admin\Services\SalesCompletenessService;
+use Modules\Admin\Services\SalesKpiService;
 use Modules\Admin\Services\SalesVarianceService;
+use Modules\Admin\Support\AssetEnums;
+use Modules\Admin\Support\ModuleCatalog;
+use Modules\Admin\Support\TenantContext;
 
 /**
  * Company-scoped Accountant surface — the endpoints with NEW logic beyond what
@@ -22,36 +31,70 @@ use Modules\Admin\Services\SalesVarianceService;
  */
 class AccountantCompanyController extends AsabController
 {
-    public function __construct(private readonly SalesVarianceService $salesVariance) {}
+    public function __construct(
+        private readonly SalesVarianceService $salesVariance,
+        private readonly AccountantDashboardService $dashboards,
+        private readonly SalesKpiService $salesKpis,
+        private readonly SalesCompletenessService $completeness,
+        private readonly ExpenseInvoiceService $invoices,
+        private readonly ExpenseKpiService $expenseKpi,
+        private readonly TenantContext $tenant,
+    ) {}
 
+    /** GET …/sales/kpis — ACC-1.1 cards + ACC-1.5 variance banner. */
+    public function salesKpis(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $request->validate(['date' => 'sometimes|date']);
+
+            return $this->ok($this->salesKpis->forDate(
+                $request->user()->company_id,
+                $this->assignedBranchIds(),
+                $request->query('date'),
+            ));
+        });
+    }
+
+    /** GET …/sales/day-completeness — ACC-1.2 day pills + «n مطلوبة — m مكتملة · k ناقصة». */
+    public function salesDayCompleteness(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $request->validate(['days' => 'sometimes|integer|min:1|max:31']);
+
+            return $this->listResponse($this->completeness->days(
+                $request->user()->company_id,
+                $this->assignedBranchIds(),
+                (int) $request->query('days', 7),
+            ));
+        });
+    }
+
+    /** GET /company/me/accountant/dashboard — ACC-0 «ملخص اليوم». */
     public function dashboard(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
             $companyId = $request->user()->company_id;
+            $branchIds = $this->assignedBranchIds();
+            $actor = $request->user();
             $base = fn () => $this->scopeToAssignedBranches(Operation::where('company_id', $companyId));
-            $byModule = $base()->where('status', Operation::STATUS_PENDING)
-                ->selectRaw('module_key, COUNT(*) as c')->groupBy('module_key')->pluck('c', 'module_key');
+
+            $kpis = $this->dashboards->kpis($actor, $branchIds);
+            $modules = $this->dashboards->moduleGrid($actor, $branchIds);
 
             return $this->ok([
                 'today' => now()->toDateString(),
-                'counts' => [
-                    'awaitingReview' => $base()->where('status', Operation::STATUS_PENDING)->count(),
-                    'iApproved' => $base()->where('approved_by_id', $request->user()->id)->count(),
-                    'finalApproved' => $base()->where('status', Operation::STATUS_FINAL)->count(),
-                    'rejected' => $base()->where('status', Operation::STATUS_REJECTED)->count(),
-                    'approvalRatePct' => 100,
-                ],
-                'pendingByModule' => $byModule,
+                'counts' => $kpis,
+                'scope' => $this->dashboards->scope($actor, $branchIds, $this->tenant),
+                'modules' => $modules,
+                'progressToday' => $this->dashboards->progressToday($actor, $branchIds),
+                // Sparse pending-only map kept for the pre-T04 company dashboard.
+                'pendingByModule' => collect($modules)->filter(fn ($m) => $m['pendingCount'] > 0)
+                    ->pluck('pendingCount', 'key'),
                 'needsAttention' => $this->needsAttention($base()),
-                'rejectedReuploadNeededCount' => $base()->where('status', Operation::STATUS_REJECTED)->count(),
+                'rejectedReuploadNeededCount' => $kpis['rejected'],
             ]);
         });
     }
-
-    private const MODULE_LABELS = [
-        'sales' => 'المبيعات', 'expenses' => 'المصروفات', 'purchases' => 'المشتريات', 'inventory' => 'المخزون',
-        'shifts' => 'الورديات', 'employees' => 'الموظفين', 'cash' => 'النقدية', 'waste' => 'الهدر',
-    ];
 
     /** @return array<int, array<string, mixed>> spec §5.3.1 needsAttention shape */
     private function needsAttention($base): array
@@ -61,7 +104,7 @@ class AccountantCompanyController extends AsabController
 
         return $ops->map(fn (Operation $o) => [
             'operationId' => $o->id, 'refNum' => $o->public_id, 'branch' => $branchNames[$o->branch_id] ?? '—',
-            'moduleLabel' => self::MODULE_LABELS[$o->module_key] ?? $o->module_key, 'match' => $o->match, 'diff' => $o->diff_note,
+            'moduleLabel' => ModuleCatalog::labelAr($o->module_key), 'match' => $o->match, 'diff' => $o->diff_note,
         ])->all();
     }
 
@@ -102,44 +145,103 @@ class AccountantCompanyController extends AsabController
         });
     }
 
+    /** GET …/expenses/kpis — ACC-2.1 cards + the invoice-match split. */
+    public function expenseKpis(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $request->validate(['dateFrom' => 'sometimes|date', 'dateTo' => 'sometimes|date|after_or_equal:dateFrom']);
+
+            return $this->ok($this->expenseKpi->forRange(
+                $request->user()->company_id,
+                $this->assignedBranchIds(),
+                $request->query('dateFrom'),
+                $request->query('dateTo'),
+            ));
+        });
+    }
+
+    /**
+     * POST …/expense-invoices/{invoiceId}/verify — ACC-2.2 توثيق.
+     *
+     * `{invoiceId}` is the expenses **operation**; `invoiceIndex` selects the row
+     * inside its statement (default 0, the single-invoice case).
+     */
     public function verifyExpense(Request $request, string $invoiceId): JsonResponse
     {
         return $this->run(function () use ($request, $invoiceId) {
-            $op = $this->expenseOp($request, $invoiceId);
-            $payload = $op->payload ?? [];
-            $payload['verified'] = true;
-            $payload['verifiedAt'] = now()->toIso8601String();
-            $payload['verifiedBy'] = $request->user()->id;
-            $op->update(['payload' => $payload]);
+            $index = $this->invoiceIndex($request);
 
-            return $this->ok(['id' => $op->id, 'verified' => true, 'verifiedAt' => $payload['verifiedAt']]);
+            return $this->ok($this->invoices->verify($this->expenseOp($request, $invoiceId), $index, $request->user()));
         });
     }
 
     public function unverifyExpense(Request $request, string $invoiceId): JsonResponse
     {
         return $this->run(function () use ($request, $invoiceId) {
-            $op = $this->expenseOp($request, $invoiceId);
-            $payload = $op->payload ?? [];
-            unset($payload['verified'], $payload['verifiedAt'], $payload['verifiedBy']);
-            $op->update(['payload' => $payload]);
+            $index = $this->invoiceIndex($request);
 
-            return $this->noContent();
+            return $this->ok($this->invoices->unverify($this->expenseOp($request, $invoiceId), $index));
         });
     }
 
+    /**
+     * PATCH …/expense-invoices/{invoiceId}/invoices/{invoiceIndex} — ACC-2.3.
+     * Records what the accountant read off the attached document; the match badge
+     * and the «⚠ فرق: … ر.س» delta are re-derived from it.
+     */
+    public function reviewInvoice(Request $request, string $invoiceId, string $invoiceIndex): JsonResponse
+    {
+        return $this->run(function () use ($request, $invoiceId, $invoiceIndex) {
+            $data = $request->validate([
+                'documentAmountHalalas' => 'sometimes|nullable|integer|min:0',
+                'documentVendor' => 'sometimes|nullable|string|max:200',
+                'documentInvNum' => 'sometimes|nullable|string|max:64',
+                'documentDate' => 'sometimes|nullable|date',
+            ]);
+
+            return $this->ok($this->invoices->setDocument(
+                $this->expenseOp($request, $invoiceId), (int) $invoiceIndex, $data,
+            ));
+        });
+    }
+
+    /**
+     * GET …/expense-invoices/{invoiceId}/attachments — the three ACC-2 documents
+     * (صورة الفاتورة / ختم وتوقيع / الإجماليات), grouped per invoice.
+     * `?invoiceIndex=` narrows to one invoice.
+     */
     public function expenseAttachments(Request $request, string $invoiceId): JsonResponse
     {
         return $this->run(function () use ($request, $invoiceId) {
             $op = $this->expenseOp($request, $invoiceId);
+            $byIndex = $this->invoices->attachmentRows($op);
 
-            return $this->listResponse(($op->payload['attachments'] ?? []));
+            if ($request->query('invoiceIndex') !== null) {
+                $index = $this->invoiceIndex($request);
+                $this->invoices->invoiceAt($op, $index);
+
+                return $this->listResponse($byIndex[$index] ?? [], ['invoiceIndex' => $index]);
+            }
+
+            $groups = [];
+            foreach ($byIndex as $index => $rows) {
+                $groups[] = ['invoiceIndex' => $index === -1 ? null : $index, 'attachments' => $rows];
+            }
+
+            return $this->listResponse($groups, ['total' => array_sum(array_map('count', $byIndex))]);
         });
     }
 
-    public function inventorySendNotification(Request $request, \Modules\Admin\Services\RealtimeBroadcaster $rt, string $branchId): JsonResponse
+    private function invoiceIndex(Request $request): int
     {
-        return $this->run(function () use ($request, $rt, $branchId) {
+        $request->validate(['invoiceIndex' => 'sometimes|integer|min:0']);
+
+        return (int) ($request->input('invoiceIndex') ?? $request->query('invoiceIndex') ?? 0);
+    }
+
+    public function inventorySendNotification(Request $request, \Modules\Admin\Services\RealtimeBroadcaster $rt, \Modules\Admin\Services\NotificationService $notifications, string $branchId): JsonResponse
+    {
+        return $this->run(function () use ($request, $rt, $notifications, $branchId) {
             $data = $request->validate(['itemIndices' => 'sometimes|array', 'note' => 'sometimes|string']);
             $op = $this->latestInventoryOp($request, $branchId);
             if ($op) {
@@ -148,8 +250,14 @@ class AccountantCompanyController extends AsabController
                 $op->update(['payload' => $payload]);
             }
             $rt->inventoryFlagSent($branchId, $data['itemIndices'] ?? []);
+            // T07.9 — durable notification so an offline branch manager still learns.
+            $notifications->pushToBranch(
+                $request->user()->company_id, $branchId, 'branch', 'inventory.flagged',
+                'أصناف بحاجة إلى مراجعة الجرد', $data['note'] ?? 'راجع الأصناف المُعلَّمة وأكِّد الجرد',
+                null, $op ? ['type' => 'operation', 'id' => $op->id] : [],
+            );
 
-            return $this->ok(['notifSentAt' => now()->toIso8601String()]);
+            return $this->ok(['notifSentAt' => now()->toIso8601String(), 'notifiedBranch' => true]);
         });
     }
 
@@ -159,23 +267,34 @@ class AccountantCompanyController extends AsabController
             $data = $request->validate(['confirmed' => 'sometimes|boolean']);
             $confirmed = $data['confirmed'] ?? true;
             $op = $this->latestInventoryOp($request, $branchId);
-            if ($op) {
-                $payload = $op->payload ?? [];
-                $payload['isConfirmed'] = $confirmed;
-                $op->update(['payload' => $payload]);
+            if (! $op) {
+                throw new AsabException('NOT_FOUND', 'No inventory submission for that branch', 'لا يوجد جرد لهذا الفرع', 404);
             }
+            $payload = $op->payload ?? [];
+            $payload['isConfirmed'] = $confirmed;
+            // T07.9 — index derives «أكّده الفرع» from branchReconfirmedAt; stamp it
+            // so the accountant-recorded confirmation actually shows in the list.
+            $payload['branchReconfirmedAt'] = $confirmed ? now()->toIso8601String() : null;
+            $op->update(['payload' => $payload]);
 
             return $this->ok(['branchId' => $branchId, 'isConfirmed' => $confirmed]);
         });
     }
 
+    /**
+     * PATCH …/assets/{id} — the register's edit drawer (SRS §4.2).
+     *
+     * Only keys the caller actually sent are written, so `custodian: null`
+     * clears the custodian instead of being silently dropped.
+     */
     public function updateAsset(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
             $asset = $this->scopeToAssignedBranches(Asset::where('company_id', $request->user()->company_id))->findOrFail($id);
             $data = $request->validate([
                 'name' => 'sometimes|string|max:200', 'category' => 'sometimes|string|max:32', 'custodian' => 'sometimes|nullable|string|max:200',
-                'status' => 'sometimes|string|max:24',
+                'status' => ['sometimes', 'string', AssetEnums::statusRule()],
+                'serial' => 'sometimes|nullable|string|max:64', 'purchaseDate' => 'sometimes|nullable|date',
                 // 'bookValue' is canonical; 'bookValueHalalas' is the doc alias — accept either.
                 'bookValue' => 'sometimes|integer|min:0', 'bookValueHalalas' => 'sometimes|integer|min:0',
                 'branchId' => 'sometimes|nullable|string', 'note' => 'sometimes|nullable|string',
@@ -183,18 +302,33 @@ class AccountantCompanyController extends AsabController
             if (($data['branchId'] ?? null) !== null) {
                 $this->assertBranchAssigned($data['branchId']);
             }
-            $bookValue = $data['bookValue'] ?? ($data['bookValueHalalas'] ?? null);
-            $asset->update(array_filter([
-                'name' => $data['name'] ?? null, 'category' => $data['category'] ?? null,
-                'custodian' => $data['custodian'] ?? null, 'status' => $data['status'] ?? null, 'book_value' => $bookValue,
-                'branch_id' => $data['branchId'] ?? null, 'notes' => $data['note'] ?? null,
-            ], fn ($v) => $v !== null));
+
+            $columns = [
+                'name' => 'name', 'category' => 'category', 'custodian' => 'custodian', 'status' => 'status',
+                'serial' => 'serial', 'purchaseDate' => 'purchased_at', 'branchId' => 'branch_id', 'note' => 'notes',
+            ];
+            $patch = [];
+            foreach ($columns as $field => $column) {
+                if (array_key_exists($field, $data)) {
+                    $patch[$column] = $data[$field];
+                }
+            }
+            if (array_key_exists('bookValue', $data) || array_key_exists('bookValueHalalas', $data)) {
+                $patch['book_value'] = $data['bookValue'] ?? $data['bookValueHalalas'];
+            }
+            $asset->update($patch);
 
             return $this->ok([
                 'id' => $asset->id,
                 'name' => $asset->name,
                 'status' => $asset->status,
+                'statusLabelAr' => AssetEnums::statusLabelAr($asset->status),
+                'category' => $asset->category,
+                'categoryLabelAr' => AssetEnums::categoryLabelAr($asset->category),
                 'branchId' => $asset->branch_id,
+                'custodian' => $asset->custodian,
+                'serial' => $asset->serial,
+                'purchaseDate' => optional($asset->purchased_at)->toIso8601String(),
                 'bookValue' => $asset->book_value,
                 'bookValueHalalas' => $asset->book_value,
                 'note' => $asset->notes,
@@ -232,7 +366,9 @@ class AccountantCompanyController extends AsabController
                 ->legacyBranchIds(app(\Modules\Admin\Support\TenantContext::class));
 
             DB::transaction(function () use ($reader, &$map, &$parsed, &$created, &$imported, &$errors, $companyId, $userId, $allowedBranchIds) {
-                $seq = (int) (Asset::withoutGlobalScopes()->where('company_id', $companyId)->count());
+                // Same allocator as the single-asset create, so an import and a
+                // manual registration never mint the same FA-xxxx.
+                $seq = (int) substr(AssetSequence::reserve($companyId)[0], strlen(AssetSequence::PREFIX) + 1);
                 foreach ($reader->getSheetIterator() as $sheet) {
                     $isHeader = true;
                     foreach ($sheet->getRowIterator() as $row) {
@@ -257,16 +393,23 @@ class AccountantCompanyController extends AsabController
 
                             continue;
                         }
+                        $usefulLife = (int) ($this->cell($cells, $map, 'usefulLife') ?? 0) ?: null;
+                        if ($usefulLife !== null && ! in_array($usefulLife, AssetEnums::USEFUL_LIFE_MONTHS, true)) {
+                            $errors[] = ['row' => $parsed + 1, 'message' => 'useful life must be one of '.implode('/', AssetEnums::USEFUL_LIFE_MONTHS)];
+
+                            continue;
+                        }
                         $cost = $this->toHalalas($this->cell($cells, $map, 'cost'));
                         $asset = Asset::create([
                             'company_id' => $companyId,
-                            'public_id' => 'FA-'.str_pad((string) (++$seq), 4, '0', STR_PAD_LEFT),
+                            'public_id' => AssetSequence::format($seq++),
                             'name' => (string) $name,
                             'category' => (string) ($this->cell($cells, $map, 'category') ?? 'غير مصنف'),
                             'branch_id' => $rowBranchId,
                             'cost' => $cost,
                             'book_value' => $cost,
-                            'useful_life_months' => (int) ($this->cell($cells, $map, 'usefulLife') ?? 0) ?: null,
+                            'useful_life_months' => $usefulLife,
+                            'serial' => $this->cell($cells, $map, 'serial') ?: null,
                             'case_type' => 'acc_register',
                             'status' => 'active',
                             'submitted_by_id' => $userId,
@@ -309,6 +452,7 @@ class AccountantCompanyController extends AsabController
             'cost' => ['cost', 'value', 'price', 'amount', 'القيمة', 'التكلفة', 'السعر', 'المبلغ'],
             'branchId' => ['branchid', 'branch', 'الفرع', 'فرع'],
             'usefulLife' => ['usefullife', 'useful_life_months', 'life', 'العمر', 'العمر الإنتاجي', 'العمر الانتاجي'],
+            'serial' => ['serial', 'serialnumber', 'الرقم التسلسلي', 'السيريال'],
         ];
         $map = [];
         foreach ($headers as $idx => $h) {
