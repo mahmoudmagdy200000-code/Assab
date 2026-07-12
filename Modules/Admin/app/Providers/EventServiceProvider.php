@@ -3,6 +3,9 @@
 namespace Modules\Admin\Providers;
 
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
+use Modules\Admin\Listeners\SyncLegacyExpenseOperation;
+use Modules\Expense\Events\ExpenseApprovedEvent;
+use Modules\Expense\Events\ExpenseSubmittedEvent;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -11,7 +14,12 @@ class EventServiceProvider extends ServiceProvider
      *
      * @var array<string, array<int, string>>
      */
-    protected $listen = [];
+    protected $listen = [
+        // Two-worlds bridge (SRS §13 / MOB-1.1): a mobile-app expense becomes an
+        // asab_operations row so the dashboard accountant can review it.
+        ExpenseSubmittedEvent::class => [SyncLegacyExpenseOperation::class],
+        ExpenseApprovedEvent::class => [SyncLegacyExpenseOperation::class],
+    ];
 
     /**
      * Indicates if events should be discovered.

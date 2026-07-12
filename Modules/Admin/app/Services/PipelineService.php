@@ -23,18 +23,24 @@ class PipelineService
         'waste' => 'الهدر',
     ];
 
-    /** Funnel stage counts + today's throughput + average cycle time. */
-    public function overview(?string $companyId): array
+    /**
+     * Funnel stage counts + today's throughput + average cycle time.
+     *
+     * @param  string[]|null  $branchIds  assigned-branch constraint; null = company-wide
+     */
+    public function overview(?string $companyId, ?array $branchIds = null): array
     {
-        $byStatus = $this->scoped($companyId)->selectRaw('status, count(*) as c')->groupBy('status')->pluck('c', 'status');
-        $total = (int) $this->scoped($companyId)->count();
-        $erpPosted = (int) $this->scoped($companyId)->where('erp_posted', true)->count();
+        $scoped = fn () => $this->scoped($companyId, $branchIds);
+
+        $byStatus = $scoped()->selectRaw('status, count(*) as c')->groupBy('status')->pluck('c', 'status');
+        $total = (int) $scoped()->count();
+        $erpPosted = (int) $scoped()->where('erp_posted', true)->count();
 
         $today = now()->startOfDay();
-        $submittedToday = (int) $this->scoped($companyId)->where('submitted_at', '>=', $today)->count();
-        $completedToday = (int) $this->scoped($companyId)->where('final_approved_at', '>=', $today)->count();
+        $submittedToday = (int) $scoped()->where('submitted_at', '>=', $today)->count();
+        $completedToday = (int) $scoped()->where('final_approved_at', '>=', $today)->count();
 
-        $completed = $this->scoped($companyId)
+        $completed = $scoped()
             ->whereNotNull('submitted_at')->whereNotNull('final_approved_at')
             ->limit(2000)->get(['submitted_at', 'final_approved_at']);
         $avgCycleTimeHours = $completed->isEmpty()
@@ -55,13 +61,17 @@ class PipelineService
         ];
     }
 
-    /** Per-module rollup (counts + amounts) for the aggregation grid. */
-    public function aggregation(?string $companyId, ?string $from, ?string $to): array
+    /**
+     * Per-module rollup (counts + amounts) for the aggregation grid.
+     *
+     * @param  string[]|null  $branchIds  assigned-branch constraint; null = company-wide
+     */
+    public function aggregation(?string $companyId, ?string $from, ?string $to, ?array $branchIds = null): array
     {
         $modules = [];
         foreach (self::MODULES as $key => $labelAr) {
-            $scope = function () use ($companyId, $key, $from, $to): Builder {
-                $q = $this->scoped($companyId)->where('module_key', $key);
+            $scope = function () use ($companyId, $branchIds, $key, $from, $to): Builder {
+                $q = $this->scoped($companyId, $branchIds)->where('module_key', $key);
                 if ($from) {
                     $q->whereDate('operation_date', '>=', $from);
                 }
@@ -90,14 +100,21 @@ class PipelineService
 
     /**
      * Fresh query. Company users: rely on the tenant global scope. Admin with an
-     * explicit companyId: bypass the scope and filter to that company.
+     * explicit companyId: bypass the scope and filter to that company. A scoped
+     * accountant is additionally pinned to their assigned branches (zero-trust).
+     *
+     * @param  string[]|null  $branchIds
      */
-    private function scoped(?string $companyId): Builder
+    private function scoped(?string $companyId, ?array $branchIds = null): Builder
     {
-        if ($companyId) {
-            return Operation::withoutGlobalScopes()->where('company_id', $companyId);
+        $q = $companyId
+            ? Operation::withoutGlobalScopes()->whereNull('deleted_at')->where('company_id', $companyId)
+            : Operation::query();
+
+        if ($branchIds !== null) {
+            $q->whereIn('branch_id', $branchIds);
         }
 
-        return Operation::query();
+        return $q;
     }
 }

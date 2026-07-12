@@ -10,32 +10,56 @@ use Modules\Admin\Models\EmployeeMovement;
 use Modules\Admin\Models\Operation;
 
 /**
- * Allocate a sales operation's cash variance across employees (MISSING_Dashboard
- * §10). Each allocation is posted as a debit on the employee statement
- * (employee_movements) inside one transaction; the operation payload records the
- * allocation set for audit/replay.
+ * SRS ACC-1.4 — «الفرق يُخصم من حساب المسؤول».
+ *
+ * A sales operation's collection gap is charged to the employees responsible.
+ * Each allocation posts a debit on the employee statement inside one
+ * transaction; the operation payload records the allocation set for audit.
+ *
+ * A shortfall is stored as a NEGATIVE variance (`collected − expected`), so the
+ * full-allocation rule compares against its magnitude — the pre-T04 code tested
+ * `variance > 0` and therefore never fired on the very case the SRS describes.
  */
 class SalesVarianceService
 {
+    public const CATEGORY = 'sales_variance';
+
+    public const CATEGORY_LABEL_AR = 'فرق مبيعات';
+
     /**
      * @param  array<int, array{employeeId?:string, empNumber?:string, amountHalalas:int}>  $allocations
+     * @return array<string, mixed>
      */
     public function assign(Operation $op, array $allocations, ?string $notes, AsabUser $actor): array
     {
-        $sum = array_sum(array_map(fn ($a) => (int) $a['amountHalalas'], $allocations));
-        $variance = (int) ($op->payload['varianceHalalas'] ?? ($op->payload['cashVarianceHalalas'] ?? 0));
+        // NFR-10: a closed record never gains new financial movements.
+        if (in_array($op->status, [Operation::STATUS_FINAL, Operation::STATUS_REJECTED], true)) {
+            throw new AsabException(
+                'OP_ALREADY_FINAL',
+                'Operation is locked and cannot receive allocations',
+                'لا يمكن تحميل الفروق على عملية مُغلقة',
+                409,
+                ['currentStatus' => $op->status],
+            );
+        }
 
-        // Spec §10: when the operation carries a known variance, allocations must match it exactly.
-        if ($variance > 0 && $sum !== $variance) {
+        $sum = array_sum(array_map(fn ($a) => (int) $a['amountHalalas'], $allocations));
+        $variance = $this->variance($op);
+        $target = abs($variance);
+
+        // «يجب أن يساوي مجموع التخصيصات قيمة الفارق» — partial or over-allocation
+        // both leave the employee ledger out of step with the operation.
+        if ($variance !== 0 && $sum !== $target) {
             throw new AsabException(
                 'VALIDATION_ERROR',
                 'Allocations must sum to the operation variance',
                 'يجب أن يساوي مجموع التخصيصات قيمة الفارق',
                 422,
-                ['allocations' => ["expected total {$variance} halalas, got {$sum}"]],
+                ['allocations' => ["expected total {$target} halalas, got {$sum}"]],
             );
         }
-        $varianceTotal = $variance > 0 ? $variance : $sum;
+
+        $varianceTotal = $variance !== 0 ? $target : $sum;
 
         $rows = DB::transaction(function () use ($op, $allocations, $notes, $actor) {
             $created = [];
@@ -46,8 +70,9 @@ class SalesVarianceService
                 $movement = EmployeeMovement::create([
                     'employee_id' => $emp->id,
                     'movement_date' => now(),
-                    'description' => 'تحميل فرق كاش — '.$op->public_id.($notes ? ' — '.$notes : ''),
+                    'description' => self::CATEGORY_LABEL_AR.' — '.$op->public_id.($notes ? ' — '.$notes : ''),
                     'movement_type' => 'debit',
+                    'category' => self::CATEGORY,
                     'amount' => $amount,
                     'ref_operation_id' => $op->id,
                     'created_by_id' => $actor->id,
@@ -57,6 +82,8 @@ class SalesVarianceService
                     'employeeId' => $emp->id,
                     'employeeName' => $emp->name,
                     'amountHalalas' => $amount,
+                    'category' => self::CATEGORY,
+                    'categoryLabelAr' => self::CATEGORY_LABEL_AR,
                     'appliedAt' => optional($movement->created_at)->toIso8601String(),
                 ];
                 $stored[] = ['employeeId' => $emp->id, 'amountHalalas' => $amount];
@@ -76,6 +103,19 @@ class SalesVarianceService
             'allocations' => $rows,
             'remainingUnallocatedHalalas' => max(0, $varianceTotal - $sum),
         ];
+    }
+
+    /**
+     * The gap to charge. Reconciliation writes it under `payload.reconciliation`;
+     * the root copy and the legacy `cashVarianceHalalas` key are read as fallbacks.
+     */
+    private function variance(Operation $op): int
+    {
+        $payload = $op->payload ?? [];
+
+        return (int) ($payload['reconciliation']['varianceHalalas']
+            ?? ($payload['varianceHalalas']
+                ?? ($payload['cashVarianceHalalas'] ?? 0)));
     }
 
     /** Resolve an employee by id or employee-number within the operation's tenant + branch. */

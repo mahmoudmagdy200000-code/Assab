@@ -5,42 +5,65 @@ namespace Modules\Admin\Http\Controllers\Accountant;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\Asset;
 use Modules\Admin\Models\AssetDraft;
+use Modules\Admin\Services\AssetDraftService;
+use Modules\Admin\Services\AssetSequence;
+use Modules\Admin\Services\RealtimeBroadcaster;
+use Modules\Admin\Support\AssetEnums;
 
 /**
- * Accountant fixed assets + expense→asset drafts (BACKEND_API_SPEC.md §6.3.8).
+ * Fixed-assets register (SRS §4.2) and the expense→asset drafts panel (ACC-2.6).
  */
 class AssetController extends AsabController
 {
+    public function __construct(private readonly AssetDraftService $drafts) {}
+
+    /**
+     * GET /assets — the register: KPI tiles (`meta.summary`), category pills and
+     * search, plus the pending drafts panel (`meta.drafts`).
+     */
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
+            $request->validate([
+                'search' => 'sometimes|string|max:120',
+                'category' => 'sometimes|string|max:32',
+                'status' => 'sometimes|string|max:24',
+                'branchId' => 'sometimes|string',
+                'page' => 'sometimes|integer|min:1',
+                'pageSize' => 'sometimes|integer|min:1|max:100',
+            ]);
+
             $q = $this->scopeToAssignedBranches(Asset::query());
             if (($status = $request->query('status')) && $status !== 'all') {
                 $q->where('status', $status);
             }
+            if (($category = $request->query('category')) && $category !== 'all') {
+                $q->where('category', $category);
+            }
             if ($branch = $request->query('branchId')) {
                 $q->where('branch_id', $branch);
             }
-            $assets = $q->orderByDesc('created_at')->get();
+            if ($search = $request->query('search')) {
+                $q->where(fn ($w) => $w->where('name', 'like', "%{$search}%")
+                    ->orWhere('public_id', 'like', "%{$search}%")
+                    ->orWhere('custodian', 'like', "%{$search}%"));
+            }
 
-            return $this->ok([
-                'data' => $assets->map([$this, 'present'])->all(),
-                'summary' => [
-                    'pendingAccountant' => $this->scopeToAssignedBranches(Asset::where('status', 'pending_accountant'))->count(),
-                    'pendingBranch' => $this->scopeToAssignedBranches(Asset::where('status', 'pending_branch'))->count(),
-                    'confirmed' => $this->scopeToAssignedBranches(Asset::where('status', 'confirmed'))->count(),
-                    'bookValueTotal' => (int) $this->scopeToAssignedBranches(Asset::query())->sum('book_value'),
-                ],
-                'drafts' => $this->visibleDrafts($request)->map([$this, 'presentDraft'])->all(),
+            $p = $q->orderByDesc('created_at')->paginate(
+                min((int) $request->query('pageSize', 20), 100), ['*'], 'page', (int) $request->query('page', 1),
+            );
+
+            return $this->paginated($p, array_map([$this, 'present'], $p->items()), [
+                'summary' => $this->summary(),
+                'drafts' => $this->visibleDrafts($request)->map([$this->drafts, 'present'])->all(),
             ]);
         });
     }
 
-    public function store(Request $request, \Modules\Admin\Services\RealtimeBroadcaster $rt): JsonResponse
+    public function store(Request $request, RealtimeBroadcaster $rt): JsonResponse
     {
         return $this->run(function () use ($request, $rt) {
             $data = $request->validate([
@@ -48,22 +71,27 @@ class AssetController extends AsabController
                 'category' => 'required|string|max:32',
                 'branchId' => 'required|string',
                 'invNum' => 'nullable|string|max:64',
+                'serial' => 'nullable|string|max:64',
+                'purchaseDate' => 'sometimes|nullable|date',
                 // 'cost' is the canonical field; 'priceHalalas' is the doc alias — accept either.
                 'cost' => 'required_without:priceHalalas|integer|min:0',
                 'priceHalalas' => 'required_without:cost|integer|min:0',
-                'usefulLifeMonths' => 'required|integer|min:1',
+                'usefulLifeMonths' => ['required', 'integer', AssetEnums::usefulLifeRule()],
                 'custodian' => 'nullable|string|max:200',
                 'notes' => 'nullable|string',
             ]);
             $this->assertBranchAssigned($data['branchId']);
             $cost = $data['cost'] ?? $data['priceHalalas'];
-            $asset = Asset::create([
-                'company_id' => $request->user()->company_id,
-                'public_id' => $this->nextAssetId(),
+            $companyId = $request->user()->company_id;
+
+            $asset = AssetSequence::createOne($companyId, fn (string $publicId) => Asset::create([
+                'company_id' => $companyId,
+                'public_id' => $publicId,
                 'name' => $data['name'],
                 'category' => $data['category'],
                 'branch_id' => $data['branchId'],
                 'inv_num' => $data['invNum'] ?? null,
+                'serial' => $data['serial'] ?? null,
                 'cost' => $cost,
                 'book_value' => $cost,
                 'useful_life_months' => $data['usefulLifeMonths'],
@@ -72,8 +100,8 @@ class AssetController extends AsabController
                 'custodian' => $data['custodian'] ?? null,
                 'notes' => $data['notes'] ?? null,
                 'submitted_by_id' => $request->user()->id,
-                'purchased_at' => now(),
-            ]);
+                'purchased_at' => $data['purchaseDate'] ?? now(),
+            ]));
             $rt->assetConfirmationNeeded($asset);
 
             return $this->created($this->present($asset));
@@ -92,45 +120,15 @@ class AssetController extends AsabController
 
     public function drafts(Request $request): JsonResponse
     {
-        return $this->run(fn () => $this->listResponse($this->visibleDrafts($request)->map([$this, 'presentDraft'])->all()));
+        return $this->run(fn () => $this->listResponse(
+            $this->visibleDrafts($request)->map([$this->drafts, 'present'])->all(),
+        ));
     }
 
-    public function confirmDraft(Request $request, string $draftId, \Modules\Admin\Services\RealtimeBroadcaster $rt): JsonResponse
+    public function confirmDraft(Request $request, string $draftId): JsonResponse
     {
-        return $this->run(function () use ($request, $draftId, $rt) {
-            $draft = $this->findDraft($request, $draftId);
-
-            $created = DB::transaction(function () use ($draft) {
-                $assets = [];
-                foreach (($draft->target_branches ?: [null]) as $branchId) {
-                    for ($i = 0; $i < max(1, $draft->qty); $i++) {
-                        $assets[] = Asset::create([
-                            'company_id' => $draft->company_id,
-                            'public_id' => $this->nextAssetId(),
-                            'name' => $draft->asset_name,
-                            'category' => $draft->category,
-                            'branch_id' => $branchId,
-                            'inv_num' => $draft->inv_num,
-                            'cost' => (int) ($draft->amount / max(1, $draft->qty)),
-                            'book_value' => (int) ($draft->amount / max(1, $draft->qty)),
-                            'useful_life_months' => $draft->useful_life_months,
-                            'case_type' => 'acc_register',
-                            'status' => 'pending_branch',
-                            'custodian' => $draft->custodian,
-                        ]);
-                    }
-                }
-                $draft->update(['status' => 'confirmed', 'converted_at' => now()]);
-
-                return $assets;
-            });
-
-            foreach ($created as $asset) {
-                $rt->assetConfirmationNeeded($asset);
-            }
-            foreach (($draft->target_branches ?: [null]) as $branchId) {
-                $rt->assetDraftConfirmed($draft->fresh(), $branchId);
-            }
+        return $this->run(function () use ($request, $draftId) {
+            $created = $this->drafts->confirm($this->findDraft($request, $draftId));
 
             return $this->created(['createdAssets' => array_map([$this, 'present'], $created)]);
         });
@@ -139,11 +137,27 @@ class AssetController extends AsabController
     public function discardDraft(Request $request, string $draftId): JsonResponse
     {
         return $this->run(function () use ($request, $draftId) {
-            $draft = $this->findDraft($request, $draftId);
-            $draft->update(['status' => 'discarded']);
+            $this->drafts->discard($this->findDraft($request, $draftId));
 
             return $this->noContent();
         });
+    }
+
+    /** @return array<string, int> the register's KPI tiles */
+    private function summary(): array
+    {
+        $tile = fn (callable $filter) => $filter($this->scopeToAssignedBranches(Asset::query()))->count();
+
+        return [
+            'pendingAccountant' => $tile(fn ($q) => $q->where('status', 'pending_accountant')),
+            'pendingBranch' => $tile(fn ($q) => $q->where('status', 'pending_branch')),
+            'confirmed' => $tile(fn ($q) => $q->where('status', 'confirmed')),
+            'active' => $tile(fn ($q) => $q->where('status', 'active')),
+            'maintenance' => $tile(fn ($q) => $q->where('status', 'maintenance')),
+            'retired' => $tile(fn ($q) => $q->where('status', 'retired')),
+            'total' => $tile(fn ($q) => $q),
+            'bookValueTotal' => (int) $this->scopeToAssignedBranches(Asset::query())->sum('book_value'),
+        ];
     }
 
     /** Pending drafts of the caller's company, filtered to their branch scope. */
@@ -152,12 +166,16 @@ class AssetController extends AsabController
         $branchIds = $this->assignedBranchIds();
 
         return AssetDraft::where('company_id', $request->user()->company_id)
-            ->where('status', 'draft')->get()
+            ->where('status', 'draft')->orderByDesc('created_at')->limit(100)->get()
             ->filter(fn (AssetDraft $d) => $this->draftInScope($d, $branchIds))
             ->values();
     }
 
-    /** Company-scoped draft lookup; out-of-scope drafts read as absent (404). */
+    /**
+     * Company-scoped draft lookup; out-of-scope drafts read as absent (404).
+     * Any status resolves — the lifecycle guard belongs to AssetDraftService, so
+     * a confirmed draft answers 409 «تم تأكيد المسودة مسبقاً», not 404.
+     */
     private function findDraft(Request $request, string $draftId): AssetDraft
     {
         $draft = AssetDraft::where('company_id', $request->user()->company_id)
@@ -177,43 +195,31 @@ class AssetController extends AsabController
         return $branchIds === null || array_intersect($draft->target_branches ?? [], $branchIds) !== [];
     }
 
-    private function nextAssetId(): string
-    {
-        return 'FA-'.str_pad((string) (Asset::count() + 1), 3, '0', STR_PAD_LEFT);
-    }
-
     public function present(Asset $a): array
     {
+        $cost = (int) $a->cost;
+
         return [
             'id' => $a->id,
             'publicId' => $a->public_id,
             'name' => $a->name,
             'category' => $a->category,
+            'categoryLabelAr' => AssetEnums::categoryLabelAr($a->category),
             'branchId' => $a->branch_id,
-            'cost' => $a->cost,
-            'priceHalalas' => $a->cost,
+            'cost' => $cost,
+            'priceHalalas' => $cost,
             'bookValue' => $a->book_value,
             'bookValueHalalas' => $a->book_value,
             'usefulLifeMonths' => $a->useful_life_months,
+            'monthlyDepreciationHalalas' => AssetEnums::monthlyDepreciation($cost, $a->useful_life_months),
+            'annualDepreciationHalalas' => AssetEnums::annualDepreciation($cost, $a->useful_life_months),
             'status' => $a->status,
+            'statusLabelAr' => AssetEnums::statusLabelAr($a->status),
             'invNum' => $a->inv_num,
+            'serial' => $a->serial,
+            'purchaseDate' => optional($a->purchased_at)->toIso8601String(),
             'custodian' => $a->custodian,
             'notes' => $a->notes,
-        ];
-    }
-
-    public function presentDraft(AssetDraft $d): array
-    {
-        return [
-            'id' => $d->id,
-            'draftId' => $d->draft_id,
-            'assetName' => $d->asset_name,
-            'category' => $d->category,
-            'amount' => $d->amount,
-            'qty' => $d->qty,
-            'targetBranches' => $d->target_branches ?? [],
-            'custodian' => $d->custodian,
-            'status' => $d->status,
         ];
     }
 }

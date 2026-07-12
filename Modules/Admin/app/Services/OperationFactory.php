@@ -3,9 +3,11 @@
 namespace Modules\Admin\Services;
 
 use Illuminate\Support\Facades\DB;
+use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\ApprovalStep;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Support\OperationEnums;
 
 /**
  * Creates a new pending Operation when a branch uploads a daily report
@@ -23,36 +25,53 @@ class OperationFactory
         private readonly NotificationService $notifications,
     ) {}
 
-    public function createFromUpload(string $moduleKey, array $payload, AsabUser $submitter, ?string $branchId, int $amount = 0): Operation
+    /**
+     * @param  string  $origin  SRS §5.2b — where the record entered the pipeline
+     *                          (`mobile` branch app, `procurement` flow, `system` import).
+     */
+    public function createFromUpload(string $moduleKey, array $payload, AsabUser $submitter, ?string $branchId, int $amount = 0, string $origin = 'mobile'): Operation
     {
-        $op = DB::transaction(function () use ($moduleKey, $payload, $submitter, $branchId, $amount) {
-            $op = Operation::create([
-                'public_id' => $this->nextPublicId($moduleKey),
-                'company_id' => $submitter->company_id,
-                'branch_id' => $branchId,
-                'module_key' => $moduleKey,
-                'source_module' => null,
-                'payload' => $payload,
-                'amount' => $amount,
-                'match' => 'exact',
-                'origin' => 'mobile',
-                'status' => Operation::STATUS_PENDING,
-                'submitted_by_id' => $submitter->id,
-                'submitted_at' => now(),
-                'operation_date' => now(),
-            ]);
+        if (! OperationEnums::isValidOrigin($origin)) {
+            throw new AsabException(
+                'INVALID_ORIGIN',
+                'Unknown operation origin',
+                'مصدر العملية غير معروف',
+                422,
+                ['allowed' => array_keys(OperationEnums::ORIGIN)],
+            );
+        }
 
-            ApprovalStep::create([
-                'operation_id' => $op->id,
-                'stage_id' => 'submit',
-                'action' => 'أُنشئ السجل: '.$op->public_id,
-                'actor_user_id' => $submitter->id,
-                'actor_label' => $submitter->name,
-                'occurred_at' => now(),
-            ]);
+        $op = OperationSequence::createWithPublicId(
+            self::PREFIX[$moduleKey] ?? 'OPS',
+            fn (string $publicId) => DB::transaction(function () use ($publicId, $moduleKey, $payload, $submitter, $branchId, $amount, $origin) {
+                $op = Operation::create([
+                    'public_id' => $publicId,
+                    'company_id' => $submitter->company_id,
+                    'branch_id' => $branchId,
+                    'module_key' => $moduleKey,
+                    'source_module' => null,
+                    'payload' => $payload,
+                    'amount' => $amount,
+                    'match' => 'exact',
+                    'origin' => $origin,
+                    'status' => Operation::STATUS_PENDING,
+                    'submitted_by_id' => $submitter->id,
+                    'submitted_at' => now(),
+                    'operation_date' => now(),
+                ]);
 
-            return $op;
-        });
+                ApprovalStep::create([
+                    'operation_id' => $op->id,
+                    'stage_id' => 'submit',
+                    'action' => 'أُنشئ السجل: '.$op->public_id,
+                    'actor_user_id' => $submitter->id,
+                    'actor_label' => $submitter->name,
+                    'occurred_at' => now(),
+                ]);
+
+                return $op;
+            }),
+        );
 
         $this->rt->operationCreated($op);
         if ($submitter->company_id) {
@@ -64,13 +83,5 @@ class OperationFactory
         }
 
         return $op;
-    }
-
-    private function nextPublicId(string $moduleKey): string
-    {
-        $prefix = self::PREFIX[$moduleKey] ?? 'OPS';
-        $n = Operation::where('public_id', 'like', "{$prefix}-%")->count() + 1;
-
-        return $prefix.'-'.str_pad((string) $n, 4, '0', STR_PAD_LEFT);
     }
 }

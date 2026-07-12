@@ -285,6 +285,14 @@ class RealtimeBroadcaster
         $this->safe(fn () => $this->emit('reminders.branch.'.$branchId, 'inventory.flag_sent', ['branchId' => $branchId, 'items' => $items]));
     }
 
+    /** ACC-4.5 / MOB-1.2 — the branch's daily count list was changed on the dashboard. */
+    public function inventoryDailyListUpdated(string $branchId, int $itemCount): void
+    {
+        $this->safe(fn () => $this->emit('reminders.branch.'.$branchId, 'inventory.daily_list_updated', [
+            'branchId' => $branchId, 'itemCount' => $itemCount, 'at' => now()->toIso8601String(),
+        ]));
+    }
+
     /** Daily inventory variance allocated to employees (MISSING_Dashboard §9.2). */
     public function inventoryVarianceAllocated(string $branchId, string $date, int $totalValueHalalas): void
     {

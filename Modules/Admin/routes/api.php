@@ -6,6 +6,7 @@ use Modules\Admin\Http\Controllers\Accountant\AssetController;
 use Modules\Admin\Http\Controllers\Accountant\CashCustodyController;
 use Modules\Admin\Http\Controllers\Accountant\EmployeeController;
 use Modules\Admin\Http\Controllers\Accountant\InventoryController;
+use Modules\Admin\Http\Controllers\Accountant\PurchaseReturnController;
 use Modules\Admin\Http\Controllers\Accountant\ReminderController;
 use Modules\Admin\Http\Controllers\Accountant\ShiftController;
 use Modules\Admin\Http\Controllers\Accountant\WasteController;
@@ -250,11 +251,22 @@ Route::prefix('v1')->group(function () {
             Route::post('operations/bulk-approve', [OperationController::class, 'bulkApprove'])->middleware('asab.role:accountant,head');
             Route::get('operations/{id}', [OperationController::class, 'show']);
             Route::get('operations/{id}/audit-trail', [OperationController::class, 'auditTrail']);
+            // ACC-1.4 attachments panel (POS report / bank statement / aggregator sheets).
+            Route::get('operations/{id}/attachments', [OperationController::class, 'attachments']);
             Route::post('operations/{id}/approve', [OperationController::class, 'approve'])->middleware('asab.role:accountant,head');
             Route::post('operations/{id}/reject', [OperationController::class, 'reject'])->middleware('asab.role:accountant,head');
             // Conditional approval is the isConditional flag on final-approve (FE completion request §1.6).
             Route::post('operations/{id}/final-approve', [OperationController::class, 'finalApprove'])->middleware('asab.role:head');
             Route::post('operations/{id}/correction', [OperationController::class, 'correction'])->middleware('asab.role:accountant,head');
+            // «طلب توضيح» (SRS ACC-0.5) — non-terminal: asks the submitter for
+            // information without moving the operation off its stage.
+            Route::post('operations/{id}/request-clarification', [OperationController::class, 'requestClarification'])->middleware('asab.role:accountant,head');
+            // ACC-3.4 «توثيق» — accountant documents a purchase order before the head.
+            Route::post('operations/{id}/document', [OperationController::class, 'document'])->middleware('asab.role:accountant,head');
+            // ACC-3.4 accountant edit of one purchase line (recomputes amount + 3-way match).
+            Route::patch('operations/{id}/purchase-lines/{rowId}', [AccountantController::class, 'purchaseLineUpdate'])->middleware('asab.role:accountant,head');
+            // ACC-3 «المرتجعات» read surface (accountant/head).
+            Route::get('purchases/returns', [PurchaseReturnController::class, 'index'])->middleware('asab.role:accountant,head');
 
             // ERP (§5 / §7.4)
             Route::post('erp/batches', [HeadController::class, 'erpCreateBatch'])->middleware('asab.role:head');
@@ -265,6 +277,8 @@ Route::prefix('v1')->group(function () {
 
             // Cross-cutting (§7)
             Route::get('pipeline/overview', [PipelineController::class, 'overview']);
+            // §5.2c per-branch/day rollup state machine (main-dashboard state chips).
+            Route::get('pipeline/daily-rollup', [PipelineController::class, 'dailyRollup']);
             Route::get('modules/aggregation', [PipelineController::class, 'aggregation']);
             Route::get('exceptions', [ExceptionController::class, 'index']);
             Route::get('search', [SearchController::class, 'index']);
@@ -278,6 +292,14 @@ Route::prefix('v1')->group(function () {
             Route::get('lookups/employees', [LookupController::class, 'employees']);
             Route::get('lookups/modules', [LookupController::class, 'modules']);
             Route::get('lookups/exceptions', [LookupController::class, 'exceptions']);
+            // Pipeline enum catalogues (SRS §5): the reject modal's fixed reason
+            // list and every status/stage/origin/match/rollup label.
+            Route::get('lookups/rejection-reasons', [LookupController::class, 'rejectionReasons']);
+            Route::get('lookups/operation-enums', [LookupController::class, 'operationEnums']);
+            // Fixed-assets + expenses vocabulary (SRS §4.2 / ACC-2).
+            Route::get('lookups/asset-enums', [LookupController::class, 'assetEnums']);
+            // Purchases vocabulary (ACC-3): order source, line match, return status.
+            Route::get('lookups/purchase-enums', [LookupController::class, 'purchaseEnums']);
 
             Route::get('notifications/preferences', [NotificationController::class, 'preferences']);
             Route::patch('notifications/preferences', [NotificationController::class, 'updatePreferences']);
@@ -342,7 +364,12 @@ Route::prefix('v1')->group(function () {
                 Route::get('dashboard', [AccountantController::class, 'dashboard']);
                 Route::get('dashboard/activity-heatmap', [AccountantController::class, 'activityHeatmap']);
                 Route::get('operations', [AccountantController::class, 'operations']);
+                // ACC-1.1 / ACC-1.2 — sales KPI cards and the day-pill completeness banner.
+                Route::get('sales/kpis', [AccountantCompanyController::class, 'salesKpis']);
+                Route::get('sales/day-completeness', [AccountantCompanyController::class, 'salesDayCompleteness']);
                 Route::patch('operations/{id}/reconciliation', [AccountantController::class, 'reconciliation']);
+                // ACC-2.1 — expenses KPI cards + the matched/mismatch/missing split.
+                Route::get('expenses/kpis', [AccountantController::class, 'expenseKpis']);
                 Route::post('expense-invoices/{invoiceId}/convert-to-asset', [AccountantController::class, 'convertToAsset']);
 
                 Route::get('assets', [AssetController::class, 'index']);
@@ -363,9 +390,12 @@ Route::prefix('v1')->group(function () {
                 Route::put('inventory/branches/{branchId}/daily-list', [InventoryController::class, 'saveDailyList']);
                 Route::get('inventory/branches/{branchId}/daily-reconciliation', [InventoryController::class, 'dailyReconciliation']);
                 Route::post('inventory/branches/{branchId}/daily-variance-allocation', [InventoryController::class, 'saveDailyVarianceAllocation']);
+                // ACC-4.6 accountant-surface Excel/CSV exports (scoped to assigned branches).
+                Route::get('inventory/export', [CompanyExportController::class, 'inventoryExport']);
 
                 // Waste (§6.3.7)
                 Route::get('waste', [WasteController::class, 'index']);
+                Route::get('waste/export', [CompanyExportController::class, 'waste']);
                 Route::patch('waste/{entryId}/products/{productIdx}', [WasteController::class, 'classifyProduct']);
                 Route::put('waste/{entryId}/products/{productIdx}/allocations', [WasteController::class, 'allocations']);
                 Route::post('waste/{entryId}/approve', [WasteController::class, 'approve']);
@@ -613,6 +643,10 @@ Route::prefix('v1')->group(function () {
                 // Accountant (§5.3)
                 Route::middleware('asab.role:accountant')->group(function () {
                     Route::get('accountant/dashboard', [AccountantCompanyController::class, 'dashboard']);
+                    // ACC-1.1 sales KPI cards + ACC-1.2 day pills («n مطلوبة — m مكتملة · k ناقصة»).
+                    Route::get('sales/kpis', [AccountantCompanyController::class, 'salesKpis']);
+                    Route::get('sales/day-completeness', [AccountantCompanyController::class, 'salesDayCompleteness']);
+                    Route::get('operations/{id}/attachments', [OperationController::class, 'attachments']);
                     Route::get('accountant/reminders/export', [CompanyExportController::class, 'remindersExport']);
                     Route::get('accountant/reminders', [PersonalReminderController::class, 'index']);
                     Route::post('accountant/reminders', [PersonalReminderController::class, 'store']);
@@ -621,6 +655,8 @@ Route::prefix('v1')->group(function () {
 
                     Route::get('operations/export', [CompanyExportController::class, 'operationsExport']);
                     Route::get('operations', [OperationController::class, 'index']);
+                    // Declared after the literal `operations/export` so it cannot shadow it.
+                    Route::get('operations/{id}', [OperationController::class, 'show']);
                     Route::post('operations/bulk-approve', [OperationController::class, 'bulkApprove']);
                     Route::post('operations/{id}/approve', [OperationController::class, 'approve']);
                     Route::patch('operations/{id}/sales-details', [AccountantController::class, 'reconciliation']);
@@ -629,13 +665,21 @@ Route::prefix('v1')->group(function () {
                     Route::patch('operations/{id}/reconciliation', [AccountantController::class, 'reconciliation']);
                     Route::post('operations/{id}/variance-allocations', [AccountantCompanyController::class, 'salesVarianceAssign']);
                     Route::patch('operations/{id}/sales-lines/{rowId}', [AccountantController::class, 'salesLineUpdate']);
+                    // ACC-3.4 purchases: توثيق + line edit (company surface).
+                    Route::post('operations/{id}/document', [OperationController::class, 'document']);
+                    Route::patch('operations/{id}/purchase-lines/{rowId}', [AccountantController::class, 'purchaseLineUpdate']);
+                    Route::get('purchases/returns', [PurchaseReturnController::class, 'index']);
                     Route::post('operations/{id}/notes', [AccountantController::class, 'addNote']);
                     Route::get('operations/{id}/export', [CompanyExportController::class, 'operation']);
                     Route::get('branches/{branchId}/employees/lookup', [AccountantCompanyController::class, 'employeeLookup']);
 
+                    // ACC-2.1 expenses KPI cards + the invoice-match split.
+                    Route::get('expenses/kpis', [AccountantCompanyController::class, 'expenseKpis']);
                     Route::post('expense-invoices/{invoiceId}/verify', [AccountantCompanyController::class, 'verifyExpense']);
                     Route::delete('expense-invoices/{invoiceId}/verify', [AccountantCompanyController::class, 'unverifyExpense']);
                     Route::get('expense-invoices/{invoiceId}/attachments', [AccountantCompanyController::class, 'expenseAttachments']);
+                    // ACC-2.3 review modal — what the accountant read off the document.
+                    Route::patch('expense-invoices/{invoiceId}/invoices/{invoiceIndex}', [AccountantCompanyController::class, 'reviewInvoice']);
                     Route::post('expense-invoices/{invoiceId}/convert-to-asset-draft', [AccountantController::class, 'convertToAsset']);
                     Route::post('asset-drafts/{draftId}/confirm', [AssetController::class, 'confirmDraft']);
                     Route::post('asset-drafts/{draftId}/discard', [AssetController::class, 'discardDraft']);

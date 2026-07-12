@@ -10,6 +10,9 @@ use Modules\Admin\Models\BranchInventoryList;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\InventoryReconciliationService;
+use Modules\Admin\Services\InventoryReviewService;
+use Modules\Admin\Services\NotificationService;
+use Modules\Admin\Services\RealtimeBroadcaster;
 
 /**
  * Accountant inventory review + per-branch daily-list management
@@ -17,42 +20,23 @@ use Modules\Admin\Services\InventoryReconciliationService;
  */
 class InventoryController extends AsabController
 {
-    public function __construct(private readonly InventoryReconciliationService $reconciliation) {}
+    public function __construct(
+        private readonly InventoryReconciliationService $reconciliation,
+        private readonly InventoryReviewService $review,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $type = $request->query('type', 'monthly');
-            $q = $this->scopeToAssignedBranches(Operation::where('module_key', 'inventory'));
+            $type = in_array($request->query('type'), ['daily', 'monthly'], true) ? $request->query('type') : 'monthly';
+            $companyId = $request->user()->company_id;
+            $branchIds = $this->assignedBranchIds();
             if ($branch = $request->query('branchId')) {
-                $q->where('branch_id', $branch);
+                $this->assertBranchAssigned($branch);
+                $branchIds = [$branch];
             }
-            $ops = $q->orderByDesc('operation_date')->get();
 
-            $branches = $ops->groupBy('branch_id')->map(function ($group, $branchId) {
-                $op = $group->first();
-                $items = $op->payload['items'] ?? [];
-
-                return [
-                    'branchId' => $branchId,
-                    'operationId' => $op->id,
-                    'status' => $op->status,
-                    'items' => $items,
-                    'anomalyCount' => collect($items)->where('isAnomaly', true)->count(),
-                    'isFlagged' => (bool) ($op->payload['isFlagged'] ?? false),
-                    'branchConfirmed' => (bool) ($op->payload['branchReconfirmedAt'] ?? false),
-                    'flaggedItemIndices' => $op->payload['flaggedItemIndices'] ?? [],
-                ];
-            })->values()->all();
-
-            return $this->ok([
-                'branches' => $branches,
-                'summary' => [
-                    'totalSubmissions' => $ops->count(),
-                    'pendingCount' => $ops->where('status', 'pending')->count(),
-                    'completedBranches' => collect($branches)->where('status', 'final-approved')->count(),
-                ],
-            ]);
+            return $this->ok($this->review->overview($companyId, $branchIds, $type));
         });
     }
 
@@ -97,9 +81,9 @@ class InventoryController extends AsabController
         });
     }
 
-    public function sendConfirmation(string $branchId): JsonResponse
+    public function sendConfirmation(Request $request, RealtimeBroadcaster $rt, NotificationService $notifications, string $branchId): JsonResponse
     {
-        return $this->run(function () use ($branchId) {
+        return $this->run(function () use ($request, $rt, $notifications, $branchId) {
             $this->assertBranchAssigned($branchId);
             $op = Operation::where('module_key', 'inventory')->where('branch_id', $branchId)->latest('operation_date')->firstOrFail();
             $payload = $op->payload ?? [];
@@ -107,7 +91,17 @@ class InventoryController extends AsabController
             $payload['sentToConfirmAt'] = now()->toIso8601String();
             $op->update(['payload' => $payload]);
 
-            return $this->ok(['branchId' => $branchId, 'sentToConfirm' => true]);
+            // T07.9 — the accountant «إرسال» must actually reach the branch: a
+            // durable notification the branch manager sees offline, plus the
+            // realtime nudge (same event the company surface emits).
+            $rt->inventoryFlagSent($branchId, $payload['flaggedItemIndices'] ?? []);
+            $notifications->pushToBranch(
+                $request->user()->company_id, $branchId, 'branch', 'inventory.flagged',
+                'أصناف بحاجة إلى مراجعة الجرد', 'راجع الأصناف المُعلَّمة وأكِّد الجرد',
+                null, ['type' => 'operation', 'id' => $op->id],
+            );
+
+            return $this->ok(['branchId' => $branchId, 'sentToConfirm' => true, 'notifiedBranch' => true]);
         });
     }
 
@@ -126,6 +120,10 @@ class InventoryController extends AsabController
             }
             if ($cat = $request->query('category')) {
                 $q->where('category', $cat);
+            }
+            // ACC-4.5 item-selection search (matches the name, ar/en).
+            if ($search = $request->query('search')) {
+                $q->where('name', 'like', "%{$search}%");
             }
             $items = $q->orderBy('category')->orderBy('name')->get();
 
@@ -220,9 +218,9 @@ class InventoryController extends AsabController
         });
     }
 
-    public function saveDailyList(Request $request, string $branchId): JsonResponse
+    public function saveDailyList(Request $request, RealtimeBroadcaster $rt, NotificationService $notifications, string $branchId): JsonResponse
     {
-        return $this->run(function () use ($request, $branchId) {
+        return $this->run(function () use ($request, $rt, $notifications, $branchId) {
             $data = $request->validate(['items' => 'required|array', 'items.*' => 'string']);
             $this->assertBranchAssigned($branchId);
 
@@ -236,6 +234,16 @@ class InventoryController extends AsabController
                     ]);
                 }
             });
+
+            // T07.1 / MOB-1.2 — «حفظ وتحديث التطبيق فوراً»: the branch app must
+            // learn its count list changed. Durable notification + realtime event;
+            // `pushedAt` reflects a push that actually happened.
+            $rt->inventoryDailyListUpdated($branchId, count($data['items']));
+            $notifications->pushToBranch(
+                $request->user()->company_id, $branchId, 'branch', 'inventory.daily_list_updated',
+                'تم تحديث قائمة الجرد اليومي', 'قائمة أصناف الجرد لديك تم تحديثها',
+                null, ['type' => 'branch', 'id' => $branchId],
+            );
 
             return $this->ok(['savedCount' => count($data['items']), 'pushedAt' => now()->toIso8601String()]);
         });

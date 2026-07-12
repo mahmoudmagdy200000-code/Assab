@@ -10,6 +10,7 @@ use Modules\Admin\Models\AsabNotification;
 use Modules\Admin\Models\AuditLog;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Services\ReportService;
+use Modules\Admin\Support\AssetEnums;
 
 /**
  * Company-scoped cross-cutting endpoints (COMPANY_DASHBOARD_API_SPEC.md §7):
@@ -27,15 +28,10 @@ class CrossController extends AsabController
         return $this->listResponse(['كجم', 'لتر', 'قطعة', 'كرتون', 'كيس', 'عبوة', 'شريحة']);
     }
 
+    /** SRS §4.2 category pills — the one list, shared with the conversion wizard. */
     public function assetCategories(): JsonResponse
     {
-        return $this->listResponse([
-            ['id' => 'kitchen', 'name' => 'معدات مطبخ', 'depreciationRate' => 20],
-            ['id' => 'furniture', 'name' => 'أثاث', 'depreciationRate' => 10],
-            ['id' => 'electronics', 'name' => 'أجهزة إلكترونية', 'depreciationRate' => 25],
-            ['id' => 'vehicles', 'name' => 'مركبات', 'depreciationRate' => 20],
-            ['id' => 'other', 'name' => 'أخرى', 'depreciationRate' => 15],
-        ]);
+        return $this->listResponse(AssetEnums::catalog()['categories']);
     }
 
     public function inventoryCategories(Request $request): JsonResponse
