@@ -7,6 +7,7 @@ use Modules\Admin\Events\OperationFinalApproved;
 use Modules\Admin\Events\OperationRejected;
 use Modules\Admin\Listeners\BridgeLegacyCashierShift;
 use Modules\Admin\Listeners\ProcessShiftOperationDecision;
+use Modules\Admin\Listeners\SyncErpReadyBatch;
 use Modules\Admin\Listeners\SyncLegacyExpenseOperation;
 use Modules\Expense\Events\ExpenseApprovedEvent;
 use Modules\Expense\Events\ExpenseSubmittedEvent;
@@ -27,7 +28,11 @@ class EventServiceProvider extends ServiceProvider
 
         // Shift close chain (ACC-6.4 / HEAD-2.5): final-approve closes the shift +
         // posts the cash gap; reject reopens it.
-        OperationFinalApproved::class => [[ProcessShiftOperationDecision::class, 'handleFinalApproved']],
+        OperationFinalApproved::class => [
+            [ProcessShiftOperationDecision::class, 'handleFinalApproved'],
+            // SRS §14.3 ERP-1: seed the (day × module) ready batch for export.
+            SyncErpReadyBatch::class,
+        ],
         OperationRejected::class => [[ProcessShiftOperationDecision::class, 'handleRejected']],
 
         // MOB-1.6 cashier bridge: a legacy mobile shift close mints the SHF- op.

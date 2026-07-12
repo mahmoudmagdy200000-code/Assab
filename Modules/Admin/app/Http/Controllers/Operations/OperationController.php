@@ -256,6 +256,67 @@ class OperationController extends AsabController
         });
     }
 
+    /**
+     * POST /operations/bulk-final-approve — HEAD-2.1/2.4 «اعتماد الكل». Head-only
+     * group final approval of the approved queue. Same zero-trust branch filter
+     * as bulkApprove; supports the conditional flag applied to every op.
+     */
+    public function bulkFinalApprove(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $data = $request->validate([
+                'operationIds' => 'required|array',
+                'operationIds.*' => 'string',
+                'isConditional' => 'sometimes|boolean',
+                'conditionalNote' => 'required_if:isConditional,true|nullable|string|max:1000',
+            ]);
+
+            $ids = $data['operationIds'];
+            $allowed = $this->scopeToAssignedBranches(
+                Operation::query()->where(fn ($q) => $q->whereIn('id', $ids)->orWhereIn('public_id', $ids)),
+            )->pluck('id')->all();
+
+            return $this->ok($this->service->bulkFinalApprove(
+                $allowed, $request->user(),
+                (bool) ($data['isConditional'] ?? false), $data['conditionalNote'] ?? null,
+            ));
+        });
+    }
+
+    /**
+     * POST /operations/{id}/return-for-review — HEAD-2.1 «إرجاع للمراجعة».
+     * Head sends an approved op back to the accountant queue. 409 otherwise.
+     */
+    public function returnForReview(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $data = $request->validate(['note' => 'sometimes|nullable|string|max:1000']);
+
+            return $this->ok($this->present(
+                $this->service->returnForReview($this->find($id), $request->user(), $data['note'] ?? null),
+            ));
+        });
+    }
+
+    /** POST /operations/bulk-return — group «إرجاع للمراجعة». */
+    public function bulkReturn(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $data = $request->validate([
+                'operationIds' => 'required|array',
+                'operationIds.*' => 'string',
+                'note' => 'sometimes|nullable|string|max:1000',
+            ]);
+
+            $ids = $data['operationIds'];
+            $allowed = $this->scopeToAssignedBranches(
+                Operation::query()->where(fn ($q) => $q->whereIn('id', $ids)->orWhereIn('public_id', $ids)),
+            )->pluck('id')->all();
+
+            return $this->ok($this->service->bulkReturnForReview($allowed, $request->user(), $data['note'] ?? null));
+        });
+    }
+
     public function correction(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {

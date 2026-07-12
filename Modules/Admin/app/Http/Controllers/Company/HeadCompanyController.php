@@ -5,7 +5,6 @@ namespace Modules\Admin\Http\Controllers\Company;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
-use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\ErpBatchService;
 use Modules\Admin\Services\HeadMetricsService;
@@ -57,11 +56,12 @@ class HeadCompanyController extends AsabController
                     'rejectedCount' => $pipeline['rejected'],
                     'monthlySalesHalalas' => $monthSales,
                     'salesDeltaPct' => $prevSales ? round(($monthSales - $prevSales) / $prevSales * 100, 1) : 0.0,
+                    'accountantsActive' => $this->metrics->accountantsActive($companyId),
                 ], $this->metrics->dashboardKpis($companyId)),
                 'pipelineCounts' => $pipeline,
                 'weeklyPerformance' => $this->metrics->weeklyPerformance($companyId),
-                'brandPerformance' => AsabBrand::where('company_id', $companyId)->get()
-                    ->map(fn (AsabBrand $b) => ['brandId' => $b->id, 'name' => $b->name, 'abbr' => $b->abbr, 'color' => $b->color, 'salesHalalas' => 0, 'pctOfTarget' => 0])->all(),
+                // HEAD-1.3 real brand performance (was hardcoded zeros).
+                'brandPerformance' => $this->metrics->brandPerformance($companyId),
                 'awaitingFinalApprovalPreview' => $base()->where('status', Operation::STATUS_APPROVED)
                     ->orderByDesc('approved_at')->limit(5)->get()
                     ->map(fn (Operation $o) => ['id' => $o->id, 'publicId' => $o->public_id, 'moduleKey' => $o->module_key, 'amount' => $o->amount, 'branchId' => $o->branch_id])->all(),
@@ -139,17 +139,56 @@ class HeadCompanyController extends AsabController
                 $query->whereIn('branch_id', $branchIds ?: ['__none__']);
             }
 
-            $ops = $query->orderByDesc('operation_date')->get();
+            // T10.10 — bounded: paginate rows; totals + per-restaurant breakdown
+            // are computed by aggregate queries, not by loading every op.
+            $perPage = min((int) $request->query('pageSize', 50), 100);
+            $p = (clone $query)->orderByDesc('operation_date')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
             return $this->ok([
-                'data' => $ops->map(fn (Operation $o) => $this->presentOp($o))->all(),
+                'data' => collect($p->items())->map(fn (Operation $o) => $this->presentOp($o))->all(),
                 'meta' => [
-                    'count' => $ops->count(),
-                    'totalAmountHalalas' => (int) $ops->sum('amount'),
-                    'branches' => $ops->pluck('branch_id')->filter()->unique()->count(),
+                    'page' => $p->currentPage(),
+                    'pageSize' => $p->perPage(),
+                    'total' => $p->total(),
+                    'totalPages' => $p->lastPage(),
+                    'count' => (clone $query)->count(),
+                    'totalAmountHalalas' => (int) (clone $query)->sum('amount'),
+                    'branches' => (clone $query)->distinct()->count('branch_id'),
+                    'perRestaurant' => $this->perRestaurant(clone $query, $companyId),
                 ],
             ]);
         });
+    }
+
+    /**
+     * ERP-3 per-restaurant breakdown of a preview selection. One grouped query on
+     * the ops (by branch) + one branch→restaurant lookup — bounded by branch count.
+     *
+     * @return array<int, array{restaurantId:?string, name:?string, count:int, amountHalalas:int}>
+     */
+    private function perRestaurant($query, string $companyId): array
+    {
+        $byBranch = $query->selectRaw('branch_id, count(*) as c, sum(amount) as a')->groupBy('branch_id')->get();
+        if ($byBranch->isEmpty()) {
+            return [];
+        }
+        $branches = \Modules\Branch\Models\Branch::whereIn('id', $byBranch->pluck('branch_id')->filter())
+            ->get(['id', 'asab_restaurant_id'])->keyBy('id');
+        $restaurantIds = $branches->pluck('asab_restaurant_id')->filter()->unique();
+        $names = $restaurantIds->isEmpty()
+            ? collect()
+            : \Modules\Admin\Models\AsabRestaurant::whereIn('id', $restaurantIds)->pluck('name', 'id');
+
+        $agg = [];
+        foreach ($byBranch as $row) {
+            $restaurantId = optional($branches->get($row->branch_id))->asab_restaurant_id;
+            $key = $restaurantId ?? '__none__';
+            $agg[$key] ??= ['restaurantId' => $restaurantId, 'name' => $restaurantId ? ($names[$restaurantId] ?? null) : null, 'count' => 0, 'amountHalalas' => 0];
+            $agg[$key]['count'] += (int) $row->c;
+            $agg[$key]['amountHalalas'] += (int) $row->a;
+        }
+
+        return array_values($agg);
     }
 
     /**
@@ -216,9 +255,14 @@ class HeadCompanyController extends AsabController
         return $this->run(function () use ($request, $id) {
             $op = Operation::where('company_id', $request->user()->company_id)
                 ->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id))->firstOrFail();
-            $batch = $this->erp->create(['operationIds' => [$op->id]], $request->user());
+            $batches = $this->erp->export(['operationIds' => [$op->id]], $request->user());
+            $first = $batches->first();
 
-            return $this->ok(['batchId' => $batch->batch_id, 'queuedOpCount' => $batch->operation_count, 'totalHalalas' => $batch->total_amount]);
+            return $this->ok([
+                'batchId' => $first?->batch_id,
+                'queuedOpCount' => (int) $batches->sum('operation_count'),
+                'totalHalalas' => (int) $batches->sum('total_amount'),
+            ]);
         });
     }
 }

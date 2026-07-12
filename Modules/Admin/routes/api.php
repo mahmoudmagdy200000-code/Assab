@@ -116,6 +116,12 @@ Route::prefix('v1')->group(function () {
             ->group(function () {
                 Route::get('overview', [OverviewController::class, 'index']);
 
+                // ERP-2 admin export screen (§14.3): connection banner, KPIs,
+                // cross-company batch log, select/all-ready bulk export.
+                Route::get('erp/summary', [\Modules\Admin\Http\Controllers\Admin\ErpAdminController::class, 'summary']);
+                Route::get('erp/batches', [\Modules\Admin\Http\Controllers\Admin\ErpAdminController::class, 'batches']);
+                Route::post('erp/export', [\Modules\Admin\Http\Controllers\Admin\ErpAdminController::class, 'export']);
+
                 // Companies
                 Route::get('companies', [CompanyController::class, 'index']);
                 Route::post('companies', [CompanyController::class, 'store']);
@@ -248,7 +254,11 @@ Route::prefix('v1')->group(function () {
             Route::get('operations', [OperationController::class, 'index']);
             // Bulk export (head/accountant) — must precede operations/{id} so "export" isn't captured as an id.
             Route::get('operations/export', [CompanyExportController::class, 'operationsExport'])->middleware('asab.role:accountant,head');
-            Route::post('operations/bulk-approve', [OperationController::class, 'bulkApprove'])->middleware('asab.role:accountant,head');
+            Route::post('operations/bulk-approve', [OperationController::class, 'bulkApprove'])->middleware(['asab.role:accountant,head', 'asab.idempotency']);
+            // HEAD-2.1/2.4 group actions (head-only). Declared before operations/{id}
+            // so the literal segments cannot be captured as an id.
+            Route::post('operations/bulk-final-approve', [OperationController::class, 'bulkFinalApprove'])->middleware(['asab.role:head', 'asab.idempotency']);
+            Route::post('operations/bulk-return', [OperationController::class, 'bulkReturn'])->middleware(['asab.role:head', 'asab.idempotency']);
             Route::get('operations/{id}', [OperationController::class, 'show']);
             Route::get('operations/{id}/audit-trail', [OperationController::class, 'auditTrail']);
             // ACC-1.4 attachments panel (POS report / bank statement / aggregator sheets).
@@ -256,7 +266,9 @@ Route::prefix('v1')->group(function () {
             Route::post('operations/{id}/approve', [OperationController::class, 'approve'])->middleware('asab.role:accountant,head');
             Route::post('operations/{id}/reject', [OperationController::class, 'reject'])->middleware('asab.role:accountant,head');
             // Conditional approval is the isConditional flag on final-approve (FE completion request §1.6).
-            Route::post('operations/{id}/final-approve', [OperationController::class, 'finalApprove'])->middleware('asab.role:head');
+            Route::post('operations/{id}/final-approve', [OperationController::class, 'finalApprove'])->middleware(['asab.role:head', 'asab.idempotency']);
+            // HEAD-2.1 «إرجاع للمراجعة» — head returns an approved op to the accountant.
+            Route::post('operations/{id}/return-for-review', [OperationController::class, 'returnForReview'])->middleware(['asab.role:head', 'asab.idempotency']);
             Route::post('operations/{id}/correction', [OperationController::class, 'correction'])->middleware('asab.role:accountant,head');
             // «طلب توضيح» (SRS ACC-0.5) — non-terminal: asks the submitter for
             // information without moving the operation off its stage.
@@ -269,11 +281,16 @@ Route::prefix('v1')->group(function () {
             Route::get('purchases/returns', [PurchaseReturnController::class, 'index'])->middleware('asab.role:accountant,head');
 
             // ERP (§5 / §7.4)
-            Route::post('erp/batches', [HeadController::class, 'erpCreateBatch'])->middleware('asab.role:head');
-            Route::get('erp/batches/{batchId}/status', [ErpController::class, 'status']);
-            Route::get('erp/batches/{batchId}/download.json', [ErpController::class, 'downloadJson']);
-            Route::get('erp/batches/{batchId}/download.csv', [ErpController::class, 'downloadCsv']);
-            Route::get('erp/batches/{batchId}/download.xlsx', [ErpController::class, 'downloadXlsx']);
+            Route::post('erp/batches', [HeadController::class, 'erpCreateBatch'])->middleware(['asab.role:head', 'asab.idempotency']);
+            // T10.6 retry a failed batch (head or admin).
+            Route::post('erp/batches/{batchId}/retry', [ErpController::class, 'retry'])->middleware(['asab.role:head,admin', 'asab.idempotency']);
+            // T10.8: batch status/downloads restricted to head+admin (were open to any role).
+            Route::middleware('asab.role:head,admin')->group(function () {
+                Route::get('erp/batches/{batchId}/status', [ErpController::class, 'status']);
+                Route::get('erp/batches/{batchId}/download.json', [ErpController::class, 'downloadJson']);
+                Route::get('erp/batches/{batchId}/download.csv', [ErpController::class, 'downloadCsv']);
+                Route::get('erp/batches/{batchId}/download.xlsx', [ErpController::class, 'downloadXlsx']);
+            });
 
             // Cross-cutting (§7)
             Route::get('pipeline/overview', [PipelineController::class, 'overview']);
@@ -642,6 +659,11 @@ Route::prefix('v1')->group(function () {
                     Route::post('operations/{id}/post-to-erp', [HeadCompanyController::class, 'postToErp']);
                     // Filtered ERP batch preview (FE wiring §3.1)
                     Route::get('erp/preview', [HeadCompanyController::class, 'erpPreview']);
+                    // HEAD-2 final-approval on the portal (single + group) + «إرجاع للمراجعة».
+                    Route::post('operations/{id}/final-approve', [OperationController::class, 'finalApprove']);
+                    Route::post('operations/bulk-final-approve', [OperationController::class, 'bulkFinalApprove']);
+                    Route::post('operations/{id}/return-for-review', [OperationController::class, 'returnForReview']);
+                    Route::post('operations/bulk-return', [OperationController::class, 'bulkReturn']);
                 });
 
                 // Accountant (§5.3)

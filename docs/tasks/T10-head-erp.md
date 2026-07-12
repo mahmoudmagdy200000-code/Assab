@@ -1,6 +1,6 @@
 # T10 — Head Accountant & ERP Export
 > SRS: §8 HEAD-1..3, HEAD-5 — HEAD-6 reminders owned by **T16.8**, HEAD-7 report cards owned by **T15.18** (dashboard KPIs+pipeline+brand performance, pending grouped by accountant×module with group bulk approve + return-for-review, final-approved locked list, rejected list, per-module screens, accountant performance cards), §14.3 ERP-1..3 (batches, admin export log screen, head filtered export Excel/API post, failed retry), final-approve + isConditional · Audited: 2026-07-10 · FE doc deliverable: docs/fe-wiring/FE-T10-head-erp.md
-> Status: ⬜ not started (audit complete)
+> Status: ✅ **done** (2026-07-12) — code + 16 Pest tests + Pint + FE doc [FE-T10](../fe-wiring/FE-T10-head-erp.md). T10.9/T10.11 deferred to T16.8/T15.18 as scoped. See delivery notes at the bottom.
 
 ## 1. Endpoint inventory (audited against code)
 
@@ -130,3 +130,23 @@ Pest feature tests (SQLite in-memory; seed head + 2 accountants + 2 companies):
 - **Screen mapping**: لوحة التحكم → `/head/dashboard` (+ `/head/operations/pending?pageSize=5` for the «بانتظار اعتمادك النهائي» bottom queue) · بانتظار الاعتماد → `/head/operations/pending` (grouped view after T10.3) · المعتمدة نهائياً → `/head/operations/final-approved?erpPosted=false` (🔒 rows, meta.summary total badge) · المرفوضة → `/head/operations/rejected` · per-module screens → same three lists + `?moduleKey=<key>` (KPI triple from each list's `meta.summary`) · أداء المحاسبين → `/head/accountants/performance` · التصدير لـ ERP → `/head/erp/preflight` → `/head/erp/eligible-operations` → `POST /erp/batches` → `/head/erp/batches` log · التقارير المالية → `/head/reports/internal` (cards, each `downloadUrl` is a ready filtered export) + `/head/reports/owner`.
 - **Reminder types (head shape)**: `urgent` 🔴 · `report` 📊 · `finance` 💰 · `team` 👥; priorities `high|medium|low` («عالية/متوسطة/منخفضة»); `timeAr` is a preformatted Arabic diff-for-humans string.
 - **Quirks**: `movements/recent` `actionAr` is server-composed Arabic («اعتماد مبيعات», «اعتماد نهائي…»); `operations/{id}` (shared show) adds `payload` + `auditTrail` for the expanded row/lifecycle stepper — the head list rows alone don't carry attachments (until T10.3 adds `attachmentCount`); `final-approve` 409 body carries `{currentStatus, requiredStatus}` for precise FE error toasts; conditional approval = `isConditional:true` + required `conditionalNote` (+ optional `conditions[{text,dueAt}]`) — there is no separate conditional endpoint.
+
+## Delivery notes (2026-07-12)
+
+| Task | Outcome |
+|---|---|
+| T10.1 | `OperationService::bulkFinalApprove` + `OperationController::bulkFinalApprove` + `POST /operations/bulk-final-approve` (head, idempotent, zero-trust filter). Returns `{finalApproved[], failed[{id,code}]}`. |
+| T10.2 | `returnForReview` (approved→pending, clears approval stamps, notifies the approving accountant `operation.returned_for_review`, 409 otherwise) + `bulkReturnForReview` + routes `{id}/return-for-review`, `bulk-return`. |
+| T10.3 | `HeadController::groupedPending` (`?view=grouped`) — accountant×module groups w/ count/total/`hasDiffs` + capped ops/`moreCount`; `filteredOps` adds brandId/accountantId/date filters; `present()` gains `attachmentCount` (batched, no N+1), `diffNote`, `submittedAt`. |
+| T10.4 | `HeadMetricsService::accountantsActive` + real `brandPerformance` (month sales/expenses per brand via branch→brand, `pctOfTarget` vs `asab_monthly_target`); wired into both dashboards; platform pipeline gains `submit`+`reports` stages. |
+| T10.5 | ERP redesign: migration adds `module_key/batch_date/ready_at/approved_by_id`; `ErpBatchService` splits per (day×module), `EXP-YYYY-MM-DD-nnn`, `ready|exported|failed` enum; `SyncErpReadyBatch` listener seeds a ready batch on final-approve. `create()`→`export()` returns a batch collection. |
+| T10.6 | `ErpBatchService::retry` + `POST /erp/batches/{id}/retry` (head/admin) — failed→exported; 409 `BATCH_NOT_FAILED`. Mockable `postToConnector` (`config('asab.erp.force_fail')`) exercises the failure path. |
+| T10.7 | `Admin/ErpAdminController` (summary + KPIs, cross-company batch log, select/all-ready bulk export) + `/admin/erp/*` routes (admin-only). |
+| T10.8 | `ErpBatch` gains `BelongsToTenant` (fixed an `orWhere` tenant-leak in the id lookup); batch status/downloads behind `asab.role:head,admin`; `download.xlsx` now a real spreadsheet; `asab.idempotency` on final-approve / bulk-approve / erp/batches. |
+| T10.9 | ~~moved to T16.8~~ (company-portal head reminders CREATE/DELETE). |
+| T10.10 | `erp/eligible-operations` + `erp/preview` paginated with query-computed totals; preview gains `perRestaurant` breakdown. |
+| T10.11 | ~~moved to T15.18~~ (HEAD-7 report cards). |
+| T10.12 | 16 Pest tests: `HeadFinalApprovalQueueTest` (9) + `ErpBatchLifecycleTest` (7). |
+| T10.13 | FE doc [FE-T10](../fe-wiring/FE-T10-head-erp.md); board flipped ✅/✅. |
+
+**Note — company surface gap closed:** the company portal head had **no** final-approve route at all; T10.1/T10.2 added final-approve + bulk-final-approve + return-for-review + bulk-return under `/company/me/*` (role:head).

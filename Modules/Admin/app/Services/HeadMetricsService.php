@@ -5,8 +5,10 @@ namespace Modules\Admin\Services;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Admin\Models\ApprovalStep;
+use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Operation;
+use Modules\Branch\Models\Branch;
 
 /**
  * Head Accountant dashboard metrics (MISSING_Dashboard §4). Shared by the
@@ -51,6 +53,68 @@ class HeadMetricsService
             'avgReviewTimeMinutes' => $avgReviewMinutes,
             'vsLastMonthDeltaPct' => $delta,
         ];
+    }
+
+    /** HEAD-1.1 «المحاسبون النشطون n/n» — active vs total company accountants. */
+    public function accountantsActive(string $companyId): array
+    {
+        $accountants = AsabUser::where('company_id', $companyId)
+            ->whereHas('roleAssignments', fn ($r) => $r->where('role_key', 'accountant'))->get(['id', 'status']);
+
+        return [
+            'active' => $accountants->where('status', 'active')->count(),
+            'total' => $accountants->count(),
+        ];
+    }
+
+    /**
+     * HEAD-1.3 brand performance — this-month sales/expenses/net per brand and
+     * pctOfTarget vs the sum of the brand's branch monthly_target. Two grouped
+     * queries (by branch) + a branch→brand map; bounded by branch count.
+     *
+     * @return array<int, array<string,mixed>>
+     */
+    public function brandPerformance(string $companyId): array
+    {
+        $brands = AsabBrand::where('company_id', $companyId)->get(['id', 'name', 'abbr', 'color']);
+        if ($brands->isEmpty()) {
+            return [];
+        }
+        $branches = Branch::where('asab_company_id', $companyId)->get(['id', 'asab_brand_id', 'asab_monthly_target']);
+        $branchToBrand = $branches->pluck('asab_brand_id', 'id');
+        $targetByBrand = $branches->groupBy('asab_brand_id')->map(fn ($g) => (int) $g->sum('asab_monthly_target'));
+
+        $monthStart = now()->startOfMonth();
+        $monthEnd = now()->endOfMonth();
+        $sumByBranch = fn (string $module) => $this->scoped($companyId)
+            ->where('module_key', $module)->whereBetween('operation_date', [$monthStart, $monthEnd])
+            ->selectRaw('branch_id, sum(amount) as a')->groupBy('branch_id')->pluck('a', 'branch_id');
+        $salesByBranch = $sumByBranch('sales');
+        $expensesByBranch = $sumByBranch('expenses');
+
+        $agg = [];
+        foreach ($branchToBrand as $branchId => $brandId) {
+            $agg[$brandId] ??= ['sales' => 0, 'expenses' => 0];
+            $agg[$brandId]['sales'] += (int) ($salesByBranch[$branchId] ?? 0);
+            $agg[$brandId]['expenses'] += (int) ($expensesByBranch[$branchId] ?? 0);
+        }
+
+        return $brands->map(function (AsabBrand $b) use ($agg, $targetByBrand) {
+            $sales = (int) ($agg[$b->id]['sales'] ?? 0);
+            $expenses = (int) ($agg[$b->id]['expenses'] ?? 0);
+            $target = (int) ($targetByBrand[$b->id] ?? 0);
+
+            return [
+                'brandId' => $b->id,
+                'name' => $b->name,
+                'abbr' => $b->abbr,
+                'color' => $b->color,
+                'salesHalalas' => $sales,
+                'expensesHalalas' => $expenses,
+                'netHalalas' => $sales - $expenses,
+                'pctOfTarget' => $target > 0 ? round($sales / $target * 100, 1) : 0,
+            ];
+        })->all();
     }
 
     /** §4.1 weekly performance — reviewed counts per weekday, this vs last week. */
