@@ -14,8 +14,10 @@ class Shift extends Model
     protected $table = 'asab_shifts';
 
     protected $fillable = [
-        'company_id', 'branch_id', 'supervisor_user_id', 'supervisor_name', 'started_at', 'ended_at',
-        'status', 'orders_count', 'sales_amount', 'cash_expected', 'cash_actual', 'variance', 'notes',
+        'company_id', 'branch_id', 'supervisor_user_id', 'supervisor_name',
+        'cashier_employee_id', 'cashier_name', 'shift_type', 'shift_no',
+        'started_at', 'ended_at', 'status', 'orders_count', 'sales_amount',
+        'opening_float', 'cash_expected', 'cash_actual', 'variance', 'notes',
     ];
 
     protected $casts = [
@@ -23,6 +25,8 @@ class Shift extends Model
         'ended_at' => 'datetime',
         'orders_count' => 'integer',
         'sales_amount' => 'integer',
+        'shift_no' => 'integer',
+        'opening_float' => 'integer',
         'cash_expected' => 'integer',
         'cash_actual' => 'integer',
         'variance' => 'integer',

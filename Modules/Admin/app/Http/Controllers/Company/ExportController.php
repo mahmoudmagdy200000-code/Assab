@@ -50,7 +50,8 @@ class ExportController extends AsabController
     /** GET /shifts/export */
     public function shifts(Request $request): BinaryFileResponse
     {
-        return $this->exports->shifts($this->format($request), $request->query('branchId'));
+        // Zero-trust: a branch-scoped accountant exports only their branches.
+        return $this->exports->shifts($this->format($request), $request->query('branchId'), $this->assignedBranchIds());
     }
 
     /** GET /employees/payroll/export?month=YYYY-MM */

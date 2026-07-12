@@ -6,19 +6,24 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\Shift;
+use Modules\Admin\Services\ShiftPresenter;
 
 /**
  * Accountant shift oversight (BACKEND_API_SPEC.md §6.3.9).
  */
 class ShiftController extends AsabController
 {
+    public function __construct(private readonly ShiftPresenter $presenter) {}
+
     /** Combined entry for /company/me/shifts?status=live|closed (COMPANY_DASHBOARD_API_SPEC.md §5.3.9). */
     public function index(Request $request): JsonResponse
     {
         if ($request->query('status', 'closed') === 'live') {
-            return $this->run(fn () => $this->listResponse(
-                $this->scopeToAssignedBranches(Shift::whereIn('status', ['active', 'late']))->orderByDesc('started_at')->get()->map([$this, 'present'])->all()
-            ));
+            return $this->run(function () {
+                $active = $this->scopeToAssignedBranches(Shift::whereIn('status', ['active', 'late']))->orderByDesc('started_at')->get();
+
+                return $this->listResponse($this->presenter->collection($active), ['kpis' => $this->kpis()]);
+            });
         }
 
         return $this->history($request);
@@ -28,10 +33,12 @@ class ShiftController extends AsabController
     {
         return $this->run(function () {
             $active = $this->scopeToAssignedBranches(Shift::whereIn('status', ['active', 'late']))->orderByDesc('started_at')->get();
+            $presented = $this->presenter->collection($active);
 
             return $this->ok([
-                'active' => $active->map([$this, 'present'])->all(),
-                'overdue' => $active->where('status', 'late')->map([$this, 'present'])->values()->all(),
+                'active' => $presented,
+                'overdue' => array_values(array_filter($presented, fn ($s) => $s['status'] === 'late')),
+                'kpis' => $this->kpis(),
             ]);
         });
     }
@@ -44,10 +51,37 @@ class ShiftController extends AsabController
             if ($branch = $request->query('branchId')) {
                 $q->where('branch_id', $branch);
             }
+            if ($type = $request->query('shiftType')) {
+                $q->where('shift_type', $type);
+            }
+            if ($from = $request->query('dateFrom')) {
+                $q->whereDate('ended_at', '>=', $from);
+            }
+            if ($to = $request->query('dateTo')) {
+                $q->whereDate('ended_at', '<=', $to);
+            }
+            if ($search = $request->query('search')) {
+                $q->where(fn ($w) => $w->where('cashier_name', 'like', "%{$search}%")->orWhere('supervisor_name', 'like', "%{$search}%"));
+            }
             $p = $q->orderByDesc('ended_at')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
-            return $this->paginated($p, array_map([$this, 'present'], $p->items()));
+            return $this->paginated($p, $this->presenter->collection(collect($p->items())));
         });
+    }
+
+    /** ACC-6.1 KPI tiles — assignment-scoped, Asia/Riyadh day bounds. */
+    private function kpis(): array
+    {
+        $today = now('Asia/Riyadh')->startOfDay();
+        $base = fn () => $this->scopeToAssignedBranches(Shift::query());
+
+        return [
+            'openNow' => (clone $base())->whereIn('status', ['active', 'late'])->count(),
+            'closedToday' => (clone $base())->where('status', 'closed')->where('ended_at', '>=', $today)->count(),
+            'todaySalesHalalas' => (int) (clone $base())->where('started_at', '>=', $today)->sum('sales_amount'),
+            'cashGapsPendingReview' => (clone $base())->whereIn('status', ['pending_review', 'closed'])
+                ->where('variance', '<', 0)->count(),
+        ];
     }
 
     public function close(Request $request, \Modules\Admin\Services\RealtimeBroadcaster $rt, string $id): JsonResponse

@@ -27,7 +27,7 @@ class EmployeeController extends AsabController
             $p = $q->orderBy('name')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
             return $this->paginated($p, array_map(fn ($e) => [
-                'id' => $e->id, 'empNumber' => $e->emp_number, 'name' => $e->name,
+                'id' => $e->id, 'empNumber' => $e->emp_number, 'name' => $e->name, 'phone' => $e->phone,
                 'role' => $e->role, 'monthlySalary' => $e->monthly_salary, 'status' => $e->status,
             ], $p->items()));
         });

@@ -52,6 +52,7 @@ class AdminServiceProvider extends ServiceProvider
     {
         $this->commands([
             CheckExpiringSubscriptions::class,
+            \Modules\Admin\Console\Commands\MarkLateShiftsCommand::class,
         ]);
     }
 
@@ -65,6 +66,10 @@ class AdminServiceProvider extends ServiceProvider
             // Daily subscription-expiry sweep (BACKEND_API_SPEC.md §8 subscription.expiring)
             $schedule->command('asab:subscriptions-expiry')
                 ->dailyAt('06:00')
+                ->timezone('Asia/Riyadh');
+            // ACC-6.2 — flag overdue open shifts as late.
+            $schedule->command('asab:shifts-mark-late')
+                ->everyFifteenMinutes()
                 ->timezone('Asia/Riyadh');
         });
     }

@@ -23,6 +23,7 @@ class OperationFactory
     public function __construct(
         private readonly RealtimeBroadcaster $rt,
         private readonly NotificationService $notifications,
+        private readonly ShiftSalesFeed $shiftFeed,
     ) {}
 
     /**
@@ -68,6 +69,9 @@ class OperationFactory
                     'actor_label' => $submitter->name,
                     'occurred_at' => now(),
                 ]);
+
+                // ACC-6.1 interim live feed — a sales upload bumps the open shift.
+                $this->shiftFeed->record($op);
 
                 return $op;
             }),
