@@ -406,6 +406,8 @@ Route::prefix('v1')->group(function () {
                 Route::get('shifts/live', [ShiftController::class, 'live']);
                 Route::get('shifts/history', [ShiftController::class, 'history']);
                 Route::post('shifts/{id}/close', [ShiftController::class, 'close']);
+                // ACC-6.4 accountant's split of the cash gap before head approval.
+                Route::post('shifts/{id}/variance-allocations', [ShiftController::class, 'varianceAllocations']);
 
                 // Employees (§6.3.10)
                 Route::get('employees', [EmployeeController::class, 'index']);
@@ -716,6 +718,7 @@ Route::prefix('v1')->group(function () {
                     Route::get('shifts/export', [CompanyExportController::class, 'shifts']);
                     Route::get('shifts', [ShiftController::class, 'index']);
                     Route::post('shifts/{id}/close', [ShiftController::class, 'close']);
+                    Route::post('shifts/{id}/variance-allocations', [ShiftController::class, 'varianceAllocations']);
                     Route::put('brands/{brandId}/shift-config', [AccountantCompanyController::class, 'saveShiftConfig']);
 
                     Route::get('employees/payroll/export', [CompanyExportController::class, 'payroll']);

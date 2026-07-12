@@ -484,38 +484,43 @@ class AccountantCompanyController extends AsabController
         return (int) round($n * 100);
     }
 
-    public function shiftConfigs(Request $request): JsonResponse
+    public function shiftConfigs(Request $request, \Modules\Admin\Services\ShiftConfigService $configService): JsonResponse
     {
-        return $this->run(function () use ($request) {
+        return $this->run(function () use ($request, $configService) {
             $brands = AsabBrand::where('company_id', $request->user()->company_id)->get();
             $configs = BrandShiftConfig::whereIn('brand_id', $brands->pluck('id'))->get()->keyBy('brand_id');
 
-            return $this->listResponse($brands->map(function (AsabBrand $b) use ($configs) {
-                $c = $configs->get($b->id);
-                $s = $c?->shifts ?? [];
-
-                return [
-                    'brandId' => $b->id, 'brandName' => $b->name,
-                    'morningWindow' => $s['morningWindow'] ?? '06:00-14:00',
-                    'eveningWindow' => $s['eveningWindow'] ?? '14:00-23:00',
-                    'openingFloatHalalas' => $s['openingFloatHalalas'] ?? 0,
-                ];
-            })->all());
+            return $this->listResponse($brands->map(
+                fn (AsabBrand $b) => $configService->present($b->id, $b->name, $configs->get($b->id)),
+            )->all());
         });
     }
 
-    public function saveShiftConfig(Request $request, string $brandId): JsonResponse
+    /**
+     * PUT …/brands/{brandId}/shift-config — the meeting N-shift model (T08.1).
+     * Accepts `{numShifts, durationHours, firstShiftStart, openingFloatHalalas}`
+     * or the legacy `{morningWindow, eveningWindow, openingFloatHalalas}` pair;
+     * persists the real columns and emits computed windows + legacy aliases.
+     */
+    public function saveShiftConfig(Request $request, \Modules\Admin\Services\ShiftConfigService $configService, string $brandId): JsonResponse
     {
-        return $this->run(function () use ($request, $brandId) {
-            AsabBrand::where('company_id', $request->user()->company_id)->findOrFail($brandId);
+        return $this->run(function () use ($request, $configService, $brandId) {
+            $brand = AsabBrand::where('company_id', $request->user()->company_id)->findOrFail($brandId);
             $data = $request->validate([
-                'morningWindow' => 'required|string|max:32', 'eveningWindow' => 'required|string|max:32', 'openingFloatHalalas' => 'required|integer|min:0',
+                'numShifts' => 'sometimes|integer|min:1|max:4',
+                'durationHours' => 'sometimes|integer|min:1|max:24',
+                'firstShiftStart' => ['sometimes', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d$/'],
+                'openingFloatHalalas' => 'sometimes|integer|min:0',
+                // Legacy pair — still accepted.
+                'morningWindow' => ['sometimes', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/'],
+                'eveningWindow' => ['sometimes', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/'],
             ]);
-            $cfg = BrandShiftConfig::firstOrNew(['brand_id' => $brandId]);
-            $cfg->shifts = ['morningWindow' => $data['morningWindow'], 'eveningWindow' => $data['eveningWindow'], 'openingFloatHalalas' => $data['openingFloatHalalas']];
-            $cfg->save();
 
-            return $this->ok(array_merge(['brandId' => $brandId], $cfg->shifts));
+            $cols = $configService->fromInput($data);
+            $cfg = BrandShiftConfig::firstOrNew(['brand_id' => $brandId]);
+            $cfg->fill($cols)->save();
+
+            return $this->ok($configService->present($brandId, $brand->name, $cfg->fresh()));
         });
     }
 

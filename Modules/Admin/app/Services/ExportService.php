@@ -275,19 +275,25 @@ class ExportService
         return $this->make($format, 'waste', $headings, $rows);
     }
 
-    public function shifts(string $format, ?string $branchId): BinaryFileResponse
+    public function shifts(string $format, ?string $branchId, ?array $branchIds = null): BinaryFileResponse
     {
         $q = Shift::where('status', 'closed');
+        // Zero-trust: a branch-scoped accountant exports only their branches.
+        if ($branchIds !== null) {
+            $q->whereIn('branch_id', $branchIds);
+        }
         if ($branchId) {
             $q->where('branch_id', $branchId);
         }
         $shifts = $q->orderByDesc('ended_at')->limit(5000)->get();
         $branchNames = $this->branchNames($shifts->pluck('branch_id'));
 
-        $headings = ['الفرع', 'المشرف', 'البداية', 'النهاية', 'عدد الطلبات', 'المبيعات (ر.س)', 'النقد المتوقع', 'النقد الفعلي', 'الفرق'];
+        $headings = ['الفرع', 'نوع الشفت', 'المشرف', 'الكاشير', 'البداية', 'النهاية', 'عدد الطلبات', 'المبيعات (ر.س)', 'النقد المتوقع', 'النقد الفعلي', 'الفرق'];
         $rows = $shifts->map(fn (Shift $s) => [
             $branchNames[$s->branch_id] ?? '—',
+            $s->shift_type ?? '—',
             $s->supervisor_name ?? '—',
+            $s->cashier_name ?? '—',
             optional($s->started_at)->toDateTimeString(),
             optional($s->ended_at)->toDateTimeString(),
             (string) $s->orders_count,

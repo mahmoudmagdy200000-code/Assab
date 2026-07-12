@@ -244,41 +244,72 @@ class BranchCompanyController extends AsabController
         });
     }
 
-    public function activeShift(Request $request): JsonResponse
+    public function activeShift(Request $request, \Modules\Admin\Services\ShiftPresenter $presenter): JsonResponse
     {
-        return $this->run(function () use ($request) {
+        return $this->run(function () use ($request, $presenter) {
             $shift = Shift::where('company_id', $request->user()->company_id)
                 ->when($this->branchId($request), fn ($q, $b) => $q->where('branch_id', $b))
-                ->where('status', 'active')->orderByDesc('started_at')->first();
+                ->whereIn('status', ['active', 'late'])->orderByDesc('started_at')->first();
 
-            return $this->ok($shift ? $this->present($shift) : null);
+            if (! $shift) {
+                return $this->ok(null);
+            }
+            $phone = $shift->cashier_employee_id ? Employee::where('id', $shift->cashier_employee_id)->value('phone') : null;
+
+            return $this->ok($presenter->present($shift, \Modules\Branch\Models\Branch::where('id', $shift->branch_id)->value('name'), $phone));
         });
     }
 
-    public function openShift(Request $request): JsonResponse
+    /**
+     * BRM-5.1 — open a shift. Persists the selected cashier (id + name),
+     * derives the sequential shift number/type from the brand config, and
+     * defaults the opening float from that config when the body omits it.
+     */
+    public function openShift(Request $request, \Modules\Admin\Services\ShiftConfigService $configService, \Modules\Admin\Services\ShiftPresenter $presenter): JsonResponse
     {
-        return $this->run(function () use ($request) {
+        return $this->run(function () use ($request, $configService, $presenter) {
             $branchId = $this->branchId($request);
             // Doc aliases: cashierId->cashierEmpNumber, registerOpeningHalalas->openingCashHalalas.
             $request->merge([
                 'cashierEmpNumber' => $request->input('cashierEmpNumber', $request->input('cashierId')),
                 'openingCashHalalas' => $request->input('openingCashHalalas', $request->input('registerOpeningHalalas')),
             ]);
-            $data = $request->validate(['cashierEmpNumber' => 'sometimes|nullable|string', 'openingCashHalalas' => 'required|integer|min:0']);
+            $data = $request->validate([
+                'cashierEmpNumber' => 'sometimes|nullable|string',
+                'openingCashHalalas' => 'sometimes|nullable|integer|min:0',
+            ]);
 
-            $exists = Shift::where('company_id', $request->user()->company_id)->where('branch_id', $branchId)->where('status', 'active')->exists();
+            $exists = Shift::where('company_id', $request->user()->company_id)->where('branch_id', $branchId)->whereIn('status', ['active', 'late'])->exists();
             if ($exists) {
                 throw new AsabException('SHIFT_ALREADY_OPEN', 'A shift is already open for this branch', 'يوجد وردية مفتوحة بالفعل لهذا الفرع', 409);
             }
 
+            // Resolve the cashier within the branch (BRM-5.1 «اختيار الكاشير»).
+            $cashier = null;
+            if (! empty($data['cashierEmpNumber'])) {
+                $cashier = Employee::where('company_id', $request->user()->company_id)->where('branch_id', $branchId)
+                    ->where(fn ($q) => $q->where('id', $data['cashierEmpNumber'])->orWhere('emp_number', $data['cashierEmpNumber']))->first();
+                if (! $cashier) {
+                    throw (new \Illuminate\Database\Eloquent\ModelNotFoundException)->setModel(Employee::class);
+                }
+            }
+
+            $brandId = \Modules\Branch\Models\Branch::where('id', $branchId)->value('asab_brand_id');
+            $config = $brandId ? \Modules\Admin\Models\BrandShiftConfig::where('brand_id', $brandId)->first() : null;
+            $classified = $configService->classify($config, now());
+            $float = $data['openingCashHalalas'] ?? (int) ($config->shifts['openingFloatHalalas'] ?? \Modules\Admin\Support\ShiftEnums::DEFAULT_FLOAT_HALALAS);
+
             $shift = Shift::create([
                 'company_id' => $request->user()->company_id, 'branch_id' => $branchId,
                 'supervisor_user_id' => $request->user()->id, 'supervisor_name' => $request->user()->name,
-                'started_at' => now(), 'status' => 'active', 'cash_expected' => $data['openingCashHalalas'],
+                'cashier_employee_id' => $cashier?->id, 'cashier_name' => $cashier?->name,
+                'shift_no' => $classified['shiftNo'], 'shift_type' => $classified['shiftType'],
+                'started_at' => now(), 'status' => 'active',
+                'opening_float' => $float,
             ]);
             $this->rt->shiftChanged($shift, 'opened');
 
-            return $this->created($this->present($shift));
+            return $this->created($presenter->present($shift, null, $cashier?->phone));
         });
     }
 
@@ -308,6 +339,7 @@ class BranchCompanyController extends AsabController
                     'branch_id' => $branchId,
                     'emp_number' => $this->nextEmpNumber($request->user()->company_id, $branchId),
                     'name' => $data['name'],
+                    'phone' => $data['phone'] ?? null,
                     'national_id' => $data['nationalId'] ?? null,
                     'role' => $data['role'],
                     'monthly_salary' => $data['salaryHalalas'],
@@ -352,14 +384,5 @@ class BranchCompanyController extends AsabController
             ->count() + 1;
 
         return 'EMP-'.str_pad((string) $n, 4, '0', STR_PAD_LEFT);
-    }
-
-    private function present(Shift $s): array
-    {
-        return [
-            'id' => $s->id, 'branchId' => $s->branch_id, 'supervisorName' => $s->supervisor_name,
-            'startedAt' => optional($s->started_at)->toIso8601String(), 'status' => $s->status,
-            'ordersCount' => $s->orders_count, 'salesHalalas' => $s->sales_amount, 'openCashHalalas' => $s->cash_expected,
-        ];
     }
 }
