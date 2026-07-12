@@ -14,13 +14,14 @@ class CashCustody extends Model
     protected $table = 'asab_cash_custody';
 
     protected $fillable = [
-        'company_id', 'branch_id', 'custodian_user_id', 'custodian_name', 'amount', 'used',
+        'company_id', 'branch_id', 'custodian_user_id', 'custodian_name', 'amount', 'used', 'min_alert',
         'days_since_settlement', 'last_settlement_at', 'status',
     ];
 
     protected $casts = [
         'amount' => 'integer',
         'used' => 'integer',
+        'min_alert' => 'integer',
         'days_since_settlement' => 'integer',
         'last_settlement_at' => 'datetime',
     ];

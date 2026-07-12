@@ -14,8 +14,10 @@ use Modules\Admin\Models\CashCustody;
 use Modules\Admin\Models\CashTransaction;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Models\SettlementRequest;
 use Modules\Admin\Services\AccountantDashboardService;
 use Modules\Admin\Services\AssetSequence;
+use Modules\Admin\Services\CustodyService;
 use Modules\Admin\Services\ExpenseInvoiceService;
 use Modules\Admin\Services\ExpenseKpiService;
 use Modules\Admin\Services\SalesCompletenessService;
@@ -39,6 +41,7 @@ class AccountantCompanyController extends AsabController
         private readonly ExpenseInvoiceService $invoices,
         private readonly ExpenseKpiService $expenseKpi,
         private readonly TenantContext $tenant,
+        private readonly CustodyService $custody,
     ) {}
 
     /** GET …/sales/kpis — ACC-1.1 cards + ACC-1.5 variance banner. */
@@ -524,56 +527,125 @@ class AccountantCompanyController extends AsabController
         });
     }
 
+    /** HEAD-4 monthly ledger: month filter + per-row running balance + typeLabel. */
     public function cashTransactions(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
             $custody = $this->scopeToAssignedBranches(CashCustody::where('company_id', $request->user()->company_id))->findOrFail($id);
-            $txns = CashTransaction::where('custody_id', $custody->id)->orderByDesc('txn_date')->get();
 
-            return $this->ok([
-                'custody' => ['id' => $custody->id, 'custodianName' => $custody->custodian_name, 'amountHalalas' => $custody->amount, 'usedHalalas' => $custody->used],
-                'transactions' => $txns->map(fn (CashTransaction $t) => [
-                    'id' => $t->id, 'date' => optional($t->txn_date)->toIso8601String(), 'description' => $t->description,
-                    'type' => $t->txn_type, 'amountHalalas' => $t->amount, 'status' => $t->status,
-                ])->all(),
-            ]);
+            return $this->ok($this->custody->ledger(
+                $custody,
+                $request->query('month'),
+                (int) $request->query('page', 1),
+                (int) $request->query('pageSize', 50),
+            ));
         });
     }
 
+    /**
+     * ACC-8.2 approve a pending disbursement txn — applies its balance effect
+     * exactly once (idempotent: approving an already-approved txn is a no-op).
+     * A rejected txn cannot be approved.
+     */
     public function approveTransaction(Request $request, string $id, string $txnId): JsonResponse
     {
         return $this->run(function () use ($request, $id, $txnId) {
             $custody = $this->scopeToAssignedBranches(CashCustody::where('company_id', $request->user()->company_id))->findOrFail($id);
             $txn = CashTransaction::where('custody_id', $custody->id)->findOrFail($txnId);
-            $txn->update(['status' => 'approved']);
+
+            if ($txn->status === 'rejected') {
+                throw new AsabException('TXN_REJECTED', 'A rejected transaction cannot be approved', 'لا يمكن اعتماد حركة مرفوضة', 409, ['status' => $txn->status]);
+            }
+            if ($txn->status === 'approved') {
+                return $this->ok(['id' => $txn->id, 'status' => 'approved']); // already applied
+            }
+
+            DB::transaction(function () use ($custody, $txn) {
+                if ($txn->txn_type === 'debit') {
+                    $this->custody->assertNotOverdrawn($custody, (int) $txn->amount);
+                }
+                $txn->update(['status' => 'approved']);
+                $this->custody->applyTxn($custody, $txn);
+            });
 
             return $this->ok(['id' => $txn->id, 'status' => 'approved']);
         });
     }
 
+    /**
+     * ACC-8.2 reject a txn — persists the reason and reverses the balance effect
+     * if the txn was previously approved (pending txns applied nothing to undo).
+     */
     public function rejectTransaction(Request $request, string $id, string $txnId): JsonResponse
     {
         return $this->run(function () use ($request, $id, $txnId) {
-            $request->validate(['reason' => 'required|string|max:255']);
+            $data = $request->validate(['reason' => 'required|string|max:255']);
             $custody = $this->scopeToAssignedBranches(CashCustody::where('company_id', $request->user()->company_id))->findOrFail($id);
             $txn = CashTransaction::where('custody_id', $custody->id)->findOrFail($txnId);
-            $txn->update(['status' => 'rejected']);
+
+            if ($txn->status === 'rejected') {
+                return $this->ok(['id' => $txn->id, 'status' => 'rejected']);
+            }
+
+            DB::transaction(function () use ($custody, $txn, $data) {
+                $wasApplied = $txn->status === 'approved';
+                $txn->update(['status' => 'rejected', 'reason' => $data['reason']]);
+                if ($wasApplied) {
+                    $this->custody->reverseTxn($custody, $txn);
+                }
+            });
 
             return $this->ok(['id' => $txn->id, 'status' => 'rejected']);
         });
     }
 
+    /**
+     * ACC-8 / HEAD-4 settle a custody: zero `used`, post the settlement (and any
+     * new-deposit) txn to the ledger for audit, drain pending settlement requests,
+     * and recompute status — all atomically.
+     */
     public function settleCustody(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
             $data = $request->validate(['newDepositHalalas' => 'sometimes|integer|min:0']);
             $custody = $this->scopeToAssignedBranches(CashCustody::where('company_id', $request->user()->company_id))->findOrFail($id);
-            $custody->update([
-                'used' => 0, 'last_settlement_at' => now(), 'days_since_settlement' => 0,
-                'amount' => $custody->amount + ($data['newDepositHalalas'] ?? 0),
-            ]);
 
-            return $this->ok(['id' => $custody->id, 'amountHalalas' => $custody->amount, 'usedHalalas' => 0]);
+            DB::transaction(function () use ($custody, $data, $request) {
+                $usedBefore = (int) $custody->used;
+                $deposit = (int) ($data['newDepositHalalas'] ?? 0);
+
+                // Audit trail: a settlement debit clears the spent portion; an
+                // optional deposit credit records the top-up.
+                if ($usedBefore > 0) {
+                    CashTransaction::create([
+                        'custody_id' => $custody->id, 'txn_type' => 'debit', 'amount' => $usedBefore,
+                        'description' => 'تسوية العهدة — إغلاق المصروف', 'txn_date' => now(),
+                        'status' => 'approved', 'source' => 'manual', 'created_by_id' => $request->user()->id,
+                    ]);
+                }
+                if ($deposit > 0) {
+                    CashTransaction::create([
+                        'custody_id' => $custody->id, 'txn_type' => 'credit', 'amount' => $deposit,
+                        'description' => 'تسوية العهدة — إيداع جديد', 'txn_date' => now(),
+                        'status' => 'approved', 'source' => 'treasury', 'created_by_id' => $request->user()->id,
+                    ]);
+                }
+
+                $custody->update([
+                    'used' => 0, 'last_settlement_at' => now(), 'days_since_settlement' => 0,
+                    'amount' => (int) $custody->amount + $deposit,
+                ]);
+
+                // Close any pending settlement requests this settlement fulfils.
+                SettlementRequest::where('custody_id', $custody->id)->where('status', 'pending')
+                    ->update(['status' => 'approved', 'approved_at' => now()]);
+
+                $this->custody->recompute($custody->refresh(), notify: false);
+            });
+
+            $custody->refresh();
+
+            return $this->ok(['id' => $custody->id, 'amountHalalas' => (int) $custody->amount, 'usedHalalas' => 0]);
         });
     }
 

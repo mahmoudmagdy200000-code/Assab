@@ -413,6 +413,8 @@ Route::prefix('v1')->group(function () {
                 Route::get('employees', [EmployeeController::class, 'index']);
                 Route::get('employees/{id}/statement', [EmployeeController::class, 'statement']);
                 Route::post('employees/{id}/movements', [EmployeeController::class, 'addMovement']);
+                // ACC-7.3 «تسوية الرصيد».
+                Route::post('employees/{id}/settle-balance', [EmployeeController::class, 'settleBalance']);
 
                 // Cash custody (§6.3.11)
                 Route::get('cash-custody', [CashCustodyController::class, 'index']);
@@ -724,10 +726,21 @@ Route::prefix('v1')->group(function () {
                     Route::get('employees/payroll/export', [CompanyExportController::class, 'payroll']);
                     Route::get('employees', [EmployeeController::class, 'index']);
                     Route::get('employees/{id}/movements', [EmployeeController::class, 'statement']);
+                    Route::get('employees/{id}/statement/export', [CompanyExportController::class, 'employeeStatement']);
+                    // ACC-7.3 «تسوية الرصيد».
+                    Route::post('employees/{id}/settle-balance', [EmployeeController::class, 'settleBalance']);
+                });
 
+                // Cash custody (§5.3 ACC-8 + §5.2 HEAD-4) — the head OWNS تعزيز العهدة,
+                // so this block admits both accountant and head on the company surface.
+                Route::middleware('asab.role:accountant,head')->group(function () {
                     Route::get('cash-custody/export', [CompanyExportController::class, 'cashCustody']);
                     Route::get('cash-custody', [CashCustodyController::class, 'index']);
                     Route::get('cash-custody/{id}/transactions', [AccountantCompanyController::class, 'cashTransactions']);
+                    Route::get('cash-custody/{id}/transactions/export', [CompanyExportController::class, 'custodyLedger']);
+                    // HEAD-4 replenish / generic txn (source=treasury → تعزيز عهدة من الخزينة).
+                    Route::post('cash-custody/{id}/transactions', [CashCustodyController::class, 'addTransaction']);
+                    Route::post('cash-custody/{id}/settlement-request', [CashCustodyController::class, 'settlementRequest']);
                     Route::post('cash-custody/{id}/transactions/{txnId}/approve', [AccountantCompanyController::class, 'approveTransaction']);
                     Route::post('cash-custody/{id}/transactions/{txnId}/reject', [AccountantCompanyController::class, 'rejectTransaction']);
                     Route::post('cash-custody/{id}/settle', [AccountantCompanyController::class, 'settleCustody']);

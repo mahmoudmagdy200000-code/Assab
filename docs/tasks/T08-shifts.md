@@ -1,6 +1,26 @@
 # T08 — Shifts
 > SRS: §7 ACC-6 (KPIs, live tab with late detection, setup per brand hours+float, close flow expected-vs-actual + diff, history + Excel, contact employee data phone/whatsapp), §11 BRM-5 (open/close shift branch side, read-only timings — **single owner: this file, not T12**), §13 MOB-1.6 (cashier mobile shift-close bridge → T08.12), meeting approval chain shift→accountant→head · Audited: 2026-07-10 · FE doc deliverable: docs/fe-wiring/FE-T08-shifts.md
-> Status: ⬜ not started (audit complete)
+> Status: ✅ done — shipped 2026-07-12 · 21 Pest tests green (14 foundation + 7 chain) · Pint clean · FE doc delivered
+> Blueprint approved by team-lead: cash-gap posts **auto-to-cashier with accountant override** on head final-approval.
+> Chain: close → `pending_review` + SHF- op → accountant approve → head final-approve → shift closed + «خصم فرق كاش» debit.
+
+## Delivery notes (what shipped vs the plan)
+
+| Task | Delivered | Note |
+|---|---|---|
+| T08.1 | `ShiftConfigService` computes N-shift windows «الأول…الرابع» + legacy morning/evening aliases; PUT persists real columns; float default 50000 | legacy body → numShifts=2 |
+| T08.2 | `openShift` persists cashier id/name, derives `shiftNo`/`shiftType`, defaults float from config, writes `opening_float` (close no longer clobbers it) | cashier resolved in branch (404 foreign) |
+| T08.3 | `phone` column on `asab_employees`; storeEmployee persists it; employee list + shift presenter expose `cashierPhone` + `whatsapp` | |
+| T08.4 | `ShiftLatenessService` + `asab:shifts-mark-late` command scheduled every 15 min (Riyadh); window end from config by shift_no, else duration | idempotent, broadcasts `shift.late` |
+| T08.5 | `ShiftPresenter` — one canonical shape both surfaces use, new keys + deprecated aliases, branch/phone resolved in one query | |
+| T08.6 | `ShiftCloseService::close` → `pending_review` + SHF- op; **server-derived expected**; 409 re-close; `OperationFinalApproved`/`OperationRejected` events + `ProcessShiftOperationDecision` listener | events dispatched from `OperationService` |
+| T08.7 | cash-gap «خصم فرق كاش» (`cash_variance`) posts on final-approve via `EmployeeAllocationService` (idempotent); auto-to-cashier or accountant `variance-allocations` split | surplus/zero posts nothing |
+| T08.8 | `live`/`index` return `kpis` {openNow, closedToday, todaySalesHalalas, cashGapsPendingReview} (Riyadh bounds) | |
+| T08.9 | history filters (shiftType/date/search); export gains نوع الشفت + الكاشير columns + assigned-branch scope | |
+| T08.10 | `ShiftSalesFeed` — a sales upload bumps the open shift's orders/sales (interim, in the create transaction) | |
+| T08.12 | `BridgeLegacyCashierShift` on `Modules\Shift\Events\ShiftEndedEvent` → asab shift + SHF- op via `ShiftCloseService`; deduped by `legacy_shift_id` | resolves employee by `legacy_cashier_id`; system actor = company accountant/head |
+
+## 5. Tests required
 
 ## 1. Endpoint inventory (audited against code)
 | # | Method | Path | Handler | Status | Notes |

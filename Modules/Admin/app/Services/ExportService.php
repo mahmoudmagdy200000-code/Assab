@@ -306,25 +306,34 @@ class ExportService
         return $this->make($format, 'shifts', $headings, $rows);
     }
 
-    public function payroll(string $format, ?string $month): BinaryFileResponse
+    /**
+     * ACC-7 payroll sheet. Net = salary − Σdebits + Σcredits: a debit (سلفة/خصم)
+     * reduces net pay, a credit (مكافأة/تسوية) raises it. Columns split advances
+     * from other deductions and surface bonuses. Branch-scoped for zero-trust.
+     */
+    public function payroll(string $format, ?string $month, ?array $branchIds = null): BinaryFileResponse
     {
         $month = $month && preg_match('/^\d{4}-\d{2}$/', $month) ? $month : now()->format('Y-m');
         $start = Carbon::createFromFormat('Y-m-d', $month.'-01')->startOfMonth();
         $end = (clone $start)->endOfMonth();
 
-        $employees = Employee::orderBy('emp_number')->limit(10000)->get();
+        $employees = Employee::query()
+            ->when($branchIds !== null, fn ($q) => $q->whereIn('branch_id', $branchIds))
+            ->orderBy('emp_number')->limit(10000)->get();
         $branchNames = $this->branchNames($employees->pluck('branch_id'));
 
         // One aggregate query for credits/debits in the month, grouped by employee.
         $movements = EmployeeMovement::whereIn('employee_id', $employees->pluck('id'))
             ->whereBetween('movement_date', [$start, $end])->get()->groupBy('employee_id');
 
-        $headings = ['رقم الموظف', 'الاسم', 'الفرع', 'الوظيفة', 'الراتب (ر.س)', 'السلف (ر.س)', 'الخصومات (ر.س)', 'الصافي (ر.س)', 'الحالة'];
+        $headings = ['رقم الموظف', 'الاسم', 'الفرع', 'الوظيفة', 'الراتب (ر.س)', 'السلف (ر.س)', 'الخصومات (ر.س)', 'المكافآت (ر.س)', 'الصافي (ر.س)', 'الحالة'];
         $rows = $employees->map(function (Employee $e) use ($branchNames, $movements) {
             $mv = $movements->get($e->id, collect());
-            $advances = (int) $mv->where('movement_type', 'debit')->sum('amount');
-            $deductions = (int) $mv->where('movement_type', 'credit')->sum('amount');
-            $net = (int) $e->monthly_salary - $advances - $deductions;
+            $debits = $mv->where('movement_type', 'debit');
+            $advances = (int) $debits->where('category', 'advance')->sum('amount');
+            $otherDeductions = (int) $debits->where('category', '!=', 'advance')->sum('amount');
+            $credits = (int) $mv->where('movement_type', 'credit')->sum('amount');
+            $net = (int) $e->monthly_salary - $advances - $otherDeductions + $credits;
 
             return [
                 $e->emp_number,
@@ -333,7 +342,8 @@ class ExportService
                 $e->role ?? '—',
                 $this->sar($e->monthly_salary),
                 $this->sar($advances),
-                $this->sar($deductions),
+                $this->sar($otherDeductions),
+                $this->sar($credits),
                 $this->sar($net),
                 $e->status === 'active' ? 'نشط' : 'موقوف',
             ];
@@ -342,24 +352,73 @@ class ExportService
         return $this->make($format, 'payroll-'.$month, $headings, $rows);
     }
 
-    public function cashCustody(string $format, ?string $branchId): BinaryFileResponse
+    /** HEAD-4 custody monthly ledger sheet (rows mirror the JSON ledger). */
+    public function custodyLedger(string $format, array $ledger): BinaryFileResponse
+    {
+        $headings = ['التاريخ', 'الوصف', 'النوع', 'المبلغ (ر.س)', 'الحالة', 'الرصيد الجاري (ر.س)'];
+        $rows = array_map(fn (array $t) => [
+            $t['txnDate'] ? Carbon::parse($t['txnDate'])->toDateString() : '—',
+            $t['description'] ?? '—',
+            $t['typeLabelAr'] ?? $t['txnType'],
+            $this->sar($t['amountHalalas']),
+            $t['status'] ?? '—',
+            $this->sar($t['runningBalanceHalalas']),
+        ], $ledger['transactions']);
+
+        $rows[] = ['', 'الرصيد الحالي', '', '', '', $this->sar($ledger['custody']['currentBalanceHalalas'])];
+        $label = 'custody-ledger-'.substr($ledger['custody']['id'], 0, 8).'-'.$ledger['period']['month'];
+
+        return $this->make($format, $label, $headings, $rows);
+    }
+
+    /** ACC-7.2 per-employee monthly statement sheet (rows mirror the JSON statement). */
+    public function employeeStatement(string $format, array $statement): BinaryFileResponse
+    {
+        $emp = $statement['employee'];
+        $headings = ['التاريخ', 'المرجع', 'التصنيف', 'الوصف', 'النوع', 'المبلغ (ر.س)', 'الرصيد الجاري (ر.س)'];
+        $rows = array_map(fn (array $m) => [
+            $m['movementDate'] ? Carbon::parse($m['movementDate'])->toDateString() : '—',
+            $m['ref'] ?? '—',
+            $m['categoryLabelAr'] ?? ($m['category'] ?? '—'),
+            $m['description'] ?? '—',
+            $m['movementTypeLabelAr'] ?? $m['movementType'],
+            $this->sar($m['amountHalalas']),
+            $this->sar($m['runningBalanceHalalas']),
+        ], $statement['movements']);
+
+        // Closing-balance footer.
+        $rows[] = ['', '', '', 'الرصيد الختامي', '', '', $this->sar($statement['closingBalanceHalalas'])];
+
+        $label = 'statement-'.($emp['empNumber'] ?? $emp['id']).'-'.$statement['period']['month'];
+
+        return $this->make($format, $label, $headings, $rows);
+    }
+
+    public function cashCustody(string $format, ?string $branchId, ?array $branchIds = null): BinaryFileResponse
     {
         $q = CashCustody::query();
+        // Zero-trust: a branch-scoped accountant exports only their branches.
+        if ($branchIds !== null) {
+            $q->whereIn('branch_id', $branchIds);
+        }
         if ($branchId) {
             $q->where('branch_id', $branchId);
         }
         $rowsM = $q->orderByDesc('created_at')->limit(5000)->get();
         $branchNames = $this->branchNames($rowsM->pluck('branch_id'));
 
-        $headings = ['الفرع', 'أمين العهدة', 'العهدة (ر.س)', 'المصروف (ر.س)', 'المتبقي (ر.س)', 'أيام منذ التسوية', 'الحالة'];
+        $headings = ['الفرع', 'أمين العهدة', 'العهدة (ر.س)', 'المصروف (ر.س)', 'المتبقي (ر.س)', 'حد التنبيه (ر.س)', 'أيام منذ التسوية', 'الحالة'];
         $rows = $rowsM->map(fn (CashCustody $c) => [
             $branchNames[$c->branch_id] ?? '—',
             $c->custodian_name ?? '—',
             $this->sar($c->amount),
             $this->sar($c->used),
             $this->sar((int) $c->amount - (int) $c->used),
+            $this->sar($c->min_alert),
             (string) $c->days_since_settlement,
-            $c->status,
+            \Modules\Admin\Support\CustodyStatus::labelAr(
+                \Modules\Admin\Support\CustodyStatus::derive((int) $c->amount - (int) $c->used, $c->min_alert)
+            ),
         ])->all();
 
         return $this->make($format, 'cash-custody', $headings, $rows);

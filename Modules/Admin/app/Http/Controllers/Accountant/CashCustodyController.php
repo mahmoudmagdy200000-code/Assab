@@ -9,45 +9,44 @@ use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\CashCustody;
 use Modules\Admin\Models\CashTransaction;
 use Modules\Admin\Models\SettlementRequest;
+use Modules\Admin\Services\CustodyService;
+use Modules\Branch\Models\Branch;
 
 /**
- * Accountant cash custody management (BACKEND_API_SPEC.md §6.3.11).
+ * Cash custody management (SRS §7 ACC-8 / §8 HEAD-4). Serves both the platform
+ * (`/accountant/*`, accountant+head) and company (`/company/me/*`) surfaces.
  */
 class CashCustodyController extends AsabController
 {
+    public function __construct(private readonly CustodyService $custody) {}
+
+    /** ACC-8.1 list: derived status per row + KPI header, paginated. */
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $q = $this->scopeToAssignedBranches(CashCustody::with('transactions'));
+            // KPIs reflect the whole assigned scope (not the filtered view).
+            $scopeBase = $this->scopeToAssignedBranches(CashCustody::query());
+            $kpiSet = (clone $scopeBase)->get(['id', 'branch_id', 'amount', 'used', 'min_alert']);
+            $kpis = $this->custody->kpis($kpiSet);
+
+            $q = clone $scopeBase;
             if ($branch = $request->query('branchId')) {
                 $q->where('branch_id', $branch);
             }
-            if ($status = $request->query('status')) {
-                $q->where('status', $status);
+            if ($needle = trim((string) $request->query('q', ''))) {
+                $branchIds = Branch::where('name', 'like', '%'.$needle.'%')->pluck('id');
+                $q->where(fn ($sub) => $sub->where('custodian_name', 'like', '%'.$needle.'%')
+                    ->orWhereIn('branch_id', $branchIds));
             }
-            $items = $q->orderByDesc('created_at')->get();
 
-            return $this->ok([
-                'data' => $items->map(fn ($c) => [
-                    'id' => $c->id,
-                    'branchId' => $c->branch_id,
-                    'custodianName' => $c->custodian_name,
-                    'amount' => $c->amount,
-                    'used' => $c->used,
-                    'remaining' => $c->amount - $c->used,
-                    'daysSinceSettlement' => $c->days_since_settlement,
-                    'status' => $c->status,
-                    'transactions' => $c->transactions->map(fn ($t) => [
-                        'id' => $t->id, 'txnDate' => optional($t->txn_date)->toIso8601String(),
-                        'description' => $t->description, 'txnType' => $t->txn_type, 'amount' => $t->amount,
-                    ])->all(),
-                ])->all(),
-                'summary' => [
-                    'active' => $items->where('status', 'active')->count(),
-                    'lowBalance' => $items->filter(fn ($c) => ($c->amount - $c->used) < 50000)->count(),
-                    'overdueSettlements' => $items->where('days_since_settlement', '>', 30)->count(),
-                ],
-            ]);
+            $perPage = min((int) $request->query('pageSize', 20), 100);
+            $p = $q->with('transactions')->orderByDesc('created_at')
+                ->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
+
+            $branchNames = $this->custody->branchNames(collect($p->items())->pluck('branch_id'));
+            $data = array_map(fn (CashCustody $c) => $this->custody->present($c, $branchNames), $p->items());
+
+            return $this->paginated($p, $data, ['kpis' => $kpis]);
         });
     }
 
@@ -66,6 +65,13 @@ class CashCustodyController extends AsabController
         });
     }
 
+    /**
+     * Post a custody transaction. A credit raises the custody amount (تعزيز /
+     * replenish); a debit is a disbursement. `status=pending` records the txn
+     * without touching balances (a disbursement request awaiting approval);
+     * `approved` (default) applies the effect immediately. Debits are guarded
+     * against overdrawing the remaining balance.
+     */
     public function addTransaction(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
@@ -73,29 +79,46 @@ class CashCustodyController extends AsabController
             $data = $request->validate([
                 'txnType' => 'required|in:credit,debit',
                 'amount' => 'required|integer|min:1',
-                'description' => 'required|string|max:255',
+                'description' => 'nullable|string|max:255',
                 'date' => 'nullable|date',
+                'status' => 'nullable|in:pending,approved',
+                'source' => 'nullable|in:treasury,manual',
             ]);
+            $status = $data['status'] ?? 'approved';
+            $apply = $status === 'approved';
+            $source = $data['source'] ?? 'manual';
 
-            $txn = DB::transaction(function () use ($custody, $data, $request) {
+            // A treasury credit is a تعزيز عهدة top-up — default its description.
+            $description = $data['description']
+                ?? ($data['txnType'] === 'credit' && $source === 'treasury'
+                    ? 'تعزيز عهدة من الخزينة'
+                    : 'حركة عهدة');
+
+            $txn = DB::transaction(function () use ($custody, $data, $status, $apply, $source, $description, $request) {
+                if ($apply && $data['txnType'] === 'debit') {
+                    $this->custody->assertNotOverdrawn($custody, (int) $data['amount']);
+                }
                 $txn = CashTransaction::create([
                     'custody_id' => $custody->id,
                     'txn_type' => $data['txnType'],
-                    'amount' => $data['amount'],
-                    'description' => $data['description'],
+                    'amount' => (int) $data['amount'],
+                    'description' => $description,
                     'txn_date' => $data['date'] ?? now(),
+                    'status' => $status,
+                    'source' => $source,
                     'created_by_id' => $request->user()->id,
                 ]);
-                if ($data['txnType'] === 'debit') {
-                    $custody->increment('used', $data['amount']);
-                } else {
-                    $custody->increment('amount', $data['amount']);
+                if ($apply) {
+                    $this->custody->applyTxn($custody, $txn);
                 }
 
                 return $txn;
             });
 
-            return $this->created(['id' => $txn->id]);
+            return $this->created([
+                'id' => $txn->id, 'status' => $txn->status, 'txnType' => $txn->txn_type,
+                'amountHalalas' => (int) $txn->amount, 'source' => $txn->source,
+            ]);
         });
     }
 }
