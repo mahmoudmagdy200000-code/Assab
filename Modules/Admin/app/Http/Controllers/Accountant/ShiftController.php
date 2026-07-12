@@ -84,55 +84,60 @@ class ShiftController extends AsabController
         ];
     }
 
-    public function close(Request $request, \Modules\Admin\Services\RealtimeBroadcaster $rt, string $id): JsonResponse
+    /**
+     * POST …/shifts/{id}/close — ACC-6.4. Moves the shift to `pending_review`
+     * and mints the SHF- pipeline operation; expected cash is server-derived, so
+     * the body no longer sends `salesSystem`. Accountant then approves, head
+     * final-approves (which closes the shift + posts the gap).
+     */
+    public function close(Request $request, \Modules\Admin\Services\ShiftCloseService $closeService, string $id): JsonResponse
     {
-        return $this->run(function () use ($request, $rt, $id) {
-            // Doc aliases: cashInDrawerHalalas->cashInDrawer, salesSystemHalalas->salesSystem.
+        return $this->run(function () use ($request, $closeService, $id) {
+            // Doc alias: cashInDrawer(Halalas) → cashActualHalalas.
             $request->merge([
-                'cashInDrawer' => $request->input('cashInDrawer', $request->input('cashInDrawerHalalas')),
-                'salesSystem' => $request->input('salesSystem', $request->input('salesSystemHalalas')),
+                'cashActualHalalas' => $request->input('cashActualHalalas',
+                    $request->input('cashInDrawer', $request->input('cashInDrawerHalalas'))),
             ]);
             $data = $request->validate([
-                'cashInDrawer' => 'required|integer',
-                'salesSystem' => 'required|integer',
+                'cashActualHalalas' => 'required|integer|min:0',
+                'cardTotalHalalas' => 'sometimes|integer|min:0',
+                'aggregatorTotalsHalalas' => 'sometimes|integer|min:0',
                 'notes' => 'nullable|string',
             ]);
             $shift = $this->scopeToAssignedBranches(Shift::query())->findOrFail($id);
-            $variance = $data['cashInDrawer'] - $data['salesSystem'];
-            $shift->update([
-                'status' => 'closed',
-                'ended_at' => now(),
-                'cash_actual' => $data['cashInDrawer'],
-                'cash_expected' => $data['salesSystem'],
-                'variance' => $variance,
-                'notes' => $data['notes'] ?? null,
-            ]);
-            $rt->shiftChanged($shift->fresh(), 'closed');
 
-            // Superset response: present() keys + varianceHalalas + createdAt.
-            $fresh = $shift->fresh();
+            $result = $closeService->close($shift, $data, $request->user(), 'system');
 
-            return $this->ok(array_merge($this->present($fresh), [
-                'varianceHalalas' => $fresh->variance,
-                'createdAt' => optional($fresh->created_at)->toIso8601String(),
-            ]));
+            return $this->ok(array_merge(
+                $this->presenter->present($result['shift']),
+                ['operationId' => $result['operation']->id, 'operationPublicId' => $result['operation']->public_id],
+            ));
         });
     }
 
-    public function present(Shift $s): array
+    /**
+     * POST …/shifts/{id}/variance-allocations — ACC-6.4 / ACC-7.4. The
+     * accountant's explicit split of the cash gap across employees before head
+     * approval; amounts must sum to the gap. Auto-to-cashier applies otherwise.
+     */
+    public function varianceAllocations(Request $request, \Modules\Admin\Services\ShiftCloseService $closeService, string $id): JsonResponse
     {
-        return [
-            'id' => $s->id,
-            'branchId' => $s->branch_id,
-            'supervisor' => $s->supervisor_name,
-            'startedAt' => optional($s->started_at)->toIso8601String(),
-            'endedAt' => optional($s->ended_at)->toIso8601String(),
-            'status' => $s->status,
-            'ordersCount' => $s->orders_count,
-            'salesAmount' => $s->sales_amount,
-            'cashExpected' => $s->cash_expected,
-            'cashActual' => $s->cash_actual,
-            'variance' => $s->variance,
-        ];
+        return $this->run(function () use ($request, $closeService, $id) {
+            $data = $request->validate([
+                'allocations' => 'required|array|min:1',
+                'allocations.*.employeeId' => 'sometimes|string',
+                'allocations.*.empNumber' => 'sometimes|string',
+                'allocations.*.amountHalalas' => 'required|integer|min:1',
+            ]);
+            $shift = $this->scopeToAssignedBranches(Shift::query())->findOrFail($id);
+            $op = \Modules\Admin\Models\Operation::where('module_key', 'shifts')
+                ->where('payload->shiftId', $shift->id)
+                ->whereIn('status', ['pending', 'approved'])
+                ->orderByDesc('created_at')->firstOrFail();
+
+            $rows = $closeService->setVarianceAllocations($op, $data['allocations'], $request->user());
+
+            return $this->ok(['operationId' => $op->id, 'allocations' => $rows]);
+        });
     }
 }

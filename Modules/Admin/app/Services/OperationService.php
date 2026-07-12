@@ -95,6 +95,7 @@ class OperationService
                 null, ['type' => 'operation', 'id' => $fresh->id],
             );
         }
+        event(new \Modules\Admin\Events\OperationRejected($fresh, $actor, $label));
 
         return $fresh;
     }
@@ -130,6 +131,7 @@ class OperationService
                 null, ['type' => 'operation', 'id' => $fresh->id],
             );
         }
+        event(new \Modules\Admin\Events\OperationFinalApproved($fresh, $actor));
 
         return $fresh;
     }

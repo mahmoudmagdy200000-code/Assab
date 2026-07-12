@@ -17,7 +17,7 @@ class Shift extends Model
         'company_id', 'branch_id', 'supervisor_user_id', 'supervisor_name',
         'cashier_employee_id', 'cashier_name', 'shift_type', 'shift_no',
         'started_at', 'ended_at', 'status', 'orders_count', 'sales_amount',
-        'opening_float', 'cash_expected', 'cash_actual', 'variance', 'notes',
+        'opening_float', 'cash_expected', 'cash_actual', 'variance', 'notes', 'legacy_shift_id',
     ];
 
     protected $casts = [

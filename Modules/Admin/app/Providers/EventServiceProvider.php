@@ -3,9 +3,14 @@
 namespace Modules\Admin\Providers;
 
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
+use Modules\Admin\Events\OperationFinalApproved;
+use Modules\Admin\Events\OperationRejected;
+use Modules\Admin\Listeners\BridgeLegacyCashierShift;
+use Modules\Admin\Listeners\ProcessShiftOperationDecision;
 use Modules\Admin\Listeners\SyncLegacyExpenseOperation;
 use Modules\Expense\Events\ExpenseApprovedEvent;
 use Modules\Expense\Events\ExpenseSubmittedEvent;
+use Modules\Shift\Events\ShiftEndedEvent;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -19,6 +24,14 @@ class EventServiceProvider extends ServiceProvider
         // asab_operations row so the dashboard accountant can review it.
         ExpenseSubmittedEvent::class => [SyncLegacyExpenseOperation::class],
         ExpenseApprovedEvent::class => [SyncLegacyExpenseOperation::class],
+
+        // Shift close chain (ACC-6.4 / HEAD-2.5): final-approve closes the shift +
+        // posts the cash gap; reject reopens it.
+        OperationFinalApproved::class => [[ProcessShiftOperationDecision::class, 'handleFinalApproved']],
+        OperationRejected::class => [[ProcessShiftOperationDecision::class, 'handleRejected']],
+
+        // MOB-1.6 cashier bridge: a legacy mobile shift close mints the SHF- op.
+        ShiftEndedEvent::class => [BridgeLegacyCashierShift::class],
     ];
 
     /**

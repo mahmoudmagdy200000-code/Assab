@@ -21,6 +21,8 @@ return new class extends Migration
             $t->string('shift_type', 16)->nullable()->after('cashier_name');   // صباحي | مسائي | الأول…
             $t->unsignedTinyInteger('shift_no')->nullable()->after('shift_type');
             $t->unsignedBigInteger('opening_float')->nullable()->after('cash_actual');
+            // MOB-1.6 dedup: the legacy cashier shift this row bridges (if any).
+            $t->uuid('legacy_shift_id')->nullable()->index()->after('opening_float');
         });
 
         Schema::table('asab_employees', function (Blueprint $t) {
@@ -31,7 +33,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('asab_shifts', function (Blueprint $t) {
-            $t->dropColumn(['cashier_employee_id', 'cashier_name', 'shift_type', 'shift_no', 'opening_float']);
+            $t->dropColumn(['cashier_employee_id', 'cashier_name', 'shift_type', 'shift_no', 'opening_float', 'legacy_shift_id']);
         });
         Schema::table('asab_employees', function (Blueprint $t) {
             $t->dropColumn('phone');
