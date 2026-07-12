@@ -30,6 +30,10 @@ class OperationService
                 'status' => Operation::STATUS_APPROVED,
                 'approved_by_id' => $actor->id,
                 'approved_at' => now(),
+                // The accountant's review timestamp — powers HEAD-1 throughput/
+                // performance metrics (previously never written, so they read 0).
+                'reviewed_by_id' => $op->reviewed_by_id ?: $actor->id,
+                'reviewed_at' => $op->reviewed_at ?: now(),
             ]);
             $this->step($op, 'approved', 'راجعه المحاسب ووافق عليه — أُرسل لرئيس الحسابات', $actor, $note);
 
@@ -78,6 +82,9 @@ class OperationService
                 'reject_reason' => $label,
                 'rejected_by_id' => $actor->id,
                 'rejected_at' => now(),
+                // A rejection is also a review — stamp it for the throughput metrics.
+                'reviewed_by_id' => $op->reviewed_by_id ?: $actor->id,
+                'reviewed_at' => $op->reviewed_at ?: now(),
             ]);
             $this->step($op, 'rejected', 'مرفوض — السبب: '.$label, $actor, $notes, [
                 'reasonKey' => $reason['key'],
@@ -132,6 +139,39 @@ class OperationService
             );
         }
         event(new \Modules\Admin\Events\OperationFinalApproved($fresh, $actor));
+
+        return $fresh;
+    }
+
+    /**
+     * HEAD-2.1 «إرجاع للمراجعة» — the head sends an approved operation back to the
+     * accountant queue instead of finalizing or rejecting it. approved → pending,
+     * clearing the approval stamps and notifying the accountant who approved it.
+     */
+    public function returnForReview(Operation $op, AsabUser $actor, ?string $note = null): Operation
+    {
+        $this->assertStatus($op, Operation::STATUS_APPROVED, 'OP_NOT_APPROVED');
+
+        $accountantId = $op->approved_by_id; // capture before clearing
+        $fresh = DB::transaction(function () use ($op, $actor, $note) {
+            $op->update([
+                'status' => Operation::STATUS_PENDING,
+                'approved_by_id' => null,
+                'approved_at' => null,
+            ]);
+            $this->step($op, 'review', 'أعادها رئيس الحسابات للمراجعة'.($note ? ' — '.$note : ''), $actor, $note, ['returnedForReview' => true]);
+
+            return $op->fresh();
+        });
+
+        $this->rt->operationStatusChanged($fresh, Operation::STATUS_APPROVED, Operation::STATUS_PENDING, $actor);
+        if ($accountantId) {
+            $this->notifications->push(
+                $accountantId, 'operation.returned_for_review',
+                'عملية أُعيدت للمراجعة', $fresh->public_id.($note ? ' — '.$note : ''),
+                null, ['type' => 'operation', 'id' => $fresh->id],
+            );
+        }
 
         return $fresh;
     }
@@ -247,6 +287,69 @@ class OperationService
         }
 
         return ['approved' => $approved, 'failed' => $failed];
+    }
+
+    /**
+     * HEAD-2.1/2.4 «اعتماد الكل» — the head's group final-approval. Each approved
+     * op walks the same finalApprove transition (per-op transaction + م4 step +
+     * notification); pending/rejected/final ids fail with OP_NOT_APPROVED.
+     *
+     * @param  string[]  $ids
+     * @return array{finalApproved: string[], failed: array<int, array{id:string, code:string}>}
+     */
+    public function bulkFinalApprove(array $ids, AsabUser $actor, bool $conditional = false, ?string $conditionalNote = null): array
+    {
+        $finalApproved = [];
+        $failed = [];
+        foreach ($ids as $id) {
+            $op = Operation::find($id) ?? Operation::where('public_id', $id)->first();
+            if (! $op) {
+                $failed[] = ['id' => $id, 'code' => 'NOT_FOUND'];
+
+                continue;
+            }
+            try {
+                $this->finalApprove($op, $actor, $conditional, $conditionalNote);
+                $finalApproved[] = $op->public_id;
+            } catch (AsabException $e) {
+                $failed[] = ['id' => $id, 'code' => $e->errorCode];
+            } catch (\Throwable $e) {
+                // A non-domain error on one op must not abort the whole batch.
+                $failed[] = ['id' => $id, 'code' => 'INTERNAL_ERROR'];
+            }
+        }
+
+        return ['finalApproved' => $finalApproved, 'failed' => $failed];
+    }
+
+    /**
+     * HEAD-2.1 group «إرجاع للمراجعة» — return every approved op in the set.
+     *
+     * @param  string[]  $ids
+     * @return array{returned: string[], failed: array<int, array{id:string, code:string}>}
+     */
+    public function bulkReturnForReview(array $ids, AsabUser $actor, ?string $note = null): array
+    {
+        $returned = [];
+        $failed = [];
+        foreach ($ids as $id) {
+            $op = Operation::find($id) ?? Operation::where('public_id', $id)->first();
+            if (! $op) {
+                $failed[] = ['id' => $id, 'code' => 'NOT_FOUND'];
+
+                continue;
+            }
+            try {
+                $this->returnForReview($op, $actor, $note);
+                $returned[] = $op->public_id;
+            } catch (AsabException $e) {
+                $failed[] = ['id' => $id, 'code' => $e->errorCode];
+            } catch (\Throwable $e) {
+                $failed[] = ['id' => $id, 'code' => 'INTERNAL_ERROR'];
+            }
+        }
+
+        return ['returned' => $returned, 'failed' => $failed];
     }
 
     /**

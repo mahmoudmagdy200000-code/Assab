@@ -51,7 +51,7 @@ Every FE doc MUST contain, per endpoint:
 | T07 | [T07-inventory-waste.md](T07-inventory-waste.md) | §7 ACC-4, ACC-5 (daily/monthly, flags loop, daily-list push, waste classification+allocation) | T03 | ✅ | ✅ [FE-T07](../fe-wiring/FE-T07-inventory-waste.md) |
 | T08 | [T08-shifts.md](T08-shifts.md) | §7 ACC-6 + BRM-5 + MOB-1.6 cashier bridge (live board, brand config, close flow, history, approval chain) | T03 | ✅ | ✅ [FE-T08](../fe-wiring/FE-T08-shifts.md) |
 | T09 | [T09-employees-cash-custody.md](T09-employees-cash-custody.md) | §7 ACC-7, ACC-8 + HEAD-4 (ledger, movements, settle; custody, replenish, txn approve) | T03 | ✅ | ✅ [FE-T09](../fe-wiring/FE-T09-employees-cash-custody.md) |
-| T10 | [T10-head-erp.md](T10-head-erp.md) | §8 HEAD-1..3, HEAD-5 + §14.3 + ADM-6 admin ERP screen (grouped final approval, performance, ERP batches/export/post) | T03,T04 | ⬜ | ⬜ |
+| T10 | [T10-head-erp.md](T10-head-erp.md) | §8 HEAD-1..3, HEAD-5 + §14.3 + ADM-6 admin ERP screen (grouped final approval, performance, ERP batches/export/post) | T03,T04 | ✅ | ✅ [FE-T10](../fe-wiring/FE-T10-head-erp.md) |
 | T11 | [T11-procurement.md](T11-procurement.md) | §9 PRC-1..3 (requests, consolidation+savings, PO pipeline, items, suppliers) | T01 | ⬜ | ⬜ |
 | T12 | [T12-branch-manager.md](T12-branch-manager.md) | §11 BRM-1..4, 6, 7 (BRM-5 → T08) (overview, daily upload, master data, counts, purchase requests, settings) | T03 | ⬜ | ⬜ |
 | T13 | [T13-supplier.md](T13-supplier.md) | §10 SUP-1..2 — behind `FEATURE_ASAB_SUPPLIER_PORTAL` (hidden v1) | T11 | ⬜ | ⬜ |

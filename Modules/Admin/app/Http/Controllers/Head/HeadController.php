@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Models\Attachment;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\ErpBatchService;
 use Modules\Admin\Services\HeadMetricsService;
@@ -57,13 +58,17 @@ class HeadController extends AsabController
                     'finalApprovedAwaitingErp' => $finalAwaitingErp,
                     'erpPosted' => $erpPosted,
                     'rejected' => $rejected,
+                    'accountantsActive' => $this->metrics->accountantsActive($companyId),
                 ], $this->metrics->dashboardKpis($companyId)),
                 'pipeline' => [
+                    ['stageId' => 'submit', 'count' => (int) ($byStatus['pending'] ?? 0)],
                     ['stageId' => 'review', 'count' => (int) ($byStatus['pending'] ?? 0)],
                     ['stageId' => 'approved', 'count' => $awaiting],
                     ['stageId' => 'final', 'count' => $final],
                     ['stageId' => 'erp', 'count' => $erpPosted],
+                    ['stageId' => 'reports', 'count' => 0],
                 ],
+                'brandPerformance' => $this->metrics->brandPerformance($companyId),
                 'weeklyPerformance' => $this->metrics->weeklyPerformance($companyId),
             ]);
         });
@@ -71,7 +76,53 @@ class HeadController extends AsabController
 
     public function pending(Request $request): JsonResponse
     {
+        if ($request->query('view') === 'grouped') {
+            return $this->groupedPending($request);
+        }
+
         return $this->listByStatus($request, Operation::STATUS_APPROVED);
+    }
+
+    /**
+     * HEAD-2.1 grouped final-approval queue: approved ops grouped by
+     * accountant × module, each group carrying count/total + a «⚠ يوجد فروق»
+     * flag and a capped preview of its ops.
+     */
+    private function groupedPending(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $ops = $this->filteredOps($request, Operation::STATUS_APPROVED)
+                ->orderByDesc('updated_at')->limit(2000)->get();
+            $maps = $this->buildOpMaps($ops->all());
+            $cap = min((int) $request->query('groupPreview', 5), 20);
+
+            $groups = $ops->groupBy(fn (Operation $o) => ($o->approved_by_id ?: '—').'|'.$o->module_key)
+                ->map(function ($groupOps) use ($maps, $cap) {
+                    $first = $groupOps->first();
+                    $accountantId = $first->approved_by_id;
+
+                    return [
+                        'accountantId' => $accountantId,
+                        'accountantName' => $accountantId ? ($maps['accountants'][$accountantId] ?? null) : null,
+                        'moduleKey' => $first->module_key,
+                        'moduleLabelAr' => self::moduleLabel($first->module_key, 'ar'),
+                        'count' => $groupOps->count(),
+                        'totalAmount' => (int) $groupOps->sum('amount'),
+                        'hasDiffs' => $groupOps->contains(fn (Operation $o) => $o->match === 'diff'),
+                        'operations' => $groupOps->take($cap)->map(fn (Operation $o) => $this->present($o, $maps))->values()->all(),
+                        'moreCount' => max(0, $groupOps->count() - $cap),
+                    ];
+                })->values()->all();
+
+            return $this->ok([
+                'groups' => $groups,
+                'summary' => [
+                    'count' => $ops->count(),
+                    'totalAmount' => (int) $ops->sum('amount'),
+                    'groupCount' => count($groups),
+                ],
+            ]);
+        });
     }
 
     public function finalApproved(Request $request): JsonResponse
@@ -177,16 +228,21 @@ class HeadController extends AsabController
     public function erpEligible(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $ops = $this->erp->eligible(['filters' => $request->query()])->get();
-            $maps = $this->buildOpMaps($ops->all());
+            // T10.10 — bounded: paginate rows, compute totals by query (not by
+            // loading every eligible op into memory).
+            $builder = $this->erp->eligible(['filters' => $request->query()]);
+            $perPage = min((int) $request->query('pageSize', 50), 100);
+            $p = (clone $builder)->orderByDesc('operation_date')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
+            $maps = $this->buildOpMaps($p->items());
 
-            return $this->ok([
-                'operations' => $ops->map(fn ($o) => $this->present($o, $maps))->all(),
+            return $this->paginated($p, array_map(fn ($o) => $this->present($o, $maps), $p->items()), [
                 'total' => [
-                    'count' => $ops->count(),
-                    'amount' => (int) $ops->sum('amount'),
-                    'branches' => $ops->pluck('branch_id')->unique()->count(),
+                    'count' => (clone $builder)->count(),
+                    'amount' => (int) (clone $builder)->sum('amount'),
+                    'branches' => (clone $builder)->distinct()->count('branch_id'),
                 ],
+                // Legacy alias key (older FE reads `operations`).
+                'operations' => array_map(fn ($o) => $this->present($o, $maps), $p->items()),
             ]);
         });
     }
@@ -198,16 +254,19 @@ class HeadController extends AsabController
                 'operationIds' => 'sometimes|array',
                 'filters' => 'sometimes|array',
             ]);
-            $batch = $this->erp->create($data, $request->user());
+            // Splits into one batch per (day × module) and posts each.
+            $batches = $this->erp->export($data, $request->user());
+            $first = $batches->first();
 
             return $this->created([
-                'id' => $batch->id,
-                'batchId' => $batch->batch_id,
-                'operationCount' => $batch->operation_count,
-                'totalAmount' => $batch->total_amount,
-                'status' => $batch->status,
-                'startedAt' => optional($batch->started_at)->toIso8601String(),
-                'createdAt' => optional($batch->created_at)->toIso8601String(),
+                'batches' => $batches->map(fn ($b) => $this->erp->present($b))->all(),
+                'count' => $batches->count(),
+                'totalAmountHalalas' => (int) $batches->sum('total_amount'),
+                // Back-compat: first-batch fields at top level (single-group case).
+                'id' => $first?->id,
+                'batchId' => $first?->batch_id,
+                'status' => $first?->status,
+                'createdAt' => optional($first?->created_at)->toIso8601String(),
             ]);
         });
     }
@@ -215,18 +274,24 @@ class HeadController extends AsabController
     public function erpBatches(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
+            // ErpBatch now carries BelongsToTenant → company-isolated for the head.
+            $q = \Modules\Admin\Models\ErpBatch::query();
+            if ($module = $request->query('moduleKey')) {
+                $q->where('module_key', $module);
+            }
+            if ($status = $request->query('status')) {
+                $q->where('status', $status);
+            }
+            if ($from = $request->query('dateFrom')) {
+                $q->whereDate('batch_date', '>=', $from);
+            }
+            if ($to = $request->query('dateTo')) {
+                $q->whereDate('batch_date', '<=', $to);
+            }
             $perPage = min((int) $request->query('pageSize', 20), 100);
-            $p = \Modules\Admin\Models\ErpBatch::orderByDesc('created_at')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
+            $p = $q->orderByDesc('created_at')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
-            return $this->paginated($p, array_map(fn ($b) => [
-                'id' => $b->id,
-                'batchId' => $b->batch_id,
-                'operationCount' => $b->operation_count,
-                'totalAmount' => $b->total_amount,
-                'status' => $b->status,
-                'createdAt' => optional($b->created_at)->toIso8601String(),
-                'completedAt' => optional($b->completed_at)->toIso8601String(),
-            ], $p->items()));
+            return $this->paginated($p, array_map(fn ($b) => $this->erp->present($b), $p->items()));
         });
     }
 
@@ -234,23 +299,50 @@ class HeadController extends AsabController
     {
         return $this->run(function () use ($request, $status) {
             $perPage = min((int) $request->query('pageSize', 20), 100);
-            $q = Operation::where('status', $status);
-            if ($module = $request->query('moduleKey')) {
-                $q->where('module_key', $module);
-            }
-            if ($request->filled('erpPosted')) {
-                $q->where('erp_posted', $request->boolean('erpPosted'));
-            }
+            $q = $this->filteredOps($request, $status);
+            // Sum BEFORE paginate() — paginate mutates the builder with limit/offset,
+            // so a clone taken afterwards sums an empty window past page 1.
+            $totalAmount = (int) (clone $q)->sum('amount');
             $p = $q->orderByDesc('updated_at')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
             $maps = $this->buildOpMaps($p->items());
 
             return $this->paginated($p, array_map(fn ($o) => $this->present($o, $maps), $p->items()), [
                 'summary' => [
                     'count' => $p->total(),
-                    'totalAmount' => (int) (clone $q)->sum('amount'),
+                    'totalAmount' => $totalAmount,
                 ],
             ]);
         });
+    }
+
+    /**
+     * HEAD-2.2 shared filter for the head operation lists: status + module,
+     * erpPosted, brand (via branch→brand), accountant (approved_by), and an
+     * operation-date window.
+     */
+    private function filteredOps(Request $request, string $status)
+    {
+        $q = Operation::where('status', $status);
+        if ($module = $request->query('moduleKey')) {
+            $q->where('module_key', $module);
+        }
+        if ($request->filled('erpPosted')) {
+            $q->where('erp_posted', $request->boolean('erpPosted'));
+        }
+        if ($brandId = $request->query('brandId')) {
+            $q->whereIn('branch_id', Branch::where('asab_brand_id', $brandId)->pluck('id'));
+        }
+        if ($accountantId = $request->query('accountantId')) {
+            $q->where('approved_by_id', $accountantId);
+        }
+        if ($from = $request->query('dateFrom')) {
+            $q->whereDate('operation_date', '>=', $from);
+        }
+        if ($to = $request->query('dateTo')) {
+            $q->whereDate('operation_date', '<=', $to);
+        }
+
+        return $q;
     }
 
     /**
@@ -266,7 +358,7 @@ class HeadController extends AsabController
     {
         $collection = collect($ops);
         if ($collection->isEmpty()) {
-            return ['accountants' => [], 'branches' => [], 'brands' => []];
+            return ['accountants' => [], 'branches' => [], 'brands' => [], 'attachments' => []];
         }
 
         $accountantIds = $collection
@@ -279,10 +371,16 @@ class HeadController extends AsabController
         $brands = AsabBrand::whereIn('id', $branches->pluck('asab_brand_id')->filter()->unique())
             ->get(['id', 'name'])->pluck('name', 'id');
 
+        // Attachment counts per operation in one grouped query (B-H2 rows show a
+        // paperclip badge without an N+1 per row).
+        $attachments = Attachment::whereIn('owner_id', $collection->pluck('id')->filter()->unique())
+            ->selectRaw('owner_id, count(*) as c')->groupBy('owner_id')->pluck('c', 'owner_id')->all();
+
         return [
             'accountants' => AsabUser::whereIn('id', $accountantIds)->get(['id', 'name'])->pluck('name', 'id')->all(),
             'branches' => $branches->map(fn ($b) => ['name' => $b->name, 'brandId' => $b->asab_brand_id])->all(),
             'brands' => $brands->all(),
+            'attachments' => $attachments,
         ];
     }
 
@@ -313,6 +411,9 @@ class HeadController extends AsabController
             'rejectReason' => $op->reject_reason,
             'erpPosted' => (bool) $op->erp_posted,
             'erpBatchId' => $op->erp_batch_id,
+            'attachmentCount' => (int) ($maps['attachments'][$op->id] ?? 0),
+            'diffNote' => data_get($op->payload, 'diffNote') ?? data_get($op->payload, 'varianceNotes'),
+            'submittedAt' => optional($op->submitted_at)->toIso8601String(),
             'operationDate' => optional($op->operation_date)->toIso8601String(),
         ];
     }
