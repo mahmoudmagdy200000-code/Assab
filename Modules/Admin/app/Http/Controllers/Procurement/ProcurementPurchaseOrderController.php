@@ -183,22 +183,23 @@ class ProcurementPurchaseOrderController extends AsabController
         });
     }
 
-    /** GET .../purchase-orders/grouped?by=supplier|city — "الطلبات المجمعة" (live preview). */
+    /** GET .../purchase-orders/grouped?by=supplier|city|item — "الطلبات المجمعة" (live preview). */
     public function grouped(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $request->validate(['by' => 'sometimes|string|in:supplier,city']);
+            $request->validate(['by' => 'sometimes|string|in:supplier,city,item']);
             $branchIds = $this->branches->legacyBranchIds($this->tenant);
 
-            return $this->ok(
-                $request->query('by', 'supplier') === 'city'
-                    ? ['cities' => $this->consolidation->previewByCity($branchIds)]
-                    : $this->consolidation->previewBySupplier($branchIds),
-            );
+            return $this->ok(match ($request->query('by', 'supplier')) {
+                'city' => ['cities' => $this->consolidation->previewByCity($branchIds)],
+                // PRC-2.1 core value loop — group cards per catalog item.
+                'item' => ['items' => $this->consolidation->previewByItem($branchIds)],
+                default => $this->consolidation->previewBySupplier($branchIds),
+            });
         });
     }
 
-    /** POST .../purchase-orders/grouped/send {supplierId, orderIds?} — "إرسال للمورد". */
+    /** POST .../purchase-orders/grouped/send {supplierId, orderIds?, expectedDeliveryDate?} — "إرسال للمورد". */
     public function sendGroup(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
@@ -206,11 +207,13 @@ class ProcurementPurchaseOrderController extends AsabController
                 'supplierId' => 'required|string',
                 'orderIds' => 'sometimes|array|min:1',
                 'orderIds.*' => 'string',
+                'expectedDeliveryDate' => 'sometimes|nullable|date',
             ]);
 
             try {
                 $group = $this->consolidation->send(
-                    $data['supplierId'], $data['orderIds'] ?? null, $request->user()->id, $this->branches->legacyBranchIds($this->tenant),
+                    $data['supplierId'], $data['orderIds'] ?? null, $request->user()->id,
+                    $this->branches->legacyBranchIds($this->tenant), $data['expectedDeliveryDate'] ?? null,
                 );
             } catch (PurchaseOrderException $e) {
                 return $this->fail('CONSOLIDATION_FAILED', $e->getMessage(), 'تعذّر تجميع الطلبات وإرسالها', [], 409);
@@ -221,6 +224,9 @@ class ProcurementPurchaseOrderController extends AsabController
                 'groupNumber' => $group->group_number,
                 'supplierId' => $group->supplier_id,
                 'ordersCount' => $group->orders->count(),
+                'savings' => $group->savings_amount !== null ? (float) $group->savings_amount : null,
+                'savingsPct' => $group->savings_pct !== null ? (float) $group->savings_pct : null,
+                'eta' => optional($group->expected_delivery_date)->toDateString(),
                 'sentAt' => optional($group->sent_at)->toIso8601String(),
             ]);
         });

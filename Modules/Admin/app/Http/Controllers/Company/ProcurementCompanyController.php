@@ -36,6 +36,7 @@ class ProcurementCompanyController extends AsabController
                 'items' => 'required|array|min:1',
                 // items accept {itemId, qty} (doc shape) alongside the legacy {id, totalHalalas/unitPriceHalalas}.
                 'items.*.itemId' => 'sometimes|string', 'items.*.qty' => 'sometimes|numeric|min:0',
+                'items.*.unitPriceHalalas' => 'sometimes|integer|min:0', 'items.*.totalHalalas' => 'sometimes|integer|min:0',
                 'description' => 'sometimes|nullable|string',
                 'urgency' => 'sometimes|in:normal,urgent',
                 // doc field `deadline`; `deliveryDate` kept as the legacy field.
@@ -44,9 +45,10 @@ class ProcurementCompanyController extends AsabController
             $deliveryDate = $data['deliveryDate'] ?? $data['deadline'] ?? null;
             $total = collect($data['items'])->sum(fn ($i) => (int) ($i['totalHalalas'] ?? (($i['qty'] ?? 0) * ($i['unitPriceHalalas'] ?? 0))));
             // origin is a first-class column (§5.2b) — the payload copy is kept
-            // for readers that still look there.
+            // for readers that still look there. brandId is persisted (T11.14).
             $op = $this->factory->createFromUpload('purchases', [
-                'supplierId' => $data['supplierId'], 'items' => $data['items'], 'description' => $data['description'] ?? null,
+                'supplierId' => $data['supplierId'], 'brandId' => $data['brandId'] ?? null, 'items' => $data['items'],
+                'description' => $data['description'] ?? null,
                 'urgency' => $data['urgency'] ?? 'normal', 'deliveryDate' => $deliveryDate, 'origin' => 'procurement',
             ], $request->user(), $data['branchId'] ?? null, $total, 'procurement');
 
@@ -103,6 +105,15 @@ class ProcurementCompanyController extends AsabController
                 $request->user(),
                 $reason ?? throw new AsabException('REJECT_REASON_REQUIRED', 'A rejection reason is required', 'يجب إدخال سبب الرفض', 422),
             ),
+            // Procurement may never self-set the final (locked) state — that is the
+            // head accountant's transition through the pipeline (NFR-10).
+            Operation::STATUS_FINAL => throw new AsabException(
+                'OP_ALREADY_FINAL',
+                'Final approval cannot be set from this endpoint',
+                'لا يمكن الاعتماد النهائي من هذا المسار',
+                409,
+                ['currentStatus' => $op->status, 'requestedStatus' => $target],
+            ),
             default => throw new AsabException(
                 'OP_STATUS_TRANSITION_FORBIDDEN',
                 'Use the pipeline endpoints for this transition',
@@ -127,8 +138,9 @@ class ProcurementCompanyController extends AsabController
     public function grouped(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
+            // Memory cap (guardrail): bound the working set, then cap the emitted groups.
             $ops = Operation::where('company_id', $request->user()->company_id)->where('module_key', 'purchases')
-                ->where('status', Operation::STATUS_PENDING)->get();
+                ->where('status', Operation::STATUS_PENDING)->limit(1000)->get();
             $branchNames = \Modules\Branch\Models\Branch::whereIn('id', $ops->pluck('branch_id')->filter()->unique())
                 ->pluck('name', 'id');
 
@@ -144,7 +156,9 @@ class ProcurementCompanyController extends AsabController
                     ];
                 })->values()->all();
 
-            return $this->listResponse($groups);
+            $total = count($groups);
+
+            return $this->listResponse(array_slice($groups, 0, 100), ['total' => $total, 'limit' => 100]);
         });
     }
 
@@ -153,7 +167,7 @@ class ProcurementCompanyController extends AsabController
         return $this->run(function () use ($request) {
             $ops = Operation::where('company_id', $request->user()->company_id)->where('module_key', 'purchases')
                 ->whereIn('status', [Operation::STATUS_APPROVED, Operation::STATUS_FINAL])
-                ->whereNotNull('payload->sentAt')->orderByDesc('operation_date')->get();
+                ->whereNotNull('payload->sentAt')->orderByDesc('operation_date')->limit(100)->get();
             $supplierNames = AsabSupplier::whereIn('id', $ops->pluck('payload.supplierId')->filter()->unique())->pluck('name', 'id');
 
             $rows = $ops->map(function (Operation $o) use ($supplierNames) {
@@ -171,7 +185,7 @@ class ProcurementCompanyController extends AsabController
                 ];
             })->all();
 
-            return $this->listResponse($rows);
+            return $this->listResponse($rows, ['limit' => 100, 'count' => count($rows)]);
         });
     }
 
@@ -184,17 +198,18 @@ class ProcurementCompanyController extends AsabController
                 // doc field `defaultPriceHalalas` is an alias for lastPriceHalalas.
                 'defaultPriceHalalas' => 'sometimes|integer|min:0',
                 'category' => 'sometimes|nullable|string|max:80', 'supplierId' => 'sometimes|nullable|string',
-                'code' => 'sometimes|nullable|string|max:32',
+                'brandId' => 'sometimes|nullable|string', 'code' => 'sometimes|nullable|string|max:32',
             ]);
             $price = $data['lastPriceHalalas'] ?? $data['defaultPriceHalalas'] ?? null;
             $item = DB::transaction(function () use ($request, $data, $price) {
                 $item = SupplierItem::create([
-                    'company_id' => $request->user()->company_id, 'name' => $data['name'], 'unit' => $data['unit'],
+                    'company_id' => $request->user()->company_id, 'brand_id' => $data['brandId'] ?? null,
+                    'name' => $data['name'], 'unit' => $data['unit'],
                     'price' => $price ?? 0, 'category' => $data['category'] ?? null, 'supplier_id' => $data['supplierId'] ?? null,
                     'code' => $data['code'] ?? null, 'status' => 'active',
                 ]);
                 if (! empty($price)) {
-                    ProcurementItemPrice::create(['company_id' => $request->user()->company_id, 'item_id' => $item->id, 'price' => $price, 'recorded_at' => now()]);
+                    $this->recordPrice($item, $price);
                 }
                 // Write-through to the mobile purchasing catalog (client meeting: dashboard items appear in the app).
                 $this->bridge->syncItem($item);
@@ -202,7 +217,10 @@ class ProcurementCompanyController extends AsabController
                 return $item;
             });
 
-            return $this->created(['id' => $item->id, 'name' => $item->name, 'unit' => $item->unit, 'category' => $item->category, 'supplierId' => $item->supplier_id, 'lastPriceHalalas' => $item->price]);
+            return $this->created([
+                'id' => $item->id, 'name' => $item->name, 'unit' => $item->unit, 'category' => $item->category,
+                'brandId' => $item->brand_id, 'supplierId' => $item->supplier_id, 'lastPriceHalalas' => $item->price,
+            ]);
         });
     }
 
@@ -210,20 +228,45 @@ class ProcurementCompanyController extends AsabController
     {
         return $this->run(function () use ($request, $id) {
             $item = SupplierItem::where('company_id', $request->user()->company_id)->findOrFail($id);
-            $data = $request->validate(['name' => 'sometimes|string|max:200', 'unit' => 'sometimes|string|max:16', 'lastPriceHalalas' => 'sometimes|integer|min:0', 'status' => 'sometimes|string|max:16']);
-            DB::transaction(function () use ($request, $item, $data) {
-                if (isset($data['lastPriceHalalas']) && $data['lastPriceHalalas'] !== (int) $item->price) {
-                    ProcurementItemPrice::create(['company_id' => $request->user()->company_id, 'item_id' => $item->id, 'price' => $data['lastPriceHalalas'], 'recorded_at' => now()]);
-                }
+            $data = $request->validate([
+                'name' => 'sometimes|string|max:200', 'unit' => 'sometimes|string|max:16',
+                'lastPriceHalalas' => 'sometimes|integer|min:0', 'status' => 'sometimes|string|max:16',
+                'brandId' => 'sometimes|nullable|string', 'supplierId' => 'sometimes|nullable|string',
+            ]);
+            DB::transaction(function () use ($item, $data) {
+                // Capture the price change BEFORE the update syncs the model's originals.
+                $priceChanged = isset($data['lastPriceHalalas']) && $data['lastPriceHalalas'] !== (int) $item->price;
                 $item->update(array_filter([
                     'name' => $data['name'] ?? null, 'unit' => $data['unit'] ?? null,
                     'price' => $data['lastPriceHalalas'] ?? null, 'status' => $data['status'] ?? null,
+                    'brand_id' => $data['brandId'] ?? null, 'supplier_id' => $data['supplierId'] ?? null,
                 ], fn ($v) => $v !== null));
+                // Append a price-history point AFTER the item reflects the new
+                // supplier, so the row is attributed to the right supplier (T11.12).
+                if ($priceChanged) {
+                    $this->recordPrice($item, $data['lastPriceHalalas']);
+                }
                 $this->bridge->syncItem($item);
             });
 
-            return $this->ok(['id' => $item->id, 'name' => $item->name, 'lastPriceHalalas' => $item->price]);
+            return $this->ok(['id' => $item->id, 'name' => $item->name, 'brandId' => $item->brand_id, 'lastPriceHalalas' => $item->price]);
         });
+    }
+
+    /**
+     * T11.12 — a price-history point carries the supplier it belongs to (from
+     * the item's current supplier), so «مقارنة الأسعار» per supplier is possible.
+     */
+    private function recordPrice(SupplierItem $item, int $price): void
+    {
+        ProcurementItemPrice::create([
+            'company_id' => $item->company_id,
+            'item_id' => $item->id,
+            'supplier_id' => $item->supplier_id,
+            'supplier_name' => $item->supplier_id ? AsabSupplier::find($item->supplier_id)?->name : null,
+            'price' => $price,
+            'recorded_at' => now(),
+        ]);
     }
 
     public function destroyItem(Request $request, string $id): JsonResponse
