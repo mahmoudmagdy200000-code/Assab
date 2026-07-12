@@ -809,6 +809,9 @@ Route::prefix('v1')->group(function () {
                     Route::post('orders/{id}/reject', [ProcurementController::class, 'reject']);
                     Route::patch('orders/{id}', [ProcurementCompanyController::class, 'updateOrder']);
                     Route::delete('orders/{id}', [ProcurementCompanyController::class, 'destroyOrder']);
+                    // Branch «طلب مورد جديد» review/approval (T12.6).
+                    Route::get('supplier-requests', [ProcurementCompanyController::class, 'supplierRequests']);
+                    Route::post('supplier-requests/{id}/approve', [ProcurementCompanyController::class, 'approveSupplierRequest']);
                     Route::get('items/export', [CompanyExportController::class, 'procurementItemsExport']);
                     Route::get('items/{id}/price-history', [ProcurementCompanyController::class, 'priceHistory']);
                     Route::get('items', [ProcurementController::class, 'items']);

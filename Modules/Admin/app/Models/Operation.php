@@ -28,7 +28,7 @@ class Operation extends Model
 
     protected $fillable = [
         'public_id', 'company_id', 'branch_id', 'module_key', 'source_module', 'source_id',
-        'payload', 'amount', 'match', 'diff_note', 'origin', 'attachment_count', 'status',
+        'payload', 'amount', 'match', 'diff_note', 'origin', 'channel', 'attachment_count', 'status',
         'reject_reason', 'submitted_by_id', 'submitted_at', 'reviewed_by_id', 'reviewed_at',
         'approved_by_id', 'approved_at', 'final_approved_by_id', 'final_approved_at',
         'rejected_by_id', 'rejected_at', 'is_conditional', 'conditional_note', 'is_correction',

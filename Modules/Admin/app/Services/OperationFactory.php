@@ -29,8 +29,10 @@ class OperationFactory
     /**
      * @param  string  $origin  SRS §5.2b — where the record entered the pipeline
      *                          (`mobile` branch app, `procurement` flow, `system` import).
+     * @param  string  $channel  physical surface the record was submitted from
+     *                           (`mobile_app` | `dashboard`); orthogonal to $origin.
      */
-    public function createFromUpload(string $moduleKey, array $payload, AsabUser $submitter, ?string $branchId, int $amount = 0, string $origin = 'mobile'): Operation
+    public function createFromUpload(string $moduleKey, array $payload, AsabUser $submitter, ?string $branchId, int $amount = 0, string $origin = 'mobile', string $channel = 'mobile_app'): Operation
     {
         if (! OperationEnums::isValidOrigin($origin)) {
             throw new AsabException(
@@ -44,7 +46,7 @@ class OperationFactory
 
         $op = OperationSequence::createWithPublicId(
             self::PREFIX[$moduleKey] ?? 'OPS',
-            fn (string $publicId) => DB::transaction(function () use ($publicId, $moduleKey, $payload, $submitter, $branchId, $amount, $origin) {
+            fn (string $publicId) => DB::transaction(function () use ($publicId, $moduleKey, $payload, $submitter, $branchId, $amount, $origin, $channel) {
                 $op = Operation::create([
                     'public_id' => $publicId,
                     'company_id' => $submitter->company_id,
@@ -55,6 +57,7 @@ class OperationFactory
                     'amount' => $amount,
                     'match' => 'exact',
                     'origin' => $origin,
+                    'channel' => $channel,
                     'status' => Operation::STATUS_PENDING,
                     'submitted_by_id' => $submitter->id,
                     'submitted_at' => now(),

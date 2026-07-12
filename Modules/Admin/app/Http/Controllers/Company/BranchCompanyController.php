@@ -5,15 +5,17 @@ namespace Modules\Admin\Http\Controllers\Company;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
-use Modules\Admin\Models\Attachment;
+use Modules\Admin\Models\BranchInventoryList;
 use Modules\Admin\Models\Employee;
+use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Shift;
+use Modules\Admin\Models\SupplierRequest;
 use Modules\Admin\Services\CashierProvisioningService;
 use Modules\Admin\Services\NotificationService;
+use Modules\Admin\Services\OperationAttachmentService;
 use Modules\Admin\Services\OperationFactory;
 use Modules\Admin\Services\RealtimeBroadcaster;
 
@@ -28,6 +30,7 @@ class BranchCompanyController extends AsabController
         private readonly NotificationService $notifications,
         private readonly RealtimeBroadcaster $rt,
         private readonly CashierProvisioningService $cashiers,
+        private readonly OperationAttachmentService $attachments,
     ) {}
 
     /** Resolve the branch the current branch-manager owns. */
@@ -64,11 +67,11 @@ class BranchCompanyController extends AsabController
             ]);
             $ops = [];
             if (! empty($data['sales'])) {
-                $op = $this->factory->createFromUpload('sales', $data['sales'], $request->user(), $branchId, (int) ($data['sales']['totalHalalas'] ?? 0));
+                $op = $this->factory->createFromUpload('sales', $data['sales'], $request->user(), $branchId, (int) ($data['sales']['totalHalalas'] ?? 0), 'mobile', 'dashboard');
                 $ops[] = ['id' => $op->id, 'publicId' => $op->public_id, 'moduleKey' => 'sales', 'status' => $op->status];
             }
             if (! empty($data['expenses'])) {
-                $op = $this->factory->createFromUpload('expenses', $data['expenses'], $request->user(), $branchId, (int) ($data['expenses']['totalHalalas'] ?? 0));
+                $op = $this->factory->createFromUpload('expenses', $data['expenses'], $request->user(), $branchId, (int) ($data['expenses']['totalHalalas'] ?? 0), 'mobile', 'dashboard');
                 $ops[] = ['id' => $op->id, 'publicId' => $op->public_id, 'moduleKey' => 'expenses', 'status' => $op->status];
             }
 
@@ -103,10 +106,10 @@ class BranchCompanyController extends AsabController
             'expenseNote' => $request->input('expenseNote'),
         ];
 
-        $op = $this->factory->createFromUpload($reportType, $payload, $request->user(), $branchId, $amount);
+        $op = $this->factory->createFromUpload($reportType, $payload, $request->user(), $branchId, $amount, 'mobile', 'dashboard');
 
         // Persist + link uploaded attachments to the created operation.
-        $attachments = $this->storeAttachments($request, $op, 'operation');
+        $attachments = $this->attachments->store($request, $op, 'operation');
 
         return $this->created([
             // Superset: keep the existing `operations` array contract...
@@ -123,55 +126,6 @@ class BranchCompanyController extends AsabController
         ]);
     }
 
-    /**
-     * Store uploaded multipart `attachments[]` on the public disk and link each
-     * to the given owner via the Attachment model. Returns presented rows and
-     * keeps the operation's attachment_count in sync.
-     */
-    private function storeAttachments(Request $request, Operation $op, string $ownerType): array
-    {
-        $files = $request->file('attachments', []);
-        if (! is_array($files)) {
-            $files = $files ? [$files] : [];
-        }
-        if (empty($files)) {
-            return [];
-        }
-
-        $companyId = $request->user()->company_id ?? 'platform';
-        $rows = DB::transaction(function () use ($files, $op, $ownerType, $companyId, $request) {
-            $created = [];
-            foreach ($files as $file) {
-                if (! $file) {
-                    continue;
-                }
-                $path = $file->store($companyId.'/'.$ownerType, 'public');
-                $attachment = Attachment::create([
-                    'owner_type' => $ownerType,
-                    'owner_id' => $op->id,
-                    'filename' => $file->getClientOriginalName(),
-                    'mime_type' => $file->getClientMimeType(),
-                    'size' => $file->getSize(),
-                    'storage_key' => $path,
-                    'public_url' => Storage::disk('public')->url($path),
-                    'label' => $op->module_key,
-                    'uploaded_by_id' => $request->user()->id,
-                    'uploaded_at' => now(),
-                ]);
-                $created[] = $attachment;
-            }
-            $op->update(['attachment_count' => (int) $op->attachment_count + count($created)]);
-
-            return $created;
-        });
-
-        return array_map(fn (Attachment $a) => [
-            'id' => $a->id, 'filename' => $a->filename, 'mimeType' => $a->mime_type,
-            'size' => $a->size, 'publicUrl' => $a->public_url,
-            'uploadedAt' => optional($a->uploaded_at)->toIso8601String(),
-        ], $rows);
-    }
-
     public function itemsCount(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
@@ -180,17 +134,62 @@ class BranchCompanyController extends AsabController
                 'counts.*.inventoryItemId' => 'required|string',
                 'counts.*.actualQty' => 'required|numeric',
             ]);
-            $op = $this->factory->createFromUpload('inventory', ['counts' => $data['counts'], 'countType' => 'daily'], $request->user(), $this->branchId($request));
+            $branchId = $this->branchId($request);
+
+            // BRM-4.2 — only items on this branch's configured daily list
+            // (fallback: the brand's sales catalog) may be counted.
+            $allowed = $this->countableItemIds($request, $branchId);
+            $submitted = collect($data['counts'])->pluck('inventoryItemId');
+            $foreign = $submitted->reject(fn ($id) => $allowed->contains($id))->values();
+            if ($foreign->isNotEmpty()) {
+                return $this->fail('INVALID_ITEM_IDS', 'Some items are not on this branch list',
+                    'بعض الأصناف ليست ضمن قائمة جرد الفرع', ['unknown' => $foreign->all()], 422);
+            }
+
+            // One daily count per branch per day.
+            $already = Operation::where('company_id', $request->user()->company_id)
+                ->where('branch_id', $branchId)->where('module_key', 'inventory')
+                ->where('payload->countType', 'daily')->whereDate('operation_date', today())->exists();
+            if ($already) {
+                throw new AsabException('DAILY_COUNT_EXISTS', 'A daily count already exists for today',
+                    'تم تسجيل جرد يومي لهذا الفرع اليوم', 409);
+            }
+
+            // Capture expected qty per line for the accountant's variance view.
+            $expected = InventoryCatalogItem::whereIn('id', $submitted)->pluck('expected_qty', 'id');
+            $counts = collect($data['counts'])->map(fn ($c) => $c + [
+                'expectedQty' => isset($expected[$c['inventoryItemId']]) ? (float) $expected[$c['inventoryItemId']] : null,
+            ])->all();
+
+            $op = $this->factory->createFromUpload('inventory',
+                ['counts' => $counts, 'countType' => 'daily'], $request->user(), $branchId, 0, 'mobile', 'dashboard');
 
             return $this->created(['id' => $op->id, 'publicId' => $op->public_id, 'status' => $op->status]);
         });
     }
 
+    /** Catalog item ids countable for a branch: its daily list, else the brand sales catalog. */
+    private function countableItemIds(Request $request, ?string $branchId): \Illuminate\Support\Collection
+    {
+        $listIds = BranchInventoryList::where('branch_id', $branchId)->pluck('catalog_item_id');
+        if ($listIds->isNotEmpty()) {
+            return $listIds;
+        }
+        $brandId = \Modules\Branch\Models\Branch::whereKey($branchId)
+            ->where('asab_company_id', $request->user()->company_id)->value('asab_brand_id');
+
+        return $brandId
+            ? InventoryCatalogItem::where('brand_id', $brandId)->where('type', InventoryCatalogItem::TYPE_SALES_ITEM)->pluck('id')
+            : collect();
+    }
+
     public function purchaseRequests(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
+            // Filter by the branch-request marker (kind), not origin — decoupled
+            // from the origin enum so it survives dashboard-channel submissions.
             $rows = Operation::where('company_id', $request->user()->company_id)
-                ->where('module_key', 'purchases')->where('origin', 'mobile')
+                ->where('module_key', 'purchases')->where('payload->kind', 'branch_request')
                 ->when($this->branchId($request), fn ($q, $b) => $q->where('branch_id', $b))
                 ->orderByDesc('operation_date')->limit(100)->get()
                 ->map(fn (Operation $o) => [
@@ -237,10 +236,28 @@ class BranchCompanyController extends AsabController
                 'name' => 'required|string|max:200', 'category' => 'sometimes|nullable|string|max:80',
                 'contactPhone' => 'sometimes|nullable|string|max:32', 'reason' => 'sometimes|nullable|string',
             ]);
+
+            // BRM-3.3 — persist the request so procurement can list/approve it and
+            // the branch sees «قيد المراجعة» / «معتمد» chips (was fire-and-forget).
+            $req = SupplierRequest::create([
+                'company_id' => $request->user()->company_id,
+                'branch_id' => $this->branchId($request),
+                'name' => $data['name'],
+                'category' => $data['category'] ?? null,
+                'contact_phone' => $data['contactPhone'] ?? null,
+                'reason' => $data['reason'] ?? null,
+                'status' => SupplierRequest::STATUS_PENDING,
+                'requested_by_id' => $request->user()->id,
+            ]);
+
             $this->notifications->pushToRole($request->user()->company_id, 'procurement', 'supplier.review_request',
                 'طلب اعتماد مورد جديد', $data['name'].' — '.($data['reason'] ?? ''));
 
-            return $this->ok(['requested' => true, 'name' => $data['name']], 202);
+            return $this->created([
+                'id' => $req->id, 'name' => $req->name, 'category' => $req->category,
+                'status' => $req->status, 'statusLabel' => SupplierRequest::STATUS_LABELS[$req->status],
+                'requested' => true,
+            ]);
         });
     }
 
@@ -333,35 +350,9 @@ class BranchCompanyController extends AsabController
             ]);
             $branchId = $this->branchId($request);
 
-            [$emp, $provision] = DB::transaction(function () use ($request, $data, $branchId) {
-                $emp = Employee::create([
-                    'company_id' => $request->user()->company_id,
-                    'branch_id' => $branchId,
-                    'emp_number' => $this->nextEmpNumber($request->user()->company_id, $branchId),
-                    'name' => $data['name'],
-                    'phone' => $data['phone'] ?? null,
-                    'national_id' => $data['nationalId'] ?? null,
-                    'role' => $data['role'],
-                    'monthly_salary' => $data['salaryHalalas'],
-                    'shift_type' => $data['shift'] ?? null,
-                    'hire_date' => $data['hireDate'] ?? now(),
-                    'status' => 'active',
-                ]);
-
-                // Cashier-role employees also get a mobile-app login (WS2 bridge).
-                $provision = null;
-                if ($this->cashiers->isCashierRole($data['role'])) {
-                    $provision = $this->cashiers->provision(
-                        $branchId, $request->user()->company_id,
-                        $data['name'], $data['email'] ?? null, $data['phone'] ?? null,
-                    );
-                    if ($provision['cashierId']) {
-                        $emp->forceFill(['legacy_cashier_id' => $provision['cashierId']])->save();
-                    }
-                }
-
-                return [$emp, $provision];
-            });
+            // Retry on the (company_id, emp_number) unique index so concurrent
+            // creates never collide on the derived number (T12.11).
+            [$emp, $provision] = $this->createEmployeeWithRetry($request, $data, $branchId);
 
             $payload = [
                 'id' => $emp->id, 'empNumber' => $emp->emp_number, 'name' => $emp->name,
@@ -376,13 +367,63 @@ class BranchCompanyController extends AsabController
         });
     }
 
-    /** Auto-generate a unique employee number scoped to the company. */
-    private function nextEmpNumber(?string $companyId, ?string $branchId): string
+    /**
+     * Create the employee (+ cashier provisioning) in a transaction, retrying
+     * when the derived emp_number races another concurrent create.
+     *
+     * @return array{0: Employee, 1: array|null}
+     */
+    private function createEmployeeWithRetry(Request $request, array $data, ?string $branchId): array
     {
-        $n = Employee::withTrashed()
-            ->when($companyId, fn ($q, $c) => $q->where('company_id', $c))
-            ->count() + 1;
+        for ($attempt = 1; ; $attempt++) {
+            try {
+                return DB::transaction(function () use ($request, $data, $branchId) {
+                    $emp = Employee::create([
+                        'company_id' => $request->user()->company_id,
+                        'branch_id' => $branchId,
+                        'emp_number' => $this->nextEmpNumber($request->user()->company_id),
+                        'name' => $data['name'],
+                        'phone' => $data['phone'] ?? null,
+                        'national_id' => $data['nationalId'] ?? null,
+                        'role' => $data['role'],
+                        'monthly_salary' => $data['salaryHalalas'],
+                        'shift_type' => $data['shift'] ?? null,
+                        'hire_date' => $data['hireDate'] ?? now(),
+                        'status' => 'active',
+                    ]);
 
-        return 'EMP-'.str_pad((string) $n, 4, '0', STR_PAD_LEFT);
+                    // Cashier-role employees also get a mobile-app login (WS2 bridge).
+                    $provision = null;
+                    if ($this->cashiers->isCashierRole($data['role'])) {
+                        $provision = $this->cashiers->provision(
+                            $branchId, $request->user()->company_id,
+                            $data['name'], $data['email'] ?? null, $data['phone'] ?? null,
+                        );
+                        if ($provision['cashierId']) {
+                            $emp->forceFill(['legacy_cashier_id' => $provision['cashierId']])->save();
+                        }
+                    }
+
+                    return [$emp, $provision];
+                });
+            } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+                if ($attempt >= 5) {
+                    throw $e;
+                }
+            }
+        }
+    }
+
+    /** Highest EMP-#### suffix for the company + 1 (skips gaps; never reuses). */
+    private function nextEmpNumber(?string $companyId): string
+    {
+        $max = Employee::withTrashed()
+            ->when($companyId, fn ($q, $c) => $q->where('company_id', $c))
+            ->where('emp_number', 'like', 'EMP-%')
+            ->pluck('emp_number')
+            ->map(fn ($n) => (int) substr((string) $n, 4))
+            ->max() ?? 0;
+
+        return 'EMP-'.str_pad((string) ($max + 1), 4, '0', STR_PAD_LEFT);
     }
 }

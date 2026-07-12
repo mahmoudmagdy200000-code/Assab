@@ -12,6 +12,7 @@ use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\ProcurementItemPrice;
 use Modules\Admin\Models\SupplierItem;
 use Modules\Admin\Models\SupplierRating;
+use Modules\Admin\Models\SupplierRequest;
 use Modules\Admin\Services\OperationFactory;
 use Modules\Admin\Services\OperationService;
 use Modules\Admin\Services\ProcurementCatalogBridgeService;
@@ -374,6 +375,52 @@ class ProcurementCompanyController extends AsabController
             });
 
             return $this->created(['supplierId' => $sup->id, 'ratingAvg' => $sup->fresh()->rating]);
+        });
+    }
+
+    /**
+     * T12.6 — branch «طلب مورد جديد» rows awaiting procurement's decision.
+     */
+    public function supplierRequests(Request $request): JsonResponse
+    {
+        return $this->run(function () {
+            $rows = SupplierRequest::where('status', SupplierRequest::STATUS_PENDING)
+                ->orderByDesc('created_at')->limit(100)->get()
+                ->map(fn (SupplierRequest $r) => [
+                    'id' => $r->id, 'name' => $r->name, 'category' => $r->category,
+                    'contactPhone' => $r->contact_phone, 'reason' => $r->reason, 'branchId' => $r->branch_id,
+                    'status' => $r->status, 'statusLabel' => SupplierRequest::STATUS_LABELS[$r->status],
+                    'requestedAt' => optional($r->created_at)->toIso8601String(),
+                ])->all();
+
+            return $this->listResponse($rows);
+        });
+    }
+
+    /**
+     * T12.6 — approve a branch supplier request: provision a real supplier from
+     * it (T11 bridge) and mark the request approved so the «معتمد» chip flips.
+     */
+    public function approveSupplierRequest(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $req = SupplierRequest::where('status', SupplierRequest::STATUS_PENDING)->findOrFail($id);
+
+            $sup = DB::transaction(function () use ($request, $req) {
+                $sup = AsabSupplier::create([
+                    'company_id' => $request->user()->company_id, 'name' => $req->name,
+                    'category' => $req->category, 'contact_phone' => $req->contact_phone, 'status' => 'active',
+                ]);
+                $this->bridge->provisionSupplier($sup);
+                $req->update(['status' => SupplierRequest::STATUS_APPROVED, 'supplier_id' => $sup->id]);
+
+                return $sup;
+            });
+
+            return $this->created([
+                'id' => $sup->id, 'name' => $sup->name, 'status' => $sup->status,
+                'requestId' => $req->id, 'requestStatus' => $req->status,
+            ]);
         });
     }
 
