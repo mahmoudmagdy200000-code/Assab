@@ -12,7 +12,7 @@ class CashTransaction extends Model
     protected $table = 'asab_cash_transactions';
 
     protected $fillable = [
-        'custody_id', 'txn_date', 'description', 'txn_type', 'amount', 'status', 'created_by_id',
+        'custody_id', 'txn_date', 'description', 'txn_type', 'amount', 'status', 'reason', 'source', 'created_by_id',
     ];
 
     protected $casts = [

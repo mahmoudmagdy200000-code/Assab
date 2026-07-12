@@ -147,10 +147,12 @@ class AccountantBrandScopeTest extends TestCase
         $this->assertSame('active', $shiftB->fresh()->status);
 
         $shiftA = $this->shift($this->branchA);
+        // T08: a close no longer finalizes — it moves the shift into review and
+        // mints an SHF- pipeline operation (closed happens on head final-approval).
         $this->asAccountant()
             ->postJson("/api/v1/accountant/shifts/{$shiftA->id}/close", ['cashInDrawer' => 1000, 'salesSystem' => 900])
             ->assertStatus(200)
-            ->assertJsonPath('status', 'closed');
+            ->assertJsonPath('status', 'pending_review');
     }
 
     // ---- Waste ----
@@ -220,7 +222,7 @@ class AccountantBrandScopeTest extends TestCase
 
         $this->asAccountant()->getJson("/api/v1/accountant/employees/{$empB->id}/statement")->assertStatus(404);
 
-        $movement = ['movementType' => 'debit', 'amount' => 1000, 'description' => 'سلفة'];
+        $movement = ['movementType' => 'debit', 'amount' => 1000, 'category' => 'advance', 'description' => 'سلفة'];
         $this->asAccountant()->postJson("/api/v1/accountant/employees/{$empB->id}/movements", $movement)->assertStatus(404);
         $this->asAccountant()->postJson("/api/v1/accountant/employees/{$empA->id}/movements", $movement)->assertStatus(201);
     }

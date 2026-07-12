@@ -1,6 +1,6 @@
 # T09 — Employee Ledger & Cash Custody
 > SRS: §7 ACC-7 (master-detail, movements ledger + categories فرق مبيعات/تسوية/نقص إيصالات/سلفة/مكافأة/غياب/خصم هدر/خصم فرق كاش, add movement, settle balance, auto-salary-deduction rule, monthly statement, PDF/Excel), ACC-8 + §8 HEAD-4 (custody per branch, min threshold 5000, replenish تعزيز from treasury, ledger مدين/دائن, near-depletion <500, disbursement requests, txn approve/reject, settle) · Audited: 2026-07-10 · FE doc deliverable: docs/fe-wiring/FE-T09-employees-cash-custody.md
-> Status: ⬜ not started (audit complete)
+> Status: ✅ **done** (2026-07-12) — code + 19 Pest tests + Pint + FE doc [FE-T09](../fe-wiring/FE-T09-employees-cash-custody.md). See delivery notes at the bottom.
 
 ## 1. Endpoint inventory (audited against code)
 
@@ -116,3 +116,21 @@ Pest feature tests (SQLite in-memory; seed one company + 2 branches + scoped/uns
 - **Headers:** all `/company/me/*` mutations require `Idempotency-Key` (`asab.idempotency`) and pass through `asab.audit`; tenant comes from the token (`asab.tenant`) — no explicit company id param anywhere.
 - **Screen mapping:** كشف حساب الموظفين master-detail ← rows 1/2/3/5(T09.5)/6(T09.6); banner «سيتم خصم الرصيد السالب من الراتب القادم» ← `autoDeductFromSalary`; العهد النقدية cards + expandable txn table ← rows 4/12; «تعزيز عهدة» modal (head) ← T09.10 endpoint; disbursement review ← rows 13/14; «تسوية العهدة» ← row 15.
 - **Employee picker reuse:** `GET company/me/branches/{branchId}/employees/lookup?empNumber=` (routes/api.php:634) already exists for variance allocation (T04) — reuse for movement/allocation forms instead of a new search endpoint.
+
+## Delivery notes (2026-07-12)
+
+| Task | Outcome |
+|---|---|
+| T09.1 | Migration `2026_07_12_000002_add_t09_ledger_columns` — `ref` on movements, `min_alert` on custody, `reason`+`source` on txns, 2 compound indexes. `category` was already added in `…000002` (T07). |
+| T09.2 | `Support/EmployeeMovementCategory` — 10 keys (4 system + 6 manual) + labels + ref prefixes. Writers already stamp categories (T04/07/08); `addMovement` now rejects unknown/system keys (422). |
+| T09.3–5 | `Services/EmployeeLedgerService` (balances, statement running-balance, addMovement, settle) + rewritten `Accountant/EmployeeController`. Settle-balance routes on both surfaces. |
+| T09.6–7 | `ExportService::employeeStatement` + corrected `payroll` (net = salary − Σdebits + Σcredits, split columns) + branch scope on payroll & cashCustody. |
+| T09.8 | Auto-deduction decision recorded in the master-plan backlog — flag + payroll export, **no scheduled job** in v1. |
+| T09.9 | `Support/CustodyStatus` + `Services/CustodyService` (derive/persist status, present, KPIs). Index rewritten: paginated, `meta.kpis` = `{activeCustodies, pendingRequests, nearDepletion}`, per-row derived status. |
+| T09.10 | Company custody routes moved to `asab.role:accountant,head`; `POST company/me/cash-custody/{id}/transactions` (+settlement-request) added — head can replenish (`source=treasury` → «تعزيز عهدة من الخزينة»). |
+| T09.11 | `addTransaction`: `status=pending` path (applies nothing) + overdraw guard (422 `CUSTODY_OVERDRAWN`). `approveTransaction` applies once (idempotent, 409 on rejected); `rejectTransaction` persists `reason` + reverses an applied txn. |
+| T09.12 | `settleCustody`: atomic — posts settlement debit + deposit credit txns, drains pending `SettlementRequest`s, recomputes status. |
+| T09.13 | `CustodyService::ledger` — month filter + running balance (reconciles to remaining) + `typeLabel` (وارد/صادر); `ExportService::custodyLedger` + route. |
+| T09.14 | Already shipped in T07 (`WasteApprovalService::postCharges` posts `waste_charge` debits) — verified, no new work. |
+| T09.15 | 19 Pest tests: `T09EmployeeLedgerTest` (12) + `T09CashCustodyTest` (7). Also fixed 2 pre-existing `AccountantBrandScopeTest` cases (T08 close→pending_review, T09 category-required). |
+| T09.16 | FE doc [FE-T09](../fe-wiring/FE-T09-employees-cash-custody.md); board flipped ✅/✅. |

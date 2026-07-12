@@ -303,6 +303,16 @@ class RealtimeBroadcaster
         ));
     }
 
+    /** ACC-8.1 / HEAD-4 — a custody crossed into low/critical after a movement. */
+    public function custodyLowBalance(string $branchId, string $custodyId, string $status, int $remainingHalalas): void
+    {
+        $this->safe(fn () => $this->emit(
+            'reminders.branch.'.$branchId,
+            'custody.low_balance',
+            ['custodyId' => $custodyId, 'status' => $status, 'remainingHalalas' => $remainingHalalas],
+        ));
+    }
+
     public function assetDraftCreated(AssetDraft $draft, ?string $branchId): void
     {
         $this->safe(fn () => $this->emit(

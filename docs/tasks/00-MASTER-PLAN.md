@@ -49,8 +49,8 @@ Every FE doc MUST contain, per endpoint:
 | T05 | [T05-expenses-fixed-assets.md](T05-expenses-fixed-assets.md) | §7 ACC-2 + assets (multi-invoice, توثيق, convert-to-asset wizard, drafts, register) | T03 | ✅ | ✅ [FE-T05](../fe-wiring/FE-T05-expenses-fixed-assets.md) |
 | T06 | [T06-purchases-accountant.md](T06-purchases-accountant.md) | §7 ACC-3 (3-way match, توثيق, line edit, returns) | T03 | ✅ | ✅ [FE-T06](../fe-wiring/FE-T06-purchases-accountant.md) |
 | T07 | [T07-inventory-waste.md](T07-inventory-waste.md) | §7 ACC-4, ACC-5 (daily/monthly, flags loop, daily-list push, waste classification+allocation) | T03 | ✅ | ✅ [FE-T07](../fe-wiring/FE-T07-inventory-waste.md) |
-| T08 | [T08-shifts.md](T08-shifts.md) | §7 ACC-6 + BRM-5 + MOB-1.6 cashier bridge (live board, brand config, close flow, history, approval chain) | T03 | ⬜ | ⬜ |
-| T09 | [T09-employees-cash-custody.md](T09-employees-cash-custody.md) | §7 ACC-7, ACC-8 + HEAD-4 (ledger, movements, settle; custody, replenish, txn approve) | T03 | ⬜ | ⬜ |
+| T08 | [T08-shifts.md](T08-shifts.md) | §7 ACC-6 + BRM-5 + MOB-1.6 cashier bridge (live board, brand config, close flow, history, approval chain) | T03 | ✅ | ✅ [FE-T08](../fe-wiring/FE-T08-shifts.md) |
+| T09 | [T09-employees-cash-custody.md](T09-employees-cash-custody.md) | §7 ACC-7, ACC-8 + HEAD-4 (ledger, movements, settle; custody, replenish, txn approve) | T03 | ✅ | ✅ [FE-T09](../fe-wiring/FE-T09-employees-cash-custody.md) |
 | T10 | [T10-head-erp.md](T10-head-erp.md) | §8 HEAD-1..3, HEAD-5 + §14.3 + ADM-6 admin ERP screen (grouped final approval, performance, ERP batches/export/post) | T03,T04 | ⬜ | ⬜ |
 | T11 | [T11-procurement.md](T11-procurement.md) | §9 PRC-1..3 (requests, consolidation+savings, PO pipeline, items, suppliers) | T01 | ⬜ | ⬜ |
 | T12 | [T12-branch-manager.md](T12-branch-manager.md) | §11 BRM-1..4, 6, 7 (BRM-5 → T08) (overview, daily upload, master data, counts, purchase requests, settings) | T03 | ⬜ | ⬜ |
@@ -100,3 +100,12 @@ with Wave 2 whenever FE needs those endpoints first.
 - Every list endpoint: pagination + filters per SRS; tenant-scoped queries only.
 - Every mutation audited; every status label returned as **key + Arabic label** pair.
 - Tests: happy path + role denial + tenant isolation + edge (locked op, over-allocation).
+
+## Deferred backlog
+
+- **DEFERRED (T09.8) — auto-salary-deduction job.** ASAB v1 has no salary-run, so the
+  «سيتم خصم الرصيد السالب من الراتب القادم» rule ships as (a) the statement's
+  `autoDeductFromSalary` flag (true when the employee's standing balance < 0), and
+  (b) the corrected payroll export math (net = salary − Σdebits + Σcredits). An
+  automated monthly command that posts `SAL-` deduction movements is **not built**
+  — add it when a payroll/salary-run module lands. No dead scheduler code was added.

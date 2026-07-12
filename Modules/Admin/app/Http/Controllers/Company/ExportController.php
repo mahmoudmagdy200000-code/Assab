@@ -5,6 +5,10 @@ namespace Modules\Admin\Http\Controllers\Company;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Models\CashCustody;
+use Modules\Admin\Models\Employee;
+use Modules\Admin\Services\CustodyService;
+use Modules\Admin\Services\EmployeeLedgerService;
 use Modules\Admin\Services\ExportService;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -16,7 +20,11 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
  */
 class ExportController extends AsabController
 {
-    public function __construct(private readonly ExportService $exports) {}
+    public function __construct(
+        private readonly ExportService $exports,
+        private readonly EmployeeLedgerService $ledger,
+        private readonly CustodyService $custody,
+    ) {}
 
     private function format(Request $request): string
     {
@@ -57,13 +65,37 @@ class ExportController extends AsabController
     /** GET /employees/payroll/export?month=YYYY-MM */
     public function payroll(Request $request): BinaryFileResponse
     {
-        return $this->exports->payroll($this->format($request), $request->query('month'));
+        // Zero-trust: a branch-scoped accountant exports only their branches.
+        return $this->exports->payroll($this->format($request), $request->query('month'), $this->assignedBranchIds());
+    }
+
+    /** GET /employees/{id}/statement/export?month=YYYY-MM — per-employee ledger. */
+    public function employeeStatement(Request $request, string $id): BinaryFileResponse
+    {
+        // Zero-trust: an employee outside the caller's branches reads as absent.
+        $employee = $this->scopeToAssignedBranches(Employee::query())->findOrFail($id);
+        $statement = $this->ledger->statement($employee, $request->query('month'), 1, 2000);
+
+        return $this->exports->employeeStatement($this->format($request), $statement);
     }
 
     /** GET /cash-custody/export */
     public function cashCustody(Request $request): BinaryFileResponse
     {
-        return $this->exports->cashCustody($this->format($request), $request->query('branchId'));
+        // Zero-trust: a branch-scoped accountant exports only their branches.
+        return $this->exports->cashCustody($this->format($request), $request->query('branchId'), $this->assignedBranchIds());
+    }
+
+    /** GET /cash-custody/{id}/transactions/export?month=YYYY-MM — HEAD-4 monthly ledger. */
+    public function custodyLedger(Request $request, string $id): BinaryFileResponse
+    {
+        // Zero-trust: a custody outside the caller's branches reads as absent.
+        $custody = $this->scopeToAssignedBranches(
+            CashCustody::where('company_id', $request->user()->company_id)
+        )->findOrFail($id);
+        $ledger = $this->custody->ledger($custody, $request->query('month'), 1, 2000);
+
+        return $this->exports->custodyLedger($this->format($request), $ledger);
     }
 
     /**

@@ -6,13 +6,19 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\Employee;
-use Modules\Admin\Models\EmployeeMovement;
+use Modules\Admin\Services\EmployeeLedgerService;
+use Modules\Admin\Support\EmployeeMovementCategory as Cat;
+use Modules\Branch\Models\Branch;
 
 /**
- * Accountant employee accounts + statements (BACKEND_API_SPEC.md §6.3.10).
+ * Accountant employee accounts + statements (SRS §7 ACC-7). Thin HTTP layer —
+ * the ledger math lives in {@see EmployeeLedgerService}.
  */
 class EmployeeController extends AsabController
 {
+    public function __construct(private readonly EmployeeLedgerService $ledger) {}
+
+    /** ACC-7.1 master list: signed balance + branch name per row, name search. */
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
@@ -24,59 +30,79 @@ class EmployeeController extends AsabController
             if ($num = $request->query('empNumber')) {
                 $q->where('emp_number', $num);
             }
+            if ($needle = trim((string) $request->query('q', ''))) {
+                $q->where('name', 'like', '%'.$needle.'%');
+            }
             $p = $q->orderBy('name')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
-            return $this->paginated($p, array_map(fn ($e) => [
-                'id' => $e->id, 'empNumber' => $e->emp_number, 'name' => $e->name, 'phone' => $e->phone,
-                'role' => $e->role, 'monthlySalary' => $e->monthly_salary, 'status' => $e->status,
-            ], $p->items()));
+            $balances = $this->ledger->balancesFor(collect($p->items())->pluck('id'));
+            $branchNames = $this->branchNames(collect($p->items())->pluck('branch_id'));
+
+            return $this->paginated($p, array_map(function ($e) use ($balances, $branchNames) {
+                $balance = $balances[$e->id] ?? 0;
+
+                return [
+                    'id' => $e->id, 'empNumber' => $e->emp_number, 'name' => $e->name, 'phone' => $e->phone,
+                    'role' => $e->role, 'branchId' => $e->branch_id, 'branchName' => $branchNames[$e->branch_id] ?? null,
+                    'monthlySalary' => $e->monthly_salary, 'status' => $e->status,
+                    'balanceHalalas' => $balance, 'balanceCaption' => Cat::balanceCaption($balance),
+                ];
+            }, $p->items()));
         });
     }
 
-    public function statement(string $id): JsonResponse
+    /** ACC-7.2 statement — month-bounded, per-row running balance, banner flag. */
+    public function statement(Request $request, string $id): JsonResponse
     {
-        return $this->run(function () use ($id) {
+        return $this->run(function () use ($request, $id) {
             $employee = $this->scopeToAssignedBranches(Employee::query())->findOrFail($id);
-            $movements = EmployeeMovement::where('employee_id', $id)->orderByDesc('movement_date')->get();
-            $credit = (int) $movements->where('movement_type', 'credit')->sum('amount');
-            $debit = (int) $movements->where('movement_type', 'debit')->sum('amount');
 
-            return $this->ok([
-                'employee' => ['id' => $employee->id, 'name' => $employee->name, 'empNumber' => $employee->emp_number],
-                'balance' => $credit - $debit,
-                'totalCredit' => $credit,
-                'totalDebit' => $debit,
-                'movements' => $movements->map(fn ($m) => [
-                    'id' => $m->id,
-                    'movementDate' => optional($m->movement_date)->toIso8601String(),
-                    'description' => $m->description,
-                    'movementType' => $m->movement_type,
-                    'amount' => $m->amount,
-                ])->all(),
-            ]);
+            return $this->ok($this->ledger->statement(
+                $employee,
+                $request->query('month'),
+                (int) $request->query('page', 1),
+                (int) $request->query('pageSize', 50),
+            ));
         });
     }
 
+    /** ACC-7.4 add a manual movement (category-validated; system keys rejected). */
     public function addMovement(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $this->scopeToAssignedBranches(Employee::query())->findOrFail($id);
+            $employee = $this->scopeToAssignedBranches(Employee::query())->findOrFail($id);
             $data = $request->validate([
                 'movementType' => 'required|in:credit,debit',
                 'amount' => 'required|integer|min:1',
+                'category' => 'required|string|max:32',
                 'description' => 'required|string|max:255',
                 'date' => 'nullable|date',
             ]);
-            $m = EmployeeMovement::create([
-                'employee_id' => $id,
-                'movement_type' => $data['movementType'],
-                'amount' => $data['amount'],
-                'description' => $data['description'],
-                'movement_date' => $data['date'] ?? now(),
-                'created_by_id' => $request->user()->id,
-            ]);
+            $m = $this->ledger->addMovement($employee, $data, $request->user());
 
-            return $this->created(['id' => $m->id]);
+            return $this->created([
+                'id' => $m->id, 'category' => $m->category, 'categoryLabelAr' => Cat::labelAr($m->category),
+                'ref' => $m->ref, 'amountHalalas' => (int) $m->amount, 'movementType' => $m->movement_type,
+            ]);
         });
+    }
+
+    /** ACC-7.3 «تسوية الرصيد» — clear the standing balance (or a partial amount). */
+    public function settleBalance(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $employee = $this->scopeToAssignedBranches(Employee::query())->findOrFail($id);
+            $data = $request->validate(['amountHalalas' => 'sometimes|integer|min:1']);
+
+            return $this->ok($this->ledger->settleBalance($employee, $data['amountHalalas'] ?? null, $request->user()));
+        });
+    }
+
+    /** @param  \Illuminate\Support\Collection<int,?string>  $ids */
+    private function branchNames($ids): array
+    {
+        $ids = $ids->filter()->unique()->values();
+
+        return $ids->isEmpty() ? [] : Branch::whereIn('id', $ids)->pluck('name', 'id')->all();
     }
 }
