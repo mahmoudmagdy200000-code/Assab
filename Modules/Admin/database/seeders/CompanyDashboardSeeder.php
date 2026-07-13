@@ -78,7 +78,7 @@ class CompanyDashboardSeeder extends Seeder
     private function seedSupportChannels(): void
     {
         $channels = [
-            ['key' => 'chat', 'label_ar' => 'الدردشة المباشرة', 'label_en' => 'Live Chat', 'value' => 'chat', 'hours_ar' => 'يومياً 8ص - 12م', 'icon' => '💬', 'sort_order' => 1],
+            ['key' => 'chat', 'label_ar' => 'الدردشة المباشرة', 'label_en' => 'Live Chat', 'value' => 'chat', 'hours_ar' => 'يومياً 9ص - 9م', 'icon' => '💬', 'sort_order' => 1],
             ['key' => 'phone', 'label_ar' => 'الهاتف', 'label_en' => 'Phone', 'value' => '800 123 4567', 'hours_ar' => 'الأحد-الخميس 9ص-6م', 'icon' => '📞', 'sort_order' => 2],
             ['key' => 'email', 'label_ar' => 'البريد الإلكتروني', 'label_en' => 'Email', 'value' => 'support@asab.sa', 'hours_ar' => 'رد خلال 24 ساعة', 'icon' => '✉️', 'sort_order' => 3],
         ];

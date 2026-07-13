@@ -6,6 +6,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Services\PlanLimitService;
 use Modules\Admin\Services\SsoService;
 
 /**
@@ -13,7 +14,10 @@ use Modules\Admin\Services\SsoService;
  */
 class SsoController extends AsabController
 {
-    public function __construct(private readonly SsoService $sso) {}
+    public function __construct(
+        private readonly SsoService $sso,
+        private readonly PlanLimitService $limits,
+    ) {}
 
     /** GET /company/me/sso */
     public function show(Request $request): JsonResponse
@@ -61,9 +65,12 @@ class SsoController extends AsabController
 
     private function assertEnterprise(Request $request): void
     {
-        $company = \Modules\Admin\Models\AsabCompany::find($request->user()->company_id);
-        if ($company && $company->plan !== 'Enterprise') {
-            throw new AsabException('PLAN_REQUIRED', 'SSO requires the Enterprise plan', 'يتطلب تسجيل الدخول الموحد خطة Enterprise', 403, ['plan' => $company->plan]);
+        // Gate on the LIVE subscription plan code (a portal self-upgrade only
+        // mutates CompanySubscription; the legacy asab_companies.plan string is
+        // platform-admin-set and would never unlock SSO after a self-upgrade).
+        $plan = $this->limits->planFor($request->user()->company_id);
+        if (($plan?->code) !== 'enterprise') {
+            throw new AsabException('PLAN_REQUIRED', 'SSO requires the Enterprise plan', 'يتطلب تسجيل الدخول الموحد خطة Enterprise', 403, ['plan' => $plan?->code]);
         }
     }
 }

@@ -153,6 +153,10 @@ Route::prefix('v1')->group(function () {
                 Route::post('restaurants/{restaurantId}/subscription/renew', [RestaurantController::class, 'renewSubscription']);
                 Route::get('restaurants/subscriptions', [SubscriptionController::class, 'restaurants']);
                 Route::get('branches', [BranchController::class, 'index']);
+                // CMP-4 tenant add-branch review queue (literal paths before branches/{id}).
+                Route::get('branch-requests', [BranchController::class, 'branchRequests']);
+                Route::post('branch-requests/{id}/approve', [BranchController::class, 'approveBranchRequest']);
+                Route::post('branch-requests/{id}/reject', [BranchController::class, 'rejectBranchRequest']);
                 Route::post('restaurants/{restaurantId}/branches', [BranchController::class, 'store']);
                 Route::patch('branches/{id}', [BranchController::class, 'update']);
                 Route::delete('branches/{id}', [BranchController::class, 'destroy']);
@@ -333,23 +337,29 @@ Route::prefix('v1')->group(function () {
             Route::post('attachments/{id}/verify', [UploadController::class, 'verify']);
             Route::delete('attachments/{id}', [UploadController::class, 'destroy']);
 
-            // Reports (§7.5)
-            Route::post('reports/profit-loss', [ReportController::class, 'profitLoss']);
-            Route::post('reports/sales-summary', [ReportController::class, 'salesSummary']);
-            Route::post('reports/expense-summary', [ReportController::class, 'expenseSummary']);
-            Route::post('reports/inventory-valuation', [ReportController::class, 'inventoryValuation']);
-            Route::post('reports/payroll', [ReportController::class, 'payroll']);
-            Route::post('reports/waste-analysis', [ReportController::class, 'wasteAnalysis']);
-            Route::post('reports/supplier-performance', [ReportController::class, 'supplierPerformance']);
-            Route::post('reports/menu-engineering', [ReportController::class, 'menuEngineering']);
-            Route::post('reports/breakeven', [ReportController::class, 'breakeven']);
-            Route::post('reports/cash-flow', [ReportController::class, 'cashFlow']);
+            // Reports (§7.5) — financial surface, restricted to finance roles
+            // (NFR-2 zero-trust: branch/procurement/supplier must not pull company P&L).
+            Route::middleware('asab.role:accountant,head,company-admin')->group(function () {
+                Route::post('reports/profit-loss', [ReportController::class, 'profitLoss']);
+                Route::post('reports/sales-summary', [ReportController::class, 'salesSummary']);
+                Route::post('reports/expense-summary', [ReportController::class, 'expenseSummary']);
+                Route::post('reports/inventory-valuation', [ReportController::class, 'inventoryValuation']);
+                Route::post('reports/payroll', [ReportController::class, 'payroll']);
+                Route::post('reports/waste-analysis', [ReportController::class, 'wasteAnalysis']);
+                Route::post('reports/supplier-performance', [ReportController::class, 'supplierPerformance']);
+                Route::post('reports/menu-engineering', [ReportController::class, 'menuEngineering']);
+                Route::post('reports/breakeven', [ReportController::class, 'breakeven']);
+                Route::post('reports/cash-flow', [ReportController::class, 'cashFlow']);
+            });
 
             // Custom report builder (FE completion request §2.4)
             Route::middleware('asab.role:accountant,head,company-admin')->prefix('reports/builder')->group(function () {
                 Route::get('fields', [ReportBuilderController::class, 'fields']);
                 Route::post('preview', [ReportBuilderController::class, 'preview']);
                 Route::post('save', [ReportBuilderController::class, 'save']);
+                // Saved definitions: list + replay (literal `saved` before the {id} route).
+                Route::get('saved', [ReportBuilderController::class, 'saved']);
+                Route::post('{id}/run', [ReportBuilderController::class, 'runSaved']);
             });
 
             // ---- Head Accountant (رئيس الحسابات; §6.2) ----
@@ -540,6 +550,7 @@ Route::prefix('v1')->group(function () {
                     Route::get('invitations', [CompanyUserController::class, 'invitations']);
                     Route::post('invitations', [CompanyUserController::class, 'invite']);
                     Route::post('invitations/{id}/revoke', [CompanyUserController::class, 'revokeInvitation']);
+                    Route::post('invitations/{id}/resend', [CompanyUserController::class, 'resend']);
 
                     // ca-dashboard (§5.1.1)
                     Route::get('me/dashboard/brand-performance', [CompanyDashboardController::class, 'brandPerformance']);
@@ -875,6 +886,8 @@ Route::prefix('v1')->group(function () {
                     Route::get('lookups/supplier-categories', [CrossController::class, 'supplierCategories']);
 
                     Route::get('reports/{key}/download', [CrossController::class, 'reportDownload']);
+                    // RPT-3 read-receipt hook: owner opens a sent report → viewed_at.
+                    Route::post('reports/distributions/{id}/viewed', [ReportController::class, 'markDistributionViewed']);
                     Route::get('reports', [ReportController::class, 'catalog']);
                     Route::get('procurement/reports', [ReportController::class, 'catalog']);
                     Route::get('procurement/reports/{key}/download', [CrossController::class, 'reportDownload']);

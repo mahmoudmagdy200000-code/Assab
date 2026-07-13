@@ -98,12 +98,22 @@ class OnboardController extends AsabController
                 throw new AsabException('INVITATION_EXPIRED', 'Invitation expired', 'انتهت صلاحية الدعوة', 422);
             }
 
-            $result = DB::transaction(function () use ($inv, $data) {
-                $user = AsabUser::updateOrCreate(['email' => $inv->email], [
+            // Zero-trust: an email already registered to a DIFFERENT company must
+            // never be re-homed (updateOrCreate would silently overwrite its
+            // company_id + password = cross-tenant account takeover).
+            $existing = AsabUser::where('email', $inv->email)->first();
+            if ($existing && $existing->company_id !== null && $existing->company_id !== $inv->company_id) {
+                throw new AsabException('EMAIL_IN_OTHER_COMPANY', 'Email is registered to another company', 'البريد مسجل في شركة أخرى', 409);
+            }
+            // Never overwrite an established account's password on accept.
+            $preservePassword = $existing && $existing->company_id !== null;
+
+            $result = DB::transaction(function () use ($inv, $data, $preservePassword) {
+                $user = AsabUser::updateOrCreate(['email' => $inv->email], array_merge([
                     'company_id' => $inv->company_id, 'name' => $data['name'], 'avatar' => mb_substr($data['name'], 0, 1),
-                    'password' => $data['password'], 'phone' => $data['phone'] ?? null, 'status' => 'active',
+                    'phone' => $data['phone'] ?? null, 'status' => 'active',
                     'default_page' => $this->defaultPageFor($inv->role_key),
-                ]);
+                ], $preservePassword ? [] : ['password' => $data['password']]));
                 AsabUserRole::updateOrCreate(['user_id' => $user->id, 'role_key' => $inv->role_key], [
                     'scope' => $inv->branch_id ? 'branch' : ($inv->brand_id ? 'brand' : 'all'),
                     'brand_ids' => $inv->brand_id ? [$inv->brand_id] : [], 'restaurant_ids' => [], 'branch_ids' => $inv->branch_id ? [$inv->branch_id] : [], 'module_keys' => [],

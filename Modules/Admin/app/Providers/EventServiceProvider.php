@@ -5,7 +5,9 @@ namespace Modules\Admin\Providers;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
 use Modules\Admin\Events\OperationFinalApproved;
 use Modules\Admin\Events\OperationRejected;
+use Modules\Admin\Listeners\BridgeExpenseDecisionToLegacy;
 use Modules\Admin\Listeners\BridgeLegacyCashierShift;
+use Modules\Admin\Listeners\BridgeShiftDecisionToLegacy;
 use Modules\Admin\Listeners\ProcessShiftOperationDecision;
 use Modules\Admin\Listeners\SyncErpReadyBatch;
 use Modules\Admin\Listeners\SyncLegacyExpenseOperation;
@@ -27,13 +29,21 @@ class EventServiceProvider extends ServiceProvider
         ExpenseApprovedEvent::class => [SyncLegacyExpenseOperation::class],
 
         // Shift close chain (ACC-6.4 / HEAD-2.5): final-approve closes the shift +
-        // posts the cash gap; reject reopens it.
+        // posts the cash gap; reject reopens it. The two Bridge*DecisionToLegacy
+        // listeners (WS1a/WS1b) mirror the terminal decision back to the mobile
+        // world (cashier_shifts.review_status / expenses.status).
         OperationFinalApproved::class => [
             [ProcessShiftOperationDecision::class, 'handleFinalApproved'],
+            [BridgeShiftDecisionToLegacy::class, 'handleFinalApproved'],
+            [BridgeExpenseDecisionToLegacy::class, 'handleFinalApproved'],
             // SRS §14.3 ERP-1: seed the (day × module) ready batch for export.
             SyncErpReadyBatch::class,
         ],
-        OperationRejected::class => [[ProcessShiftOperationDecision::class, 'handleRejected']],
+        OperationRejected::class => [
+            [ProcessShiftOperationDecision::class, 'handleRejected'],
+            [BridgeShiftDecisionToLegacy::class, 'handleRejected'],
+            [BridgeExpenseDecisionToLegacy::class, 'handleRejected'],
+        ],
 
         // MOB-1.6 cashier bridge: a legacy mobile shift close mints the SHF- op.
         ShiftEndedEvent::class => [BridgeLegacyCashierShift::class],

@@ -9,6 +9,7 @@ use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Services\NotificationService;
 use Modules\Branch\Models\Branch;
 
 /**
@@ -104,6 +105,56 @@ class BranchController extends AsabController
 
             return $this->noContent();
         });
+    }
+
+    /** GET /admin/branch-requests?status=pending_review|approved|rejected|all — CMP-4 review queue. */
+    public function branchRequests(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $status = $request->query('status', 'pending_review');
+            $q = Branch::query()->whereNotNull('asab_review_status');
+            if ($status !== 'all') {
+                $q->where('asab_review_status', $status);
+            }
+            $branches = $q->orderByDesc('created_at')->limit(500)->get();
+
+            return $this->listResponse($branches->map(fn (Branch $b) => $this->present($b) + [
+                'reviewStatus' => $b->asab_review_status,
+                'reviewNote' => $b->asab_review_note,
+            ])->all());
+        });
+    }
+
+    /** POST /admin/branch-requests/{id}/approve — flip a pending branch live. */
+    public function approveBranchRequest(string $id, NotificationService $notifications): JsonResponse
+    {
+        return $this->run(function () use ($id, $notifications) {
+            $branch = Branch::where('asab_review_status', 'pending_review')->findOrFail($id);
+            $branch->update(['asab_review_status' => 'approved', 'status' => 'active', 'is_active' => true]);
+            $this->notifyCompany($notifications, $branch, 'branch.approved', 'تمت الموافقة على الفرع', $branch->name);
+
+            return $this->ok($this->present($branch->fresh()) + ['reviewStatus' => 'approved']);
+        });
+    }
+
+    /** POST /admin/branch-requests/{id}/reject — reject with a reason. */
+    public function rejectBranchRequest(Request $request, string $id, NotificationService $notifications): JsonResponse
+    {
+        return $this->run(function () use ($request, $id, $notifications) {
+            $data = $request->validate(['reason' => 'required|string|max:500']);
+            $branch = Branch::where('asab_review_status', 'pending_review')->findOrFail($id);
+            $branch->update(['asab_review_status' => 'rejected', 'asab_review_note' => $data['reason'], 'status' => 'inactive']);
+            $this->notifyCompany($notifications, $branch, 'branch.rejected', 'تم رفض طلب الفرع', $data['reason']);
+
+            return $this->ok($this->present($branch->fresh()) + ['reviewStatus' => 'rejected', 'reviewNote' => $data['reason']]);
+        });
+    }
+
+    private function notifyCompany(NotificationService $notifications, Branch $branch, string $type, string $title, ?string $body): void
+    {
+        if ($branch->asab_company_id) {
+            $notifications->pushToRole($branch->asab_company_id, 'company-admin', $type, $title, $body, null, ['type' => 'branch', 'id' => $branch->id]);
+        }
     }
 
     /**

@@ -15,7 +15,7 @@ class ReportDistribution extends Model
     protected $table = 'asab_report_distributions';
 
     protected $fillable = [
-        'company_id', 'report_key', 'restaurant_id', 'channels',
+        'company_id', 'report_key', 'restaurant_id', 'channels', 'format', 'cover_message',
         'period_from', 'period_to', 'sent', 'sent_at', 'sent_by_id', 'viewed', 'viewed_at',
     ];
 

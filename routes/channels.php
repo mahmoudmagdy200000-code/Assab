@@ -17,9 +17,12 @@ use Modules\Inventory\Models\MonthlyInventoryStaff;
 |
 */
 
-// Private channel for user notifications
+// Private channel for user notifications.
+// NOTE: mobile identities are UUID strings (HasUuids). A prior `(int)` cast
+// collapsed every id to 0, so `0 === 0` authorized ANY user onto ANY user's
+// private channel (cross-user leak). Compare as strings, like the asab channel.
 Broadcast::channel('user.{userId}', function ($user, $userId) {
-    return (int) $user->id === (int) $userId;
+    return (string) $user->getKey() === (string) $userId;
 });
 
 $authorizeInventoryChannel = function ($user, $inventoryId) {

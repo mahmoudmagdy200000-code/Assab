@@ -1,6 +1,6 @@
 # T14 — Company Portal (Company-Admin surfaces)
 > SRS: §12 CMP-1..8 (dashboard plan hero+quotas+brand cards, subscription billing-cycle toggle + plan comparison + upgrade/downgrade/cancel/reactivate/contact-sales, users n/50 + invite flow + toggle + resend, org tree brands/restaurants/branches + transfer-manager + add-branch pending-review, modules toggles plan-gated, billing summary/invoices/pdf/pay/payment-methods/address, settings + logo + preferences, support channels/tickets/chat), plus API keys, SSO, webhooks, onboarding, invitation accept · Audited: 2026-07-10 · FE doc deliverable: docs/fe-wiring/FE-T14-company-portal.md
-> Status: ⬜ not started (audit complete)
+> Status: ✅ done — 8 behavior gaps fixed 2026-07-13 (T14.1 add-branch pending-review + admin queue, T14.2 invitation email+resend, T14.3 cross-tenant accept guard, T14.4 real storage quota, T14.5 SSO live-plan gate, T14.6 transfer-manager validation+scope sync, T14.7 support seed). Tests: `tests/Feature/CompanyPortalGapsTest.php` (9 passed, 39 assertions). FE doc: docs/fe-wiring/FE-T14-company-portal.md
 
 ## 1. Endpoint inventory (audited against code)
 
