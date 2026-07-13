@@ -4,10 +4,14 @@ namespace Modules\Admin\Http\Controllers\Company;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRestaurant;
+use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\NotificationService;
 use Modules\Admin\Services\PlanLimitService;
@@ -52,6 +56,8 @@ class OrgController extends AsabController
                             'salesMonthHalalas' => $sales, 'expensesMonthHalalas' => (int) ($salesByBranch[$br->id]['expenses'] ?? 0),
                             'targetHalalas' => $target, 'pctOfTarget' => $target > 0 ? (int) round($sales / $target * 100) : 0,
                             'status' => $br->status ?? 'active',
+                            // CMP-4 badge: pending_review branches render distinctly until approved.
+                            'reviewStatus' => $br->asab_review_status ?? 'approved',
                         ];
                     })->all();
 
@@ -169,20 +175,30 @@ class OrgController extends AsabController
                 'address' => 'sometimes|nullable|string', 'phone' => 'sometimes|nullable|string|max:32', 'targetHalalas' => 'sometimes|integer',
             ]);
             $restaurant = AsabRestaurant::where('company_id', $companyId)->findOrFail($data['restaurantId']);
+            // Pending branches still consume a quota slot (prevents spamming requests).
             $this->limits->assertCanAdd($companyId, 'branches');
 
-            // The legacy branches table stores the city/address in `location`.
+            // CMP-4: a tenant-created branch is inactive + pending_review until a
+            // platform admin approves it («سيظهر بعد مراجعة الإدارة»).
             $branch = \Modules\Branch\Models\Branch::create([
                 'name' => $data['name'], 'location' => $data['address'] ?? $data['city'],
-                'manager' => $data['managerName'] ?? null, 'status' => 'active',
+                'manager' => $data['managerName'] ?? null, 'status' => 'inactive',
+                'asab_review_status' => 'pending_review',
                 'asab_company_id' => $companyId, 'asab_brand_id' => $restaurant->brand_id, 'asab_restaurant_id' => $restaurant->id,
                 'asab_manager_user_id' => $data['managerUserId'] ?? null,
                 'asab_monthly_target' => $data['targetHalalas'] ?? null,
             ]);
-            $this->notifications->pushToRole($companyId, 'company-admin', 'branch.created', 'تمت إضافة فرع جديد', $branch->name);
+            // Notify platform admins that a request awaits review.
+            foreach (AsabUserRole::where('role_key', 'admin')->pluck('user_id') as $adminId) {
+                $this->notifications->push($adminId, 'branch.review_requested', 'طلب فرع جديد بانتظار المراجعة', $branch->name, null, ['type' => 'branch', 'id' => $branch->id]);
+            }
             $this->rt->branchChanged($companyId, 'created', $branch->id, $branch->name);
 
-            return $this->created(['id' => $branch->id, 'name' => $branch->name, 'city' => $branch->city, 'status' => 'active']);
+            return $this->created([
+                'id' => $branch->id, 'name' => $branch->name, 'city' => $branch->city,
+                'status' => 'pending_review', 'reviewStatus' => 'pending_review',
+                'messageAr' => 'سيظهر بعد مراجعة الإدارة',
+            ]);
         });
     }
 
@@ -225,9 +241,30 @@ class OrgController extends AsabController
     public function transferManager(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $branch = $this->branchQuery($request->user()->company_id)->findOrFail($id);
+            $companyId = $request->user()->company_id;
+            $branch = $this->branchQuery($companyId)->findOrFail($id);
             $data = $request->validate(['newManagerUserId' => 'required|string', 'note' => 'sometimes|string|max:255']);
-            $branch->update(['asab_manager_user_id' => $data['newManagerUserId']]);
+
+            // Zero-trust: the new manager must be an active member of THIS company.
+            $member = CompanyUser::where('company_id', $companyId)
+                ->where('user_id', $data['newManagerUserId'])->where('status', 'active')->first();
+            if (! $member) {
+                throw new AsabException('INVALID_ROLE_SCOPE', 'Manager must be an active member of this company', 'المدير يجب أن يكون عضواً نشطاً في الشركة', 422);
+            }
+            $newManager = AsabUser::find($data['newManagerUserId']);
+
+            DB::transaction(function () use ($branch, $member, $data, $newManager) {
+                $branch->update([
+                    'asab_manager_user_id' => $data['newManagerUserId'],
+                    'manager' => $newManager?->name ?? $branch->manager,
+                ]);
+                // Move the member's home branch and their branch-role data scope so
+                // ResolveTenant resolves the transferred branch for the new manager.
+                $member->update(['branch_id' => $branch->id]);
+                AsabUserRole::where('user_id', $data['newManagerUserId'])->where('role_key', 'branch')
+                    ->update(['scope' => 'branch', 'branch_ids' => [$branch->id]]);
+            });
+            $this->rt->branchChanged($companyId, 'updated', $branch->id, $branch->name);
 
             return $this->ok(['id' => $branch->id, 'managerUserId' => $branch->asab_manager_user_id]);
         });
@@ -241,7 +278,7 @@ class OrgController extends AsabController
     /** @return array{0: array, 1: array} [salesByBranch, branchesByRestaurant] */
     private function branchAggregates(string $companyId): array
     {
-        $branches = $this->branchQuery($companyId)->get(['id', 'name', 'location', 'status', 'manager', 'asab_manager_user_id', 'asab_restaurant_id', 'asab_monthly_target']);
+        $branches = $this->branchQuery($companyId)->get(['id', 'name', 'location', 'status', 'manager', 'asab_manager_user_id', 'asab_restaurant_id', 'asab_monthly_target', 'asab_review_status']);
         $byRestaurant = $branches->groupBy('asab_restaurant_id')->map(fn ($g) => $g->all())->all();
 
         $from = now()->startOfMonth()->toDateString();

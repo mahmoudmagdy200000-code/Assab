@@ -50,7 +50,7 @@ class DashboardController extends AsabController
                 'quotas' => [
                     'brands' => $quotas['brands'], 'restaurants' => $quotas['restaurants'],
                     'branches' => $quotas['branches'], 'users' => $quotas['users'],
-                    'storage' => ['usedGb' => 0, 'maxGb' => $sub->plan->storage_gb],
+                    'storage' => ['usedGb' => $quotas['storage']['used'], 'maxGb' => $quotas['storage']['max']],
                 ],
                 // Existing fields kept; enriched with the spec kpis + totals (§5.2).
                 'kpis' => array_merge([

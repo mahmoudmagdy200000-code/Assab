@@ -23,6 +23,10 @@ class ReportService
         $from = $input['period']['from'] ?? null;
         $to = $input['period']['to'] ?? null;
         $branchIds = $input['branchIds'] ?? null;
+        // Explicit tenant filter — REQUIRED when build() runs outside an HTTP
+        // request (queued jobs), where the Operation BelongsToTenant global scope
+        // is inert and would otherwise sum operations across every company.
+        $this->companyId = $input['companyId'] ?? null;
 
         $data = match ($key) {
             'pl' => $this->profitLoss($from, $to, $branchIds),
@@ -42,9 +46,15 @@ class ReportService
         ];
     }
 
+    /** Tenant filter set by build() for the current report (null = rely on the global scope). */
+    private ?string $companyId = null;
+
     private function scope(?string $from, ?string $to, ?array $branchIds)
     {
         $q = Operation::query();
+        if ($this->companyId !== null) {
+            $q->where('company_id', $this->companyId);
+        }
         if ($from) {
             $q->where('operation_date', '>=', $from);
         }

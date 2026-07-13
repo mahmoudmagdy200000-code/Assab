@@ -26,6 +26,7 @@ class SendOwnerReportJob implements ShouldQueue
 
     /** @param  string[]|null  $branchIds  restaurant's branches (scopes the P&L) */
     public function __construct(
+        public string $companyId,
         public string $reportKey,
         public string $ownerEmail,
         public ?string $from,
@@ -39,6 +40,9 @@ class SendOwnerReportJob implements ShouldQueue
     public function handle(ReportService $reports, ExportService $exports): void
     {
         $report = $reports->build([
+            // companyId is authoritative: on the queue worker the tenant global
+            // scope is inert, so without it the P&L would span every company.
+            'companyId' => $this->companyId,
             'reportKey' => $this->reportKey,
             'period' => ['from' => $this->from, 'to' => $this->to],
             'branchIds' => $this->branchIds,

@@ -240,6 +240,13 @@ class ReportController extends AsabController
             $formats = $this->resolveFormats($data['format'] ?? 'pdf');
             $coverMessage = $data['coverMessage'] ?? null;
 
+            // A platform admin (no company_id) must not bulk-send across every
+            // tenant's restaurants — require an explicit restaurant list.
+            if ($companyId === null && empty($data['restaurantIds'])) {
+                throw new AsabException('VALIDATION_ERROR', 'restaurantIds is required without a company context',
+                    'يجب تحديد المطاعم عند غياب سياق الشركة', 422);
+            }
+
             // Target restaurants: explicit list, else all active in tenant (bulk «إرسال الكل»).
             $rq = AsabRestaurant::query();
             if ($companyId !== null) {
@@ -300,9 +307,15 @@ class ReportController extends AsabController
                     }
 
                     // Queue an email per requested format (pdf/excel) to the owner's inbox.
+                    // Empty branch set → non-matching sentinel (never an unscoped null):
+                    // the queued job has no tenant context, so an unscoped P&L would
+                    // otherwise aggregate every company. companyId is also passed as
+                    // the authoritative tenant filter (defense in depth).
                     if (in_array('email', $channels, true) && $brand?->owner_email) {
+                        $jobBranchIds = $branchIds ?: ['00000000-0000-0000-0000-000000000000'];
+                        $jobCompanyId = $restaurant->company_id ?? $companyId;
                         foreach ($formats as $fmt) {
-                            $emailJobs[] = [$reportKey, $brand->owner_email, $data['period']['from'], $data['period']['to'], $branchIds ?: null, $fmt, $coverMessage, $restaurant->name];
+                            $emailJobs[] = [$jobCompanyId, $reportKey, $brand->owner_email, $data['period']['from'], $data['period']['to'], $jobBranchIds, $fmt, $coverMessage, $restaurant->name];
                         }
                     }
 

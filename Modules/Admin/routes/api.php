@@ -153,6 +153,10 @@ Route::prefix('v1')->group(function () {
                 Route::post('restaurants/{restaurantId}/subscription/renew', [RestaurantController::class, 'renewSubscription']);
                 Route::get('restaurants/subscriptions', [SubscriptionController::class, 'restaurants']);
                 Route::get('branches', [BranchController::class, 'index']);
+                // CMP-4 tenant add-branch review queue (literal paths before branches/{id}).
+                Route::get('branch-requests', [BranchController::class, 'branchRequests']);
+                Route::post('branch-requests/{id}/approve', [BranchController::class, 'approveBranchRequest']);
+                Route::post('branch-requests/{id}/reject', [BranchController::class, 'rejectBranchRequest']);
                 Route::post('restaurants/{restaurantId}/branches', [BranchController::class, 'store']);
                 Route::patch('branches/{id}', [BranchController::class, 'update']);
                 Route::delete('branches/{id}', [BranchController::class, 'destroy']);
@@ -546,6 +550,7 @@ Route::prefix('v1')->group(function () {
                     Route::get('invitations', [CompanyUserController::class, 'invitations']);
                     Route::post('invitations', [CompanyUserController::class, 'invite']);
                     Route::post('invitations/{id}/revoke', [CompanyUserController::class, 'revokeInvitation']);
+                    Route::post('invitations/{id}/resend', [CompanyUserController::class, 'resend']);
 
                     // ca-dashboard (§5.1.1)
                     Route::get('me/dashboard/brand-performance', [CompanyDashboardController::class, 'brandPerformance']);

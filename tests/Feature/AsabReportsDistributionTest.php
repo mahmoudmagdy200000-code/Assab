@@ -307,6 +307,34 @@ class AsabReportsDistributionTest extends TestCase
         $res->assertOk()->assertJsonPath('sentCount', 2); // restA + restB, both active
     }
 
+    public function test_report_service_scopes_by_company_id_without_tenant_context(): void
+    {
+        // Simulates the queued-job context: no HTTP request → Operation's tenant
+        // global scope is inert. Without an explicit companyId the P&L would sum
+        // every company's operations (the confirmed cross-tenant leak).
+        $this->op('sales', 1000, $this->branchA->id);
+        $otherCompany = AsabCompany::create(['name' => 'Other Co', 'plan' => 'Professional', 'status' => 'active']);
+        Operation::create([
+            'public_id' => 'SALES-OTHER', 'company_id' => $otherCompany->id, 'branch_id' => $this->branchB->id,
+            'module_key' => 'sales', 'payload' => [], 'amount' => 9999, 'status' => 'final-approved', 'operation_date' => now(),
+        ]);
+
+        $reports = app(\Modules\Admin\Services\ReportService::class);
+        $scoped = $reports->build(['companyId' => $this->company->id, 'reportKey' => 'pl', 'period' => ['from' => null, 'to' => null], 'branchIds' => null]);
+        $this->assertSame(1000, $scoped['data']['income']); // only company A — never the other tenant's 9999
+    }
+
+    public function test_platform_admin_bulk_send_without_restaurants_is_422(): void
+    {
+        $platformAdmin = AsabUser::create(['company_id' => null, 'name' => 'root', 'email' => 'root@asab.test', 'password' => 'secret-password', 'status' => 'active']);
+        AsabUserRole::create(['user_id' => $platformAdmin->id, 'role_key' => 'admin', 'scope' => 'all']);
+
+        $this->actingAs($platformAdmin, 'sanctum')->postJson('/api/v1/admin/reports/pl/send', [
+            'period' => ['from' => '2026-07-01', 'to' => '2026-07-31'],
+            'method' => 'inApp',
+        ])->assertStatus(422);
+    }
+
     public function test_send_is_idempotent_per_restaurant_period(): void
     {
         Queue::fake();

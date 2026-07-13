@@ -52,12 +52,37 @@ class PlanLimitService
     {
         $plan = $this->planFor($companyId);
         $use = $this->usage($companyId);
+        $storage = $this->storage($companyId, $plan);
 
         return [
             'brands' => ['used' => $use['brands'], 'max' => $plan?->max_brands],
             'restaurants' => ['used' => $use['restaurants'], 'max' => $plan?->max_restaurants],
             'branches' => ['used' => $use['branches'], 'max' => $plan?->max_branches],
             'users' => ['used' => $use['users'], 'max' => $plan?->max_users],
+            // Storage is metered in GB (max null = unlimited).
+            'storage' => ['used' => $storage['usedGb'], 'max' => $storage['maxGb']],
+        ];
+    }
+
+    /**
+     * Storage usage for a company, summed from its namespaced attachment bytes
+     * (uploads are stored under "{companyId}/…"). Cap comes from plans.storage_gb.
+     *
+     * @return array{usedBytes:int, usedGb:float, maxGb:?int}
+     */
+    public function storage(string $companyId, ?Plan $plan = null): array
+    {
+        $bytes = 0;
+        try {
+            $bytes = (int) \Modules\Admin\Models\Attachment::where('storage_key', 'like', $companyId.'/%')->sum('size');
+        } catch (\Throwable) {
+        }
+        $plan ??= $this->planFor($companyId);
+
+        return [
+            'usedBytes' => $bytes,
+            'usedGb' => round($bytes / (1024 ** 3), 2),
+            'maxGb' => $plan?->storage_gb,
         ];
     }
 

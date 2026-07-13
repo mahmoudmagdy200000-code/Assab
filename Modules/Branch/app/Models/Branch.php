@@ -36,6 +36,8 @@ class Branch extends Model
         'asab_restaurant_id',
         'asab_manager_user_id',
         'asab_monthly_target',
+        'asab_review_status',
+        'asab_review_note',
     ];
 
     protected $casts = [

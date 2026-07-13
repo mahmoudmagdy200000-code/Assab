@@ -5,10 +5,13 @@ namespace Modules\Admin\Http\Controllers\Company;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Mail\CompanyInvitationMail;
 use Modules\Admin\Models\AsabBrand;
+use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabRole;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\CompanyInvitation;
@@ -23,6 +26,11 @@ use Modules\Admin\Services\RealtimeBroadcaster;
 class UserController extends AsabController
 {
     private const ROLES = ['company-admin', 'head', 'accountant', 'branch', 'procurement'];
+
+    private const ROLE_LABELS = [
+        'company-admin' => 'مدير الشركة', 'head' => 'رئيس الحسابات', 'accountant' => 'محاسب',
+        'branch' => 'مدير الفرع', 'procurement' => 'مدير المشتريات',
+    ];
 
     public function __construct(
         private readonly PlanLimitService $limits,
@@ -91,6 +99,7 @@ class UserController extends AsabController
                 'token' => Str::random(64), 'status' => 'pending', 'invited_by_id' => $request->user()->id,
                 'expires_at' => now()->addDays(7), 'created_at' => now(),
             ]);
+            $this->sendInvitationMail($inv);
             $this->notifications->push($request->user()->id, 'user.invited', 'تم إرسال دعوة', $data['email']);
             $this->rt->userInvited($companyId, $inv);
 
@@ -205,16 +214,48 @@ class UserController extends AsabController
         });
     }
 
+    /** POST /company/invitations/{id}/resend — regenerate token + expiry, re-email. */
+    public function resend(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $inv = CompanyInvitation::where('company_id', $request->user()->company_id)->findOrFail($id);
+            if ($inv->status !== 'pending') {
+                throw new AsabException('INVALID_INVITATION', 'Only pending invitations can be resent', 'لا يمكن إعادة إرسال دعوة غير معلّقة', 409);
+            }
+            $inv->update(['token' => Str::random(64), 'expires_at' => now()->addDays(7)]);
+            $this->sendInvitationMail($inv);
+
+            return $this->ok(['resent' => true, 'expiresAt' => optional($inv->expires_at)->toIso8601String()], 202);
+        });
+    }
+
+    /** POST /company/me/users/{id}/resend-invite — resolves the member's pending invitation and delegates. */
     public function resendInvite(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $cu = CompanyUser::where('company_id', $request->user()->company_id)->findOrFail($id);
+            $cu = CompanyUser::where('company_id', $request->user()->company_id)->with('user')->findOrFail($id);
             if ($cu->status !== 'invited') {
                 throw new AsabException('NOT_INVITED', 'User is not in invited state', 'المستخدم ليس بحالة دعوة', 409);
             }
+            $inv = CompanyInvitation::where('company_id', $cu->company_id)
+                ->where('email', $cu->user?->email)->where('status', 'pending')->latest('created_at')->first();
+            if (! $inv) {
+                throw new AsabException('INVALID_INVITATION', 'No pending invitation for this member', 'لا توجد دعوة معلّقة لهذا العضو', 409);
+            }
+            $inv->update(['token' => Str::random(64), 'expires_at' => now()->addDays(7)]);
+            $this->sendInvitationMail($inv);
 
             return $this->ok(['resent' => true], 202);
         });
+    }
+
+    /** CMP-3 — email the invitee the accept link (queued mailable). */
+    private function sendInvitationMail(CompanyInvitation $inv): void
+    {
+        $companyName = AsabCompany::find($inv->company_id)?->name ?? 'ASAB';
+        $roleLabel = self::ROLE_LABELS[$inv->role_key] ?? $inv->role_key;
+        $acceptUrl = rtrim((string) config('app.frontend_url', config('app.url')), '/').'/accept-invitation?token='.$inv->token;
+        Mail::to($inv->email)->send(new CompanyInvitationMail($companyName, $roleLabel, $acceptUrl));
     }
 
     private function isLastAdmin(CompanyUser $cu): bool
@@ -249,10 +290,11 @@ class UserController extends AsabController
 
     public function presentInvite(CompanyInvitation $inv): array
     {
+        // token is intentionally NOT exposed — it is delivered only by email (CMP-3).
         return [
             'id' => $inv->id, 'email' => $inv->email, 'name' => $inv->name, 'roleKey' => $inv->role_key,
             'brandId' => $inv->brand_id, 'branchId' => $inv->branch_id, 'status' => $inv->status,
-            'token' => $inv->token, 'expiresAt' => optional($inv->expires_at)->toIso8601String(),
+            'expiresAt' => optional($inv->expires_at)->toIso8601String(),
         ];
     }
 }
