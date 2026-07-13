@@ -668,10 +668,11 @@ class ExportService
         if ($supplierIds !== null) {
             $q->whereIn('payload->supplierId', $supplierIds);
         }
-        if ($status === 'accepted') {
-            $q->whereIn('status', ['accepted', 'confirmed', 'approved', 'final-approved', 'delivered']);
-        } elseif ($status === 'rejected') {
-            $q->where('status', 'rejected');
+        // Same canonical vocabulary as the JSON list (SupplierOrderStatus): the
+        // `accepted` filter folds accepted/confirmed/approved/final-approved so
+        // the export never diverges from the on-screen separate lists.
+        if ($synonyms = \Modules\Admin\Support\SupplierOrderStatus::synonyms($status)) {
+            $q->whereIn('status', $synonyms);
         }
         $ops = $q->orderByDesc('operation_date')->limit(10000)->get();
         $branchNames = $this->branchNames($ops->pluck('branch_id'));

@@ -1,7 +1,7 @@
 # T13 — Supplier (المورد) — ASAB portal, feature-flagged
 
 > SRS: §10 SUP-1..2 (orders list from procurement OR branch, accept/reject, delivered, separate approved/rejected lists, KPIs, catalog CRUD code/unit/price/minQty/toggle) — feature-flagged `FEATURE_ASAB_SUPPLIER_PORTAL`, hidden v1. SUP-3 reports DEFERRED. · Audited: 2026-07-10 · FE doc deliverable: docs/fe-wiring/FE-T13-supplier.md
-> Status: ⬜ not started (audit complete)
+> Status: ✅ shipped 2026-07-13 — T13.1–T13.8 done, 20 Pest tests green, FE doc at docs/fe-wiring/FE-T13-supplier.md
 
 All routes live under `/api/v1/asab/supplier/*` (routes/api.php:456–473), role `asab.role:supplier`, inside `auth:sanctum`+`asab.tenant` (routes:94, 244). The whole group early-returns when `config('features.asab_supplier_portal')` is off (routes:457–459) — **routes are not registered at all → 404, not 403**. Flag default: `false` (`config/features.php:18`, env `FEATURE_ASAB_SUPPLIER_PORTAL`). Legacy `Modules/Supplier` mobile portal (`/api/v1/supplier/*`, different guard) is untouched. Controller: `Modules/Admin/app/Http/Controllers/Supplier/SupplierController.php`. Ownership model: orders = `Operation` rows with `module_key='purchases'` and `payload->supplierId ∈ asab_suppliers.id where user_id = auth user` (SupplierController.php:238–248); catalog = `asab_supplier_items.supplier_user_id = auth user` — a supplier can never touch another supplier's data.
 

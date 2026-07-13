@@ -5,12 +5,17 @@ namespace Modules\Admin\Http\Controllers\Supplier;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\SupplierItem;
 use Modules\Admin\Services\ExportService;
+use Modules\Admin\Services\PurchasePresenterService;
+use Modules\Admin\Support\SupplierOrderStatus;
+use Modules\Branch\Models\Branch;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
@@ -21,7 +26,10 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
  */
 class SupplierController extends AsabController
 {
-    public function __construct(private readonly ExportService $exports) {}
+    public function __construct(
+        private readonly ExportService $exports,
+        private readonly PurchasePresenterService $purchases,
+    ) {}
 
     public function overview(Request $request): JsonResponse
     {
@@ -29,16 +37,18 @@ class SupplierController extends AsabController
             $base = $this->ownOrders($request);
             $userId = $request->user()->id;
 
+            $recent = (clone $base)->orderByDesc('operation_date')->limit(8)->get();
+
             return $this->ok([
                 'kpis' => [
                     'newOrders' => (clone $base)->where('status', 'pending')->count(),
-                    'acceptedThisMonth' => (clone $base)->where('status', 'approved')->whereMonth('updated_at', now()->month)->count(),
-                    'totalSalesThisMonth' => (int) (clone $base)->whereMonth('operation_date', now()->month)->sum('amount'),
+                    'acceptedThisMonth' => $this->acceptedThisMonth($base),
+                    'totalSalesThisMonth' => $this->salesForMonth($base, now()->month, now()->year),
+                    'totalSalesTrendPct' => $this->salesTrendPct($base),
                     'activeItems' => SupplierItem::where('supplier_user_id', $userId)->where('status', 'active')->count(),
                     'totalItems' => SupplierItem::where('supplier_user_id', $userId)->count(),
                 ],
-                'recentOrders' => (clone $base)->orderByDesc('operation_date')->limit(8)->get()
-                    ->map(fn ($o) => ['id' => $o->id, 'publicId' => $o->public_id, 'total' => $o->amount, 'status' => $o->status])->all(),
+                'recentOrders' => $this->presentMany($recent),
             ]);
         });
     }
@@ -48,14 +58,15 @@ class SupplierController extends AsabController
         return $this->run(function () use ($request) {
             $perPage = min((int) $request->query('pageSize', 20), 100);
             $q = $this->ownOrders($request);
+            // Filter on the canonical status key: `?status=accepted` matches every
+            // accepted-synonym raw status (accepted/confirmed/approved/final-approved),
+            // mirroring the export so the SUP-1.3 separate lists never miss a row.
             if ($status = $request->query('status')) {
-                $q->where('status', $status);
+                $q->whereIn('status', SupplierOrderStatus::synonyms($status));
             }
             $p = $q->orderByDesc('operation_date')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
-            return $this->paginated($p, array_map(fn ($o) => [
-                'id' => $o->id, 'publicId' => $o->public_id, 'total' => $o->amount, 'status' => $o->status,
-            ], $p->items()));
+            return $this->paginated($p, $this->presentMany(collect($p->items())));
         });
     }
 
@@ -64,13 +75,15 @@ class SupplierController extends AsabController
         return $this->run(function () use ($request, $id) {
             $data = $request->validate(['deliveryDate' => 'nullable|date', 'note' => 'nullable|string']);
             $op = $this->find($request, $id);
+            $this->assertStatusIn($op, SupplierOrderStatus::synonyms('pending'),
+                'ORDER_NOT_PENDING', 'Order is not pending', 'لا يمكن قبول طلب ليس في انتظار الرد');
             DB::transaction(function () use ($op, $data) {
                 $payload = $op->payload ?? [];
                 $payload['supplierResponse'] = ['accepted' => true, 'deliveryDate' => $data['deliveryDate'] ?? null, 'note' => $data['note'] ?? null];
                 $op->update(['status' => 'accepted', 'payload' => $payload]);
             });
 
-            return $this->ok($this->present($op->fresh()));
+            return $this->ok($this->presentOne($op->fresh()));
         });
     }
 
@@ -79,13 +92,15 @@ class SupplierController extends AsabController
         return $this->run(function () use ($request, $id) {
             $data = $request->validate(['reason' => 'required|string|max:500', 'note' => 'nullable|string']);
             $op = $this->find($request, $id);
+            $this->assertStatusIn($op, SupplierOrderStatus::synonyms('pending'),
+                'ORDER_NOT_PENDING', 'Order is not pending', 'لا يمكن رفض طلب ليس في انتظار الرد');
             DB::transaction(function () use ($op, $data) {
                 $payload = $op->payload ?? [];
                 $payload['supplierResponse'] = ['accepted' => false, 'reason' => $data['reason'], 'note' => $data['note'] ?? null];
                 $op->update(['status' => 'rejected', 'reject_reason' => $data['reason'], 'payload' => $payload]);
             });
 
-            return $this->ok($this->present($op->fresh()));
+            return $this->ok($this->presentOne($op->fresh()));
         });
     }
 
@@ -94,13 +109,15 @@ class SupplierController extends AsabController
         return $this->run(function () use ($request, $id) {
             $data = $request->validate(['deliveredAt' => 'nullable|date', 'deliveryNote' => 'nullable|string']);
             $op = $this->find($request, $id);
+            $this->assertStatusIn($op, SupplierOrderStatus::synonyms('accepted'),
+                'ORDER_NOT_ACCEPTED', 'Order is not accepted', 'لا يمكن تسليم طلب غير مقبول');
             DB::transaction(function () use ($op, $data) {
                 $payload = $op->payload ?? [];
                 $payload['delivery'] = ['deliveredAt' => $data['deliveredAt'] ?? now()->toIso8601String(), 'note' => $data['deliveryNote'] ?? null];
                 $op->update(['status' => 'delivered', 'payload' => $payload]);
             });
 
-            return $this->ok($this->present($op->fresh()));
+            return $this->ok($this->presentOne($op->fresh()));
         });
     }
 
@@ -151,6 +168,7 @@ class SupplierController extends AsabController
         return $this->run(function () use ($request, $id) {
             $item = SupplierItem::where('supplier_user_id', $request->user()->id)->findOrFail($id);
             $data = $request->validate([
+                'code' => 'sometimes|string|max:32',
                 'name' => 'sometimes|string|max:200',
                 'unit' => 'sometimes|string|max:16',
                 // priceHalalas is the doc field name; price is the legacy alias. Money is integer halalas.
@@ -162,6 +180,7 @@ class SupplierController extends AsabController
                 'leadTimeDays' => 'sometimes|integer|min:0',
             ]);
             $updates = array_filter([
+                'code' => $data['code'] ?? null,
                 'name' => $data['name'] ?? null,
                 'unit' => $data['unit'] ?? null,
                 'price' => $data['priceHalalas'] ?? $data['price'] ?? null,
@@ -221,15 +240,16 @@ class SupplierController extends AsabController
     public function reports(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $base = $this->ownOrders($request)->where('status', '!=', 'rejected');
+            // Revenue counts fulfilled sales only (accepted + delivered); a rejected
+            // or still-pending order is not a sale. SUP-3 breakdowns (topItems/
+            // topBranches/monthly) are DEFERRED — the keys are omitted rather than
+            // shipped as permanently-empty placeholders (dead-code rule).
+            $base = $this->ownOrders($request)->whereIn('status', SupplierOrderStatus::fulfilled());
 
             return $this->ok([
                 'totalRevenue' => (int) (clone $base)->sum('amount'),
                 'orderCount' => (clone $base)->count(),
                 'averageOrderValue' => (int) round((clone $base)->avg('amount') ?? 0),
-                'topItems' => [],
-                'topBranches' => [],
-                'monthly' => [],
             ]);
         });
     }
@@ -253,9 +273,130 @@ class SupplierController extends AsabController
             ->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id))->firstOrFail();
     }
 
-    private function present(Operation $o): array
+    /**
+     * SUP-1.4 «مقبولة هذا الشهر» — orders accepted this calendar month.
+     *
+     * Counts the fulfilled set (accepted + delivered): an order accepted and then
+     * delivered in the same month has moved to `delivered`, but the supplier still
+     * accepted it this month, so it must count. `updated_at` is a proxy for the
+     * missing accepted-at timestamp — good enough for the KPI card; a dedicated
+     * `acceptedAt` would remove the cross-month edge if the metric ever hardens.
+     */
+    private function acceptedThisMonth(Builder $base): int
     {
-        return ['id' => $o->id, 'publicId' => $o->public_id, 'total' => $o->amount, 'status' => $o->status];
+        return (clone $base)
+            ->whereIn('status', SupplierOrderStatus::fulfilled())
+            ->whereMonth('updated_at', now()->month)
+            ->whereYear('updated_at', now()->year)
+            ->count();
+    }
+
+    /** Fulfilled-sale revenue for a given month/year (halalas). */
+    private function salesForMonth(Builder $base, int $month, int $year): int
+    {
+        return (int) (clone $base)
+            ->whereIn('status', SupplierOrderStatus::fulfilled())
+            ->whereMonth('operation_date', $month)
+            ->whereYear('operation_date', $year)
+            ->sum('amount');
+    }
+
+    /** This-month vs last-month sales change, percent (1 dp). */
+    private function salesTrendPct(Builder $base): float
+    {
+        $now = now();
+        $prev = $now->copy()->subMonthNoOverflow();
+        $this_ = $this->salesForMonth($base, $now->month, $now->year);
+        $last = $this->salesForMonth($base, $prev->month, $prev->year);
+
+        if ($last > 0) {
+            return round((($this_ - $last) / $last) * 100, 1);
+        }
+
+        return $this_ > 0 ? 100.0 : 0.0;
+    }
+
+    /** Guard a state transition: throw a 409 domain error when the op is off-state. */
+    private function assertStatusIn(Operation $op, array $allowed, string $code, string $en, string $ar): void
+    {
+        if (! in_array($op->status, $allowed, true)) {
+            throw new AsabException($code, $en, $ar, 409);
+        }
+    }
+
+    /** Bulk-resolve branch names for a set of ops (no N+1). @return array<string,string> */
+    private function branchNames(Collection $branchIds): array
+    {
+        $ids = $branchIds->filter()->unique()->values()->all();
+
+        return $ids === [] ? [] : Branch::whereIn('id', $ids)->pluck('name', 'id')->all();
+    }
+
+    /** @param  Collection<int,Operation>  $ops */
+    private function presentMany(Collection $ops): array
+    {
+        $branchNames = $this->branchNames($ops->pluck('branch_id'));
+
+        return $ops->map(fn (Operation $o) => $this->present($o, $branchNames))->all();
+    }
+
+    private function presentOne(Operation $o): array
+    {
+        return $this->present($o, $this->branchNames(collect([$o->branch_id])));
+    }
+
+    /**
+     * SUP-1.1 order row: who it came from (branch vs procurement), the items
+     * text, order + delivery dates, and the canonical status key/label.
+     *
+     * @param  array<string,string>  $branchNames  pre-fetched branch_id → name map
+     */
+    private function present(Operation $o, array $branchNames = []): array
+    {
+        $payload = $o->payload ?? [];
+        $isBranchRequest = ($payload['kind'] ?? null) === 'branch_request';
+        $from = $isBranchRequest ? ($branchNames[$o->branch_id] ?? 'فرع') : 'مدير المشتريات';
+        $status = SupplierOrderStatus::present($o->status);
+
+        return [
+            'id' => $o->id,
+            'publicId' => $o->public_id,
+            'total' => $o->amount,
+            'status' => $o->status,
+            'statusKey' => $status['key'],
+            'statusLabel' => $status['label'],
+            'from' => $from,
+            'itemsText' => $this->itemsText($o),
+            'orderDate' => optional($o->operation_date)->toIso8601String(),
+            'deliveryDate' => $payload['supplierResponse']['deliveryDate'] ?? $payload['deliveryDate'] ?? null,
+        ];
+    }
+
+    /** Human-readable item summary across all payload shapes (reuses the purchases presenter). */
+    private function itemsText(Operation $o): ?string
+    {
+        $lines = $this->purchases->lines($o);
+        $parts = [];
+        foreach ($lines as $line) {
+            if (($line['item'] ?? null) === null) {
+                continue;
+            }
+            $qty = $this->num((float) ($line['ordQty'] ?? 0));
+            $unit = $line['unit'] ?? null;
+            $parts[] = trim($line['item'].' ×'.$qty.($unit ? ' '.$unit : ''));
+        }
+        if ($parts !== []) {
+            return implode('، ', $parts);
+        }
+
+        $count = count($lines);
+
+        return $count > 0 ? $count.' صنف' : null;
+    }
+
+    private function num(float $n): string
+    {
+        return rtrim(rtrim(number_format($n, 3, '.', ''), '0'), '.');
     }
 
     public function presentItem(SupplierItem $i): array
