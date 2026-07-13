@@ -59,4 +59,27 @@ class ReportBuilderController extends AsabController
             ]);
         });
     }
+
+    /** GET /reports/builder/saved — the tenant's saved definitions (paginated). */
+    public function saved(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $perPage = min((int) $request->query('pageSize', 20), 100);
+            $p = $this->builder->saved($perPage, (int) $request->query('page', 1));
+
+            return $this->paginated($p, array_map(fn ($d) => [
+                'id' => $d->id,
+                'name' => $d->name,
+                'descriptionAr' => $d->description_ar,
+                'definition' => $d->definition,
+                'createdAt' => optional($d->created_at)->toIso8601String(),
+            ], $p->items()));
+        });
+    }
+
+    /** POST /reports/builder/{id}/run — replay a saved definition through preview. */
+    public function runSaved(Request $request, string $id): JsonResponse
+    {
+        return $this->run(fn () => $this->ok($this->builder->run($id)));
+    }
 }

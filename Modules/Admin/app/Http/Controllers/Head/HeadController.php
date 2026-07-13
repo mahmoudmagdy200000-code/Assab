@@ -163,14 +163,40 @@ class HeadController extends AsabController
 
             // Report "cards": per-module summary + a working download link (the
             // head operations export blob, filtered by module) — B-H5.
-            return $this->listResponse($byModule->map(fn ($r) => [
-                'moduleKey' => $r->module_key,
-                'labelAr' => self::moduleLabel($r->module_key, 'ar'),
-                'labelEn' => self::moduleLabel($r->module_key, 'en'),
-                'count' => (int) $r->cnt,
-                'total' => (int) $r->total,
-                'downloadUrl' => '/api/v1/operations/export?moduleKey='.$r->module_key,
-            ])->all());
+            // HEAD-7 financial-report cards ride in meta (additive — existing FE
+            // reads `data`; the two new cards are `meta.financialReports`).
+            return $this->listResponse(
+                $byModule->map(fn ($r) => [
+                    'moduleKey' => $r->module_key,
+                    'labelAr' => self::moduleLabel($r->module_key, 'ar'),
+                    'labelEn' => self::moduleLabel($r->module_key, 'en'),
+                    'count' => (int) $r->cnt,
+                    'total' => (int) $r->total,
+                    'downloadUrl' => '/api/v1/operations/export?moduleKey='.$r->module_key,
+                ])->all(),
+                ['financialReports' => [
+                    [
+                        'key' => 'pl-by-brand',
+                        'labelAr' => 'قائمة الدخل لكل علامة',
+                        'labelEn' => 'Income Statement by Brand',
+                        'reportKey' => 'pl',
+                        'method' => 'POST',
+                        'endpoint' => '/api/v1/reports/profit-loss',
+                        'formats' => ['json', 'pdf', 'xlsx'],
+                        'note' => 'مرّر brandIds للحصول على قائمة دخل لكل علامة تجارية',
+                    ],
+                    [
+                        'key' => 'branch-compare',
+                        'labelAr' => 'مقارنة الفروع',
+                        'labelEn' => 'Branch Comparison',
+                        'reportKey' => 'pl',
+                        'method' => 'POST',
+                        'endpoint' => '/api/v1/reports/profit-loss',
+                        'formats' => ['json'],
+                        'note' => 'الأداء الفعلي لكل فرع عبر branchIds؛ المقارنة بالمستهدف تُركّب من المستهدف الشهري في نظرة الفرع (v1)',
+                    ],
+                ]],
+            );
         });
     }
 

@@ -114,6 +114,23 @@ class ReportBuilderService
         ]);
     }
 
+    /** Saved definitions for the current tenant (BelongsToTenant scopes company). */
+    public function saved(int $perPage, int $page): \Illuminate\Pagination\LengthAwarePaginator
+    {
+        return ReportDefinition::query()->orderByDesc('created_at')->paginate($perPage, ['*'], 'page', $page);
+    }
+
+    /**
+     * Replay a saved definition through preview(). findOrFail is tenant-scoped
+     * (BelongsToTenant) so another company's id yields a 404, not a leak.
+     */
+    public function run(string $id): array
+    {
+        $definition = ReportDefinition::findOrFail($id);
+
+        return $this->preview($definition->definition ?? []);
+    }
+
     /** Grand totals for each metric across the whole filtered set (no grouping). */
     private function totals(array $def, array $metrics): array
     {

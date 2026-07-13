@@ -1,6 +1,6 @@
 # T15 — Reports & Distribution
 > SRS: §14.2 RPT-1..4 (4-step wizard: ERP export→Excel upload+validation→read-only P&L preview with revenue channels incl aggregators + expense lines + net/margin→send to owners email/in-app/PDF/Excel/both + cover message + bulk), report catalog + generate + 10 typed reports + builder (fields/preview/save) + downloads, ADM-5, HEAD-7 + ACC-10 download cards, BRO-1.2 owner delivery. (T16 notifications/reminders are a separate file.) · Audited: 2026-07-10 · FE doc deliverable: docs/fe-wiring/FE-T15-reports-distribution.md
-> Status: ⬜ not started (audit complete)
+> Status: 🟡 partial (shipped 2026-07-13) — T15.1, T15.3, T15.5, T15.6, T15.7, T15.8, T15.18 done + 16 Pest tests green + FE doc. **T15.2 (ERP-Excel P&L parse) + T15.4 (RPT-2 manager table) DEFERRED** by owner decision: the external ERP Excel column format is not defined, so the parser/persistence is not built (T15.4 depends on it).
 
 This file covers the **T15 reports scope**. The notifications/reminders/realtime scope is written to
 [T16-notifications-reminders-realtime.md](T16-notifications-reminders-realtime.md).

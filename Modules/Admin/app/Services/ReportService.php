@@ -3,6 +3,7 @@
 namespace Modules\Admin\Services;
 
 use Illuminate\Support\Carbon;
+use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\Operation;
 
 /**
@@ -185,7 +186,7 @@ class ReportService
     }
 
     /** @return array<string, mixed> */
-    private function breakeven(?string $from, ?string $to, ?array $branchIds): array
+    public function breakeven(?string $from, ?string $to, ?array $branchIds): array
     {
         $s = $this->scope($from, $to, $branchIds);
         $revenue = $this->sum($s, 'sales');
@@ -222,8 +223,39 @@ class ReportService
         ];
     }
 
+    /**
+     * §7.5 supplier performance — purchase spend + order count per supplier,
+     * ranked by spend. Reads the purchases operations' `payload.supplierId`.
+     *
+     * @return array<string, mixed>
+     */
+    public function supplierPerformance(?string $from, ?string $to, ?array $branchIds): array
+    {
+        $ops = (clone $this->scope($from, $to, $branchIds))->where('module_key', 'purchases')->get(['amount', 'payload']);
+        $agg = [];
+        foreach ($ops as $op) {
+            $sid = $op->payload['supplierId'] ?? null;
+            if ($sid === null) {
+                continue;
+            }
+            $agg[$sid] ??= ['supplierId' => $sid, 'orderCount' => 0, 'totalHalalas' => 0];
+            $agg[$sid]['orderCount']++;
+            $agg[$sid]['totalHalalas'] += (int) $op->amount;
+        }
+
+        $names = AsabSupplier::whereIn('id', array_keys($agg))->pluck('name', 'id');
+        $suppliers = array_map(function ($row) use ($names) {
+            $row['supplierName'] = $names[$row['supplierId']] ?? null;
+
+            return $row;
+        }, array_values($agg));
+        usort($suppliers, fn ($a, $b) => $b['totalHalalas'] <=> $a['totalHalalas']);
+
+        return ['suppliers' => $suppliers];
+    }
+
     /** @return array<string, mixed> */
-    private function menuEngineering(?string $from, ?string $to, ?array $branchIds): array
+    public function menuEngineering(?string $from, ?string $to, ?array $branchIds): array
     {
         $ops = (clone $this->scope($from, $to, $branchIds))->where('module_key', 'sales')->get(['payload']);
         $items = [];

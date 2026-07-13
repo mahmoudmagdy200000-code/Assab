@@ -840,6 +840,41 @@ class ExportService
     }
 
     /** Export a built report payload (from ReportService) as pdf or xlsx. */
+    /**
+     * Render a report to raw bytes for a mail attachment (T15.3 owner dispatch).
+     *
+     * @return array{filename:string, contents:string, mime:string}
+     */
+    public function reportBytes(array $report, string $format): array
+    {
+        $key = $report['reportKey'] ?? 'report';
+
+        if ($format === 'pdf') {
+            return [
+                'filename' => 'report-'.$key.'.pdf',
+                'contents' => $this->report($report, 'pdf')->getContent(),
+                'mime' => 'application/pdf',
+            ];
+        }
+
+        $sections = $this->flattenReport($report);
+        $rows = [];
+        foreach ($sections as $sec) {
+            foreach ($sec['rows'] as $r) {
+                $rows[] = array_merge([$sec['title']], array_pad(array_values($r), 2, ''));
+            }
+        }
+        $path = $this->writeToPath('xlsx', ['القسم', 'الحقل', 'القيمة'], $rows);
+        $contents = (string) file_get_contents($path);
+        @unlink($path);
+
+        return [
+            'filename' => 'report-'.$key.'.xlsx',
+            'contents' => $contents,
+            'mime' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ];
+    }
+
     public function report(array $report, string $format): Response
     {
         $sections = $this->flattenReport($report);

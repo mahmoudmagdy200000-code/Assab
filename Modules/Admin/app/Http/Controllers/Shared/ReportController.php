@@ -57,7 +57,23 @@ class ReportController extends AsabController
 
     public function payroll(Request $request): JsonResponse
     {
-        return $this->report($request, fn () => ['totalPayroll' => (int) \Modules\Admin\Models\Employee::sum('monthly_salary')]);
+        return $this->run(function () use ($request) {
+            [$from, $to, $branchIds] = $this->reportArgs($request);
+            $q = \Modules\Admin\Models\Employee::query();
+            if ($branchIds) {
+                $q->whereIn('branch_id', $branchIds);
+            }
+            // Salaries are monthly, not dated: honor the period by counting staff
+            // on the payroll as of the period end (hired on/before `to`).
+            if ($to) {
+                $q->whereDate('hire_date', '<=', $to);
+            }
+
+            return $this->ok($this->envelope([
+                'totalPayroll' => (int) (clone $q)->sum('monthly_salary'),
+                'headcount' => (clone $q)->count(),
+            ]));
+        });
     }
 
     public function wasteAnalysis(Request $request): JsonResponse
@@ -65,22 +81,31 @@ class ReportController extends AsabController
         return $this->report($request, fn ($s) => ['totalWaste' => (int) (clone $s)->where('module_key', 'waste')->sum('amount')]);
     }
 
-    public function supplierPerformance(Request $request): JsonResponse
+    public function supplierPerformance(Request $request, \Modules\Admin\Services\ReportService $reports): JsonResponse
     {
-        return $this->report($request, fn () => ['suppliers' => []]);
+        return $this->run(function () use ($request, $reports) {
+            [$from, $to, $branchIds] = $this->reportArgs($request);
+
+            return $this->ok($this->envelope($reports->supplierPerformance($from, $to, $branchIds)));
+        });
     }
 
-    public function menuEngineering(Request $request): JsonResponse
+    public function menuEngineering(Request $request, \Modules\Admin\Services\ReportService $reports): JsonResponse
     {
-        return $this->report($request, fn () => ['items' => []]);
+        return $this->run(function () use ($request, $reports) {
+            [$from, $to, $branchIds] = $this->reportArgs($request);
+
+            return $this->ok($this->envelope($reports->menuEngineering($from, $to, $branchIds)));
+        });
     }
 
-    public function breakeven(Request $request): JsonResponse
+    public function breakeven(Request $request, \Modules\Admin\Services\ReportService $reports): JsonResponse
     {
-        return $this->report($request, fn ($s) => [
-            'fixedCosts' => (int) (clone $s)->where('module_key', 'expenses')->sum('amount'),
-            'revenue' => (int) (clone $s)->where('module_key', 'sales')->sum('amount'),
-        ]);
+        return $this->run(function () use ($request, $reports) {
+            [$from, $to, $branchIds] = $this->reportArgs($request);
+
+            return $this->ok($this->envelope($reports->breakeven($from, $to, $branchIds)));
+        });
     }
 
     public function cashFlow(Request $request): JsonResponse
@@ -106,9 +131,9 @@ class ReportController extends AsabController
         ]);
     }
 
-    public function generate(Request $request, \Modules\Admin\Services\ReportService $reports): JsonResponse
+    public function generate(Request $request, \Modules\Admin\Services\ReportService $reports, \Modules\Admin\Services\ExportService $exports): \Symfony\Component\HttpFoundation\Response
     {
-        return $this->run(function () use ($request, $reports) {
+        try {
             $data = $request->validate([
                 'reportKey' => 'required|string|in:pl,sales-channel,smart-compare,profit-cash,breakeven,op-profit,menu-eng',
                 'period' => 'sometimes|array',
@@ -119,16 +144,69 @@ class ReportController extends AsabController
                 'branchIds' => 'sometimes|array',
                 'format' => 'sometimes|in:json,pdf,xlsx',
             ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return $this->fail('VALIDATION_ERROR', 'Validation failed', 'فشل التحقق من البيانات', $e->errors(), 422);
+        }
 
-            $report = $reports->build($data);
+        // §6.1/§14.2: honor brand/restaurant scope by resolving down to branch ids
+        // (build() only understands branchIds). Null = unscoped (all tenant branches).
+        $resolved = $this->resolveBranchScope($data);
+        if ($resolved !== null) {
+            $data['branchIds'] = $resolved;
+        }
 
-            return $this->ok(array_merge([
-                'reportId' => 'rpt_'.Str::upper(Str::random(10)),
-                'generatedAt' => now()->toIso8601String(),
-                'format' => $data['format'] ?? 'json',
-                'downloadUrl' => null, // file export deferred to async exporter; json payload is inline
-            ], $report));
-        });
+        $report = $reports->build($data);
+        $format = $data['format'] ?? 'json';
+
+        // pdf|xlsx → real binary download (mirrors /company/me/reports/{key}/download);
+        // json → the inline payload envelope.
+        if (in_array($format, ['pdf', 'xlsx'], true)) {
+            return $exports->report($report, $format);
+        }
+
+        return $this->ok(array_merge([
+            'reportId' => 'rpt_'.Str::upper(Str::random(10)),
+            'generatedAt' => now()->toIso8601String(),
+            'format' => 'json',
+            'downloadUrl' => null,
+        ], $report));
+    }
+
+    /**
+     * Resolve a report's brand/restaurant/branch scope down to a branch-id list
+     * for ReportService. Returns null when no scope was requested (all tenant
+     * branches); when a brand/restaurant scope was requested but matches no
+     * branches, returns a non-matching sentinel so the report is genuinely empty
+     * rather than silently widening to the whole tenant.
+     *
+     * @param  array<string, mixed>  $data
+     * @return string[]|null
+     */
+    private function resolveBranchScope(array $data): ?array
+    {
+        $branchIds = array_values(array_filter((array) ($data['branchIds'] ?? [])));
+        $restaurantIds = array_values(array_filter((array) ($data['restaurantIds'] ?? [])));
+        $brandIds = array_values(array_filter((array) ($data['brandIds'] ?? [])));
+
+        if (! $restaurantIds && ! $brandIds) {
+            return $branchIds ?: null;
+        }
+
+        $ids = \Modules\Branch\Models\Branch::query()
+            ->where(function ($w) use ($branchIds, $restaurantIds, $brandIds) {
+                if ($branchIds) {
+                    $w->orWhereIn('id', $branchIds);
+                }
+                if ($restaurantIds) {
+                    $w->orWhereIn('asab_restaurant_id', $restaurantIds);
+                }
+                if ($brandIds) {
+                    $w->orWhereIn('asab_brand_id', $brandIds);
+                }
+            })
+            ->pluck('id')->all();
+
+        return $ids ?: ['00000000-0000-0000-0000-000000000000'];
     }
 
     /**
@@ -145,67 +223,144 @@ class ReportController extends AsabController
                 'period.to' => 'required|date',
                 'restaurantIds' => 'sometimes|array',
                 'restaurantIds.*' => 'string',
-                'channels' => 'required|array|min:1',
+                // New RPT-3 shape: method + format + coverMessage. `channels` kept for back-compat.
+                'method' => 'sometimes|in:email,inApp,both',
+                'channels' => 'sometimes|array',
                 'channels.*' => 'in:email,inApp',
+                'format' => 'sometimes|in:pdf,excel,both',
+                'coverMessage' => 'sometimes|nullable|string|max:2000',
             ]);
 
             $companyId = $request->user()->company_id ?? null;
-            $channels = array_values(array_unique($data['channels']));
+            $channels = $this->resolveChannels($data);
+            if ($channels === []) {
+                throw new AsabException('VALIDATION_ERROR', 'A delivery method is required',
+                    'يجب تحديد وسيلة الإرسال (method أو channels)', 422);
+            }
+            $formats = $this->resolveFormats($data['format'] ?? 'pdf');
+            $coverMessage = $data['coverMessage'] ?? null;
 
-            // Resolve target restaurants: explicit list, else all subscribed (active) in tenant.
-            $restaurantQuery = AsabRestaurant::query();
+            // Target restaurants: explicit list, else all active in tenant (bulk «إرسال الكل»).
+            $rq = AsabRestaurant::query();
             if ($companyId !== null) {
-                $restaurantQuery->where('company_id', $companyId);
+                $rq->where('company_id', $companyId);
             }
             if (! empty($data['restaurantIds'])) {
-                $restaurantQuery->whereIn('id', $data['restaurantIds']);
+                $rq->whereIn('id', $data['restaurantIds']);
             } else {
-                $restaurantQuery->where('status', 'active');
+                $rq->where('status', 'active');
             }
-            $restaurants = $restaurantQuery->get(['id', 'company_id', 'name']);
+            $restaurants = $rq->get(['id', 'company_id', 'name', 'brand_id']);
+
+            // Owners live on the brand; branches scope each restaurant's P&L.
+            $brands = AsabBrand::whereIn('id', $restaurants->pluck('brand_id')->filter()->unique())
+                ->get(['id', 'owner', 'owner_email', 'owner_user_id'])->keyBy('id');
+            $branchesByRestaurant = \Modules\Branch\Models\Branch::whereIn('asab_restaurant_id', $restaurants->pluck('id'))
+                ->get(['id', 'asab_restaurant_id'])->groupBy('asab_restaurant_id')->map(fn ($g) => $g->pluck('id')->all());
 
             $sentAt = now();
             $recipients = [];
+            $emailJobs = [];
 
-            DB::transaction(function () use ($restaurants, $reportKey, $channels, $data, $companyId, $sentAt, $request, $notifications, &$recipients) {
+            DB::transaction(function () use ($restaurants, $reportKey, $channels, $formats, $coverMessage, $data, $companyId, $sentAt, $request, $notifications, $brands, $branchesByRestaurant, &$recipients, &$emailJobs) {
                 foreach ($restaurants as $restaurant) {
-                    ReportDistribution::create([
-                        'company_id' => $restaurant->company_id ?? $companyId,
-                        'report_key' => $reportKey,
-                        'restaurant_id' => $restaurant->id,
-                        'channels' => $channels,
-                        'period_from' => $data['period']['from'],
-                        'period_to' => $data['period']['to'],
-                        'sent' => true,
-                        'sent_at' => $sentAt,
-                        'sent_by_id' => $request->user()->id ?? null,
-                    ]);
+                    $brand = $brands->get($restaurant->brand_id);
+                    $branchIds = $branchesByRestaurant->get($restaurant->id, []);
 
-                    if (in_array('inApp', $channels, true) && ($request->user()->id ?? null)) {
+                    // Idempotent per (company, reportKey, restaurant, period-from): a re-send
+                    // updates the row rather than duplicating it.
+                    ReportDistribution::updateOrCreate(
+                        [
+                            'company_id' => $restaurant->company_id ?? $companyId,
+                            'report_key' => $reportKey,
+                            'restaurant_id' => $restaurant->id,
+                            'period_from' => $data['period']['from'],
+                        ],
+                        [
+                            'channels' => $channels,
+                            'format' => implode(',', $formats),
+                            'cover_message' => $coverMessage,
+                            'period_to' => $data['period']['to'],
+                            'sent' => true,
+                            'sent_at' => $sentAt,
+                            'sent_by_id' => $request->user()->id ?? null,
+                        ],
+                    );
+
+                    // In-app to the BRAND OWNER (BRO-1.2) — not the sending admin.
+                    if (in_array('inApp', $channels, true) && $brand?->owner_user_id) {
                         $notifications->push(
-                            $request->user()->id,
-                            'report.sent',
-                            'تم إرسال التقرير',
-                            'Report '.$reportKey.' sent to '.$restaurant->name,
+                            $brand->owner_user_id,
+                            'report.received',
+                            'تقرير جديد من الإدارة',
+                            $coverMessage ?? ('التقرير: '.$reportKey),
                             null,
                             ['type' => 'report', 'id' => $reportKey],
                         );
                     }
 
+                    // Queue an email per requested format (pdf/excel) to the owner's inbox.
+                    if (in_array('email', $channels, true) && $brand?->owner_email) {
+                        foreach ($formats as $fmt) {
+                            $emailJobs[] = [$reportKey, $brand->owner_email, $data['period']['from'], $data['period']['to'], $branchIds ?: null, $fmt, $coverMessage, $restaurant->name];
+                        }
+                    }
+
                     $recipients[] = [
                         'restaurantId' => $restaurant->id,
+                        'owner' => $brand?->owner,
+                        'email' => $brand?->owner_email,
                         'sent' => true,
                         'sentDate' => $sentAt->toIso8601String(),
                     ];
                 }
             });
 
+            // Dispatch email jobs after commit (keeps the transaction short).
+            foreach ($emailJobs as $j) {
+                \Modules\Admin\Jobs\SendOwnerReportJob::dispatch(...$j);
+            }
+
             return $this->ok([
                 'reportKey' => $reportKey,
                 'sentAt' => $sentAt->toIso8601String(),
+                'sentCount' => count($recipients),
                 'recipients' => $recipients,
             ]);
         });
+    }
+
+    /**
+     * Delivery channels from the new `method` (preferred) or legacy `channels`.
+     *
+     * @return string[]
+     */
+    private function resolveChannels(array $data): array
+    {
+        if (! empty($data['method'])) {
+            return match ($data['method']) {
+                'email' => ['email'],
+                'inApp' => ['inApp'],
+                'both' => ['email', 'inApp'],
+                default => [],
+            };
+        }
+
+        return array_values(array_unique($data['channels'] ?? []));
+    }
+
+    /**
+     * Attachment formats from `format` (pdf|excel|both). `excel` → xlsx.
+     *
+     * @return string[]
+     */
+    private function resolveFormats(string $format): array
+    {
+        return match ($format) {
+            'excel' => ['xlsx'],
+            'both' => ['pdf', 'xlsx'],
+            default => ['pdf'],
+        };
     }
 
     /**
@@ -215,11 +370,21 @@ class ReportController extends AsabController
     public function uploadReport(Request $request, string $reportKey): JsonResponse
     {
         return $this->run(function () use ($request, $reportKey) {
-            $request->validate(['file' => 'required|file']);
+            $request->validate(['file' => 'required|file|max:20480']); // ≤20MB
 
             $file = $request->file('file');
+            // Client-extension guard (Laravel's `mimes:csv` mis-detects text/plain).
+            $ext = strtolower((string) $file->getClientOriginalExtension());
+            if (! in_array($ext, ['xlsx', 'xls', 'csv'], true)) {
+                throw new AsabException('VALIDATION_ERROR', 'Unsupported file type',
+                    'نوع الملف غير مدعوم (المسموح: xlsx, xls, csv)', 422);
+            }
+
             $dir = ($request->user()->company_id ?? 'platform').'/reports/'.$reportKey;
             $path = $file->store($dir, 'public');
+
+            // RPT-1 ② parse dry-run: only a readable, non-empty sheet is «✓ تم التحقق».
+            [$status, $errors, $rowCount] = $this->verifyUpload(Storage::disk('public')->path($path), $ext);
 
             $attachment = Attachment::create([
                 'owner_type' => 'report',
@@ -232,14 +397,39 @@ class ReportController extends AsabController
                 'label' => $reportKey,
                 'uploaded_by_id' => $request->user()->id ?? null,
                 'uploaded_at' => now(),
+                'verified_at' => $status === 'verified' ? now() : null,
+                'verified_by_id' => $status === 'verified' ? ($request->user()->id ?? null) : null,
             ]);
 
             return $this->ok([
                 'uploadId' => $attachment->id,
                 'reportKey' => $reportKey,
-                'status' => 'stored',
+                'status' => $status, // verified | failed
+                'rowCount' => $rowCount,
+                'errors' => $errors,
             ]);
         });
+    }
+
+    /**
+     * Dry-run parse to decide RPT-1 ② verification state without persisting a P&L.
+     *
+     * @return array{0:string,1:array<int,string>,2:int} [status, errors, dataRowCount]
+     */
+    private function verifyUpload(string $absolutePath, string $ext): array
+    {
+        try {
+            $matrix = $ext === 'csv' ? $this->readCsvMatrix($absolutePath) : $this->readXlsxMatrix($absolutePath);
+        } catch (\Throwable $e) {
+            return ['failed', ['الملف تالف أو غير قابل للقراءة'], 0];
+        }
+
+        $dataRows = max(0, count($matrix) - 1); // minus the header row
+        if (count($matrix) < 2) {
+            return ['failed', ['الملف لا يحتوي على بيانات (صف عنوان + صف واحد على الأقل)'], $dataRows];
+        }
+
+        return ['verified', [], $dataRows];
     }
 
     /**
@@ -327,6 +517,32 @@ class ReportController extends AsabController
                     'notViewed' => max(0, $total - $viewed),
                 ],
                 'rows' => $rows,
+            ]);
+        });
+    }
+
+    /**
+     * POST /company/me/reports/distributions/{id}/viewed (RPT-3 read receipt).
+     * Marks a sent distribution as viewed. Scoped to the caller's company so a
+     * foreign distribution id reads as 404, never a cross-tenant write.
+     */
+    public function markDistributionViewed(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $companyId = $request->user()->company_id ?? null;
+            $q = ReportDistribution::where('id', $id);
+            if ($companyId !== null) {
+                $q->where('company_id', $companyId);
+            }
+            $dist = $q->firstOrFail();
+            if (! $dist->viewed) {
+                $dist->update(['viewed' => true, 'viewed_at' => now()]);
+            }
+
+            return $this->ok([
+                'id' => $dist->id,
+                'viewed' => true,
+                'viewedAt' => optional($dist->viewed_at)->toIso8601String(),
             ]);
         });
     }
@@ -434,6 +650,35 @@ class ReportController extends AsabController
         }
 
         return $rows;
+    }
+
+    /**
+     * from/to/branchIds pulled from a typed-report request body.
+     *
+     * @return array{0:?string,1:?string,2:?array}
+     */
+    private function reportArgs(Request $request): array
+    {
+        $branchIds = $request->input('branchIds');
+
+        return [$request->input('from'), $request->input('to'), $branchIds ? (array) $branchIds : null];
+    }
+
+    /**
+     * The §7.5 typed-report envelope. `downloadUrl` stays null on the inline JSON
+     * surface — the binary lives at /company/me/reports/{key}/download.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function envelope(array $data): array
+    {
+        return [
+            'reportId' => 'rpt_'.Str::upper(Str::random(10)),
+            'generatedAt' => now()->toIso8601String(),
+            'data' => $data,
+            'downloadUrl' => null,
+        ];
     }
 
     private function report(Request $request, callable $compute): JsonResponse
