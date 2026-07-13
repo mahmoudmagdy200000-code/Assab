@@ -34,6 +34,8 @@ use Modules\Supplier\Models\Supplier as LegacySupplier;
  */
 class ProcurementCatalogBridgeService
 {
+    public function __construct(private readonly IdentityMapService $identity) {}
+
     /**
      * Upsert the mobile catalog projection of an asab item. Idempotent; used
      * by both storeItem and updateItem. Persists purchase_item_id on the asab
@@ -132,6 +134,7 @@ class ProcurementCatalogBridgeService
             }
 
             $sup->forceFill(['legacy_supplier_id' => $existing->id])->save();
+            $this->identity->linkSupplier($sup->id, $existing->id, $sup->company_id, $email);
 
             return;
         }
@@ -149,6 +152,7 @@ class ProcurementCatalogBridgeService
         ]);
 
         $sup->forceFill(['legacy_supplier_id' => $legacy->id])->save();
+        $this->identity->linkSupplier($sup->id, $legacy->id, $sup->company_id, $email);
     }
 
     /** updateSupplier: keep the legacy row's name/phone in sync. */

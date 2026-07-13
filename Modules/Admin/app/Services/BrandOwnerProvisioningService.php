@@ -23,6 +23,8 @@ use Modules\BrandOwner\Models\BrandOwner as MobileBrandOwner;
  */
 class BrandOwnerProvisioningService
 {
+    public function __construct(private readonly IdentityMapService $identity) {}
+
     /**
      * @return array{user: AsabUser, emailSent: bool}
      *
@@ -64,7 +66,8 @@ class BrandOwnerProvisioningService
             ]);
         }
 
-        $this->provisionMobileOwner($mobileOwner, $email, $displayName, $oneTimePassword);
+        $legacyOwner = $this->provisionMobileOwner($mobileOwner, $email, $displayName, $oneTimePassword);
+        $this->identity->linkBrandOwner($user->id, $legacyOwner->id, $brand->company_id, $email);
 
         // Upsert the brand-owner role assignment, merging this brand into brand_ids.
         $assignment = AsabUserRole::firstOrNew([
@@ -93,12 +96,13 @@ class BrandOwnerProvisioningService
      * Ensure the mobile app can authenticate this owner: create (or restore)
      * the legacy brand_owners row with the shared one-time password and the
      * first-login flag so the app forces a password reset. An existing live
-     * account keeps its current password.
+     * account keeps its current password. Returns the ensured owner so the
+     * caller can record the cross-world identity link.
      */
-    private function provisionMobileOwner(?MobileBrandOwner $mobileOwner, string $email, string $displayName, ?string $oneTimePassword): void
+    private function provisionMobileOwner(?MobileBrandOwner $mobileOwner, string $email, string $displayName, ?string $oneTimePassword): MobileBrandOwner
     {
         if ($mobileOwner && ! $mobileOwner->trashed()) {
-            return;
+            return $mobileOwner;
         }
 
         if ($mobileOwner) {
@@ -110,10 +114,10 @@ class BrandOwnerProvisioningService
                 'status' => 'active',
             ]);
 
-            return;
+            return $mobileOwner;
         }
 
-        MobileBrandOwner::create([
+        return MobileBrandOwner::create([
             'name' => $displayName,
             'email' => $email,
             'password' => $oneTimePassword, // hashed by the model's 'hashed' cast

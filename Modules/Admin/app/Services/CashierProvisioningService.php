@@ -23,7 +23,10 @@ class CashierProvisioningService
     /** Free-text `role` values the dashboards use for a cashier (matched case-insensitively). */
     private const CASHIER_ROLES = ['cashier', 'كاشير', 'أمين صندوق', 'امين صندوق'];
 
-    public function __construct(private readonly CashierActivationService $activation) {}
+    public function __construct(
+        private readonly CashierActivationService $activation,
+        private readonly IdentityMapService $identity,
+    ) {}
 
     /** Whether a free-text employee role means "cashier" (EN/AR variants). */
     public function isCashierRole(?string $role): bool
@@ -32,16 +35,28 @@ class CashierProvisioningService
     }
 
     /**
-     * Ensure a mobile cashier login exists for a cashier-role employee.
-     * Never fails the employee creation for missing prerequisites — it reports
-     * them in the returned payload instead; only a cross-company email clash
-     * aborts the request (and, with it, the caller's transaction).
+     * Ensure a mobile cashier login exists for a cashier-role employee and, when
+     * the caller passes the dashboard employee id, record the cross-world link in
+     * the identity map. Never fails the employee creation for missing
+     * prerequisites — it reports them in the returned payload instead; only a
+     * cross-company email clash aborts the request (and the caller's transaction).
      *
      * @return array{provisioned: bool, cashierId: ?string, reason: ?string, emailSent: bool}
      *
      * @throws AsabException 422 when the email belongs to a cashier in another company's branch.
      */
-    public function provision(?string $legacyBranchId, ?string $companyId, string $name, ?string $email, ?string $phone = null): array
+    public function provision(?string $legacyBranchId, ?string $companyId, string $name, ?string $email, ?string $phone = null, ?string $employeeId = null): array
+    {
+        $result = $this->resolve($legacyBranchId, $companyId, $name, $email, $phone);
+        if ($employeeId !== null && $result['cashierId'] !== null) {
+            $this->identity->linkCashier($employeeId, $result['cashierId'], $companyId, $email);
+        }
+
+        return $result;
+    }
+
+    /** Resolve (create / link / restore) the legacy cashier row; see provision(). */
+    private function resolve(?string $legacyBranchId, ?string $companyId, string $name, ?string $email, ?string $phone = null): array
     {
         if (! $email) {
             return $this->skipped('EMAIL_REQUIRED');
