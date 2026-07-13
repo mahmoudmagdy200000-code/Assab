@@ -21,6 +21,11 @@ class CashierShift extends Model
         'shift_id',
         'shift_date',
         'status',
+        // Two-worlds feedback (WS1a): the dashboard's review decision, mirrored
+        // here informationally. Never conflated with `status` (see migration).
+        'review_status',
+        'reviewed_at',
+        'review_reason',
         'opening_balance',
         'closing_balance',
         'expected_balance',
@@ -45,6 +50,7 @@ class CashierShift extends Model
 
     protected $casts = [
         'shift_date' => 'date',
+        'reviewed_at' => 'datetime',
         'opening_balance' => 'decimal:2',
         'closing_balance' => 'decimal:2',
         'expected_balance' => 'decimal:2',
