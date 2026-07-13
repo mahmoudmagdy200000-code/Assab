@@ -54,7 +54,7 @@ Every FE doc MUST contain, per endpoint:
 | T10 | [T10-head-erp.md](T10-head-erp.md) | §8 HEAD-1..3, HEAD-5 + §14.3 + ADM-6 admin ERP screen (grouped final approval, performance, ERP batches/export/post) | T03,T04 | ✅ | ✅ [FE-T10](../fe-wiring/FE-T10-head-erp.md) |
 | T11 | [T11-procurement.md](T11-procurement.md) | §9 PRC-1..3 (requests, consolidation+savings, PO pipeline, items, suppliers) | T01 | ⬜ | ⬜ |
 | T12 | [T12-branch-manager.md](T12-branch-manager.md) | §11 BRM-1..4, 6, 7 (BRM-5 → T08) (overview, daily upload, master data, counts, purchase requests, settings) | T03 | ⬜ | ⬜ |
-| T13 | [T13-supplier.md](T13-supplier.md) | §10 SUP-1..2 — behind `FEATURE_ASAB_SUPPLIER_PORTAL` (hidden v1) | T11 | ⬜ | ⬜ |
+| T13 | [T13-supplier.md](T13-supplier.md) | §10 SUP-1..2 — behind `FEATURE_ASAB_SUPPLIER_PORTAL` (hidden v1) | T11 | ✅ | ✅ [FE-T13](../fe-wiring/FE-T13-supplier.md) |
 | T14 | [T14-company-portal.md](T14-company-portal.md) | §12 CMP-1..8 (subscription, users/invites, org, modules, billing, settings, support, API keys/SSO/webhooks) | T01 | ⬜ | ⬜ |
 | T15 | [T15-reports-distribution.md](T15-reports-distribution.md) | §14.2 RPT-1..4 + ADM-5 + report catalog/builder + HEAD-7/ACC-10 downloads + BRO-1.2 owner delivery | T10 | ⬜ | ⬜ |
 | T16 | [T16-notifications-reminders-realtime.md](T16-notifications-reminders-realtime.md) | §14.1 triggers matrix + ACC-9/HEAD-6 reminders+rules, broadcasting/live counters | T03 | ⬜ | ⬜ |
