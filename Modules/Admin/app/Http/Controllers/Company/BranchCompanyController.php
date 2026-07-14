@@ -398,6 +398,7 @@ class BranchCompanyController extends AsabController
                         $provision = $this->cashiers->provision(
                             $branchId, $request->user()->company_id,
                             $data['name'], $data['email'] ?? null, $data['phone'] ?? null,
+                            $emp->id,
                         );
                         if ($provision['cashierId']) {
                             $emp->forceFill(['legacy_cashier_id' => $provision['cashierId']])->save();
