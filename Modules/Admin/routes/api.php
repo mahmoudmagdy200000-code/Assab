@@ -22,6 +22,7 @@ use Modules\Admin\Http\Controllers\Admin\PermissionMatrixController;
 use Modules\Admin\Http\Controllers\Admin\RestaurantController;
 use Modules\Admin\Http\Controllers\Admin\SettingsController;
 use Modules\Admin\Http\Controllers\Admin\SubscriptionController;
+use Modules\Admin\Http\Controllers\Admin\SupplierController as AdminSupplierController;
 use Modules\Admin\Http\Controllers\Admin\UploadController as AdminUploadController;
 use Modules\Admin\Http\Controllers\Admin\UserController;
 use Modules\Admin\Http\Controllers\Auth\AuthController;
@@ -170,6 +171,11 @@ Route::prefix('v1')->group(function () {
                 Route::post('users/{id}/activate', [UserController::class, 'activate']);
                 Route::post('users/{id}/deactivate', [UserController::class, 'deactivate']);
                 Route::post('users/{id}/reset-password', [UserController::class, 'resetPassword']);
+
+                // Supplier directory — read-only, feeds the role=supplier picker
+                // in the users screen (FE wiring 2026-07-17 §1). The company-portal
+                // list at /company/me/suppliers is closed to admins.
+                Route::get('suppliers', [AdminSupplierController::class, 'index']);
 
                 // Distribution
                 Route::get('distribution', [DistributionController::class, 'index']);
