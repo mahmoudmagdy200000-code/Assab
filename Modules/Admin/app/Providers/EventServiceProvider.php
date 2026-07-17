@@ -9,11 +9,17 @@ use Modules\Admin\Listeners\BridgeExpenseDecisionToLegacy;
 use Modules\Admin\Listeners\BridgeLegacyCashierShift;
 use Modules\Admin\Listeners\BridgeShiftDecisionToLegacy;
 use Modules\Admin\Listeners\ProcessShiftOperationDecision;
+use Modules\Admin\Listeners\SyncBranchManagerCredential;
+use Modules\Admin\Listeners\SyncBrandOwnerCredential;
 use Modules\Admin\Listeners\SyncErpReadyBatch;
 use Modules\Admin\Listeners\SyncLegacyExpenseOperation;
+use Modules\Admin\Listeners\SyncSupplierCredential;
+use Modules\BranchManagers\Events\PasswordChangedEvent as BranchManagerPasswordChanged;
+use Modules\BrandOwner\Events\BrandOwnerPasswordChanged;
 use Modules\Expense\Events\ExpenseApprovedEvent;
 use Modules\Expense\Events\ExpenseSubmittedEvent;
 use Modules\Shift\Events\ShiftEndedEvent;
+use Modules\Supplier\Events\SupplierPasswordChanged;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -47,6 +53,12 @@ class EventServiceProvider extends ServiceProvider
 
         // MOB-1.6 cashier bridge: a legacy mobile shift close mints the SHF- op.
         ShiftEndedEvent::class => [BridgeLegacyCashierShift::class],
+
+        // Credential bridge: a password set in the mobile app is copied onto the
+        // linked asab_users row so one password opens both worlds.
+        BrandOwnerPasswordChanged::class => [SyncBrandOwnerCredential::class],
+        SupplierPasswordChanged::class => [SyncSupplierCredential::class],
+        BranchManagerPasswordChanged::class => [SyncBranchManagerCredential::class],
     ];
 
     /**

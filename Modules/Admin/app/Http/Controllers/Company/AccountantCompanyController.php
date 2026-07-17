@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Http\Controllers\Concerns\MapsAssetSpreadsheet;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\Asset;
 use Modules\Admin\Models\BrandShiftConfig;
@@ -33,6 +34,8 @@ use Modules\Admin\Support\TenantContext;
  */
 class AccountantCompanyController extends AsabController
 {
+    use MapsAssetSpreadsheet;
+
     public function __construct(
         private readonly SalesVarianceService $salesVariance,
         private readonly AccountantDashboardService $dashboards,
@@ -444,47 +447,6 @@ class AccountantCompanyController extends AsabController
                 'errors' => $errors,
             ], 202);
         });
-    }
-
-    /** Build a column-index → field map from a header row (Arabic/English tolerant). */
-    private function mapAssetHeaders(array $headers): array
-    {
-        $aliases = [
-            'name' => ['name', 'asset', 'الاسم', 'اسم', 'الأصل', 'اسم الأصل'],
-            'category' => ['category', 'الفئة', 'التصنيف', 'النوع'],
-            'cost' => ['cost', 'value', 'price', 'amount', 'القيمة', 'التكلفة', 'السعر', 'المبلغ'],
-            'branchId' => ['branchid', 'branch', 'الفرع', 'فرع'],
-            'usefulLife' => ['usefullife', 'useful_life_months', 'life', 'العمر', 'العمر الإنتاجي', 'العمر الانتاجي'],
-            'serial' => ['serial', 'serialnumber', 'الرقم التسلسلي', 'السيريال'],
-        ];
-        $map = [];
-        foreach ($headers as $idx => $h) {
-            $norm = mb_strtolower(trim((string) $h));
-            foreach ($aliases as $field => $names) {
-                if (in_array($norm, $names, true) || in_array(str_replace(' ', '', $norm), $names, true)) {
-                    $map[$field] = $idx;
-                    break;
-                }
-            }
-        }
-
-        return $map;
-    }
-
-    private function cell(array $cells, array $map, string $field): mixed
-    {
-        return isset($map[$field]) ? ($cells[$map[$field]] ?? null) : null;
-    }
-
-    /** A spreadsheet money value (SAR, possibly decimal) → integer halalas. */
-    private function toHalalas(mixed $v): int
-    {
-        if ($v === null || $v === '') {
-            return 0;
-        }
-        $n = (float) preg_replace('/[^0-9.\-]/', '', (string) $v);
-
-        return (int) round($n * 100);
     }
 
     public function shiftConfigs(Request $request, \Modules\Admin\Services\ShiftConfigService $configService): JsonResponse

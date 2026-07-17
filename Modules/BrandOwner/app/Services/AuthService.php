@@ -5,6 +5,7 @@ namespace Modules\BrandOwner\Services;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Modules\BrandOwner\Events\BrandOwnerPasswordChanged;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\BrandOwner\Models\BrandOwnerOtp;
 
@@ -47,6 +48,8 @@ class AuthService
             'password' => Hash::make($newPassword),
             'is_first_login' => false,
         ]);
+
+        BrandOwnerPasswordChanged::dispatch($owner);
 
         return $owner;
     }
@@ -171,6 +174,8 @@ class AuthService
         $owner->update([
             'password' => Hash::make($newPassword),
         ]);
+
+        BrandOwnerPasswordChanged::dispatch($owner);
 
         $otpRecord->update(['is_used' => true]);
 

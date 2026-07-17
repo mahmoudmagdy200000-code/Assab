@@ -18,8 +18,64 @@ final class AssetEnums
         'furniture' => ['labelAr' => 'أثاث ومفروشات', 'depreciationRate' => 10],
         'vehicles' => ['labelAr' => 'مركبات', 'depreciationRate' => 20],
         'construction' => ['labelAr' => 'صيانة وإنشاءات', 'depreciationRate' => 15],
+        'electrical' => ['labelAr' => 'معدات كهربائية', 'depreciationRate' => 15],
+        'smallwares' => ['labelAr' => 'أدوات تشغيل ومستهلكات', 'depreciationRate' => 25],
+        'software' => ['labelAr' => 'برمجيات وتراخيص', 'depreciationRate' => 33],
         'other' => ['labelAr' => 'أخرى', 'depreciationRate' => 15],
     ];
+
+    /**
+     * The client's fixed-assets workbook labels their categories in English.
+     * The vocabulary is fixed here and never read from the uploaded sheet's
+     * «Dropdown Lists» tab — a user-supplied file must not define what
+     * validates it. Unlisted labels are stored verbatim (canonicalCategory
+     * echoes them back) because no category gate exists today.
+     */
+    private const CATEGORY_ALIASES = [
+        'kitchen equipment' => 'kitchen',
+        'electrical equipment' => 'electrical',
+        'leasehold improvements' => 'construction',
+        'furniture & fixtures' => 'furniture',
+        'furniture and fixtures' => 'furniture',
+        'smallwares & operating equipment' => 'smallwares',
+        'smallwares and operating equipment' => 'smallwares',
+        'pos & it equipment' => 'tech',
+        'pos and it equipment' => 'tech',
+        'software & licenses' => 'software',
+        'software and licenses' => 'software',
+        'vehicles' => 'vehicles',
+    ];
+
+    /**
+     * A spreadsheet category label → a CATEGORIES key, or the label unchanged.
+     * Resolves the Arabic labels too: the Arabic template's «الفئة» column
+     * carries them, and canonicalising only the English workbook would file one
+     * real category under two keys — invisible in the UI, since categoryLabelAr()
+     * echoes an unknown key back, but splitting every filter, grouping and the
+     * (company_id, category) index.
+     */
+    public static function canonicalCategory(?string $label): ?string
+    {
+        if ($label === null || trim($label) === '') {
+            return null;
+        }
+        $norm = mb_strtolower(trim($label));
+
+        if (isset(self::CATEGORY_ALIASES[$norm])) {
+            return self::CATEGORY_ALIASES[$norm];
+        }
+        if (isset(self::CATEGORIES[$norm])) {
+            return $norm;
+        }
+
+        foreach (self::CATEGORIES as $key => $meta) {
+            if (mb_strtolower($meta['labelAr']) === $norm) {
+                return $key;
+            }
+        }
+
+        return trim($label);
+    }
 
     /** The conversion wizard's «العمر الإنتاجي» dropdown: 2–7 years. */
     public const USEFUL_LIFE_MONTHS = [24, 36, 48, 60, 72, 84];

@@ -4,6 +4,7 @@ namespace Modules\Admin\Http\Controllers\Auth;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Services\SsoService;
@@ -24,7 +25,7 @@ class SsoController extends AsabController
                 throw new AsabException('SSO_PROVIDER_UNSUPPORTED', 'Only OIDC sign-in is wired today', 'مزود الهوية غير مدعوم حالياً', 422, ['provider' => $provider]);
             }
             $data = $request->validate([
-                'companyId' => 'required|string',
+                'companyId' => ['required', 'string', Rule::exists('asab_companies', 'id')->whereNull('deleted_at')],
                 'code' => 'required|string',
                 'redirectUri' => 'required|url',
             ]);

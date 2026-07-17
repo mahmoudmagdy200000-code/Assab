@@ -4,6 +4,7 @@ namespace Modules\Supplier\Services;
 
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Modules\Supplier\Events\SupplierPasswordChanged;
 use Modules\Supplier\Models\Supplier;
 
 class AuthService
@@ -46,7 +47,26 @@ class AuthService
             'is_first_login' => false,
         ]);
 
+        // Provisioning marks the row is_first_login, so this fires on the very
+        // first mobile login — exactly where the dashboard credential would
+        // otherwise start diverging.
+        SupplierPasswordChanged::dispatch($supplier);
+
         return $supplier;
+    }
+
+    /**
+     * Reset the password behind a verified OTP token. The caller owns token
+     * verification; the password write lives here so there is one dispatch
+     * point per service rather than an event fired out of a controller.
+     */
+    public function resetPasswordByOtp(Supplier $supplier, string $newPassword): void
+    {
+        $supplier->update([
+            'password' => Hash::make($newPassword),
+        ]);
+
+        SupplierPasswordChanged::dispatch($supplier);
     }
 
     /**
@@ -123,6 +143,8 @@ class AuthService
         $supplier->update([
             'password' => Hash::make($newPassword),
         ]);
+
+        SupplierPasswordChanged::dispatch($supplier);
 
         // Revoke all tokens except current to force re-login on other devices
         $currentToken = $supplier->currentAccessToken();

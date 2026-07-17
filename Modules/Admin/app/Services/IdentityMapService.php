@@ -52,14 +52,47 @@ class IdentityMapService
         $this->link(AsabIdentityMap::ENTITY_CASHIER, 'asab_employee', $employeeId, 'cashier', $cashierId, $companyId, 'email', $email, $source);
     }
 
+    /**
+     * Link the commercial record. Nothing stops two asab_suppliers of one
+     * company from carrying the same contact_email (no unique index on either
+     * asab_suppliers.contact_email or suppliers.email), and the catalog bridge
+     * resolves both to the SAME legacy row by that email — so the second link
+     * would hit unique(entity_type, legacy_id) and surface as a 500. The first
+     * claim wins; the loser keeps its own legacy_supplier_id, which is what the
+     * order flow actually reads, so nothing downstream breaks.
+     */
     public function linkSupplier(string $asabSupplierId, string $legacySupplierId, ?string $companyId, ?string $email, string $source = 'provisioning'): void
     {
+        if ($this->legacyClaimedByOther(AsabIdentityMap::ENTITY_SUPPLIER, $legacySupplierId, $asabSupplierId)) {
+            return;
+        }
+
         $this->link(AsabIdentityMap::ENTITY_SUPPLIER, 'asab_supplier', $asabSupplierId, 'supplier', $legacySupplierId, $companyId, 'email', $email, $source);
     }
 
     public function linkBrandOwner(string $asabUserId, string $legacyOwnerId, ?string $companyId, ?string $email, string $source = 'provisioning'): void
     {
         $this->link(AsabIdentityMap::ENTITY_BRAND_OWNER, 'asab_user', $asabUserId, 'brand_owner', $legacyOwnerId, $companyId, 'email', $email, $source);
+    }
+
+    /** Link a supplier's dashboard LOGIN to the legacy row it authenticates against. */
+    public function linkSupplierUser(string $asabUserId, string $legacySupplierId, ?string $companyId, ?string $email, string $source = 'provisioning'): void
+    {
+        $this->link(AsabIdentityMap::ENTITY_SUPPLIER_USER, 'asab_user', $asabUserId, 'supplier', $legacySupplierId, $companyId, 'email', $email, $source);
+    }
+
+    public function linkBranchManager(string $asabUserId, string $legacyManagerId, ?string $companyId, ?string $email, string $source = 'provisioning'): void
+    {
+        $this->link(AsabIdentityMap::ENTITY_BRANCH_MANAGER, 'asab_user', $asabUserId, 'branch_manager', $legacyManagerId, $companyId, 'email', $email, $source);
+    }
+
+    /** Whether a DIFFERENT dashboard entity already holds this legacy row under $entityType. */
+    public function legacyClaimedByOther(string $entityType, string $legacyId, string $dashboardId): bool
+    {
+        return AsabIdentityMap::where('entity_type', $entityType)
+            ->where('legacy_id', $legacyId)
+            ->where('dashboard_id', '!=', $dashboardId)
+            ->exists();
     }
 
     /** Resolve the legacy mobile id for a dashboard entity. */

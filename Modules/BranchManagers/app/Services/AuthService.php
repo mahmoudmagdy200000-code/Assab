@@ -5,6 +5,7 @@ namespace Modules\BranchManagers\Services;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Modules\BranchManagers\Events\PasswordChangedEvent;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Models\BranchManagerOtp;
 use Modules\Notification\Mail\NotificationMail;
@@ -54,6 +55,11 @@ class AuthService
             'password' => Hash::make($newPassword),
             'is_first_login' => false,
         ]);
+
+        // Provisioning marks the row is_first_login, so this fires on the very
+        // first mobile login — exactly where the dashboard credential would
+        // otherwise start diverging.
+        PasswordChangedEvent::dispatch($manager);
 
         return $manager;
     }
@@ -190,6 +196,8 @@ class AuthService
         $manager->update([
             'password' => Hash::make($newPassword),
         ]);
+
+        PasswordChangedEvent::dispatch($manager);
 
         // Revoke all existing sessions after a password reset
         $manager->tokens()->delete();

@@ -1378,11 +1378,11 @@ ASABPrototype.tsx:9933–10438. Tabs: Structure + Upload Data.
 - **Endpoints map to UploadCard component (ASABPrototype.tsx:10019–10047):**
 
 ###### POST /api/v1/admin/brands/:brandId/upload/sales-items
-- **multipart/form-data** with `file` (Excel/CSV) containing columns: `رمز الصنف, اسم الصنف, الفئة, وحدة البيع, السعر`.
+- **multipart/form-data** with `file` (Excel/CSV) containing columns: `رمز الصنف, اسم الصنف, التصنيف, وحدة البيع, السعر`.
 - **Response 200:** `{ uploadedCount: number, errors: Array<{row:number;message:string}> }`.
 
 ###### POST /api/v1/admin/brands/:brandId/upload/raw-materials
-- Columns: `رمز المادة, اسم المادة, الفئة, وحدة القياس, التكلفة`.
+- Columns: `رمز المادة, اسم المادة, التصنيف, وحدة القياس, التكلفة`.
 
 ###### POST /api/v1/admin/brands/:brandId/upload/suppliers
 - Columns: `رقم المورد, اسم المورد, الفئة, جهة الاتصال, شروط الدفع`.

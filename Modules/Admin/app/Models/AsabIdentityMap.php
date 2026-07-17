@@ -21,9 +21,23 @@ class AsabIdentityMap extends Model
 
     public const ENTITY_CASHIER = 'cashier';
 
+    /** asab_supplier -> supplier: the commercial record, NOT a login. */
     public const ENTITY_SUPPLIER = 'supplier';
 
     public const ENTITY_BRAND_OWNER = 'brand_owner';
+
+    /**
+     * asab_user -> supplier: the supplier's LOGIN, deliberately a different
+     * entity type from ENTITY_SUPPLIER. Both unique indexes are composite with
+     * entity_type leading, so the two may name the same legacy supplier without
+     * colliding — which they must, since one row keys the commercial record
+     * (many asab_suppliers may share an AsabUser) and this one keys the
+     * credential (exactly one AsabUser per legacy supplier).
+     */
+    public const ENTITY_SUPPLIER_USER = 'supplier_user';
+
+    /** asab_user -> branch_manager: the branch manager's login. */
+    public const ENTITY_BRANCH_MANAGER = 'branch_manager';
 
     protected $fillable = [
         'company_id', 'entity_type', 'dashboard_type', 'dashboard_id',

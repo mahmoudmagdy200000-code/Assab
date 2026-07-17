@@ -143,9 +143,11 @@ class ProcurementCatalogBridgeService
             'name' => $sup->name,
             'email' => $email,
             'phone' => $this->availablePhone($sup->contact_phone),
-            // Login-capable row; password is required by the schema and hashed
-            // by the model's 'hashed' cast. Credentials are intentionally NOT
-            // emailed: the supplier portal is hidden per the client meeting.
+            // Bootstrap secret, generated and discarded unread: suppliers.password
+            // is nullable, and Hash::check($x, null) TypeErrors on PHP 8.2, which
+            // would turn a wrong-password attempt on the public login route into a
+            // 500. A real credential is written later, and emailed, only when an
+            // admin creates the supplier's login user (SupplierUserProvisioner).
             'password' => Str::password(12),
             'is_active' => $sup->status === 'active',
             'created_by_admin_at' => now(),
@@ -299,7 +301,12 @@ class ProcurementCatalogBridgeService
             ->all();
     }
 
-    /** suppliers.phone is unique — drop the phone rather than fail the write. */
+    /**
+     * Keep one phone to one legacy supplier. NOT enforced by the schema — the
+     * Supplier module's create-table migration never runs (Expense's creates
+     * `suppliers` first, so the later one takes its ALTER branch), leaving phone
+     * a plain index. The de-duplication is this bridge's own invariant.
+     */
     private function availablePhone(?string $phone, ?string $exceptId = null): ?string
     {
         if ($phone === null || $phone === '') {
