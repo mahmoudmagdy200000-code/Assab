@@ -17,6 +17,8 @@ use Modules\Admin\Notifications\SubscriptionReminderNotification;
 use Modules\Admin\Notifications\UserPasswordResetNotification;
 use Modules\Admin\Services\AuditService;
 use Modules\Admin\Services\CompanyProvisioningService;
+use Modules\Admin\Services\CredentialMailer;
+use Modules\Admin\Services\CredentialSyncService;
 use Modules\Admin\Services\NotificationService;
 use Modules\Branch\Models\Branch;
 
@@ -238,9 +240,9 @@ class CompanyController extends AsabController
      * POST /admin/companies/{id}/admin/reset-password (contract batch 1, A6).
      * Resets the company-admin's password and emails it — never returns plaintext.
      */
-    public function resetAdminPassword(Request $request, string $id): JsonResponse
+    public function resetAdminPassword(Request $request, CredentialSyncService $credentials, CredentialMailer $mailer, string $id): JsonResponse
     {
-        return $this->run(function () use ($request, $id) {
+        return $this->run(function () use ($request, $credentials, $mailer, $id) {
             $data = $request->validate(['notify' => 'sometimes|boolean']);
             $company = AsabCompany::findOrFail($id);
             $admin = $this->resolveCompanyAdmin($company);
@@ -251,20 +253,22 @@ class CompanyController extends AsabController
             $temporaryPassword = Str::password(12);
             $resetAt = now();
 
-            DB::transaction(function () use ($admin, $temporaryPassword) {
+            DB::transaction(function () use ($admin, $temporaryPassword, $credentials) {
                 $admin->forceFill(['password' => $temporaryPassword])->save();
                 $admin->tokens()->delete();
+                $credentials->pushToMobile($admin, forceReset: true);
             });
 
-            if ($data['notify'] ?? true) {
-                try {
-                    $admin->notify(new UserPasswordResetNotification($temporaryPassword));
-                } catch (\Throwable $e) {
-                    Log::warning('Company-admin reset email failed: '.$e->getMessage());
-                }
-            }
+            $emailSent = ($data['notify'] ?? true)
+                ? $mailer->send($admin, new UserPasswordResetNotification($temporaryPassword))
+                : false;
 
-            return $this->ok(['ok' => true, 'emailedTo' => $admin->email, 'resetAt' => $resetAt->toIso8601String()]);
+            return $this->ok([
+                'ok' => true,
+                'emailedTo' => $admin->email,
+                'emailSent' => $emailSent,
+                'resetAt' => $resetAt->toIso8601String(),
+            ]);
         });
     }
 

@@ -4,17 +4,18 @@ namespace Modules\Supplier\Http\Controllers\Auth;
 
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Hash;
 use Modules\Supplier\Http\Requests\Auth\ResetPasswordRequest;
 use Modules\Supplier\Http\Requests\Auth\SendOTPRequest;
 use Modules\Supplier\Http\Requests\Auth\VerifyOTPRequest;
 use Modules\Supplier\Models\Supplier;
+use Modules\Supplier\Services\AuthService;
 use Modules\Supplier\Services\OTPService;
 
 class PasswordResetController extends BaseController
 {
     public function __construct(
-        private readonly OTPService $otpService
+        private readonly OTPService $otpService,
+        private readonly AuthService $authService,
     ) {}
 
     /**
@@ -89,10 +90,7 @@ class PasswordResetController extends BaseController
                 return $this->notFoundResponse('Supplier not found');
             }
 
-            // Update password
-            $supplier->update([
-                'password' => Hash::make($request->password),
-            ]);
+            $this->authService->resetPasswordByOtp($supplier, $request->password);
 
             // Invalidate reset token
             $this->otpService->invalidateResetToken($request->identifier);

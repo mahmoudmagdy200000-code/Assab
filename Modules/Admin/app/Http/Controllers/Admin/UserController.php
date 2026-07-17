@@ -5,12 +5,14 @@ namespace Modules\Admin\Http\Controllers\Admin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Notifications\UserPasswordResetNotification;
+use Modules\Admin\Services\CredentialMailer;
+use Modules\Admin\Services\CredentialSyncService;
+use Modules\Admin\Services\Provisioning\LegacyProvisionerRegistry;
 
 class UserController extends AsabController
 {
@@ -19,6 +21,12 @@ class UserController extends AsabController
         'procurement' => 'مدير مشتريات', 'supplier' => 'مورد', 'admin' => 'أدمن',
         'brand-owner' => 'مالك العلامة التجارية',
     ];
+
+    public function __construct(
+        private readonly CredentialMailer $mailer,
+        private readonly CredentialSyncService $credentials,
+        private readonly LegacyProvisionerRegistry $provisioners,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -72,8 +80,16 @@ class UserController extends AsabController
             $role = $request->input('role');
             if ($role === 'branch') {
                 $rules['branches'] = 'required|array|size:1';
+                // branch_managers.branch_id is a real FK from here on: an id that
+                // does not exist would surface as a 500 rather than a 422.
+                $rules['branches.*'] = 'uuid|exists:branches,id';
             } elseif ($role === 'accountant') {
                 $rules['brands'] = 'required|array|min:1';
+            } elseif ($role === 'supplier') {
+                // Names WHICH supplier this login owns. Required so an admin can
+                // never blind-reset an unrelated mobile account by typing an
+                // email that happens to collide.
+                $rules['supplierId'] = 'required|uuid|exists:asab_suppliers,id';
             }
             $data = $request->validate($rules);
 
@@ -100,14 +116,21 @@ class UserController extends AsabController
                     'module_keys' => $data['modules'] ?? [],
                 ], $this->assignmentAttributes($data['role'], $data)));
 
+                // Roles that also exist in the mobile world get the SAME password
+                // written to their legacy table, so the one email below opens both
+                // (client requirement). Dashboard-only roles resolve to null.
+                $this->provisioners->for($data['role'])?->provision($user, $data, $temporaryPassword);
+
                 return $user;
             });
 
-            if ($data['sendLoginEmail'] ?? false) {
-                $this->emailTemporaryPassword($user, $temporaryPassword);
-            }
+            // Delivery defaults ON (BACKEND_API_SPEC.md §users.store): an account
+            // whose password was never sent is unusable until an admin resets it.
+            $emailSent = ($data['sendLoginEmail'] ?? true)
+                ? $this->emailTemporaryPassword($user, $temporaryPassword)
+                : false;
 
-            return $this->created($this->present($user->load('roleAssignments')));
+            return $this->created($this->present($user->load('roleAssignments')) + ['emailSent' => $emailSent]);
         });
     }
 
@@ -126,6 +149,9 @@ class UserController extends AsabController
             DB::transaction(function () use ($user, $temporaryPassword) {
                 $user->forceFill(['password' => $temporaryPassword])->save();
                 $user->tokens()->delete();
+                // No-op unless this user has a linked mobile account; when they
+                // do, the emailed password must open both worlds.
+                $this->credentials->pushToMobile($user, forceReset: true);
             });
 
             $emailSent = ($data['sendEmail'] ?? true)
@@ -139,15 +165,7 @@ class UserController extends AsabController
     /** Best-effort temp-password email; a mail outage must not fail the request. */
     private function emailTemporaryPassword(AsabUser $user, string $temporaryPassword): bool
     {
-        try {
-            $user->notify(new UserPasswordResetNotification($temporaryPassword));
-
-            return true;
-        } catch (\Throwable $e) {
-            Log::warning('Temporary-password email failed: '.$e->getMessage());
-
-            return false;
-        }
+        return $this->mailer->send($user, new UserPasswordResetNotification($temporaryPassword));
     }
 
     public function update(Request $request, string $id): JsonResponse
@@ -200,6 +218,9 @@ class UserController extends AsabController
             $user = AsabUser::findOrFail($id);
             DB::transaction(function () use ($user) {
                 $user->tokens()->delete();
+                // Removing the dashboard user must also close the mobile login
+                // it provisioned; asab_users alone cannot reach the legacy guards.
+                $this->credentials->disableOnMobile($user);
                 $user->delete();
             });
 
@@ -210,13 +231,18 @@ class UserController extends AsabController
     public function import(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $request->validate(['file' => 'required|file']);
+            $validated = $request->validate([
+                'file' => 'required|file',
+                'sendLoginEmail' => 'sometimes|boolean',
+            ]);
             $file = $request->file('file');
             $rows = array_map('str_getcsv', file($file->getRealPath()));
             $header = array_map('trim', array_shift($rows) ?? []);
+            $sendLoginEmail = $validated['sendLoginEmail'] ?? true;
 
             $imported = 0;
             $skipped = 0;
+            $emailFailed = 0;
             $errors = [];
             foreach ($rows as $i => $row) {
                 $data = @array_combine($header, $row);
@@ -227,24 +253,30 @@ class UserController extends AsabController
 
                     continue;
                 }
-                if (AsabUser::where('email', $email)->exists()) {
+                // withTrashed: asab_users.email is uniquely indexed regardless of
+                // deleted_at, so a soft-deleted row still owns the address.
+                if (AsabUser::withTrashed()->where('email', $email)->exists()) {
                     $skipped++;
 
                     continue;
                 }
+                $temporaryPassword = Str::password(12);
                 $user = AsabUser::create([
                     'company_id' => $request->user()->company_id,
                     'name' => $name,
                     'email' => $email,
                     'phone' => $data['phone'] ?? null,
-                    'password' => str()->random(16),
+                    'password' => $temporaryPassword, // hashed by the model's 'hashed' cast
                     'avatar' => mb_substr($name, 0, 1),
                     'status' => 'active',
                 ]);
                 $role = $data['role'] ?? 'accountant';
                 // CSV carries no brand/branch columns; scoped roles fail closed
                 // (empty ids -> resolver returns nothing) until an admin assigns,
-                // instead of granting company-wide 'all' visibility.
+                // instead of granting company-wide 'all' visibility. For the same
+                // reason this path must NOT run the legacy provisioners: with no
+                // supplierId/branches column there is nothing to link a mobile
+                // login to, and a half-provisioned one is worse than none.
                 $scope = match ($role) {
                     'accountant' => 'brand',
                     'branch' => 'branch',
@@ -252,9 +284,18 @@ class UserController extends AsabController
                 };
                 AsabUserRole::create(['user_id' => $user->id, 'role_key' => $role, 'scope' => $scope]);
                 $imported++;
+
+                if ($sendLoginEmail && ! $this->emailTemporaryPassword($user, $temporaryPassword)) {
+                    $emailFailed++;
+                }
             }
 
-            return $this->ok(['imported' => $imported, 'skipped' => $skipped, 'errors' => $errors]);
+            return $this->ok([
+                'imported' => $imported,
+                'skipped' => $skipped,
+                'emailFailed' => $emailFailed,
+                'errors' => $errors,
+            ]);
         });
     }
 
@@ -272,7 +313,18 @@ class UserController extends AsabController
     {
         return $this->run(function () use ($id, $status) {
             $user = AsabUser::findOrFail($id);
-            $user->update(['status' => $status]);
+
+            DB::transaction(function () use ($user, $status) {
+                $user->update(['status' => $status]);
+
+                // Deactivating has to reach the mobile login too. Reactivating
+                // deliberately does NOT: the legacy row may have been disabled
+                // for its own reasons, which this flag does not know about.
+                if ($status === 'inactive') {
+                    $user->tokens()->delete();
+                    $this->credentials->disableOnMobile($user);
+                }
+            });
 
             return $this->ok($this->present($user->load('roleAssignments')));
         });

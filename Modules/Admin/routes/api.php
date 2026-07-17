@@ -230,6 +230,10 @@ Route::prefix('v1')->group(function () {
 
                 // Excel/CSV bulk uploads (§6.1.5). The employees upload was dropped
                 // per the client meeting (avoid confusion with user management).
+                // The brand-level fixed-assets routes MUST precede the {type}
+                // catch-alls below, which would otherwise swallow them.
+                Route::post('brands/{brandId}/upload/fixed-assets', [AdminUploadController::class, 'brandFixedAssets']);
+                Route::post('brands/{brandId}/uploads/fixed-assets', [AdminUploadController::class, 'brandFixedAssets']);
                 Route::post('brands/{brandId}/upload/{type}', [AdminUploadController::class, 'brandUpload']);
                 Route::post('branches/{branchId}/upload/fixed-assets', [AdminUploadController::class, 'fixedAssets']);
                 Route::get('upload/templates/{type}', [AdminUploadController::class, 'template']);

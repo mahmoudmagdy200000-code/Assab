@@ -22,6 +22,7 @@ class AuthService
     public function __construct(
         private readonly PermissionResolver $permissions,
         private readonly TwoFactorService $twoFactor,
+        private readonly CredentialSyncService $credentials,
     ) {}
 
     /**
@@ -152,6 +153,9 @@ class AuthService
 
         $user->forceFill(['password' => $new])->save();
         $user->tokens()->delete(); // revoke all other sessions
+        // The user chose this password, so the mobile side takes it as-is
+        // rather than being flagged for another forced reset.
+        $this->credentials->pushToMobile($user);
     }
 
     /**
@@ -213,6 +217,7 @@ class AuthService
 
         $user->forceFill(['password' => $newPassword])->save();
         $user->tokens()->delete();
+        $this->credentials->pushToMobile($user);
         DB::table('password_reset_tokens')->where('email', $row->email)->delete();
     }
 

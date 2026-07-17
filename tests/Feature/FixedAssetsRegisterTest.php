@@ -342,8 +342,10 @@ class FixedAssetsRegisterTest extends TestCase
     {
         $rows = $this->acc()->getJson('/api/v1/company/me/lookups/asset-categories')->assertOk()->json('data');
 
+        // electrical/smallwares/software carry the client fixed-assets
+        // workbook's labels that had no canonical home; 'other' stays last.
         $this->assertSame(
-            ['kitchen', 'tech', 'furniture', 'vehicles', 'construction', 'other'],
+            ['kitchen', 'tech', 'furniture', 'vehicles', 'construction', 'electrical', 'smallwares', 'software', 'other'],
             array_column($rows, 'id'),
         );
         $this->assertSame('تقنية وأجهزة', $rows[1]['name']);

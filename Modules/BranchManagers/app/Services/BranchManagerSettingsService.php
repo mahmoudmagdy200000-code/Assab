@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\PersonalAccessToken;
 use Modules\BranchManagers\Enums\NotificationSettingType;
+use Modules\BranchManagers\Events\PasswordChangedEvent;
 use Modules\BranchManagers\Exceptions\BranchManagerSettingsException;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Settings\Models\UserSetting;
@@ -96,6 +97,13 @@ class BranchManagerSettingsService
         DB::transaction(function () use ($user, $newPassword): void {
             $user->password = Hash::make($newPassword);
             $user->save();
+
+            // This route is auth:sanctum only, with no branch.manager middleware,
+            // so $user may be a Cashier/Supplier/BrandOwner. Dispatching for a
+            // non-BranchManager would TypeError on the event's constructor.
+            if ($user instanceof BranchManager) {
+                PasswordChangedEvent::dispatch($user);
+            }
 
             $this->revokeOtherTokens($user);
         });

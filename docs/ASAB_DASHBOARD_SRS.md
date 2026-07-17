@@ -458,7 +458,7 @@ Role-switcher personas (main dashboard): أدمن النظام، رئيس الح
 
 ### ADM-4 Data Upload (رفع البيانات)
 - **ADM-4.1** Upload **categories/items** (sales/expense items) per brand — applies to all
-  restaurants+branches under the brand. Template columns: رمز الصنف، اسم الصنف، الفئة، الوحدة، السعر.
+  restaurants+branches under the brand. Template columns: رمز الصنف، اسم الصنف، التصنيف، الوحدة، السعر.
 - **ADM-4.2** Upload **materials** (purchase raw materials) — separate list, `type=raw-material`.
 - **ADM-4.3** Upload **fixed assets** per branch using template.
 - **ADM-4.4** ~~Upload employees~~ — `DEFERRED` (meeting: may be removed to avoid confusion).

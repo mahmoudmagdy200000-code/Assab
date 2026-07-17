@@ -5,6 +5,7 @@ namespace Modules\BranchManagers\Services;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Modules\BranchManagers\Events\PasswordChangedEvent;
 use Modules\BranchManagers\Models\BranchManager;
 
 class ProfileService
@@ -76,6 +77,8 @@ class ProfileService
         $manager->update([
             'password' => Hash::make($newPassword),
         ]);
+
+        PasswordChangedEvent::dispatch($manager);
 
         // Revoke all tokens except current
         $currentToken = $manager->currentAccessToken();

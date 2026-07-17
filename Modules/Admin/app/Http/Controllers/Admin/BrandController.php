@@ -5,8 +5,8 @@ namespace Modules\Admin\Http\Controllers\Admin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
@@ -15,7 +15,10 @@ use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Notifications\UserPasswordResetNotification;
 use Modules\Admin\Services\AsabSubscriptionService;
+use Modules\Admin\Services\BrandCompanyResolver;
 use Modules\Admin\Services\BrandOwnerProvisioningService;
+use Modules\Admin\Services\CredentialMailer;
+use Modules\Admin\Services\CredentialSyncService;
 use Modules\Branch\Models\Branch;
 
 class BrandController extends AsabController
@@ -33,9 +36,13 @@ class BrandController extends AsabController
         });
     }
 
-    public function store(Request $request, BrandOwnerProvisioningService $ownerProvisioning): JsonResponse
-    {
-        return $this->run(function () use ($request, $ownerProvisioning) {
+    public function store(
+        Request $request,
+        BrandOwnerProvisioningService $ownerProvisioning,
+        BrandCompanyResolver $companyResolver,
+        CredentialMailer $mailer,
+    ): JsonResponse {
+        return $this->run(function () use ($request, $ownerProvisioning, $companyResolver, $mailer) {
             // WS6: legacy Arabic aliases map to package codes before validating
             // against the asab_brand_packages catalog (silver/gold/platinum keep
             // working via the seeded rows / legacy fallback).
@@ -43,7 +50,10 @@ class BrandController extends AsabController
                 $request->merge(['plan' => AsabBrandPackage::resolveCode((string) $request->input('plan'))]);
             }
             $data = $request->validate([
-                'companyId' => 'required|string',
+                // Optional: omitted → the resolver creates a company for the brand.
+                // asab_brands.company_id has no FK, so the exists check is the only
+                // thing standing between a typo'd id and a permanently orphaned brand.
+                'companyId' => ['nullable', 'string', Rule::exists('asab_companies', 'id')->whereNull('deleted_at')],
                 'name' => 'required|string|max:120',
                 'abbr' => 'nullable|string|max:8',
                 'color' => 'nullable|string|max:16',
@@ -56,11 +66,11 @@ class BrandController extends AsabController
             ]);
 
             // B-A6: when an ownerEmail is supplied, provision/link a brand-owner login
-            // and email a one-time password — inside the same transaction so a conflict
-            // (422) or failure rolls back the brand too.
-            [$brand, $owner] = DB::transaction(function () use ($data, $ownerProvisioning) {
+            // inside the same transaction so a conflict (422) or failure rolls back the
+            // brand too. The welcome mail is sent only after the commit — see below.
+            [$brand, $owner] = DB::transaction(function () use ($data, $ownerProvisioning, $companyResolver) {
                 $brand = AsabBrand::create([
-                    'company_id' => $data['companyId'],
+                    'company_id' => $companyResolver->resolveFor($data['companyId'] ?? null, $data['name']),
                     'name' => $data['name'],
                     'abbr' => $data['abbr'] ?? null,
                     'color' => $data['color'] ?? null,
@@ -81,9 +91,11 @@ class BrandController extends AsabController
                 return [$brand, $owner];
             });
 
+            $emailSent = $owner !== null && $mailer->send($owner['user'], $owner['notification']);
+
             return $this->created(array_merge($this->present($brand->fresh()), [
                 'ownerUserId' => $owner['user']->id ?? null,
-                'emailSent' => $owner['emailSent'] ?? false,
+                'emailSent' => $emailSent,
             ]));
         });
     }
@@ -92,11 +104,14 @@ class BrandController extends AsabController
     {
         return $this->run(function () use ($request, $id) {
             $brand = AsabBrand::findOrFail($id);
+            if ($request->filled('plan')) {
+                $request->merge(['plan' => AsabBrandPackage::resolveCode((string) $request->input('plan'))]);
+            }
             $data = $request->validate([
                 'name' => 'sometimes|string|max:120',
                 'abbr' => 'sometimes|string|max:8',
                 'color' => 'sometimes|string|max:16',
-                'plan' => 'sometimes|string|max:32',
+                'plan' => ['sometimes', 'string', 'max:32', AsabBrandPackage::codeRule()],
                 'modules' => 'sometimes|array',
             ]);
             DB::transaction(fn () => $brand->update(array_filter([
@@ -195,9 +210,9 @@ class BrandController extends AsabController
      * CompanyController@resetAdminPassword; locates the owner via owner_user_id
      * (falling back to owner_email) since brand ownership is not a company role.
      */
-    public function resetOwnerPassword(Request $request, string $brandId): JsonResponse
+    public function resetOwnerPassword(Request $request, CredentialSyncService $credentials, CredentialMailer $mailer, string $brandId): JsonResponse
     {
-        return $this->run(function () use ($request, $brandId) {
+        return $this->run(function () use ($request, $credentials, $mailer, $brandId) {
             $data = $request->validate(['notify' => 'sometimes|boolean']);
             $brand = AsabBrand::findOrFail($brandId);
             $owner = $this->resolveBrandOwner($brand);
@@ -208,20 +223,25 @@ class BrandController extends AsabController
             $temporaryPassword = Str::password(12);
             $resetAt = now();
 
-            DB::transaction(function () use ($owner, $temporaryPassword) {
+            DB::transaction(function () use ($owner, $temporaryPassword, $credentials) {
                 $owner->forceFill(['password' => $temporaryPassword])->save();
                 $owner->tokens()->delete();
+                // The mobile app authenticates against brand_owners, which this
+                // write cannot reach; without the push the emailed password
+                // would open the dashboard only.
+                $credentials->pushToMobile($owner, forceReset: true);
             });
 
-            if ($data['notify'] ?? true) {
-                try {
-                    $owner->notify(new UserPasswordResetNotification($temporaryPassword));
-                } catch (\Throwable $e) {
-                    Log::warning('Brand-owner reset email failed: '.$e->getMessage());
-                }
-            }
+            $emailSent = ($data['notify'] ?? true)
+                ? $mailer->send($owner, new UserPasswordResetNotification($temporaryPassword))
+                : false;
 
-            return $this->ok(['ok' => true, 'emailedTo' => $owner->email, 'resetAt' => $resetAt->toIso8601String()]);
+            return $this->ok([
+                'ok' => true,
+                'emailedTo' => $owner->email,
+                'emailSent' => $emailSent,
+                'resetAt' => $resetAt->toIso8601String(),
+            ]);
         });
     }
 

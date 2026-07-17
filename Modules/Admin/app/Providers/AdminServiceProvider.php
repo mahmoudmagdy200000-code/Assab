@@ -43,6 +43,37 @@ class AdminServiceProvider extends ServiceProvider
         $this->app->scoped(\Modules\Admin\Support\TenantContext::class);
         // Branch-scope resolution memoizes per request; must share one instance.
         $this->app->scoped(\Modules\Admin\Services\TenantBranchResolver::class);
+
+        $this->registerCredentialSync();
+    }
+
+    /**
+     * One password, both worlds. The two tagged sets are the extension points:
+     * a new dual-written role is a provisioner + a tag entry, and a new legacy
+     * auth stack is a peer + a tag entry — neither touches a call site.
+     */
+    private function registerCredentialSync(): void
+    {
+        $this->app->tag([
+            \Modules\Admin\Services\Credentials\BrandOwnerPeer::class,
+            \Modules\Admin\Services\Credentials\SupplierPeer::class,
+            \Modules\Admin\Services\Credentials\BranchManagerPeer::class,
+        ], 'asab.credential-peers');
+
+        $this->app->singleton(
+            \Modules\Admin\Services\Credentials\CredentialPeerRegistry::class,
+            fn ($app) => new \Modules\Admin\Services\Credentials\CredentialPeerRegistry($app->tagged('asab.credential-peers')),
+        );
+
+        $this->app->tag([
+            \Modules\Admin\Services\Provisioning\SupplierUserProvisioner::class,
+            \Modules\Admin\Services\Provisioning\BranchManagerProvisioner::class,
+        ], 'asab.legacy-provisioners');
+
+        $this->app->singleton(
+            \Modules\Admin\Services\Provisioning\LegacyProvisionerRegistry::class,
+            fn ($app) => new \Modules\Admin\Services\Provisioning\LegacyProvisionerRegistry($app->tagged('asab.legacy-provisioners')),
+        );
     }
 
     /**
