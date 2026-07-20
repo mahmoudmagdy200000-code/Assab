@@ -16,6 +16,20 @@ class Operation extends Model
 {
     use BelongsToTenant, HasUuids, SoftDeletes;
 
+    /**
+     * A supplier and a procurement manager receive purchase orders from EVERY
+     * company, so the tenant scope must step aside for them. Their controllers
+     * carry the authorization the scope used to: the supplier portal narrows
+     * every read to `payload->supplierId ∈ own supplier ids`
+     * (Supplier\SupplierController::ownOrders), and the platform procurement
+     * surface is `module_key = purchases` only. Any NEW endpoint reachable by
+     * those roles must state its own filter — it will not inherit one.
+     */
+    protected static function platformVisible(): bool
+    {
+        return true;
+    }
+
     protected $table = 'asab_operations';
 
     public const STATUS_PENDING = 'pending';

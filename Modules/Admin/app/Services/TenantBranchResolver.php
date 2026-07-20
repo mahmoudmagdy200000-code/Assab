@@ -47,6 +47,9 @@ class TenantBranchResolver
     {
         return implode('|', [
             $ctx->isAdmin ? 'admin' : 'user',
+            // Without this a platform account and a plain companyless one share
+            // a key (both have no companyId) and inherit each other's answer.
+            $ctx->isPlatform ? 'platform' : 'tenant',
             $ctx->companyId ?? '-',
             $ctx->scope,
             implode(',', $ctx->branchIds),
@@ -58,7 +61,11 @@ class TenantBranchResolver
     /** @return string[]|null */
     private function resolve(TenantContext $ctx): ?array
     {
-        if ($ctx->isAdmin) {
+        // A platform account (supplier / procurement manager) serves every
+        // company, so it is unrestricted like the admin. Its controllers narrow
+        // by ownership — the supplier portal by payload->supplierId — rather
+        // than by branch.
+        if ($ctx->isAdmin || $ctx->isPlatform) {
             return null;
         }
         if (! $ctx->hasTenant()) {

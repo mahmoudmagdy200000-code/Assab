@@ -117,10 +117,14 @@ class UserController extends AsabController
                 $rules['restaurants'] = 'prohibited';
                 $rules['scope'] = 'prohibited';
             } elseif ($role === 'supplier') {
-                // Names WHICH supplier this login owns. Required so an admin can
-                // never blind-reset an unrelated mobile account by typing an
-                // email that happens to collide.
-                $rules['supplierId'] = 'required|uuid|exists:asab_suppliers,id';
+                // OPTIONAL since 2026-07-20. A supplier contracts with ASAB and
+                // serves every company, so there is usually no company directory
+                // entry to point at — omitting it creates the platform supplier
+                // from this login. Still accepted, and still meaningful, when the
+                // login belongs to ONE company's own supplier: it names which
+                // record the login owns, so an admin cannot blind-reset an
+                // unrelated mobile account by typing a colliding email.
+                $rules['supplierId'] = 'nullable|uuid|exists:asab_suppliers,id';
             }
             $data = $request->validate($rules, self::ACCOUNTANT_SCOPE_MESSAGES);
 

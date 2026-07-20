@@ -30,6 +30,30 @@ class TenantContext
 
     public bool $isAdmin = false;
 
+    /**
+     * Roles that trade with ASAB itself rather than with one company: a supplier
+     * and a procurement manager receive orders from EVERY company, so pinning
+     * them to one company_id would hide the work they exist to do.
+     */
+    public const PLATFORM_ROLES = ['supplier', 'procurement'];
+
+    /**
+     * True for a platform-level account (a PLATFORM_ROLES role carrying no
+     * company). Such a user legitimately reads across companies, so the tenant
+     * scope steps aside for them — but ONLY on models that opt in via
+     * BelongsToTenant::$platformVisible, and their controllers must then supply
+     * the authorization the scope used to. See ResolveTenant.
+     */
+    public bool $isPlatform = false;
+
+    /**
+     * Whether ResolveTenant actually ran. Without it a console command, a queued
+     * job and an authenticated-but-companyless request are indistinguishable —
+     * all three are "no companyId" — and the global scope has to treat the last
+     * one as fail-closed while leaving the first two alone.
+     */
+    public bool $resolved = false;
+
     public function hasTenant(): bool
     {
         return $this->companyId !== null;
