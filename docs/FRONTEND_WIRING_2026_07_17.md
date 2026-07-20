@@ -611,3 +611,113 @@ non-empty id array regardless of the scope string, a stray array from the wizard
 - **`config('app.frontend_url')` now exists.** It was read in eight notifications and declared
   nowhere, so every credential email shipped a host-less `"/login"` link. Setting `FRONTEND_URL`
   alone genuinely did nothing until now (round 2 §9).
+
+---
+
+# Round 4 — suppliers and procurement managers leave the company model
+
+Items 4 and 5 of the 2026-07-20 report. A supplier and a procurement manager contract with **ASAB**,
+not with one restaurant company: they serve every company on the platform. That is now a `NULL`
+`company_id`, and the null is **meaningful data**, not missing data.
+
+## The security change underneath it, which you should know about
+
+The wizard change is small. What it sits on is not, and it is worth one paragraph because it changes
+what a `403 WRONG_TENANT` means.
+
+There were two company gates failing in opposite directions. `ResolveTenant` refused any non-admin
+without a company (**fail closed**), while the `company_id` global scope applied **no WHERE clause at
+all** in that same case (**fail open**). The 403 was the only thing preventing a companyless user
+from reading every tenant's rows on every model. Relaxing that 403 — which "a supplier has no
+company" requires — would therefore have been a cross-company data leak rather than a feature.
+
+So the scope was inverted first: an authenticated user with no company now reads **nothing** unless
+it is a platform role, and a platform role reads across companies only on models that explicitly opt
+in (`asab_operations`, `asab_suppliers`). Console commands and queued jobs are unaffected.
+
+**What this means for you:** nothing you call changes shape. But if a role that used to half-work with
+a missing company suddenly returns empty lists, that is this change surfacing a misconfigured account —
+attach it to a company, or make it one of the two platform roles.
+
+## 4. ✅ Supplier — `supplierId` is now optional
+
+```jsonc
+// PLATFORM supplier — the new default. No company, no directory entry to pick.
+POST /api/v1/admin/users
+{ "name": "شركة الخضار", "email": "vendor@platform.test", "role": "supplier" }
+// → 201. Creates the supplier record AND the mobile login from this user.
+```
+
+**Remove the "اختر المورد" step for suppliers, and remove the company picker.** The screen that said
+«لا يوجد موردون متاحون — أضف موردين للشركة أولاً» was enforcing a rule that no longer exists.
+
+`supplierId` is still accepted and still means something — it names which existing record a login
+owns — but only for a supplier that belongs to **one** company:
+
+| Payload | Result |
+|---|---|
+| `role=supplier`, no `companyId`, no `supplierId` | ✅ 201 — platform supplier minted from the login |
+| `role=supplier`, `companyId`, `supplierId` | ✅ 201 — unchanged company-supplier behaviour |
+| `role=supplier`, `companyId`, **no** `supplierId` | ❌ 422 `SUPPLIER_ID_REQUIRED` (`error.details.supplierId`) |
+| `role=supplier`, `companyId` + a **platform** `supplierId` | ❌ 422 `SUPPLIER_NOT_IN_COMPANY` |
+
+The last row is deliberate: a company login claiming a platform supplier would quietly pull a shared
+vendor into one tenant.
+
+**`GET /admin/suppliers` now returns platform suppliers too**, with `companyId: null`. Label those
+rows — they are shared, and a company admin cannot edit or delete one (writes still carry an explicit
+company predicate; reads are shared). Sending `?companyId=` still narrows to that company's own.
+
+Order routing needed no change: the portal resolves a supplier's orders through
+`asab_suppliers.user_id` and `payload->supplierId`, so a platform supplier receives orders from every
+company automatically.
+
+## 5. ✅ Procurement manager — same model, web only
+
+Identical treatment, with one difference: **no mobile account is provisioned.** A supplier gets a
+`suppliers` row so the phone app opens; a procurement manager has a web portal only, and the
+dashboard login *is* that portal. Nothing extra to create.
+
+```jsonc
+POST /api/v1/admin/users
+{ "name": "مدير المشتريات", "email": "proc@platform.test", "role": "procurement" }
+// → 201. No companyId, no brands, no restaurants, no branches.
+```
+
+**Remove every scope picker from step 2 for `role=procurement`.** None were ever required by the
+backend; now none are meaningful either.
+
+Such an account uses the **platform** procurement surface and sees orders across all companies:
+
+```
+GET /api/v1/procurement/overview      // KPIs over every company
+GET /api/v1/procurement/orders
+GET /api/v1/procurement/purchase-orders
+...
+```
+
+⚠️ **It is refused on `/company/me/procurement/*` with `403 WRONG_TENANT`.** That surface answers "my
+company" and reads `company_id` directly. A procurement manager *employed by one company* still
+exists — create it with a `companyId` and it keeps using `/company/me/*` exactly as before. Route the
+SPA by which one the account is: `companyId === null` → platform surface.
+
+## Migration required
+
+```bash
+php artisan migrate    # 2026_07_20_000001_make_asab_supplier_company_nullable
+```
+
+`asab_suppliers.company_id` was `NOT NULL`. Without this migration every platform-supplier create
+fails on the constraint.
+
+## Summary of FE work for rounds 3 + 4
+
+1. **Users wizard** — drop the brand picker for `admin`; drop supplier picker + company picker for
+   `supplier`; drop all scope pickers for `procurement`; keep `companyId` **required** for `branch`.
+2. **Suppliers list** — render `companyId: null` as a platform/shared supplier; disable edit on those.
+3. **Procurement SPA** — pick the platform vs company base path from `companyId === null`.
+4. **Uploads** — wire the موظفي المطاعم card to `restaurants/{id}/upload/employees`, and the per-branch
+   الأصول الثابتة status to `branches/{id}/upload-status` (round 3).
+5. **Errors** — a 500 under `/api/v1/*` is now JSON: parse `error.code`, stop reporting it as a
+   network failure. New codes: `SUPPLIER_ID_REQUIRED`, `BRANCH_MANAGER_LOGIN_AMBIGUOUS`,
+   `BRANCH_MANAGER_IN_OTHER_COMPANY`, `SERVER_ERROR`.

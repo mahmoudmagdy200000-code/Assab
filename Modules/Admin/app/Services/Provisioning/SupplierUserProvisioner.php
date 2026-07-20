@@ -35,7 +35,14 @@ class SupplierUserProvisioner implements LegacyProvisioner
 
     public function provision(AsabUser $user, array $data, string $temporaryPassword): void
     {
-        $supplier = $this->tenantSupplier($user, $data['supplierId']);
+        // No supplierId = a supplier that works with ASAB rather than with one
+        // company. There is no commercial record to pick from, so this creates
+        // it — which is the whole point: the admin adds the supplier's account
+        // directly instead of first adding it to some company's directory.
+        $supplier = isset($data['supplierId'])
+            ? $this->tenantSupplier($user, $data['supplierId'])
+            : $this->createPlatformSupplier($user);
+
         $this->assertLoginEmailMatches($user, $supplier);
         $legacy = $this->ensureLegacyRow($supplier);
 
@@ -51,9 +58,59 @@ class SupplierUserProvisioner implements LegacyProvisioner
     }
 
     /**
-     * asab_suppliers.company_id is NOT NULL, so a user carrying no company can
-     * never match — a companyless supplier login fails closed rather than
-     * reaching across tenants.
+     * Mint the commercial record for a platform supplier from the login itself.
+     *
+     * Refused for a login that carries a company: that supplier belongs to a
+     * tenant, and picking which existing record it owns is exactly what
+     * `supplierId` is for — inventing a second record would leave the company
+     * with a duplicate directory entry nobody ordered from.
+     */
+    private function createPlatformSupplier(AsabUser $user): AsabSupplier
+    {
+        if ($user->company_id !== null) {
+            throw new AsabException(
+                'SUPPLIER_ID_REQUIRED',
+                'A company supplier login must name the supplier it owns',
+                'يجب اختيار المورد التابع للشركة',
+                422,
+                ['supplierId' => ['يجب اختيار المورد التابع للشركة']],
+            );
+        }
+
+        $supplier = AsabSupplier::create([
+            'name' => $user->name,
+            'contact_name' => $user->name,
+            // The portal authenticates on this address, and
+            // assertLoginEmailMatches compares it to the login — seeding it from
+            // the user is what makes the pair consistent by construction.
+            'contact_email' => $user->email,
+            'contact_phone' => $user->phone,
+            'status' => 'active',
+        ]);
+
+        // BelongsToTenant stamps company_id from the ACTOR's tenant whenever it
+        // is blank. That is right for a company adding its own supplier and
+        // wrong here — a platform supplier belongs to no company — and the hook
+        // cannot tell "unset" from "deliberately null". Undo it explicitly.
+        if ($supplier->company_id !== null) {
+            $supplier->forceFill(['company_id' => null])->save();
+        }
+
+        return $supplier;
+    }
+
+    /**
+     * Two shapes are legitimate now that a supplier may contract with ASAB
+     * rather than with one company:
+     *
+     *  - PLATFORM supplier (`company_id === null`) — claimable by a login that
+     *    also carries no company. Both being null is the match, not an accident.
+     *  - COMPANY supplier — the login must belong to the same company, exactly
+     *    as before.
+     *
+     * A cross pairing stays a 422: a companyless login must not claim a
+     * company's private supplier, and a company's login must not claim a
+     * platform supplier and quietly pull it into that tenant.
      */
     private function tenantSupplier(AsabUser $user, string $supplierId): AsabSupplier
     {

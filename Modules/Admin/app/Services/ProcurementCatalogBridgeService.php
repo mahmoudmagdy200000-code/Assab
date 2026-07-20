@@ -113,11 +113,17 @@ class ProcurementCatalogBridgeService
 
         if ($existing !== null) {
             // Multi-tenancy guard (mirrors BrandOwnerProvisioningService): an
-            // email already linked from a different company's asab supplier
-            // cannot be re-claimed here.
+            // email already linked from a different owner's asab supplier
+            // cannot be re-claimed here. "Owner" is company_id, with NULL as a
+            // value of its own (the platform) rather than missing data — so the
+            // comparison has to be NULL-safe. Plain `!= NULL` yields NULL in
+            // SQL, matches nothing, and would let a platform supplier silently
+            // claim a legacy row already owned by a company.
             $claimedElsewhere = AsabSupplier::withoutGlobalScope('tenant')
                 ->where('legacy_supplier_id', $existing->id)
-                ->where('company_id', '!=', $sup->company_id)
+                ->where(fn ($q) => $sup->company_id === null
+                    ? $q->whereNotNull('company_id')
+                    : $q->where('company_id', '!=', $sup->company_id)->orWhereNull('company_id'))
                 ->exists();
             if ($claimedElsewhere) {
                 throw new AsabException(
