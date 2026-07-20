@@ -184,4 +184,96 @@ class BranchManagerCredentialSyncTest extends TestCase
         $manager = BranchManager::where('email', 'phone@bm.test')->firstOrFail();
         $this->assertNull($manager->phone, 'the colliding phone must be dropped, not 500');
     }
+
+    /**
+     * The reported «تعذر الاتصال بالخادم»: a second dashboard user for a legacy
+     * manager already claimed in asab_identity_map hit unique(entity_type,
+     * legacy_id) as an uncaught QueryException, which left the browser reporting
+     * an unreachable server. linkSupplier had guarded this since day one;
+     * linkBranchManager did not.
+     */
+    public function test_a_second_user_for_an_already_linked_manager_is_a_422_not_a_500(): void
+    {
+        Notification::fake();
+
+        // A legacy manager already linked to some other dashboard account. The
+        // new user reaches that same row because ensureManager matches on email.
+        $manager = BranchManager::factory()->create([
+            'email' => 'claimed@bm.test',
+            'branch_id' => $this->branch->id,
+        ]);
+        $owner = AsabUser::create([
+            'company_id' => $this->company->id, 'name' => 'المالك الأصلي',
+            'email' => 'owner@bm.test', 'password' => 'secret-password', 'status' => 'active',
+        ]);
+        AsabIdentityMap::create([
+            'entity_type' => AsabIdentityMap::ENTITY_BRANCH_MANAGER,
+            'dashboard_type' => 'asab_user',
+            'dashboard_id' => $owner->id,
+            'legacy_type' => 'branch_manager',
+            'legacy_id' => $manager->id,
+            'company_id' => $this->company->id,
+            'match_method' => 'email',
+            'linked_at' => now(),
+        ]);
+
+        $this->createBranchUser('claimed@bm.test')
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'BRANCH_MANAGER_LOGIN_AMBIGUOUS');
+
+        $this->assertNull(AsabUser::where('email', 'claimed@bm.test')->first(), 'the transaction must roll back');
+        $this->assertSame(
+            $owner->id,
+            AsabIdentityMap::where('legacy_id', $manager->id)->value('dashboard_id'),
+            'the original link must survive',
+        );
+    }
+
+    /**
+     * Deleting a user must release its identity link, or re-creating the same
+     * account trips the new ambiguity guard and can never be provisioned again.
+     */
+    public function test_recreating_a_deleted_branch_manager_succeeds(): void
+    {
+        Notification::fake();
+
+        $this->createBranchUser('recreate@bm.test')->assertCreated();
+        $user = AsabUser::where('email', 'recreate@bm.test')->firstOrFail();
+
+        $this->actingAs($this->admin, 'sanctum')
+            ->deleteJson("/api/v1/admin/users/{$user->id}")
+            ->assertStatus(204);
+
+        $this->assertSame(
+            0,
+            AsabIdentityMap::withTrashed()->where('dashboard_id', $user->id)->count(),
+            'the link must be released, not left claiming the legacy row',
+        );
+
+        $this->createBranchUser('recreate2@bm.test')->assertCreated();
+    }
+
+    /**
+     * Reusing a legacy manager overwrites its branch_id and password. Across
+     * companies that hands one tenant's manager to another and locks the
+     * original owner out, so it fails closed rather than repointing silently.
+     */
+    public function test_an_email_belonging_to_another_companys_manager_is_rejected(): void
+    {
+        Notification::fake();
+
+        $other = AsabCompany::create(['name' => 'Other Co', 'plan' => 'Professional', 'status' => 'active']);
+        $otherBranch = Branch::factory()->create(['asab_company_id' => $other->id]);
+        $foreign = BranchManager::factory()->create([
+            'email' => 'foreign@bm.test',
+            'branch_id' => $otherBranch->id,
+        ]);
+
+        $this->createBranchUser('foreign@bm.test')
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'BRANCH_MANAGER_IN_OTHER_COMPANY');
+
+        $this->assertSame($otherBranch->id, $foreign->fresh()->branch_id, 'the foreign manager must not be repointed');
+        $this->assertNull(AsabUser::where('email', 'foreign@bm.test')->first(), 'the transaction must roll back');
+    }
 }

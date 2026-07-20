@@ -25,6 +25,8 @@ use Modules\Admin\Services\RealtimeBroadcaster;
  */
 class BranchCompanyController extends AsabController
 {
+    use \Modules\Admin\Http\Controllers\Concerns\GeneratesEmployeeNumbers;
+
     public function __construct(
         private readonly OperationFactory $factory,
         private readonly NotificationService $notifications,
@@ -413,18 +415,5 @@ class BranchCompanyController extends AsabController
                 }
             }
         }
-    }
-
-    /** Highest EMP-#### suffix for the company + 1 (skips gaps; never reuses). */
-    private function nextEmpNumber(?string $companyId): string
-    {
-        $max = Employee::withTrashed()
-            ->when($companyId, fn ($q, $c) => $q->where('company_id', $c))
-            ->where('emp_number', 'like', 'EMP-%')
-            ->pluck('emp_number')
-            ->map(fn ($n) => (int) substr((string) $n, 4))
-            ->max() ?? 0;
-
-        return 'EMP-'.str_pad((string) ($max + 1), 4, '0', STR_PAD_LEFT);
     }
 }

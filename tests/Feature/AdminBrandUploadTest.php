@@ -286,7 +286,9 @@ class AdminBrandUploadTest extends TestCase
         $res->assertStatus(200)
             ->assertJsonPath('shared.sales', true)
             ->assertJsonPath('shared.materials', false)
-            ->assertJsonPath('completionPct', 33);
+            // 1 of the 4 brand-level steps (sales, materials, suppliers, assets).
+            ->assertJsonPath('shared.fixedAssets', false)
+            ->assertJsonPath('completionPct', 25);
     }
 
     public function test_status_does_not_count_a_failed_upload_as_complete(): void

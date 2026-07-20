@@ -56,6 +56,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Dashboard SPA URL
+    |--------------------------------------------------------------------------
+    |
+    | Every credential/activation notification builds its link from
+    | config('app.frontend_url'). The key was read in eight places but never
+    | declared here, so it resolved to null and the emails shipped host-less
+    | links such as "/login" — setting FRONTEND_URL in .env alone did nothing.
+    |
+    */
+
+    'frontend_url' => env('FRONTEND_URL', 'http://localhost:3000'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

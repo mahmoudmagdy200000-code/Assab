@@ -234,16 +234,25 @@ Route::prefix('v1')->group(function () {
                 Route::post('jobs/{id}/retry', [JobMonitorController::class, 'retry']);
                 Route::post('jobs/{id}/cancel', [JobMonitorController::class, 'cancel']);
 
-                // Excel/CSV bulk uploads (§6.1.5). The employees upload was dropped
-                // per the client meeting (avoid confusion with user management).
+                // Excel/CSV bulk uploads (§6.1.5).
                 // The brand-level fixed-assets routes MUST precede the {type}
                 // catch-alls below, which would otherwise swallow them.
                 Route::post('brands/{brandId}/upload/fixed-assets', [AdminUploadController::class, 'brandFixedAssets']);
                 Route::post('brands/{brandId}/uploads/fixed-assets', [AdminUploadController::class, 'brandFixedAssets']);
                 Route::post('brands/{brandId}/upload/{type}', [AdminUploadController::class, 'brandUpload']);
                 Route::post('branches/{branchId}/upload/fixed-assets', [AdminUploadController::class, 'fixedAssets']);
+                Route::post('branches/{branchId}/uploads/fixed-assets', [AdminUploadController::class, 'fixedAssets']);
                 Route::get('upload/templates/{type}', [AdminUploadController::class, 'template']);
                 Route::get('brands/{brandId}/upload-status', [AdminUploadController::class, 'status']);
+                // The branch counterpart. Without it the owner_type='branch' rows
+                // stamped by fixedAssets() are write-only and the per-branch
+                // «حالة الرفع» column can never leave «لم يُرفع».
+                Route::get('branches/{branchId}/upload-status', [AdminUploadController::class, 'branchStatus']);
+
+                // «موظفي المطاعم» — per restaurant, since each keeps its own roster.
+                Route::post('restaurants/{restaurantId}/upload/employees', [AdminUploadController::class, 'employees']);
+                Route::post('restaurants/{restaurantId}/uploads/employees', [AdminUploadController::class, 'employees']);
+                Route::get('restaurants/{restaurantId}/upload-status', [AdminUploadController::class, 'restaurantStatus']);
 
                 // Doc-conformance: plural 'uploads' aliases (FE wiring §1.6)
                 Route::post('brands/{brandId}/uploads/{type}', [AdminUploadController::class, 'brandUpload']);

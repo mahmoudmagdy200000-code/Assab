@@ -13,6 +13,7 @@ use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Notifications\UserPasswordResetNotification;
 use Modules\Admin\Services\CredentialMailer;
 use Modules\Admin\Services\CredentialSyncService;
+use Modules\Admin\Services\IdentityMapService;
 use Modules\Admin\Services\Provisioning\LegacyProvisionerRegistry;
 
 class UserController extends AsabController
@@ -37,6 +38,7 @@ class UserController extends AsabController
         private readonly CredentialMailer $mailer,
         private readonly CredentialSyncService $credentials,
         private readonly LegacyProvisionerRegistry $provisioners,
+        private readonly IdentityMapService $identity,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -99,6 +101,12 @@ class UserController extends AsabController
                 // branch_managers.branch_id is a real FK from here on: an id that
                 // does not exist would surface as a 500 rather than a 422.
                 $rules['branches.*'] = 'uuid|exists:branches,id';
+                // companyId is de-facto required here — BranchManagerProvisioner
+                // fails closed on a companyless user — but it stays out of the
+                // rules on purpose: the published contract says that case answers
+                // BRANCH_NOT_IN_COMPANY, and a `required` rule would silently
+                // switch the code to VALIDATION_ERROR. The provisioner names the
+                // field in error.details instead.
             } elseif ($role === 'accountant') {
                 $rules['brands'] = 'required|array|min:1';
                 // assignmentAttributes() hard-forces scope=brand and zeroes
@@ -250,6 +258,9 @@ class UserController extends AsabController
                 // Removing the dashboard user must also close the mobile login
                 // it provisioned; asab_users alone cannot reach the legacy guards.
                 $this->credentials->disableOnMobile($user);
+                // ...and drop its identity links, or the legacy row stays claimed
+                // by a deleted user and re-creating the account 422s as ambiguous.
+                $this->identity->releaseDashboard($user->id);
                 $user->delete();
             });
 
@@ -382,6 +393,16 @@ class UserController extends AsabController
             'accountant' => [
                 'scope' => 'brand',
                 'brand_ids' => $data['brands'],
+                'restaurant_ids' => [],
+                'branch_ids' => [],
+            ],
+            // A platform admin owns everything; there is nothing to assign. The
+            // tenant resolver ORs any non-empty id array regardless of the scope
+            // string, so an array left over from the wizard would NARROW an
+            // account that is supposed to be unrestricted.
+            'admin' => [
+                'scope' => 'all',
+                'brand_ids' => [],
                 'restaurant_ids' => [],
                 'branch_ids' => [],
             ],

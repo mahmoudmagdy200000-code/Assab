@@ -96,9 +96,38 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        // Exception handling configuration
-        $exceptions->render(function (\Throwable $e) {
-            // Global exception handling
+        // AsabController::run() only translates domain/validation/not-found
+        // errors; anything else — a QueryException above all — escaped to
+        // Laravel's default 500. Because no CORS headers ride on that response,
+        // the browser reports it as a failed request rather than a server error,
+        // which is why the dashboard shows «تعذر الاتصال بالخادم» for what is
+        // really an unhandled exception. Keep the API envelope for API callers.
+        // respond(), not render(): it runs on the ALREADY-RESOLVED response, so
+        // the status is the one Laravel actually decided on. Filtering by
+        // exception class instead means every framework exception that maps to a
+        // status of its own — AuthenticationException at 401 the obvious one —
+        // has to be enumerated, and the first one missed silently becomes a 500.
+        $exceptions->respond(function (\Symfony\Component\HttpFoundation\Response $response, \Throwable $e, \Illuminate\Http\Request $request) {
+            // Scoped to the ASAB dashboard surface: those routes answer in the
+            // AsabResponse envelope, which is NOT the {success,message,data}
+            // shape the legacy mobile controllers use.
+            if ($response->getStatusCode() !== 500 || ! $request->is('api/v1/*')) {
+                return $response;
+            }
+
+            return response()->json([
+                'error' => [
+                    'code' => 'SERVER_ERROR',
+                    'message' => 'An unexpected server error occurred',
+                    'messageAr' => 'حدث خطأ غير متوقع في الخادم',
+                    // Never leak the message in production: a QueryException
+                    // carries the SQL, the table names and the bound values.
+                    'details' => config('app.debug')
+                        ? ['exception' => $e::class, 'message' => $e->getMessage()]
+                        : [],
+                ],
+                'requestId' => 'req_'.\Illuminate\Support\Str::upper(\Illuminate\Support\Str::random(13)),
+            ], 500);
         });
     })
     ->withProviders([

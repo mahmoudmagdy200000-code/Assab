@@ -8,12 +8,16 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Http\Controllers\Concerns\GeneratesEmployeeNumbers;
 use Modules\Admin\Http\Controllers\Concerns\MapsAssetSpreadsheet;
 use Modules\Admin\Models\AsabBrand;
+use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\Asset;
+use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\UploadStatus;
+use Modules\Admin\Services\CashierProvisioningService;
 use Modules\Admin\Support\AssetEnums;
 use Modules\Branch\Models\Branch;
 use Modules\Purchase\Models\Item as PurchaseItem;
@@ -24,7 +28,7 @@ use Modules\Purchase\Models\Item as PurchaseItem;
  */
 class UploadController extends AsabController
 {
-    use MapsAssetSpreadsheet;
+    use GeneratesEmployeeNumbers, MapsAssetSpreadsheet;
 
     // Item templates use 'التصنيف' for the grouping column to match the mobile
     // app's item labels (client meeting: rename the 'category' field).
@@ -33,6 +37,24 @@ class UploadController extends AsabController
         'raw-materials' => ['رمز المادة', 'اسم المادة', 'التصنيف', 'وحدة القياس', 'التكلفة'],
         'suppliers' => ['رقم المورد', 'اسم المورد', 'الفئة', 'جهة الاتصال', 'شروط الدفع'],
         'fixed-assets' => ['اسم الأصل', 'الفئة', 'اسم الفرع', 'رقم الفاتورة', 'التكلفة (ر.س)', 'العمر الافتراضي (شهر)', 'أمين العهدة', 'ملاحظات'],
+        // Restored: the employees template was dropped to avoid confusion with
+        // user management, but «موظفي المطاعم» is an operational roster
+        // (asab_employees), not a set of dashboard logins — the two never met.
+        // Cashier-role rows still provision a mobile login, exactly as the
+        // one-by-one add already does.
+        'employees' => ['اسم الموظف', 'الوظيفة', 'اسم الفرع', 'رقم الجوال', 'رقم الهوية', 'الراتب الشهري (ر.س)', 'نوع الوردية', 'تاريخ التعيين'],
+    ];
+
+    /** Aliases per employees column, so a hand-made sheet still maps. */
+    private const EMPLOYEE_HEADER_ALIASES = [
+        'name' => ['اسم الموظف', 'الاسم', 'name', 'employee name'],
+        'role' => ['الوظيفة', 'الدور', 'role', 'job title'],
+        'branch' => ['اسم الفرع', 'الفرع', 'branch', 'branch name'],
+        'phone' => ['رقم الجوال', 'الجوال', 'الهاتف', 'phone', 'mobile'],
+        'nationalId' => ['رقم الهوية', 'الهوية', 'national id', 'iqama'],
+        'salary' => ['الراتب الشهري (ر.س)', 'الراتب الشهري', 'الراتب', 'salary', 'monthly salary'],
+        'shift' => ['نوع الوردية', 'الوردية', 'shift', 'shift type'],
+        'hireDate' => ['تاريخ التعيين', 'تاريخ التوظيف', 'hire date', 'joining date'],
     ];
 
     /** The client's own fixed-assets workbook; accepted alongside TEMPLATES['fixed-assets']. */
@@ -339,42 +361,255 @@ class UploadController extends AsabController
     {
         return $this->run(function () use ($brandId) {
             // Brand uploads are the only rows keyed to a brand id; branch
-            // uploads are stamped owner_type='branch' with a Branch id.
+            // uploads are stamped owner_type='branch' with a Branch id and are
+            // read back through branchStatus().
             $rows = UploadStatus::where('owner_type', 'brand')
                 ->where('owner_id', $brandId)
                 ->get();
 
-            $statuses = $rows->keyBy(fn ($s) => $s->owner_type.':'.$s->upload_type);
-            // Completion means a *successful* upload. Rows predating the status
-            // column carry a NULL status alongside a real uploaded_count.
-            $has = fn ($k) => ($s = $statuses->get($k)) !== null
-                && $s->uploaded_count > 0
-                && ($s->status ?? 'done') === 'done';
-
-            // FE completion request §1.7 (Option A) — per-upload progress for polling.
-            $uploads = $rows->map(fn (UploadStatus $s) => [
-                'type' => $s->upload_type,
-                'status' => $s->status ?? ($s->uploaded_count > 0 ? 'done' : 'queued'),
-                'progressPct' => (int) ($s->progress_pct ?? ($s->uploaded_count > 0 ? 100 : 0)),
-                'parsedRows' => (int) ($s->parsed_rows ?? $s->uploaded_count),
-                'failedRows' => (int) ($s->failed_rows ?? 0),
-                'failureReason' => $s->failure_reason,
-                'startedAt' => optional($s->started_at)->toIso8601String(),
-                'finishedAt' => optional($s->finished_at)->toIso8601String(),
-            ])->values()->all();
+            $has = $this->completedPredicate($rows);
+            // The four brand-level steps. fixed-assets used to be excluded from
+            // the denominator while still appearing in uploads[], so a brand that
+            // had uploaded its assets read as 0% credit for that step and the two
+            // fields disagreed.
+            $steps = ['sales-items', 'raw-materials', 'suppliers', 'fixed-assets'];
 
             return $this->ok([
-                'uploads' => $uploads,
+                'uploads' => $this->presentUploads($rows),
                 'shared' => [
-                    'sales' => $has('brand:sales-items'),
-                    'materials' => $has('brand:raw-materials'),
-                    'suppliers' => $has('brand:suppliers'),
+                    'sales' => $has('sales-items'),
+                    'materials' => $has('raw-materials'),
+                    'suppliers' => $has('suppliers'),
+                    'fixedAssets' => $has('fixed-assets'),
                 ],
-                'completionPct' => (int) round(
-                    collect(['brand:sales-items', 'brand:raw-materials', 'brand:suppliers'])->filter($has)->count() / 3 * 100
-                ),
+                'completionPct' => (int) round(collect($steps)->filter($has)->count() / count($steps) * 100),
             ]);
         });
+    }
+
+    /**
+     * GET /admin/branches/{branchId}/upload-status — the per-branch الأصول
+     * الثابتة column. fixedAssets() has always stamped owner_type='branch' rows,
+     * but status() hard-filters to brand rows and no branch route existed, so the
+     * data was written and unreadable: the column could never leave «لم يُرفع».
+     */
+    public function branchStatus(string $branchId): JsonResponse
+    {
+        return $this->run(function () use ($branchId) {
+            $branch = Branch::findOrFail($branchId);
+            $this->assertBranchAssigned($branch->id);
+
+            $rows = UploadStatus::where('owner_type', 'branch')
+                ->where('owner_id', $branch->id)
+                ->get();
+
+            $has = $this->completedPredicate($rows);
+
+            return $this->ok([
+                'branchId' => $branch->id,
+                'uploads' => $this->presentUploads($rows),
+                'fixedAssets' => $has('fixed-assets'),
+                'completionPct' => $has('fixed-assets') ? 100 : 0,
+            ]);
+        });
+    }
+
+    /**
+     * POST /admin/restaurants/{restaurantId}/upload/employees — the «موظفي
+     * المطاعم» roster. Deliberately per RESTAURANT: the screen states كل مطعم له
+     * قائمة موظفين مستقلة, and asab_employees is keyed to a branch, so each row's
+     * «اسم الفرع» is resolved against the branches of THIS restaurant only.
+     *
+     * These are operational employees, not dashboard logins — POST /admin/users
+     * remains the only way to create an account that can sign in. The one
+     * overlap is a cashier-role row, which provisions the same mobile login the
+     * one-by-one add already does.
+     */
+    public function employees(Request $request, CashierProvisioningService $cashiers, string $restaurantId): JsonResponse
+    {
+        return $this->run(function () use ($request, $cashiers, $restaurantId) {
+            $restaurant = AsabRestaurant::withoutGlobalScope('tenant')->findOrFail($restaurantId);
+            $this->assertBrandAssigned($restaurant->brand_id);
+            $request->validate(['file' => self::FILE_RULES]);
+            [$header, $rows] = $this->parse($request->file('file'), 'employees');
+
+            $map = $this->mapEmployeeHeaders($header);
+            // Branch names are matched inside this restaurant only, so a name
+            // that also exists under another restaurant cannot capture the row.
+            $branches = Branch::where('asab_restaurant_id', $restaurant->id)
+                ->pluck('id', 'name')
+                ->mapWithKeys(fn ($id, $name) => [$this->foldBranchName($name) => $id]);
+
+            $count = 0;
+            $errors = [];
+            $cell = fn (array $row, string $key) => isset($map[$key]) ? trim((string) ($row[$map[$key]] ?? '')) : '';
+
+            DB::transaction(function () use ($rows, $cell, $branches, $restaurant, $cashiers, &$count, &$errors) {
+                foreach ($rows as $i => $row) {
+                    try {
+                        $name = $cell($row, 'name');
+                        $role = $cell($row, 'role');
+                        if ($name === '' || $role === '') {
+                            throw new \RuntimeException('اسم الموظف والوظيفة مطلوبان');
+                        }
+
+                        $branchName = $cell($row, 'branch');
+                        $branchId = $branchName === '' ? null : $branches->get($this->foldBranchName($branchName));
+                        // Unlike the fixed-assets importer, an unmatched branch
+                        // name is reported rather than silently nulled — a roster
+                        // row landing on no branch is invisible to the branch
+                        // screens that consume it.
+                        if ($branchName !== '' && $branchId === null) {
+                            throw new \RuntimeException("لا يوجد فرع باسم «{$branchName}» ضمن هذا المطعم");
+                        }
+
+                        $this->importEmployeeRow($restaurant, $branchId, $cashiers, [
+                            'name' => $name,
+                            'role' => $role,
+                            'phone' => $cell($row, 'phone') ?: null,
+                            'nationalId' => $cell($row, 'nationalId') ?: null,
+                            'salary' => $cell($row, 'salary'),
+                            'shift' => $cell($row, 'shift') ?: null,
+                            'hireDate' => $cell($row, 'hireDate') ?: null,
+                        ]);
+                        $count++;
+                    } catch (\Throwable $e) {
+                        $errors[] = ['row' => $i + 2, 'message' => $e->getMessage()];
+                    }
+                }
+            });
+
+            $this->stampStatus('restaurant', $restaurant->id, 'employees', $count, $request, $errors);
+
+            return $this->ok(['employeeCount' => $count, 'errors' => $errors]);
+        });
+    }
+
+    /**
+     * GET /admin/restaurants/{restaurantId}/upload-status — feeds the «حالة
+     * الرفع» column on the موظفي المطاعم table.
+     */
+    public function restaurantStatus(string $restaurantId): JsonResponse
+    {
+        return $this->run(function () use ($restaurantId) {
+            $restaurant = AsabRestaurant::withoutGlobalScope('tenant')->findOrFail($restaurantId);
+            $this->assertBrandAssigned($restaurant->brand_id);
+
+            $rows = UploadStatus::where('owner_type', 'restaurant')
+                ->where('owner_id', $restaurant->id)
+                ->get();
+
+            $has = $this->completedPredicate($rows);
+
+            return $this->ok([
+                'restaurantId' => $restaurant->id,
+                'uploads' => $this->presentUploads($rows),
+                'employees' => $has('employees'),
+                'completionPct' => $has('employees') ? 100 : 0,
+            ]);
+        });
+    }
+
+    /**
+     * Case/whitespace-insensitive branch-name key. Arabic sheets routinely carry
+     * a trailing space or a doubled inner space that an exact match would miss.
+     */
+    private function foldBranchName(?string $name): string
+    {
+        return mb_strtolower(trim(preg_replace('/\s+/u', ' ', (string) $name)));
+    }
+
+    /** @param  array<string, string|null>  $data */
+    private function importEmployeeRow(AsabRestaurant $restaurant, ?string $branchId, CashierProvisioningService $cashiers, array $data): void
+    {
+        $employee = Employee::create([
+            'company_id' => $restaurant->company_id,
+            'branch_id' => $branchId,
+            'emp_number' => $this->nextEmpNumber($restaurant->company_id),
+            'name' => $data['name'],
+            'phone' => $data['phone'],
+            'national_id' => $data['nationalId'],
+            'role' => $data['role'],
+            // Halalas, matching POST /company/me/branch/employees. Sheets are
+            // written in riyals, so the template header says (ر.س) and the value
+            // is scaled here rather than storing two different units.
+            'monthly_salary' => (int) round(((float) str_replace(',', '', (string) $data['salary'])) * 100),
+            'shift_type' => $data['shift'],
+            'hire_date' => $data['hireDate'] ? \Illuminate\Support\Carbon::parse($data['hireDate']) : now(),
+            'status' => 'active',
+        ]);
+
+        // Cashier-role employees also get a mobile-app login (WS2 bridge) —
+        // same rule as the one-by-one add, or an imported cashier could never
+        // open a shift.
+        if ($branchId !== null && $cashiers->isCashierRole($data['role'])) {
+            $provision = $cashiers->provision(
+                $branchId, $restaurant->company_id, $data['name'], null, $data['phone'], $employee->id,
+            );
+            if ($provision['cashierId'] ?? null) {
+                $employee->forceFill(['legacy_cashier_id' => $provision['cashierId']])->save();
+            }
+        }
+    }
+
+    /**
+     * Resolve employee columns by alias, returning header-name => column index.
+     *
+     * @param  array<int, string>  $header
+     * @return array<string, int>
+     */
+    private function mapEmployeeHeaders(array $header): array
+    {
+        $normalized = array_map(fn (string $h) => mb_strtolower(trim(preg_replace('/\s+/u', ' ', $h))), $header);
+        $map = [];
+
+        foreach (self::EMPLOYEE_HEADER_ALIASES as $key => $aliases) {
+            foreach ($aliases as $alias) {
+                $index = array_search(mb_strtolower($alias), $normalized, true);
+                if ($index !== false) {
+                    $map[$key] = $index;
+                    break;
+                }
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * Completion means a *successful* upload. Rows predating the status column
+     * carry a NULL status alongside a real uploaded_count, so NULL reads as done.
+     *
+     * @param  \Illuminate\Support\Collection<int, UploadStatus>  $rows
+     * @return callable(string): bool
+     */
+    private function completedPredicate($rows): callable
+    {
+        $byType = $rows->keyBy->upload_type;
+
+        return fn (string $type) => ($s = $byType->get($type)) !== null
+            && $s->uploaded_count > 0
+            && ($s->status ?? 'done') === 'done';
+    }
+
+    /**
+     * FE completion request §1.7 (Option A) — per-upload progress for polling.
+     *
+     * @param  \Illuminate\Support\Collection<int, UploadStatus>  $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function presentUploads($rows): array
+    {
+        return $rows->map(fn (UploadStatus $s) => [
+            'type' => $s->upload_type,
+            'status' => $s->status ?? ($s->uploaded_count > 0 ? 'done' : 'queued'),
+            'progressPct' => (int) ($s->progress_pct ?? ($s->uploaded_count > 0 ? 100 : 0)),
+            'parsedRows' => (int) ($s->parsed_rows ?? $s->uploaded_count),
+            'failedRows' => (int) ($s->failed_rows ?? 0),
+            'failureReason' => $s->failure_reason,
+            'startedAt' => optional($s->started_at)->toIso8601String(),
+            'finishedAt' => optional($s->finished_at)->toIso8601String(),
+        ])->values()->all();
     }
 
     /**
@@ -451,6 +686,18 @@ class UploadController extends AsabController
             // the one column neither of them can omit.
             if (! isset($this->mapAssetHeaders($header)['name'])) {
                 throw $this->headerMismatch($header, self::TEMPLATES[$type], self::FIXED_ASSETS_EN_TEMPLATE);
+            }
+
+            return;
+        }
+
+        if ($type === 'employees') {
+            // Alias-mapped like fixed-assets: rosters arrive as the client's own
+            // sheet at least as often as the template. Name and role are the two
+            // columns a row cannot be created without.
+            $map = $this->mapEmployeeHeaders($header);
+            if (! isset($map['name'], $map['role'])) {
+                throw $this->headerMismatch($header, self::TEMPLATES[$type]);
             }
 
             return;
