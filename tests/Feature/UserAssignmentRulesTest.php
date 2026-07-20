@@ -105,6 +105,10 @@ class UserAssignmentRulesTest extends TestCase
 
         $res = $this->actingAs($this->admin, 'sanctum')
             ->postJson('/api/v1/admin/users', $this->userPayload('branch', [
+                // Required in practice: BranchManagerProvisioner fails closed
+                // (BRANCH_NOT_IN_COMPANY) when the user has no company to own
+                // the branch, even though the rule says companyId is nullable.
+                'companyId' => $this->company->id,
                 'branches' => [$b1->id],
                 'scope' => 'all', // must be overridden
             ]));
@@ -112,6 +116,30 @@ class UserAssignmentRulesTest extends TestCase
         $res->assertStatus(201)
             ->assertJsonPath('scope', 'branch')
             ->assertJsonPath('branches', [$b1->id]);
+    }
+
+    public function test_branch_manager_creation_without_a_company_is_rejected(): void
+    {
+        $b1 = $this->branchFixture();
+
+        $res = $this->actingAs($this->admin, 'sanctum')
+            ->postJson('/api/v1/admin/users', $this->userPayload('branch', ['branches' => [$b1->id]]));
+
+        $res->assertStatus(422)->assertJsonPath('error.code', 'BRANCH_NOT_IN_COMPANY');
+    }
+
+    public function test_branch_manager_creation_rejects_a_branch_from_another_company(): void
+    {
+        $otherCompany = AsabCompany::create(['name' => 'Other Co', 'plan' => 'Professional', 'status' => 'active']);
+        $b1 = $this->branchFixture();
+
+        $res = $this->actingAs($this->admin, 'sanctum')
+            ->postJson('/api/v1/admin/users', $this->userPayload('branch', [
+                'companyId' => $otherCompany->id,
+                'branches' => [$b1->id],
+            ]));
+
+        $res->assertStatus(422)->assertJsonPath('error.code', 'BRANCH_NOT_IN_COMPANY');
     }
 
     public function test_accountant_creation_without_brands_is_rejected(): void
@@ -130,7 +158,6 @@ class UserAssignmentRulesTest extends TestCase
             ->postJson('/api/v1/admin/users', $this->userPayload('accountant', [
                 'brands' => [$this->brand->id],
                 'branches' => [$b1->id],
-                'restaurants' => [$this->restaurant->id],
             ]));
 
         $res->assertStatus(201)
@@ -144,12 +171,65 @@ class UserAssignmentRulesTest extends TestCase
         $this->assertSame([$this->brand->id], $assignment->brand_ids);
     }
 
+    /**
+     * The scope was always forced to brand; the restaurants array was accepted
+     * and dropped, so the 201 echoed "restaurants": [] and read as saved.
+     */
+    public function test_accountant_creation_with_restaurants_is_rejected(): void
+    {
+        $res = $this->actingAs($this->admin, 'sanctum')
+            ->postJson('/api/v1/admin/users', $this->userPayload('accountant', [
+                'brands' => [$this->brand->id],
+                'restaurants' => [$this->restaurant->id],
+            ]));
+
+        $res->assertStatus(422)
+            ->assertJsonPath('error.code', 'VALIDATION_ERROR')
+            ->assertJsonStructure(['error' => ['details' => ['restaurants']]]);
+    }
+
+    public function test_accountant_creation_with_non_brand_scope_is_rejected(): void
+    {
+        $res = $this->actingAs($this->admin, 'sanctum')
+            ->postJson('/api/v1/admin/users', $this->userPayload('accountant', [
+                'brands' => [$this->brand->id],
+                'scope' => 'restaurant',
+            ]));
+
+        $res->assertStatus(422)->assertJsonPath('error.code', 'VALIDATION_ERROR');
+    }
+
+    /** `prohibited` permits an empty value — the FE sends [] for unused pickers. */
+    public function test_accountant_creation_tolerates_empty_restaurants_array(): void
+    {
+        $res = $this->actingAs($this->admin, 'sanctum')
+            ->postJson('/api/v1/admin/users', $this->userPayload('accountant', [
+                'brands' => [$this->brand->id],
+                'restaurants' => [],
+            ]));
+
+        $res->assertStatus(201)->assertJsonPath('scope', 'brand');
+    }
+
+    public function test_update_accountant_with_restaurants_is_rejected(): void
+    {
+        $acc = $this->makeAsabUser('accountant', 'acc-rest@rules.test', [
+            'scope' => 'brand', 'brand_ids' => [$this->brand->id],
+        ]);
+
+        $res = $this->actingAs($this->admin, 'sanctum')
+            ->patchJson("/api/v1/admin/users/{$acc->id}", ['restaurants' => [$this->restaurant->id]]);
+
+        $res->assertStatus(422)->assertJsonPath('error.code', 'VALIDATION_ERROR');
+    }
+
     public function test_branch_manager_creation_ignores_brand_and_restaurant_ids(): void
     {
         $b1 = $this->branchFixture();
 
         $res = $this->actingAs($this->admin, 'sanctum')
             ->postJson('/api/v1/admin/users', $this->userPayload('branch', [
+                'companyId' => $this->company->id,
                 'branches' => [$b1->id],
                 'brands' => [$this->brand->id],
                 'restaurants' => [$this->restaurant->id],
@@ -164,6 +244,51 @@ class UserAssignmentRulesTest extends TestCase
         $assignment = AsabUserRole::where('user_id', $res->json('id'))->firstOrFail();
         $this->assertSame([], $assignment->brand_ids);
         $this->assertSame([], $assignment->restaurant_ids);
+    }
+
+    // ---- reportsTo: uuid of an existing user, never a display name ----
+
+    /**
+     * reports_to_id is a uuid column with no FK. A display name used to be
+     * written straight through, leaving an unresolvable head reference.
+     */
+    public function test_reports_to_rejects_a_display_name(): void
+    {
+        $res = $this->actingAs($this->admin, 'sanctum')
+            ->postJson('/api/v1/admin/users', $this->userPayload('head', ['reportsTo' => 'Mohammed Ali']));
+
+        $res->assertStatus(422)
+            ->assertJsonPath('error.code', 'VALIDATION_ERROR')
+            ->assertJsonStructure(['error' => ['details' => ['reportsTo']]]);
+    }
+
+    public function test_reports_to_rejects_unknown_user_id(): void
+    {
+        $res = $this->actingAs($this->admin, 'sanctum')
+            ->postJson('/api/v1/admin/users', $this->userPayload('head', [
+                'reportsTo' => '00000000-0000-4000-8000-000000000000',
+            ]));
+
+        $res->assertStatus(422)->assertJsonPath('error.code', 'VALIDATION_ERROR');
+    }
+
+    public function test_reports_to_accepts_head_id_and_is_returned_with_name(): void
+    {
+        $head = $this->makeAsabUser('head', 'head-rt@rules.test');
+
+        $create = $this->actingAs($this->admin, 'sanctum')
+            ->postJson('/api/v1/admin/users', $this->userPayload('accountant', [
+                'brands' => [$this->brand->id],
+                'reportsTo' => $head->id,
+            ]));
+
+        $create->assertStatus(201)
+            ->assertJsonPath('reportsTo.id', $head->id)
+            ->assertJsonPath('reportsTo.name', $head->name);
+
+        $index = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/v1/admin/users?search=head-rt@rules.test');
+        $index->assertStatus(200)->assertJsonPath('data.0.reportsTo', null);
     }
 
     public function test_admin_creation_keeps_default_all_scope(): void

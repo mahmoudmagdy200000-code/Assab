@@ -3,6 +3,7 @@
 namespace Modules\Admin\Services;
 
 use Illuminate\Support\Facades\Log;
+use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\AsabIdentityMap;
 use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\AsabUser;
@@ -20,6 +21,13 @@ class IdentityMapService
     /**
      * Upsert a link, keyed on (entity_type, dashboard_id) so re-provisioning the
      * same dashboard entity updates rather than duplicates.
+     *
+     * @throws AsabException IDENTITY_LINK_CONFLICT when a live row already links
+     *                       this legacy record to a different dashboard entity.
+     *                       Callers that can present a better message (the
+     *                       provisioners) check legacyClaimedByOther first; this
+     *                       is the backstop that keeps the unique index from
+     *                       escaping as a bare 500.
      */
     public function link(
         string $entityType,
@@ -32,19 +40,66 @@ class IdentityMapService
         ?string $email = null,
         string $source = 'provisioning',
     ): AsabIdentityMap {
-        return AsabIdentityMap::updateOrCreate(
-            ['entity_type' => $entityType, 'dashboard_id' => $dashboardId],
-            [
-                'company_id' => $companyId,
-                'dashboard_type' => $dashboardType,
-                'legacy_type' => $legacyType,
-                'legacy_id' => $legacyId,
-                'match_method' => $matchMethod,
-                'linked_email' => $email,
-                'source' => $source,
-                'linked_at' => now(),
-            ],
-        );
+        // Neither unique index carries deleted_at, so a soft-deleted row still
+        // owns its slot while updateOrCreate — which cannot see it — inserts
+        // straight into the index and surfaces as a 500. Clear the dead claim on
+        // (entity_type, legacy_id) first; a LIVE claim by another dashboard
+        // entity is a real conflict and becomes a 422 below rather than a 500.
+        AsabIdentityMap::onlyTrashed()
+            ->where('entity_type', $entityType)
+            ->where('legacy_id', $legacyId)
+            ->where('dashboard_id', '!=', $dashboardId)
+            ->forceDelete();
+
+        if ($this->legacyClaimedByOther($entityType, $legacyId, $dashboardId)) {
+            throw new AsabException(
+                'IDENTITY_LINK_CONFLICT',
+                'This legacy record is already linked to a different dashboard entity',
+                'هذا السجل مرتبط بالفعل بحساب آخر في لوحة التحكم',
+                422,
+            );
+        }
+
+        $existing = AsabIdentityMap::withTrashed()
+            ->where('entity_type', $entityType)
+            ->where('dashboard_id', $dashboardId)
+            ->first();
+
+        $attributes = [
+            'company_id' => $companyId,
+            'dashboard_type' => $dashboardType,
+            'dashboard_id' => $dashboardId,
+            'legacy_type' => $legacyType,
+            'legacy_id' => $legacyId,
+            'match_method' => $matchMethod,
+            'linked_email' => $email,
+            'source' => $source,
+            'linked_at' => now(),
+        ];
+
+        if ($existing === null) {
+            return AsabIdentityMap::create($attributes + ['entity_type' => $entityType]);
+        }
+
+        if ($existing->trashed()) {
+            $existing->restore();
+        }
+
+        $existing->forceFill($attributes)->save();
+
+        return $existing;
+    }
+
+    /**
+     * Drop every link a dashboard entity holds, so deleting and re-creating the
+     * user does not leave an orphan claiming its legacy row — which the
+     * provisioners' assertUnclaimed guards would then reject as ambiguous.
+     * forceDelete, not delete: the unique indexes ignore deleted_at, so a
+     * soft-deleted row still blocks the slot it is meant to release.
+     */
+    public function releaseDashboard(string $dashboardId): void
+    {
+        AsabIdentityMap::withTrashed()->where('dashboard_id', $dashboardId)->forceDelete();
     }
 
     public function linkCashier(string $employeeId, string $cashierId, ?string $companyId, ?string $email, string $source = 'provisioning'): void

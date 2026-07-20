@@ -6,12 +6,14 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Notifications\UserPasswordResetNotification;
 use Modules\Admin\Services\CredentialMailer;
 use Modules\Admin\Services\CredentialSyncService;
+use Modules\Admin\Services\IdentityMapService;
 use Modules\Admin\Services\Provisioning\LegacyProvisionerRegistry;
 
 class UserController extends AsabController
@@ -22,17 +24,30 @@ class UserController extends AsabController
         'brand-owner' => 'مالك العلامة التجارية',
     ];
 
+    /**
+     * Why an accountant's restaurants/scope are refused here rather than dropped.
+     * `prohibited` still permits an absent or EMPTY value, so a client sending
+     * `restaurants: []` is unaffected — only a non-empty assignment 422s.
+     */
+    private const ACCOUNTANT_SCOPE_MESSAGES = [
+        'restaurants.prohibited' => 'An accountant is assigned at brand level. Assign restaurants via PATCH /admin/accountants/{id}/assignments.',
+        'scope.prohibited' => "An accountant's scope is always 'brand'.",
+    ];
+
     public function __construct(
         private readonly CredentialMailer $mailer,
         private readonly CredentialSyncService $credentials,
         private readonly LegacyProvisionerRegistry $provisioners,
+        private readonly IdentityMapService $identity,
     ) {}
 
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
             $perPage = min((int) $request->query('pageSize', 20), 100);
-            $q = AsabUser::query()->with('roleAssignments');
+            // reportsTo is presented as {id, name}; without the eager load that
+            // is one extra query per row.
+            $q = AsabUser::query()->with(['roleAssignments', 'reportsTo:id,name']);
 
             if ($search = $request->query('search')) {
                 $q->where(fn ($w) => $w->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%"));
@@ -71,7 +86,10 @@ class UserController extends AsabController
                 'branches' => 'nullable|array',
                 'modules' => 'nullable|array',
                 'scope' => 'nullable|in:all,brand,restaurant,branch',
-                'reportsTo' => 'nullable|string',
+                // asab_users.reports_to_id is a uuid column with no FK, so this
+                // rule is the only thing between a display name typed by the
+                // client and a permanently unresolvable head reference.
+                'reportsTo' => ['nullable', 'uuid', Rule::exists('asab_users', 'id')->whereNull('deleted_at')],
                 'status' => 'nullable|in:active,inactive',
                 'sendLoginEmail' => 'sometimes|boolean',
             ];
@@ -83,15 +101,28 @@ class UserController extends AsabController
                 // branch_managers.branch_id is a real FK from here on: an id that
                 // does not exist would surface as a 500 rather than a 422.
                 $rules['branches.*'] = 'uuid|exists:branches,id';
+                // companyId is de-facto required here — BranchManagerProvisioner
+                // fails closed on a companyless user — but it stays out of the
+                // rules on purpose: the published contract says that case answers
+                // BRANCH_NOT_IN_COMPANY, and a `required` rule would silently
+                // switch the code to VALIDATION_ERROR. The provisioner names the
+                // field in error.details instead.
             } elseif ($role === 'accountant') {
                 $rules['brands'] = 'required|array|min:1';
+                // assignmentAttributes() hard-forces scope=brand and zeroes
+                // restaurant_ids, so accepting these returned a 201 echoing
+                // "restaurants": [] that read as saved. Reject instead —
+                // restaurant scope belongs to the distribution screen
+                // (PATCH /admin/accountants/{id}/assignments).
+                $rules['restaurants'] = 'prohibited';
+                $rules['scope'] = 'prohibited';
             } elseif ($role === 'supplier') {
                 // Names WHICH supplier this login owns. Required so an admin can
                 // never blind-reset an unrelated mobile account by typing an
                 // email that happens to collide.
                 $rules['supplierId'] = 'required|uuid|exists:asab_suppliers,id';
             }
-            $data = $request->validate($rules);
+            $data = $request->validate($rules, self::ACCOUNTANT_SCOPE_MESSAGES);
 
             // One temporary password: used for the account and (optionally) emailed
             // so the user can sign in (Admin dashboard batch 1, Part B).
@@ -130,7 +161,7 @@ class UserController extends AsabController
                 ? $this->emailTemporaryPassword($user, $temporaryPassword)
                 : false;
 
-            return $this->created($this->present($user->load('roleAssignments')) + ['emailSent' => $emailSent]);
+            return $this->created($this->present($user->load(['roleAssignments', 'reportsTo:id,name'])) + ['emailSent' => $emailSent]);
         });
     }
 
@@ -181,7 +212,9 @@ class UserController extends AsabController
                 'name' => 'sometimes|string|max:200',
                 'phone' => 'sometimes|string|max:32',
                 'status' => 'sometimes|in:active,inactive',
-                'reportsTo' => 'sometimes|string',
+                // nullable: array_filter() below already makes an explicit null a
+                // no-op, so keep that contract rather than 422-ing on it.
+                'reportsTo' => ['sometimes', 'nullable', 'uuid', Rule::exists('asab_users', 'id')->whereNull('deleted_at')],
                 'brands' => 'sometimes|array',
                 'restaurants' => 'sometimes|array',
                 'branches' => 'sometimes|array',
@@ -192,8 +225,12 @@ class UserController extends AsabController
                 $rules['branches'] = 'sometimes|array|size:1';
             } elseif ($roleKey === 'accountant') {
                 $rules['brands'] = 'sometimes|array|min:1';
+                // Same contract as store(): brand-level here, restaurants via
+                // the distribution endpoints.
+                $rules['restaurants'] = 'prohibited';
+                $rules['scope'] = 'prohibited';
             }
-            $data = $request->validate($rules);
+            $data = $request->validate($rules, self::ACCOUNTANT_SCOPE_MESSAGES);
 
             DB::transaction(function () use ($user, $assignment, $roleKey, $data) {
                 $user->update(array_filter([
@@ -208,7 +245,7 @@ class UserController extends AsabController
                 }
             });
 
-            return $this->ok($this->present($user->fresh('roleAssignments')));
+            return $this->ok($this->present($user->fresh(['roleAssignments', 'reportsTo:id,name'])));
         });
     }
 
@@ -221,6 +258,9 @@ class UserController extends AsabController
                 // Removing the dashboard user must also close the mobile login
                 // it provisioned; asab_users alone cannot reach the legacy guards.
                 $this->credentials->disableOnMobile($user);
+                // ...and drop its identity links, or the legacy row stays claimed
+                // by a deleted user and re-creating the account 422s as ambiguous.
+                $this->identity->releaseDashboard($user->id);
                 $user->delete();
             });
 
@@ -326,15 +366,20 @@ class UserController extends AsabController
                 }
             });
 
-            return $this->ok($this->present($user->load('roleAssignments')));
+            return $this->ok($this->present($user->load(['roleAssignments', 'reportsTo:id,name'])));
         });
     }
 
     /**
      * Role-forced assignment scope (client meeting): a branch manager runs
      * exactly ONE branch (scope=branch); an accountant is assigned at BRAND
-     * level (scope=brand, branch/restaurant ids ignored). Other roles keep
-     * the payload as-is (admin/head default scope 'all').
+     * level (scope=brand). Other roles keep the payload as-is (admin/head
+     * default scope 'all').
+     *
+     * The zeroed arrays below stay as defence even though the callers now 422
+     * on a non-empty accountant `restaurants`: the tenant resolver ORs every
+     * non-empty id array regardless of the scope string, so a stale array left
+     * behind would silently widen access.
      */
     private function assignmentAttributes(string $role, array $data): array
     {
@@ -348,6 +393,16 @@ class UserController extends AsabController
             'accountant' => [
                 'scope' => 'brand',
                 'brand_ids' => $data['brands'],
+                'restaurant_ids' => [],
+                'branch_ids' => [],
+            ],
+            // A platform admin owns everything; there is nothing to assign. The
+            // tenant resolver ORs any non-empty id array regardless of the scope
+            // string, so an array left over from the wizard would NARROW an
+            // account that is supposed to be unrestricted.
+            'admin' => [
+                'scope' => 'all',
+                'brand_ids' => [],
                 'restaurant_ids' => [],
                 'branch_ids' => [],
             ],
@@ -425,7 +480,9 @@ class UserController extends AsabController
             'branches' => $assignment->branch_ids ?? [],
             'modules' => $assignment->module_keys ?? [],
             'scope' => $assignment->scope ?? 'all',
-            'reportsTo' => $u->reports_to_id,
+            // {id, name} rather than the bare uuid: every consumer of this field
+            // renders the head's name, and the uuid alone forced a second lookup.
+            'reportsTo' => $u->reportsTo ? ['id' => $u->reportsTo->id, 'name' => $u->reportsTo->name] : null,
             'status' => $u->status,
             'lastLoginAt' => optional($u->last_login_at)->toIso8601String(),
             'createdAt' => optional($u->created_at)->toIso8601String(),
