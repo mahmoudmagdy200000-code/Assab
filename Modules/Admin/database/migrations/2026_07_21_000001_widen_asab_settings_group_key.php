@@ -30,8 +30,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('asab_settings', function (Blueprint $t) {
-            $t->string('group_key', 32)->change();
-        });
+        // No-op: shrinking back to 32 would truncate every existing
+        // `branch:<uuid>` row (and any other key that only fits in 64).
     }
 };
