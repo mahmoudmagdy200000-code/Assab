@@ -7,7 +7,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\Employee;
-use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\SupplierRequest;
 use Modules\Admin\Services\BranchOverviewService;
 use Modules\Admin\Services\CashierProvisioningService;
@@ -27,6 +26,7 @@ class BranchDashboardController extends AsabController
         private readonly ExpenseInvoiceService $invoices,
         private readonly BranchOverviewService $overviewService,
         private readonly OperationAttachmentService $attachments,
+        private readonly \Modules\Admin\Services\BranchDailyReportsService $dailyReports,
     ) {}
 
     public function overview(Request $request): JsonResponse
@@ -41,7 +41,10 @@ class BranchDashboardController extends AsabController
         return $this->run(function () use ($request) {
             $branchId = $this->branchId($request);
 
-            return $this->ok(['date' => today()->toIso8601String(), 'reports' => $this->requiredReports($branchId)]);
+            return $this->ok([
+                'date' => today()->toDateString(),
+                'reports' => $this->dailyReports->reports($branchId),
+            ]);
         });
     }
 
@@ -51,6 +54,8 @@ class BranchDashboardController extends AsabController
             $moduleMap = [
                 'sales' => 'sales', 'inventory' => 'inventory', 'cash' => 'cash',
                 'waste' => 'waste', 'purchases' => 'purchases', 'expenses' => 'expenses',
+                // The evening-close report (BRM checklist) rides the shifts module.
+                'shift-close' => 'shifts',
             ];
             if (! isset($moduleMap[$reportType])) {
                 return $this->fail('INVALID_INPUT', 'Unknown report type', 'نوع تقرير غير معروف', [], 400);
@@ -277,40 +282,7 @@ class BranchDashboardController extends AsabController
 
     public function settings(Request $request): JsonResponse
     {
-        return $this->run(function () use ($request) {
-            $branchId = $this->branchId($request);
-            $row = \Modules\Admin\Models\Setting::where('company_id', $request->user()->company_id)
-                ->where('group_key', 'branch:'.$branchId)->first();
-
-            $payload = $row->payload ?? [
-                'workingHours' => ['open' => '08:00', 'close' => '23:00'],
-                'autoCloseShift' => false,
-                'cashAlertThreshold' => 0,
-            ];
-
-            // Branch identity comes from the admin-maintained Branch record and
-            // is read-only for this role (client requirement §6.4).
-            $branch = \Modules\Branch\Models\Branch::whereKey($branchId)
-                ->where('asab_company_id', $request->user()->company_id)->first();
-            $payload['branchName'] = $branch->name ?? null;
-            $payload['phone'] = $branch->phone ?? null;
-            $payload['address'] = $branch->address ?? null;
-            $payload['readOnlyFields'] = ['branchName', 'phone', 'address'];
-
-            // Read-only view of the admin-set shift configuration (client
-            // requirement §6.4: branch managers see timings, never edit them).
-            $brandId = $branch->asab_brand_id ?? null;
-            $cfg = $brandId ? \Modules\Admin\Models\BrandShiftConfig::where('brand_id', $brandId)->first() : null;
-            $payload['shiftConfig'] = $cfg ? [
-                'numShifts' => $cfg->num_shifts,
-                'durationHours' => $cfg->duration_hours,
-                'firstStart' => $cfg->first_shift_start,
-                'shifts' => $cfg->shifts,
-                'readOnly' => true,
-            ] : null;
-
-            return $this->ok($payload);
-        });
+        return $this->run(fn () => $this->ok($this->settingsPayload($request)));
     }
 
     public function updateSettings(Request $request): JsonResponse
@@ -355,13 +327,67 @@ class BranchDashboardController extends AsabController
             // Admin-owned branch identity never lives in this payload.
             unset($payload['branchName'], $payload['phone'], $payload['address'], $payload['readOnlyFields']);
 
-            $row = \Modules\Admin\Models\Setting::updateOrCreate(
+            \Modules\Admin\Models\Setting::updateOrCreate(
                 ['company_id' => $request->user()->company_id, 'group_key' => 'branch:'.$this->branchId($request)],
                 ['payload' => $payload],
             );
 
-            return $this->ok($row->payload);
+            // Serve the same fully-populated shape as the GET so the FE can
+            // rehydrate its form from the response without a second round-trip.
+            return $this->ok($this->settingsPayload($request));
         });
+    }
+
+    /**
+     * Fully-populated branch-settings shape (FE branch-manager wizard §4.2).
+     * Locked identity + admin-set shift config come from the Branch/brand
+     * records; editable prefs come from the stored Setting payload, each with a
+     * sensible default so the FE always receives every field on every GET.
+     */
+    private function settingsPayload(Request $request): array
+    {
+        $branchId = $this->branchId($request);
+        $companyId = $request->user()->company_id;
+
+        $stored = \Modules\Admin\Models\Setting::where('company_id', $companyId)
+            ->where('group_key', 'branch:'.$branchId)->first()->payload ?? [];
+
+        // Branch identity + working hours: admin-maintained, read-only here.
+        $branch = \Modules\Branch\Models\Branch::whereKey($branchId)
+            ->where('asab_company_id', $companyId)->first();
+
+        // Admin-set shift configuration (read-only mirror for this role).
+        $brandId = $branch?->asab_brand_id;
+        $cfg = $brandId ? \Modules\Admin\Models\BrandShiftConfig::where('brand_id', $brandId)->first() : null;
+
+        return [
+            // Locked identity (admin-owned) — mirrored, never edited here.
+            'branchName' => $branch?->name,
+            'phone' => $branch?->phone,
+            'address' => $branch?->address,
+            // Editable prefs (stored value → sensible default).
+            'manager' => $stored['manager'] ?? $branch?->manager,
+            'taxNumber' => $stored['taxNumber'] ?? null,
+            'bankAccount' => $stored['bankAccount'] ?? null,
+            'cashLimitHalalas' => isset($stored['cashLimitHalalas']) ? (int) $stored['cashLimitHalalas'] : null,
+            'wasteThreshold' => $stored['wasteThreshold'] ?? null,
+            'autoReminders' => (bool) ($stored['autoReminders'] ?? true),
+            'requireImages' => (bool) ($stored['requireImages'] ?? true),
+            // Admin/shift-derived, read-only.
+            'workingHours' => [
+                'open' => $stored['workingHours']['open'] ?? $stored['openTime'] ?? $branch?->opening_hours?->format('H:i') ?? '08:00',
+                'close' => $stored['workingHours']['close'] ?? $stored['closeTime'] ?? $branch?->closing_hours?->format('H:i') ?? '23:00',
+            ],
+            'shiftDurationHours' => $cfg?->duration_hours ?? ($stored['shiftDurationHours'] ?? null),
+            'readOnlyFields' => ['branchName', 'phone', 'address'],
+            'shiftConfig' => $cfg ? [
+                'numShifts' => $cfg->num_shifts,
+                'durationHours' => $cfg->duration_hours,
+                'firstStart' => $cfg->first_shift_start,
+                'shifts' => $cfg->shifts,
+                'readOnly' => true,
+            ] : ['readOnly' => true],
+        ];
     }
 
     public function confirmAsset(Request $request, string $id): JsonResponse
@@ -425,31 +451,5 @@ class BranchDashboardController extends AsabController
         }
 
         return $ctx->branchIds[0] ?? null;
-    }
-
-    private function requiredReports(?string $branchId): array
-    {
-        $types = [
-            ['id' => 'sales', 'name' => 'تقرير المبيعات', 'module' => 'sales'],
-            ['id' => 'inventory', 'name' => 'جرد المخزون اليومي', 'module' => 'inventory'],
-            ['id' => 'cash', 'name' => 'تقرير النقدية', 'module' => 'cash'],
-            ['id' => 'waste', 'name' => 'تقرير الهدر', 'module' => 'waste'],
-            ['id' => 'purchases', 'name' => 'المشتريات', 'module' => 'purchases'],
-            ['id' => 'expenses', 'name' => 'المصروفات', 'module' => 'expenses'],
-        ];
-
-        return array_map(function ($t) use ($branchId) {
-            $uploaded = Operation::where('branch_id', $branchId)
-                ->where('module_key', $t['module'])
-                ->whereDate('operation_date', today())->exists();
-
-            return [
-                'id' => $t['id'],
-                'name' => $t['name'],
-                'required' => true,
-                'uploadedToday' => $uploaded,
-                'lastStatus' => $uploaded ? 'success' : 'missing',
-            ];
-        }, $types);
     }
 }

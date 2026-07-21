@@ -801,6 +801,7 @@ Route::prefix('v1')->group(function () {
                 // Branch Manager (§5.4)
                 Route::middleware('asab.role:branch')->prefix('branch')->group(function () {
                     Route::get('overview', [BranchDashboardController::class, 'overview']);
+                    Route::get('upload/status', [BranchDashboardController::class, 'uploadStatus']);
                     Route::post('upload/sign-attachment', [UploadController::class, 'presignedUrl']);
                     Route::post('upload', [BranchCompanyController::class, 'upload']);
                     Route::get('employees', [BranchDashboardController::class, 'employees']);

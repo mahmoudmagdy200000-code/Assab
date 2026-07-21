@@ -48,6 +48,16 @@ class OperationService
             'عملية بانتظار الاعتماد النهائي', $fresh->public_id.' — '.$fresh->module_key,
             null, ['type' => 'operation', 'id' => $fresh->id],
         );
+        // Reverse leg of branch → accountant → head: tell the branch manager who
+        // uploaded it that their report cleared review (their upload/status chip
+        // flips to «success»). Mirrors the reject path, which already notifies.
+        if ($fresh->submitted_by_id) {
+            $this->notifications->push(
+                $fresh->submitted_by_id, 'operation.approved',
+                'تم قبول تقريرك', $fresh->public_id.' — '.$fresh->module_key,
+                null, ['type' => 'operation', 'id' => $fresh->id],
+            );
+        }
 
         return $fresh;
     }

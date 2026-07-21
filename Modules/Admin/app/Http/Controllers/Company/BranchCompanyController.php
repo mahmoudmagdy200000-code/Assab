@@ -33,6 +33,7 @@ class BranchCompanyController extends AsabController
         private readonly RealtimeBroadcaster $rt,
         private readonly CashierProvisioningService $cashiers,
         private readonly OperationAttachmentService $attachments,
+        private readonly \Modules\Admin\Services\BranchDailyReportsService $dailyReports,
     ) {}
 
     /** Resolve the branch the current branch-manager owns. */
@@ -84,7 +85,9 @@ class BranchCompanyController extends AsabController
     /** Flat doc-body branch of upload(): one typed report + multipart attachments. */
     private function uploadFlat(Request $request, ?string $branchId, string $reportType): JsonResponse
     {
-        $allowed = ['sales', 'inventory', 'cash', 'waste', 'purchases', 'expenses'];
+        // The checklist reportTypes (incl. shift-close → shifts) plus the legacy
+        // wider set the platform surface already accepts.
+        $allowed = ['sales', 'inventory', 'cash', 'waste', 'purchases', 'expenses', 'shift-close'];
         $request->validate([
             'reportType' => 'required|in:'.implode(',', $allowed),
             'date' => 'sometimes|nullable|date',
@@ -96,9 +99,19 @@ class BranchCompanyController extends AsabController
             'attachments.*' => 'file|max:10240',
         ]);
 
+        // A sales report without its figure is the empty core of the form —
+        // reject it explicitly (INVALID_INPUT) rather than silently store a 0.
+        if ($reportType === 'sales' && $request->input('salesHalalas') === null) {
+            return $this->fail('INVALID_INPUT', 'salesHalalas is required for a sales report',
+                'قيمة المبيعات مطلوبة لتقرير المبيعات', ['salesHalalas' => ['قيمة المبيعات مطلوبة']], 422);
+        }
+
         $salesHalalas = (int) ($request->input('salesHalalas') ?? 0);
         $expensesHalalas = (int) ($request->input('expensesHalalas') ?? 0);
         $amount = $reportType === 'expenses' ? $expensesHalalas : $salesHalalas;
+
+        // shift-close rides the shifts module; every other id is its own module.
+        $moduleKey = $this->dailyReports->moduleFor($reportType) ?? $reportType;
 
         $payload = [
             'date' => $request->input('date'),
@@ -108,7 +121,7 @@ class BranchCompanyController extends AsabController
             'expenseNote' => $request->input('expenseNote'),
         ];
 
-        $op = $this->factory->createFromUpload($reportType, $payload, $request->user(), $branchId, $amount, 'mobile', 'dashboard');
+        $op = $this->factory->createFromUpload($moduleKey, $payload, $request->user(), $branchId, $amount, 'mobile', 'dashboard');
 
         // Persist + link uploaded attachments to the created operation.
         $attachments = $this->attachments->store($request, $op, 'operation');
@@ -118,10 +131,12 @@ class BranchCompanyController extends AsabController
             'operations' => [[
                 'id' => $op->id, 'publicId' => $op->public_id, 'moduleKey' => $op->module_key, 'status' => $op->status,
             ]],
-            // ...and add the flat doc-shaped keys alongside it.
+            // ...and add the flat doc-shaped keys alongside it. `status` is the
+            // created operation's pipeline status (pending review) — the branch →
+            // accountant handoff — not an upload-success flag.
             'uploadId' => $op->public_id,
             'reportType' => $reportType,
-            'status' => 'success',
+            'status' => $op->status,
             'createdOperationId' => $op->id,
             'uploadedAt' => optional($op->submitted_at)->toIso8601String() ?? now()->toIso8601String(),
             'attachments' => $attachments,

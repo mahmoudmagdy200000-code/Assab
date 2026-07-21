@@ -22,6 +22,8 @@ class BranchOverviewService
         'later' => 'لاحقاً',
     ];
 
+    public function __construct(private readonly BranchDailyReportsService $dailyReports) {}
+
     public function build(?string $branchId, ?string $companyId): array
     {
         $monthStart = now()->startOfMonth();
@@ -35,6 +37,10 @@ class BranchOverviewService
         $monthSales = $this->sumSince($branchId, 'sales', $monthStart);
         $monthExpenses = $this->sumSince($branchId, 'expenses', $monthStart);
         $target = (int) ($branch->asab_monthly_target ?? 0);
+
+        // One source of truth for the daily checklist — the KPI badge counts the
+        // still-outstanding required reports (not a hardcoded total).
+        $requiredReports = $this->dailyReports->reports($branchId);
 
         return [
             'branch' => ['id' => $branchId, 'name' => $branch->name ?? null],
@@ -51,11 +57,11 @@ class BranchOverviewService
                 'monthExpenses' => $monthExpenses,
                 'netProfit' => $monthSales - $monthExpenses,
                 'activeEmployees' => Employee::where('branch_id', $branchId)->where('status', 'active')->count(),
-                'requiredReportsCount' => 6,
+                'requiredReportsCount' => $this->dailyReports->requiredCount($requiredReports),
             ],
             'tasksOfDay' => $this->tasksOfDay($branchId, $companyId),
             'crew' => $this->crew($branchId),
-            'requiredReports' => $this->requiredReports($branchId),
+            'requiredReports' => $requiredReports,
         ];
     }
 
@@ -98,28 +104,6 @@ class BranchOverviewService
                 'attendanceStatus' => 'present',
                 'attendanceLabel' => 'حاضر',
             ])->all();
-    }
-
-    private function requiredReports(?string $branchId): array
-    {
-        $types = [
-            ['id' => 'sales', 'name' => 'تقرير المبيعات', 'module' => 'sales'],
-            ['id' => 'inventory', 'name' => 'جرد المخزون اليومي', 'module' => 'inventory'],
-            ['id' => 'cash', 'name' => 'تقرير النقدية', 'module' => 'cash'],
-            ['id' => 'waste', 'name' => 'تقرير الهدر', 'module' => 'waste'],
-            ['id' => 'purchases', 'name' => 'المشتريات', 'module' => 'purchases'],
-            ['id' => 'expenses', 'name' => 'المصروفات', 'module' => 'expenses'],
-        ];
-
-        return array_map(function ($t) use ($branchId) {
-            $uploaded = Operation::where('branch_id', $branchId)->where('module_key', $t['module'])
-                ->whereDate('operation_date', today())->exists();
-
-            return [
-                'id' => $t['id'], 'name' => $t['name'], 'required' => true,
-                'uploadedToday' => $uploaded, 'lastStatus' => $uploaded ? 'success' : 'missing',
-            ];
-        }, $types);
     }
 
     private function sum(?string $branchId, string $module, \Illuminate\Support\Carbon $date): int

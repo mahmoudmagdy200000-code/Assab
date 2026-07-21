@@ -15,6 +15,7 @@ use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\SupplierRequest;
+use Modules\Admin\Services\OperationService;
 use Modules\Branch\Models\Branch;
 use Tests\TestCase;
 
@@ -277,5 +278,106 @@ class BranchManagerT12Test extends TestCase
         ]);
         $res->assertCreated();
         $this->assertSame('EMP-0003', $res->json('empNumber'));
+    }
+
+    // ---- BRM-2 daily-report upload → accountant (routing + status) ----
+
+    public function test_upload_status_lists_four_reports_with_full_fields(): void
+    {
+        $res = $this->as()->getJson('/api/v1/company/me/branch/upload/status');
+        $res->assertOk();
+
+        $this->assertSame(today()->toDateString(), $res->json('date'));
+        $this->assertSame(['sales', 'expenses', 'inventory', 'shift-close'], collect($res->json('reports'))->pluck('id')->all());
+
+        $sales = collect($res->json('reports'))->firstWhere('id', 'sales');
+        $this->assertSame(['id', 'name', 'description', 'required', 'lastUpload', 'lastStatus', 'todayDeadline', 'uploadedToday'], array_keys($sales));
+        $this->assertTrue($sales['required']);
+        $this->assertNull($sales['lastUpload']);
+        $this->assertSame('missing', $sales['lastStatus']);
+        $this->assertFalse($sales['uploadedToday']);
+
+        $shift = collect($res->json('reports'))->firstWhere('id', 'shift-close');
+        $this->assertFalse($shift['required']);
+        $this->assertSame('اختياري', $shift['todayDeadline']);
+    }
+
+    public function test_required_reports_count_counts_only_outstanding_required(): void
+    {
+        // Nothing uploaded → all 3 required (shift-close is optional).
+        $this->assertSame(3, $this->as()->getJson('/api/v1/branch/overview')->json('kpis.requiredReportsCount'));
+
+        $this->as()->postJson('/api/v1/company/me/branch/upload', [
+            'reportType' => 'sales', 'salesHalalas' => 5000,
+        ])->assertCreated();
+
+        // One required report filed today → two still outstanding.
+        $this->assertSame(2, $this->as()->getJson('/api/v1/branch/overview')->json('kpis.requiredReportsCount'));
+    }
+
+    public function test_company_upload_rejects_sales_report_missing_amount(): void
+    {
+        $res = $this->as()->postJson('/api/v1/company/me/branch/upload', ['reportType' => 'sales']);
+        $res->assertStatus(422)->assertJsonPath('error.code', 'INVALID_INPUT');
+        $this->assertDatabaseCount('asab_operations', 0);
+    }
+
+    public function test_company_upload_creates_pending_operation_for_the_accountant(): void
+    {
+        $res = $this->as()->postJson('/api/v1/company/me/branch/upload', [
+            'reportType' => 'sales', 'salesHalalas' => 5000, 'shift' => 'morning',
+        ]);
+        $res->assertCreated()->assertJsonPath('status', 'pending');
+
+        $op = Operation::findOrFail($res->json('createdOperationId'));
+        $this->assertSame('pending', $op->status);
+        $this->assertSame('dashboard', $op->channel);
+        $this->assertSame($this->branch->id, $op->branch_id);
+        $this->assertSame($this->manager->id, $op->submitted_by_id);
+    }
+
+    public function test_shift_close_report_maps_to_shifts_module(): void
+    {
+        $res = $this->as()->postJson('/api/v1/company/me/branch/upload', ['reportType' => 'shift-close']);
+        $res->assertCreated()->assertJsonPath('status', 'pending');
+        $this->assertSame('shifts', Operation::findOrFail($res->json('createdOperationId'))->module_key);
+    }
+
+    public function test_accountant_approval_flips_report_chip_to_success_and_notifies(): void
+    {
+        $opId = $this->as()->postJson('/api/v1/company/me/branch/upload', [
+            'reportType' => 'sales', 'salesHalalas' => 5000,
+        ])->json('createdOperationId');
+
+        // Freshly uploaded → success + counted as done today.
+        $sales = collect($this->as()->getJson('/api/v1/company/me/branch/upload/status')->json('reports'))->firstWhere('id', 'sales');
+        $this->assertSame('success', $sales['lastStatus']);
+        $this->assertTrue($sales['uploadedToday']);
+
+        app(OperationService::class)->approve(Operation::findOrFail($opId), $this->manager);
+
+        $sales = collect($this->as()->getJson('/api/v1/company/me/branch/upload/status')->json('reports'))->firstWhere('id', 'sales');
+        $this->assertSame('success', $sales['lastStatus']);
+        $this->assertTrue($sales['uploadedToday']);
+        $this->assertDatabaseHas('asab_notifications', [
+            'user_id' => $this->manager->id, 'type' => 'operation.approved', 'ref_id' => $opId,
+        ]);
+    }
+
+    public function test_accountant_rejection_reopens_the_report_and_notifies(): void
+    {
+        $opId = $this->as()->postJson('/api/v1/company/me/branch/upload', [
+            'reportType' => 'sales', 'salesHalalas' => 5000,
+        ])->json('createdOperationId');
+
+        app(OperationService::class)->reject(Operation::findOrFail($opId), $this->manager, 'incomplete_data');
+
+        $sales = collect($this->as()->getJson('/api/v1/company/me/branch/upload/status')->json('reports'))->firstWhere('id', 'sales');
+        // A rejected report no longer satisfies the checklist and flags «late».
+        $this->assertFalse($sales['uploadedToday']);
+        $this->assertSame('late', $sales['lastStatus']);
+        $this->assertDatabaseHas('asab_notifications', [
+            'user_id' => $this->manager->id, 'type' => 'operation.rejected', 'ref_id' => $opId,
+        ]);
     }
 }

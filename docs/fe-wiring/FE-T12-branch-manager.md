@@ -1,6 +1,6 @@
 # FE Wiring — T12 Branch Manager (مدير الفرع) — «مدير الفرع»
 
-> Backend module status: ✅ ready for integration · Delivered 2026-07-12
+> Backend module status: ✅ ready for integration · Delivered 2026-07-12 · Upload/checklist section updated 2026-07-21 (see `FE-branch-upload-accountant-routing-2026-07-21.md` for the changelog)
 > Base URL: `/api/v1` · Auth: `Authorization: Bearer <token>` (Sanctum, guard `asab`, role `branch`)
 > Envelopes (`AsabResponse`): single = **bare object**; lists = `{ "data": [...], "meta"? }`; paginated = `{ "data": [...], "meta": { page, pageSize, total, totalPages } }`.
 > Errors: `{ "error": { "code", "message", "messageAr", "details" }, "requestId" }` + HTTP status.
@@ -18,7 +18,7 @@ Branch resolution: platform honours `?branchId` **only if** it's in the caller's
 | Prototype screen | Endpoints |
 |---|---|
 | نظرة عامة (hero + KPIs + مهام اليوم + طاقم اليوم) | `GET /branch/overview` |
-| رفع البيانات (نماذج + شاشة نجاح) | `POST /company/me/branch/upload` (canonical) · `POST /branch/upload/{reportType}` · `GET /branch/upload/status` |
+| رفع البيانات (نماذج + شاشة نجاح) | `POST /company/me/branch/upload` (canonical) · `POST /branch/upload/{reportType}` · `GET /company/me/branch/upload/status` (canonical) · `GET /branch/upload/status` |
 | الموظفون (جدول + بحث + إضافة) | `GET /branch/employees` · `POST /company/me/branch/employees` |
 | الأصناف + «تسجيل جرد» | `GET /branch/inventory-items` · `POST /company/me/branch/items/count` |
 | الموردون + «طلب مورد جديد» | `GET /branch/suppliers` · `POST /company/me/branch/suppliers/request-new` |
@@ -39,7 +39,7 @@ Bare object (BRM-1). Full landing screen in one call.
   "kpis": {
     "todaySales": 200000, "todaySalesTrendPct": 12.5, "todayOrders": 3,
     "monthSales": 200000, "monthExpenses": 40000, "netProfit": 160000,
-    "activeEmployees": 5, "requiredReportsCount": 6
+    "activeEmployees": 5, "requiredReportsCount": 3
   },
   "tasksOfDay": [
     { "id": "upload-morning-sales", "label": "رفع مبيعات اليوم", "state": "completed", "stateLabel": "مكتمل" },
@@ -50,34 +50,68 @@ Bare object (BRM-1). Full landing screen in one call.
   "crew": [
     { "id": "019f…", "name": "أحمد", "role": "Chef", "shift": "morning", "attendanceStatus": "present", "attendanceLabel": "حاضر" }
   ],
-  "requiredReports": [ { "id": "sales", "name": "تقرير المبيعات", "required": true, "uploadedToday": true, "lastStatus": "success" } ]
+  "requiredReports": [ { "id": "sales", "name": "مبيعات اليوم", "description": "إجمالي مبيعات اليوم", "required": true, "lastUpload": "2026-07-20T21:30:00+00:00", "lastStatus": "success", "todayDeadline": "23:00", "uploadedToday": true } ]
 }
 ```
 
 - `hero.achievementPct` = monthSales ÷ `branches.asab_monthly_target` (0 when no target).
 - `tasksOfDay[].state` ∈ `completed مكتمل | pending معلق | later لاحقاً`. `close-evening-shift`: `pending` while a shift is open, `completed` once a shift started today is no longer active, `later` when no shift yet.
 - `crew` = active employees of the branch (attendance is a future data source — everyone active reads `present`); empty array when none.
+- `requiredReports` is the same 4-item checklist as `GET .../upload/status` (§2.2) — full row shape there. `kpis.requiredReportsCount` = count of `required && !uploadedToday` among them (currently `sales`, `expenses`, `inventory`; `shift-close` is optional and never counted).
 
-## 2. Upload — daily reports (BRM-2)
+## 2. Upload — daily reports → accountant review (BRM-2)
 
-**Canonical:** `POST /company/me/branch/upload` (flat body + multipart). Also accepts the legacy nested `{sales:{totalHalalas},expenses:{totalHalalas}}`.
-**Platform:** `POST /branch/upload/{reportType}` — now validated + accepts attachments too.
+Branch scope is always **derived from the caller's token** (the manager's `branch` role assignment) — never a request param. A manager whose assignment carries no branch (e.g. pending admin setup) gets **422 `NO_BRANCH_ASSIGNED`** on every write below, not a 500.
 
-Flat body: `{ reportType, date?, shift?, salesHalalas?, expensesHalalas?, expenseNote? }` + multipart `attachments[]` (≤10MB/file). `reportType` ∈ `sales|inventory|cash|waste|purchases|expenses`.
+### 2.1 `POST /company/me/branch/upload` (canonical) — flat body + multipart
 
-- Validation: unknown `reportType` → **400** `INVALID_INPUT`; bad `shift` → **422**; negative amount → 422. Expenses total is the **sum of its invoices**, never a picked number.
+Also accepts the legacy nested `{sales:{totalHalalas},expenses:{totalHalalas}}`. Platform equivalent: `POST /branch/upload/{reportType}` (path param instead of body field; validated + attachments too).
+
+Flat body: `{ reportType, date?, shift?, salesHalalas?, expensesHalalas?, expenseNote? }` + multipart `attachments[]` (≤10MB/file). `reportType` ∈ `sales|expenses|inventory|shift-close` (checklist ids — `cash|waste|purchases` still accepted for the legacy module surfaces).
+
+- Validation: unknown `reportType` → **400** `INVALID_INPUT` (platform) / **422** (company, standard `required|in:` message); **`reportType=sales` with no `salesHalalas` → 422 `INVALID_INPUT`** (a sales report needs its figure — never silently stored as 0); bad `shift` → 422. Expenses total is the **sum of its invoices** on the platform surface, never a picked number.
 - `shift` ∈ `صباحي|مسائي|كامل اليوم` (also accepts `morning|evening|full_day`).
-- Creates a **pending Operation** (approval pipeline: ApprovalStep + accountant notification + realtime). `origin` stays `mobile` (§5.2b business channel = branch submission); a new `channel: "dashboard"` records the physical surface.
+- `shift-close` maps to the `shifts` module internally — same pending/notify/checklist mechanics as every other report.
+- Creates a **pending Operation** and routes it straight into the accountant's queue (`GET /accountant/operations`, scoped to their brand/restaurant/branch tree — no separate "assign" step). `origin` stays `mobile` (§5.2b business channel = branch submission); `channel: "dashboard"` records the physical surface.
 
-Response `201` (platform):
+Response `201` — company (superset shape):
 
 ```json
-{ "id":"019f…", "publicId":"PUR-0042", "moduleKey":"sales", "status":"pending",
-  "origin":"mobile", "channel":"dashboard",
+{ "operations": [{ "id":"019f…", "publicId":"PUR-0042", "moduleKey":"sales", "status":"pending" }],
+  "uploadId":"PUR-0042", "reportType":"sales", "status":"pending",
+  "createdOperationId":"019f…", "uploadedAt":"2026-07-21T20:10:00+00:00",
   "attachments":[{ "id":"…","filename":"report.pdf","mimeType":"application/pdf","size":12034,"publicUrl":"…","uploadedAt":"…" }] }
 ```
 
-Company response is a superset with `operations:[…]`, `uploadId`, `createdOperationId`, `uploadedAt`. `POST /company/me/branch/upload/sign-attachment` returns a **local** direct-upload URL (`/api/v1/uploads/direct`), not S3.
+`status` is the created Operation's pipeline status (`pending` until the accountant acts — never a bare "success" flag). Platform response is the plain `{ id, publicId, moduleKey, status, origin, channel, attachments }` shape. `POST /company/me/branch/upload/sign-attachment` returns a **local** direct-upload URL (`/api/v1/uploads/direct`), not S3.
+
+### 2.2 `GET /company/me/branch/upload/status` (canonical) — today's checklist
+
+Platform equivalent: `GET /branch/upload/status` (same handler/shape).
+
+```json
+{
+  "date": "2026-07-21",
+  "reports": [
+    { "id": "sales", "name": "مبيعات اليوم", "description": "إجمالي مبيعات اليوم", "required": true, "lastUpload": "2026-07-20T21:30:00+00:00", "lastStatus": "success", "todayDeadline": "23:00", "uploadedToday": false },
+    { "id": "expenses", "name": "المصروفات", "description": "مصروفات وفواتير اليوم", "required": true, "lastUpload": null, "lastStatus": "missing", "todayDeadline": "23:00", "uploadedToday": false },
+    { "id": "inventory", "name": "جرد المخزون اليومي", "description": "جرد أصناف الفرع اليومي", "required": true, "lastUpload": null, "lastStatus": "missing", "todayDeadline": "23:00", "uploadedToday": false },
+    { "id": "shift-close", "name": "إغلاق الوردية المسائية", "description": "تقرير إغلاق وردية المساء", "required": false, "lastUpload": null, "lastStatus": "missing", "todayDeadline": "اختياري", "uploadedToday": false }
+  ]
+}
+```
+
+- `id` matches `reportType` 1:1 (`sales|expenses|inventory|shift-close`) — this is the canonical 4-report list; `overview.kpis.requiredReportsCount` and `overview.requiredReports` (§1) come from the exact same computation, so the two screens never disagree.
+- `lastStatus` ∈ `success | late | missing`: `missing` = never submitted; `late` = the last submission was **rejected by the accountant** (needs re-upload) or crossed `todayDeadline`; `success` = accepted / still in review, on time.
+- `uploadedToday` only counts a submission that's still alive today (`pending`/`approved`/`final-approved`) — an accountant **rejection same-day flips it back to `false`** and the chip to `late`, since the branch must re-file it.
+
+### 2.3 Reverse flow — accountant acts, branch manager finds out
+
+When the accountant reviews the Operation the upload created:
+- **Approve** → `lastStatus` turns/stays `success`, `uploadedToday` stays `true`, and the branch manager gets a `push` notification (`type: "operation.approved"`).
+- **Reject** → `uploadedToday` flips back to `false`, `lastStatus` turns `late`, and the branch manager gets a `push` notification (`type: "operation.rejected"`, body carries the Arabic rejection reason).
+
+Poll `upload/status` (or subscribe to the notification) to reflect this without a page reload.
 
 ## 3. Employees (BRM-3.1)
 
