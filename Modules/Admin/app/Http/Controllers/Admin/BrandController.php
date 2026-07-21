@@ -6,7 +6,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
@@ -50,10 +49,9 @@ class BrandController extends AsabController
                 $request->merge(['plan' => AsabBrandPackage::resolveCode((string) $request->input('plan'))]);
             }
             $data = $request->validate([
-                // Optional: omitted → the resolver creates a company for the brand.
-                // asab_brands.company_id has no FK, so the exists check is the only
-                // thing standing between a typo'd id and a permanently orphaned brand.
-                'companyId' => ['nullable', 'string', Rule::exists('asab_companies', 'id')->whereNull('deleted_at')],
+                // Company selection was removed from Add Brand: every brand now
+                // auto-creates a company of its own (resolveFor(null, …)). Any
+                // companyId the client still sends is ignored, not honoured.
                 'name' => 'required|string|max:120',
                 'abbr' => 'nullable|string|max:8',
                 'color' => 'nullable|string|max:16',
@@ -70,7 +68,7 @@ class BrandController extends AsabController
             // brand too. The welcome mail is sent only after the commit — see below.
             [$brand, $owner] = DB::transaction(function () use ($data, $ownerProvisioning, $companyResolver) {
                 $brand = AsabBrand::create([
-                    'company_id' => $companyResolver->resolveFor($data['companyId'] ?? null, $data['name']),
+                    'company_id' => $companyResolver->resolveFor(null, $data['name']),
                     'name' => $data['name'],
                     'abbr' => $data['abbr'] ?? null,
                     'color' => $data['color'] ?? null,
