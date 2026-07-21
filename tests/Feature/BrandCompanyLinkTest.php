@@ -11,10 +11,9 @@ use Modules\Admin\Models\AsabUserRole;
 use Tests\TestCase;
 
 /**
- * Admin "Add Brand" company linkage: companyId is optional (auto-creates a
- * company for the brand) but, when supplied, must reference a live company —
- * asab_brands.company_id has no FK, so validation is the only guard against a
- * permanently orphaned brand.
+ * Admin "Add Brand" company linkage: the company selector was removed from the
+ * form, so every brand now auto-creates a company of its own named after it.
+ * Any companyId the client still sends is ignored, never linked.
  */
 class BrandCompanyLinkTest extends TestCase
 {
@@ -51,33 +50,10 @@ class BrandCompanyLinkTest extends TestCase
         $this->assertSame($companyId, AsabBrand::findOrFail($res->json('id'))->company_id);
     }
 
-    public function test_brand_create_rejects_unknown_company_id(): void
+    public function test_brand_create_ignores_supplied_company_id_and_auto_creates_its_own(): void
     {
-        $this->actingAs($this->admin, 'sanctum')->postJson('/api/v1/admin/brands', [
-            'companyId' => 'bogus-id',
-            'name' => 'Orphan Brand',
-        ])->assertStatus(422)->assertJsonPath('error.code', 'VALIDATION_ERROR')
-            ->assertJsonStructure(['error' => ['details' => ['companyId']]]);
-
-        $this->assertSame(0, AsabBrand::count());
-    }
-
-    public function test_brand_create_rejects_soft_deleted_company_id(): void
-    {
-        $company = AsabCompany::create(['name' => 'Gone Co', 'plan' => 'Basic', 'status' => 'active']);
-        $company->delete();
-
-        $this->actingAs($this->admin, 'sanctum')->postJson('/api/v1/admin/brands', [
-            'companyId' => $company->id,
-            'name' => 'Orphan Brand',
-        ])->assertStatus(422)->assertJsonPath('error.code', 'VALIDATION_ERROR')
-            ->assertJsonStructure(['error' => ['details' => ['companyId']]]);
-
-        $this->assertSame(0, AsabBrand::count());
-    }
-
-    public function test_brand_create_links_to_supplied_company(): void
-    {
+        // The company selector was removed: a companyId sent by a stale client
+        // must NOT link the brand to that company. It auto-creates its own.
         $company = AsabCompany::create(['name' => 'Real Co', 'plan' => 'Basic', 'status' => 'active']);
 
         $res = $this->actingAs($this->admin, 'sanctum')->postJson('/api/v1/admin/brands', [
@@ -85,10 +61,13 @@ class BrandCompanyLinkTest extends TestCase
             'name' => 'Linked Brand',
         ]);
 
-        $res->assertStatus(201)->assertJsonPath('companyId', $company->id);
+        $res->assertStatus(201);
 
-        // No stray company invented when one was supplied.
-        $this->assertSame(1, AsabCompany::count());
+        $resolvedCompanyId = $res->json('companyId');
+        $this->assertNotSame($company->id, $resolvedCompanyId, 'supplied companyId must be ignored');
+        $this->assertSame('Linked Brand', AsabCompany::findOrFail($resolvedCompanyId)->name);
+        // The supplied company plus the freshly auto-created one.
+        $this->assertSame(2, AsabCompany::count());
     }
 
     public function test_brand_update_resolves_legacy_arabic_plan_alias(): void
