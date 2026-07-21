@@ -324,16 +324,37 @@ class UploadController extends AsabController
         return $candidate;
     }
 
+    /**
+     * Two illustrative rows shipped inside the fixed-assets template, mirroring
+     * the client's own workbook. «Sample only» flags them for deletion before
+     * upload; the importer keys purely off headers, so leaving them in only
+     * imports two throwaway rows — it never breaks the parse.
+     */
+    private const FIXED_ASSETS_SAMPLE_ROWS = [
+        ['SN-12345', 'Kitchen', 'Kitchen Equipment', 'Coffee Machine', 8, 5, 2, 1, '2025-07-01', 28000.00, 'Sample only'],
+        ['SN-12346', 'Dining', 'Furniture & Fixtures', 'Dining Table', 9, 4, 3, 2, '2025-07-01', 22000.00, 'Sample only'],
+    ];
+
     public function template(Request $request, string $type): Response
     {
         // Unknown/retired template types (e.g. the dropped employees upload)
         // must 404, not hand out an empty workbook.
         abort_unless(isset(self::TEMPLATES[$type]), 404);
-        $headers = self::TEMPLATES[$type];
+
+        // Fixed assets ships the client's own English layout (11 columns +
+        // sample rows); every other type is its ratified single header row.
+        // The importer accepts both asset layouts, so the download matching the
+        // client's file is purely a UX alignment.
+        $isAssets = $type === 'fixed-assets';
+        $headers = $isAssets ? self::FIXED_ASSETS_EN_TEMPLATE : self::TEMPLATES[$type];
+        $sampleRows = $isAssets ? self::FIXED_ASSETS_SAMPLE_ROWS : [];
 
         // CSV stays available via ?format=csv (UTF-8 BOM for Excel Arabic).
         if ($request->query('format') === 'csv') {
             $csv = "\xEF\xBB\xBF".implode(',', $headers)."\n";
+            foreach ($sampleRows as $row) {
+                $csv .= implode(',', $row)."\n";
+            }
 
             return response($csv, 200, [
                 'Content-Type' => 'text/csv; charset=UTF-8',
@@ -346,6 +367,9 @@ class UploadController extends AsabController
         $writer = new \OpenSpout\Writer\XLSX\Writer;
         $writer->openToFile($tmp);
         $writer->addRow(\OpenSpout\Common\Entity\Row::fromValues($headers));
+        foreach ($sampleRows as $row) {
+            $writer->addRow(\OpenSpout\Common\Entity\Row::fromValues($row));
+        }
         $writer->close();
 
         $contents = file_get_contents($tmp);
