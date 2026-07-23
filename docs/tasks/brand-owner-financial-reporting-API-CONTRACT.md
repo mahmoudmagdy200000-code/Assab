@@ -329,7 +329,7 @@ Body: `format_type` (req). — ### `POST /profit-vs-cash-reconciliation/email` B
 
 ### `GET /break-even-analysis`
 
-Query: `year` (int, opt), `month` (int, opt), `branch_id` (string, **req**).
+Query: `year` (int, opt), `month` (int, opt), `branch_id` (string, opt — omit ⇒ first branch, echoed in the response).
 
 **Response `data`:**
 
@@ -352,7 +352,7 @@ strategy-class UI). `current_point_position` is `0–100`.
 
 ### `POST /break-even-analysis/export`
 
-Body: `year` (int, req), `month` (int, req, 1–12), `branch_id` (string, req), `format_type` (req).
+Body: `year` (int, req), `month` (int, req, 1–12), `branch_id` (string, opt — omit ⇒ first branch), `format_type` (req).
 **No email endpoint.**
 
 ---
@@ -402,7 +402,7 @@ Body: `format_type` (req). — ### `POST /operational-profitability/email` Body:
 
 ### `GET /menu-engineering`
 
-Query: `year`, `month`, `compared_year`, `compared_month` (int, opt), `branch_id` (string, opt).
+Query: `year`, `month`, `compared_year`, `compared_month` (int, opt), `branch_id` (string, opt — omit ⇒ first branch, echoed in the response).
 
 **Response `data`:**
 
@@ -431,7 +431,7 @@ high profitability; `dogs` = low popularity + low profitability.
 
 ### `POST /menu-engineering/export`
 
-Body: `year`, `month`, `compared_year`, `compared_month` (int, req), `branch_id` (string, req), `format_type` (req).
+Body: `year`, `month`, `compared_year`, `compared_month` (int, req), `branch_id` (string, opt — omit ⇒ first branch), `format_type` (req).
 
 ### `POST /menu-engineering/email`
 
@@ -447,7 +447,7 @@ Body:
 
 | Field | Type | Required |
 |-------|------|----------|
-| `branch_id` | string | yes |
+| `branch_id` | string | no — omit ⇒ first branch, stored on the test |
 | `item_name` | string | yes |
 | `expected_selling_price` | number | yes (≥0) |
 | `production_cost` | number | yes (≥0) |

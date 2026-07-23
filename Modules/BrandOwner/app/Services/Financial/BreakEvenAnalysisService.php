@@ -24,7 +24,7 @@ class BreakEvenAnalysisService
      *
      * @return array<string, mixed>
      */
-    public function analyze(?int $year, ?int $month, string $branchId): array
+    public function analyze(?int $year, ?int $month, ?string $branchId): array
     {
         return $this->compute($year, $month, $branchId);
     }
@@ -38,7 +38,7 @@ class BreakEvenAnalysisService
         \Illuminate\Database\Eloquent\Model $owner,
         ?int $year,
         ?int $month,
-        string $branchId,
+        ?string $branchId,
         string $formatType
     ): array {
         $payload = $this->compute($year, $month, $branchId);
@@ -52,7 +52,7 @@ class BreakEvenAnalysisService
             [
                 'year' => $payload['year'],
                 'month' => $payload['month'],
-                'branch_id' => $branchId,
+                'branch_id' => $payload['branch_id'],
                 'format_type' => $formatType,
             ],
         );
@@ -63,10 +63,14 @@ class BreakEvenAnalysisService
      *
      * @return array<string, mixed>
      */
-    private function compute(?int $year, ?int $month, string $branchId): array
+    private function compute(?int $year, ?int $month, ?string $branchId): array
     {
         $period = $this->data->resolvePeriod($year, $month);
         $prev = $this->data->previousMonth($period['year'], $period['month']);
+
+        // branch_id is optional: fall back to the first branch (DB default).
+        $branch = $this->data->resolveBranchRef($branchId);
+        $branchId = $branch['id'];
 
         $pnl = $this->data->profitAndLoss($branchId, $period['start'], $period['end']);
         $fixed = $this->data->fixedCosts($branchId, $period['start'], $period['end']);
@@ -88,8 +92,8 @@ class BreakEvenAnalysisService
             'month' => $period['month'],
             'month_name' => $period['month_name'],
             'previous_month_name' => $prev['month_name'],
-            'branch_id' => $branchId,
-            'branch_name' => $this->data->branchName($branchId),
+            'branch_id' => $branch['id'],
+            'branch_name' => $branch['name'],
             'status' => $status,
             'current_point_position' => $currentPointPosition,
             'metrics' => [

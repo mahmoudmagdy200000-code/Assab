@@ -39,6 +39,10 @@ class MenuEngineeringService
             ? $this->data->resolvePeriod($comparedYear, $comparedMonth)
             : $this->data->previousMonth($period['year'], $period['month']);
 
+        // branch_id is optional: fall back to the first branch (DB default).
+        $branch = $this->data->resolveBranchRef($branchId);
+        $branchId = $branch['id'];
+
         $items = $this->classify($branchId);
 
         $total = $items->count();
@@ -57,8 +61,8 @@ class MenuEngineeringService
             'compared_year' => $compared['year'],
             'compared_month' => $compared['month'],
             'compared_month_name' => $compared['month_name'],
-            'branch_id' => $branchId,
-            'branch_name' => $this->data->branchName($branchId),
+            'branch_id' => $branch['id'],
+            'branch_name' => $branch['name'],
 
             // is_high_profitability follows the doc formula: (q is stars || workhorses).
             'puzzles' => $this->overview($puzzles, $total, false),
@@ -207,7 +211,7 @@ class MenuEngineeringService
             $input['month'],
             $input['compared_year'],
             $input['compared_month'],
-            $input['branch_id'],
+            $input['branch_id'] ?? null,
         );
 
         return $this->exporter->export(
@@ -230,7 +234,7 @@ class MenuEngineeringService
             $input['month'],
             $input['compared_year'],
             $input['compared_month'],
-            $input['branch_id'],
+            $input['branch_id'] ?? null,
         );
 
         $this->exporter->email(
