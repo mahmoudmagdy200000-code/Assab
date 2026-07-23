@@ -9,11 +9,14 @@ use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRestaurant;
+use Modules\Admin\Services\AccountantScopeService;
 use Modules\Admin\Services\AsabSubscriptionService;
 use Modules\Admin\Services\RealtimeBroadcaster;
 
 class RestaurantController extends AsabController
 {
+    public function __construct(private readonly AccountantScopeService $scope) {}
+
     /**
      * POST /admin/restaurants/{restaurantId}/subscription/renew — renew the
      * restaurant's subscription by id (FE completion request §1.1). The admin
@@ -91,7 +94,10 @@ class RestaurantController extends AsabController
             'companyId' => $r->company_id,
             'name' => $r->name,
             'city' => $r->city,
-            'accountantCount' => $r->accountant_count,
+            // Derived from brand-scoped accountant assignments, not the stored
+            // column (which is never updated for brand-level accountants and
+            // reported "0" in the field).
+            'accountantCount' => $this->scope->accountantCounts([$r])[$r->id] ?? 0,
             'status' => $r->status,
         ];
     }
