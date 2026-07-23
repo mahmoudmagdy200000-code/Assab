@@ -20,7 +20,7 @@ class ProfitAndLossService
      * Build the full P&L payload for a branch + period.
      *
      * @return array{
-     *   year: int, month: int,
+     *   year: int, month: int, branch_id: ?string, branch_name: ?string,
      *   summary: array{total_revenue: float, total_expenses: float, net_profit: float, profit_margin_percentage: float, is_profit: bool},
      *   chart: array{turnover_total: float, direct_cost_total: float, gross_profit: float, grand_total_cost: float, profitability_amount: float, g_and_a_expenses: float, other_income_expenses: float, net_profit_and_loss: float}
      * }
@@ -33,6 +33,8 @@ class ProfitAndLossService
         return [
             'year' => $period['year'],
             'month' => $period['month'],
+            'branch_id' => $branchId,
+            'branch_name' => $this->data->branchName($branchId),
             'summary' => [
                 'total_revenue' => $pnl['turnover'],
                 'total_expenses' => $pnl['total_cost'],
@@ -45,7 +47,8 @@ class ProfitAndLossService
                 'direct_cost_total' => $pnl['direct_cost'],
                 'gross_profit' => $pnl['gross_profit'],
                 'grand_total_cost' => $pnl['total_cost'],
-                'profitability_amount' => $pnl['gross_profit'],
+                // Per the doc waterfall: turnover − grand_total_cost = profitability.
+                'profitability_amount' => $pnl['net_profit'],
                 'g_and_a_expenses' => $pnl['operating_expenses'],
                 'other_income_expenses' => 0.0,
                 'net_profit_and_loss' => $pnl['net_profit'],
