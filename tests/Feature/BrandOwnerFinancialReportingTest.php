@@ -14,6 +14,8 @@ use Modules\Cashier\Models\Cashier;
 use Modules\Expense\Models\Expense;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
+use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
@@ -443,6 +445,35 @@ class BrandOwnerFinancialReportingTest extends TestCase
         $this->actingAsOwner()->getJson('/api/brand-owner/financial/price-simulator/saved-scenarios')
             ->assertStatus(200)
             ->assertJsonCount(1, 'data');
+    }
+
+    public function test_item_info_uses_real_latest_purchase_cost(): void
+    {
+        // Beef Burger sells at 45; ratio fallback would be 18.0 (45 * 0.40).
+        $item = Item::query()->where('name', 'Beef Burger')->first();
+
+        $po = PurchaseOrder::factory()->create(['branch_id' => $this->branch->id]);
+        // Older purchase at 20, newer at 12 — the latest (12) must win.
+        PurchaseOrderItem::factory()->create([
+            'purchase_order_id' => $po->id,
+            'item_id' => $item->id,
+            'unit_price' => 20.0,
+            'created_at' => now()->subDays(10),
+        ]);
+        PurchaseOrderItem::factory()->create([
+            'purchase_order_id' => $po->id,
+            'item_id' => $item->id,
+            'unit_price' => 12.0,
+            'created_at' => now()->subDay(),
+        ]);
+
+        $info = $this->actingAsOwner()->getJson(
+            '/api/brand-owner/financial/price-simulator/item-info?branch_id='.$this->branch->id.'&item_id='.$item->id
+        );
+
+        $info->assertStatus(200);
+        // Real cost (latest purchase 12.0), not the 18.0 ratio estimate.
+        $this->assertEquals(12.0, $info->json('data.production_cost'));
     }
 
     // ----------------------------------------------------------------

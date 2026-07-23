@@ -80,9 +80,15 @@ class MenuEngineeringService
      */
     private function classify(?string $branchId): Collection
     {
-        $items = $this->data->branchItems($branchId)->map(function ($bi) {
+        $branchItems = $this->data->branchItems($branchId);
+
+        // Real production cost per item (latest purchase price), fetched in one
+        // query to avoid an N+1; falls back to the ratio estimate per item.
+        $costMap = $this->data->latestPurchaseUnitCosts($branchItems->pluck('item_id')->all());
+
+        $items = $branchItems->map(function ($bi) use ($costMap) {
             $price = (float) $bi->price;
-            $cost = $this->data->productionCost($price);
+            $cost = $this->data->resolveItemCost($price, $costMap[$bi->item_id] ?? null);
             $unitMargin = $price - $cost;
             $qty = (float) $bi->quantity;
 

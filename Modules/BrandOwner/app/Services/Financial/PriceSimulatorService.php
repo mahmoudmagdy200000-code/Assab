@@ -68,7 +68,7 @@ class PriceSimulatorService
             'item_id' => (string) $itemId,
             'item_name' => (string) ($branchItem->item?->name ?? ''),
             'current_selling_price' => $price,
-            'production_cost' => $this->data->productionCost($price),
+            'production_cost' => $this->data->itemProductionCost($itemId, $price),
             'current_monthly_sales' => (int) round((float) $branchItem->quantity),
             'expected_growth_percentage' => self::DEFAULT_GROWTH_PERCENTAGE,
         ];

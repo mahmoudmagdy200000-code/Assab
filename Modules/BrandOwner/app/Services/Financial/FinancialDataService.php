@@ -10,6 +10,7 @@ use Modules\Branch\Models\Branch;
 use Modules\BrandOwner\Models\CashSalesTransferRequest;
 use Modules\Expense\Models\Expense;
 use Modules\Purchase\Models\BranchItem;
+use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\ShiftSalesBreakdown;
 
@@ -35,8 +36,13 @@ use Modules\Shift\Models\ShiftSalesBreakdown;
  *  - Operating / G&A .......... approved quick_cash expenses
  *  - Item selling price ....... branch_item.price (branch-specific)
  *
+ * PRODUCTION COST (best-available, real first):
+ *  - Real: the item's most recent purchase unit price
+ *    (purchase_order_items.unit_price, latest by created_at).
+ *  - Fallback: branch_item.price * self::COST_RATIO when the item has no purchase
+ *    history or the recorded cost is not a sane margin input (<=0 or >= price).
+ *
  * DOCUMENTED DERIVATIONS (no dedicated source column exists for these):
- *  - Production cost .......... branch_item.price * self::COST_RATIO
  *  - Fixed-cost split ......... operating expenses apportioned by
  *                               self::FIXED_COST_SPLIT (rent / salaries / insurance)
  * These are centralised here (not scattered across reports) and clearly flagged
@@ -417,7 +423,53 @@ class FinancialDataService
             ->get();
     }
 
-    /** DERIVED production cost for a selling price (see class doc / COST_RATIO). */
+    /**
+     * Latest real purchase unit price per item id, from purchase_order_items.
+     * Ordered ascending so keyBy keeps the most recent row per item.
+     *
+     * @param  array<int, string|null>  $itemIds
+     * @return array<string, float> item_id => unit_price
+     */
+    public function latestPurchaseUnitCosts(array $itemIds): array
+    {
+        $itemIds = array_values(array_unique(array_filter($itemIds)));
+
+        if (empty($itemIds)) {
+            return [];
+        }
+
+        return PurchaseOrderItem::query()
+            ->whereIn('item_id', $itemIds)
+            ->orderBy('created_at')
+            ->get(['item_id', 'unit_price'])
+            ->keyBy('item_id')
+            ->map(fn (PurchaseOrderItem $r) => (float) $r->unit_price)
+            ->all();
+    }
+
+    /**
+     * Resolve an item's production cost: prefer the real latest purchase price,
+     * fall back to the COST_RATIO estimate when it is absent or not a sane margin
+     * input (<=0, or >= the selling price).
+     */
+    public function resolveItemCost(float $price, ?float $purchaseCost): float
+    {
+        if ($purchaseCost !== null && $purchaseCost > 0 && $purchaseCost < $price) {
+            return round($purchaseCost, 2);
+        }
+
+        return $this->productionCost($price);
+    }
+
+    /** Convenience single-item production cost (one purchase lookup + fallback). */
+    public function itemProductionCost(?string $itemId, float $price): float
+    {
+        $map = $itemId ? $this->latestPurchaseUnitCosts([$itemId]) : [];
+
+        return $this->resolveItemCost($price, $map[$itemId] ?? null);
+    }
+
+    /** COST_RATIO estimate of production cost for a selling price (fallback). */
     public function productionCost(float $price): float
     {
         return round($price * self::COST_RATIO, 2);
