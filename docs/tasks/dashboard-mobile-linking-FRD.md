@@ -299,14 +299,19 @@ Legend: ✅ exists · ⚠️ partial / needs change · ❌ not built.
 | **FR-SAL-5 fixed reject-reason list** | ❌ | reasons are **free-text** (`rejection_reason` max 500) — no enum. Build the reason list. |
 | Per-shift bill/attachment | ⚠️ | POS receipt (single) + variance/rejection files (json) exist; no dedicated "bill" entity |
 
-### 15.6 Expenses — **approval chain must be extended**
+### 15.6 Expenses — **approval chain already exists via the Operations pipeline** ✅
+> **CORRECTION (2026-07-23):** an earlier draft marked the accountant→head chain "❌ not built". That was **wrong** — it exists as the generic **Operations pipeline** (`asab_operations`), which the mobile Expense module bridges into. The legacy `ExpenseApprovalService` is only the mobile-side brand-owner leg; the dashboard accountant/head stages live in `Modules/Admin`. Open Q12 (build inside Expense vs a new Admin layer) is therefore **moot**.
+
 | Item | Status | Location |
 |---|---|---|
 | Expense model + types | ✅/⚠️ | `Modules/Expense` `expenses.expense_type`: `quick_cash, single_invoice, grouped_invoice, pre_approval` — meeting's "petty (بيري)" maps to `pre_approval`? **CONFIRM** (open Q10) |
-| Status | ✅ | `ExpenseStatus`: draft/pending/approved/rejected |
+| Status | ✅ | mobile `ExpenseStatus`: draft/pending/approved/rejected; dashboard `Operation` status: `pending → approved (accountant) → final-approved (head)` + `rejected` |
 | Fields (invoice no, before/after tax, attachments, date, supplier, items) | ✅ | `expenses`, `invoice_details`, `expense_items`, `expense_attachments`, `quick_cash_expenses` |
 | Category type flag (expense vs purchase) | ✅ | `categories.type` enum `['purchase','expense']`; `Category::scopeExpense/scopePurchase` |
-| **Approval chain: Brand Owner → Accountant (document each invoice) → Head final** | ❌ **BUILD** | Expense module has **brand-owner-only** approve/reject (`ExpenseApprovalService`, `ExpenseTimelinePerformedByType`: branch_manager/brand_owner/system). **Accountant + Head-of-Accounts stages do not exist.** |
+| Mobile expense → dashboard (forward bridge) | ✅ | `Admin/…/ExpenseBridgeService` — a submitted `Expense` becomes an `asab_operations` row (`module_key=expenses`, `source_module=expense`), idempotent on (source_module, source_id) |
+| **Accountant "document each invoice" (توثيق) stage** | ✅ | `Admin/…/ExpenseInvoiceService` — per-invoice verify/توثيق, entered-vs-document review, VAT split, match badges, convert-to-asset (ACC-2) |
+| **Head-of-Accounts final approval + lock** | ✅ | Operation `final-approved` (locked, `assertMutable`/`OP_ALREADY_FINAL`), then ERP post |
+| Decision → back to mobile (reverse bridge) | ✅ | `Admin/…/ExpenseFeedbackBridgeService` — final/reject writes `expenses.status` so the mobile row leaves «معلق» |
 | Expense items = "sales items" | ⚠️ | code uses `expense_items` (own table); no join to a sales-items table — **CONFIRM** intended source |
 
 ### 15.7 Purchases & Suppliers
@@ -318,7 +323,7 @@ Legend: ✅ exists · ⚠️ partial / needs change · ❌ not built.
 | Dashboard→mobile bridge | ✅ | `Purchase/…/ProcurementDecisionService` writes `purchase_orders` + `purchase_order_items` (`decision_source='dashboard_procurement'`); `Admin/…/ProcurementCatalogBridgeService` writes `items, branch_item, supplier_items, suppliers` |
 | Supplier mobile login | ✅ | `Modules/Supplier` `Supplier` (Sanctum + OTP) |
 | Internal vs external supplier flag | ❌ | **no `is_external` column** — only `created_by_admin_at` hints admin-provisioned. Build the typed distinction if needed (open Q7). |
-| **FR-PUR-1 Send-to-Supplier via WhatsApp** | ❌ **BUILD** | **STUB.** `SendOrderNotification::sendWhatsApp()` = `Log::info` only; no `whatsapp` column, no wa.me/Twilio. "Send to supplier" (`OrderConsolidationService::send`) only stamps `PurchaseOrderGroup.sent_at` — sends nothing externally. |
+| **FR-PUR-1 Send-to-Supplier via WhatsApp** | ✅ **DONE (2026-07-23)** | «إرسال للمورد» now returns a ready **wa.me click-to-chat** link (see §15.10). The old `SendOrderNotification::sendWhatsApp()` `Log::info` stub is superseded by `WhatsAppSupplierNotifier`; a gateway-backed provider is a one-line rebind. |
 
 ### 15.9 Implemented (session 2026-07-23)
 Confirmed, unambiguous dashboard bugs fixed — additive/backward-compatible, `Modules/Admin`; all 50 related tests green (`DashboardLinkingFixesTest`, `UserAssignmentRulesTest`, `AdminDashboardBatch1Test`).
@@ -335,11 +340,21 @@ Confirmed, unambiguous dashboard bugs fixed — additive/backward-compatible, `M
 Still open (need the §14 answers before coding): BUG-5 (permission-revert repro), BUG-6/BUG-9 (upload persistence + mobile pickers). Interpretation note on BUG-1: the empty-`modules`→full-catalog fallback follows the meeting ("modules are fixed"); revisit if Q1 says packages restrict.
 
 ### 15.8 Biggest build items (not yet in code)
-1. **Expense approval chain** beyond brand-owner: add Accountant (document/authenticate each invoice) + Head-of-Accounts final stages (§9.2).
-2. **WhatsApp integration** for Send-to-Supplier (FR-PUR-1) — currently a logging stub.
-3. **Fixed reject-reason list** for sales (and expenses) — currently free-text (FR-SAL-5).
-4. **Names-not-IDs** resolution in users list + distribution list (BUG-3, BUG-4).
-5. **Modules widget** returning real count (BUG-1) and **accountant_count** population (BUG-2).
-6. **Employees upload level** decision: restaurant (code) vs branch (meeting) (Q9).
-7. **Aggregator seed data** (Jahez/Keeta/Ninja/HungerStation) + **orders-count** field if required on the sheet.
-8. **Persistence bugs**: upload (BUG-6) and permission edits (BUG-5).
+1. ~~**Expense approval chain** beyond brand-owner~~ — **already exists** via the Operations pipeline (see §15.6 correction). Not a build.
+2. ~~**WhatsApp integration** for Send-to-Supplier (FR-PUR-1)~~ — **DONE 2026-07-23** (§15.10). *Optional follow-up:* mirror the link onto the Operations-pipeline send (`ProcurementController::send`, AsabSupplier `contact_phone`); provision a gateway provider for automated (non-click) send.
+3. **Fixed reject-reason list** for sales (and expenses) — currently free-text (FR-SAL-5). *(Meeting gave a partial list: transfer delay, canceled sale, cash-box error, data-entry error, settlement — needs Q8 to finalise the enum.)*
+4. **Employees upload level** decision: restaurant (code) vs branch (meeting) (Q9).
+5. **Aggregator seed data** (Jahez/Keeta/Ninja/HungerStation) + **orders-count** field if required on the sheet.
+6. **Persistence bugs**: upload (BUG-6) and permission edits (BUG-5).
+
+### 15.10 Implemented (session 2026-07-23, cont.) — WhatsApp Send-to-Supplier (FR-PUR-1)
+Additive/backward-compatible; `Modules/Admin`. Unit 4 + feature 6 tests green (`WhatsAppSupplierNotifierTest`, `ProcurementConsolidationTest`), pint clean.
+
+| Item | What | Where |
+|---|---|---|
+| Notifier seam (OCP/DIP) | `SupplierOrderNotifier` interface + `SupplierDispatch` DTO — dashboard depends on the abstraction; a real gateway is a rebind, not a call-site edit | `Admin/Services/Notifications/` |
+| WhatsApp provider | `WhatsAppSupplierNotifier` — phone→E.164 (Saudi 966 default; handles `05…`, `+966…`, `00966…`, bare), Arabic body (order no. + `name × qty unit` lines + ETA), `wa.me/<digits>?text=…` | same |
+| Binding | interface→WhatsApp impl | `AdminServiceProvider::register` |
+| Wiring | «إرسال للمورد» response gains a `whatsapp` block `{channel, reference, supplierName, phone, message, url, deliverable}`; no phone → `deliverable=false`, `url=null` (graceful) | `ProcurementPurchaseOrderController::sendGroup` |
+
+**Q7 default taken:** the wa.me link is emitted for any supplier with a phone (internal or external — a deep link is harmless); internal suppliers keep their in-app order. No `is_external` flag added. Revisit if internal must be in-app-only.

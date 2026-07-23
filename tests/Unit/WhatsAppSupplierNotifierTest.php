@@ -19,10 +19,9 @@ class WhatsAppSupplierNotifierTest extends TestCase
         $this->notifier = new WhatsAppSupplierNotifier;
     }
 
-    /** @return array<string, array{0: ?string, 1: ?string}> */
-    public static function phoneCases(): array
+    public function test_phone_is_normalised_to_e164_digits(): void
     {
-        return [
+        $cases = [
             'local trunk zero' => ['0553421100', '966553421100'],
             'plus and spaces' => ['+966 55 342 1100', '966553421100'],
             'double-zero intl' => ['00966553421100', '966553421100'],
@@ -32,23 +31,19 @@ class WhatsAppSupplierNotifierTest extends TestCase
             'blank' => ['', null],
             'all zeros' => ['0000', null],
         ];
-    }
 
-    /**
-     * @dataProvider phoneCases
-     */
-    public function test_phone_is_normalised_to_e164_digits(?string $raw, ?string $expectedDigits): void
-    {
-        $dispatch = $this->notifier->forOrder('GRP-1', 'مورد', $raw, []);
+        foreach ($cases as $label => [$raw, $expectedDigits]) {
+            $dispatch = $this->notifier->forOrder('GRP-1', 'مورد', $raw, []);
 
-        $this->assertSame($expectedDigits, $dispatch->phone);
+            $this->assertSame($expectedDigits, $dispatch->phone, $label);
 
-        if ($expectedDigits === null) {
-            $this->assertNull($dispatch->url);
-            $this->assertFalse($dispatch->deliverable());
-        } else {
-            $this->assertStringStartsWith('https://wa.me/'.$expectedDigits.'?text=', $dispatch->url);
-            $this->assertTrue($dispatch->deliverable());
+            if ($expectedDigits === null) {
+                $this->assertNull($dispatch->url, $label);
+                $this->assertFalse($dispatch->deliverable(), $label);
+            } else {
+                $this->assertStringStartsWith('https://wa.me/'.$expectedDigits.'?text=', $dispatch->url, $label);
+                $this->assertTrue($dispatch->deliverable(), $label);
+            }
         }
     }
 

@@ -526,9 +526,18 @@ class BrandOwnerFinancialReportingTest extends TestCase
             ]);
         $this->assertEquals(50.0, $sim->json('data.new_price'));
 
-        $this->actingAsOwner()->getJson('/api/brand-owner/financial/price-simulator/saved-scenarios')
+        $saved = $this->actingAsOwner()->getJson('/api/brand-owner/financial/price-simulator/saved-scenarios')
             ->assertStatus(200)
-            ->assertJsonCount(1, 'data');
+            ->assertJsonCount(1, 'data')
+            ->assertJsonStructure([
+                'data' => [[
+                    'id',
+                    'details' => ['new_price', 'expected_sales', 'new_unit_profit', 'new_monthly_profit', 'profit_change', 'date', 'branch_name', 'item_name', 'current_selling_price', 'production_cost', 'current_monthly_sales', 'expected_growth_percentage'],
+                ]],
+            ]);
+        // The scenario id is exposed so the frontend can export/email a saved scenario.
+        $this->assertNotEmpty($saved->json('data.0.id'));
+        $this->assertEquals(50.0, $saved->json('data.0.details.new_price'));
     }
 
     public function test_item_info_uses_real_latest_purchase_cost(): void

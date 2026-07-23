@@ -553,7 +553,34 @@ Body:
 
 ### `GET /price-simulator/saved-scenarios`
 
-Response `data`: **array** of the same simulation shape (latest first, max 50, caller's own).
+Response `data`: **array**, latest first, max 50, caller's own. Each entry exposes
+the scenario `id` (pass it as `scenario_id` to export/email) plus a nested
+`details` object holding the full simulation shape:
+
+```json
+[
+  {
+    "id": "scenario_1",
+    "details": {
+      "new_price": 45.0,
+      "expected_sales": 720,
+      "expected_sales_change_percentage": -10.0,
+      "new_unit_profit": 25.0,
+      "new_unit_profit_change_percentage": 25.0,
+      "new_monthly_profit": 18000.0,
+      "profit_change": 2000.0,
+      "profit_change_percentage": 12.5,
+      "date": "2026-06-23T10:30:00.000Z",
+      "branch_name": "Riyadh Branch",
+      "item_name": "Chicken Burger",
+      "current_selling_price": 40.0,
+      "production_cost": 20.0,
+      "current_monthly_sales": 800,
+      "expected_growth_percentage": -10.0
+    }
+  }
+]
+```
 
 ### `POST /price-simulator/export`
 
