@@ -159,11 +159,14 @@ class BrandOwnerFinancialReportingTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonStructure([
                 'data' => [
-                    'year', 'month',
+                    'year', 'month', 'branch_id', 'branch_name',
                     'summary' => ['total_revenue', 'total_expenses', 'net_profit', 'profit_margin_percentage', 'is_profit'],
                     'chart' => ['turnover_total', 'direct_cost_total', 'gross_profit', 'grand_total_cost', 'profitability_amount', 'g_and_a_expenses', 'other_income_expenses', 'net_profit_and_loss'],
                 ],
             ]);
+
+        $this->assertEquals($this->branch->id, $res->json('data.branch_id'));
+        $this->assertEquals($this->branch->name, $res->json('data.branch_name'));
 
         // turnover 500k; direct 200k; operating 80k => gross 300k, total cost 280k, net 220k, margin 44%.
         $this->assertEquals(500000.0, $res->json('data.summary.total_revenue'));
@@ -175,6 +178,9 @@ class BrandOwnerFinancialReportingTest extends TestCase
         $this->assertEquals(200000.0, $res->json('data.chart.direct_cost_total'));
         $this->assertEquals(80000.0, $res->json('data.chart.g_and_a_expenses'));
         $this->assertEquals(0.0, $res->json('data.chart.other_income_expenses'));
+        // profitability_amount = turnover − grand_total_cost = net profit.
+        $this->assertEquals(220000.0, $res->json('data.chart.profitability_amount'));
+        $this->assertEquals(220000.0, $res->json('data.chart.net_profit_and_loss'));
     }
 
     public function test_profit_and_loss_export_returns_file_url(): void
@@ -186,6 +192,22 @@ class BrandOwnerFinancialReportingTest extends TestCase
             'month' => (int) now()->month,
             'branch_id' => $this->branch->id,
             'format_type' => 'PDF',
+        ]);
+
+        $res->assertStatus(200)
+            ->assertJsonStructure(['data' => ['file_url']]);
+        $this->assertNotEmpty($res->json('data.file_url'));
+    }
+
+    public function test_profit_and_loss_export_accepts_lowercase_format_type(): void
+    {
+        Storage::fake('public');
+
+        $res = $this->actingAsOwner()->postJson('/api/brand-owner/financial/profit-and-loss/export', [
+            'year' => (int) now()->year,
+            'month' => (int) now()->month,
+            'branch_id' => $this->branch->id,
+            'format_type' => 'pdf',
         ]);
 
         $res->assertStatus(200)

@@ -9,6 +9,7 @@ use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Services\AccountantScopeService;
 
 /**
  * Accountant ↔ restaurant ↔ module distribution (BACKEND_API_SPEC.md §6.1.2).
@@ -16,6 +17,8 @@ use Modules\Admin\Models\AsabUserRole;
 class DistributionController extends AsabController
 {
     private const DIST_MODULES = ['sales', 'expenses', 'purchases', 'inventory'];
+
+    public function __construct(private readonly AccountantScopeService $scope) {}
 
     public function index(): JsonResponse
     {
@@ -28,30 +31,40 @@ class DistributionController extends AsabController
             $assigned = collect();
             $accModules = [];
 
-            foreach ($accountants as $acc) {
+            $accountantRows = $accountants->map(function ($acc) use ($allRestaurants, &$assigned, &$accModules) {
                 $assignment = $acc->roleAssignments->firstWhere('role_key', 'accountant');
-                $restIds = $assignment->restaurant_ids ?? [];
+                // Accountants are BRAND-level: the restaurants they cover are the
+                // restaurants of their brands, resolved here rather than read off
+                // the (empty) restaurant_ids that made the UI show "zero".
+                $covered = $this->scope->restaurantsForAssignment($assignment);
+                $restIds = $covered->pluck('id')->all();
                 $assigned = $assigned->merge($restIds);
+
                 $accModules[$acc->id] = [];
                 foreach ($restIds as $rid) {
-                    $accModules[$acc->id][$allRestaurants[$rid] ?? $rid] = $assignment->module_keys ?? self::DIST_MODULES;
+                    $accModules[$acc->id][$allRestaurants[$rid] ?? $rid] = $assignment->module_keys ?: self::DIST_MODULES;
                 }
-            }
+
+                return [
+                    'id' => $acc->id, 'name' => $acc->name, 'avatar' => $acc->avatar,
+                    'headId' => $acc->reports_to_id,
+                    'restaurants' => $restIds,
+                    // Names alongside ids so the screen renders restaurant names,
+                    // not raw uuids (client meeting).
+                    'restaurantsNamed' => $covered->map(fn ($r) => ['id' => $r->id, 'name' => $r->name])->values()->all(),
+                ];
+            })->values()->all();
 
             return $this->ok([
                 'heads' => $heads->map(fn ($h) => [
                     'id' => $h->id, 'name' => $h->name, 'avatar' => $h->avatar,
                     'accountantCount' => $accountants->where('reports_to_id', $h->id)->count(),
                 ])->values()->all(),
-                'accountants' => $accountants->map(function ($a) {
-                    $as = $a->roleAssignments->firstWhere('role_key', 'accountant');
-
-                    return [
-                        'id' => $a->id, 'name' => $a->name, 'avatar' => $a->avatar,
-                        'headId' => $a->reports_to_id, 'restaurants' => $as->restaurant_ids ?? [],
-                    ];
-                })->values()->all(),
+                'accountants' => $accountantRows,
                 'allRestaurants' => $allRestaurants->keys()->all(),
+                // id => name map so any restaurant id in this payload resolves to a
+                // display name client-side.
+                'restaurantNames' => $allRestaurants->all(),
                 'assignedRestaurants' => $assigned->unique()->values()->all(),
                 'freeRestaurants' => $allRestaurants->keys()->reject(fn ($id) => $assigned->contains($id))->values()->all(),
                 'accModules' => $accModules,

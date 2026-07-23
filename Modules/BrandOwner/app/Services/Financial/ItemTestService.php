@@ -164,7 +164,7 @@ class ItemTestService
             'expected_monthly_profit' => (float) $row->expected_monthly_profit,
             'expected_classification' => (string) $row->expected_classification,
             'menu_impact' => (string) $row->menu_impact,
-            'date' => $row->created_at->toIso8601String(),
+            'date' => $row->created_at->clone()->utc()->format('Y-m-d\TH:i:s.v\Z'),
             'branch_name' => (string) $row->branch_name,
             'item_name' => (string) $row->item_name,
             'expected_selling_price' => (float) $row->expected_selling_price,
@@ -190,7 +190,7 @@ class ItemTestService
                 'rows' => [
                     ['label' => 'Branch', 'value' => (string) $row->branch_name],
                     ['label' => 'Item', 'value' => (string) $row->item_name],
-                    ['label' => 'Date', 'value' => $row->created_at->toIso8601String()],
+                    ['label' => 'Date', 'value' => $row->created_at->clone()->utc()->format('Y-m-d\TH:i:s.v\Z')],
                 ],
             ],
             [

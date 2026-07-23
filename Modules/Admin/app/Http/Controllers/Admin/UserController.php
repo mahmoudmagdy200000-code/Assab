@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Models\AsabBrand;
+use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Notifications\UserPasswordResetNotification;
@@ -15,6 +17,7 @@ use Modules\Admin\Services\CredentialMailer;
 use Modules\Admin\Services\CredentialSyncService;
 use Modules\Admin\Services\IdentityMapService;
 use Modules\Admin\Services\Provisioning\LegacyProvisionerRegistry;
+use Modules\Branch\Models\Branch;
 
 class UserController extends AsabController
 {
@@ -68,7 +71,12 @@ class UserController extends AsabController
 
             $p = $q->orderByDesc('created_at')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
-            return $this->paginated($p, array_map([$this, 'present'], $p->items()));
+            // Resolve every referenced brand/restaurant/branch name once for the
+            // page, then present each row against the shared maps (no per-row N+1).
+            $items = $p->items();
+            $maps = $this->nameMaps($items);
+
+            return $this->paginated($p, array_map(fn ($u) => $this->present($u, $maps), $items));
         });
     }
 
@@ -467,10 +475,51 @@ class UserController extends AsabController
         ][$role] ?? 'admin-overview';
     }
 
-    private function present(AsabUser $u): array
+    /**
+     * id => name lookup maps for every brand/restaurant/branch referenced by the
+     * given users' assignments, in three queries total (no per-row lookups).
+     *
+     * @param  iterable<AsabUser>  $users
+     * @return array{brand:array<string,string>,restaurant:array<string,string>,branch:array<string,string>}
+     */
+    private function nameMaps(iterable $users): array
+    {
+        $brandIds = $restaurantIds = $branchIds = [];
+        foreach ($users as $u) {
+            if (! $assignment = $u->roleAssignments->first()) {
+                continue;
+            }
+            $brandIds = array_merge($brandIds, $assignment->brand_ids ?? []);
+            $restaurantIds = array_merge($restaurantIds, $assignment->restaurant_ids ?? []);
+            $branchIds = array_merge($branchIds, $assignment->branch_ids ?? []);
+        }
+
+        return [
+            'brand' => AsabBrand::whereIn('id', array_values(array_unique($brandIds)))->pluck('name', 'id')->all(),
+            'restaurant' => AsabRestaurant::whereIn('id', array_values(array_unique($restaurantIds)))->pluck('name', 'id')->all(),
+            'branch' => Branch::whereIn('id', array_values(array_unique($branchIds)))->pluck('name', 'id')->all(),
+        ];
+    }
+
+    /**
+     * Zip an id array against a name map into [{id, name}] for display.
+     *
+     * @param  array<int,string>  $ids
+     * @param  array<string,string>  $names
+     * @return array<int,array{id:string,name:string|null}>
+     */
+    private function named(array $ids, array $names): array
+    {
+        return array_map(fn ($id) => ['id' => $id, 'name' => $names[$id] ?? null], array_values($ids));
+    }
+
+    private function present(AsabUser $u, ?array $maps = null): array
     {
         $assignment = $u->roleAssignments->first();
         $roleKey = $assignment->role_key ?? null;
+        // Single-row callers (store/update/status) pass no maps — resolve for
+        // just this user; the index passes one shared map for the whole page.
+        $maps ??= $this->nameMaps([$u]);
 
         return [
             'id' => $u->id,
@@ -482,6 +531,11 @@ class UserController extends AsabController
             'brands' => $assignment->brand_ids ?? [],
             'restaurants' => $assignment->restaurant_ids ?? [],
             'branches' => $assignment->branch_ids ?? [],
+            // Same ids resolved to {id, name} so the users list renders names,
+            // not raw uuids (client meeting: "return the brand name, not the ID").
+            'brandsNamed' => $this->named($assignment->brand_ids ?? [], $maps['brand']),
+            'restaurantsNamed' => $this->named($assignment->restaurant_ids ?? [], $maps['restaurant']),
+            'branchesNamed' => $this->named($assignment->branch_ids ?? [], $maps['branch']),
             'modules' => $assignment->module_keys ?? [],
             'scope' => $assignment->scope ?? 'all',
             // {id, name} rather than the bare uuid: every consumer of this field

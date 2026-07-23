@@ -13,15 +13,19 @@ use Modules\Admin\Models\AsabBrandPackage;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Notifications\UserPasswordResetNotification;
+use Modules\Admin\Services\AccountantScopeService;
 use Modules\Admin\Services\AsabSubscriptionService;
 use Modules\Admin\Services\BrandCompanyResolver;
 use Modules\Admin\Services\BrandOwnerProvisioningService;
 use Modules\Admin\Services\CredentialMailer;
 use Modules\Admin\Services\CredentialSyncService;
+use Modules\Admin\Support\ModuleCatalog;
 use Modules\Branch\Models\Branch;
 
 class BrandController extends AsabController
 {
+    public function __construct(private readonly AccountantScopeService $scope) {}
+
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
@@ -270,6 +274,11 @@ class BrandController extends AsabController
 
     private function present(AsabBrand $b, bool $withChildren = false): array
     {
+        // Modules are a fixed catalog (SRS §2.3 «الموديولات التسعة»); a brand with
+        // no explicit subset is granted the full set, so the module widget shows
+        // the real count instead of 0. `modules` stays as stored for compat.
+        $effectiveModules = ! empty($b->modules) ? $b->modules : ModuleCatalog::keys();
+
         $data = [
             'id' => $b->id,
             'companyId' => $b->company_id,
@@ -283,6 +292,7 @@ class BrandController extends AsabController
             'subStatus' => $b->sub_status,
             'daysLeft' => $b->days_left,
             'modules' => $b->modules ?? [],
+            'moduleCount' => count($effectiveModules),
             'status' => $b->status,
         ];
 
@@ -294,12 +304,16 @@ class BrandController extends AsabController
                 ->orderBy('name')->get(['id', 'name', 'manager', 'asab_restaurant_id'])
                 ->groupBy('asab_restaurant_id');
 
+            // Real accountant coverage per restaurant (brand-scoped assignments),
+            // computed once — the stored accountant_count is not maintained.
+            $accountantCounts = $this->scope->accountantCounts($restaurants);
+
             $data['restaurants'] = $restaurants->map(fn ($r) => [
                 'id' => $r->id,
                 'name' => $r->name,
                 'city' => $r->city,
                 'status' => $r->status,
-                'accountants' => $r->accountant_count,
+                'accountants' => $accountantCounts[$r->id] ?? 0,
                 'branches' => ($branchesByRestaurant[$r->id] ?? collect())
                     ->map(fn ($br) => ['id' => $br->id, 'name' => $br->name, 'manager' => $br->manager])
                     ->values()->all(),

@@ -228,7 +228,7 @@ class PriceSimulatorService
             'new_monthly_profit' => (float) $row->new_monthly_profit,
             'profit_change' => (float) $row->profit_change,
             'profit_change_percentage' => (float) $row->profit_change_percentage,
-            'date' => $row->created_at->toIso8601String(),
+            'date' => $row->created_at->clone()->utc()->format('Y-m-d\TH:i:s.v\Z'),
             'branch_name' => (string) $row->branch_name,
             'item_name' => (string) $row->item_name,
             'current_selling_price' => (float) $row->current_selling_price,
