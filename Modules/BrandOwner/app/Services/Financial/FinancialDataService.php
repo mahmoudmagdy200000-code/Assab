@@ -131,6 +131,25 @@ class FinancialDataService
     }
 
     /**
+     * Resolve the effective branch for a report: the requested branch when a valid
+     * id is supplied, otherwise the first branch (alphabetical) as a sensible
+     * default so brand-owner dashboards always render a real branch's figures.
+     * An unknown id also falls back to the first branch rather than silently
+     * aggregating every branch.
+     *
+     * @return array{id: ?string, name: ?string} both null only when no branch exists
+     */
+    public function resolveBranchRef(?string $branchId): array
+    {
+        $branch = $this->resolveBranch($branchId) ?? $this->resolveBranch(null);
+
+        return [
+            'id' => $branch ? (string) $branch->id : null,
+            'name' => $branch ? (string) $branch->name : null,
+        ];
+    }
+
+    /**
      * Flat branch list [{id, name}] — optionally restricted to one branch
      * (branch-manager callers pass their own id; brand owners pass null).
      *

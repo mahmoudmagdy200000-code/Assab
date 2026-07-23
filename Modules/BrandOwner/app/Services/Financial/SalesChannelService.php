@@ -292,13 +292,19 @@ class SalesChannelService
     }
 
     /**
+     * The effective branch id for a request: the supplied branch when a valid id
+     * is given, otherwise the first branch from the database as the default (the
+     * user picks a branch via the filter; before they do we show a real one, not
+     * an all-branches aggregate).
+     *
      * @param  array<string, mixed>  $params
      */
     private function branchId(array $params): ?string
     {
         $branchId = $params['branch_id'] ?? null;
+        $branchId = $branchId !== null && $branchId !== '' ? (string) $branchId : null;
 
-        return $branchId !== null && $branchId !== '' ? (string) $branchId : null;
+        return $this->data->resolveBranchRef($branchId)['id'];
     }
 
     private function intOrNull(mixed $value): ?int

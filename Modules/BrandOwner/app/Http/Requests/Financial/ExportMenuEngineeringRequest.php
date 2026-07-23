@@ -3,9 +3,12 @@
 namespace Modules\BrandOwner\Http\Requests\Financial;
 
 use App\Http\Requests\BaseRequest;
+use Modules\BrandOwner\Http\Requests\Financial\Concerns\NormalizesFormatType;
 
 class ExportMenuEngineeringRequest extends BaseRequest
 {
+    use NormalizesFormatType;
+
     /**
      * @return array<string, mixed>
      */

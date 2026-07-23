@@ -183,6 +183,17 @@ class BrandOwnerFinancialReportingTest extends TestCase
         $this->assertEquals(220000.0, $res->json('data.chart.net_profit_and_loss'));
     }
 
+    public function test_profit_and_loss_defaults_to_first_branch_when_branch_id_omitted(): void
+    {
+        $res = $this->actingAsOwner()->getJson('/api/brand-owner/financial/profit-and-loss');
+
+        $res->assertStatus(200)->assertJsonPath('success', true);
+        // Omitting branch_id must resolve to a real branch (the first), not null/all.
+        $this->assertEquals($this->branch->id, $res->json('data.branch_id'));
+        $this->assertEquals('Riyadh Branch', $res->json('data.branch_name'));
+        $this->assertEquals(500000.0, $res->json('data.summary.total_revenue'));
+    }
+
     public function test_profit_and_loss_export_returns_file_url(): void
     {
         Storage::fake('public');
@@ -253,6 +264,17 @@ class BrandOwnerFinancialReportingTest extends TestCase
         // One channel carrying the full 500k of sales.
         $this->assertEquals(500000.0, $res->json('data.summary.total_sales'));
         $this->assertEquals(500000.0, $res->json('data.chart_data.main_value'));
+    }
+
+    public function test_sales_channel_analysis_defaults_to_first_branch_when_branch_id_omitted(): void
+    {
+        $res = $this->actingAsOwner()->getJson('/api/brand-owner/financial/sales-channel-analysis');
+
+        $res->assertStatus(200)->assertJsonPath('success', true);
+        // branch_id is now optional and defaults to the first branch from the DB.
+        $this->assertEquals($this->branch->id, $res->json('data.branch_id'));
+        $this->assertEquals('Riyadh Branch', $res->json('data.branch_name'));
+        $this->assertEquals(500000.0, $res->json('data.summary.total_sales'));
     }
 
     public function test_sales_channel_level2_shape(): void

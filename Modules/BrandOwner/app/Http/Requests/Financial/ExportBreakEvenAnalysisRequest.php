@@ -3,9 +3,12 @@
 namespace Modules\BrandOwner\Http\Requests\Financial;
 
 use App\Http\Requests\BaseRequest;
+use Modules\BrandOwner\Http\Requests\Financial\Concerns\NormalizesFormatType;
 
 class ExportBreakEvenAnalysisRequest extends BaseRequest
 {
+    use NormalizesFormatType;
+
     /**
      * Route middleware (brand.owner) enforces the role — module-wide convention.
      */
