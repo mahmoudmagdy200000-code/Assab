@@ -18,6 +18,15 @@ use Modules\BrandOwner\Http\Controllers\BrandOwnerReportsController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerReturnController;
 use Modules\BrandOwner\Http\Controllers\BrandOwnerSettingsController;
 use Modules\BrandOwner\Http\Controllers\CashSalesTransferController;
+use Modules\BrandOwner\Http\Controllers\Financial\BreakEvenAnalysisController;
+use Modules\BrandOwner\Http\Controllers\Financial\ItemTestController;
+use Modules\BrandOwner\Http\Controllers\Financial\MenuEngineeringController;
+use Modules\BrandOwner\Http\Controllers\Financial\OperationalProfitabilityController;
+use Modules\BrandOwner\Http\Controllers\Financial\PriceSimulatorController;
+use Modules\BrandOwner\Http\Controllers\Financial\ProfitAndLossController;
+use Modules\BrandOwner\Http\Controllers\Financial\ProfitVsCashReconciliationController;
+use Modules\BrandOwner\Http\Controllers\Financial\SalesChannelController;
+use Modules\BrandOwner\Http\Controllers\Financial\SmartComparisonController;
 use Modules\BrandOwner\Http\Controllers\OwnerPaymentFormController;
 use Modules\BrandOwner\Http\Controllers\OwnerPaymentLogController;
 
@@ -312,4 +321,69 @@ Route::prefix('brand-owner/settings')
 
         Route::get('notifications', [BrandOwnerSettingsController::class, 'showNotifications']);
         Route::patch('notifications', [BrandOwnerSettingsController::class, 'updateNotifications']);
+    });
+
+/*
+|--------------------------------------------------------------------------
+| Brand Owner - Financial Reporting (BrandOwnerFinancialReportingScreen)
+|--------------------------------------------------------------------------
+| Core reports (P&L, sales-channel, smart comparison), specialised reports
+| (profit-vs-cash, break-even, operational profitability, menu engineering)
+| and the menu-engineering actions (item test, price simulator), each with
+| PDF/Excel export and email delivery. Spec: brand-owner-financial-reporting-doc.
+*/
+
+Route::prefix('brand-owner/financial')
+    ->middleware(['auth:sanctum', 'brand.owner', 'log.throttle'])
+    ->name('api.brand-owner.financial.')
+    ->group(function () {
+        // 1. Profit & Loss Statement
+        Route::get('profit-and-loss', [ProfitAndLossController::class, 'index']);
+        Route::post('profit-and-loss/export', [ProfitAndLossController::class, 'export']);
+        Route::post('profit-and-loss/email', [ProfitAndLossController::class, 'email']);
+
+        // 2/3. Sales Channel Analysis + Level 2
+        Route::get('sales-channel-analysis', [SalesChannelController::class, 'analysis']);
+        Route::post('sales-channel-analysis/export', [SalesChannelController::class, 'analysisExport']);
+        Route::post('sales-channel-analysis/email', [SalesChannelController::class, 'analysisEmail']);
+        Route::get('sales-channel-level2', [SalesChannelController::class, 'level2']);
+        Route::post('sales-channel-level2/export', [SalesChannelController::class, 'level2Export']);
+
+        // 4. Smart Comparisons
+        Route::get('smart-comparison', [SmartComparisonController::class, 'index']);
+        Route::post('smart-comparison/export', [SmartComparisonController::class, 'export']);
+        Route::post('smart-comparison/email', [SmartComparisonController::class, 'email']);
+
+        // 5. Profit vs Cash Reconciliation
+        Route::get('profit-vs-cash-reconciliation', [ProfitVsCashReconciliationController::class, 'index']);
+        Route::post('profit-vs-cash-reconciliation/export', [ProfitVsCashReconciliationController::class, 'export']);
+        Route::post('profit-vs-cash-reconciliation/email', [ProfitVsCashReconciliationController::class, 'email']);
+
+        // 6. Break-Even Analysis
+        Route::get('break-even-analysis', [BreakEvenAnalysisController::class, 'index']);
+        Route::post('break-even-analysis/export', [BreakEvenAnalysisController::class, 'export']);
+
+        // 7. Operational Profitability
+        Route::get('operational-profitability', [OperationalProfitabilityController::class, 'index']);
+        Route::post('operational-profitability/export', [OperationalProfitabilityController::class, 'export']);
+        Route::post('operational-profitability/email', [OperationalProfitabilityController::class, 'email']);
+
+        // 8. Menu Engineering
+        Route::get('menu-engineering', [MenuEngineeringController::class, 'index']);
+        Route::post('menu-engineering/export', [MenuEngineeringController::class, 'export']);
+        Route::post('menu-engineering/email', [MenuEngineeringController::class, 'email']);
+
+        // 9. Item Test
+        Route::post('item-test/submit', [ItemTestController::class, 'submit']);
+        Route::get('item-test/saved-tests', [ItemTestController::class, 'savedTests']);
+        Route::post('item-test/export', [ItemTestController::class, 'export']);
+        Route::post('item-test/email', [ItemTestController::class, 'email']);
+
+        // 10. Price Simulator
+        Route::get('price-simulator/items', [PriceSimulatorController::class, 'items']);
+        Route::get('price-simulator/item-info', [PriceSimulatorController::class, 'itemInfo']);
+        Route::post('price-simulator/simulate', [PriceSimulatorController::class, 'simulate']);
+        Route::get('price-simulator/saved-scenarios', [PriceSimulatorController::class, 'savedScenarios']);
+        Route::post('price-simulator/export', [PriceSimulatorController::class, 'export']);
+        Route::post('price-simulator/email', [PriceSimulatorController::class, 'email']);
     });
