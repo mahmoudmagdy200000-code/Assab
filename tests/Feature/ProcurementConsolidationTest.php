@@ -175,6 +175,53 @@ class ProcurementConsolidationTest extends TestCase
         $this->assertEquals(320, collect($details->json('items'))->firstWhere('itemId', $this->item->id)['totalQuantity']);
     }
 
+    public function test_send_returns_a_ready_whatsapp_order_link(): void
+    {
+        $this->confirmedOrder(200);
+        $this->confirmedOrder(120);
+
+        $send = $this->asManager()->postJson('/api/v1/procurement/purchase-orders/grouped/send', [
+            'supplierId' => $this->supplier->id,
+            'expectedDeliveryDate' => '2026-07-30',
+        ]);
+
+        $send->assertCreated()
+            ->assertJsonPath('whatsapp.channel', 'whatsapp')
+            ->assertJsonPath('whatsapp.deliverable', true);
+
+        $wa = $send->json('whatsapp');
+        // Supplier phone 0553421100 → Saudi E.164.
+        $this->assertStringContainsString('wa.me/966553421100', $wa['url']);
+        // FR-PUR-1 — the order number shown to the supplier is the batch number.
+        $this->assertSame($send->json('groupNumber'), $wa['reference']);
+        $this->assertStringContainsString($send->json('groupNumber'), $wa['message']);
+        // The aggregated item line (320 kg of chicken) rides in the message + ETA.
+        $this->assertStringContainsString('صدر دجاج', $wa['message']);
+        $this->assertStringContainsString('320', $wa['message']);
+        $this->assertStringContainsString('2026-07-30', $wa['message']);
+    }
+
+    public function test_send_to_a_supplier_without_a_phone_yields_a_non_deliverable_dispatch(): void
+    {
+        $phoneless = Supplier::create([
+            'name' => 'مورد بدون هاتف',
+            'email' => 'nophone@consolidation.test',
+            'password' => bcrypt('password'),
+            'phone' => null,
+            'is_active' => true,
+            'status' => 'online',
+        ]);
+        $this->confirmedOrder(50, null, $phoneless);
+
+        $send = $this->asManager()->postJson('/api/v1/procurement/purchase-orders/grouped/send', [
+            'supplierId' => $phoneless->id,
+        ]);
+
+        $send->assertCreated()
+            ->assertJsonPath('whatsapp.deliverable', false)
+            ->assertJsonPath('whatsapp.url', null);
+    }
+
     public function test_send_refuses_orders_outside_tenant_scope(): void
     {
         $otherCompany = AsabCompany::create(['name' => 'Other', 'plan' => 'Basic', 'status' => 'active']);
