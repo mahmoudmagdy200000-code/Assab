@@ -3,9 +3,12 @@
 namespace Modules\BrandOwner\Http\Requests\Financial;
 
 use App\Http\Requests\BaseRequest;
+use Modules\BrandOwner\Http\Requests\Financial\Concerns\NormalizesFormatType;
 
 class ExportMenuEngineeringRequest extends BaseRequest
 {
+    use NormalizesFormatType;
+
     /**
      * @return array<string, mixed>
      */
@@ -16,7 +19,7 @@ class ExportMenuEngineeringRequest extends BaseRequest
             'month' => ['required', 'integer'],
             'compared_year' => ['required', 'integer'],
             'compared_month' => ['required', 'integer'],
-            'branch_id' => ['required', 'string'],
+            'branch_id' => ['sometimes', 'nullable', 'string'],
             'format_type' => ['required', 'in:PDF,Excel'],
         ];
     }

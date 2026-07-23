@@ -28,13 +28,14 @@ class ProfitAndLossService
     public function build(?int $year, ?int $month, ?string $branchId): array
     {
         $period = $this->data->resolvePeriod($year, $month);
-        $pnl = $this->data->profitAndLoss($branchId, $period['start'], $period['end']);
+        $branch = $this->data->resolveBranchRef($branchId);
+        $pnl = $this->data->profitAndLoss($branch['id'], $period['start'], $period['end']);
 
         return [
             'year' => $period['year'],
             'month' => $period['month'],
-            'branch_id' => $branchId,
-            'branch_name' => $this->data->branchName($branchId),
+            'branch_id' => $branch['id'],
+            'branch_name' => $branch['name'],
             'summary' => [
                 'total_revenue' => $pnl['turnover'],
                 'total_expenses' => $pnl['total_cost'],
@@ -79,7 +80,7 @@ class ProfitAndLossService
             [
                 'year' => $payload['year'],
                 'month' => $payload['month'],
-                'branch_id' => $branchId,
+                'branch_id' => $payload['branch_id'],
             ],
         );
     }

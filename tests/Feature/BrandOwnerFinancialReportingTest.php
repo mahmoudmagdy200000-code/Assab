@@ -183,6 +183,17 @@ class BrandOwnerFinancialReportingTest extends TestCase
         $this->assertEquals(220000.0, $res->json('data.chart.net_profit_and_loss'));
     }
 
+    public function test_profit_and_loss_defaults_to_first_branch_when_branch_id_omitted(): void
+    {
+        $res = $this->actingAsOwner()->getJson('/api/brand-owner/financial/profit-and-loss');
+
+        $res->assertStatus(200)->assertJsonPath('success', true);
+        // Omitting branch_id must resolve to a real branch (the first), not null/all.
+        $this->assertEquals($this->branch->id, $res->json('data.branch_id'));
+        $this->assertEquals('Riyadh Branch', $res->json('data.branch_name'));
+        $this->assertEquals(500000.0, $res->json('data.summary.total_revenue'));
+    }
+
     public function test_profit_and_loss_export_returns_file_url(): void
     {
         Storage::fake('public');
@@ -253,6 +264,17 @@ class BrandOwnerFinancialReportingTest extends TestCase
         // One channel carrying the full 500k of sales.
         $this->assertEquals(500000.0, $res->json('data.summary.total_sales'));
         $this->assertEquals(500000.0, $res->json('data.chart_data.main_value'));
+    }
+
+    public function test_sales_channel_analysis_defaults_to_first_branch_when_branch_id_omitted(): void
+    {
+        $res = $this->actingAsOwner()->getJson('/api/brand-owner/financial/sales-channel-analysis');
+
+        $res->assertStatus(200)->assertJsonPath('success', true);
+        // branch_id is now optional and defaults to the first branch from the DB.
+        $this->assertEquals($this->branch->id, $res->json('data.branch_id'));
+        $this->assertEquals('Riyadh Branch', $res->json('data.branch_name'));
+        $this->assertEquals(500000.0, $res->json('data.summary.total_sales'));
     }
 
     public function test_sales_channel_level2_shape(): void
@@ -351,6 +373,16 @@ class BrandOwnerFinancialReportingTest extends TestCase
         $this->assertEquals(200000.0, $res->json('data.contribution_margin.variable_costs'));
     }
 
+    public function test_break_even_analysis_defaults_to_first_branch_when_branch_id_omitted(): void
+    {
+        $res = $this->actingAsOwner()->getJson('/api/brand-owner/financial/break-even-analysis');
+
+        $res->assertStatus(200)->assertJsonPath('success', true);
+        $this->assertEquals($this->branch->id, $res->json('data.branch_id'));
+        $this->assertEquals('Riyadh Branch', $res->json('data.branch_name'));
+        $this->assertEquals(200000.0, $res->json('data.contribution_margin.variable_costs'));
+    }
+
     // ----------------------------------------------------------------
     // 7. Operational profitability
     // ----------------------------------------------------------------
@@ -403,6 +435,20 @@ class BrandOwnerFinancialReportingTest extends TestCase
         $this->assertFalse($res->json('data.dogs.is_high_profitability'));
     }
 
+    public function test_menu_engineering_defaults_to_first_branch_when_branch_id_omitted(): void
+    {
+        $res = $this->actingAsOwner()->getJson('/api/brand-owner/financial/menu-engineering');
+
+        $res->assertStatus(200)->assertJsonPath('success', true);
+        $this->assertEquals($this->branch->id, $res->json('data.branch_id'));
+        $this->assertEquals('Riyadh Branch', $res->json('data.branch_name'));
+        $total = $res->json('data.stars.items_count')
+            + $res->json('data.puzzles.items_count')
+            + $res->json('data.dogs.items_count')
+            + $res->json('data.workhorses.items_count');
+        $this->assertEquals(4, $total);
+    }
+
     // ----------------------------------------------------------------
     // 9. Item test
     // ----------------------------------------------------------------
@@ -431,6 +477,22 @@ class BrandOwnerFinancialReportingTest extends TestCase
             ->assertStatus(200)
             ->assertJsonPath('success', true)
             ->assertJsonCount(1, 'data');
+    }
+
+    public function test_item_test_submit_defaults_to_first_branch_when_branch_id_omitted(): void
+    {
+        $res = $this->actingAsOwner()->postJson('/api/brand-owner/financial/item-test/submit', [
+            'item_name' => 'No-Branch Item',
+            'expected_selling_price' => 45.0,
+            'production_cost' => 25.0,
+            'expected_sales' => 500,
+            'expected_growth' => 10.0,
+        ]);
+
+        // branch_id omitted → resolved to the first branch and stored on the test.
+        $res->assertStatus(201)->assertJsonPath('success', true);
+        $this->assertEquals('Riyadh Branch', $res->json('data.branch_name'));
+        $this->assertEquals(44.44, $res->json('data.profit_margin'));
     }
 
     // ----------------------------------------------------------------

@@ -330,8 +330,9 @@ Confirmed, unambiguous dashboard bugs fixed — additive/backward-compatible, `M
 | **BUG-3** ✅ | Users list adds `brandsNamed`/`restaurantsNamed`/`branchesNamed` `[{id,name}]`; raw id arrays unchanged (contract kept) | `UserController::present` + `nameMaps` |
 | **BUG-1** ✅ | Brand response adds `moduleCount` (full 9-catalog when `modules` unset); `modules` array unchanged | `BrandController::present` |
 | **BUG-8** ✅ (backend) | `GET /admin/branches?brandId=&restaurantId=` already scopes the branch picker — **FE must pass the filter**; no backend change | `BranchController::index` |
+| **BUG-7** ✅ | Shift-config list scoped to the accountant's **assigned** brand(s) (was every company brand → the "banal/placeholder"); config write now `assertBrandAssigned` (zero-trust) | `AccountantCompanyController::shiftConfigs` + `saveShiftConfig` |
 
-Still open (need the §14 answers before coding): BUG-5 (permission-revert repro), BUG-6/BUG-9 (upload persistence + mobile pickers), BUG-7 (shift wrong-brand). Interpretation note on BUG-1: the empty-`modules`→full-catalog fallback follows the meeting ("modules are fixed"); revisit if Q1 says packages restrict.
+Still open (need the §14 answers before coding): BUG-5 (permission-revert repro), BUG-6/BUG-9 (upload persistence + mobile pickers). Interpretation note on BUG-1: the empty-`modules`→full-catalog fallback follows the meeting ("modules are fixed"); revisit if Q1 says packages restrict.
 
 ### 15.8 Biggest build items (not yet in code)
 1. **Expense approval chain** beyond brand-owner: add Accountant (document/authenticate each invoice) + Head-of-Accounts final stages (§9.2).

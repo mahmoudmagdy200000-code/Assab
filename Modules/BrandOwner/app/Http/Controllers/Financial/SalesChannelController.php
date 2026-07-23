@@ -30,7 +30,7 @@ class SalesChannelController extends BaseController
             'month' => ['nullable', 'integer'],
             'compared_year' => ['nullable', 'integer'],
             'compared_month' => ['nullable', 'integer'],
-            'branch_id' => ['required', 'string'],
+            'branch_id' => ['nullable', 'string'],
         ]);
 
         return $this->successResponse(

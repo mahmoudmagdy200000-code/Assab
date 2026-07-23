@@ -3,9 +3,12 @@
 namespace Modules\BrandOwner\Http\Requests\Financial;
 
 use App\Http\Requests\BaseRequest;
+use Modules\BrandOwner\Http\Requests\Financial\Concerns\NormalizesFormatType;
 
 class ExportSalesChannelLevel2Request extends BaseRequest
 {
+    use NormalizesFormatType;
+
     /**
      * Role is enforced by the brand.owner route middleware (module-wide convention).
      */

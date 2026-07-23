@@ -110,6 +110,36 @@ class ShiftsTest extends TestCase
         $this->assertSame(50000, $body['openingFloatHalalas']);
     }
 
+    public function test_config_list_and_write_are_scoped_to_the_assigned_brand(): void
+    {
+        // A second brand in the SAME company the scoped accountant is NOT assigned to.
+        $otherBrand = AsabBrand::create([
+            'company_id' => $this->company->id, 'name' => 'علامة أخرى',
+            'sub_status' => 'active', 'status' => 'active',
+        ]);
+        $scoped = AsabUser::create([
+            'company_id' => $this->company->id, 'name' => 'محاسب مخصص',
+            'email' => 'scoped-acc@shift.test', 'password' => 'secret-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create([
+            'user_id' => $scoped->id, 'role_key' => 'accountant',
+            'scope' => 'brand', 'brand_ids' => [$this->brand->id],
+        ]);
+
+        // The list returns only the accountant's own brand, not the placeholder
+        // of a sibling brand (BUG-7).
+        $brandIds = collect($this->actingAs($scoped, 'sanctum')
+            ->getJson('/api/v1/company/me/shifts/configs')->assertOk()->json('data'))
+            ->pluck('brandId')->all();
+        $this->assertContains($this->brand->id, $brandIds);
+        $this->assertNotContains($otherBrand->id, $brandIds);
+
+        // ...and writing config for the unassigned same-company brand is denied.
+        $this->actingAs($scoped, 'sanctum')
+            ->putJson("/api/v1/company/me/brands/{$otherBrand->id}/shift-config", ['numShifts' => 1])
+            ->assertStatus(404);
+    }
+
     // ── Open (T08.2) ─────────────────────────────────────────────────────────
 
     public function test_open_persists_cashier_type_and_defaulted_float(): void

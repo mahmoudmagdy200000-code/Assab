@@ -64,7 +64,8 @@ List endpoints (saved-tests, saved-scenarios, price-simulator items) return an
 
 ### Export & Email conventions
 
-- **Export** endpoints are `POST`, body includes `format_type` = `"PDF"` or `"Excel"`.
+- **Export** endpoints are `POST`, body includes `format_type` = `"PDF"` or `"Excel"`
+  (case-insensitive — `"pdf"` / `"excel"` are accepted and normalized).
   Response `data`: `{ "file_url": "https://…" }` (a downloadable absolute URL).
 - **Email** endpoints are `POST`, body includes `email`. The report is generated
   and sent asynchronously. Response: `{ "success": true, "message": "Report emailed successfully", "data": null }`.
@@ -75,7 +76,7 @@ List endpoints (saved-tests, saved-scenarios, price-simulator items) return an
 
 | Enum | Values |
 |------|--------|
-| `format_type` | `PapersPDF` → send exactly `"PDF"` or `"Excel"` |
+| `format_type` | `"PDF"` or `"Excel"` — case-insensitive (`"pdf"` / `"excel"` also accepted) |
 | Smart-comparison `type` | `"month"` or `"branch"` |
 | Break-even `status` | `very_safe`, `safe`, `at_break_even`, `risk`, `high_risk` |
 
@@ -89,7 +90,7 @@ List endpoints (saved-tests, saved-scenarios, price-simulator items) return an
 |-------------|------|----------|-------|
 | `year` | int | no | defaults to current year |
 | `month` | int | no | 1–12, defaults to current month |
-| `branch_id` | string | no | omit ⇒ first branch |
+| `branch_id` | string | no | omit ⇒ first branch (default). Response echoes the resolved `branch_id` + `branch_name`. |
 
 **Response `data`:**
 
@@ -97,6 +98,8 @@ List endpoints (saved-tests, saved-scenarios, price-simulator items) return an
 {
   "year": 2026,
   "month": 6,
+  "branch_id": "branch_1",
+  "branch_name": "Riyadh Branch",
   "summary": {
     "total_revenue": 500000.0,
     "total_expenses": 350000.0,
@@ -138,9 +141,11 @@ Body: `year` (int, req), `month` (int, req), `branch_id` (string, req), `email` 
 | `month` | int | no |
 | `compared_year` | int | no |
 | `compared_month` | int | no |
-| `branch_id` | string | **yes** |
+| `branch_id` | string | no |
 
-Compared period defaults to the previous month when `compared_*` are omitted.
+`branch_id` is optional: omit it and the report defaults to the first branch, echoed
+back as the resolved `branch_id` + `branch_name`. Compared period defaults to the
+previous month when `compared_*` are omitted.
 
 **Response `data`:**
 
@@ -324,7 +329,7 @@ Body: `format_type` (req). — ### `POST /profit-vs-cash-reconciliation/email` B
 
 ### `GET /break-even-analysis`
 
-Query: `year` (int, opt), `month` (int, opt), `branch_id` (string, **req**).
+Query: `year` (int, opt), `month` (int, opt), `branch_id` (string, opt — omit ⇒ first branch, echoed in the response).
 
 **Response `data`:**
 
@@ -347,7 +352,7 @@ strategy-class UI). `current_point_position` is `0–100`.
 
 ### `POST /break-even-analysis/export`
 
-Body: `year` (int, req), `month` (int, req, 1–12), `branch_id` (string, req), `format_type` (req).
+Body: `year` (int, req), `month` (int, req, 1–12), `branch_id` (string, opt — omit ⇒ first branch), `format_type` (req).
 **No email endpoint.**
 
 ---
@@ -397,7 +402,7 @@ Body: `format_type` (req). — ### `POST /operational-profitability/email` Body:
 
 ### `GET /menu-engineering`
 
-Query: `year`, `month`, `compared_year`, `compared_month` (int, opt), `branch_id` (string, opt).
+Query: `year`, `month`, `compared_year`, `compared_month` (int, opt), `branch_id` (string, opt — omit ⇒ first branch, echoed in the response).
 
 **Response `data`:**
 
@@ -426,7 +431,7 @@ high profitability; `dogs` = low popularity + low profitability.
 
 ### `POST /menu-engineering/export`
 
-Body: `year`, `month`, `compared_year`, `compared_month` (int, req), `branch_id` (string, req), `format_type` (req).
+Body: `year`, `month`, `compared_year`, `compared_month` (int, req), `branch_id` (string, opt — omit ⇒ first branch), `format_type` (req).
 
 ### `POST /menu-engineering/email`
 
@@ -442,7 +447,7 @@ Body:
 
 | Field | Type | Required |
 |-------|------|----------|
-| `branch_id` | string | yes |
+| `branch_id` | string | no — omit ⇒ first branch, stored on the test |
 | `item_name` | string | yes |
 | `expected_selling_price` | number | yes (≥0) |
 | `production_cost` | number | yes (≥0) |

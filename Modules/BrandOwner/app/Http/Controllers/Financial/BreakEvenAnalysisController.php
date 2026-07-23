@@ -19,14 +19,14 @@ class BreakEvenAnalysisController extends BaseController
         $validated = $request->validate([
             'year' => ['sometimes', 'nullable', 'integer'],
             'month' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:12'],
-            'branch_id' => ['required', 'string'],
+            'branch_id' => ['sometimes', 'nullable', 'string'],
         ]);
 
         return $this->successResponse(
             $this->service->analyze(
                 isset($validated['year']) ? (int) $validated['year'] : null,
                 isset($validated['month']) ? (int) $validated['month'] : null,
-                $validated['branch_id'],
+                $validated['branch_id'] ?? null,
             ),
             'Break-even analysis retrieved successfully',
         );
@@ -41,7 +41,7 @@ class BreakEvenAnalysisController extends BaseController
                 $request->user(),
                 (int) $validated['year'],
                 (int) $validated['month'],
-                $validated['branch_id'],
+                $validated['branch_id'] ?? null,
                 $validated['format_type'],
             ),
             'Report exported successfully',

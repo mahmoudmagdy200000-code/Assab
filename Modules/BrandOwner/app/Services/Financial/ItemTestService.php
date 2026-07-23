@@ -39,12 +39,15 @@ class ItemTestService
 
         $classification = $this->classify($profitMargin);
         $menuImpact = $this->menuImpact($classification);
-        $branchName = (string) ($this->data->branchName($input['branch_id']) ?? '');
+
+        // branch_id is optional: fall back to the first branch (DB default) so the
+        // caller does not have to pass one for a what-if item test.
+        $branch = $this->data->resolveBranchRef($input['branch_id'] ?? null);
 
         $row = DB::transaction(fn () => BrandOwnerItemTest::create([
             'brand_owner_id' => $owner->getKey(),
-            'branch_id' => $input['branch_id'],
-            'branch_name' => $branchName,
+            'branch_id' => $branch['id'],
+            'branch_name' => (string) ($branch['name'] ?? ''),
             'item_name' => $input['item_name'],
             'expected_selling_price' => $price,
             'production_cost' => $cost,

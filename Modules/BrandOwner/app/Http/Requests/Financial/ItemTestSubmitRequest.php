@@ -20,7 +20,7 @@ class ItemTestSubmitRequest extends BaseRequest
     public function rules(): array
     {
         return [
-            'branch_id' => ['required', 'string'],
+            'branch_id' => ['sometimes', 'nullable', 'string'],
             'item_name' => ['required', 'string'],
             'expected_selling_price' => ['required', 'numeric', 'min:0'],
             'production_cost' => ['required', 'numeric', 'min:0'],
