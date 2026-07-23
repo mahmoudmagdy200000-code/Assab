@@ -44,6 +44,14 @@ class AdminServiceProvider extends ServiceProvider
         // Branch-scope resolution memoizes per request; must share one instance.
         $this->app->scoped(\Modules\Admin\Services\TenantBranchResolver::class);
 
+        // FR-PUR-1 «إرسال للمورد» — the dashboard depends on the notifier
+        // abstraction; WhatsApp click-to-chat is today's provider. Rebind to a
+        // gateway-backed notifier to enable automated send without call-site edits.
+        $this->app->bind(
+            \Modules\Admin\Services\Notifications\SupplierOrderNotifier::class,
+            \Modules\Admin\Services\Notifications\WhatsAppSupplierNotifier::class,
+        );
+
         $this->registerCredentialSync();
     }
 

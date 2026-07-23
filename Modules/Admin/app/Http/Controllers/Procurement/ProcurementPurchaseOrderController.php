@@ -6,13 +6,17 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Services\Notifications\SupplierDispatch;
+use Modules\Admin\Services\Notifications\SupplierOrderNotifier;
 use Modules\Admin\Services\TenantBranchResolver;
 use Modules\Admin\Support\TenantContext;
 use Modules\Purchase\Exceptions\PurchaseOrderException;
 use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Models\PurchaseOrderGroup;
 use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Purchase\Services\OrderConsolidationService;
 use Modules\Purchase\Services\ProcurementDecisionService;
+use Modules\Supplier\Models\Supplier;
 
 /**
  * Purchasing-manager surface over the MOBILE purchase_orders pipeline
@@ -39,6 +43,7 @@ class ProcurementPurchaseOrderController extends AsabController
         private readonly OrderConsolidationService $consolidation,
         private readonly TenantBranchResolver $branches,
         private readonly TenantContext $tenant,
+        private readonly SupplierOrderNotifier $notifier,
     ) {}
 
     /** GET procurement/purchase-orders?status=incoming|<status>&branchId= */
@@ -228,6 +233,8 @@ class ProcurementPurchaseOrderController extends AsabController
                 'savingsPct' => $group->savings_pct !== null ? (float) $group->savings_pct : null,
                 'eta' => optional($group->expected_delivery_date)->toDateString(),
                 'sentAt' => optional($group->sent_at)->toIso8601String(),
+                // FR-PUR-1 — the ready-to-open WhatsApp order link for this batch.
+                'whatsapp' => $this->supplierDispatch($group)->toArray(),
             ]);
         });
     }
@@ -246,6 +253,37 @@ class ProcurementPurchaseOrderController extends AsabController
         return $this->run(fn () => $this->ok(
             $this->consolidation->groupDetails($groupId, $this->branches->legacyBranchIds($this->tenant)),
         ));
+    }
+
+    /**
+     * FR-PUR-1 — the WhatsApp order dispatch for a freshly-sent batch: the
+     * group's aggregated item lines addressed to the supplier's phone.
+     */
+    private function supplierDispatch(PurchaseOrderGroup $group): SupplierDispatch
+    {
+        $details = $this->consolidation->groupDetails($group->id, $this->branches->legacyBranchIds($this->tenant));
+
+        $lines = array_map(fn (array $it) => [
+            'name' => $it['name'],
+            'qty' => $this->qtyString((float) $it['totalQuantity']),
+            'unit' => $it['unit'] ?? null,
+        ], $details['items']);
+
+        $supplier = Supplier::whereKey($group->supplier_id)->first(['name', 'phone']);
+
+        return $this->notifier->forOrder(
+            $group->group_number,
+            $supplier?->name ?? ($details['supplierName'] ?? '—'),
+            $supplier?->phone,
+            $lines,
+            optional($group->expected_delivery_date)->toDateString(),
+        );
+    }
+
+    /** A quantity without trailing-zero noise: 5.000 → "5", 2.500 → "2.5". */
+    private function qtyString(float $qty): string
+    {
+        return rtrim(rtrim(number_format($qty, 3, '.', ''), '0'), '.');
     }
 
     /** Run a decision, translating domain refusals into the spec error envelope. */

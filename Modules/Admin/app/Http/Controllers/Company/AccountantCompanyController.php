@@ -452,7 +452,13 @@ class AccountantCompanyController extends AsabController
     public function shiftConfigs(Request $request, \Modules\Admin\Services\ShiftConfigService $configService): JsonResponse
     {
         return $this->run(function () use ($request, $configService) {
-            $brands = AsabBrand::where('company_id', $request->user()->company_id)->get();
+            // Scope to the brands this accountant is responsible for, not every
+            // brand in the company (client meeting: shift settings must load the
+            // accountant's own brand, not a placeholder). null = admin/company-wide.
+            $assignedBrandIds = $this->assignedBrandIds();
+            $brands = AsabBrand::where('company_id', $request->user()->company_id)
+                ->when($assignedBrandIds !== null, fn ($q) => $q->whereIn('id', $assignedBrandIds))
+                ->get();
             $configs = BrandShiftConfig::whereIn('brand_id', $brands->pluck('id'))->get()->keyBy('brand_id');
 
             return $this->listResponse($brands->map(
@@ -471,6 +477,9 @@ class AccountantCompanyController extends AsabController
     {
         return $this->run(function () use ($request, $configService, $brandId) {
             $brand = AsabBrand::where('company_id', $request->user()->company_id)->findOrFail($brandId);
+            // Zero-trust: a scoped accountant may only configure their assigned
+            // brands, not any brand that merely shares the company.
+            $this->assertBrandAssigned($brandId);
             $data = $request->validate([
                 'numShifts' => 'sometimes|integer|min:1|max:4',
                 'durationHours' => 'sometimes|integer|min:1|max:24',
