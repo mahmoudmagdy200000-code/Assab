@@ -136,7 +136,10 @@ class PriceSimulatorService
     /**
      * The owner's saved scenarios, latest first (capped at 50).
      *
-     * @return array<int, array<string, mixed>>
+     * Each entry carries the scenario `id` (needed to export/email it) alongside
+     * a nested `details` object with the full simulation payload.
+     *
+     * @return array<int, array{id: string, details: array<string, mixed>}>
      */
     public function savedScenarios(Model $owner): array
     {
@@ -145,7 +148,10 @@ class PriceSimulatorService
             ->latest()
             ->limit(50)
             ->get()
-            ->map(fn (BrandOwnerPriceScenario $row) => $this->toResult($row))
+            ->map(fn (BrandOwnerPriceScenario $row) => [
+                'id' => (string) $row->id,
+                'details' => $this->toResult($row),
+            ])
             ->all();
     }
 
