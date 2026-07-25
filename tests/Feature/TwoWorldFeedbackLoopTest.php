@@ -140,6 +140,32 @@ class TwoWorldFeedbackLoopTest extends TestCase
         $this->assertSame(0, (int) $shift->fresh()->variance);
     }
 
+    public function test_a_bridged_shift_with_an_opening_float_does_not_fabricate_a_shortage(): void
+    {
+        // Balanced shift (1000 = 300 cash + 400 card + 300 apps) carried a 100
+        // float. cashActual is DRAWER cash = float + collected, so a balanced
+        // shift nets ZERO variance — not a phantom −100 shortage charged to the
+        // cashier (the mobile cash_collected excludes the float).
+        $legacy = CashierShift::factory()->create([
+            'total_sales' => 1000.00, 'cash_collected' => 300.00,
+            'card_payments' => 400.00, 'opening_balance' => 100.00,
+        ]);
+        $jahez = Aggregator::factory()->create(['name' => 'جاهز']);
+        ShiftSalesBreakdown::create(['cashier_shift_id' => $legacy->id, 'aggregator_id' => $jahez->id, 'amount' => 300.00]);
+        $this->cashier->forceFill(['legacy_cashier_id' => $legacy->cashier_id])->save();
+
+        event(new ShiftEndedEvent($legacy, false));
+
+        $shift = Shift::where('legacy_shift_id', $legacy->id)->firstOrFail();
+        $op = Operation::where('module_key', 'shifts')->where('payload->shiftId', $shift->id)->firstOrFail();
+
+        // float 10000 + cash portion 30000 = 40000 expected == 40000 in drawer.
+        $this->assertSame(40000, $op->payload['cashExpectedHalalas']);
+        $this->assertSame(40000, $op->payload['cashActualHalalas']);
+        $this->assertSame(0, $op->payload['varianceHalalas']);
+        $this->assertSame(0, (int) $shift->fresh()->variance);
+    }
+
     public function test_mobile_cashier_shift_resource_exposes_the_review_decision(): void
     {
         [$legacy, $op] = $this->bridgeLegacyShift();

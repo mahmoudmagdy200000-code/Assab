@@ -19,7 +19,8 @@ class EmailProfitAndLossRequest extends BaseRequest
         return [
             'year' => ['required', 'integer'],
             'month' => ['required', 'integer'],
-            'branch_id' => ['required', 'string'],
+            // Optional: omitted / blank falls back to the DB default branch.
+            'branch_id' => ['sometimes', 'nullable', 'string'],
             'email' => ['required', 'email'],
         ];
     }

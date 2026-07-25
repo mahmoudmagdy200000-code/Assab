@@ -76,7 +76,7 @@ List endpoints (saved-tests, saved-scenarios, price-simulator items) return an
 
 | Enum | Values |
 |------|--------|
-| `format_type` | `"PDF"` or `"Excel"` — case-insensitive (`"pdf"` / `"excel"` also accepted) |
+| `format_type` | `"PDF"` or `"Excel"` — case-insensitive (`"pdf"` / `"excel"` also accepted). Where it is optional, a blank string / `null` reads as omitted and falls back to `PDF`. |
 | Smart-comparison `type` | `"month"` or `"branch"` |
 | Break-even `status` | `very_safe`, `safe`, `at_break_even`, `risk`, `high_risk` |
 
@@ -122,12 +122,12 @@ List endpoints (saved-tests, saved-scenarios, price-simulator items) return an
 
 ### `POST /profit-and-loss/export`
 
-Body: `year` (int, req), `month` (int, req, 1–12), `branch_id` (string, req), `format_type` (req).
+Body: `year` (int, req), `month` (int, req, 1–12), `branch_id` (string, opt — omit ⇒ first branch), `format_type` (req).
 Response `data`: `{ "file_url": "…" }`.
 
 ### `POST /profit-and-loss/email`
 
-Body: `year` (int, req), `month` (int, req), `branch_id` (string, req), `email` (req).
+Body: `year` (int, req), `month` (int, req), `branch_id` (string, opt — omit ⇒ first branch), `email` (req).
 
 ---
 
@@ -171,7 +171,7 @@ previous month when `compared_*` are omitted.
 
 ### `POST /sales-channel-analysis/export`
 
-Body: `year`, `month`, `compared_year`, `compared_month` (int, req), `branch_id` (string, req), `format_type` (req).
+Body: `year`, `month`, `compared_year`, `compared_month` (int, req), `branch_id` (string, opt — omit ⇒ first branch), `format_type` (req).
 
 ### `POST /sales-channel-analysis/email`
 
@@ -221,7 +221,7 @@ Query: `year`, `month`, `compared_year`, `compared_month` (int, optional), `bran
 
 ### `POST /sales-channel-level2/export`
 
-Body: `year`, `month`, `compared_year`, `compared_month` (int, req), `branch_id` (string, req), `format_type` (req).
+Body: `year`, `month`, `compared_year`, `compared_month` (int, req), `branch_id` (string, opt — omit ⇒ first branch), `format_type` (req).
 **No email endpoint.**
 
 ---
@@ -235,8 +235,8 @@ Body: `year`, `month`, `compared_year`, `compared_month` (int, req), `branch_id`
 | `year`, `month` | int | no | main period |
 | `compared_year`, `compared_month` | int | no | used only when `type=month` |
 | `type` | string | **yes** | `month` or `branch` |
-| `branch_id` | string | **yes** | main branch |
-| `compared_branch_id` | string | when `type=branch` | second branch |
+| `branch_id` | string | no | omit / send blank ⇒ first branch (default), echoed back |
+| `compared_branch_id` | string | no | `type=branch` only — omit ⇒ next branch after `branch_id` |
 
 **Response `data`:**
 
@@ -263,15 +263,19 @@ Body: `year`, `month`, `compared_year`, `compared_month` (int, req), `branch_id`
 ```
 
 When `type=branch`, `compared_branch_id`/`compared_branch_name` are populated and
-`compared_value` is the compared branch's turnover for the same period.
+`compared_value` is the compared branch's turnover for the same period. With only
+one branch in the DB there is nothing to compare against: both compared fields are
+`null` and `compared_value` is `0.0`.
 
 ### `POST /smart-comparison/export`
 
-Body: `year`, `month`, `compared_year`, `compared_month` (int, req), `type` (req: `month`|`branch`), `branch_id` (string, req), `compared_branch_id` (string, nullable), `format_type` (req).
+Body: `type` (req: `month`|`branch`), `format_type` (req). `year`, `month`,
+`compared_year`, `compared_month` (int, opt), `branch_id`, `compared_branch_id`
+(string, opt) — same defaults as the GET.
 
 ### `POST /smart-comparison/email`
 
-Same as export but `email` (req) instead of `format_type`; `compared_branch_id` required.
+Same as export but `email` (req) instead of `format_type`.
 
 ---
 
@@ -394,7 +398,8 @@ Body: `year` (int, req), `month` (int, req, 1–12), `branch_id` (string, opt �
 
 ### `POST /operational-profitability/export`
 
-Body: `format_type` (req). — ### `POST /operational-profitability/email` Body: `email` (req).
+Body: `format_type` (req). — ### `POST /operational-profitability/email` Body: `email` (req),
+`format_type` (opt — omitted / blank / `null` ⇒ `PDF`).
 
 ---
 
@@ -431,7 +436,8 @@ high profitability; `dogs` = low popularity + low profitability.
 
 ### `POST /menu-engineering/export`
 
-Body: `year`, `month`, `compared_year`, `compared_month` (int, req), `branch_id` (string, opt — omit ⇒ first branch), `format_type` (req).
+Body: `format_type` (req). `year`, `month`, `compared_year`, `compared_month`
+(int, opt — default current month vs previous), `branch_id` (string, opt — omit ⇒ first branch).
 
 ### `POST /menu-engineering/email`
 

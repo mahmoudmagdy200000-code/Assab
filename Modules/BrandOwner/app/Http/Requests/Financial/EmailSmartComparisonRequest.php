@@ -17,13 +17,15 @@ class EmailSmartComparisonRequest extends BaseRequest
     public function rules(): array
     {
         return [
-            'year' => ['required', 'integer'],
-            'month' => ['required', 'integer'],
-            'compared_year' => ['required', 'integer'],
-            'compared_month' => ['required', 'integer'],
+            // Period + branch inputs are optional: the service defaults to the
+            // current month vs the previous one, on the DB default branch.
+            'year' => ['sometimes', 'nullable', 'integer'],
+            'month' => ['sometimes', 'nullable', 'integer'],
+            'compared_year' => ['sometimes', 'nullable', 'integer'],
+            'compared_month' => ['sometimes', 'nullable', 'integer'],
             'type' => ['required', 'in:month,branch'],
-            'branch_id' => ['required', 'string'],
-            'compared_branch_id' => ['required', 'string'],
+            'branch_id' => ['sometimes', 'nullable', 'string'],
+            'compared_branch_id' => ['sometimes', 'nullable', 'string'],
             'email' => ['required', 'email'],
         ];
     }

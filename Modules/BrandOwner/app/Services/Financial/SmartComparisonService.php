@@ -27,7 +27,11 @@ class SmartComparisonService
     public function comparison(array $input): array
     {
         $type = (string) $input['type'];
-        $branchId = (string) $input['branch_id'];
+
+        // branch_id is optional: fall back to the first branch (DB default) so the
+        // comparison always renders a real branch's figures.
+        $branch = $this->data->resolveBranchRef($input['branch_id'] ?? null);
+        $branchId = $branch['id'];
         $comparedBranchId = $input['compared_branch_id'] ?? null;
 
         $period = $this->data->resolvePeriod(
@@ -52,12 +56,16 @@ class SmartComparisonService
 
         if ($type === 'branch') {
             $compared = $period;
-            $comparedValue = $this->data->totalRevenue(
-                $comparedBranchId,
-                $period['start'],
-                $period['end'],
-            );
-            $comparedBranchName = $this->data->branchName($comparedBranchId);
+
+            // compared_branch_id is optional too: default to the next branch so the
+            // report never silently aggregates every branch into the compared value.
+            $comparedBranch = $this->data->resolveComparedBranchRef($comparedBranchId, $branchId);
+            $comparedBranchId = $comparedBranch['id'];
+            $comparedBranchName = $comparedBranch['name'];
+
+            $comparedValue = $comparedBranchId !== null
+                ? $this->data->totalRevenue($comparedBranchId, $period['start'], $period['end'])
+                : 0.0;
         } else {
             $comparedGiven = ! empty($input['compared_year']) && ! empty($input['compared_month']);
 
@@ -88,8 +96,8 @@ class SmartComparisonService
             'month_name' => $period['month_name'],
             'compared_month_name' => $compared['month_name'],
             'type' => $type,
-            'branch_id' => $branchId,
-            'branch_name' => $this->data->branchName($branchId),
+            'branch_id' => $branch['id'],
+            'branch_name' => $branch['name'],
             'compared_branch_id' => $comparedBranchId,
             'compared_branch_name' => $comparedBranchName,
             'summary' => $summary,

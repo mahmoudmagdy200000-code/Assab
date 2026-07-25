@@ -150,6 +150,29 @@ class FinancialDataService
     }
 
     /**
+     * Resolve the branch a comparison runs against: the requested branch when a
+     * valid id is supplied, otherwise the first branch (alphabetical) that is not
+     * $excludeId — so a branch-vs-branch comparison still renders when the caller
+     * omits the second branch. Both keys are null when no other branch exists.
+     *
+     * @return array{id: ?string, name: ?string}
+     */
+    public function resolveComparedBranchRef(?string $comparedBranchId, ?string $excludeId): array
+    {
+        $branch = ! empty($comparedBranchId) ? $this->resolveBranch($comparedBranchId) : null;
+
+        $branch ??= Branch::query()
+            ->when($excludeId, fn (Builder $q) => $q->whereKeyNot($excludeId))
+            ->orderBy('name')
+            ->first();
+
+        return [
+            'id' => $branch ? (string) $branch->id : null,
+            'name' => $branch ? (string) $branch->name : null,
+        ];
+    }
+
+    /**
      * Flat branch list [{id, name}] — optionally restricted to one branch
      * (branch-manager callers pass their own id; brand owners pass null).
      *

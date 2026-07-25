@@ -34,7 +34,7 @@ class ProfitAndLossController extends BaseController
             auth()->user(),
             (int) $validated['year'],
             (int) $validated['month'],
-            $validated['branch_id'],
+            $validated['branch_id'] ?? null,
             $validated['format_type'],
         );
 
@@ -48,7 +48,7 @@ class ProfitAndLossController extends BaseController
         $this->service->email(
             (int) $validated['year'],
             (int) $validated['month'],
-            $validated['branch_id'],
+            $validated['branch_id'] ?? null,
             $validated['email'],
         );
 

@@ -81,9 +81,15 @@ class BridgeLegacyCashierShift
         ]);
 
         // Route through the canonical close so the SHF operation + variance are
-        // derived exactly as a dashboard close would produce them.
+        // derived exactly as a dashboard close would produce them. `cashActual`
+        // is the cash PHYSICALLY IN THE DRAWER — the native path aliases it from
+        // `cashInDrawer` = opening float + cash taken (Accountant\ShiftController).
+        // The mobile `cash_collected` excludes the float (its breakdown invariant
+        // is total_sales = cash + card + aggregators, EndShiftRequest), so the
+        // float must be added back; passing bare cash made expectedCash overshoot
+        // by exactly the float and charged that phantom shortage to the cashier.
         $this->shifts->close($shift, [
-            'cashActualHalalas' => $collected,
+            'cashActualHalalas' => $collected + $float,
             'cardTotalHalalas' => $card,
             'aggregatorTotalsHalalas' => $aggregator,
             'aggregatorBreakdown' => $breakdown,
