@@ -215,7 +215,7 @@ Shifts are configured **on the dashboard by the Accountant** (not the Brand Owne
 | BUG-6 | Data upload | Uploaded data (e.g. employees) not saved; reverts on refresh (FR-DATA-4). |
 | BUG-7 | Shifts | Shift settings load the wrong/placeholder brand (FR-SHF-3). |
 | BUG-8 | User/branch scoping | Cashier-create branch picker lists ALL branches, not the brand's/restaurant's (FR-USR-5). |
-| BUG-9 | Expenses/Items (mobile) | Mobile Items/Expenses pickers return empty; brand catalog not surfaced (FR-EXP-6). |
+| BUG-9 ✓ | Expenses/Items (mobile) | Mobile Items/Expenses pickers return empty; brand catalog not surfaced (FR-EXP-6). **Resolved: suppliers + raw-materials + sales-items all write through to the mobile tables (§15.11); sales-items now seed the `categories` taxonomy the expense picker reads.** |
 
 ---
 
@@ -358,3 +358,26 @@ Additive/backward-compatible; `Modules/Admin`. Unit 4 + feature 6 tests green (`
 | Wiring | «إرسال للمورد» response gains a `whatsapp` block `{channel, reference, supplierName, phone, message, url, deliverable}`; no phone → `deliverable=false`, `url=null` (graceful) | `ProcurementPurchaseOrderController::sendGroup` |
 
 **Q7 default taken:** the wa.me link is emitted for any supplier with a phone (internal or external — a deep link is harmless); internal suppliers keep their in-app order. No `is_external` flag added. Revisit if internal must be in-app-only.
+
+### 15.11 Implemented (session 2026-07-25) — BUG-9 catalog-upload → mobile pickers
+A **7-linkage bridge audit + adversarial review** (parallel readers, each finding refuted-or-confirmed) established the real state of every mobile↔dashboard bridge: **expenses** and **purchases-core** are BUILT; **sales-approval, shifts-config, catalog-upload, credentials, supplier** are PARTIAL (see gaps below). BUG-9 (catalog-upload) is now **fully closed** — suppliers + raw-materials + sales-items all write through. Additive; `Modules/Admin`. `AdminBrandUploadTest` green (incl. 3 new taxonomy tests), pint clean.
+
+| Item | What | Where |
+|---|---|---|
+| Suppliers → mobile picker | `importSupplierRow` now calls `ProcurementCatalogBridgeService::provisionSupplier` → creates the legacy `suppliers` row the mobile Expense/Purchase pickers read. **Idempotent:** dedup by `(brand_id, code)`; re-upload updates in place; `provisionSupplier` only when unlinked, else `syncSupplier` (was minting duplicate legacy rows) | `UploadController::importSupplierRow` |
+| Raw-materials → mobile picker | new `seedRawMaterialForBrandBranches($mobile, $branchIds, $priceHalalas)` seeds `branch_item` for the brand's branches (the purchasing-officer picker is keyed on branch_item). **Always-seed** (live match too) so re-upload backfills a branch added later. Branch-id list resolved **once per upload** and passed in (not memoised on the bridge — instance can outlive a request under Octane) | `UploadController::importCatalogRow`, `ProcurementCatalogBridgeService` |
+| Sales-items / raw-materials → mobile Expense picker | new `ExpenseTaxonomyBridgeService::syncCategoryFor($uploadType, $categoryName)` seeds the mobile `categories` taxonomy from the sheet's **«التصنيف»** column so `GET .../expenses/categories/parent-categories` is no longer empty (FR-EXP-1 «تصنيف واحد، وجهتين»). **Granularity:** category-per-«التصنيف» (dedup by `(name, type)`), not row-per-item. **Type map:** `sales-items → expense`, `raw-materials → purchase` (derived from upload kind — sheet has no expense/purchase flag). Create-only + idempotent; blank cell skipped. **Caveat:** `categories` is a legacy **global** table (no brand column, mobile reads it unscoped) → brands converge on one shared taxonomy; true per-brand isolation needs a tenant column + scoped read (out of scope) | `UploadController::importCatalogRow`, `ExpenseTaxonomyBridgeService` |
+| Verification | reader-fidelity review confirmed the mobile picker queries actually **return** the seeded rows (branch_item quantity 0 surfaces; legacy supplier `is_active` shows; `categories` rows carry the right `type`) | `AdminBrandUploadTest` (+2 idempotency/backfill + 3 taxonomy tests) |
+
+**BUG-9 closed.** All three catalog kinds now project into the tables the mobile pickers read: suppliers → `suppliers`, raw-materials → `branch_item`, sales-items/raw-materials «التصنيف» → `categories`. Note `asab_inventory_catalog` still has no direct mobile reader — the mobile surface is the taxonomy/branch_item projection, not the admin catalog table itself.
+
+### 15.12 Bridge audit verdicts (2026-07-25, adversarially verified)
+| Bridge | Verdict | Key gap (if partial) |
+|---|---|---|
+| Expenses (mobile expense → توثيق → head final → back to mobile) | ✅ built | — |
+| Purchases core (shared `purchase_orders`, officer decision writes back) | ✅ built | branch-manager not push-notified on decision; send-to-supplier = manual WhatsApp link |
+| Sales approval (end-of-shift sheet ↔ accountant→head) | ◑ partial | `BridgeLegacyCashierShift` drops card/aggregator → dashboard sheet ≠ mobile; `review_status` written but **no mobile reader**; reject notifies the dashboard 'branch' role, not the mobile app |
+| Shifts config (dashboard config seeds mobile shifts + Regenerate) | ◑ partial | config writes only `asab_brand_shift_configs`; **never seeds mobile shift rows; no Regenerate exists** (a separate close/decision bridge IS wired) |
+| Catalog upload (brand upload → mobile pickers) | ✅ built | suppliers + raw-materials + sales-items all project to mobile tables (§15.11); global `categories` taxonomy is shared across brands (no per-brand isolation) |
+| Credentials (dashboard user → mobile login, one password) | ◑ partial | built on the platform-admin path; the **company invitation `acceptInvitation` skips the provisioner** → invited branch managers get no mobile login; company disable/delete never reaches mobile |
+| Supplier (dashboard supplier ↔ mobile login + orders) | ◑ partial | login + identity link + order delivery built; **internal-vs-external not represented anywhere** (Q7); mobile-origin suppliers never surface on the dashboard |

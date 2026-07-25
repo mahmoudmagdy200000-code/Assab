@@ -473,9 +473,9 @@ class AccountantCompanyController extends AsabController
      * or the legacy `{morningWindow, eveningWindow, openingFloatHalalas}` pair;
      * persists the real columns and emits computed windows + legacy aliases.
      */
-    public function saveShiftConfig(Request $request, \Modules\Admin\Services\ShiftConfigService $configService, string $brandId): JsonResponse
+    public function saveShiftConfig(Request $request, \Modules\Admin\Services\ShiftConfigService $configService, \Modules\Admin\Services\ShiftScheduleBridgeService $scheduleBridge, string $brandId): JsonResponse
     {
-        return $this->run(function () use ($request, $configService, $brandId) {
+        return $this->run(function () use ($request, $configService, $scheduleBridge, $brandId) {
             $brand = AsabBrand::where('company_id', $request->user()->company_id)->findOrFail($brandId);
             // Zero-trust: a scoped accountant may only configure their assigned
             // brands, not any brand that merely shares the company.
@@ -494,7 +494,29 @@ class AccountantCompanyController extends AsabController
             $cfg = BrandShiftConfig::firstOrNew(['brand_id' => $brandId]);
             $cfg->fill($cols)->save();
 
-            return $this->ok($configService->present($brandId, $brand->name, $cfg->fresh()));
+            // Project the schedule into the mobile `shifts` table so the app's
+            // shift flows are seeded from the same config (bridge, not a mirror).
+            $seeded = $scheduleBridge->regenerateForBrand($brandId);
+
+            return $this->ok($configService->present($brandId, $brand->name, $cfg->fresh()) + ['mobileShiftsSeeded' => $seeded]);
+        });
+    }
+
+    /**
+     * POST …/brands/{brandId}/shift-config/regenerate — the explicit «Regenerate»
+     * action (FR-SHF-1): re-project the saved config onto the mobile shift
+     * template rows for every branch of the brand, without changing the config.
+     */
+    public function regenerateShifts(Request $request, \Modules\Admin\Services\ShiftConfigService $configService, \Modules\Admin\Services\ShiftScheduleBridgeService $scheduleBridge, string $brandId): JsonResponse
+    {
+        return $this->run(function () use ($request, $configService, $scheduleBridge, $brandId) {
+            $brand = AsabBrand::where('company_id', $request->user()->company_id)->findOrFail($brandId);
+            $this->assertBrandAssigned($brandId);
+
+            $seeded = $scheduleBridge->regenerateForBrand($brandId);
+            $cfg = BrandShiftConfig::where('brand_id', $brandId)->first();
+
+            return $this->ok($configService->present($brandId, $brand->name, $cfg) + ['mobileShiftsSeeded' => $seeded]);
         });
     }
 

@@ -124,6 +124,7 @@ class BaseNotification extends Notification implements ShouldQueue
             NotificationType::SHIFT_HANDOVER_PENDING => 'You have a pending handover',
             NotificationType::SHIFT_HANDOVER_APPROVED => 'Your handover has been approved',
             NotificationType::SHIFT_HANDOVER_REJECTED => 'Your handover has been rejected: '.($this->data['reason'] ?? 'No reason provided'),
+            NotificationType::SHIFT_SALES_REJECTED => 'Sales sheet returned for review: '.($this->data['reason'] ?? 'No reason provided'),
             NotificationType::EXPENSE_SUBMITTED => 'New expense submitted for approval',
             NotificationType::EXPENSE_APPROVED => 'Your expense has been approved',
             NotificationType::EXPENSE_REJECTED => 'Your expense has been rejected',

@@ -16,6 +16,9 @@ enum NotificationType: string
     case SHIFT_HANDOVER_VARIANCE = 'shift_handover_variance';
     case SHIFT_HANDOVER_COMPLETED = 'shift_handover_completed';
     case SHIFT_UNAPPROVED_HANDOVER = 'shift_unapproved_handover';
+    // Two-worlds sales-sheet review loop: the dashboard accountant/head rejected
+    // the end-of-shift sales sheet → the mobile owner must edit & resend.
+    case SHIFT_SALES_REJECTED = 'shift_sales_rejected';
 
     // Sales and Payment Variance
     case CASH_VARIANCE_HIGH = 'cash_variance_high';
@@ -64,7 +67,8 @@ enum NotificationType: string
             self::SHIFT_HANDOVER_REJECTED,
             self::SHIFT_HANDOVER_VARIANCE,
             self::SHIFT_HANDOVER_COMPLETED,
-            self::SHIFT_UNAPPROVED_HANDOVER => NotificationCategory::OPERATIONAL,
+            self::SHIFT_UNAPPROVED_HANDOVER,
+            self::SHIFT_SALES_REJECTED => NotificationCategory::OPERATIONAL,
 
             self::CASH_VARIANCE_HIGH,
             self::CARD_PAYMENT_DISCREPANCY,
@@ -103,6 +107,7 @@ enum NotificationType: string
             self::SHIFT_UNAPPROVED_HANDOVER,
             self::CASH_VARIANCE_HIGH,
             self::EXPENSE_LIMIT_EXCEEDED,
+            self::SHIFT_SALES_REJECTED,
             self::COMPLIANCE_VIOLATION => NotificationPriority::HIGH,
 
             self::SHIFT_HANDOVER_APPROVAL_REQUIRED,
@@ -128,6 +133,7 @@ enum NotificationType: string
             self::SHIFT_HANDOVER_VARIANCE => 'Handover Variance Detected',
             self::SHIFT_HANDOVER_COMPLETED => 'Handover Completed',
             self::SHIFT_UNAPPROVED_HANDOVER => 'Unapproved Handover Escalation',
+            self::SHIFT_SALES_REJECTED => 'Sales Sheet Rejected',
             self::CASH_VARIANCE_HIGH => 'Cash Variance Alert',
             self::CARD_PAYMENT_DISCREPANCY => 'Card Payment Discrepancy',
             self::DELIVERY_SETTLEMENT_MISMATCH => 'Delivery Settlement Mismatch',

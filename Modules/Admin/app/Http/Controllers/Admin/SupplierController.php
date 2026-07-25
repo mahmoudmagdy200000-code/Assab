@@ -32,7 +32,7 @@ class SupplierController extends AsabController
             ]);
 
             $q = AsabSupplier::query()
-                ->select(['id', 'company_id', 'name', 'contact_email', 'status', 'user_id'])
+                ->select(['id', 'company_id', 'name', 'contact_email', 'status', 'user_id', 'is_external'])
                 ->orderBy('name');
 
             if (isset($data['companyId'])) {
@@ -60,6 +60,7 @@ class SupplierController extends AsabController
                 'contactEmail' => $s->contact_email,
                 'companyId' => $s->company_id,
                 'status' => $s->status,
+                'isExternal' => (bool) $s->is_external,
                 // Already provisioned. A second login for the same supplier is
                 // what SUPPLIER_LOGIN_AMBIGUOUS rejects later — let the picker
                 // grey these out instead of failing at submit.

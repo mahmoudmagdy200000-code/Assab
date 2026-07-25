@@ -306,6 +306,8 @@ class ProcurementController extends AsabController
                     'rating' => (int) ($s->rating ?? 0),   // 0–50 scale (stars × 10)
                     'status' => $s->status,
                     'isActive' => $s->status === 'active',
+                    'isExternal' => (bool) $s->is_external,   // §10.2 internal vs external
+                    'supplierKind' => $s->is_external ? 'external' : 'internal',
                     'itemsCount' => (int) ($itemsCount[$s->id] ?? 0),
                     'monthlyOrderCount' => $monthly,
                     // PRC-3.2 — bridge orders (SAR) + Operations orders (halalas → SAR).

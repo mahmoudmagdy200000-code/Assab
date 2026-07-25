@@ -9,6 +9,7 @@ use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Models\SupplierRequest;
 use Tests\TestCase;
 
 /**
@@ -46,6 +47,36 @@ class ProcurementCatalogEnrichmentTest extends TestCase
     private function supplier(string $name): AsabSupplier
     {
         return AsabSupplier::create(['company_id' => $this->company->id, 'name' => $name, 'status' => 'active']);
+    }
+
+    // ---- internal vs external supplier (§10.2 / FR-PUR-2) ----
+
+    public function test_storing_a_supplier_defaults_to_internal_and_can_be_flagged_external(): void
+    {
+        $this->as()->postJson('/api/v1/company/me/procurement/suppliers', ['name' => 'مورد داخلي'])
+            ->assertCreated()->assertJsonPath('isExternal', false);
+
+        $this->as()->postJson('/api/v1/company/me/procurement/suppliers', ['name' => 'مورد خارجي', 'isExternal' => true])
+            ->assertCreated()->assertJsonPath('isExternal', true);
+
+        $rows = collect($this->as()->getJson('/api/v1/company/me/procurement/suppliers')->json('data'))->keyBy('name');
+        $this->assertSame('internal', $rows['مورد داخلي']['supplierKind']);
+        $this->assertSame('external', $rows['مورد خارجي']['supplierKind']);
+    }
+
+    public function test_approving_a_branch_supplier_request_yields_an_external_supplier(): void
+    {
+        // A branch surfaces a supplier it deals with → procurement approves it →
+        // the provisioned supplier is external by origin (§10.2).
+        $req = SupplierRequest::create([
+            'company_id' => $this->company->id, 'name' => 'مورد الفرع', 'category' => 'خضار',
+            'contact_phone' => '0553421100', 'status' => SupplierRequest::STATUS_PENDING,
+        ]);
+
+        $this->as()->postJson('/api/v1/company/me/procurement/supplier-requests/'.$req->id.'/approve')
+            ->assertCreated()->assertJsonPath('isExternal', true);
+
+        $this->assertTrue(AsabSupplier::where('name', 'مورد الفرع')->firstOrFail()->is_external);
     }
 
     // ---- T11.11 supplierCount + brand ----

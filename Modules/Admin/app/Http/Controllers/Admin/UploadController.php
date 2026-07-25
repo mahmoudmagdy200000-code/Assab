@@ -18,6 +18,8 @@ use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\UploadStatus;
 use Modules\Admin\Services\CashierProvisioningService;
+use Modules\Admin\Services\ExpenseTaxonomyBridgeService;
+use Modules\Admin\Services\ProcurementCatalogBridgeService;
 use Modules\Admin\Support\AssetEnums;
 use Modules\Branch\Models\Branch;
 use Modules\Purchase\Models\Item as PurchaseItem;
@@ -29,6 +31,18 @@ use Modules\Purchase\Models\Item as PurchaseItem;
 class UploadController extends AsabController
 {
     use GeneratesEmployeeNumbers, MapsAssetSpreadsheet;
+
+    /**
+     * The catalog bridge write-throughs run inside brandUpload's DB transaction
+     * (BUG-9): a brand-level upload must reach the legacy tables the MOBILE app
+     * reads, not just the asab_* dashboard tables. `catalogBridge` feeds the
+     * purchasing pickers (suppliers / branch_item); `expenseTaxonomy` feeds the
+     * mobile Expense category pickers (`categories`).
+     */
+    public function __construct(
+        private readonly ProcurementCatalogBridgeService $catalogBridge,
+        private readonly ExpenseTaxonomyBridgeService $expenseTaxonomy,
+    ) {}
 
     // Item templates use 'التصنيف' for the grouping column to match the mobile
     // app's item labels (client meeting: rename the 'category' field).
@@ -93,15 +107,24 @@ class UploadController extends AsabController
             // FE completion request §1.7 (Option B) — emit a processing tick, then a terminal tick.
             $rt->brandUploadProgress($brand->company_id, $brand->id, $type, 'processing', 0, 0, 0);
 
+            // Resolve the brand's branch ids ONCE per upload — raw-materials seed
+            // a branch_item per branch (BUG-9). Passing it into the row loop
+            // avoids an N+1 across rows without caching on the bridge (whose
+            // instance can outlive a request under a persistent runtime and
+            // would then seed a stale branch set).
+            $brandBranchIds = $type === 'raw-materials'
+                ? Branch::where('asab_brand_id', $brand->id)->pluck('id')->all()
+                : [];
+
             $count = 0;
             $errors = [];
-            DB::transaction(function () use ($rows, $brand, $type, &$count, &$errors) {
+            DB::transaction(function () use ($rows, $brand, $type, $brandBranchIds, &$count, &$errors) {
                 foreach ($rows as $i => $row) {
                     try {
                         if ($type === 'suppliers') {
                             $this->importSupplierRow($brand, $row);
                         } else {
-                            $this->importCatalogRow($brand, $type, $row);
+                            $this->importCatalogRow($brand, $type, $row, $brandBranchIds);
                         }
                         $count++;
                     } catch (\Throwable $e) {
@@ -126,16 +149,46 @@ class UploadController extends AsabController
 
     private function importSupplierRow(AsabBrand $brand, array $row): void
     {
-        AsabSupplier::create([
+        $code = $this->nullIfBlank($row[0] ?? null);
+        $name = $row[1] ?? '';
+
+        // Idempotent on re-upload: match this brand's existing supplier by code
+        // (or name when codeless) so a corrected re-upload UPDATES in place
+        // instead of minting duplicate dashboard + legacy rows in the mobile
+        // picker. (asab_suppliers.code is deliberately non-unique, and the
+        // template has no email, so nothing at the DB layer blocks duplicates.)
+        $existing = AsabSupplier::withoutGlobalScope('tenant')
+            ->where('brand_id', $brand->id)
+            ->when(
+                $code !== null,
+                fn ($q) => $q->where('code', $code),
+                fn ($q) => $q->whereNull('code')->where('name', $name),
+            )
+            ->first();
+
+        $attributes = [
             'company_id' => $brand->company_id,
             'brand_id' => $brand->id,
-            'code' => $this->nullIfBlank($row[0] ?? null),
-            'name' => $row[1] ?? '',
+            'code' => $code,
+            'name' => $name,
             'category' => $row[2] ?? null,
             'contact_name' => $row[3] ?? null,
             'payment_terms' => $row[4] ?? null,
             'status' => 'active',
-        ]);
+        ];
+
+        $supplier = $existing ?? new AsabSupplier;
+        $supplier->fill($attributes)->save();
+
+        // BUG-9 write-through: the legacy `suppliers` row the mobile
+        // Expense/Purchase supplier pickers read. provisionSupplier with a null
+        // email always mints a NEW legacy row, so only call it when the supplier
+        // is not yet linked; on a re-upload keep the linked row fresh instead.
+        if ($supplier->legacy_supplier_id === null) {
+            $this->catalogBridge->provisionSupplier($supplier);
+        } else {
+            $this->catalogBridge->syncSupplier($supplier);
+        }
     }
 
     /**
@@ -143,8 +196,10 @@ class UploadController extends AsabController
      * table but stay separable via `type`, and the price column is persisted
      * in halalas. Raw materials additionally upsert into the Purchase module's
      * items table so uploaded materials actually reach the purchasing flows.
+     *
+     * @param  string[]  $branchIds  the brand's branch ids (raw-materials seeding)
      */
-    private function importCatalogRow(AsabBrand $brand, string $type, array $row): void
+    private function importCatalogRow(AsabBrand $brand, string $type, array $row, array $branchIds = []): void
     {
         $code = trim((string) ($row[0] ?? ''));
         $name = trim((string) ($row[1] ?? ''));
@@ -163,6 +218,11 @@ class UploadController extends AsabController
             'status' => 'active',
         ]);
 
+        // BUG-9 write-through: surface the row's category in the mobile Expense
+        // taxonomy (`categories`) so the app's «الأصناف»/«المصروفات» pickers are
+        // not empty (raw-materials → purchase tab, sales-items → expense tab).
+        $this->expenseTaxonomy->syncCategoryFor($type, $category);
+
         if ($type === 'raw-materials' && $name !== '') {
             // Create-only into the (global) purchasing items table: never
             // overwrite an existing row — another brand may own that code.
@@ -171,16 +231,30 @@ class UploadController extends AsabController
                 ->first();
 
             if ($existing === null) {
-                PurchaseItem::create([
+                $mobile = PurchaseItem::create([
                     'name' => $name,
                     'code' => $code !== '' ? $code : null,
                     'unit' => $unit,
                     'category' => $category,
                     'is_active' => true,
                 ]);
-            } elseif ($existing->trashed()) {
-                $existing->restore();
+            } else {
+                if ($existing->trashed()) {
+                    $existing->restore();
+                }
+                // A live match is reused as-is — its row is never overwritten
+                // (the create-only invariant protects the item's name/price).
+                $mobile = $existing;
             }
+
+            // BUG-9 write-through: seed branch_item for the brand's branches so
+            // the material surfaces in the mobile purchasing-officer picker
+            // (keyed on branch_item), not just in asab_inventory_catalog.
+            // Always seeded — branch_item is an additive, idempotent pivot that
+            // never mutates the shared item row, so seeding against a
+            // pre-existing catalog item is safe and also backfills branches
+            // added since a prior upload.
+            $this->catalogBridge->seedRawMaterialForBrandBranches($mobile, $branchIds, $priceHalalas);
         }
     }
 

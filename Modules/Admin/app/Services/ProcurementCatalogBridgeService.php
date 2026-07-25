@@ -251,6 +251,30 @@ class ProcurementCatalogBridgeService
     }
 
     /**
+     * Write-through for a brand-level raw-material upload (UploadController):
+     * make the uploaded mobile item orderable by seeding a branch_item row for
+     * every branch of the BRAND (the meeting's brand-level propagation), so it
+     * surfaces in the mobile purchasing-officer picker — which paginates
+     * branch_item rows of the requesting branch. Create-only (firstOrCreate):
+     * an existing branch row keeps its own price/quantity. The branch-id list
+     * is resolved ONCE per upload by the caller and passed in — never memoised
+     * on this service, whose instance can outlive a request under a persistent
+     * runtime (Octane) and would then seed a stale branch set. Runs inside the
+     * caller's DB transaction.
+     *
+     * @param  string[]  $branchIds  the brand's branch ids (resolved once per upload)
+     */
+    public function seedRawMaterialForBrandBranches(PurchaseItem $mobile, array $branchIds, ?int $priceHalalas): void
+    {
+        foreach ($branchIds as $branchId) {
+            BranchItem::firstOrCreate(
+                ['branch_id' => $branchId, 'item_id' => $mobile->id],
+                ['price' => $this->riyals($priceHalalas), 'quantity' => 0],
+            );
+        }
+    }
+
+    /**
      * The purchasing-officer and supplier item lists only surface items that
      * exist as branch_item rows of the requesting branch, so seed one per
      * legacy branch of this tenant. Create-only: existing rows keep their

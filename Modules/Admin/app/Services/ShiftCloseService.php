@@ -38,7 +38,7 @@ class ShiftCloseService
     /**
      * Close a shift into the review pipeline.
      *
-     * @param  array{cashActualHalalas:int, cardTotalHalalas?:int, aggregatorTotalsHalalas?:int, notes?:string}  $data
+     * @param  array{cashActualHalalas:int, cardTotalHalalas?:int, aggregatorTotalsHalalas?:int, aggregatorBreakdown?:array<int, array{aggregator:?string, amountHalalas:int}>, notes?:string}  $data
      * @return array{shift: Shift, operation: Operation}
      */
     public function close(Shift $shift, array $data, AsabUser $actor, string $origin = 'mobile'): array
@@ -81,6 +81,7 @@ class ShiftCloseService
                 'salesHalalas' => (int) $shift->sales_amount,
                 'cardTotalHalalas' => $card,
                 'aggregatorTotalsHalalas' => $aggregator,
+                'aggregatorBreakdown' => array_values($data['aggregatorBreakdown'] ?? []),
                 'cashExpectedHalalas' => $expectedCash,
                 'cashActualHalalas' => $cashActual,
                 'varianceHalalas' => $variance,
