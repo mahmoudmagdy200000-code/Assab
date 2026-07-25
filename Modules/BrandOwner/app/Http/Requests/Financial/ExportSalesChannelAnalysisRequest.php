@@ -27,7 +27,8 @@ class ExportSalesChannelAnalysisRequest extends BaseRequest
             'month' => ['required', 'integer'],
             'compared_year' => ['required', 'integer'],
             'compared_month' => ['required', 'integer'],
-            'branch_id' => ['required', 'string'],
+            // Optional: omitted / blank falls back to the DB default branch.
+            'branch_id' => ['sometimes', 'nullable', 'string'],
             'format_type' => ['required', 'in:PDF,Excel'],
         ];
     }

@@ -19,13 +19,17 @@ use Modules\Admin\Models\CompanySubscription;
 use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Plan;
 use Modules\Admin\Services\AuthService;
+use Modules\Admin\Services\Provisioning\LegacyProvisionerRegistry;
 
 /**
  * Company onboarding + invitation acceptance (COMPANY_DASHBOARD_API_SPEC.md §4.2).
  */
 class OnboardController extends AsabController
 {
-    public function __construct(private readonly AuthService $auth) {}
+    public function __construct(
+        private readonly AuthService $auth,
+        private readonly LegacyProvisionerRegistry $provisioners,
+    ) {}
 
     /** Bootstrap initial structure for a freshly-created company-admin. */
     public function onboard(Request $request): JsonResponse
@@ -122,6 +126,22 @@ class OnboardController extends AsabController
                     'role_key' => $inv->role_key, 'brand_id' => $inv->brand_id, 'branch_id' => $inv->branch_id,
                     'status' => 'active', 'invited_by_id' => $inv->invited_by_id, 'accepted_at' => now(),
                 ]);
+
+                // Roles that also live in the mobile world get the SAME just-typed
+                // password written to their legacy table, so the one login opens
+                // both — mirrors Admin\UserController::store. Dashboard-only roles
+                // (head/accountant/company-admin/procurement) resolve to null and
+                // no-op. Skipped when preserving an established account's password:
+                // re-provisioning would reset a live mobile login (credential model
+                // — never reset a live account).
+                if (! $preservePassword) {
+                    $this->provisioners->for($inv->role_key)?->provision(
+                        $user,
+                        ['branches' => $inv->branch_id ? [$inv->branch_id] : []],
+                        $data['password'],
+                    );
+                }
+
                 $inv->update(['status' => 'accepted', 'accepted_at' => now()]);
 
                 return $user;

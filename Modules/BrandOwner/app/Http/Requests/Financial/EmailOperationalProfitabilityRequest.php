@@ -21,7 +21,8 @@ class EmailOperationalProfitabilityRequest extends BaseRequest
     {
         return [
             'email' => ['required', 'email'],
-            'format_type' => ['sometimes', 'in:PDF,Excel'],
+            // Optional: a blank / omitted format falls back to PDF in the controller.
+            'format_type' => ['sometimes', 'nullable', 'in:PDF,Excel'],
         ];
     }
 }

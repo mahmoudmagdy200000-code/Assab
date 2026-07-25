@@ -23,7 +23,8 @@ class SmartComparisonController extends BaseController
             'compared_year' => ['nullable', 'integer'],
             'compared_month' => ['nullable', 'integer'],
             'type' => ['required', 'in:month,branch'],
-            'branch_id' => ['required', 'string'],
+            // Both branch ids are optional — the service falls back to the DB default.
+            'branch_id' => ['nullable', 'string'],
             'compared_branch_id' => ['nullable', 'string'],
         ]);
 

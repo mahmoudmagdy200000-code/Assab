@@ -4,6 +4,10 @@ namespace Modules\Admin\Services;
 
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Shift;
+use Modules\Notification\Enums\NotificationChannel;
+use Modules\Notification\Enums\NotificationPriority;
+use Modules\Notification\Enums\NotificationType;
+use Modules\Notification\Notifications\BaseNotification;
 use Modules\Shift\Models\CashierShift;
 
 /**
@@ -51,5 +55,35 @@ class ShiftFeedbackBridgeService
             'reviewed_at' => now(),
             'review_reason' => $reason,
         ]);
+
+        // On rejection the sheet returns to its mobile owner — push an in-app
+        // notification into the mobile world so the cashier learns of it without
+        // polling. Previously the only signal was a dashboard-side 'branch' push
+        // the mobile app never reads. Best-effort: a notification failure must
+        // never roll back the review decision it accompanies.
+        if ($reviewStatus === 'rejected') {
+            $this->notifyMobileOwner($legacy, $reason);
+        }
+    }
+
+    private function notifyMobileOwner(CashierShift $legacy, ?string $reason): void
+    {
+        try {
+            $cashier = $legacy->cashier; // Cashier is Notifiable (database channel).
+            if ($cashier === null) {
+                return;
+            }
+
+            $cashier->notify(new BaseNotification(
+                NotificationType::SHIFT_SALES_REJECTED,
+                ['shift_id' => $legacy->id, 'reason' => $reason],
+                NotificationPriority::HIGH,
+                [NotificationChannel::IN_APP->value],
+            ));
+        } catch (\Throwable $e) {
+            // Broad catch is deliberate: this is a fire-and-forget side effect at
+            // the world boundary; surface it to the error handler, never propagate.
+            report($e);
+        }
     }
 }

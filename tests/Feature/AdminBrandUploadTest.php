@@ -13,6 +13,10 @@ use Modules\Admin\Models\Asset;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\UploadStatus;
 use Modules\Branch\Models\Branch;
+use Modules\Expense\Models\Category;
+use Modules\Purchase\Models\BranchItem;
+use Modules\Purchase\Models\Item as PurchaseItem;
+use Modules\Supplier\Models\Supplier as LegacySupplier;
 use Tests\TestCase;
 
 /**
@@ -196,6 +200,140 @@ class AdminBrandUploadTest extends TestCase
         $this->assertSame('مؤسسة اللحوم', $supplier->name);
         $this->assertSame('لحوم', $supplier->category);
         $this->assertSame('خالد', $supplier->contact_name);
+    }
+
+    // ---- BUG-9: brand upload writes through to the mobile tables ----
+
+    public function test_supplier_upload_provisions_the_legacy_mobile_supplier_row(): void
+    {
+        $brand = $this->brand();
+
+        $this->upload(
+            "/api/v1/admin/brands/{$brand->id}/upload/suppliers",
+            'sup.csv',
+            'رقم المورد,اسم المورد,الفئة,جهة الاتصال,شروط الدفع'."\n".'SUP-3,مؤسسة اللحوم,لحوم,خالد,صافي 30'."\n",
+        )->assertStatus(200)->assertJsonPath('rowsImported', 1);
+
+        // The legacy `suppliers` row the mobile Expense/Purchase pickers read.
+        $legacy = LegacySupplier::where('name', 'مؤسسة اللحوم')->first();
+        $this->assertNotNull($legacy, 'uploaded supplier must reach the legacy mobile table');
+
+        // ...and the dashboard row is linked to it (legacy_supplier_id stamped).
+        $asab = AsabSupplier::withoutGlobalScopes()->firstOrFail();
+        $this->assertSame($legacy->id, $asab->legacy_supplier_id);
+    }
+
+    public function test_raw_material_upload_seeds_branch_items_for_the_brand_branches(): void
+    {
+        $brand = $this->brand();
+        $branchA = Branch::factory()->create(['asab_company_id' => $brand->company_id, 'asab_brand_id' => $brand->id]);
+        $branchB = Branch::factory()->create(['asab_company_id' => $brand->company_id, 'asab_brand_id' => $brand->id]);
+        // A branch of ANOTHER brand must NOT be seeded (brand-level propagation).
+        $foreignBranch = Branch::factory()->create(['asab_company_id' => $brand->company_id]);
+
+        $this->upload(
+            "/api/v1/admin/brands/{$brand->id}/upload/raw-materials",
+            'mats.csv',
+            'رمز المادة,اسم المادة,التصنيف,وحدة القياس,التكلفة'."\n".'RM-7,طحين,جاف,كجم,9.25'."\n",
+        )->assertStatus(200)->assertJsonPath('rowsImported', 1);
+
+        // The uploaded material became a mobile purchasing item...
+        $item = PurchaseItem::where('code', 'RM-7')->firstOrFail();
+        // ...seeded into branch_item for BOTH of the brand's branches (the
+        // table the mobile purchasing-officer picker paginates), priced in riyals.
+        $this->assertTrue(BranchItem::where('item_id', $item->id)->where('branch_id', $branchA->id)->exists());
+        $this->assertTrue(BranchItem::where('item_id', $item->id)->where('branch_id', $branchB->id)->exists());
+        $this->assertEquals(9.25, (float) BranchItem::where('item_id', $item->id)->where('branch_id', $branchA->id)->value('price'));
+        // Not for a branch outside the brand.
+        $this->assertFalse(BranchItem::where('item_id', $item->id)->where('branch_id', $foreignBranch->id)->exists());
+    }
+
+    public function test_re_uploading_suppliers_does_not_duplicate_the_mobile_row(): void
+    {
+        $brand = $this->brand();
+        $csv = 'رقم المورد,اسم المورد,الفئة,جهة الاتصال,شروط الدفع'."\n".'SUP-3,مؤسسة اللحوم,لحوم,خالد,صافي 30'."\n";
+
+        $url = "/api/v1/admin/brands/{$brand->id}/upload/suppliers";
+        $this->upload($url, 'sup.csv', $csv)->assertStatus(200);
+        // A corrected re-upload of the same file must UPDATE in place, not add a
+        // second row on either side of the bridge (the mobile picker would list
+        // the supplier twice otherwise).
+        $this->upload($url, 'sup.csv', $csv)->assertStatus(200);
+
+        $this->assertSame(1, AsabSupplier::withoutGlobalScopes()->where('name', 'مؤسسة اللحوم')->count());
+        $this->assertSame(1, LegacySupplier::where('name', 'مؤسسة اللحوم')->count());
+    }
+
+    public function test_re_uploading_raw_materials_backfills_a_branch_added_after_the_first_upload(): void
+    {
+        $brand = $this->brand();
+        $branchA = Branch::factory()->create(['asab_company_id' => $brand->company_id, 'asab_brand_id' => $brand->id]);
+        $csv = 'رمز المادة,اسم المادة,التصنيف,وحدة القياس,التكلفة'."\n".'RM-7,طحين,جاف,كجم,9.25'."\n";
+        $url = "/api/v1/admin/brands/{$brand->id}/upload/raw-materials";
+
+        $this->upload($url, 'mats.csv', $csv)->assertStatus(200);
+        $item = PurchaseItem::where('code', 'RM-7')->firstOrFail();
+        $this->assertTrue(BranchItem::where('item_id', $item->id)->where('branch_id', $branchA->id)->exists());
+
+        // A branch created AFTER the first upload has no seed yet...
+        $branchB = Branch::factory()->create(['asab_company_id' => $brand->company_id, 'asab_brand_id' => $brand->id]);
+        $this->assertFalse(BranchItem::where('item_id', $item->id)->where('branch_id', $branchB->id)->exists());
+
+        // ...re-uploading the same material backfills it (the live-match now seeds).
+        $this->upload($url, 'mats.csv', $csv)->assertStatus(200);
+        $this->assertTrue(BranchItem::where('item_id', $item->id)->where('branch_id', $branchB->id)->exists());
+        // Still one mobile item — create-only, no duplicate on re-upload.
+        $this->assertSame(1, PurchaseItem::where('code', 'RM-7')->count());
+    }
+
+    public function test_sales_items_upload_surfaces_an_expense_type_category(): void
+    {
+        $brand = $this->brand();
+
+        $this->upload(
+            "/api/v1/admin/brands/{$brand->id}/upload/sales-items",
+            'items.csv',
+            'رمز الصنف,اسم الصنف,التصنيف,وحدة البيع,السعر'."\n".'SKU-1,برجر,وجبات,حبة,25.50'."\n",
+        )->assertStatus(200);
+
+        // The mobile Expense «المصروفات» tab reads categories where type=expense.
+        $cat = Category::where('name', 'وجبات')->first();
+        $this->assertNotNull($cat, 'uploaded sales-item category must reach the mobile taxonomy');
+        $this->assertSame('expense', $cat->type);
+        $this->assertTrue((bool) $cat->is_active);
+    }
+
+    public function test_raw_materials_upload_surfaces_a_purchase_type_category(): void
+    {
+        $brand = $this->brand();
+
+        $this->upload(
+            "/api/v1/admin/brands/{$brand->id}/upload/raw-materials",
+            'mats.csv',
+            'رمز المادة,اسم المادة,التصنيف,وحدة القياس,التكلفة'."\n".'RM-7,طحين,جاف,كجم,9.25'."\n",
+        )->assertStatus(200);
+
+        // The mobile Expense «الأصناف/المشتريات» tab reads categories where type=purchase.
+        $cat = Category::where('name', 'جاف')->first();
+        $this->assertNotNull($cat);
+        $this->assertSame('purchase', $cat->type);
+    }
+
+    public function test_expense_category_bridge_is_idempotent_and_skips_blank(): void
+    {
+        $brand = $this->brand();
+        $csv = 'رمز الصنف,اسم الصنف,التصنيف,وحدة البيع,السعر'."\n"
+            .'SKU-1,برجر,وجبات,حبة,10'."\n"
+            .'SKU-2,عصير,,حبة,5'."\n";                 // blank category → no taxonomy row
+
+        $url = "/api/v1/admin/brands/{$brand->id}/upload/sales-items";
+        $this->upload($url, 'items.csv', $csv)->assertStatus(200);
+        // Re-upload the same file: categories must not duplicate.
+        $this->upload($url, 'items.csv', $csv)->assertStatus(200);
+
+        $this->assertSame(1, Category::where('name', 'وجبات')->count());
+        // Only the one real category — the blank cell created nothing.
+        $this->assertSame(1, Category::count());
     }
 
     // ---- defect B: header validation ----

@@ -129,6 +129,14 @@ class CashierShiftResource extends JsonResource
 
             // Always present: object when has variance details, null otherwise
             'variance_details' => $this->getVarianceDetailsOrNull(),
+
+            // Two-worlds review decision (dashboard accountant/head → mobile).
+            // Null until the sheet is reviewed on the dashboard; 'approved' shows
+            // «معتمدة», 'rejected' shows «مرفوضة» + the reason. Distinct from the
+            // handover approval above — this is the sales-sheet approval loop.
+            'review_status' => $this->review_status,
+            'reviewed_at' => optional($this->reviewed_at)->format('Y-m-d H:i:s'),
+            'review_reason' => $this->review_reason,
         ];
     }
 

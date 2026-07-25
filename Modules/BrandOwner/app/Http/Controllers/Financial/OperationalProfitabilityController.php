@@ -38,7 +38,8 @@ class OperationalProfitabilityController extends BaseController
 
         $this->service->email(
             $validated['email'],
-            $validated['format_type'] ?? 'PDF',
+            // Blank / omitted format_type defaults to PDF.
+            ($validated['format_type'] ?? null) ?: 'PDF',
         );
 
         return $this->successResponse(null, 'Report emailed successfully');

@@ -321,6 +321,51 @@ class BrandOwnerFinancialReportingTest extends TestCase
         $this->assertEquals(500000.0, $res->json('data.chart_data.main_value'));
     }
 
+    public function test_smart_comparison_defaults_to_first_branch_when_branch_id_omitted(): void
+    {
+        $res = $this->actingAsOwner()->getJson('/api/brand-owner/financial/smart-comparison?type=month');
+
+        $res->assertStatus(200)->assertJsonPath('success', true);
+        // Omitting branch_id must resolve to a real branch (the first), not fail validation.
+        $this->assertEquals($this->branch->id, $res->json('data.branch_id'));
+        $this->assertEquals('Riyadh Branch', $res->json('data.branch_name'));
+        $this->assertEquals(500000.0, $res->json('data.chart_data.main_value'));
+    }
+
+    public function test_smart_comparison_branch_type_defaults_compared_branch(): void
+    {
+        $other = Branch::factory()->create(['name' => 'Zulfi Branch']);
+
+        $res = $this->actingAsOwner()->getJson('/api/brand-owner/financial/smart-comparison?type=branch');
+
+        $res->assertStatus(200)->assertJsonPath('success', true);
+        // Main branch = first alphabetically; compared branch = next one, never "all branches".
+        $this->assertEquals($this->branch->id, $res->json('data.branch_id'));
+        $this->assertEquals($other->id, $res->json('data.compared_branch_id'));
+        $this->assertEquals('Zulfi Branch', $res->json('data.compared_branch_name'));
+        $this->assertEquals(0.0, $res->json('data.chart_data.compared_value'));
+    }
+
+    public function test_smart_comparison_export_and_email_without_branch_id(): void
+    {
+        Storage::fake('public');
+        Mail::fake();
+
+        $export = $this->actingAsOwner()->postJson('/api/brand-owner/financial/smart-comparison/export', [
+            'type' => 'month',
+            'format_type' => 'pdf',
+        ]);
+        $export->assertStatus(200)->assertJsonStructure(['data' => ['file_url']]);
+        $this->assertNotEmpty($export->json('data.file_url'));
+
+        $this->actingAsOwner()->postJson('/api/brand-owner/financial/smart-comparison/email', [
+            'type' => 'month',
+            'email' => 'boss@example.com',
+        ])->assertStatus(200)->assertJsonPath('success', true);
+
+        Mail::assertSent(FinancialReportMail::class);
+    }
+
     // ----------------------------------------------------------------
     // 5. Profit vs cash
     // ----------------------------------------------------------------
@@ -401,6 +446,29 @@ class BrandOwnerFinancialReportingTest extends TestCase
             ]);
     }
 
+    public function test_operational_profitability_email_accepts_blank_or_omitted_format_type(): void
+    {
+        Storage::fake('public');
+        Mail::fake();
+
+        // Blank format_type must fall back to PDF instead of failing the `in` rule.
+        $this->actingAsOwner()->postJson('/api/brand-owner/financial/operational-profitability/email', [
+            'email' => 'boss@example.com',
+            'format_type' => '',
+        ])->assertStatus(200)->assertJsonPath('success', true);
+
+        $this->actingAsOwner()->postJson('/api/brand-owner/financial/operational-profitability/email', [
+            'email' => 'boss@example.com',
+        ])->assertStatus(200)->assertJsonPath('success', true);
+
+        $this->actingAsOwner()->postJson('/api/brand-owner/financial/operational-profitability/email', [
+            'email' => 'boss@example.com',
+            'format_type' => 'excel',
+        ])->assertStatus(200)->assertJsonPath('success', true);
+
+        Mail::assertSent(FinancialReportMail::class, 3);
+    }
+
     // ----------------------------------------------------------------
     // 8. Menu engineering
     // ----------------------------------------------------------------
@@ -447,6 +515,25 @@ class BrandOwnerFinancialReportingTest extends TestCase
             + $res->json('data.dogs.items_count')
             + $res->json('data.workhorses.items_count');
         $this->assertEquals(4, $total);
+    }
+
+    public function test_menu_engineering_export_and_email_without_period_or_branch(): void
+    {
+        Storage::fake('public');
+        Mail::fake();
+
+        // Only format_type is required — period + branch default like the GET index.
+        $export = $this->actingAsOwner()->postJson('/api/brand-owner/financial/menu-engineering/export', [
+            'format_type' => 'excel',
+        ]);
+        $export->assertStatus(200)->assertJsonStructure(['data' => ['file_url']]);
+        $this->assertNotEmpty($export->json('data.file_url'));
+
+        $this->actingAsOwner()->postJson('/api/brand-owner/financial/menu-engineering/email', [
+            'email' => 'boss@example.com',
+        ])->assertStatus(200)->assertJsonPath('success', true);
+
+        Mail::assertSent(FinancialReportMail::class);
     }
 
     // ----------------------------------------------------------------

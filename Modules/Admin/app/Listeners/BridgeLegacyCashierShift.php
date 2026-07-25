@@ -48,6 +48,23 @@ class BridgeLegacyCashierShift
         $sales = $this->toHalalas($legacy->total_sales);
         $collected = $this->toHalalas($legacy->cash_collected);
         $float = $this->toHalalas($legacy->opening_balance);
+        $card = $this->toHalalas($legacy->card_payments);
+
+        // The mobile sheet splits non-cash sales across delivery aggregators
+        // (Jahez/Keeta/…). Carry the per-aggregator lines AND their total so the
+        // dashboard sheet equals the mobile one (FR-SAL-1) and — critically — the
+        // server-derived expected-cash subtracts card + aggregators instead of
+        // treating every riyal as cash (which invented a false shortage charged
+        // to the cashier).
+        $breakdown = $legacy->salesBreakdown()
+            ->with('aggregator')
+            ->get()
+            ->map(fn ($row) => [
+                'aggregator' => $row->aggregator?->name,
+                'amountHalalas' => $this->toHalalas($row->amount),
+            ])
+            ->all();
+        $aggregator = array_sum(array_column($breakdown, 'amountHalalas'));
 
         $shift = Shift::create([
             'company_id' => $employee->company_id,
@@ -64,9 +81,18 @@ class BridgeLegacyCashierShift
         ]);
 
         // Route through the canonical close so the SHF operation + variance are
-        // derived exactly as a dashboard close would produce them.
+        // derived exactly as a dashboard close would produce them. `cashActual`
+        // is the cash PHYSICALLY IN THE DRAWER — the native path aliases it from
+        // `cashInDrawer` = opening float + cash taken (Accountant\ShiftController).
+        // The mobile `cash_collected` excludes the float (its breakdown invariant
+        // is total_sales = cash + card + aggregators, EndShiftRequest), so the
+        // float must be added back; passing bare cash made expectedCash overshoot
+        // by exactly the float and charged that phantom shortage to the cashier.
         $this->shifts->close($shift, [
-            'cashActualHalalas' => $collected,
+            'cashActualHalalas' => $collected + $float,
+            'cardTotalHalalas' => $card,
+            'aggregatorTotalsHalalas' => $aggregator,
+            'aggregatorBreakdown' => $breakdown,
         ], $actor, 'mobile');
     }
 

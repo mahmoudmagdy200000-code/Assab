@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Modules\Admin\Mail\CompanyInvitationMail;
@@ -17,6 +18,7 @@ use Modules\Admin\Models\CompanySubscription;
 use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Plan;
 use Modules\Branch\Models\Branch;
+use Modules\BranchManagers\Models\BranchManager;
 use Tests\TestCase;
 
 /**
@@ -170,6 +172,41 @@ class CompanyPortalGapsTest extends TestCase
 
         $this->postJson('/api/v1/company/invitations/accept', ['token' => $inv->token, 'name' => 'Fresh', 'password' => 'password123'])
             ->assertOk()->assertJsonStructure(['accessToken', 'refreshToken']);
+    }
+
+    public function test_accepting_a_branch_invite_provisions_a_mobile_login_with_the_same_password(): void
+    {
+        // A branch-role invitation carries the branch it scopes to. Accepting it
+        // must also mint the legacy branch_managers row (same password) — else the
+        // invited manager can reach the dashboard but never the mobile app.
+        $inv = CompanyInvitation::create([
+            'company_id' => $this->company->id, 'email' => 'bm-invite@x.test', 'role_key' => 'branch',
+            'branch_id' => $this->branch->id, 'token' => Str::random(64),
+            'status' => 'pending', 'expires_at' => now()->addDays(7), 'created_at' => now(),
+        ]);
+
+        $this->postJson('/api/v1/company/invitations/accept', ['token' => $inv->token, 'name' => 'مدير مدعو', 'password' => 'password123'])
+            ->assertOk();
+
+        $manager = BranchManager::where('email', 'bm-invite@x.test')->first();
+        $this->assertNotNull($manager, 'accepting a branch invite must create the mobile branch_managers row');
+        $this->assertSame($this->branch->id, $manager->branch_id);
+        $this->assertTrue(Hash::check('password123', $manager->password), 'the same accepted password must open the mobile app');
+    }
+
+    public function test_accepting_a_dashboard_only_role_invite_creates_no_mobile_login(): void
+    {
+        // head/accountant/company-admin/procurement have no mobile counterpart —
+        // the provisioner registry returns null and the accept stays dashboard-only.
+        $inv = CompanyInvitation::create([
+            'company_id' => $this->company->id, 'email' => 'head-invite@x.test', 'role_key' => 'head', 'token' => Str::random(64),
+            'status' => 'pending', 'expires_at' => now()->addDays(7), 'created_at' => now(),
+        ]);
+
+        $this->postJson('/api/v1/company/invitations/accept', ['token' => $inv->token, 'name' => 'رئيس', 'password' => 'password123'])
+            ->assertOk();
+
+        $this->assertSame(0, BranchManager::count(), 'a dashboard-only role must not touch the mobile tables');
     }
 
     // ---- T14.4 storage quota ----

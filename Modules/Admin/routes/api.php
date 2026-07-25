@@ -774,6 +774,7 @@ Route::prefix('v1')->group(function () {
                     Route::post('shifts/{id}/close', [ShiftController::class, 'close']);
                     Route::post('shifts/{id}/variance-allocations', [ShiftController::class, 'varianceAllocations']);
                     Route::put('brands/{brandId}/shift-config', [AccountantCompanyController::class, 'saveShiftConfig']);
+                    Route::post('brands/{brandId}/shift-config/regenerate', [AccountantCompanyController::class, 'regenerateShifts']);
 
                     Route::get('employees/payroll/export', [CompanyExportController::class, 'payroll']);
                     Route::get('employees', [EmployeeController::class, 'index']);

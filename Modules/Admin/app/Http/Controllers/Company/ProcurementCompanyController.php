@@ -305,6 +305,10 @@ class ProcurementCompanyController extends AsabController
                 'paymentTerms' => 'sometimes|nullable|string|max:80', 'brandId' => 'sometimes|nullable|string',
                 // doc aliases: `phone` -> contactPhone, `email` -> contactEmail.
                 'phone' => 'sometimes|nullable|string|max:32', 'email' => 'sometimes|nullable|email',
+                // internal (default) vs external (§10.2): a directly-registered
+                // supplier is internal; the flag lets procurement mark one it only
+                // deals with off-platform.
+                'isExternal' => 'sometimes|boolean',
             ]);
             $sup = DB::transaction(function () use ($request, $data) {
                 $sup = AsabSupplier::create([
@@ -313,6 +317,7 @@ class ProcurementCompanyController extends AsabController
                     'contact_phone' => $data['contactPhone'] ?? $data['phone'] ?? null,
                     'contact_email' => $data['contactEmail'] ?? $data['email'] ?? null,
                     'commercial_reg' => $data['commercialReg'] ?? null, 'payment_terms' => $data['paymentTerms'] ?? null, 'status' => 'active',
+                    'is_external' => $data['isExternal'] ?? false,
                 ]);
                 // Provision the login-capable mobile-world supplier so the real order flow can use it.
                 $this->bridge->provisionSupplier($sup);
@@ -320,7 +325,7 @@ class ProcurementCompanyController extends AsabController
                 return $sup;
             });
 
-            return $this->created(['id' => $sup->id, 'name' => $sup->name, 'category' => $sup->category, 'status' => $sup->status]);
+            return $this->created(['id' => $sup->id, 'name' => $sup->name, 'category' => $sup->category, 'status' => $sup->status, 'isExternal' => $sup->is_external]);
         });
     }
 
@@ -410,6 +415,9 @@ class ProcurementCompanyController extends AsabController
                 $sup = AsabSupplier::create([
                     'company_id' => $request->user()->company_id, 'name' => $req->name,
                     'category' => $req->category, 'contact_phone' => $req->contact_phone, 'status' => 'active',
+                    // Branch-surfaced (§10.2): a supplier the branch deals with is
+                    // external by origin, so «إرسال للمورد» routes it via WhatsApp.
+                    'is_external' => true,
                 ]);
                 $this->bridge->provisionSupplier($sup);
                 $req->update(['status' => SupplierRequest::STATUS_APPROVED, 'supplier_id' => $sup->id]);
@@ -418,7 +426,7 @@ class ProcurementCompanyController extends AsabController
             });
 
             return $this->created([
-                'id' => $sup->id, 'name' => $sup->name, 'status' => $sup->status,
+                'id' => $sup->id, 'name' => $sup->name, 'status' => $sup->status, 'isExternal' => $sup->is_external,
                 'requestId' => $req->id, 'requestStatus' => $req->status,
             ]);
         });

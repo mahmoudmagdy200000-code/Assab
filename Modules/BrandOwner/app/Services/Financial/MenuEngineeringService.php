@@ -207,11 +207,7 @@ class MenuEngineeringService
         array $input,
     ): array {
         $payload = $this->build(
-            $input['year'],
-            $input['month'],
-            $input['compared_year'],
-            $input['compared_month'],
-            $input['branch_id'] ?? null,
+            ...$this->periodArgs($input),
         );
 
         return $this->exporter->export(
@@ -230,11 +226,7 @@ class MenuEngineeringService
     public function email(array $input): void
     {
         $payload = $this->build(
-            $input['year'],
-            $input['month'],
-            $input['compared_year'],
-            $input['compared_month'],
-            $input['branch_id'] ?? null,
+            ...$this->periodArgs($input),
         );
 
         $this->exporter->email(
@@ -243,6 +235,29 @@ class MenuEngineeringService
             $this->sections($payload),
             $input['email'],
         );
+    }
+
+    /**
+     * Map an export/email input array onto build()'s arguments. Every period key
+     * is optional — a missing or blank one becomes null and build() falls back to
+     * the current month vs the previous one.
+     *
+     * @param  array<string, mixed>  $input
+     * @return array{0: ?int, 1: ?int, 2: ?int, 3: ?int, 4: ?string}
+     */
+    private function periodArgs(array $input): array
+    {
+        $int = fn (string $key) => isset($input[$key]) && $input[$key] !== ''
+            ? (int) $input[$key]
+            : null;
+
+        return [
+            $int('year'),
+            $int('month'),
+            $int('compared_year'),
+            $int('compared_month'),
+            $input['branch_id'] ?? null,
+        ];
     }
 
     /**

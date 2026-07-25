@@ -13,6 +13,7 @@ use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Shift;
 use Modules\Admin\Services\ShiftLatenessService;
 use Modules\Branch\Models\Branch;
+use Modules\Shift\Models\Shift as MobileShift;
 use Tests\TestCase;
 
 /**
@@ -80,6 +81,37 @@ class ShiftsTest extends TestCase
         $this->assertSame('06:00-14:00', $body['shifts'][0]['window']);
         $this->assertSame('14:00-22:00', $body['shifts'][1]['window']);
         $this->assertSame(3, BrandShiftConfig::where('brand_id', $this->brand->id)->value('num_shifts'));
+    }
+
+    public function test_saving_the_config_seeds_mobile_shift_rows_for_every_branch(): void
+    {
+        $res = $this->acc()->putJson("/api/v1/company/me/brands/{$this->brand->id}/shift-config", [
+            'numShifts' => 2, 'durationHours' => 8, 'firstShiftStart' => '06:00',
+        ])->assertOk();
+
+        // 2 windows × 2 branches of this brand (فرع أ + فرع ب).
+        $res->assertJsonPath('mobileShiftsSeeded', 4);
+        $this->assertSame(2, MobileShift::where('branch_id', $this->branchA->id)->count());
+        $this->assertSame(2, MobileShift::where('branch_id', $this->branchB->id)->count());
+
+        $first = MobileShift::where('branch_id', $this->branchA->id)->orderBy('start_time')->first();
+        $this->assertSame('الأول', $first->name);
+        $this->assertTrue($first->is_active);
+    }
+
+    public function test_regenerate_reseeds_the_mobile_schedule_without_duplicating(): void
+    {
+        $this->acc()->putJson("/api/v1/company/me/brands/{$this->brand->id}/shift-config", [
+            'numShifts' => 2, 'durationHours' => 8, 'firstShiftStart' => '06:00',
+        ])->assertOk();
+        $this->assertSame(4, MobileShift::count());
+
+        // The explicit Regenerate action re-projects the saved config; the
+        // natural-key upsert updates in place, so nothing is duplicated.
+        $this->acc()->postJson("/api/v1/company/me/brands/{$this->brand->id}/shift-config/regenerate")
+            ->assertOk()->assertJsonPath('mobileShiftsSeeded', 4);
+
+        $this->assertSame(4, MobileShift::count());
     }
 
     public function test_legacy_morning_evening_body_is_still_accepted(): void

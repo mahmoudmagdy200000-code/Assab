@@ -22,7 +22,8 @@ class ExportProfitAndLossRequest extends BaseRequest
         return [
             'year' => ['required', 'integer'],
             'month' => ['required', 'integer', 'min:1', 'max:12'],
-            'branch_id' => ['required', 'string'],
+            // Optional: omitted / blank falls back to the DB default branch.
+            'branch_id' => ['sometimes', 'nullable', 'string'],
             'format_type' => ['required', 'in:PDF,Excel'],
         ];
     }
