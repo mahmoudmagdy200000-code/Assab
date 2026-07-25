@@ -36,13 +36,15 @@ class SupplierItemResource extends JsonResource
             // Item Information
             // Use item_id from BranchItem (which references Item.id) to match SupplierProduct.item_id
             'item_id' => $branchItem?->item_id ?? $supplierItem->item_id,
-            'item_name' => $branchItem?->item_name,
+            // Nullable strings the app casts to non-null String — coalesce to ''
+            // so a bridge-seeded item (no code/subcategory) can't crash the app.
+            'item_name' => $branchItem?->item_name ?? '',
             'item_logo' => $itemLogo,
-            'item_code' => $branchItem?->item_code,
+            'item_code' => $branchItem?->item_code ?? '',
             'item_unit' => $branchItem?->item_unit ?? 'kg',
             'item_price' => $branchItem?->item_price ? (float) $branchItem->item_price : null,
-            'category' => $branchItem?->category,
-            'subcategory' => $branchItem?->subcategory,
+            'category' => $branchItem?->category ?? '',
+            'subcategory' => $branchItem?->subcategory ?? '',
 
             // Supplier Item Details
             'supplier_item_id' => $supplierItem->id,

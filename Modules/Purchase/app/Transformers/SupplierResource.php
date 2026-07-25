@@ -11,13 +11,17 @@ class SupplierResource extends JsonResource
         return [
             'id' => $this->id,
             'name' => $this->name,
-            'email' => $this->email,
-            'phone' => $this->phone,
+            // These are nullable columns (and a dashboard-provisioned supplier
+            // fills only name/email/phone), but the mobile app casts them to a
+            // non-null String and crashes on null — coalesce to '' so an
+            // address-less / contact-less supplier renders blank, not fatally.
+            'email' => $this->email ?? '',
+            'phone' => $this->phone ?? '',
             'image' => $this->image_url,
-            'address' => $this->address,
+            'address' => $this->address ?? '',
 
-            // Status
-            'status' => $this->status, // status is string in Supplier model, not enum
+            // Status — coalesced to match SupplierInfoResource / DirectSupplierOrderResource.
+            'status' => $this->status ?? 'offline', // string in the Supplier model, not enum
             'status_label' => $this->status_label,
             'status_color' => $this->status_color,
             'is_available' => $this->is_available,
