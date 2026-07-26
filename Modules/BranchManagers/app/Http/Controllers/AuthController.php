@@ -3,6 +3,8 @@
 namespace Modules\BranchManagers\Http\Controllers;
 
 use App\ApiResponse as ApiResponseTrait;
+use App\Services\FirstLoginActivationResolver;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 use Modules\BranchManagers\Http\Requests\FirstLoginRequest;
@@ -11,6 +13,7 @@ use Modules\BranchManagers\Http\Requests\LoginRequest;
 use Modules\BranchManagers\Http\Requests\ResetPasswordFirstLoginRequest;
 use Modules\BranchManagers\Http\Requests\ResetPasswordRequest;
 use Modules\BranchManagers\Http\Requests\VerifyOtpRequest;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Services\AuthService;
 
 class AuthController extends Controller
@@ -19,9 +22,12 @@ class AuthController extends Controller
 
     protected $authService;
 
-    public function __construct(AuthService $authService)
+    private readonly FirstLoginActivationResolver $activation;
+
+    public function __construct(AuthService $authService, FirstLoginActivationResolver $activation)
     {
         $this->authService = $authService;
+        $this->activation = $activation;
     }
 
     public function firstLogin(FirstLoginRequest $request): JsonResponse
@@ -58,15 +64,25 @@ class AuthController extends Controller
     public function resetPasswordFirstLogin(ResetPasswordFirstLoginRequest $request): JsonResponse
     {
         try {
-            $manager = auth('sanctum')->user();
+            // Bearer token (original contract), body `token`, or the default
+            // password again — the «activate Account» screen exists in builds
+            // that send each shape (see FirstLoginActivationResolver).
+            /** @var BranchManager $manager */
+            $manager = $this->activation->resolve(
+                BranchManager::class,
+                $request->user('sanctum'),
+                $request->only(['token', 'identifier', 'default_password']),
+            );
 
-            if (! $manager || ! $manager->isFirstLogin()) {
-                return $this->errorResponse('Invalid request', 400);
+            if (! $manager->isFirstLogin()) {
+                return $this->errorResponse('Account is already activated. Please use regular login.', 400);
             }
 
             $this->authService->resetPasswordFirstLogin($manager, $request->password);
 
             return $this->successResponse('Password reset successfully. Please login with your new password.');
+        } catch (AuthenticationException) {
+            return $this->errorResponse('Sign in again to activate the account, or send the default password with the request.', 401);
         } catch (\Exception $e) {
             return $this->handleException($e);
         }

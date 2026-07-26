@@ -22,6 +22,13 @@ Route::prefix('v1/supplier')->group(function () {
     Route::post('/auth/password/reset/send-otp', [PasswordResetController::class, 'sendOTP'])->middleware(['throttle:supplier-auth', 'log.throttle']);
     Route::post('/auth/password/reset/verify-otp', [PasswordResetController::class, 'verifyOTP'])->middleware(['throttle:supplier-auth', 'log.throttle']);
     Route::post('/auth/password/reset', [PasswordResetController::class, 'resetPassword'])->middleware(['throttle:supplier-auth', 'log.throttle']);
+
+    // «activate Account» — NOT behind auth:sanctum: the screen also runs in app
+    // builds that do not attach the first-login token, and that answered a
+    // dead-end "Unauthenticated.". The handler itself demands a proof (token in
+    // header or body, or the default password) — see FirstLoginActivationResolver.
+    Route::post('/auth/password/reset/first-login', [AuthController::class, 'resetPasswordFirstLogin'])
+        ->middleware(['throttle:supplier-auth', 'log.throttle']);
 });
 
 // Protected routes - require supplier authentication
@@ -29,7 +36,6 @@ Route::middleware(['auth:sanctum', \Modules\Supplier\Http\Middleware\SupplierMid
     // Authentication
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
-    Route::post('/auth/password/reset/first-login', [AuthController::class, 'resetPasswordFirstLogin']);
     Route::post('/auth/password/change', [AuthController::class, 'changePassword']);
 
     // Orders

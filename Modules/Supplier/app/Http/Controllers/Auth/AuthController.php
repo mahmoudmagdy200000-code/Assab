@@ -3,17 +3,21 @@
 namespace Modules\Supplier\Http\Controllers\Auth;
 
 use App\Http\Controllers\BaseController;
+use App\Services\FirstLoginActivationResolver;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
 use Modules\Supplier\Http\Requests\Auth\ChangePasswordRequest;
 use Modules\Supplier\Http\Requests\Auth\FirstLoginRequest;
 use Modules\Supplier\Http\Requests\Auth\LoginRequest;
 use Modules\Supplier\Http\Requests\Auth\ResetPasswordFirstLoginRequest;
+use Modules\Supplier\Models\Supplier;
 use Modules\Supplier\Services\AuthService;
 
 class AuthController extends BaseController
 {
     public function __construct(
-        private readonly AuthService $authService
+        private readonly AuthService $authService,
+        private readonly FirstLoginActivationResolver $activation,
     ) {}
 
     /**
@@ -52,15 +56,29 @@ class AuthController extends BaseController
     public function resetPasswordFirstLogin(ResetPasswordFirstLoginRequest $request): JsonResponse
     {
         try {
-            $supplier = auth('supplier')->user();
+            // Bearer token (original contract), body `token`, or the default
+            // password again — see FirstLoginActivationResolver. The screen used
+            // to answer a dead-end "Unauthenticated." to a build that sends the
+            // last shape.
+            /** @var Supplier $supplier */
+            $supplier = $this->activation->resolve(
+                Supplier::class,
+                $request->user('sanctum'),
+                $request->only(['token', 'identifier', 'default_password']),
+            );
 
-            if (! $supplier || ! $supplier->isFirstLogin()) {
-                return $this->errorResponse('Invalid request', 400);
+            if (! $supplier->isActive()) {
+                return $this->forbiddenResponse('Your account is inactive. Please contact administrator.');
+            }
+            if (! $supplier->isFirstLogin()) {
+                return $this->errorResponse('Account is already activated. Please use regular login.', 400);
             }
 
             $this->authService->resetPasswordFirstLogin($supplier, $request->password);
 
             return $this->successResponse(null, 'Password reset successfully. Please login with your new password.');
+        } catch (AuthenticationException) {
+            return $this->unauthorizedResponse('Sign in again to activate the account, or send the default password with the request.');
         } catch (\Exception $e) {
             return $this->handleException($e, 'resetting password');
         }

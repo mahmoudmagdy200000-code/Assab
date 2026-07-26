@@ -27,11 +27,15 @@ Route::prefix('branch-manager')->group(function () {
     Route::post('auth/forgot-password', [AuthController::class, 'forgotPassword']);
     Route::post('auth/verify-otp', [AuthController::class, 'verifyOtp']);
     Route::post('auth/reset-password', [AuthController::class, 'resetPassword']);
+    // «activate Account» — the handler demands a proof (first-login token in the
+    // header or body, or the default password), so it does not need auth:sanctum
+    // and no longer dead-ends a build that omits the Bearer header.
+    Route::post('auth/reset-password-first-login', [AuthController::class, 'resetPasswordFirstLogin'])
+        ->middleware('throttle:6,1');
 
     // Protected routes (require authentication)
     Route::middleware('auth:sanctum')->group(function () {
         // Authentication
-        Route::post('auth/reset-password-first-login', [AuthController::class, 'resetPasswordFirstLogin']);
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::get('auth/me', [AuthController::class, 'me']);
 
