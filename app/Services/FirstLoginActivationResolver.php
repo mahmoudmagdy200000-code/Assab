@@ -37,6 +37,9 @@ use Psr\Log\LoggerInterface;
  */
 class FirstLoginActivationResolver
 {
+    /** The token name every module's firstLogin() mints. */
+    public const FIRST_LOGIN_TOKEN_NAME = 'first-login-token';
+
     /** Body/query fields that may carry the first-login token. */
     private const TOKEN_FIELDS = ['token', 'access_token', 'accessToken', 'api_token', 'apiToken', 'auth_token', 'authToken', 'bearer_token'];
 
@@ -127,12 +130,13 @@ class FirstLoginActivationResolver
         return array_values(array_unique(array_filter($candidates)));
     }
 
-    /** The token's owner, only when it belongs to THIS surface's model. */
-    private function fromToken(string $model, string $token): ?Authenticatable
+    /**
+     * Whether this is the token minted by first-login. Only that one may set a
+     * password on its own; a plain session token has to use change-password.
+     */
+    private function isFirstLoginToken(?string $tokenName): bool
     {
-        $tokenable = PersonalAccessToken::findToken($token)?->tokenable;
-
-        return $tokenable instanceof $model ? $tokenable : null;
+        return $tokenName === self::FIRST_LOGIN_TOKEN_NAME;
     }
 
     /**
