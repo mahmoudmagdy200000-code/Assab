@@ -44,7 +44,11 @@ class AuthController extends Controller
                 [
                     'user' => $this->userPayload($owner),
                     'token' => $result['token'],
-                    'requires_password_reset' => true,
+                    // false since 2026-07-26: signing in with the issued
+                    // password completes activation, so the app must NOT route
+                    // to the «activate Account» screen (it cannot complete
+                    // there). The password is changeable from settings.
+                    'requires_password_reset' => false,
                 ]
             );
         } catch (\Exception $e) {
@@ -58,11 +62,14 @@ class AuthController extends Controller
             // Bearer token (original contract), body `token`, or the default
             // password again — the «activate Account» screen exists in builds
             // that send each shape (see FirstLoginActivationResolver).
+            $activation = $this->activation->resolveFromRequest(BrandOwner::class, $request);
             /** @var BrandOwner $owner */
-            $owner = $this->activation->resolveFromRequest(BrandOwner::class, $request);
+            $owner = $activation->account;
 
-            if (! $owner->isFirstLogin()) {
-                return $this->errorResponse('Account is already activated. Please use regular login.', 400);
+            // Already activated: this is a change-password, so it takes the
+            // CURRENT password — a bare token must not rotate the credential.
+            if (! $owner->isFirstLogin() && ! $activation->provedWithPassword) {
+                return $this->errorResponse('Account is already activated. Send the current password, or use the change-password endpoint.', 400);
             }
 
             $this->authService->resetPasswordFirstLogin($owner, $request->input('password'));
