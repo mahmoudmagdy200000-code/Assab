@@ -43,8 +43,12 @@ class AuthController extends BaseController
                     'created_at' => $supplier->created_at?->format('Y-m-d H:i:s'),
                 ],
                 'token' => $result['token'],
-                'requires_password_reset' => true,
-            ], 'First login successful. Please reset your password.');
+                // false since 2026-07-26: signing in with the issued password
+                // completes activation, so the app must NOT route to the
+                // «activate Account» screen (it cannot complete there). The
+                // supplier changes the password from settings whenever they like.
+                'requires_password_reset' => false,
+            ], 'Login successful.');
         } catch (\Exception $e) {
             return $this->handleException($e, 'first login');
         }
@@ -60,14 +64,18 @@ class AuthController extends BaseController
             // password again — see FirstLoginActivationResolver. The screen used
             // to answer a dead-end "Unauthenticated." to a build that sends the
             // last shape.
+            $activation = $this->activation->resolveFromRequest(Supplier::class, $request);
             /** @var Supplier $supplier */
-            $supplier = $this->activation->resolveFromRequest(Supplier::class, $request);
+            $supplier = $activation->account;
 
             if (! $supplier->isActive()) {
                 return $this->forbiddenResponse('Your account is inactive. Please contact administrator.');
             }
-            if (! $supplier->isFirstLogin()) {
-                return $this->errorResponse('Account is already activated. Please use regular login.', 400);
+            // Already activated: setting a password here is a change-password, so
+            // it takes the CURRENT password — a bare token must not rotate an
+            // active account's credential.
+            if (! $supplier->isFirstLogin() && ! $activation->provedWithPassword) {
+                return $this->errorResponse('Account is already activated. Send the current password, or use the change-password endpoint.', 400);
             }
 
             $this->authService->resetPasswordFirstLogin($supplier, $request->password);

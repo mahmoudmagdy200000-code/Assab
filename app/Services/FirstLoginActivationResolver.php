@@ -56,28 +56,30 @@ class FirstLoginActivationResolver
      *
      * @throws AuthenticationException when no proof holds
      */
-    public function resolveFromRequest(string $model, Request $request): Authenticatable
+    public function resolveFromRequest(string $model, Request $request): FirstLoginActivation
     {
-        // The route is public, so this is Sanctum reading a well-formed Bearer
-        // header — the original contract, still the happy path.
-        $authenticated = $request->user('sanctum');
-        if ($authenticated instanceof $model) {
-            return $authenticated;
-        }
-
-        foreach ($this->candidateTokens($request) as $token) {
-            if (($account = $this->fromToken($model, $token)) !== null) {
-                return $account;
-            }
-        }
-
+        // A password proof is tried FIRST: it is the stronger one, and it is what
+        // lets an already-activated account set a new password here.
         $identifier = $this->stringOrNull($request->input('identifier'));
         if ($identifier !== null) {
             foreach (self::DEFAULT_PASSWORD_FIELDS as $field) {
                 $password = $this->stringOrNull($request->input($field));
                 if ($password !== null && ($account = $this->fromCredentials($model, $identifier, $password)) !== null) {
-                    return $account;
+                    return new FirstLoginActivation($account, provedWithPassword: true);
                 }
+            }
+        }
+
+        // The route is public, so this is Sanctum reading a well-formed Bearer
+        // header — the original contract, still the happy path.
+        $authenticated = $request->user('sanctum');
+        if ($authenticated instanceof $model) {
+            return new FirstLoginActivation($authenticated, provedWithPassword: false);
+        }
+
+        foreach ($this->candidateTokens($request) as $token) {
+            if (($account = $this->fromToken($model, $token)) !== null) {
+                return new FirstLoginActivation($account, provedWithPassword: false);
             }
         }
 

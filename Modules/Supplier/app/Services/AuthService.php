@@ -25,9 +25,13 @@ class AuthService
             throw new \Exception('Account is inactive');
         }
 
-        if (! $supplier->isFirstLogin()) {
-            throw new \Exception('Account is already activated. Please use regular login.');
-        }
+        // Signing in with the issued password COMPLETES activation (decision
+        // 2026-07-26). The mobile «activate Account» screen cannot complete for
+        // dashboard-created accounts — it posts neither the first-login token
+        // nor the default password — and `is_first_login` kept the normal login
+        // closed, so the supplier was locked out for good. Idempotent: calling
+        // this again behaves like a normal login instead of erroring.
+        $this->completeActivation($supplier);
 
         $token = $supplier->createToken('first-login-token')->plainTextToken;
 
@@ -35,6 +39,14 @@ class AuthService
             'supplier' => $supplier,
             'token' => $token,
         ];
+    }
+
+    /** Clear the first-login flag once the issued password has been proven. */
+    private function completeActivation(Supplier $supplier): void
+    {
+        if ($supplier->isFirstLogin()) {
+            $supplier->forceFill(['is_first_login' => false])->save();
+        }
     }
 
     /**
@@ -96,9 +108,9 @@ class AuthService
             throw new \Exception('Account is inactive');
         }
 
-        if ($supplier->isFirstLogin()) {
-            throw new \Exception('Please complete first login setup');
-        }
+        // A correct password on THIS endpoint activates the account too, rather
+        // than bouncing the user to a screen that cannot complete (2026-07-26).
+        $this->completeActivation($supplier);
 
         // Update last seen
         $supplier->updateLastSeen();
