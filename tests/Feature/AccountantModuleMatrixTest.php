@@ -239,6 +239,37 @@ class AccountantModuleMatrixTest extends TestCase
         $this->assertEqualsCanonicalizing(['sales', 'expenses'], $rows[$this->restaurantA->id]['modules']);
     }
 
+    public function test_reassigning_the_brand_stops_the_old_cells_from_granting(): void
+    {
+        $acc = $this->accountant();
+        $emptyBrand = AsabBrand::create([
+            'company_id' => $this->company->id, 'name' => 'Empty', 'abbr' => 'EM',
+            'sub_status' => 'active', 'status' => 'active', 'plan' => 'ذهبي', 'modules' => [],
+        ]);
+
+        $this->actingAs($this->admin, 'sanctum')
+            ->putJson("/api/v1/admin/accountants/{$acc->id}/restaurants/{$this->restaurantA->id}/modules", [
+                'modules' => ['sales', 'waste'],
+            ])->assertStatus(200);
+
+        // Moved to a brand with no restaurants → covers nothing → grants nothing.
+        $this->actingAs($this->admin, 'sanctum')
+            ->patchJson("/api/v1/admin/accountants/{$acc->id}/assignments", ['brands' => [$emptyBrand->id]])
+            ->assertStatus(200);
+
+        $this->assertSame([], $this->assignment($acc)->fresh()->module_keys);
+
+        // Moving back restores the grid the admin built (cells are kept).
+        $this->actingAs($this->admin, 'sanctum')
+            ->patchJson("/api/v1/admin/accountants/{$acc->id}/assignments", ['brands' => [$this->brand->id]])
+            ->assertStatus(200);
+
+        $this->assertEqualsCanonicalizing(
+            ['sales', 'expenses', 'waste'],
+            $this->assignment($acc)->fresh()->module_keys,
+        );
+    }
+
     public function test_module_key_outside_the_catalogue_is_rejected(): void
     {
         $acc = $this->accountant();

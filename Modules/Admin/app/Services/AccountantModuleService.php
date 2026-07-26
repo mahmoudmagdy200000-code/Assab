@@ -159,6 +159,24 @@ class AccountantModuleService
     }
 
     /**
+     * Recompute the mirrored union after the accountant's COVERAGE changed (a
+     * brand reassignment): a cell for a restaurant they no longer cover must
+     * stop granting its modules to auth resolution. Cells are kept, not deleted
+     * — reassigning the brand back restores the grid the admin built.
+     *
+     * No-op for an accountant with no cells, so the legacy flat list is left
+     * exactly as the assignment endpoints wrote it.
+     */
+    public function resyncUnion(AsabUserRole $assignment): void
+    {
+        if (! $this->cellQuery([$assignment->user_id])->exists()) {
+            return;
+        }
+
+        $this->syncUnion($assignment, $this->scope->restaurantsForAssignment($assignment));
+    }
+
+    /**
      * Distinct modules an accountant is granted anywhere in their coverage —
      * the «n صلاحية» count on the users screen.
      *

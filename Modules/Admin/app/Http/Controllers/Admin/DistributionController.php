@@ -211,6 +211,11 @@ class DistributionController extends AsabController
                     $updates['scope'] = 'restaurant';
                 }
                 $assignment->update($updates);
+                // Coverage just changed: a module cell for a restaurant that is
+                // no longer covered must stop counting towards `module_keys`,
+                // which is what auth resolution reads. No-op before the grid is
+                // first edited (the legacy flat list above stands).
+                $this->modules->resyncUnion($assignment);
             });
 
             $fresh = $assignment->fresh();
@@ -341,6 +346,7 @@ class DistributionController extends AsabController
                     'scope' => 'restaurant',
                     'module_keys' => $assignment->module_keys ?: self::DIST_MODULES,
                 ]);
+                $this->modules->resyncUnion($assignment);
             });
 
             return $this->noContent();
