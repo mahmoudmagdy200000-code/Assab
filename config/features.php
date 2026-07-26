@@ -17,4 +17,19 @@ return [
     // portal; the legacy /v1/supplier/* mobile API is unaffected.
     'asab_supplier_portal' => (bool) env('FEATURE_ASAB_SUPPLIER_PORTAL', false),
 
+    // Mobile «activate Account»: force a password change before the account can
+    // be used. Unlike the flag above this one is REQUEST-TIME behaviour — the
+    // endpoints stay registered, they only change what they answer.
+    //
+    // OFF (default, 2026-07-26): a successful sign-in with the admin-issued
+    // password completes activation itself. Chosen because the app's activation
+    // screen posts no proof of identity (neither the first-login token nor the
+    // default password), which left every dashboard-created account permanently
+    // locked out.
+    //
+    // Flip ON only once the app is confirmed to send one of the accepted proofs
+    // — turning it on is retroactive for every row that still carries
+    // `is_first_login`, and reinstates that lock-out if the app cannot activate.
+    'mobile_force_first_login_reset' => (bool) env('MOBILE_FORCE_FIRST_LOGIN_RESET', false),
+
 ];

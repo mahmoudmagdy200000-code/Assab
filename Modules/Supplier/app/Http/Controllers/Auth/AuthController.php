@@ -43,11 +43,10 @@ class AuthController extends BaseController
                     'created_at' => $supplier->created_at?->format('Y-m-d H:i:s'),
                 ],
                 'token' => $result['token'],
-                // false since 2026-07-26: signing in with the issued password
-                // completes activation, so the app must NOT route to the
-                // «activate Account» screen (it cannot complete there). The
-                // supplier changes the password from settings whenever they like.
-                'requires_password_reset' => false,
+                // Reflects FirstLoginPolicy: false (default) means the sign-in
+                // itself completed activation and the app must NOT route to the
+                // «activate Account» screen; true means the forced flow is on.
+                'requires_password_reset' => $result['requiresPasswordReset'] ?? false,
             ], 'Login successful.');
         } catch (\Exception $e) {
             return $this->handleException($e, 'first login');

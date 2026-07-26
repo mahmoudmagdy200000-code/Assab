@@ -2,6 +2,8 @@
 
 namespace Modules\BrandOwner\Services;
 
+use App\Exceptions\FirstLoginRequiredException;
+use App\Services\FirstLoginPolicy;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -11,6 +13,8 @@ use Modules\BrandOwner\Models\BrandOwnerOtp;
 
 class AuthService
 {
+    public function __construct(private readonly FirstLoginPolicy $firstLoginPolicy) {}
+
     /**
      * Handle first login.
      */
@@ -27,18 +31,22 @@ class AuthService
             throw new \Exception('Account is inactive');
         }
 
-        // Signing in with the issued password COMPLETES activation (decision
-        // 2026-07-26): the mobile «activate Account» screen posts neither the
-        // first-login token nor the default password, and `is_first_login` kept
-        // the normal login closed — the account was locked out for good.
-        // Idempotent, so a repeat call behaves like a normal login.
-        $this->completeActivation($owner);
+        // Signing in with the issued password COMPLETES activation unless the
+        // forced flow is switched on (FirstLoginPolicy): the mobile «activate
+        // Account» screen posts neither the first-login token nor the default
+        // password, and `is_first_login` kept the normal login closed — the
+        // account was locked out for good. Idempotent, so a repeat call behaves
+        // like a normal login.
+        if (! $this->firstLoginPolicy->forcesReset()) {
+            $this->completeActivation($owner);
+        }
 
         $token = $owner->createToken('first-login-token')->plainTextToken;
 
         return [
             'owner' => $owner,
             'token' => $token,
+            'requiresPasswordReset' => $this->firstLoginPolicy->forcesReset(),
         ];
     }
 
@@ -83,8 +91,15 @@ class AuthService
         }
 
         // A correct password here activates the account too, rather than
-        // bouncing the user to a screen that cannot complete (2026-07-26).
-        $this->completeActivation($owner);
+        // bouncing the user to a screen that cannot complete (2026-07-26) —
+        // unless the forced flow is on, where activation is the only way in.
+        if ($this->firstLoginPolicy->forcesReset()) {
+            if ($owner->isFirstLogin()) {
+                throw new FirstLoginRequiredException;
+            }
+        } else {
+            $this->completeActivation($owner);
+        }
 
         $token = $owner->createToken('brand-owner-token')->plainTextToken;
 

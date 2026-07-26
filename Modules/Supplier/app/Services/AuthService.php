@@ -2,6 +2,8 @@
 
 namespace Modules\Supplier\Services;
 
+use App\Exceptions\FirstLoginRequiredException;
+use App\Services\FirstLoginPolicy;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Modules\Supplier\Events\SupplierPasswordChanged;
@@ -9,6 +11,8 @@ use Modules\Supplier\Models\Supplier;
 
 class AuthService
 {
+    public function __construct(private readonly FirstLoginPolicy $firstLoginPolicy) {}
+
     /**
      * Handle first login
      */
@@ -25,19 +29,23 @@ class AuthService
             throw new \Exception('Account is inactive');
         }
 
-        // Signing in with the issued password COMPLETES activation (decision
-        // 2026-07-26). The mobile «activate Account» screen cannot complete for
-        // dashboard-created accounts — it posts neither the first-login token
-        // nor the default password — and `is_first_login` kept the normal login
-        // closed, so the supplier was locked out for good. Idempotent: calling
-        // this again behaves like a normal login instead of erroring.
-        $this->completeActivation($supplier);
+        // Signing in with the issued password COMPLETES activation unless the
+        // forced flow is switched on (FirstLoginPolicy). The mobile «activate
+        // Account» screen cannot complete for dashboard-created accounts — it
+        // posts neither the first-login token nor the default password — and
+        // `is_first_login` kept the normal login closed, so the supplier was
+        // locked out for good. Idempotent: calling this again behaves like a
+        // normal login instead of erroring.
+        if (! $this->firstLoginPolicy->forcesReset()) {
+            $this->completeActivation($supplier);
+        }
 
         $token = $supplier->createToken('first-login-token')->plainTextToken;
 
         return [
             'supplier' => $supplier,
             'token' => $token,
+            'requiresPasswordReset' => $this->firstLoginPolicy->forcesReset(),
         ];
     }
 
@@ -109,8 +117,15 @@ class AuthService
         }
 
         // A correct password on THIS endpoint activates the account too, rather
-        // than bouncing the user to a screen that cannot complete (2026-07-26).
-        $this->completeActivation($supplier);
+        // than bouncing the user to a screen that cannot complete (2026-07-26) —
+        // unless the forced flow is on, where activation is the only way in.
+        if ($this->firstLoginPolicy->forcesReset()) {
+            if ($supplier->isFirstLogin()) {
+                throw new FirstLoginRequiredException;
+            }
+        } else {
+            $this->completeActivation($supplier);
+        }
 
         // Update last seen
         $supplier->updateLastSeen();

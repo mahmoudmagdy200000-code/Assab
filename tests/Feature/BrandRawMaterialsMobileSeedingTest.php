@@ -56,10 +56,15 @@ class BrandRawMaterialsMobileSeedingTest extends TestCase
         ]);
     }
 
-    private function rawMaterialsCsv(string $name = 'دجاج'): string
+    /**
+     * `code` is the create-only match key for the shared `items` table, so a
+     * second row needs its own code or it reuses (and keeps the name of) the
+     * first item.
+     */
+    private function rawMaterialsCsv(string $name = 'دجاج', string $code = 'RM-1'): string
     {
         return "\xEF\xBB\xBF".'رمز المادة,اسم المادة,التصنيف,وحدة القياس,التكلفة'."\n"
-            .'RM-1,'.$name.',دواجن,KG,"20.00"'."\n";
+            .$code.','.$name.',دواجن,KG,"20.00"'."\n";
     }
 
     private function upload(string $brandId, ?string $contents = null)
@@ -177,7 +182,7 @@ class BrandRawMaterialsMobileSeedingTest extends TestCase
             ->assertJsonPath('companyId', $this->company->id);
 
         // Re-uploading now publishes to it (the mobile list is per branch).
-        $this->upload($this->brand->id, $this->rawMaterialsCsv('لحم'))
+        $this->upload($this->brand->id, $this->rawMaterialsCsv('لحم', 'RM-2'))
             ->assertStatus(200)
             ->assertJsonPath('branchesSeeded', 1);
 

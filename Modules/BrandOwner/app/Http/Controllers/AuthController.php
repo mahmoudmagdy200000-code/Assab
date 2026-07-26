@@ -45,11 +45,10 @@ class AuthController extends Controller
                 [
                     'user' => $this->userPayload($owner),
                     'token' => $result['token'],
-                    // false since 2026-07-26: signing in with the issued
-                    // password completes activation, so the app must NOT route
-                    // to the «activate Account» screen (it cannot complete
-                    // there). The password is changeable from settings.
-                    'requires_password_reset' => false,
+                    // Reflects FirstLoginPolicy: false (default) means the
+                    // sign-in itself completed activation, so the app must NOT
+                    // route to «activate Account»; true = forced flow on.
+                    'requires_password_reset' => $result['requiresPasswordReset'] ?? false,
                 ]
             );
         } catch (\Exception $e) {

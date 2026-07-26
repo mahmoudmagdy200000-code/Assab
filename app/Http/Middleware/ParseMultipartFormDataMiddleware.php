@@ -137,6 +137,7 @@ class ParseMultipartFormDataMiddleware
             [$k, $v] = explode(':', $line, 2);
             $headers[strtolower(trim($k))] = trim($v);
         }
+
         return $headers;
     }
 
@@ -145,11 +146,13 @@ class ParseMultipartFormDataMiddleware
         if (str_ends_with($name, '[]')) {
             $key = substr($name, 0, -2);
             $bag[$key][] = $value;
+
             return;
         }
 
         if (str_contains($name, '[')) {
             $bag[$name] = $value;
+
             return;
         }
 
