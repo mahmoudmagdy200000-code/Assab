@@ -37,18 +37,22 @@ class AuthService
             throw new \Exception('Account is inactive');
         }
 
-        // Signing in with the issued password COMPLETES activation (decision
-        // 2026-07-26): the mobile «activate Account» screen posts neither the
-        // first-login token nor the default password, and `is_first_login` kept
-        // the normal login closed — the account was locked out for good.
-        // Idempotent, so a repeat call behaves like a normal login.
-        $this->completeActivation($manager);
+        // Signing in with the issued password COMPLETES activation unless the
+        // forced flow is switched on (FirstLoginPolicy): the mobile «activate
+        // Account» screen posts neither the first-login token nor the default
+        // password, and `is_first_login` kept the normal login closed — the
+        // account was locked out for good. Idempotent, so a repeat call behaves
+        // like a normal login.
+        if (! $this->firstLoginPolicy->forcesReset()) {
+            $this->completeActivation($manager);
+        }
 
         $token = $manager->createToken('first-login-token')->plainTextToken;
 
         return [
             'manager' => $manager,
             'token' => $token,
+            'requiresPasswordReset' => $this->firstLoginPolicy->forcesReset(),
         ];
     }
 
@@ -97,8 +101,16 @@ class AuthService
         }
 
         // A correct password here activates the account too, rather than
-        // bouncing the user to a screen that cannot complete (2026-07-26).
-        $this->completeActivation($manager);
+        // bouncing the user to a screen that cannot complete (2026-07-26) —
+        // unless the forced flow is on, in which case activation is the only way
+        // in and this refuses with 403 rather than the old opaque message.
+        if ($this->firstLoginPolicy->forcesReset()) {
+            if ($manager->isFirstLogin()) {
+                throw new FirstLoginRequiredException;
+            }
+        } else {
+            $this->completeActivation($manager);
+        }
 
         // Create token for API authentication
         $token = $manager->createToken('branch-manager-token')->plainTextToken;
