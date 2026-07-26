@@ -74,12 +74,22 @@ class FirstLoginActivationResolver
         // header — the original contract, still the happy path.
         $authenticated = $request->user('sanctum');
         if ($authenticated instanceof $model) {
-            return new FirstLoginActivation($authenticated, provedWithPassword: false);
+            return new FirstLoginActivation(
+                $authenticated,
+                provedWithPassword: false,
+                viaFirstLoginToken: $this->isFirstLoginToken($authenticated->currentAccessToken()?->name),
+            );
         }
 
         foreach ($this->candidateTokens($request) as $token) {
-            if (($account = $this->fromToken($model, $token)) !== null) {
-                return new FirstLoginActivation($account, provedWithPassword: false);
+            $accessToken = PersonalAccessToken::findToken($token);
+            $account = $accessToken?->tokenable;
+            if ($account instanceof $model) {
+                return new FirstLoginActivation(
+                    $account,
+                    provedWithPassword: false,
+                    viaFirstLoginToken: $this->isFirstLoginToken($accessToken->name),
+                );
             }
         }
 
