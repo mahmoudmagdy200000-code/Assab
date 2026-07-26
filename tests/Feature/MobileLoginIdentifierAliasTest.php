@@ -40,7 +40,8 @@ class MobileLoginIdentifierAliasTest extends TestCase
         $this->postJson('/api/v1/supplier/auth/first-login', [
             'email' => $supplier->email,          // NOT `identifier`
             'password' => 'default_password',
-        ])->assertStatus(200)->assertJsonPath('data.requires_password_reset', true);
+            // false since 2026-07-26: the sign-in itself completes activation.
+        ])->assertStatus(200)->assertJsonPath('data.requires_password_reset', false);
     }
 
     public function test_supplier_login_accepts_the_phone_alias(): void

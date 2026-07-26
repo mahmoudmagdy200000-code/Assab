@@ -27,7 +27,8 @@ class BranchManagerLoginIdentifierAliasTest extends TestCase
         $this->postJson('/api/v1/branch-manager/auth/first-login', [
             'email' => 'verify@assab.com',        // NOT `identifier`
             'password' => 'default-pass-1',
-        ])->assertOk()->assertJsonPath('data.requires_password_reset', true);
+            // false since 2026-07-26: the sign-in itself completes activation.
+        ])->assertOk()->assertJsonPath('data.requires_password_reset', false);
     }
 
     public function test_login_accepts_the_email_alias_the_app_sends(): void
