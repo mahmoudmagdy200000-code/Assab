@@ -52,7 +52,7 @@ class BrandOwnerFixedAssetsHandoverReportService
             ->find($id);
 
         if (! $req) {
-            throw new ModelNotFoundException();
+            throw new ModelNotFoundException;
         }
 
         $siblings = MajorDiscrepancyRequest::query()

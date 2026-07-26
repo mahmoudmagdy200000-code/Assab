@@ -39,7 +39,7 @@ class BrandOwnerFixedAssetsReviewAuditService
             ->find($id);
 
         if (! $req) {
-            throw new ModelNotFoundException();
+            throw new ModelNotFoundException;
         }
 
         return $req;

@@ -14,7 +14,6 @@ class BrandOwnerAssetOverviewService
 {
     private const EXPORT_DIR = 'brand-owner/asset-overview';
 
-
     public function overview(): array
     {
         $branches = $this->branches();

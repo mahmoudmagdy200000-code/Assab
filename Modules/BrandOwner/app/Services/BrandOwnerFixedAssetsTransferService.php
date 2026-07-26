@@ -51,7 +51,7 @@ class BrandOwnerFixedAssetsTransferService
             ->find($itemId);
 
         if (! $item) {
-            throw new ModelNotFoundException();
+            throw new ModelNotFoundException;
         }
 
         return $item;
