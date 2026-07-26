@@ -29,7 +29,6 @@ use Modules\BranchManagers\Models\BranchManager;
 use Modules\Expense\Database\Seeders\CategorySeeder;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Models\InvoiceDetail;
-use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift as MobileShift;
@@ -92,10 +91,15 @@ class FullDemoSeeder extends Seeder
     }
 
     // ── delivery aggregators (Jahez/Keeta/Ninja/HungerStation) ────────────────
+    // Direct create (never factory): production runs `composer install --no-dev`
+    // so Faker is absent and every ->factory() would fatal on a null $this->faker.
     private function seedAggregators(): void
     {
-        foreach ([['جاهز', 'JAHEZ'], ['كيتا', 'KEETA'], ['نينجا', 'NINJA'], ['هنقرستيشن', 'HUNGER']] as [$name, $code]) {
-            $this->aggregators[] = Aggregator::factory()->create(['name' => $name, 'code' => $code]);
+        foreach ([['جاهز', 'JAHEZ', 12.5], ['كيتا', 'KEETA', 15.0], ['نينجا', 'NINJA', 18.0], ['هنقرستيشن', 'HUNGER', 20.0]] as [$name, $code, $commission]) {
+            $this->aggregators[] = Aggregator::create([
+                'name' => $name, 'code' => $code, 'commission_rate' => $commission,
+                'payment_terms' => 'Monthly', 'integration_type' => 'manual', 'is_active' => true,
+            ]);
         }
     }
 
@@ -298,10 +302,10 @@ class FullDemoSeeder extends Seeder
             $linker->ensure($branch); // belt-and-suspenders (branches are already tagged)
 
             // Mobile branch manager (the expense bridge reads its branch_id).
-            $manager = BranchManager::factory()->create([
+            $manager = BranchManager::create([
                 'branch_id' => $branch->id, 'name' => 'مدير '.$branch->name,
                 'email' => 'manager'.($i + 1).'@nakhat.sa', 'phone' => '05540'.str_pad((string) ($i + 1), 5, '0', STR_PAD_LEFT),
-                'password' => self::PASSWORD, 'is_first_login' => false,
+                'password' => self::PASSWORD, 'is_first_login' => false, 'status' => 'active', 'is_active' => true,
             ]);
 
             // Two cashiers per branch: an ASAB employee mirrored into a mobile
@@ -331,7 +335,6 @@ class FullDemoSeeder extends Seeder
             if ($i % 2 === 0 && $cashierIds !== []) {
                 $this->seedShiftCloses($branch, $cashierIds);
                 $this->seedExpenses($branch, $manager);
-                $this->seedPurchaseOrder($branch, $manager);
             }
 
             // A branch-level asset on every branch; a couple of brand-level
@@ -379,9 +382,9 @@ class FullDemoSeeder extends Seeder
     private function seedExpenses(Branch $branch, BranchManager $manager): void
     {
         foreach (['grouped_invoice', 'single_invoice'] as $type) {
-            $expense = Expense::factory()->create([
+            $expense = Expense::create([
                 'branch_manager_id' => $manager->id, 'expense_type' => $type, 'status' => 'pending',
-                'total_amount' => 0, 'net_amount' => 0, 'vat_amount' => 0,
+                'total_amount' => 0, 'net_amount' => 0, 'vat_amount' => 0, 'submitted_at' => now(),
             ]);
             $total = 0;
             $net = 0;
@@ -389,7 +392,7 @@ class FullDemoSeeder extends Seeder
             foreach (range(1, $type === 'grouped_invoice' ? 2 : 1) as $n) {
                 $netAmt = rand(200, 900);
                 $vatAmt = round($netAmt * 0.15, 2);
-                InvoiceDetail::factory()->create([
+                InvoiceDetail::create([
                     'expense_id' => $expense->id, 'invoice_number' => 'INV-'.strtoupper(Str::random(5)),
                     'tax_supplier_name' => $this->suppliers[array_rand($this->suppliers)]->name, 'issue_date' => now()->subDays($n),
                     'tax_net_amount' => $netAmt, 'tax_vat_amount' => $vatAmt, 'tax_total_amount' => $netAmt + $vatAmt,
@@ -398,14 +401,9 @@ class FullDemoSeeder extends Seeder
                 $net += $netAmt;
                 $vat += $vatAmt;
             }
-            $expense->update(['total_amount' => $total, 'net_amount' => $net, 'vat_amount' => $vat, 'submitted_at' => now()]);
+            $expense->update(['total_amount' => $total, 'net_amount' => $net, 'vat_amount' => $vat]);
             event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
         }
-    }
-
-    private function seedPurchaseOrder(Branch $branch, BranchManager $manager): void
-    {
-        PurchaseOrder::factory()->count(2)->create(['branch_id' => $branch->id]);
     }
 
     private function seedBranchAsset(Branch $branch, int $i): void
