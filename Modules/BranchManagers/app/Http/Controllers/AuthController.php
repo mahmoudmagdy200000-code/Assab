@@ -68,11 +68,7 @@ class AuthController extends Controller
             // password again — the «activate Account» screen exists in builds
             // that send each shape (see FirstLoginActivationResolver).
             /** @var BranchManager $manager */
-            $manager = $this->activation->resolve(
-                BranchManager::class,
-                $request->user('sanctum'),
-                $request->only(['token', 'identifier', 'default_password']),
-            );
+            $manager = $this->activation->resolveFromRequest(BranchManager::class, $request);
 
             if (! $manager->isFirstLogin()) {
                 return $this->errorResponse('Account is already activated. Please use regular login.', 400);

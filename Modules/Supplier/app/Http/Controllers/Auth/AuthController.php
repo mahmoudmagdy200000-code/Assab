@@ -61,11 +61,7 @@ class AuthController extends BaseController
             // to answer a dead-end "Unauthenticated." to a build that sends the
             // last shape.
             /** @var Supplier $supplier */
-            $supplier = $this->activation->resolve(
-                Supplier::class,
-                $request->user('sanctum'),
-                $request->only(['token', 'identifier', 'default_password']),
-            );
+            $supplier = $this->activation->resolveFromRequest(Supplier::class, $request);
 
             if (! $supplier->isActive()) {
                 return $this->forbiddenResponse('Your account is inactive. Please contact administrator.');

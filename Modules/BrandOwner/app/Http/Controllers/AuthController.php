@@ -59,11 +59,7 @@ class AuthController extends Controller
             // password again — the «activate Account» screen exists in builds
             // that send each shape (see FirstLoginActivationResolver).
             /** @var BrandOwner $owner */
-            $owner = $this->activation->resolve(
-                BrandOwner::class,
-                $request->user('sanctum'),
-                $request->only(['token', 'identifier', 'default_password']),
-            );
+            $owner = $this->activation->resolveFromRequest(BrandOwner::class, $request);
 
             if (! $owner->isFirstLogin()) {
                 return $this->errorResponse('Account is already activated. Please use regular login.', 400);

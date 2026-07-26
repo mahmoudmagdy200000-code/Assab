@@ -5,61 +5,114 @@ namespace App\Services;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Http\Request;
 use Laravel\Sanctum\PersonalAccessToken;
+use Psr\Log\LoggerInterface;
 
 /**
  * Resolves whose password the mobile «activate Account» screen is setting.
  *
- * That screen only has two password boxes, and the reset endpoint used to be
- * behind `auth:sanctum` — so a build that does not attach the first-login token
- * gets a bare "Unauthenticated." on a screen it cannot recover from (reported
- * for a dashboard-created supplier, 2026-07-26). The same screen serves
- * suppliers, brand owners and branch managers, and the cashier flow already
- * activates with the default password instead of a token.
+ * That screen has two password boxes and nothing else, and the reset endpoint
+ * used to sit behind `auth:sanctum` — so a build that does not attach the
+ * first-login token gets a bare "Unauthenticated." on a screen it cannot
+ * recover from, and the account stays locked (`is_first_login` keeps the normal
+ * login closed). Reported for a dashboard-created supplier, 2026-07-26.
  *
- * So three proofs are accepted, and every one of them is proof of a credential
- * the admin issued:
- *  1. the Sanctum token from first-login, as a Bearer header (original contract)
- *  2. the same token in the body (`token`)
- *  3. the default password again (`identifier` + `default_password`) — the
- *     Cashier `/activate` contract
+ * Every proof accepted here is proof of a credential the admin issued:
+ *  1. the first-login Sanctum token — `Authorization: Bearer …`, a bare
+ *     `Authorization:` value, `X-Auth-Token`/`X-Access-Token`, or a body/query
+ *     field (`token`, `access_token`, `api_token`, `auth_token`)
+ *  2. the default password again — `identifier` + `default_password` (also
+ *     accepted as `current_password`/`old_password`, camelCase included), the
+ *     shape the Cashier `/activate` screen uses
  *
- * Nothing here relaxes WHO may set a password: the caller still has to hold the
+ * The alias lists are wide on purpose: the same screen ships in several app
+ * builds, and a rejected activation is a locked-out user, not a retry.
+ *
+ * Nothing here relaxes WHO may set a password — the caller still has to hold the
  * token or know the current password, the callers keep their
- * `is_first_login`/active checks, and the routes are throttled.
+ * `is_first_login`/active checks, and the routes are throttled. A refusal is
+ * logged with the KEY NAMES received (never values) so a build that sends none
+ * of these can be identified from one attempt.
  */
 class FirstLoginActivationResolver
 {
-    public function __construct(private readonly Hasher $hasher) {}
+    /** Body/query fields that may carry the first-login token. */
+    private const TOKEN_FIELDS = ['token', 'access_token', 'accessToken', 'api_token', 'apiToken', 'auth_token', 'authToken', 'bearer_token'];
+
+    /** Headers that may carry it instead of `Authorization`. */
+    private const TOKEN_HEADERS = ['Authorization', 'X-Auth-Token', 'X-Access-Token', 'X-Api-Token'];
+
+    /** Fields that may carry the admin-issued (default) password. */
+    private const DEFAULT_PASSWORD_FIELDS = ['default_password', 'defaultPassword', 'current_password', 'currentPassword', 'old_password', 'oldPassword'];
+
+    public function __construct(
+        private readonly Hasher $hasher,
+        private readonly LoggerInterface $logger,
+    ) {}
 
     /**
      * @param  class-string  $model  the account model for this surface
-     * @param  Authenticatable|null  $authenticated  `$request->user('sanctum')`
-     * @param  array<string, mixed>  $input  token / identifier / default_password
      *
      * @throws AuthenticationException when no proof holds
      */
-    public function resolve(string $model, ?Authenticatable $authenticated, array $input): Authenticatable
+    public function resolveFromRequest(string $model, Request $request): Authenticatable
     {
+        // The route is public, so this is Sanctum reading a well-formed Bearer
+        // header — the original contract, still the happy path.
+        $authenticated = $request->user('sanctum');
         if ($authenticated instanceof $model) {
             return $authenticated;
         }
 
-        $token = $this->stringOrNull($input['token'] ?? null);
-        if ($token !== null && ($account = $this->fromToken($model, $token)) !== null) {
-            return $account;
-        }
-
-        $identifier = $this->stringOrNull($input['identifier'] ?? null);
-        $password = $this->stringOrNull($input['default_password'] ?? null);
-        if ($identifier !== null && $password !== null) {
-            $account = $this->fromCredentials($model, $identifier, $password);
-            if ($account !== null) {
+        foreach ($this->candidateTokens($request) as $token) {
+            if (($account = $this->fromToken($model, $token)) !== null) {
                 return $account;
             }
         }
 
+        $identifier = $this->stringOrNull($request->input('identifier'));
+        if ($identifier !== null) {
+            foreach (self::DEFAULT_PASSWORD_FIELDS as $field) {
+                $password = $this->stringOrNull($request->input($field));
+                if ($password !== null && ($account = $this->fromCredentials($model, $identifier, $password)) !== null) {
+                    return $account;
+                }
+            }
+        }
+
+        $this->logRefusal($model, $request);
+
         throw new AuthenticationException;
+    }
+
+    /**
+     * Every string that could be a token, header values first.
+     *
+     * @return string[]
+     */
+    private function candidateTokens(Request $request): array
+    {
+        $candidates = [];
+
+        foreach (self::TOKEN_HEADERS as $header) {
+            $value = $this->stringOrNull($request->header($header));
+            if ($value === null) {
+                continue;
+            }
+            // Accept «Bearer x», «Token x» and a bare «x» — builds differ.
+            $parts = preg_split('/\s+/', $value) ?: [];
+            $candidates[] = count($parts) > 1 ? end($parts) : $value;
+        }
+
+        foreach (self::TOKEN_FIELDS as $field) {
+            $value = $this->stringOrNull($request->input($field));
+            if ($value !== null) {
+                $candidates[] = $value;
+            }
+        }
+
+        return array_values(array_unique(array_filter($candidates)));
     }
 
     /** The token's owner, only when it belongs to THIS surface's model. */
@@ -86,6 +139,27 @@ class FirstLoginActivationResolver
         }
 
         return $account;
+    }
+
+    /**
+     * What the client actually sent — key names and the Authorization scheme
+     * only. NEVER values: this request carries two passwords and a token.
+     */
+    private function logRefusal(string $model, Request $request): void
+    {
+        $authorization = (string) $request->header('Authorization');
+
+        $this->logger->warning('First-login activation refused: no proof of the issued credential', [
+            'model' => $model,
+            'path' => $request->path(),
+            'bodyKeys' => array_keys($request->all()),
+            'headerNames' => array_values(array_intersect(
+                array_map('strtolower', self::TOKEN_HEADERS),
+                array_keys($request->headers->all()),
+            )),
+            'authorizationScheme' => $authorization === '' ? null : strtok($authorization, ' '),
+            'authorizationLength' => strlen($authorization),
+        ]);
     }
 
     private function stringOrNull(mixed $value): ?string
