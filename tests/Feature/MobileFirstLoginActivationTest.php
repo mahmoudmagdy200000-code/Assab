@@ -135,7 +135,12 @@ class MobileFirstLoginActivationTest extends TestCase
         $this->assertTrue(Hash::check('default_password', $other->refresh()->password));
     }
 
-    public function test_an_already_activated_account_cannot_be_reactivated(): void
+    /**
+     * An activated account may still set a password here WITH its current one —
+     * that is change-password semantics, and it keeps the screen usable in older
+     * builds now that a successful sign-in clears the first-login flag.
+     */
+    public function test_an_activated_account_may_set_a_password_with_the_current_one(): void
     {
         $supplier = $this->supplier(['is_first_login' => false]);
 
@@ -144,9 +149,47 @@ class MobileFirstLoginActivationTest extends TestCase
             'default_password' => 'default_password',
             'password' => 'NewPass123',
             'password_confirmation' => 'NewPass123',
-        ])->assertStatus(400);
+        ])->assertStatus(200);
+
+        $this->assertTrue(Hash::check('NewPass123', $supplier->refresh()->password));
+    }
+
+    /** …but a plain session token must not rotate an activated account's password. */
+    public function test_a_session_token_cannot_rotate_an_activated_password(): void
+    {
+        $supplier = $this->supplier(['is_first_login' => false]);
+        $sessionToken = $this->postJson('/api/v1/supplier/auth/login', [
+            'email' => $supplier->email,
+            'password' => 'default_password',
+        ])->assertStatus(200)->json('data.token');
+
+        $this->withHeader('Authorization', 'Bearer '.$sessionToken)
+            ->postJson('/api/v1/supplier/auth/password/reset/first-login', [
+                'password' => 'NewPass123',
+                'password_confirmation' => 'NewPass123',
+            ])->assertStatus(400);
 
         $this->assertTrue(Hash::check('default_password', $supplier->refresh()->password));
+    }
+
+    /** The first sign-in with the issued password activates the account itself. */
+    public function test_first_login_completes_activation_and_opens_the_normal_login(): void
+    {
+        $supplier = $this->supplier();
+
+        $this->postJson('/api/v1/supplier/auth/first-login', [
+            'email' => $supplier->email,
+            'password' => 'default_password',
+        ])->assertStatus(200)->assertJsonPath('data.requires_password_reset', false);
+
+        $this->assertFalse((bool) $supplier->refresh()->is_first_login);
+
+        // The normal login used to answer "Please complete first login setup"
+        // forever, because the activation screen could not clear the flag.
+        $this->postJson('/api/v1/supplier/auth/login', [
+            'email' => $supplier->email,
+            'password' => 'default_password',
+        ])->assertStatus(200);
     }
 
     public function test_an_inactive_supplier_cannot_activate(): void
