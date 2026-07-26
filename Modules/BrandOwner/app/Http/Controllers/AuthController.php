@@ -6,6 +6,7 @@ use App\ApiResponse as ApiResponseTrait;
 use App\Services\FirstLoginActivationResolver;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Routing\Controller;
 use Modules\BrandOwner\Http\Requests\FirstLoginRequest;
 use Modules\BrandOwner\Http\Requests\ForgotPasswordRequest;
 use Modules\BrandOwner\Http\Requests\LoginRequest;
