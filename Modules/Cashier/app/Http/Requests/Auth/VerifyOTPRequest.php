@@ -2,10 +2,13 @@
 
 namespace Modules\Cashier\Http\Requests\Auth;
 
+use App\Http\Requests\Concerns\NormalizesIdentifier;
 use Illuminate\Foundation\Http\FormRequest;
 
 class VerifyOTPRequest extends FormRequest
 {
+    use NormalizesIdentifier;
+
     public function authorize(): bool
     {
         return true;

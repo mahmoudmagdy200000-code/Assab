@@ -2,11 +2,14 @@
 
 namespace Modules\Supplier\Http\Requests\Auth;
 
+use App\Http\Requests\Concerns\NormalizesIdentifier;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rules\Password;
 
 class ResetPasswordRequest extends FormRequest
 {
+    use NormalizesIdentifier;
+
     public function authorize(): bool
     {
         return true;

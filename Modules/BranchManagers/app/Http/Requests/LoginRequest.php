@@ -2,8 +2,8 @@
 
 namespace Modules\BranchManagers\Http\Requests;
 
+use App\Http\Requests\Concerns\NormalizesIdentifier;
 use Illuminate\Foundation\Http\FormRequest;
-use Modules\BranchManagers\Http\Requests\Concerns\NormalizesIdentifier;
 
 class LoginRequest extends FormRequest
 {
