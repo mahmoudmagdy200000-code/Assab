@@ -5,7 +5,9 @@ namespace Modules\Admin\Listeners;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Shift;
+use Modules\Admin\Services\BranchHierarchyLinker;
 use Modules\Admin\Services\ShiftCloseService;
+use Modules\Branch\Models\Branch;
 use Modules\Shift\Events\ShiftEndedEvent;
 
 /**
@@ -20,7 +22,10 @@ use Modules\Shift\Events\ShiftEndedEvent;
  */
 class BridgeLegacyCashierShift
 {
-    public function __construct(private readonly ShiftCloseService $shifts) {}
+    public function __construct(
+        private readonly ShiftCloseService $shifts,
+        private readonly BranchHierarchyLinker $branches,
+    ) {}
 
     public function handle(ShiftEndedEvent $event): void
     {
@@ -35,6 +40,15 @@ class BridgeLegacyCashierShift
         $employee = Employee::where('legacy_cashier_id', $legacy->cashier_id)->first();
         if ($employee === null || $employee->branch_id === null) {
             return; // no ASAB counterpart — nothing to review on the dashboard
+        }
+
+        // The SHF op's branch_id comes from the employee, so a scoped accountant
+        // only sees it if that branch carries asab_brand_id. Heal the tags from
+        // the branch's restaurant link before minting the op, otherwise the shift
+        // reaches the head (scope=all) but never the responsible accountant.
+        $branch = Branch::whereKey($employee->branch_id)->first();
+        if ($branch !== null) {
+            $this->branches->ensure($branch);
         }
 
         // The system needs an ASAB user to attribute the operation to; use a

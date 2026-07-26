@@ -2,55 +2,22 @@
 
 namespace Database\Seeders;
 
-// use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
-use Modules\Aggregator\Database\Seeders\AggregatorSeeder;
-use Modules\Aggregator\Database\Seeders\BranchAggregatorSeeder;
-use Modules\Branch\Database\Seeders\BranchSeeder;
-use Modules\BranchManagers\Database\Seeders\BranchManagerSeeder;
-use Modules\BrandOwner\Database\Seeders\BrandManagerSeeder as BrandOwnerBrandManagerSeeder;
-use Modules\BrandOwner\Database\Seeders\BrandOwnerSeeder;
-use Modules\Cashier\Database\Seeders\CashierSeeder;
-use Modules\Cashier\Database\Seeders\CashierShiftSeeder;
-use Modules\Expense\Database\Seeders\CategorySeeder;
-use Modules\Expense\Database\Seeders\ExpenseSeeder;
-use Modules\Expense\Database\Seeders\SupplierSeeder;
-use Modules\Shift\Database\Seeders\ShiftSeeder;
 
 class DatabaseSeeder extends Seeder
 {
     /**
      * Seed the application's database.
+     *
+     * One realistic, fully-linked two-worlds demo (dashboard + mobile). See
+     * FullDemoSeeder — it drives the real bridge/provisioner services so the
+     * seeded data behaves exactly like runtime (mobile submissions reach the
+     * responsible scoped accountant; one password logs into both worlds).
      */
     public function run(): void
     {
-
         $this->call([
-            // 1) Core references
-            BranchSeeder::class,
-
-            // 2) Users tied to branches
-            BranchManagerSeeder::class,
-
-            // 3) Operational structures tied to branches
-            ShiftSeeder::class,
-
-            // 4) Cashiers and their shifts (require branches/managers/shifts)
-            CashierSeeder::class,
-            CashierShiftSeeder::class,
-
-            // 5) Aggregators and branch linkage (require branches)
-            AggregatorSeeder::class,
-            BranchAggregatorSeeder::class,
-            CategorySeeder::class,
-            SupplierSeeder::class,
-            ExpenseSeeder::class,
-
-            // 6) Brand Owner account
-            BrandOwnerSeeder::class,
-
-            // 7) Brand Manager account (standalone, reuses brand-owner endpoints)
-            BrandOwnerBrandManagerSeeder::class,
+            FullDemoSeeder::class,
         ]);
     }
 }

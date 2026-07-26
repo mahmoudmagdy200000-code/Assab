@@ -26,6 +26,7 @@ class ExpenseBridgeService
     public function __construct(
         private readonly ExpenseInvoiceService $invoices,
         private readonly RealtimeBroadcaster $rt,
+        private readonly BranchHierarchyLinker $branches,
     ) {}
 
     public const SOURCE = 'expense';
@@ -38,8 +39,15 @@ class ExpenseBridgeService
             return null;
         }
 
-        $branch = Branch::whereKey($branchId)->first(['id', 'asab_company_id']);
-        $companyId = $branch?->asab_company_id;
+        $branch = Branch::whereKey($branchId)->first(['id', 'asab_company_id', 'asab_brand_id', 'asab_restaurant_id']);
+        if ($branch === null) {
+            return null;
+        }
+        // Heal the branch's hierarchy tags so the mirrored op resolves for a
+        // brand/restaurant-scoped accountant, not just the head (scope=all).
+        $this->branches->ensure($branch);
+
+        $companyId = $branch->asab_company_id;
         if ($companyId === null) {
             return null;   // legacy-only branch — nothing to mirror into.
         }

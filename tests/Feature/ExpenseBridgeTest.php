@@ -5,9 +5,11 @@ namespace Tests\Feature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
+use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Services\BranchHierarchyLinker;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Expense\Events\ExpenseSubmittedEvent;
@@ -87,6 +89,57 @@ class ExpenseBridgeTest extends TestCase
         // The zero-rated invoice keeps its own VAT line instead of being re-derived.
         $this->assertSame(0, $invoices[1]['vat15Halalas']);
         $this->assertSame(20000, $invoices[1]['preTaxHalalas']);
+    }
+
+    public function test_the_linker_heals_brand_and_company_from_the_restaurant(): void
+    {
+        $company = AsabCompany::create(['name' => 'Heal Co', 'plan' => 'Basic', 'status' => 'active']);
+        $brand = AsabBrand::create(['company_id' => $company->id, 'name' => 'براند', 'sub_status' => 'active', 'status' => 'active']);
+        $restaurant = AsabRestaurant::create(['company_id' => $company->id, 'brand_id' => $brand->id, 'name' => 'مطعم', 'status' => 'active']);
+        // The bug shape: restaurant-linked but no brand tag.
+        $branch = Branch::factory()->create(['asab_restaurant_id' => $restaurant->id, 'asab_brand_id' => null, 'asab_company_id' => null]);
+
+        app(BranchHierarchyLinker::class)->ensure($branch);
+
+        $this->assertSame($brand->id, $branch->fresh()->asab_brand_id);
+        $this->assertSame($company->id, $branch->fresh()->asab_company_id);
+    }
+
+    public function test_a_brand_scoped_accountant_sees_a_mobile_expense_on_a_partially_tagged_branch(): void
+    {
+        $company = AsabCompany::create(['name' => 'Scope Bridge Co', 'plan' => 'Professional', 'status' => 'active']);
+        $brand = AsabBrand::create(['company_id' => $company->id, 'name' => 'براند', 'sub_status' => 'active', 'status' => 'active']);
+        $restaurant = AsabRestaurant::create(['company_id' => $company->id, 'brand_id' => $brand->id, 'name' => 'مطعم', 'status' => 'active']);
+        // Branch linked to the restaurant + company but NOT the brand — the shape
+        // that made a mobile submission reach only the head, not the accountant.
+        $branch = Branch::factory()->create([
+            'name' => 'فرع', 'asab_restaurant_id' => $restaurant->id,
+            'asab_company_id' => $company->id, 'asab_brand_id' => null,
+        ]);
+
+        $expense = $this->legacyExpense($branch, [
+            ['invoice_number' => 'M-1', 'tax_supplier_name' => 'مورد', 'issue_date' => '2026-07-01',
+                'tax_net_amount' => 100.00, 'tax_vat_amount' => 15.00, 'tax_total_amount' => 115.00],
+        ]);
+
+        event(new ExpenseSubmittedEvent($expense));
+
+        // The bridge healed the branch's brand tag from its restaurant …
+        $this->assertSame($brand->id, $branch->fresh()->asab_brand_id);
+
+        // … so a BRAND-scoped accountant now resolves the branch and sees the op.
+        $accountant = AsabUser::create([
+            'company_id' => $company->id, 'name' => 'محاسب البراند', 'email' => 'acc@scope.test',
+            'password' => 'secret-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create([
+            'user_id' => $accountant->id, 'role_key' => 'accountant', 'scope' => 'brand', 'brand_ids' => [$brand->id],
+        ]);
+
+        $this->actingAs($accountant, 'sanctum')
+            ->getJson('/api/v1/accountant/operations?moduleKey=expenses')
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
     }
 
     public function test_the_bridge_is_idempotent(): void

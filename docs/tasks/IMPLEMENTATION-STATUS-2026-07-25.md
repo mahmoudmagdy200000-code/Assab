@@ -96,6 +96,8 @@
 
 تستات: `SupplierResourceNullSafetyTest` (2)، `BranchManagerLoginIdentifierAliasTest` (3). Regression (`ProcurementItemsListTest`) سليم.
 
+**توجيه المبيعات/المصروفات للمحاسب المسؤول (2026-07-26):** كانت بتوصل رئيس الحسابات (scope=all) بس مش المحاسب المحدود بالبراند/المطعم. **السبب:** الفرع اللي بيرفع منه مدير الفرع مش متوسم بـ `asab_brand_id` (فرع قديم/موبايل أو موسوم جزئيًا) → بيتستبعد من نطاق المحاسب المحدود؛ رئيس الحسابات بيطابق `company_id` بس. **الإصلاح:** `BranchHierarchyLinker::ensure` بيداوي وسم الفرع (براند/شركة من رابط المطعم) عند حدود الجسر (`ExpenseBridgeService`, `BridgeLegacyCashierShift`) + migration backfill. تستات: `ExpenseBridgeTest` (linker + محاسب محدود بيشوف مصروف موبايل على فرع كان برانده null). *متبقّي:* فرع مالوش رابط مطعم خالص لازم يتربط عبر `PATCH /admin/branches/{id}` بـ `restaurantId`.
+
 ## اتقفل في 2026-07-25 (كان جزئي/مفتوح)
 
 | كان | بقى |
