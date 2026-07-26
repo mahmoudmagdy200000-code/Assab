@@ -560,8 +560,10 @@ class AdminBrandUploadTest extends TestCase
 
         $res = $this->upload("/api/v1/admin/brands/{$brand->id}/upload/fixed-assets", 'assets.xlsx', $xlsx);
 
-        $res->assertStatus(200)->assertJsonPath('assetCount', 0);
-        $this->assertStringContainsString('exceed total quantity', $res->json('errors.0.message'));
+        // An upload that stored NOTHING answers 422 (it used to answer 200 with
+        // assetCount 0, which the screen showed as a successful upload).
+        $res->assertStatus(422)->assertJsonPath('error.code', 'UPLOAD_FAILED');
+        $this->assertStringContainsString('exceed total quantity', $res->json('error.details.errors.0.message'));
         $this->assertSame(0, Asset::withoutGlobalScopes()->count());
     }
 

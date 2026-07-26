@@ -248,6 +248,9 @@ Route::prefix('v1')->group(function () {
                 // stamped by fixedAssets() are write-only and the per-branch
                 // «حالة الرفع» column can never leave «لم يُرفع».
                 Route::get('branches/{branchId}/upload-status', [AdminUploadController::class, 'branchStatus']);
+                // …and the whole «الأصول الثابتة» column in one call, so the brand
+                // screen does not need a request per branch row.
+                Route::get('brands/{brandId}/branches/upload-status', [AdminUploadController::class, 'brandBranchesStatus']);
 
                 // «موظفي المطاعم» — per restaurant, since each keeps its own roster.
                 Route::post('restaurants/{restaurantId}/upload/employees', [AdminUploadController::class, 'employees']);

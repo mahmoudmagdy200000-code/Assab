@@ -263,18 +263,89 @@ class UploadController extends AsabController
         return $this->run(function () use ($request, $branchId) {
             $branch = Branch::findOrFail($branchId);
             $request->validate(['file' => self::FILE_RULES]);
+            // Resolved (and asserted) BEFORE parsing: asab_assets.company_id is
+            // NOT NULL, so an unlinked branch used to fail every single row —
+            // the endpoint answered 200 with assetCount 0 and the «حالة الرفع»
+            // column stayed «لم يُرفع» after every re-upload.
+            $companyId = $this->resolveBranchCompanyId($branch, $request);
             [$header, $rows] = $this->parse($request->file('file'), 'fixed-assets');
 
             $result = $this->importAssetRows($rows, $header, $request, [
-                'company_id' => $branch->asab_company_id ?? $request->user()->company_id,
+                'company_id' => $companyId,
                 'branch_id' => $branch->id,
                 'case_type' => 'branch_upload',
             ]);
 
             $this->stampStatus('branch', $branch->id, 'fixed-assets', $result['count'], $request, $result['errors']);
+            $this->assertSomethingImported($result);
 
             return $this->ok(['assetCount' => $result['count'], 'errors' => $result['errors']]);
         });
+    }
+
+    /**
+     * The company that owns a branch's rows. `branches.asab_company_id` is the
+     * canonical link but is NULL on branches that predate the dashboard (and on
+     * any created through a path that skipped the hierarchy columns), so fall
+     * back through restaurant → brand → the caller's own company. Resolving it
+     * also BACKFILLS the branch, so the next screen does not re-derive it.
+     *
+     * A platform admin has no company of their own, so for an unlinked branch
+     * nothing resolves — that is a 422 naming the problem, not 8 identical
+     * constraint violations reported as row errors.
+     */
+    private function resolveBranchCompanyId(Branch $branch, Request $request): string
+    {
+        $companyId = $branch->asab_company_id;
+
+        if (! $companyId && $branch->asab_restaurant_id) {
+            $companyId = AsabRestaurant::withoutGlobalScope('tenant')
+                ->whereKey($branch->asab_restaurant_id)->value('company_id');
+        }
+        if (! $companyId && $branch->asab_brand_id) {
+            $companyId = AsabBrand::withoutGlobalScope('tenant')
+                ->whereKey($branch->asab_brand_id)->value('company_id');
+        }
+        $companyId ??= $request->user()->company_id;
+
+        if (! $companyId) {
+            throw new AsabException(
+                'BRANCH_NOT_LINKED',
+                'This branch is not linked to a company, so its assets cannot be stored. Link the branch to a restaurant/brand first.',
+                'هذا الفرع غير مرتبط بشركة، فلا يمكن حفظ أصوله. اربط الفرع بمطعم/براند أولاً.',
+                422,
+                ['branchId' => $branch->id],
+            );
+        }
+
+        if ($branch->asab_company_id !== $companyId) {
+            $branch->forceFill(['asab_company_id' => $companyId])->save();
+        }
+
+        return $companyId;
+    }
+
+    /**
+     * An upload that stored NOTHING is not a success. It used to answer 200 with
+     * `assetCount: 0`, which the screen showed as done while the status row said
+     * «فشل» — the "I upload it, refresh, and it is not saved" report. The status
+     * row is stamped first, so the failure and its reason stay readable.
+     *
+     * @param  array{count:int, errors:array<int, array{row:int, message:string}>}  $result
+     */
+    private function assertSomethingImported(array $result): void
+    {
+        if ($result['count'] > 0) {
+            return;
+        }
+
+        throw new AsabException(
+            'UPLOAD_FAILED',
+            'No row from the file could be stored.',
+            'لم يتم حفظ أي صف من الملف. راجع الأخطاء وأعد الرفع.',
+            422,
+            ['errors' => $result['errors']],
+        );
     }
 
     /**
@@ -297,6 +368,7 @@ class UploadController extends AsabController
             ]);
 
             $this->stampStatus('brand', $brand->id, 'fixed-assets', $result['count'], $request, $result['errors']);
+            $this->assertSomethingImported($result);
 
             return $this->ok(['assetCount' => $result['count'], 'errors' => $result['errors']]);
         });
@@ -322,12 +394,29 @@ class UploadController extends AsabController
                     $this->importAssetRow($row, $map, $owner, $request, $seq);
                     $count++;
                 } catch (\Throwable $e) {
-                    $errors[] = ['row' => $i + 2, 'message' => $e->getMessage()];
+                    $errors[] = ['row' => $i + 2, 'message' => $this->rowErrorMessage($e)];
                 }
             }
         });
 
         return ['count' => $count, 'errors' => $errors];
+    }
+
+    /**
+     * A row error travels to the client and into `failure_reason`. A domain
+     * message is the point of the field; a driver message is not — it leaked the
+     * whole INSERT statement (column list, ids) into the upload screen. Report
+     * those to the log and hand the user a message they can act on.
+     */
+    private function rowErrorMessage(\Throwable $e): string
+    {
+        if ($e instanceof \Illuminate\Database\QueryException) {
+            report($e);
+
+            return 'تعذّر حفظ الصف — راجع قيم الصف وأعد المحاولة';
+        }
+
+        return $e->getMessage();
     }
 
     /** @param  array<string, mixed>  $owner */
@@ -508,8 +597,81 @@ class UploadController extends AsabController
                 'uploads' => $this->presentUploads($rows),
                 'fixedAssets' => $has('fixed-assets'),
                 'completionPct' => $has('fixed-assets') ? 100 : 0,
+            ] + $this->fixedAssetsState($rows));
+        });
+    }
+
+    /**
+     * GET /admin/brands/{brandId}/branches/upload-status — every branch of the
+     * brand with its fixed-assets state, in ONE call.
+     *
+     * The «الأصول الثابتة» table is per branch but lives on a brand screen, so
+     * reading it meant one request per row; a client that skipped that loop drew
+     * the whole column as «لم يُرفع» regardless of what was uploaded.
+     */
+    public function brandBranchesStatus(string $brandId): JsonResponse
+    {
+        return $this->run(function () use ($brandId) {
+            $brand = AsabBrand::withoutGlobalScope('tenant')->findOrFail($brandId);
+            $this->assertBrandAssigned($brand->id);
+
+            $branches = Branch::where('asab_brand_id', $brand->id)
+                ->orderBy('name')
+                ->get(['id', 'name', 'asab_restaurant_id']);
+            $restaurantNames = AsabRestaurant::withoutGlobalScope('tenant')
+                ->whereIn('id', $branches->pluck('asab_restaurant_id')->filter()->unique()->all())
+                ->pluck('name', 'id');
+            // One query for every branch's rows, then grouped in memory.
+            $byBranch = UploadStatus::where('owner_type', 'branch')
+                ->whereIn('owner_id', $branches->pluck('id')->all())
+                ->get()
+                ->groupBy('owner_id');
+
+            $rows = $branches->map(function (Branch $branch) use ($byBranch, $restaurantNames) {
+                $statuses = $byBranch->get($branch->id, collect());
+
+                return [
+                    'branchId' => $branch->id,
+                    'branchName' => $branch->name,
+                    'restaurantId' => $branch->asab_restaurant_id,
+                    'restaurantName' => $restaurantNames[$branch->asab_restaurant_id] ?? null,
+                    'uploads' => $this->presentUploads($statuses),
+                ] + $this->fixedAssetsState($statuses);
+            })->values();
+
+            return $this->ok([
+                'brandId' => $brand->id,
+                'branches' => $rows->all(),
+                'totals' => [
+                    'branches' => $rows->count(),
+                    'uploaded' => $rows->where('fixedAssets', true)->count(),
+                    'failed' => $rows->where('fixedAssetsStatus', 'failed')->count(),
+                ],
             ]);
         });
+    }
+
+    /**
+     * The fixed-assets column's real state. `fixedAssets` alone cannot tell
+     * «لم يُرفع» from «رُفع وفشل», so a failed upload read as never attempted and
+     * its reason was unreachable.
+     *
+     * @param  \Illuminate\Support\Collection<int, UploadStatus>  $rows
+     * @return array<string, mixed>
+     */
+    private function fixedAssetsState($rows): array
+    {
+        $row = $rows->firstWhere('upload_type', 'fixed-assets');
+        $done = $this->completedPredicate($rows)('fixed-assets');
+
+        return [
+            'fixedAssets' => $done,
+            'fixedAssetsStatus' => $row === null ? 'not_uploaded' : ($done ? 'done' : 'failed'),
+            'fixedAssetsCount' => (int) ($row->uploaded_count ?? 0),
+            'fixedAssetsFailedRows' => (int) ($row->failed_rows ?? 0),
+            'fixedAssetsFailureReason' => $row->failure_reason ?? null,
+            'fixedAssetsUploadedAt' => optional($row->uploaded_at ?? null)->toIso8601String(),
+        ];
     }
 
     /**
