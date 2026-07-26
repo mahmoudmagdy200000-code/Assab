@@ -2,6 +2,8 @@
 
 namespace Modules\BranchManagers\Services;
 
+use App\Exceptions\FirstLoginRequiredException;
+use App\Services\FirstLoginPolicy;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -14,7 +16,8 @@ use Modules\Notification\Services\SmsProviders\SmsProviderInterface;
 class AuthService
 {
     public function __construct(
-        private SmsProviderInterface $smsProvider
+        private SmsProviderInterface $smsProvider,
+        private readonly FirstLoginPolicy $firstLoginPolicy,
     ) {}
 
     /**
