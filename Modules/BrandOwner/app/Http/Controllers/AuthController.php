@@ -69,7 +69,7 @@ class AuthController extends Controller
 
             // Already activated: this is a change-password, so it takes the
             // CURRENT password — a bare token must not rotate the credential.
-            if (! $owner->isFirstLogin() && ! $activation->provedWithPassword) {
+            if (! $activation->maySetPassword($owner->isFirstLogin())) {
                 return $this->errorResponse('Account is already activated. Send the current password, or use the change-password endpoint.', 400);
             }
 
