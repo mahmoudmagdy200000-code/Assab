@@ -112,9 +112,7 @@ class UploadController extends AsabController
             // avoids an N+1 across rows without caching on the bridge (whose
             // instance can outlive a request under a persistent runtime and
             // would then seed a stale branch set).
-            $brandBranchIds = $type === 'raw-materials'
-                ? Branch::where('asab_brand_id', $brand->id)->pluck('id')->all()
-                : [];
+            $brandBranchIds = $type === 'raw-materials' ? $this->brandBranchIds($brand) : [];
 
             $count = 0;
             $errors = [];
@@ -143,8 +141,72 @@ class UploadController extends AsabController
                 'uploadedCount' => $count,
                 'errors' => $errors,
                 'status' => $status,
+                // How far the mobile write-through actually reached. The catalog
+                // rows are stored on the brand, but the app's item list is keyed
+                // on branch_item of the USER's branch — with no branch linked to
+                // the brand the whole write-through is a silent no-op and the
+                // upload still reads «تم الرفع ✓» (reported 2026-07-26).
+                'branchesSeeded' => count($brandBranchIds),
+                'warnings' => $this->uploadWarnings($type, $brandBranchIds),
             ]);
         });
+    }
+
+    /**
+     * Branches of a brand, for the mobile branch_item seeding.
+     *
+     * `branches.asab_brand_id` is the canonical link, but it is NULL on branches
+     * that predate the dashboard (or came through a path that skipped the
+     * hierarchy columns), so resolve through the brand's RESTAURANTS as well —
+     * a branch of this brand's restaurant IS a branch of the brand. Reaching one
+     * that way also BACKFILLS the column, so every later read is direct.
+     *
+     * @return string[]
+     */
+    private function brandBranchIds(AsabBrand $brand, bool $backfill = true): array
+    {
+        $restaurantIds = AsabRestaurant::withoutGlobalScope('tenant')
+            ->where('brand_id', $brand->id)->pluck('id')->all();
+
+        $branches = Branch::query()
+            ->where(function ($q) use ($brand, $restaurantIds) {
+                $q->where('asab_brand_id', $brand->id);
+                if ($restaurantIds !== []) {
+                    $q->orWhereIn('asab_restaurant_id', $restaurantIds);
+                }
+            })
+            ->get(['id', 'asab_brand_id']);
+
+        if ($backfill) {
+            $unlinked = $branches->filter(fn (Branch $b) => $b->asab_brand_id !== $brand->id)
+                ->pluck('id')->all();
+            if ($unlinked !== []) {
+                Branch::whereIn('id', $unlinked)->update(['asab_brand_id' => $brand->id]);
+            }
+        }
+
+        return $branches->pluck('id')->all();
+    }
+
+    /**
+     * Non-fatal warnings for an upload that stored its rows but could not reach
+     * the mobile side. Returned rather than thrown: the catalog rows ARE saved,
+     * and the admin needs to know why the app still shows nothing.
+     *
+     * @param  string[]  $brandBranchIds
+     * @return array<int, array{code:string, message:string, messageAr:string}>
+     */
+    private function uploadWarnings(string $type, array $brandBranchIds): array
+    {
+        if ($type !== 'raw-materials' || $brandBranchIds !== []) {
+            return [];
+        }
+
+        return [[
+            'code' => 'NO_BRANCHES_LINKED',
+            'message' => 'No branch is linked to this brand, so the items were not published to the mobile item list. Link the brand\'s restaurants/branches first.',
+            'messageAr' => 'لا يوجد فرع مرتبط بهذه العلامة، فلم تُنشر الأصناف في قائمة أصناف التطبيق. اربط مطاعم/فروع العلامة أولاً.',
+        ]];
     }
 
     private function importSupplierRow(AsabBrand $brand, array $row): void
@@ -547,6 +609,13 @@ class UploadController extends AsabController
     public function status(string $brandId): JsonResponse
     {
         return $this->run(function () use ($brandId) {
+            // Read-only (no backfill on a GET): how many branches the brand's
+            // catalog write-through can reach. 0 explains an app item list that
+            // stays empty after a «تم الرفع ✓».
+            $branchesLinked = count($this->brandBranchIds(
+                AsabBrand::withoutGlobalScope('tenant')->findOrFail($brandId),
+                backfill: false,
+            ));
             // Brand uploads are the only rows keyed to a brand id; branch
             // uploads are stamped owner_type='branch' with a Branch id and are
             // read back through branchStatus().
@@ -570,6 +639,7 @@ class UploadController extends AsabController
                     'fixedAssets' => $has('fixed-assets'),
                 ],
                 'completionPct' => (int) round(collect($steps)->filter($has)->count() / count($steps) * 100),
+                'branchesLinked' => $branchesLinked,
             ]);
         });
     }

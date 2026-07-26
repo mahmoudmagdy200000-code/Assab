@@ -235,6 +235,11 @@ abstract class BaseController extends Controller
             $exception instanceof \Illuminate\Database\Eloquent\ModelNotFoundException => $this->notFoundResponse('Resource not found'),
             $exception instanceof \Illuminate\Auth\Access\AuthorizationException => $this->forbiddenResponse('Access denied'),
             $exception instanceof \Illuminate\Auth\AuthenticationException => $this->unauthorizedResponse('Authentication required'),
+            // Domain exceptions that name their own status (e.g.
+            // FirstLoginRequiredException = 403). Without this arm they fall to
+            // the 500 default and the app reports a server outage for what is a
+            // plain "activate your account first".
+            method_exists($exception, 'getStatusCode') => $this->errorResponse($exception->getMessage(), $exception->getStatusCode()),
             default => $this->errorResponse(
                 $exception->getMessage() ?: $message,
                 500,

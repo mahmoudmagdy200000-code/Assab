@@ -80,10 +80,23 @@ class BranchController extends AsabController
                 'address' => 'sometimes|string',
                 'phone' => 'sometimes|string|max:32',
                 'status' => 'sometimes|in:active,suspended',
+                // Attach an EXISTING branch to a restaurant. Only `store()` used
+                // to set the hierarchy columns, so a branch that predates the
+                // dashboard (or came from the mobile side) could never be linked
+                // — and an unlinked branch is invisible to every brand-scoped
+                // write, most visibly the catalog write-through that feeds the
+                // app's item list (reported 2026-07-26).
+                'restaurantId' => 'sometimes|uuid',
             ]);
             if (! empty($data['managerUserId'])) {
                 $this->assertManagerAssignable($data['managerUserId'], $branch->id);
             }
+            // Resolved (not taken from the body) so brand/company always agree
+            // with the restaurant — the three columns are read as one unit.
+            $restaurant = isset($data['restaurantId'])
+                ? AsabRestaurant::withoutGlobalScope('tenant')->findOrFail($data['restaurantId'])
+                : null;
+
             DB::transaction(fn () => $branch->update(array_filter([
                 'name' => $data['name'] ?? null,
                 'manager' => $data['manager'] ?? null,
@@ -92,6 +105,9 @@ class BranchController extends AsabController
                 'address' => $data['address'] ?? null,
                 'phone' => $data['phone'] ?? null,
                 'status' => $data['status'] ?? null,
+                'asab_restaurant_id' => $restaurant?->id,
+                'asab_brand_id' => $restaurant?->brand_id,
+                'asab_company_id' => $restaurant?->company_id,
             ], fn ($v) => $v !== null)));
 
             return $this->ok($this->present($branch->fresh()));

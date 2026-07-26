@@ -90,10 +90,15 @@ class ProcurementCatalogBridgeService
         // surfacing the deleted item as a null-named ghost row. Remove the
         // seeds for this tenant's branches (BranchItem is a hard-delete
         // pivot); rows with quantity > 0 hold real stock and are kept.
-        BranchItem::where('item_id', $item->purchase_item_id)
-            ->whereIn('branch_id', Branch::where('asab_company_id', $item->company_id)->pluck('id'))
-            ->where('quantity', 0)
-            ->delete();
+        // Company-less (platform) items seeded no branch rows in the first
+        // place — see seedBranchItems — so there is nothing to clean up, and
+        // `where($col, null)` would reach every unlinked branch instead.
+        if ($item->company_id) {
+            BranchItem::where('item_id', $item->purchase_item_id)
+                ->whereIn('branch_id', Branch::where('asab_company_id', $item->company_id)->pluck('id'))
+                ->where('quantity', 0)
+                ->delete();
+        }
     }
 
     /**
@@ -242,10 +247,13 @@ class ProcurementCatalogBridgeService
      * Ownership signal for a trashed code/name match: only rows this tenant's
      * bridge created (and thus linked) are safe to restore and rewrite.
      */
-    private function createdByTenantBridge(string $mobileItemId, string $companyId): bool
+    private function createdByTenantBridge(string $mobileItemId, ?string $companyId): bool
     {
         return AsabSupplierItem::withTrashed()
-            ->where('company_id', $companyId)
+            ->when($companyId === null,
+                fn ($q) => $q->whereNull('company_id'),
+                fn ($q) => $q->where('company_id', $companyId),
+            )
             ->where('purchase_item_id', $mobileItemId)
             ->exists();
     }
@@ -282,6 +290,14 @@ class ProcurementCatalogBridgeService
      */
     private function seedBranchItems(AsabSupplierItem $item, PurchaseItem $mobile): void
     {
+        // A company-less item (a PLATFORM supplier's catalog) has no branch set
+        // to publish to. Falling through would be worse than a no-op: Eloquent
+        // turns `where($col, null)` into `whereNull($col)`, so every branch that
+        // predates the dashboard — every tenant's — would get the row.
+        if (! $item->company_id) {
+            return;
+        }
+
         $branchIds = Branch::where('asab_company_id', $item->company_id)->pluck('id');
 
         foreach ($branchIds as $branchId) {
@@ -321,11 +337,20 @@ class ProcurementCatalogBridgeService
         );
     }
 
-    /** @return string[] legacy supplier ids provisioned by this tenant */
-    private function tenantLegacySupplierIds(string $companyId): array
+    /**
+     * @return string[] legacy supplier ids provisioned by this tenant — or, for
+     *                  a company-less (platform) item, by the platform itself.
+     *                  The NULL arm is spelled out because `where($col, null)`
+     *                  silently becomes `whereNull`, and reading that by accident
+     *                  is how a platform row ends up standing for every tenant.
+     */
+    private function tenantLegacySupplierIds(?string $companyId): array
     {
         return AsabSupplier::withoutGlobalScope('tenant')
-            ->where('company_id', $companyId)
+            ->when($companyId === null,
+                fn ($q) => $q->whereNull('company_id'),
+                fn ($q) => $q->where('company_id', $companyId),
+            )
             ->whereNotNull('legacy_supplier_id')
             ->pluck('legacy_supplier_id')
             ->all();

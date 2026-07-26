@@ -13,6 +13,7 @@ use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\SupplierItem;
 use Modules\Admin\Services\ExportService;
+use Modules\Admin\Services\ProcurementCatalogBridgeService;
 use Modules\Admin\Services\PurchasePresenterService;
 use Modules\Admin\Support\SupplierOrderStatus;
 use Modules\Branch\Models\Branch;
@@ -29,6 +30,7 @@ class SupplierController extends AsabController
     public function __construct(
         private readonly ExportService $exports,
         private readonly PurchasePresenterService $purchases,
+        private readonly ProcurementCatalogBridgeService $bridge,
     ) {}
 
     public function overview(Request $request): JsonResponse
@@ -144,22 +146,43 @@ class SupplierController extends AsabController
                 'maxQty' => 'nullable|integer|min:0',
                 'available' => 'nullable|boolean',
                 'leadTimeDays' => 'nullable|integer|min:0',
+                // The mobile pickers group by category, and `supplierId` names
+                // which of this login's supplier records the item belongs to.
+                'category' => 'nullable|string|max:80',
+                'supplierId' => 'nullable|uuid',
             ]);
             $available = $data['available'] ?? true;
-            $item = SupplierItem::create([
-                'supplier_user_id' => $request->user()->id,
-                'code' => $data['code'] ?? null,
-                'name' => $data['name'],
-                'unit' => $data['unit'] ?? null,
-                'price' => $data['priceHalalas'] ?? $data['price'],
-                'min_qty' => $data['minQty'] ?? null,
-                'max_qty' => $data['maxQty'] ?? null,
-                'available' => $available,
-                'lead_time_days' => $data['leadTimeDays'] ?? null,
-                'status' => $available ? 'active' : 'inactive',
-            ]);
+            // The supplier record this login owns: it carries the company whose
+            // branches the item must be published to, and the supplier id the
+            // mobile price row hangs off. Without them the item existed only in
+            // asab_supplier_items and never reached the app (reported 2026-07-26).
+            $owner = $this->ownSupplier($request);
 
-            return $this->created($this->presentItem($item));
+            $item = DB::transaction(function () use ($request, $data, $available, $owner) {
+                $item = SupplierItem::create([
+                    'supplier_user_id' => $request->user()->id,
+                    'company_id' => $owner->company_id,
+                    'supplier_id' => $owner->id,
+                    'brand_id' => $owner->brand_id,
+                    'category' => $data['category'] ?? null,
+                    'code' => $data['code'] ?? null,
+                    'name' => $data['name'],
+                    'unit' => $data['unit'] ?? null,
+                    'price' => $data['priceHalalas'] ?? $data['price'],
+                    'min_qty' => $data['minQty'] ?? null,
+                    'max_qty' => $data['maxQty'] ?? null,
+                    'available' => $available,
+                    'lead_time_days' => $data['leadTimeDays'] ?? null,
+                    'status' => $available ? 'active' : 'inactive',
+                ]);
+                // Same write-through the procurement surface performs, so an item
+                // the SUPPLIER adds shows up in the app's item + source pickers.
+                $this->bridge->syncItem($item);
+
+                return $item;
+            });
+
+            return $this->created($this->presentItem($item->fresh()) + $this->publishState($item, $owner));
         });
     }
 
@@ -194,9 +217,22 @@ class SupplierController extends AsabController
                 // Keep the legacy status flag in sync with availability.
                 $updates['status'] = $data['available'] ? 'active' : 'inactive';
             }
-            $item->update($updates);
+            $owner = $this->ownSupplier($request);
+            DB::transaction(function () use ($item, $updates, $owner) {
+                // Repair the link on rows created before the bridge was wired, so
+                // an edit publishes an item the create could not. Only fills what
+                // is missing — an item already attached to a supplier record is
+                // never re-pointed by an edit.
+                $updates += array_filter([
+                    'company_id' => $item->company_id ?: $owner->company_id,
+                    'supplier_id' => $item->supplier_id ?: $owner->id,
+                    'brand_id' => $item->brand_id ?: $owner->brand_id,
+                ], fn ($v) => $v !== null);
+                $item->update($updates);
+                $this->bridge->syncItem($item->fresh());
+            });
 
-            return $this->ok($this->presentItem($item->fresh()));
+            return $this->ok($this->presentItem($item->fresh()) + $this->publishState($item->fresh(), $owner));
         });
     }
 
@@ -205,8 +241,14 @@ class SupplierController extends AsabController
         return $this->run(function () use ($request, $id) {
             $item = SupplierItem::where('supplier_user_id', $request->user()->id)->findOrFail($id);
             $nowActive = $item->status !== 'active';
-            // Keep the availability flag in sync with the toggled status.
-            $item->update(['status' => $nowActive ? 'active' : 'inactive', 'available' => $nowActive]);
+
+            DB::transaction(function () use ($item, $nowActive) {
+                // Keep the availability flag in sync with the toggled status.
+                $item->update(['status' => $nowActive ? 'active' : 'inactive', 'available' => $nowActive]);
+                // syncItem mirrors `status` onto the mobile item's is_active, so
+                // the toggle reaches the app in both directions.
+                $this->bridge->syncItem($item->fresh());
+            });
 
             return $this->ok($this->presentItem($item->fresh()));
         });
@@ -215,10 +257,104 @@ class SupplierController extends AsabController
     public function destroyItem(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            SupplierItem::where('supplier_user_id', $request->user()->id)->findOrFail($id)->delete();
+            $item = SupplierItem::where('supplier_user_id', $request->user()->id)->findOrFail($id);
+
+            DB::transaction(function () use ($item) {
+                // Deactivate (never hard-delete) the bridged mobile rows first —
+                // orders already reference them.
+                $this->bridge->deactivateItem($item);
+                $item->delete();
+            });
 
             return $this->noContent();
         });
+    }
+
+    /**
+     * The supplier record whose catalog this request is editing.
+     *
+     * A login may own SEVERAL commercial supplier records, and guessing would
+     * attach the catalog and its prices to the wrong one, so an ambiguous login
+     * must name the record (`supplierId`). A login with no record at all cannot
+     * be published to the app, and saying so beats storing an item nobody sees.
+     *
+     * @throws AsabException 422 no record / unknown record, 409 ambiguous
+     */
+    private function ownSupplier(Request $request): AsabSupplier
+    {
+        $owned = AsabSupplier::where('user_id', $request->user()->id)->get();
+
+        if ($owned->isEmpty()) {
+            throw new AsabException(
+                'SUPPLIER_RECORD_MISSING',
+                'This login is not linked to a supplier record, so its catalog cannot be published.',
+                'هذا الحساب غير مرتبط بسجل مورد، فلا يمكن نشر أصنافه.',
+                422,
+            );
+        }
+
+        if ($owned->count() === 1) {
+            return $owned->first();
+        }
+
+        $chosen = $request->input('supplierId');
+        $match = $chosen ? $owned->firstWhere('id', $chosen) : null;
+
+        if ($match === null) {
+            throw new AsabException(
+                'SUPPLIER_RECORD_AMBIGUOUS',
+                'This login owns several supplier records — send supplierId to name the one the item belongs to.',
+                'هذا الحساب مرتبط بأكثر من سجل مورد — أرسل supplierId لتحديد السجل.',
+                409,
+                ['supplierIds' => $owned->pluck('id')->all()],
+            );
+        }
+
+        return $match;
+    }
+
+    /**
+     * How far the item reached the mobile world, and what stopped it.
+     *
+     * Three things can hold it back, and each is invisible to the supplier
+     * otherwise (they would learn it from a branch manager who cannot find the
+     * item): a live global name/code collision means the bridge refused to touch
+     * an `items` row it does not own; a company-less (platform) supplier has no
+     * branch set to publish availability to; and a supplier record with no
+     * mobile login has nothing to hang the price row off.
+     *
+     * @return array<string, mixed>
+     */
+    private function publishState(SupplierItem $item, AsabSupplier $owner): array
+    {
+        $warnings = [];
+
+        if ($item->purchase_item_id === null) {
+            $warnings[] = [
+                'code' => 'ITEM_NAME_TAKEN',
+                'message' => 'An item with this name/code already exists in the shared catalog and is owned by another party, so this row was not published to the app.',
+                'messageAr' => 'يوجد صنف بنفس الاسم/الرمز في الكتالوج المشترك يملكه طرف آخر، فلم يُنشر هذا الصنف في التطبيق.',
+            ];
+        }
+        if (! $item->company_id) {
+            $warnings[] = [
+                'code' => 'NO_BRANCH_AVAILABILITY',
+                'message' => 'This supplier is not attached to a company, so the item was not added to any branch item list.',
+                'messageAr' => 'هذا المورد غير مرتبط بشركة، فلم يُضَف الصنف إلى قائمة أصناف أي فرع.',
+            ];
+        }
+        if (! $owner->legacy_supplier_id) {
+            $warnings[] = [
+                'code' => 'NO_MOBILE_SUPPLIER_LOGIN',
+                'message' => 'This supplier has no mobile record yet, so the item carries no price for the app to order at.',
+                'messageAr' => 'هذا المورد ليس له سجل في التطبيق بعد، فالصنف بلا سعر يُطلب به.',
+            ];
+        }
+
+        return [
+            'publishedToApp' => $warnings === [],
+            'warnings' => $warnings,
+        ];
     }
 
     /** GET /asab/supplier/items/export?format=xlsx|csv */
