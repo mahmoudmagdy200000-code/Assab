@@ -59,7 +59,7 @@ class MobileLoginIdentifierAliasTest extends TestCase
 
     public function test_explicit_identifier_still_wins(): void
     {
-        $supplier = Supplier::factory()->create([
+        $supplier = $this->supplier([
             'is_first_login' => false,
             'password' => bcrypt('password123'),
         ]);
