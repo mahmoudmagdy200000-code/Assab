@@ -13,6 +13,8 @@ use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Notifications\UserPasswordResetNotification;
+use Modules\Admin\Services\AccountantModuleService;
+use Modules\Admin\Services\AccountantScopeService;
 use Modules\Admin\Services\CredentialMailer;
 use Modules\Admin\Services\CredentialSyncService;
 use Modules\Admin\Services\IdentityMapService;
@@ -42,6 +44,8 @@ class UserController extends AsabController
         private readonly CredentialSyncService $credentials,
         private readonly LegacyProvisionerRegistry $provisioners,
         private readonly IdentityMapService $identity,
+        private readonly AccountantScopeService $scope,
+        private readonly AccountantModuleService $modules,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -484,7 +488,7 @@ class UserController extends AsabController
      */
     private function nameMaps(iterable $users): array
     {
-        $brandIds = $restaurantIds = $branchIds = [];
+        $brandIds = $restaurantIds = $branchIds = $accountantIds = [];
         foreach ($users as $u) {
             if (! $assignment = $u->roleAssignments->first()) {
                 continue;
@@ -492,12 +496,18 @@ class UserController extends AsabController
             $brandIds = array_merge($brandIds, $assignment->brand_ids ?? []);
             $restaurantIds = array_merge($restaurantIds, $assignment->restaurant_ids ?? []);
             $branchIds = array_merge($branchIds, $assignment->branch_ids ?? []);
+            if ($assignment->role_key === 'accountant') {
+                $accountantIds[] = $u->id;
+            }
         }
 
         return [
             'brand' => AsabBrand::whereIn('id', array_values(array_unique($brandIds)))->pluck('name', 'id')->all(),
             'restaurant' => AsabRestaurant::whereIn('id', array_values(array_unique($restaurantIds)))->pluck('name', 'id')->all(),
             'branch' => Branch::whereIn('id', array_values(array_unique($branchIds)))->pluck('name', 'id')->all(),
+            // Per-(accountant, restaurant) module cells for the whole page in one
+            // query, so the module pill is real rather than the flat list.
+            'accountantCells' => $this->modules->grantsFor($accountantIds),
         ];
     }
 
@@ -513,6 +523,24 @@ class UserController extends AsabController
         return array_map(fn ($id) => ['id' => $id, 'name' => $names[$id] ?? null], array_values($ids));
     }
 
+    /**
+     * Brand-derived restaurant coverage + granted modules for an accountant.
+     *
+     * @param  array{restaurant:array<string,string>,accountantCells:array<string,array<string,string[]>>}  $maps
+     * @return array{0:string[],1:array<int,array{id:string,name:string|null}>,2:string[]}
+     */
+    private function accountantCoverage(AsabUser $u, AsabUserRole $assignment, array $maps): array
+    {
+        $covered = $this->scope->restaurantsForAssignment($assignment);
+        $effective = $this->modules->effectiveCells($assignment, $covered, $maps['accountantCells'][$u->id] ?? []);
+
+        return [
+            $covered->pluck('id')->all(),
+            $covered->map(fn ($r) => ['id' => $r->id, 'name' => $r->name])->values()->all(),
+            $this->modules->grantedUnion($effective),
+        ];
+    }
+
     private function present(AsabUser $u, ?array $maps = null): array
     {
         $assignment = $u->roleAssignments->first();
@@ -520,6 +548,20 @@ class UserController extends AsabController
         // Single-row callers (store/update/status) pass no maps — resolve for
         // just this user; the index passes one shared map for the whole page.
         $maps ??= $this->nameMaps([$u]);
+
+        // An accountant is BRAND-level, so `restaurant_ids` is always empty by
+        // design — displaying it is what made the users screen say
+        // «0 مطعم · 0 صلاحية» for an accountant who does cover restaurants.
+        // `restaurants` keeps its contract (the ids that are STORED, which the
+        // assignment endpoints round-trip); the display/count fields carry the
+        // coverage the distribution screen resolves, through the brands.
+        [$coveredIds, $restaurantsNamed, $moduleKeys] = $roleKey === 'accountant'
+            ? $this->accountantCoverage($u, $assignment, $maps)
+            : [
+                $assignment->restaurant_ids ?? [],
+                $this->named($assignment->restaurant_ids ?? [], $maps['restaurant']),
+                $assignment->module_keys ?? [],
+            ];
 
         return [
             'id' => $u->id,
@@ -533,10 +575,17 @@ class UserController extends AsabController
             'branches' => $assignment->branch_ids ?? [],
             // Same ids resolved to {id, name} so the users list renders names,
             // not raw uuids (client meeting: "return the brand name, not the ID").
+            // For an accountant these are the BRAND-DERIVED restaurants (the
+            // stored array is empty by design) — render these, count these.
             'brandsNamed' => $this->named($assignment->brand_ids ?? [], $maps['brand']),
-            'restaurantsNamed' => $this->named($assignment->restaurant_ids ?? [], $maps['restaurant']),
+            'restaurantsNamed' => $restaurantsNamed,
             'branchesNamed' => $this->named($assignment->branch_ids ?? [], $maps['branch']),
-            'modules' => $assignment->module_keys ?? [],
+            // Coverage ids, for a client that needs the ids rather than labels.
+            'coveredRestaurants' => $coveredIds,
+            'modules' => $moduleKeys,
+            // The list's assignment pills count these instead of re-deriving.
+            'restaurantCount' => count($coveredIds),
+            'moduleCount' => count($moduleKeys),
             'scope' => $assignment->scope ?? 'all',
             // {id, name} rather than the bare uuid: every consumer of this field
             // renders the head's name, and the uuid alone forced a second lookup.

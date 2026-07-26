@@ -267,6 +267,10 @@ Route::prefix('v1')->group(function () {
 
                 // Accountant assignment & per-restaurant modules (FE wiring §1.8, §1.9)
                 Route::patch('accountants/{accId}/assignments', [DistributionController::class, 'assignments']);
+                // ADM-3.3 «مصفوفة الموديولات» — read/save the grid of ONE accountant
+                // (restaurant names + the modules granted per restaurant).
+                Route::get('accountants/{accId}/modules', [DistributionController::class, 'modulesMatrix']);
+                Route::put('accountants/{accId}/modules', [DistributionController::class, 'replaceModulesMatrix']);
                 Route::put('accountants/{accId}/restaurants/{restaurant}/modules', [DistributionController::class, 'restaurantModules']);
             });
 

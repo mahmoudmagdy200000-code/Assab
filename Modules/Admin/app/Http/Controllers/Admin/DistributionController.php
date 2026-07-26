@@ -5,20 +5,40 @@ namespace Modules\Admin\Http\Controllers\Admin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Services\AccountantModuleService;
 use Modules\Admin\Services\AccountantScopeService;
+use Modules\Admin\Services\AuditService;
+use Modules\Admin\Support\ModuleCatalog;
 
 /**
  * Accountant ↔ restaurant ↔ module distribution (BACKEND_API_SPEC.md §6.1.2).
+ *
+ * Module permissions are stored per (accountant, restaurant) by
+ * AccountantModuleService — see ADM-3.3. Every payload here carries restaurant
+ * NAMES next to the ids: the grid rendered raw uuids because the ids were the
+ * only thing it could reach.
  */
 class DistributionController extends AsabController
 {
+    /**
+     * Modules an accountant gets by default when a restaurant is assigned from
+     * the distribution screen. Kept as-is (pre-ADM-3.3 behaviour) so assigning a
+     * restaurant does not change what auth resolution grants today; the grid
+     * endpoints below are how an admin narrows or widens it explicitly.
+     */
     private const DIST_MODULES = ['sales', 'expenses', 'purchases', 'inventory'];
 
-    public function __construct(private readonly AccountantScopeService $scope) {}
+    public function __construct(
+        private readonly AccountantScopeService $scope,
+        private readonly AccountantModuleService $modules,
+        private readonly AuditService $audit,
+    ) {}
 
     public function index(): JsonResponse
     {
@@ -27,11 +47,21 @@ class DistributionController extends AsabController
             $accountants = AsabUser::with('roleAssignments')
                 ->whereHas('roleAssignments', fn ($r) => $r->where('role_key', 'accountant'))->get();
 
-            $allRestaurants = AsabRestaurant::pluck('name', 'id');
+            $restaurants = AsabRestaurant::query()->get(['id', 'name', 'brand_id']);
+            $restaurantNames = $restaurants->pluck('name', 'id');
+            $brandNames = AsabBrand::whereIn('id', $restaurants->pluck('brand_id')->filter()->unique()->all())
+                ->pluck('name', 'id');
+            // Every accountant's stored cells in ONE query — the grid used to be
+            // faked from the flat list, and resolving it per row would be N+1.
+            $cellsByAccountant = $this->modules->grantsFor($accountants->pluck('id')->all());
+
             $assigned = collect();
             $accModules = [];
+            $accModulesByRestaurant = [];
 
-            $accountantRows = $accountants->map(function ($acc) use ($allRestaurants, &$assigned, &$accModules) {
+            $accountantRows = $accountants->map(function ($acc) use (
+                $restaurantNames, $cellsByAccountant, &$assigned, &$accModules, &$accModulesByRestaurant
+            ) {
                 $assignment = $acc->roleAssignments->firstWhere('role_key', 'accountant');
                 // Accountants are BRAND-level: the restaurants they cover are the
                 // restaurants of their brands, resolved here rather than read off
@@ -40,10 +70,15 @@ class DistributionController extends AsabController
                 $restIds = $covered->pluck('id')->all();
                 $assigned = $assigned->merge($restIds);
 
+                $effective = $this->modules->effectiveCells($assignment, $covered, $cellsByAccountant[$acc->id] ?? []);
+                $accModulesByRestaurant[$acc->id] = $effective;
+                // Legacy name-keyed shape kept for the existing client; the
+                // id-keyed map above is the one a grid can index by row.
                 $accModules[$acc->id] = [];
-                foreach ($restIds as $rid) {
-                    $accModules[$acc->id][$allRestaurants[$rid] ?? $rid] = $assignment->module_keys ?: self::DIST_MODULES;
+                foreach ($effective as $rid => $mods) {
+                    $accModules[$acc->id][$restaurantNames[$rid] ?? $rid] = $mods;
                 }
+                $granted = $this->modules->grantedUnion($effective);
 
                 return [
                     'id' => $acc->id, 'name' => $acc->name, 'avatar' => $acc->avatar,
@@ -52,6 +87,11 @@ class DistributionController extends AsabController
                     // Names alongside ids so the screen renders restaurant names,
                     // not raw uuids (client meeting).
                     'restaurantsNamed' => $covered->map(fn ($r) => ['id' => $r->id, 'name' => $r->name])->values()->all(),
+                    // The «n مطعم · n صلاحية» pills, so the client counts what the
+                    // backend actually granted rather than an empty id array.
+                    'restaurantCount' => count($restIds),
+                    'modules' => $granted,
+                    'moduleCount' => count($granted),
                 ];
             })->values()->all();
 
@@ -61,13 +101,25 @@ class DistributionController extends AsabController
                     'accountantCount' => $accountants->where('reports_to_id', $h->id)->count(),
                 ])->values()->all(),
                 'accountants' => $accountantRows,
-                'allRestaurants' => $allRestaurants->keys()->all(),
+                'allRestaurants' => $restaurantNames->keys()->all(),
+                // Same list with names (and their brand) so a picker/grid never
+                // has to render an id.
+                'allRestaurantsNamed' => $restaurants->map(fn ($r) => [
+                    'id' => $r->id,
+                    'name' => $r->name,
+                    'brandId' => $r->brand_id,
+                    'brandName' => $brandNames[$r->brand_id] ?? null,
+                ])->values()->all(),
                 // id => name map so any restaurant id in this payload resolves to a
                 // display name client-side.
-                'restaurantNames' => $allRestaurants->all(),
+                'restaurantNames' => $restaurantNames->all(),
                 'assignedRestaurants' => $assigned->unique()->values()->all(),
-                'freeRestaurants' => $allRestaurants->keys()->reject(fn ($id) => $assigned->contains($id))->values()->all(),
+                'freeRestaurants' => $restaurantNames->keys()->reject(fn ($id) => $assigned->contains($id))->values()->all(),
                 'accModules' => $accModules,
+                'accModulesByRestaurant' => $accModulesByRestaurant,
+                // The 9 modules with their Arabic labels: the grid's columns come
+                // from the backend catalogue, so no screen invents a tenth.
+                'moduleCatalog' => ModuleCatalog::catalog(),
             ]);
         });
     }
@@ -82,20 +134,28 @@ class DistributionController extends AsabController
         return $this->mutateRestaurant($request, false);
     }
 
+    /**
+     * POST /admin/distribution/assign-modules — the grid's per-cell save. The
+     * body always named a restaurant; it now actually writes that restaurant's
+     * cell instead of one flat list for all of them (ADM-3.3).
+     */
     public function assignModules(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
             $data = $request->validate([
                 'accountantId' => 'required|string',
                 'restaurantId' => 'required|string',
-                'modules' => 'required|array',
+                'modules' => 'present|array',
+                'modules.*' => ['string', Rule::in(ModuleCatalog::keys())],
             ]);
             $assignment = $this->accountantAssignment($data['accountantId']);
-            DB::transaction(function () use ($assignment, $data) {
-                $assignment->update(['module_keys' => $data['modules']]);
-            });
 
-            return $this->noContent();
+            $row = DB::transaction(fn () => $this->modules->setModules(
+                $assignment, $data['restaurantId'], $data['modules'], $request->user()?->id,
+            ));
+            $this->auditModules($request, $data['accountantId'], $data['restaurantId'], $row['modules']);
+
+            return $this->ok($row);
         });
     }
 
@@ -166,42 +226,103 @@ class DistributionController extends AsabController
     }
 
     /**
+     * GET /admin/accountants/{accId}/modules — the «مصفوفة الموديولات» grid:
+     * one row per restaurant the accountant covers, WITH its name, brand and the
+     * modules granted for it. This is the read the screen was missing; it used
+     * to derive rows from a bare id list, so it printed uuids and 0/9.
+     */
+    public function modulesMatrix(string $accId): JsonResponse
+    {
+        return $this->run(function () use ($accId) {
+            $acc = AsabUser::findOrFail($accId);
+            $assignment = $this->accountantAssignment($accId);
+            $rows = $this->modules->matrix($assignment);
+            $granted = $this->modules->grantedUnion(
+                collect($rows)->mapWithKeys(fn ($r) => [$r['restaurantId'] => $r['modules']])->all(),
+            );
+
+            return $this->ok([
+                'accountantId' => $acc->id,
+                'accountantName' => $acc->name,
+                'headId' => $acc->reports_to_id,
+                'brands' => $assignment->brand_ids ?? [],
+                'moduleCatalog' => ModuleCatalog::catalog(),
+                'restaurants' => $rows,
+                'totals' => [
+                    'restaurants' => count($rows),
+                    'modulesGranted' => count($granted),
+                    'modules' => count(ModuleCatalog::keys()),
+                ],
+                // Empty `restaurants` has exactly one cause worth telling the
+                // admin about: the accountant covers no restaurant yet because
+                // no brand (with restaurants) is assigned to them.
+                'reason' => $rows === [] ? 'NO_COVERED_RESTAURANTS' : null,
+            ]);
+        });
+    }
+
+    /**
+     * PUT /admin/accountants/{accId}/modules — save several grid rows at once.
+     * Only the restaurants present in the body are written; an id outside the
+     * accountant's coverage refuses the WHOLE save (no half-applied grid).
+     */
+    public function replaceModulesMatrix(Request $request, string $accId): JsonResponse
+    {
+        return $this->run(function () use ($request, $accId) {
+            $data = $request->validate([
+                'restaurants' => 'required|array|min:1',
+                'restaurants.*.restaurantId' => 'required|string',
+                'restaurants.*.modules' => 'present|array',
+                'restaurants.*.modules.*' => ['string', Rule::in(ModuleCatalog::keys())],
+            ]);
+
+            $assignment = $this->accountantAssignment($accId);
+            $rows = DB::transaction(fn () => $this->modules->replaceMatrix(
+                $assignment, $data['restaurants'], $request->user()?->id,
+            ));
+            foreach ($data['restaurants'] as $row) {
+                $this->auditModules($request, $accId, $row['restaurantId'], $row['modules'] ?? []);
+            }
+
+            return $this->ok([
+                'accountantId' => $accId,
+                'moduleCatalog' => ModuleCatalog::catalog(),
+                'restaurants' => $rows,
+            ]);
+        });
+    }
+
+    /**
      * PUT /admin/accountants/{accId}/restaurants/{restaurant}/modules (doc §1.9) —
-     * set the module list for an accountant's restaurant.
+     * set the module list for ONE of the accountant's restaurants.
      *
-     * LIMITATION: the data model (asab_user_roles.module_keys) stores a single flat
-     * module list per (accountant, role) assignment — there is no per-(accountant,
-     * restaurant) module column, and that column is read as a flat array by tenant
-     * resolution (ResolveTenant) / AuthService. So this stores the modules on the
-     * accountant assignment best-effort (applies to all their restaurants) after
-     * validating the restaurant is actually assigned to the accountant. Adding true
-     * per-restaurant module storage would require a schema change.
+     * Now genuinely per-restaurant (ADM-3.3): the cell is stored in
+     * `asab_accountant_restaurant_modules` and `module_keys` keeps the union for
+     * auth resolution. The old version wrote the flat list AND pushed the
+     * restaurant into `restaurant_ids` with `scope='restaurant'` — a permissions
+     * save that silently widened the accountant's data scope.
      */
     public function restaurantModules(Request $request, string $accId, string $restaurant): JsonResponse
     {
         return $this->run(function () use ($request, $accId, $restaurant) {
             $data = $request->validate([
-                'modules' => 'required|array',
-                'modules.*' => 'string',
+                'modules' => 'present|array',
+                'modules.*' => ['string', Rule::in(ModuleCatalog::keys())],
             ]);
 
             $assignment = $this->accountantAssignment($accId);
-            $modules = collect($data['modules'])->unique()->values()->all();
-
-            DB::transaction(function () use ($assignment, $restaurant, $modules) {
-                // Ensure the restaurant is assigned to this accountant (best-effort).
-                $ids = collect($assignment->restaurant_ids ?? [])->push($restaurant)->unique()->values()->all();
-                $assignment->update([
-                    'restaurant_ids' => $ids,
-                    'scope' => 'restaurant',
-                    'module_keys' => $modules,
-                ]);
-            });
+            $row = DB::transaction(fn () => $this->modules->setModules(
+                $assignment, $restaurant, $data['modules'], $request->user()?->id,
+            ));
+            $this->auditModules($request, $accId, $restaurant, $row['modules']);
 
             return $this->ok([
                 'accountantId' => $accId,
                 'restaurant' => $restaurant,
-                'modules' => $assignment->fresh()->module_keys ?? [],
+                'restaurantName' => $row['restaurantName'] ?? null,
+                'modules' => $row['modules'],
+                'moduleCount' => $row['moduleCount'],
+                'total' => $row['total'],
             ]);
         });
     }
@@ -224,6 +345,16 @@ class DistributionController extends AsabController
 
             return $this->noContent();
         });
+    }
+
+    /** @param  string[]  $modules */
+    private function auditModules(Request $request, string $accId, string $restaurantId, array $modules): void
+    {
+        $this->audit->record(
+            'permissions', $request->user(), 'accountant_restaurant_modules', $accId,
+            'تعديل صلاحيات موديولات المحاسب لمطعم',
+            [], ['restaurantId' => $restaurantId, 'modules' => $modules], $request,
+        );
     }
 
     private function accountantAssignment(string $accountantId): AsabUserRole
