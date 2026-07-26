@@ -45,7 +45,7 @@ class MobileLoginIdentifierAliasTest extends TestCase
 
     public function test_supplier_login_accepts_the_phone_alias(): void
     {
-        $supplier = Supplier::factory()->create([
+        $supplier = $this->supplier([
             'is_first_login' => false,
             'phone' => '0551234567',
             'password' => bcrypt('password123'),
