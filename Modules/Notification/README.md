@@ -2,17 +2,34 @@
 
 ## Overview
 
-A comprehensive notification system for the ASSAB application that supports multiple channels (In-App, Email, SMS), role-based preferences, and real-time delivery.
+A comprehensive notification system for the ASSAB application that supports multiple channels (In-App, Email, SMS, FCM device push), role-based preferences, and real-time delivery.
+
+> **Device push (FCM) is documented in full at [`docs/FCM_PUSH_NOTIFICATIONS.md`](../../docs/FCM_PUSH_NOTIFICATIONS.md)** — setup, client integration, payload shape and failure behaviour.
 
 ## Features
 
-- **Multi-Channel Support**: In-App, Email, and SMS notifications
+- **Multi-Channel Support**: In-App, Email, SMS and FCM device push
+- **Two real-time transports**: Pusher broadcast reaches a client that is already open; FCM wakes a backgrounded or killed app. Both fire for the same notification.
 - **Role-Based Preferences**: Default notification settings per role (Branch Manager, Cashier, Supplier, Brand Owner)
 - **Priority Levels**: Low, Medium, High, Critical
 - **Notification Categories**: Operational, Financial, Compliance, System
 - **Rate Limiting**: SMS rate limiting (max 10 per user per day)
-- **Event-Driven**: Automatically triggered by system events
+- **Event-Driven**: Automatically triggered by system events across every module
 - **Queue Support**: All notifications are queued for better performance
+- **Two-worlds aware**: push is mirrored to the same person's account in the other world via the ASAB identity map
+- **Localized copy**: rendered in the *recipient's* locale from `resources/lang/{en,ar}/push.php`
+
+## Push (FCM) at a glance
+
+```
+NotificationService → PushChannelService → SendFcmMessageJob → FcmClientInterface
+                                                               ├── FcmHttpV1Client (FCM_DRIVER=http_v1)
+                                                               └── NullFcmClient   (FCM_DRIVER=null, default)
+```
+
+- Devices register through `POST /api/v1/device-tokens`; a token has exactly one owner and is re-bound on handset handover.
+- Tokens Firebase rejects as dead are pruned automatically; unused ones are pruned weekly by `notification:prune-device-tokens`.
+- Topics (`all`, `app_*`, `role_*`, `branch_*`, `company_*`) are re-asserted on every registration, off the request path.
 
 ## Architecture
 

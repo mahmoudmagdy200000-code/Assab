@@ -52,6 +52,15 @@ return Application::configure(basePath: dirname(__DIR__))
             ->mondays()
             ->at('04:00');
 
+        // Drop FCM device tokens no app has used in months. Dead tokens are
+        // also pruned reactively when Firebase rejects them, but a device that
+        // is simply never opened again never produces a rejection.
+        $schedule->command('notification:prune-device-tokens')
+            ->weekly()
+            ->mondays()
+            ->at('04:15')
+            ->timezone('Asia/Riyadh');
+
         // Generate weekly variance report
         $schedule->command('variance:weekly-report')
             ->weekly()

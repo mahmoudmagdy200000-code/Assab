@@ -2,8 +2,8 @@
 
 namespace Modules\Notification\Services;
 
-use Illuminate\Notifications\Notifiable;
 use Modules\Notification\Contracts\ChannelServiceInterface;
+use Modules\Notification\DataTransferObjects\NotificationEnvelope;
 use Modules\Notification\Enums\NotificationChannel;
 use Modules\Notification\Services\Channels\EmailChannelService;
 use Modules\Notification\Services\Channels\PushChannelService;
@@ -12,26 +12,20 @@ use Modules\Notification\Services\Channels\SmsChannelService;
 class ChannelService implements ChannelServiceInterface
 {
     public function __construct(
-        private EmailChannelService $emailChannel,
-        private SmsChannelService $smsChannel,
-        private PushChannelService $pushChannel
+        private readonly EmailChannelService $emailChannel,
+        private readonly SmsChannelService $smsChannel,
+        private readonly PushChannelService $pushChannel,
     ) {}
 
-    /**
-     * Send notification via specific channel
-     */
-    public function send(
-        Notifiable $notifiable,
-        NotificationChannel $channel,
-        string $title,
-        string $message,
-        array $data = []
-    ): bool {
+    public function send(NotificationEnvelope $envelope, NotificationChannel $channel): bool
+    {
         return match ($channel) {
-            NotificationChannel::EMAIL => $this->emailChannel->send($notifiable, $title, $message, $data),
-            NotificationChannel::SMS => $this->smsChannel->send($notifiable, $title, $message, $data),
-            NotificationChannel::PUSH => $this->pushChannel->send($notifiable, $title, $message, $data),
-            NotificationChannel::IN_APP => true, // Handled by Laravel notifications
+            NotificationChannel::EMAIL => $this->emailChannel->send($envelope),
+            NotificationChannel::SMS => $this->smsChannel->send($envelope),
+            NotificationChannel::PUSH => $this->pushChannel->send($envelope),
+            // The in-app record is written by the database notification channel
+            // before any external channel runs; nothing further to do here.
+            NotificationChannel::IN_APP => true,
         };
     }
 }

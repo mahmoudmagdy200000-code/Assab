@@ -19,16 +19,23 @@ class PushNotificationTest extends TestCase
 {
     use RefreshDatabase;
 
-    private NotificationService $notificationService;
-
     private User $user;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->notificationService = $this->app->make(NotificationService::class);
         $this->user = User::factory()->create();
+    }
+
+    /**
+     * Resolved per call, not in setUp: the service takes the event dispatcher by
+     * constructor injection, so an instance built before `Event::fake()` would
+     * keep publishing to the real dispatcher and the fake would see nothing.
+     */
+    private function notificationService(): NotificationService
+    {
+        return $this->app->make(NotificationService::class);
     }
 
     /**
@@ -47,7 +54,7 @@ class PushNotificationTest extends TestCase
         ]);
 
         // Act: Send notification
-        $this->notificationService->send(
+        $this->notificationService()->send(
             $this->user,
             NotificationType::EXPENSE_APPROVED,
             ['expense_id' => '123', 'amount' => 100.50]
@@ -82,7 +89,7 @@ class PushNotificationTest extends TestCase
         ]);
 
         // Act: Send notification
-        $this->notificationService->send(
+        $this->notificationService()->send(
             $this->user,
             NotificationType::SHIFT_START_REMINDER,
             ['shift_id' => '456']
@@ -119,7 +126,7 @@ class PushNotificationTest extends TestCase
         ];
 
         // Act
-        $this->notificationService->send(
+        $this->notificationService()->send(
             $this->user,
             NotificationType::ORDER_CREATED,
             $customData
@@ -130,9 +137,13 @@ class PushNotificationTest extends TestCase
     }
 
     /**
-     * Test that notification without push channel does not broadcast
+     * The Pusher broadcast is no longer coupled to the `push` channel.
+     *
+     * `push` now means FCM device push. Pusher drives the live in-app UI of a
+     * client that is already open, so it fires whenever the recipient gets the
+     * notification at all — including an in-app-only preference.
      */
-    public function test_notification_without_push_channel_does_not_broadcast(): void
+    public function test_notification_without_push_channel_still_broadcasts_for_live_clients(): void
     {
         // Arrange
         Event::fake([NotificationBroadcasted::class]);
@@ -141,19 +152,43 @@ class PushNotificationTest extends TestCase
             'notifiable_type' => User::class,
             'notifiable_id' => $this->user->id,
             'notification_type' => NotificationType::EXPENSE_APPROVED,
-            'channels' => [NotificationChannel::IN_APP->value], // Only in-app, no push
+            'channels' => [NotificationChannel::IN_APP->value], // Only in-app, no device push
             'priority_level' => NotificationPriority::LOW,
             'enabled' => true,
         ]);
 
         // Act
-        $this->notificationService->send(
+        $this->notificationService()->send(
             $this->user,
             NotificationType::EXPENSE_APPROVED,
             ['expense_id' => '123']
         );
 
-        // Assert: Broadcast event was NOT dispatched
+        Event::assertDispatched(NotificationBroadcasted::class);
+    }
+
+    /**
+     * A suppressed notification must not reach the live channel either.
+     */
+    public function test_a_disabled_preference_does_not_broadcast(): void
+    {
+        Event::fake([NotificationBroadcasted::class]);
+
+        NotificationPreference::create([
+            'notifiable_type' => User::class,
+            'notifiable_id' => $this->user->id,
+            'notification_type' => NotificationType::EXPENSE_APPROVED,
+            'channels' => [NotificationChannel::IN_APP->value],
+            'priority_level' => NotificationPriority::LOW,
+            'enabled' => false,
+        ]);
+
+        $this->notificationService()->send(
+            $this->user,
+            NotificationType::EXPENSE_APPROVED,
+            ['expense_id' => '123']
+        );
+
         Event::assertNotDispatched(NotificationBroadcasted::class);
     }
 
@@ -178,7 +213,7 @@ class PushNotificationTest extends TestCase
         ]);
 
         // Act
-        $this->notificationService->send(
+        $this->notificationService()->send(
             $this->user,
             NotificationType::CUSTODY_LOW_BALANCE,
             ['balance' => 50.00]
@@ -194,34 +229,27 @@ class PushNotificationTest extends TestCase
     }
 
     /**
-     * Test that BaseNotification correctly sets shouldBroadcast flag
+     * BaseNotification routes itself to the `fcm` channel only when the push
+     * channel was requested AND the recipient can actually hold a device token.
      */
-    public function test_base_notification_sets_broadcast_flag(): void
+    public function test_base_notification_routes_to_fcm_only_when_push_is_requested(): void
     {
-        // Test with push channel
-        $notificationWithPush = new BaseNotification(
+        $withPush = new BaseNotification(
             NotificationType::EXPENSE_APPROVED,
             ['test' => 'data'],
             NotificationPriority::LOW,
             [NotificationChannel::PUSH->value, NotificationChannel::IN_APP->value]
         );
 
-        // Use reflection to check private property
-        $reflection = new \ReflectionClass($notificationWithPush);
-        $property = $reflection->getProperty('shouldBroadcast');
-        $property->setAccessible(true);
-
-        $this->assertTrue($property->getValue($notificationWithPush));
-
-        // Test without push channel
-        $notificationWithoutPush = new BaseNotification(
+        $withoutPush = new BaseNotification(
             NotificationType::EXPENSE_APPROVED,
             ['test' => 'data'],
             NotificationPriority::LOW,
             [NotificationChannel::IN_APP->value]
         );
 
-        $this->assertFalse($property->getValue($notificationWithoutPush));
+        $this->assertSame(['database', 'fcm'], $withPush->via($this->user));
+        $this->assertSame(['database'], $withoutPush->via($this->user));
     }
 
     /**
@@ -242,7 +270,7 @@ class PushNotificationTest extends TestCase
         ]);
 
         // Act
-        $this->notificationService->send(
+        $this->notificationService()->send(
             $this->user,
             NotificationType::SHIFT_HANDOVER_APPROVED,
             []
@@ -275,7 +303,7 @@ class PushNotificationTest extends TestCase
         ]);
 
         // Act
-        $this->notificationService->send(
+        $this->notificationService()->send(
             $this->user,
             NotificationType::ORDER_STATUS_CHANGED,
             ['status' => 'delivered']

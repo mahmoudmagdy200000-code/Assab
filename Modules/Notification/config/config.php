@@ -35,4 +35,67 @@ return [
     'delivery' => [
         'timeout_seconds' => env('NOTIFICATION_DELIVERY_TIMEOUT', 2),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Default channels
+    |--------------------------------------------------------------------------
+    | Applied to recipients with no stored preference row for a notification
+    | type — which is most users, since preferences are opt-in.
+    */
+    'defaults' => [
+        'channels' => [
+            'app',
+            'push',
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Firebase Cloud Messaging
+    |--------------------------------------------------------------------------
+    | Device push. Distinct from the Pusher broadcast, which drives live in-app
+    | UI for a client that is already open.
+    |
+    | driver:
+    |   null     — no network calls, sends are logged and reported successful.
+    |              The default, so the app runs without Firebase credentials.
+    |   http_v1  — real delivery via the FCM HTTP v1 API. Requires a service
+    |              account JSON key; the legacy server-key API was shut down in
+    |              2024 and is not supported.
+    */
+    'fcm' => [
+        'driver' => env('FCM_DRIVER', 'null'),
+
+        // Absolute path to the Firebase service-account JSON key. Keep it
+        // OUTSIDE version control — it grants send rights on the whole project.
+        'credentials' => env('FIREBASE_CREDENTIALS', storage_path('app/firebase/service-account.json')),
+
+        // Optional: overrides project_id from the key file.
+        'project_id' => env('FIREBASE_PROJECT_ID'),
+
+        'queue' => env('FCM_QUEUE', 'notifications'),
+        'timeout' => (int) env('FCM_TIMEOUT', 10),
+
+        // Android 8+ requires a notification channel id for anything to appear;
+        // the mobile app must create a channel with this exact id.
+        'android_channel_id' => env('FCM_ANDROID_CHANNEL_ID', 'assab_default'),
+
+        // How long FCM holds a message for an offline device.
+        'ttl_seconds' => (int) env('FCM_TTL_SECONDS', 86400),
+
+        // Also push to the same human's account in the other world (dashboard
+        // vs legacy mobile) via the ASAB identity map.
+        'mirror_linked_identities' => (bool) env('FCM_MIRROR_LINKED_IDENTITIES', true),
+
+        // Log suppressed sends under the null driver. Turn off in noisy envs.
+        'log_null_driver' => (bool) env('FCM_LOG_NULL_DRIVER', true),
+    ],
+
+    'device_tokens' => [
+        // Tokens untouched for this long are deleted by
+        // `notification:prune-device-tokens`. FCM itself expires a registration
+        // after ~270 days of app inactivity.
+        'stale_after_days' => (int) env('FCM_STALE_TOKEN_DAYS', 180),
+    ],
 ];

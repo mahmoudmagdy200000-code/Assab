@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Modules\Notification\Traits\HasDeviceTokens;
 
 /**
  * The unified ASAB platform user (6 roles: admin, head, accountant, branch,
@@ -15,7 +16,7 @@ use Laravel\Sanctum\HasApiTokens;
  */
 class AsabUser extends Authenticatable
 {
-    use HasApiTokens, HasUuids, Notifiable, SoftDeletes;
+    use HasApiTokens, HasDeviceTokens, HasUuids, Notifiable, SoftDeletes;
 
     protected $table = 'asab_users';
 

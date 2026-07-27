@@ -78,24 +78,24 @@ class NotificationPreferenceRepository implements NotificationPreferenceReposito
         return [
             // Operational notifications - all enabled
             NotificationType::SHIFT_START_REMINDER->value => [
-                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::EMAIL->value],
+                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::PUSH->value, NotificationChannel::EMAIL->value],
                 'priority_level' => NotificationPriority::MEDIUM->value,
                 'enabled' => true,
             ],
             NotificationType::SHIFT_HANDOVER_PENDING->value => [
-                'channels' => [NotificationChannel::IN_APP->value],
+                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::PUSH->value],
                 'priority_level' => NotificationPriority::HIGH->value,
                 'enabled' => true,
             ],
             // Financial alerts - high priority only
             NotificationType::CASH_VARIANCE_HIGH->value => [
-                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::EMAIL->value],
+                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::PUSH->value, NotificationChannel::EMAIL->value],
                 'priority_level' => NotificationPriority::HIGH->value,
                 'enabled' => true,
             ],
             // Email summaries
             NotificationType::EXPENSE_SUBMITTED->value => [
-                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::EMAIL->value],
+                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::PUSH->value, NotificationChannel::EMAIL->value],
                 'priority_level' => NotificationPriority::MEDIUM->value,
                 'enabled' => true,
             ],
@@ -109,17 +109,17 @@ class NotificationPreferenceRepository implements NotificationPreferenceReposito
     {
         return [
             NotificationType::SHIFT_START_REMINDER->value => [
-                'channels' => [NotificationChannel::IN_APP->value],
+                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::PUSH->value],
                 'priority_level' => NotificationPriority::MEDIUM->value,
                 'enabled' => true,
             ],
             NotificationType::SHIFT_HANDOVER_REQUEST->value => [
-                'channels' => [NotificationChannel::IN_APP->value],
+                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::PUSH->value],
                 'priority_level' => NotificationPriority::HIGH->value,
                 'enabled' => true,
             ],
             NotificationType::CASH_VARIANCE_HIGH->value => [
-                'channels' => [NotificationChannel::IN_APP->value],
+                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::PUSH->value],
                 'priority_level' => NotificationPriority::HIGH->value,
                 'enabled' => true,
             ],
@@ -133,12 +133,12 @@ class NotificationPreferenceRepository implements NotificationPreferenceReposito
     {
         return [
             NotificationType::ORDER_CREATED->value => [
-                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::EMAIL->value],
+                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::PUSH->value, NotificationChannel::EMAIL->value],
                 'priority_level' => NotificationPriority::MEDIUM->value,
                 'enabled' => true,
             ],
             NotificationType::ORDER_STATUS_CHANGED->value => [
-                'channels' => [NotificationChannel::IN_APP->value],
+                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::PUSH->value],
                 'priority_level' => NotificationPriority::MEDIUM->value,
                 'enabled' => true,
             ],
@@ -152,12 +152,12 @@ class NotificationPreferenceRepository implements NotificationPreferenceReposito
     {
         return [
             NotificationType::EXPENSE_SUBMITTED->value => [
-                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::EMAIL->value],
+                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::PUSH->value, NotificationChannel::EMAIL->value],
                 'priority_level' => NotificationPriority::HIGH->value,
                 'enabled' => true,
             ],
             NotificationType::COMPLIANCE_VIOLATION->value => [
-                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::EMAIL->value, NotificationChannel::SMS->value],
+                'channels' => [NotificationChannel::IN_APP->value, NotificationChannel::PUSH->value, NotificationChannel::EMAIL->value, NotificationChannel::SMS->value],
                 'priority_level' => NotificationPriority::CRITICAL->value,
                 'enabled' => true,
             ],

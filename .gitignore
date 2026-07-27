@@ -18,6 +18,9 @@
 /public/storage
 /storage/*.key
 /storage/pail
+# Firebase service-account key: grants send rights on the whole FCM project.
+/storage/app/firebase
+*service-account*.json
 /vendor
 Homestead.json
 Homestead.yaml

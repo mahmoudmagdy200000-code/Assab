@@ -34,7 +34,9 @@ class NotificationPreferenceController extends BaseController
         $validated = $request->validate([
             'notification_type' => 'required|string',
             'channels' => 'required|array',
-            'channels.*' => 'string|in:app,email,sms',
+            // `push` is FCM device push. It was missing from this list, so the
+            // channel could never be enabled through the API.
+            'channels.*' => 'string|in:app,email,sms,push',
             'priority_level' => 'required|string|in:low,medium,high,critical',
             'enabled' => 'boolean',
         ]);
@@ -60,7 +62,9 @@ class NotificationPreferenceController extends BaseController
     {
         $validated = $request->validate([
             'channels' => 'sometimes|array',
-            'channels.*' => 'string|in:app,email,sms',
+            // `push` is FCM device push. It was missing from this list, so the
+            // channel could never be enabled through the API.
+            'channels.*' => 'string|in:app,email,sms,push',
             'priority_level' => 'sometimes|string|in:low,medium,high,critical',
             'enabled' => 'sometimes|boolean',
         ]);
@@ -73,7 +77,8 @@ class NotificationPreferenceController extends BaseController
             return $this->errorResponse('Unauthorized', 403);
         }
 
-        $type = NotificationType::from($preference->notification_type);
+        // Already cast to the enum by the model; from() would reject an instance.
+        $type = $preference->notification_type;
 
         $this->preferenceService->updatePreference(
             $user,

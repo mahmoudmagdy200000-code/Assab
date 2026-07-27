@@ -16,12 +16,13 @@ use Modules\BranchManagers\Database\Factories\BranchManagerFactory as FactoriesB
 use Modules\BranchManagers\Notifications\ResetPasswordNotification;
 use Modules\Cashier\Models\Cashier;
 use Modules\Expense\Models\Expense;
+use Modules\Notification\Traits\HasDeviceTokens;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 
 class BranchManager extends Authenticatable
 {
-    use HasApiTokens, HasFactory, HasUuids, Notifiable , SoftDeletes;
+    use HasApiTokens, HasDeviceTokens, HasFactory, HasUuids, Notifiable , SoftDeletes;
 
     protected $fillable = [
         'name',

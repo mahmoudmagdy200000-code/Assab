@@ -7,10 +7,11 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Modules\Notification\Traits\HasDeviceTokens;
 
 class BrandOwner extends Authenticatable
 {
-    use HasApiTokens, HasUuids, Notifiable, SoftDeletes;
+    use HasApiTokens, HasDeviceTokens, HasUuids, Notifiable, SoftDeletes;
 
     protected $table = 'brand_owners';
 

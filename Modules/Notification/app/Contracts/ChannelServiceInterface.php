@@ -2,19 +2,17 @@
 
 namespace Modules\Notification\Contracts;
 
-use Illuminate\Notifications\Notifiable;
+use Modules\Notification\DataTransferObjects\NotificationEnvelope;
 use Modules\Notification\Enums\NotificationChannel;
 
 interface ChannelServiceInterface
 {
     /**
-     * Send notification via specific channel
+     * Deliver an envelope over one channel.
+     *
+     * Implementations return false on a delivery failure and must not throw for
+     * recipient-level problems (missing address, rate limit, dead token) —
+     * callers rely on the boolean to write the delivery log.
      */
-    public function send(
-        Notifiable $notifiable,
-        NotificationChannel $channel,
-        string $title,
-        string $message,
-        array $data = []
-    ): bool;
+    public function send(NotificationEnvelope $envelope, NotificationChannel $channel): bool;
 }

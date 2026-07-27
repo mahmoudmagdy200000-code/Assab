@@ -15,11 +15,12 @@ use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Database\Factories\CashierFactory;
 use Modules\Cashier\Notifications\CashierActivationNotification;
+use Modules\Notification\Traits\HasDeviceTokens;
 use Modules\Shift\Models\CashierShift;
 
 class Cashier extends Authenticatable
 {
-    use HasApiTokens, HasFactory, HasUuids, Notifiable, SoftDeletes;
+    use HasApiTokens, HasDeviceTokens, HasFactory, HasUuids, Notifiable, SoftDeletes;
 
     protected $fillable = [
         'name',

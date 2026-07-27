@@ -2,25 +2,38 @@
 
 namespace Modules\Notification\Services;
 
-use Illuminate\Notifications\Notifiable;
 use Modules\Notification\Enums\NotificationType;
 use Modules\Notification\Repositories\NotificationPreferenceRepositoryInterface;
 
+/**
+ * Notification preference management.
+ *
+ * Recipients are typed `object`, not `Notifiable`: the latter is a *trait*, and
+ * a trait used in a parameter type declaration can never be satisfied — every
+ * call through this service raised a TypeError before reaching the repository.
+ */
 class NotificationPreferenceService
 {
     public function __construct(
-        private NotificationPreferenceRepositoryInterface $repository
+        private readonly NotificationPreferenceRepositoryInterface $repository
     ) {}
 
     /**
-     * Initialize default preferences for a user based on role
+     * Seed a new user's preferences from their role defaults.
      */
-    public function initializeDefaults(Notifiable $notifiable, string $role): void
+    public function initializeDefaults(object $notifiable, string $role): void
     {
         $defaults = $this->repository->getDefaultPreferencesForRole($role);
 
         foreach ($defaults as $typeValue => $preference) {
-            $type = NotificationType::from($typeValue);
+            $type = NotificationType::tryFrom($typeValue);
+
+            // A defaults table that outlived a renamed type must not take the
+            // whole seeding run down with it.
+            if ($type === null) {
+                continue;
+            }
+
             $this->repository->createOrUpdate(
                 $notifiable,
                 $type,
@@ -32,10 +45,10 @@ class NotificationPreferenceService
     }
 
     /**
-     * Update user preference
+     * @param  array<int, string>  $channels
      */
     public function updatePreference(
-        Notifiable $notifiable,
+        object $notifiable,
         NotificationType $type,
         array $channels,
         string $priorityLevel,
@@ -51,9 +64,9 @@ class NotificationPreferenceService
     }
 
     /**
-     * Get all preferences for user
+     * @return array<string, mixed>
      */
-    public function getUserPreferences(Notifiable $notifiable): array
+    public function getUserPreferences(object $notifiable): array
     {
         return $this->repository->getAllPreferences($notifiable);
     }

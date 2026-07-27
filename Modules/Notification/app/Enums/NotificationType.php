@@ -53,6 +53,26 @@ enum NotificationType: string
     case ORDER_VARIANCE_DETECTED = 'order_variance_detected';
     case GOODS_RECEIVED = 'goods_received';
     case RETURN_ORDER_SUBMITTED = 'return_order_submitted';
+    case RETURN_ORDER_APPROVED = 'return_order_approved';
+
+    // Account lifecycle (Cashier / BranchManagers modules)
+    case CASHIER_ACCOUNT_CREATED = 'cashier_account_created';
+    case CASHIER_ACCOUNT_ACTIVATED = 'cashier_account_activated';
+    case CASHIER_ACCOUNT_DEACTIVATED = 'cashier_account_deactivated';
+    case BRANCH_MANAGER_ACCOUNT_CREATED = 'branch_manager_account_created';
+    case BRANCH_MANAGER_SUSPENDED = 'branch_manager_suspended';
+
+    // ASAB dashboard approval chain (Admin module)
+    case OPERATION_FINAL_APPROVED = 'operation_final_approved';
+    case OPERATION_REJECTED = 'operation_rejected';
+
+    // Fixed asset handovers
+    case ASSET_HANDOVER_STARTED = 'asset_handover_started';
+    case ASSET_HANDOVER_SIGNATURE_REQUIRED = 'asset_handover_signature_required';
+    case ASSET_HANDOVER_COMPLETED = 'asset_handover_completed';
+
+    // Inventory
+    case INVENTORY_SESSION_UPDATED = 'inventory_session_updated';
 
     public function category(): NotificationCategory
     {
@@ -96,7 +116,21 @@ enum NotificationType: string
             self::ORDER_STATUS_CHANGED,
             self::ORDER_VARIANCE_DETECTED,
             self::GOODS_RECEIVED,
-            self::RETURN_ORDER_SUBMITTED => NotificationCategory::OPERATIONAL,
+            self::RETURN_ORDER_SUBMITTED,
+            self::RETURN_ORDER_APPROVED,
+            self::ASSET_HANDOVER_STARTED,
+            self::ASSET_HANDOVER_SIGNATURE_REQUIRED,
+            self::ASSET_HANDOVER_COMPLETED,
+            self::INVENTORY_SESSION_UPDATED => NotificationCategory::OPERATIONAL,
+
+            self::CASHIER_ACCOUNT_CREATED,
+            self::CASHIER_ACCOUNT_ACTIVATED,
+            self::CASHIER_ACCOUNT_DEACTIVATED,
+            self::BRANCH_MANAGER_ACCOUNT_CREATED,
+            self::BRANCH_MANAGER_SUSPENDED => NotificationCategory::SYSTEM,
+
+            self::OPERATION_FINAL_APPROVED,
+            self::OPERATION_REJECTED => NotificationCategory::FINANCIAL,
         };
     }
 
@@ -108,12 +142,17 @@ enum NotificationType: string
             self::CASH_VARIANCE_HIGH,
             self::EXPENSE_LIMIT_EXCEEDED,
             self::SHIFT_SALES_REJECTED,
+            self::BRANCH_MANAGER_SUSPENDED,
             self::COMPLIANCE_VIOLATION => NotificationPriority::HIGH,
 
             self::SHIFT_HANDOVER_APPROVAL_REQUIRED,
             self::SHIFT_HANDOVER_VARIANCE,
             self::CUSTODY_LOW_BALANCE,
-            self::ORDER_VARIANCE_DETECTED => NotificationPriority::MEDIUM,
+            self::ORDER_VARIANCE_DETECTED,
+            self::OPERATION_REJECTED,
+            self::ASSET_HANDOVER_SIGNATURE_REQUIRED,
+            self::CASHIER_ACCOUNT_CREATED,
+            self::BRANCH_MANAGER_ACCOUNT_CREATED => NotificationPriority::MEDIUM,
 
             default => NotificationPriority::LOW,
         };
@@ -158,6 +197,32 @@ enum NotificationType: string
             self::ORDER_VARIANCE_DETECTED => 'Order Variance Detected',
             self::GOODS_RECEIVED => 'Goods Received',
             self::RETURN_ORDER_SUBMITTED => 'Return Order Submitted',
+            self::RETURN_ORDER_APPROVED => 'Return Order Approved',
+            self::CASHIER_ACCOUNT_CREATED => 'Cashier Account Created',
+            self::CASHIER_ACCOUNT_ACTIVATED => 'Cashier Account Activated',
+            self::CASHIER_ACCOUNT_DEACTIVATED => 'Cashier Account Deactivated',
+            self::BRANCH_MANAGER_ACCOUNT_CREATED => 'Branch Manager Account Created',
+            self::BRANCH_MANAGER_SUSPENDED => 'Branch Manager Suspended',
+            self::OPERATION_FINAL_APPROVED => 'Operation Approved',
+            self::OPERATION_REJECTED => 'Operation Rejected',
+            self::ASSET_HANDOVER_STARTED => 'Asset Handover Started',
+            self::ASSET_HANDOVER_SIGNATURE_REQUIRED => 'Signature Required',
+            self::ASSET_HANDOVER_COMPLETED => 'Asset Handover Completed',
+            self::INVENTORY_SESSION_UPDATED => 'Inventory Session Updated',
+        };
+    }
+
+    /**
+     * Types a user may not opt out of. Compliance and account-security events
+     * must reach the person regardless of their preference row.
+     */
+    public function isMandatory(): bool
+    {
+        return match ($this) {
+            self::COMPLIANCE_VIOLATION,
+            self::BRANCH_MANAGER_SUSPENDED,
+            self::CASHIER_ACCOUNT_DEACTIVATED => true,
+            default => false,
         };
     }
 }

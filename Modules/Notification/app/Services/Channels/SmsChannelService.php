@@ -2,63 +2,59 @@
 
 namespace Modules\Notification\Services\Channels;
 
-use Illuminate\Notifications\Notifiable;
-use Illuminate\Support\Facades\Log;
+use Modules\Notification\DataTransferObjects\NotificationEnvelope;
 use Modules\Notification\Models\SmsRateLimit;
 use Modules\Notification\Services\SmsProviders\SmsProviderInterface;
+use Psr\Log\LoggerInterface;
 
 class SmsChannelService
 {
-    private const MAX_SMS_PER_DAY = 10;
-
     public function __construct(
-        private SmsProviderInterface $smsProvider
+        private readonly SmsProviderInterface $smsProvider,
+        private readonly LoggerInterface $logger,
     ) {}
 
-    /**
-     * Send SMS notification
-     */
-    public function send(Notifiable $notifiable, string $title, string $message, array $data = []): bool
+    public function send(NotificationEnvelope $envelope): bool
     {
+        $notifiable = $envelope->notifiable;
+        $phoneNumber = null;
+
         try {
-            // Check rate limit
-            if (! $this->checkRateLimit($notifiable)) {
-                Log::warning('SMS rate limit exceeded', [
-                    'notifiable_id' => $notifiable->id ?? null,
+            if (! $this->checkRateLimit($envelope)) {
+                $this->logger->warning('SMS rate limit exceeded', [
+                    'notifiable_type' => $envelope->notifiableType(),
+                    'notifiable_id' => $envelope->notifiableId(),
                 ]);
 
                 return false;
             }
 
-            if (! method_exists($notifiable, 'routeNotificationForSms')) {
-                Log::warning('Notifiable does not have SMS route', [
-                    'notifiable_id' => $notifiable->id ?? null,
+            if (method_exists($notifiable, 'routeNotificationForSms')) {
+                $phoneNumber = $notifiable->routeNotificationForSms();
+            } elseif (isset($notifiable->phone)) {
+                $phoneNumber = $notifiable->phone;
+            }
+
+            if (! is_string($phoneNumber) || $phoneNumber === '') {
+                $this->logger->warning('No phone number found for notifiable', [
+                    'notifiable_type' => $envelope->notifiableType(),
+                    'notifiable_id' => $envelope->notifiableId(),
                 ]);
 
                 return false;
             }
 
-            $phoneNumber = $notifiable->routeNotificationForSms();
-
-            if (! $phoneNumber) {
-                Log::warning('No phone number found for notifiable', [
-                    'notifiable_id' => $notifiable->id ?? null,
-                ]);
-
-                return false;
-            }
-
-            // Send SMS
-            $success = $this->smsProvider->send($phoneNumber, $message);
+            $success = $this->smsProvider->send($phoneNumber, $envelope->message);
 
             if ($success) {
-                $this->incrementRateLimit($notifiable);
+                $this->incrementRateLimit($envelope);
             }
 
             return $success;
-        } catch (\Exception $e) {
-            Log::error('SMS notification failed', [
-                'phone' => $phoneNumber ?? null,
+        } catch (\Illuminate\Http\Client\ConnectionException|\Illuminate\Database\QueryException $e) {
+            $this->logger->error('SMS notification failed', [
+                'notifiable_type' => $envelope->notifiableType(),
+                'type' => $envelope->type->value,
                 'error' => $e->getMessage(),
             ]);
 
@@ -66,37 +62,27 @@ class SmsChannelService
         }
     }
 
-    /**
-     * Check if SMS can be sent (rate limit)
-     */
-    private function checkRateLimit(Notifiable $notifiable): bool
+    private function checkRateLimit(NotificationEnvelope $envelope): bool
     {
-        $rateLimit = SmsRateLimit::firstOrCreate(
-            [
-                'notifiable_type' => get_class($notifiable),
-                'notifiable_id' => $notifiable->id,
-                'date' => now()->toDateString(),
-            ],
-            ['count' => 0]
+        return $this->rateLimitRow($envelope)->canSend(
+            (int) config('notification.sms.max_per_day', 10)
         );
-
-        return $rateLimit->canSend(self::MAX_SMS_PER_DAY);
     }
 
-    /**
-     * Increment SMS rate limit counter
-     */
-    private function incrementRateLimit(Notifiable $notifiable): void
+    private function incrementRateLimit(NotificationEnvelope $envelope): void
     {
-        $rateLimit = SmsRateLimit::firstOrCreate(
+        $this->rateLimitRow($envelope)->incrementCount();
+    }
+
+    private function rateLimitRow(NotificationEnvelope $envelope): SmsRateLimit
+    {
+        return SmsRateLimit::firstOrCreate(
             [
-                'notifiable_type' => get_class($notifiable),
-                'notifiable_id' => $notifiable->id,
+                'notifiable_type' => $envelope->notifiableType(),
+                'notifiable_id' => $envelope->notifiableId(),
                 'date' => now()->toDateString(),
             ],
             ['count' => 0]
         );
-
-        $rateLimit->incrementCount();
     }
 }

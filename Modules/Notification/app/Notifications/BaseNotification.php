@@ -5,20 +5,38 @@ namespace Modules\Notification\Notifications;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
+use Modules\Notification\DataTransferObjects\FcmMessage;
 use Modules\Notification\Enums\NotificationChannel;
 use Modules\Notification\Enums\NotificationPriority;
 use Modules\Notification\Enums\NotificationType;
 use Modules\Notification\Events\NotificationBroadcasted;
+use Modules\Notification\Services\Fcm\FcmMessageFactory;
+use Modules\Notification\Services\NotificationCopyResolver;
 
+/**
+ * Laravel notification wrapper around a NotificationType.
+ *
+ * Two ways in:
+ *  - NotificationService::send() — preferences, delivery logs, identity
+ *    mirroring. This class then only names the row's `type` column.
+ *  - $user->notify(new BaseNotification(...)) — direct, for callers that want
+ *    the plain Laravel path. `via()` then includes `fcm` when the push channel
+ *    is requested.
+ *
+ * Copy is resolved through NotificationCopyResolver so every channel and both
+ * entry points render the same localized strings.
+ */
 class BaseNotification extends Notification implements ShouldQueue
 {
     use Queueable;
 
-    /**
-     * Whether this notification should be broadcast
-     */
-    protected bool $shouldBroadcast = false;
+    /** @var array<int, string> */
+    protected array $channels;
 
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  array<int, string>  $channels
+     */
     public function __construct(
         public NotificationType $type,
         public array $data = [],
@@ -26,67 +44,45 @@ class BaseNotification extends Notification implements ShouldQueue
         array $channels = []
     ) {
         $this->priority = $priority ?? $this->type->defaultPriority();
-        $this->shouldBroadcast = in_array(NotificationChannel::PUSH->value, $channels);
+        $this->channels = $channels;
     }
 
     /**
-     * Get the notification's delivery channels.
+     * @return array<int, string>
      */
     public function via($notifiable): array
     {
-        $channels = ['database'];
+        $via = ['database'];
 
-        // Broadcasting is handled manually after notification is sent
-        // to avoid always broadcasting when ShouldBroadcast is implemented
-
-        return $channels;
-    }
-
-    /**
-     * Broadcast the notification manually via Pusher
-     * Called after notification is sent if push channel is enabled
-     */
-    public function broadcastTo($notifiable): void
-    {
-        if (! $this->shouldBroadcast) {
-            return;
+        if ($this->wantsPush() && method_exists($notifiable, 'deviceTokens')) {
+            $via[] = 'fcm';
         }
 
-        // Get notification ID from database
-        $dbNotification = $notifiable->notifications()->latest()->first();
-
-        event(new NotificationBroadcasted(
-            $notifiable,
-            $this->getBroadcastData($dbNotification?->id)
-        ));
+        return $via;
     }
 
-    /**
-     * Get the data to broadcast.
-     */
-    protected function getBroadcastData(?string $notificationId = null): array
+    public function toFcm($notifiable): FcmMessage
     {
-        return [
-            'id' => $notificationId,
-            'type' => $this->type->value,
-            'title' => $this->getTitle(),
-            'message' => $this->getMessage(),
-            'priority' => $this->priority->value,
-            'category' => $this->type->category()->value,
-            'data' => $this->data,
-            'created_at' => now()->toIso8601String(),
-        ];
+        return $this->fcmFactory()->make(
+            $this->type,
+            $this->data,
+            $this->priority,
+            $this->localeFor($notifiable),
+            $this->id,
+        );
     }
 
     /**
-     * Get the array representation of the notification.
+     * @return array<string, mixed>
      */
     public function toArray($notifiable): array
     {
+        $locale = $this->localeFor($notifiable);
+
         return [
             'type' => $this->type->value,
-            'title' => $this->getTitle(),
-            'message' => $this->getMessage(),
+            'title' => $this->copy()->title($this->type, $this->data, $locale),
+            'message' => $this->copy()->body($this->type, $this->data, $locale),
             'priority' => $this->priority->value,
             'category' => $this->type->category()->value,
             'data' => $this->data,
@@ -95,42 +91,50 @@ class BaseNotification extends Notification implements ShouldQueue
     }
 
     /**
-     * Get notification title
+     * Pusher broadcast for an open client. Retained for callers that drive the
+     * notification directly; NotificationService broadcasts on its own.
      */
-    protected function getTitle(): string
+    public function broadcastTo($notifiable): void
     {
-        return mb_substr($this->type->label(), 0, 60);
+        if (! $this->wantsPush()) {
+            return;
+        }
+
+        $locale = $this->localeFor($notifiable);
+
+        event(new NotificationBroadcasted($notifiable, [
+            'id' => $this->id,
+            'type' => $this->type->value,
+            'title' => $this->copy()->title($this->type, $this->data, $locale),
+            'message' => $this->copy()->body($this->type, $this->data, $locale),
+            'priority' => $this->priority->value,
+            'category' => $this->type->category()->value,
+            'data' => $this->data,
+            'created_at' => now()->toIso8601String(),
+        ]));
+    }
+
+    private function wantsPush(): bool
+    {
+        return in_array(NotificationChannel::PUSH->value, $this->channels, true);
+    }
+
+    private function localeFor(object $notifiable): string
+    {
+        return $this->copy()->localeFor($notifiable);
     }
 
     /**
-     * Get notification message
+     * Resolved lazily rather than injected: notifications are serialised onto
+     * the queue, and a constructor-injected service would be serialised with them.
      */
-    protected function getMessage(): string
+    private function copy(): NotificationCopyResolver
     {
-        $message = $this->generateMessage();
-
-        return mb_substr($message, 0, 120);
+        return app(NotificationCopyResolver::class);
     }
 
-    /**
-     * Generate message based on type and data
-     */
-    protected function generateMessage(): string
+    private function fcmFactory(): FcmMessageFactory
     {
-        return match ($this->type) {
-            NotificationType::SHIFT_START_REMINDER => 'Your shift starts in 15 minutes',
-            NotificationType::SHIFT_START_OVERDUE => 'Your shift start is overdue',
-            NotificationType::SHIFT_END_REMINDER => 'Your shift ends in 30 minutes',
-            NotificationType::SHIFT_HANDOVER_PENDING => 'You have a pending handover',
-            NotificationType::SHIFT_HANDOVER_APPROVED => 'Your handover has been approved',
-            NotificationType::SHIFT_HANDOVER_REJECTED => 'Your handover has been rejected: '.($this->data['reason'] ?? 'No reason provided'),
-            NotificationType::SHIFT_SALES_REJECTED => 'Sales sheet returned for review: '.($this->data['reason'] ?? 'No reason provided'),
-            NotificationType::EXPENSE_SUBMITTED => 'New expense submitted for approval',
-            NotificationType::EXPENSE_APPROVED => 'Your expense has been approved',
-            NotificationType::EXPENSE_REJECTED => 'Your expense has been rejected',
-            NotificationType::CUSTODY_REQUEST_APPROVED => 'Your custody request has been approved',
-            NotificationType::CUSTODY_LOW_BALANCE => 'Your custody balance is low',
-            default => $this->type->label(),
-        };
+        return app(FcmMessageFactory::class);
     }
 }
