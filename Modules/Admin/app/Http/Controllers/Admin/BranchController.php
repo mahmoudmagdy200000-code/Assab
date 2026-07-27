@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Services\NotificationService;
@@ -32,6 +33,80 @@ class BranchController extends AsabController
 
             return $this->listResponse($branches->map(fn ($b) => $this->present($b))->all());
         });
+    }
+
+    /**
+     * GET /admin/brands/{brandId}/branches?linked=false|true|all
+     * (alias: GET /admin/brands/{brandId}/unlinked-branches)
+     *
+     * The brand tree walks restaurants, so a branch with `asab_restaurant_id`
+     * NULL appears NOWHERE in it — including on the screen that warns the
+     * catalog reached zero branches (BE-fixes 2026-07-26 §6). With no id in any
+     * response, the «اربط الفروع» action had nothing to PATCH; this is the
+     * missing read side of that repair path.
+     *
+     * `linked=false` returns both kinds of candidate:
+     *  - `linkage=brand`  → brand column stamped, restaurant missing
+     *  - `linkage=orphan` → no hierarchy columns at all (pre-dashboard / mobile)
+     *
+     * An orphan carries no brand, so it is offered to every brand whose company
+     * matches (or that has no company stamped either) — that IS the repair. The
+     * link itself resolves all three columns from the restaurant, see update().
+     */
+    public function brandBranches(Request $request, string $brandId): JsonResponse
+    {
+        return $this->run(function () use ($request, $brandId) {
+            $brand = AsabBrand::withoutGlobalScope('tenant')->findOrFail($brandId);
+            $this->assertBrandAssigned($brand->id);
+
+            $filter = strtolower((string) $request->input('linked', 'all'));
+            $filter = in_array($filter, ['false', '0', 'no'], true) ? 'false'
+                : (in_array($filter, ['true', '1', 'yes'], true) ? 'true' : 'all');
+
+            $restaurants = AsabRestaurant::withoutGlobalScope('tenant')
+                ->where('brand_id', $brand->id)->orderBy('name')->pluck('name', 'id');
+            $restaurantIds = $restaurants->keys()->all();
+
+            $q = Branch::query();
+            if ($filter === 'true') {
+                $q->whereIn('asab_restaurant_id', $restaurantIds);
+            } elseif ($filter === 'false') {
+                $q->whereNull('asab_restaurant_id')->where(fn ($w) => $w
+                    ->where('asab_brand_id', $brand->id)
+                    ->orWhere(fn ($o) => $o->whereNull('asab_brand_id')->where(fn ($c) => $c
+                        ->whereNull('asab_company_id')
+                        ->when($brand->company_id, fn ($x) => $x->orWhere('asab_company_id', $brand->company_id))
+                    ))
+                );
+            } else {
+                $q->where(fn ($w) => $w
+                    ->whereIn('asab_restaurant_id', $restaurantIds)
+                    ->orWhere('asab_brand_id', $brand->id)
+                );
+            }
+
+            // Capped: this feeds a picker, never a report.
+            $branches = $q->orderBy('name')->limit(500)->get();
+
+            $rows = $branches->map(fn (Branch $b) => $this->present($b) + [
+                'restaurantName' => $restaurants[$b->asab_restaurant_id] ?? null,
+                'linkage' => $b->asab_restaurant_id ? 'linked' : ($b->asab_brand_id ? 'brand' : 'orphan'),
+            ])->values()->all();
+
+            return $this->listResponse($rows, [
+                'brandId' => $brand->id,
+                'linked' => $filter,
+                'total' => count($rows),
+                // The picker's other half — no second call to build the dropdown.
+                'restaurants' => $restaurants->map(fn ($name, $id) => ['id' => $id, 'name' => $name])->values()->all(),
+            ]);
+        });
+    }
+
+    /** GET /admin/brands/{brandId}/unlinked-branches — alias of brandBranches?linked=false. */
+    public function brandUnlinkedBranches(Request $request, string $brandId): JsonResponse
+    {
+        return $this->brandBranches($request->merge(['linked' => 'false']), $brandId);
     }
 
     public function store(Request $request, string $restaurantId): JsonResponse

@@ -145,6 +145,11 @@ Route::prefix('v1')->group(function () {
                 Route::patch('brands/{id}', [BrandController::class, 'update']);
                 Route::delete('brands/{id}', [BrandController::class, 'destroy']);
                 Route::post('brands/{brandId}/restaurants', [RestaurantController::class, 'store']);
+                // Linkage repair reads (FE 2026-07-26): the tree only walks
+                // restaurants, so branches with a NULL restaurant_id had no id
+                // anywhere in the API and could not be PATCHed into place.
+                Route::get('brands/{brandId}/branches', [BranchController::class, 'brandBranches']);
+                Route::get('brands/{brandId}/unlinked-branches', [BranchController::class, 'brandUnlinkedBranches']);
                 Route::post('brands/{brandId}/auto-reminder', [BrandController::class, 'autoReminder']);
                 Route::post('brands/{brandId}/subscription/renew', [BrandController::class, 'renewSubscription']);
                 Route::post('brands/{brandId}/subscription/activate', [BrandController::class, 'activateSubscription']);

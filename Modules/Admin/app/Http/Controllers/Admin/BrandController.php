@@ -300,9 +300,19 @@ class BrandController extends AsabController
             $restaurants = AsabRestaurant::where('brand_id', $b->id)->orderBy('name')->get();
 
             // One query for all branches under this brand's restaurants (no per-row N+1).
-            $branchesByRestaurant = Branch::whereIn('asab_restaurant_id', $restaurants->pluck('id'))
-                ->orderBy('name')->get(['id', 'name', 'manager', 'asab_restaurant_id'])
-                ->groupBy('asab_restaurant_id');
+            $linkedBranches = Branch::whereIn('asab_restaurant_id', $restaurants->pluck('id'))
+                ->orderBy('name')->get(['id', 'name', 'manager', 'asab_restaurant_id']);
+            $branchesByRestaurant = $linkedBranches->groupBy('asab_restaurant_id');
+
+            // Branches stamped with this brand but no restaurant hang off the
+            // tree entirely (BE-fixes 2026-07-26 §6). Surfaced here so the card's
+            // «اربط الفروع» action has ids to PATCH without a second call.
+            // Fully unlinked branches (no brand column either) can't be
+            // attributed to a brand — read those from
+            // GET /admin/brands/{id}/branches?linked=false.
+            $unlinkedBranches = Branch::whereNull('asab_restaurant_id')
+                ->where('asab_brand_id', $b->id)
+                ->orderBy('name')->limit(500)->get(['id', 'name', 'city']);
 
             // Real accountant coverage per restaurant (brand-scoped assignments),
             // computed once — the stored accountant_count is not maintained.
@@ -318,6 +328,14 @@ class BrandController extends AsabController
                     ->map(fn ($br) => ['id' => $br->id, 'name' => $br->name, 'manager' => $br->manager])
                     ->values()->all(),
             ])->all();
+
+            $data['unlinkedBranches'] = $unlinkedBranches
+                ->map(fn ($br) => ['id' => $br->id, 'name' => $br->name, 'city' => $br->city])
+                ->values()->all();
+            $data['branchCounts'] = [
+                'linked' => $linkedBranches->count(),
+                'unlinked' => $unlinkedBranches->count(),
+            ];
         }
 
         return $data;
