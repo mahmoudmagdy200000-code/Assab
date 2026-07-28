@@ -7,9 +7,13 @@ use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Services\AuthService;
+use Modules\Notification\Enums\DeviceApp;
+use Modules\Notification\Http\Concerns\RegistersDeviceTokens;
 
 class AuthController extends AsabController
 {
+    use RegistersDeviceTokens;
+
     public function __construct(private readonly AuthService $auth) {}
 
     public function login(Request $request): JsonResponse
@@ -21,14 +25,30 @@ class AuthController extends AsabController
                 'code' => 'sometimes|nullable|string',
                 'twoFactorToken' => 'sometimes|nullable|string',
                 'rememberMe' => 'sometimes|boolean',
+                // Optional FCM device registration.
+                ...self::deviceTokenLoginRules(),
             ]);
 
-            return $this->ok($this->auth->login(
+            $result = $this->auth->login(
                 $data['email'] ?? '',
                 $data['password'] ?? '',
                 $data['code'] ?? null,
                 $data['twoFactorToken'] ?? null,
-            ));
+            );
+
+            // Only register once sign-in is actually complete. A 2FA challenge
+            // response carries no user, and binding a device to a half-finished
+            // login would push to whoever holds the phone before they prove
+            // possession of the second factor.
+            if (isset($result['user']['id'])) {
+                $this->registerLoginDevice(
+                    $request,
+                    AsabUser::query()->find($result['user']['id']),
+                    DeviceApp::DASHBOARD,
+                );
+            }
+
+            return $this->ok($result);
         });
     }
 
@@ -51,6 +71,10 @@ class AuthController extends AsabController
 
     public function logout(Request $request): JsonResponse
     {
+        // Release the device before the access token dies, or the client can no
+        // longer reach the device-token endpoint to clean up.
+        $this->revokeLoginDevice($request, $request->user());
+
         $token = $request->user()?->currentAccessToken();
         if ($token) {
             $token->delete();

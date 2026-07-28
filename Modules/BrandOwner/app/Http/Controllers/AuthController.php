@@ -6,6 +6,7 @@ use App\ApiResponse as ApiResponseTrait;
 use App\Services\FirstLoginActivationResolver;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\BrandOwner\Http\Requests\FirstLoginRequest;
 use Modules\BrandOwner\Http\Requests\ForgotPasswordRequest;
@@ -15,10 +16,11 @@ use Modules\BrandOwner\Http\Requests\ResetPasswordRequest;
 use Modules\BrandOwner\Http\Requests\VerifyOtpRequest;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\BrandOwner\Services\AuthService;
+use Modules\Notification\Http\Concerns\RegistersDeviceTokens;
 
 class AuthController extends Controller
 {
-    use ApiResponseTrait;
+    use ApiResponseTrait, RegistersDeviceTokens;
 
     protected AuthService $authService;
 
@@ -92,6 +94,10 @@ class AuthController extends Controller
 
             $owner = $result['owner'];
 
+            // Optional `fcm_token` in the body registers this device for push.
+            // Never fails the login.
+            $this->registerLoginDevice($request, $owner);
+
             return $this->successResponse(
                 'Login successful',
                 [
@@ -153,10 +159,15 @@ class AuthController extends Controller
         }
     }
 
-    public function logout(): JsonResponse
+    public function logout(Request $request): JsonResponse
     {
         try {
             $owner = auth('sanctum')->user();
+
+            // Release the handset before the access token dies, or the client
+            // can no longer reach the device-token endpoint to clean up.
+            $this->revokeLoginDevice($request, $owner);
+
             $this->authService->logout($owner);
 
             return $this->successResponse('Logout successful');

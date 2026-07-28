@@ -65,7 +65,10 @@ return [
     |              2024 and is not supported.
     */
     'fcm' => [
-        'driver' => env('FCM_DRIVER', 'null'),
+        // `?:` rather than an env() default: Laravel coerces the literal
+        // `FCM_DRIVER=null` in .env to PHP null, which would otherwise read as
+        // an unset driver everywhere downstream.
+        'driver' => env('FCM_DRIVER') ?: 'null',
 
         // Absolute path to the Firebase service-account JSON key. Keep it
         // OUTSIDE version control — it grants send rights on the whole project.

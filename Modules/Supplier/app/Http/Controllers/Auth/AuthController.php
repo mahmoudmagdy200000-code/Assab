@@ -6,6 +6,8 @@ use App\Http\Controllers\BaseController;
 use App\Services\FirstLoginActivationResolver;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Modules\Notification\Http\Concerns\RegistersDeviceTokens;
 use Modules\Supplier\Http\Requests\Auth\ChangePasswordRequest;
 use Modules\Supplier\Http\Requests\Auth\FirstLoginRequest;
 use Modules\Supplier\Http\Requests\Auth\LoginRequest;
@@ -15,6 +17,8 @@ use Modules\Supplier\Services\AuthService;
 
 class AuthController extends BaseController
 {
+    use RegistersDeviceTokens;
+
     public function __construct(
         private readonly AuthService $authService,
         private readonly FirstLoginActivationResolver $activation,
@@ -101,6 +105,10 @@ class AuthController extends BaseController
 
             $supplier = $result['supplier'];
 
+            // Optional `fcm_token` in the body registers this device for push.
+            // Never fails the login.
+            $this->registerLoginDevice($request, $supplier);
+
             return $this->successResponse([
                 'user' => [
                     'id' => $supplier->id,
@@ -120,12 +128,16 @@ class AuthController extends BaseController
     /**
      * Logout
      */
-    public function logout(): JsonResponse
+    public function logout(Request $request): JsonResponse
     {
         try {
             $supplier = auth('supplier')->user();
 
             if ($supplier) {
+                // Release the handset before the access token dies, or the
+                // client can no longer reach the device-token endpoint.
+                $this->revokeLoginDevice($request, $supplier);
+
                 $this->authService->logout($supplier);
             }
 

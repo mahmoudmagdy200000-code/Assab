@@ -7,6 +7,7 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Notifications\ChannelManager;
 use Illuminate\Support\ServiceProvider;
+use Modules\Notification\Console\Commands\FcmDoctorCommand;
 use Modules\Notification\Console\Commands\PruneDeviceTokensCommand;
 use Modules\Notification\Contracts\ChannelServiceInterface;
 use Modules\Notification\Contracts\FcmClientInterface;
@@ -49,6 +50,7 @@ class NotificationServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 PruneDeviceTokensCommand::class,
+                FcmDoctorCommand::class,
             ]);
         }
     }

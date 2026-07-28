@@ -8,9 +8,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Modules\Cashier\Http\Requests\Auth\LoginRequest;
 use Modules\Cashier\Models\Cashier;
+use Modules\Notification\Http\Concerns\RegistersDeviceTokens;
 
 class LoginController extends BaseController
 {
+    use RegistersDeviceTokens;
+
     /**
      * Handle cashier login (3.2.1.1)
      * Email/Phone and password. "Remember Me" extends token expiry.
@@ -52,6 +55,10 @@ class LoginController extends BaseController
             ? $cashier->createToken('cashier-token', ['*'], $expiresAt)->plainTextToken
             : $cashier->createToken('cashier-token')->plainTextToken;
 
+        // Optional `fcm_token` in the body makes this cashier push-addressable
+        // immediately. Never fails the login.
+        $this->registerLoginDevice($request, $cashier);
+
         return $this->successResponse([
             'user' => [
                 'id' => $cashier->id,
@@ -70,7 +77,14 @@ class LoginController extends BaseController
      */
     public function logout(Request $request): JsonResponse
     {
-        $request->user()->currentAccessToken()->delete();
+        // Release the handset first: after the access token is gone the client
+        // can no longer call the device-token endpoint to clean up itself.
+        $this->revokeLoginDevice($request, $request->user());
+
+        // Null-safe: currentAccessToken() is absent for a guard that did not
+        // authenticate via a personal access token, and a 500 on logout would
+        // strand the client holding a token it believes is still live.
+        $request->user()?->currentAccessToken()?->delete();
 
         return $this->successResponse(null, 'Logged out successfully');
     }

@@ -64,10 +64,66 @@ deletes tokens unused for `FCM_STALE_TOKEN_DAYS` (default 180). Dead tokens are
 
 ## 3. Client integration
 
-### 3.1 Register the device
+### 3.0 Register at login (recommended)
 
-Call this **on every app launch** and **on every FCM token refresh**. It is
-idempotent.
+Every login endpoint accepts the device fields directly, so a user is
+push-addressable from their first authenticated moment — no second call needed:
+
+```http
+POST /api/v1/cashier/auth/login
+
+{
+  "identifier": "cashier@example.sa",
+  "password": "…",
+
+  "fcm_token": "<FCM registration token>",   // optional
+  "platform": "android",                     // optional, defaults to android
+  "app": "mobile",                           // optional, per-endpoint default
+  "device_id": "a1b2c3d4",                   // optional but recommended
+  "device_name": "Galaxy S23",               // optional
+  "app_version": "2.4.1"                     // optional
+}
+```
+
+Supported on all six login endpoints:
+
+| Endpoint | Account | `app` default |
+|---|---|---|
+| `POST /api/v1/auth/login` | ASAB dashboard user | `dashboard` |
+| `POST /api/v1/cashier/auth/login` | Cashier | `mobile` |
+| `POST /api/v1/branch-manager/auth/login` | Branch manager | `mobile` |
+| `POST /api/v1/brand-owner/auth/login` | Brand owner | `mobile` |
+| `POST /api/v1/brand-manager/auth/login` | Brand manager | `mobile` |
+| `POST /api/v1/supplier/auth/login` | Supplier | `mobile` |
+
+Guarantees:
+
+- **Every field is optional.** Web clients and older builds that send none of it
+  log in exactly as before.
+- **Push can never break authentication.** If registration fails for any reason,
+  the failure is logged and the login still succeeds with its normal response.
+- **A failed login registers nothing** — the token is only bound after
+  credentials are accepted.
+- **2FA is respected.** On the dashboard, a `requires2fa` response registers
+  nothing; the device is bound only once the second factor is verified.
+- The login response body is unchanged — no new fields.
+
+**Release the device on logout** by passing the same token, on any of the six
+logout endpoints:
+
+```http
+POST /api/v1/cashier/logout
+{ "fcm_token": "<FCM registration token>" }
+```
+
+A logout without `fcm_token` is a no-op for push — the server cannot guess which
+of the user's devices signed out, so that handset keeps receiving notifications.
+
+### 3.1 Register the device explicitly
+
+Still call this **on every FCM token refresh** (the token changes independently
+of login), and on launch if the session was restored without a fresh login. It
+is idempotent.
 
 ```http
 POST /api/v1/device-tokens

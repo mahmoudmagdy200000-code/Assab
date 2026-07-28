@@ -4,16 +4,18 @@ namespace Modules\BrandOwner\Http\Controllers;
 
 use App\ApiResponse as ApiResponseTrait;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\BrandOwner\Http\Requests\ForgotPasswordRequest;
 use Modules\BrandOwner\Http\Requests\LoginRequest;
 use Modules\BrandOwner\Http\Requests\ResetPasswordRequest;
 use Modules\BrandOwner\Http\Requests\VerifyOtpRequest;
 use Modules\BrandOwner\Services\BrandManagerAuthService;
+use Modules\Notification\Http\Concerns\RegistersDeviceTokens;
 
 class BrandManagerAuthController extends Controller
 {
-    use ApiResponseTrait;
+    use ApiResponseTrait, RegistersDeviceTokens;
 
     public function __construct(protected BrandManagerAuthService $authService) {}
 
@@ -24,6 +26,10 @@ class BrandManagerAuthController extends Controller
                 $request->input('identifier'),
                 $request->input('password')
             );
+
+            // Optional `fcm_token` in the body registers this device for push.
+            // Never fails the login.
+            $this->registerLoginDevice($request, $result['manager']);
 
             return $this->successResponse('Login successful', [
                 'user' => $this->userPayload($result['manager']),
@@ -83,10 +89,15 @@ class BrandManagerAuthController extends Controller
         }
     }
 
-    public function logout(): JsonResponse
+    public function logout(Request $request): JsonResponse
     {
         try {
             $manager = auth('sanctum')->user();
+
+            // Release the handset before the access token dies, or the client
+            // can no longer reach the device-token endpoint to clean up.
+            $this->revokeLoginDevice($request, $manager);
+
             $this->authService->logout($manager);
 
             return $this->successResponse('Logout successful');
