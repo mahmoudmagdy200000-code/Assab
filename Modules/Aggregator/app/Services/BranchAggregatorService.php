@@ -19,12 +19,14 @@ class BranchAggregatorService
         return $branchAggregators->map(function ($ba) {
             return [
                 'id' => $ba->aggregator->id,
-                'name' => $ba->aggregator->name,
-                'code' => $ba->aggregator->code,
-                'logo' => $ba->aggregator->logo_url,
-                'is_enabled' => $ba->is_enabled,
-                'is_active' => $ba->aggregator->is_active,
-                'commission_rate' => $ba->aggregator->commission_rate,
+                // Strings stay strings even when unset — the mobile client casts
+                // them and a null logo crashed the end-shift aggregator sheet.
+                'name' => (string) $ba->aggregator->name,
+                'code' => (string) $ba->aggregator->code,
+                'logo' => (string) ($ba->aggregator->logo_url ?? ''),
+                'is_enabled' => (bool) $ba->is_enabled,
+                'is_active' => (bool) $ba->aggregator->is_active,
+                'commission_rate' => (float) $ba->aggregator->commission_rate,
             ];
         })->toArray();
     }
