@@ -8,6 +8,7 @@ use Modules\Admin\Events\OperationRejected;
 use Modules\Admin\Listeners\BridgeExpenseDecisionToLegacy;
 use Modules\Admin\Listeners\BridgeLegacyCashierShift;
 use Modules\Admin\Listeners\BridgeShiftDecisionToLegacy;
+use Modules\Admin\Listeners\MirrorMobileCashierToEmployee;
 use Modules\Admin\Listeners\ProcessShiftOperationDecision;
 use Modules\Admin\Listeners\SyncBranchManagerCredential;
 use Modules\Admin\Listeners\SyncBrandOwnerCredential;
@@ -53,6 +54,12 @@ class EventServiceProvider extends ServiceProvider
 
         // MOB-1.6 cashier bridge: a legacy mobile shift close mints the SHF- op.
         ShiftEndedEvent::class => [BridgeLegacyCashierShift::class],
+
+        // Cashiers are added in the mobile app by the branch manager (the
+        // dashboard no longer creates them), so mirror each one into
+        // asab_employees — the dashboard branch roster and the shift bridge
+        // both resolve the cashier through that row.
+        CashierCreatedEvent::class => [MirrorMobileCashierToEmployee::class],
 
         // Credential bridge: a password set in the mobile app is copied onto the
         // linked asab_users row so one password opens both worlds.
