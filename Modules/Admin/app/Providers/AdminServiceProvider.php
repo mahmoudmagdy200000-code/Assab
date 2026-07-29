@@ -92,6 +92,8 @@ class AdminServiceProvider extends ServiceProvider
         $this->commands([
             CheckExpiringSubscriptions::class,
             \Modules\Admin\Console\Commands\MarkLateShiftsCommand::class,
+            \Modules\Admin\Console\Commands\BackfillIdentityMap::class,
+            \Modules\Admin\Console\Commands\MirrorMobileCashiers::class,
         ]);
     }
 
