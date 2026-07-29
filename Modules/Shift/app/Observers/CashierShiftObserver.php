@@ -5,6 +5,7 @@ namespace Modules\Shift\Observers;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Modules\Shift\Events\ShiftEndedEvent;
+use Modules\Shift\Events\ShiftStartedEvent;
 use Modules\Shift\Listeners\BranchManagerShiftListener;
 use Modules\Shift\Models\CashierShift;
 
@@ -52,6 +53,11 @@ class CashierShiftObserver
         // Check if status changed to completed
         if ($shift->isDirty('status') && $shift->status->value === 'completed') {
             event(new ShiftEndedEvent($shift, ! is_null($shift->next_cashier_id)));
+        }
+
+        // A shift going live feeds the dashboard's «مباشر» board in real time.
+        if ($shift->isDirty('status') && $shift->status->value === 'in_progress') {
+            event(new ShiftStartedEvent($shift));
         }
     }
 

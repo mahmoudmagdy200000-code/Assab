@@ -124,7 +124,13 @@ class PersonalLedgerService
             'cashier_name' => $cashier->name ?? null,
             'related_shift_id' => $handover->cashier_shift_id,
             'related_handover_id' => $handover->id,
-            'transaction_date' => $handover->handover_date ?? now(),
+            // Stamped when the manager APPROVES, not when the cashier submitted:
+            // the cash enters the manager's custody on approval, and the
+            // cashier's matching cash-OUT entry is stamped the same way. Using
+            // `handover_date` put a handover submitted yesterday and approved
+            // today on yesterday's ledger, where the daily statement
+            // (whereDate transaction_date = today) could never show it.
+            'transaction_date' => $handover->approved_at ?? now(),
         ]);
     }
 

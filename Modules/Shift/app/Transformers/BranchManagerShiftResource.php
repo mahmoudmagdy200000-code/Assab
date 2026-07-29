@@ -67,14 +67,19 @@ class BranchManagerShiftResource extends JsonResource
     private function getShiftOverview(): array
     {
         $progress = $this->calculateProgress();
+        // Before the manager starts, the card shows the branch's planned
+        // workday: first shift start → last shift end (sum of the day's shifts).
+        $workday = app(\Modules\Shift\Services\BranchWorkdayWindowService::class)->forBranch($this->branch_id);
 
         return [
             'title' => 'Branch Manager Shift - '.($this->shift_date?->format('d M Y') ?? 'Today'),
             'description' => 'Managing daily operations and cashier handovers',
             'status' => $this->getStatusLabel(),
-            'start_time' => $this->actual_start_time?->format('H:i') ?? '09:00',
-            'end_time' => $this->actual_end_time?->format('H:i') ?? '17:00',
+            'start_time' => $this->actual_start_time?->format('H:i') ?? $workday['start'],
+            'end_time' => $this->actual_end_time?->format('H:i') ?? $workday['end'],
             'elapsed_hours' => $progress['elapsed_hours'],
+            'planned_hours' => $progress['planned_hours'],
+            'shifts_count' => $workday['shiftCount'],
             'progress_percentage' => $progress['progress_percentage'],
             'can_start' => $this->status === 'not_started' && $this->shift_date?->isToday(),
             'can_end' => $this->canEnd(),
@@ -302,12 +307,16 @@ class BranchManagerShiftResource extends JsonResource
      */
     private function calculateProgress(): array
     {
-        $defaultShiftHours = 8;
+        // Planned duration = the branch's whole day of shifts (see
+        // BranchWorkdayWindowService), not a fixed 8-hour block.
+        $plannedHours = app(\Modules\Shift\Services\BranchWorkdayWindowService::class)
+            ->totalHoursForBranch($this->branch_id);
         $elapsedHours = 0;
         $progressPercentage = 0;
 
         if ($this->status === 'in_progress' && $this->actual_start_time) {
-            $expectedEndTime = $this->actual_end_time ?? $this->actual_start_time->copy()->addHours($defaultShiftHours);
+            $expectedEndTime = $this->actual_end_time
+                ?? $this->actual_start_time->copy()->addMinutes((int) round($plannedHours * 60));
             $totalMinutes = $this->actual_start_time->diffInMinutes($expectedEndTime);
             $elapsedMinutes = now()->diffInMinutes($this->actual_start_time);
 
@@ -322,6 +331,7 @@ class BranchManagerShiftResource extends JsonResource
 
         return [
             'elapsed_hours' => $elapsedHours,
+            'planned_hours' => $plannedHours,
             'progress_percentage' => round($progressPercentage, 1),
         ];
     }

@@ -7,6 +7,7 @@ use Modules\Admin\Events\OperationFinalApproved;
 use Modules\Admin\Events\OperationRejected;
 use Modules\Admin\Listeners\BridgeExpenseDecisionToLegacy;
 use Modules\Admin\Listeners\BridgeLegacyCashierShift;
+use Modules\Admin\Listeners\BridgeLegacyShiftStart;
 use Modules\Admin\Listeners\BridgeShiftDecisionToLegacy;
 use Modules\Admin\Listeners\MirrorMobileCashierToEmployee;
 use Modules\Admin\Listeners\ProcessShiftOperationDecision;
@@ -21,6 +22,7 @@ use Modules\Cashier\Events\CashierCreatedEvent;
 use Modules\Expense\Events\ExpenseApprovedEvent;
 use Modules\Expense\Events\ExpenseSubmittedEvent;
 use Modules\Shift\Events\ShiftEndedEvent;
+use Modules\Shift\Events\ShiftStartedEvent;
 use Modules\Supplier\Events\SupplierPasswordChanged;
 
 class EventServiceProvider extends ServiceProvider
@@ -53,7 +55,10 @@ class EventServiceProvider extends ServiceProvider
             [BridgeExpenseDecisionToLegacy::class, 'handleRejected'],
         ],
 
-        // MOB-1.6 cashier bridge: a legacy mobile shift close mints the SHF- op.
+        // MOB-1.6 cashier bridge: a mobile shift START opens the asab_shifts row
+        // the accountant's live board reads, and the CLOSE finishes that same row
+        // (minting the SHF- pipeline operation).
+        ShiftStartedEvent::class => [BridgeLegacyShiftStart::class],
         ShiftEndedEvent::class => [BridgeLegacyCashierShift::class],
 
         // Cashiers are added in the mobile app by the branch manager (the

@@ -549,7 +549,10 @@ class BranchManagerShiftService
      */
     public function calculateShiftProgress(BranchManagerShift $shift): array
     {
-        $defaultShiftHours = 8;
+        // The manager covers the branch's whole day of cashier shifts, so the
+        // planned window and duration come from the branch's shift templates
+        // (3 × 8h → 24h) instead of a fixed 8-hour block.
+        $workday = app(BranchWorkdayWindowService::class)->forBranch($shift->branch_id);
         $startTime = $shift->actual_start_time;
         $endTime = $shift->actual_end_time;
         $shiftDateFormatted = $shift->shift_date->format('d M Y');
@@ -564,8 +567,11 @@ class BranchManagerShiftService
             'title' => "Branch Manager Shift - {$shiftDateFormatted}",
             'description' => 'Managing daily operations and cashier handovers',
             'status' => $statusLabel,
-            'start_time' => $startTime ? $startTime->format('H:i') : '09:00',
-            'end_time' => $endTime ? $endTime->format('H:i') : '17:00',
+            'start_time' => $startTime ? $startTime->format('H:i') : $workday['start'],
+            'end_time' => $endTime ? $endTime->format('H:i') : $workday['end'],
+            // Planned length of the workday = sum of the branch's shift hours.
+            'planned_hours' => $workday['totalHours'],
+            'shifts_count' => $workday['shiftCount'],
             'elapsed_hours' => 0,
             'progress_percentage' => 0,
         ];
@@ -575,7 +581,7 @@ class BranchManagerShiftService
         }
 
         if ($shift->status === 'in_progress') {
-            $expectedEndTime = $endTime ?: $startTime->copy()->addHours($defaultShiftHours);
+            $expectedEndTime = $endTime ?: $startTime->copy()->addMinutes((int) round($workday['totalHours'] * 60));
             $totalMinutes = $startTime->diffInMinutes($expectedEndTime);
             $elapsedMinutes = now()->diffInMinutes($startTime);
 

@@ -6,6 +6,7 @@ use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Shift;
 use Modules\Admin\Services\BranchHierarchyLinker;
+use Modules\Admin\Services\LegacyShiftMirror;
 use Modules\Admin\Services\ShiftCloseService;
 use Modules\Branch\Models\Branch;
 use Modules\Shift\Events\ShiftEndedEvent;
@@ -25,14 +26,17 @@ class BridgeLegacyCashierShift
     public function __construct(
         private readonly ShiftCloseService $shifts,
         private readonly BranchHierarchyLinker $branches,
+        private readonly LegacyShiftMirror $mirror,
     ) {}
 
     public function handle(ShiftEndedEvent $event): void
     {
         $legacy = $event->shift;
 
-        // Already bridged (or already closed on the dashboard) → skip.
-        if (Shift::withoutGlobalScopes()->where('legacy_shift_id', $legacy->id)->exists()) {
+        // A live mirror row opened at shift start is FINISHED here; anything
+        // already past `active|late` was closed on the dashboard → skip.
+        $mirrored = $this->mirror->existing($legacy->id);
+        if ($mirrored !== null && ! in_array($mirrored->status, ['active', 'late'], true)) {
             return;
         }
 
@@ -80,19 +84,27 @@ class BridgeLegacyCashierShift
             ->all();
         $aggregator = array_sum(array_column($breakdown, 'amountHalalas'));
 
-        $shift = Shift::create([
+        $attributes = [
             'company_id' => $employee->company_id,
             'branch_id' => $employee->branch_id,
             'cashier_employee_id' => $employee->id,
             'cashier_name' => $employee->name,
-            'shift_type' => 'مسائي',
-            'started_at' => $legacy->created_at ?? now(),
+            'started_at' => $legacy->actual_start_time ?? $legacy->created_at ?? now(),
             'status' => 'active',                 // close() expects an open shift
             'orders_count' => 0,
             'sales_amount' => $sales,
             'opening_float' => $float,
             'legacy_shift_id' => $legacy->id,
-        ]);
+        ];
+
+        if ($mirrored !== null) {
+            // Keep the live row (and its id) so the board's shift becomes the
+            // reviewed one instead of a duplicate appearing at close time.
+            $mirrored->forceFill($attributes)->save();
+            $shift = $mirrored;
+        } else {
+            $shift = Shift::create($attributes + ['shift_type' => $legacy->shift?->name ?? 'مسائي']);
+        }
 
         // Route through the canonical close so the SHF operation + variance are
         // derived exactly as a dashboard close would produce them. `cashActual`

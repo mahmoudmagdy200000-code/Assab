@@ -187,6 +187,10 @@ class BranchManagerShiftController extends BaseController
                     'start_time' => $progress['start_time'],
                     'end_time' => $progress['end_time'],
                     'number_of_hours' => $progress['elapsed_hours'],
+                    // Planned workday = sum of the branch's shift hours (FR: the
+                    // manager covers every shift of the day).
+                    'planned_hours' => $progress['planned_hours'],
+                    'shifts_count' => $progress['shifts_count'],
                     'progress_percentage' => $progress['progress_percentage'],
                 ],
                 'handovers_summary' => $handoversSummary,
@@ -216,8 +220,10 @@ class BranchManagerShiftController extends BaseController
                 ->whereDate('shift_date', today())
                 ->firstOrFail();
 
-            $handoversToManager = $this->shiftService->getShiftHandovers($managerShift, 'to_manager');
-            $cashierToCashier = $this->shiftService->getShiftHandovers($managerShift, 'between_cashiers');
+            // Fresh, like workday/current: this IS the approve/reject surface, and
+            // a 5-minute cached list makes a just-submitted handover look lost.
+            $handoversToManager = $this->shiftService->getShiftHandovers($managerShift, 'to_manager', true);
+            $cashierToCashier = $this->shiftService->getShiftHandovers($managerShift, 'between_cashiers', true);
             $handoffsToManager = $handoversToManager->map(fn ($h) => $this->shiftService->transformHandover($h));
             $cashierToCashierXfrm = $cashierToCashier->map(fn ($h) => $this->shiftService->transformHandover($h));
             $summary = $managerShift->getHandoverSummary();
