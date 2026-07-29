@@ -20,6 +20,7 @@ use Modules\Admin\Models\UploadStatus;
 use Modules\Admin\Services\ExpenseTaxonomyBridgeService;
 use Modules\Admin\Services\ProcurementCatalogBridgeService;
 use Modules\Admin\Support\AssetEnums;
+use Modules\Admin\Support\CashierRole;
 use Modules\Branch\Models\Branch;
 use Modules\Purchase\Models\Item as PurchaseItem;
 
@@ -750,9 +751,9 @@ class UploadController extends AsabController
      * «اسم الفرع» is resolved against the branches of THIS restaurant only.
      *
      * These are operational employees, not dashboard logins — POST /admin/users
-     * remains the only way to create an account that can sign in. The one
-     * overlap is a cashier-role row, which provisions the same mobile login the
-     * one-by-one add already does.
+     * remains the only way to create an account that can sign in, and a
+     * cashier-role row is rejected outright: cashier accounts are created in the
+     * mobile app by the branch manager.
      */
     public function employees(Request $request, string $restaurantId): JsonResponse
     {
@@ -853,7 +854,11 @@ class UploadController extends AsabController
     {
         // Cashiers are created in the mobile app by the branch manager, so a
         // cashier row here would duplicate an account this sheet cannot make.
-        CashierRole::assertNotCashier($data['role']);
+        // RuntimeException, not AsabException: the caller collects per-row
+        // messages for the importer's error report rather than failing the file.
+        if (CashierRole::matches($data['role'])) {
+            throw new \RuntimeException('يتم إضافة الكاشير من تطبيق الموبايل بواسطة مدير الفرع');
+        }
 
         Employee::create([
             'company_id' => $restaurant->company_id,
@@ -871,7 +876,6 @@ class UploadController extends AsabController
             'hire_date' => $data['hireDate'] ? \Illuminate\Support\Carbon::parse($data['hireDate']) : now(),
             'status' => 'active',
         ]);
-
     }
 
     /**
