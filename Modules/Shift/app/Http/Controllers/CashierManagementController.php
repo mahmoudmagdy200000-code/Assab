@@ -6,6 +6,7 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Modules\Admin\Services\MobileBranchScopeService;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Transformers\BranchManagerResource;
 use Modules\Cashier\Models\Cashier;
@@ -19,7 +20,8 @@ use Modules\Shift\Services\ShiftService;
 class CashierManagementController extends BaseController
 {
     public function __construct(
-        private ShiftService $shiftService
+        private ShiftService $shiftService,
+        private MobileBranchScopeService $branchScope
     ) {}
 
     /**
@@ -180,6 +182,12 @@ class CashierManagementController extends BaseController
 
         try {
             $manager = auth()->user();
+
+            // Zero-trust on the picker's submission: a manager may only add a
+            // cashier to a branch of their OWN brand, whatever id the client sends.
+            if (! $this->branchScope->canSee($manager, $request->store_branch_id)) {
+                return $this->errorResponse('This branch does not belong to your brand', 403);
+            }
 
             // Check if shifts are already occupied
             $occupiedShifts = $this->checkOccupiedShifts($request->shift_ids, $request->store_branch_id);

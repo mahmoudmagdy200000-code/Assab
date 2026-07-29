@@ -32,11 +32,13 @@ class BrandOwnerHomeService
      *
      * Flat branch list for the home screen branch selector. No pagination.
      *
+     * @param  string[]  $allowedBranchIds  the owner's own brand's branches
      * @return array<int, array<string, mixed>>
      */
-    public function getBranches(): array
+    public function getBranches(array $allowedBranchIds): array
     {
         return Branch::query()
+            ->whereIn('id', $allowedBranchIds)
             ->orderBy('name')
             ->get(['id', 'name', 'image', 'opening_hours', 'closing_hours', 'lat', 'lng'])
             ->map(fn (Branch $branch) => [
@@ -53,15 +55,25 @@ class BrandOwnerHomeService
      * GET /brand-owner/dashboard
      *
      * @param  array{branch_id: ?string, month: ?int, year: ?int, granularity: ?string}  $filters
+     * @param  string[]  $allowedBranchIds  the owner's own brand's branches
      */
-    public function getDashboard(array $filters): array
+    public function getDashboard(array $filters, array $allowedBranchIds): array
     {
-        // Default branch = the first branch when none is supplied.
-        $branch = ! empty($filters['branch_id'])
-            ? Branch::query()->find($filters['branch_id'])
-            : Branch::query()->orderBy('name')->first();
+        // Default branch = the first branch when none is supplied. Both paths
+        // stay inside the owner's brand, so a foreign branch_id resolves to
+        // nothing rather than to another brand's figures.
+        $branch = Branch::query()
+            ->whereIn('id', $allowedBranchIds)
+            ->when(
+                ! empty($filters['branch_id']),
+                fn ($q) => $q->whereKey($filters['branch_id']),
+                fn ($q) => $q->orderBy('name'),
+            )
+            ->first();
 
-        $branchId = $branch?->id;
+        // A selected branch narrows to itself; "all" still means the owner's
+        // OWN brand, never every brand's expenses.
+        $branchIds = $branch !== null ? [$branch->id] : $allowedBranchIds;
 
         // Default the period to the current month / year.
         $month = $filters['month'] ?? (int) now()->month;
@@ -70,8 +82,8 @@ class BrandOwnerHomeService
         $periodStart = Carbon::create($year, $month, 1)->startOfMonth();
         $periodEnd = (clone $periodStart)->endOfMonth();
 
-        $invoices = $this->statusSummary(self::INVOICE_TYPES, $branchId, $periodStart, $periodEnd);
-        $expenses = $this->statusSummary(self::EXPENSE_TYPES, $branchId, $periodStart, $periodEnd);
+        $invoices = $this->statusSummary(self::INVOICE_TYPES, $branchIds, $periodStart, $periodEnd);
+        $expenses = $this->statusSummary(self::EXPENSE_TYPES, $branchIds, $periodStart, $periodEnd);
 
         return [
             'approved_invoices' => $invoices['approved_count'],
@@ -81,9 +93,9 @@ class BrandOwnerHomeService
             'total_expense_amount' => $expenses['approved_amount'],
             'pending_expenses' => $expenses['pending_count'],
             'granularity_chart_data' => [
-                'daily' => $this->dailyTrend($branchId, $month, $year),
-                'weekly' => $this->weeklyTrend($branchId, $month, $year),
-                'monthly' => $this->monthlyTrend($branchId, $month, $year),
+                'daily' => $this->dailyTrend($branchIds, $month, $year),
+                'weekly' => $this->weeklyTrend($branchIds, $month, $year),
+                'monthly' => $this->monthlyTrend($branchIds, $month, $year),
             ],
             'response_month' => $month,
             'response_year' => $year,
@@ -104,9 +116,9 @@ class BrandOwnerHomeService
      * @param  array<int, string>  $types
      * @return array{approved_count: int, approved_amount: float, pending_count: int}
      */
-    private function statusSummary(array $types, ?string $branchId, Carbon $start, Carbon $end): array
+    private function statusSummary(array $types, array $branchIds, Carbon $start, Carbon $end): array
     {
-        $rows = $this->expenseQuery($types, $branchId, $start, $end)
+        $rows = $this->expenseQuery($types, $branchIds, $start, $end)
             ->selectRaw('status, COUNT(*) as items, COALESCE(SUM(total_amount), 0) as amount')
             ->groupBy('status')
             ->get()
@@ -124,15 +136,15 @@ class BrandOwnerHomeService
      *
      * @param  array<int, string>  $types
      */
-    private function expenseQuery(array $types, ?string $branchId, Carbon $start, Carbon $end): Builder
+    private function expenseQuery(array $types, array $branchIds, Carbon $start, Carbon $end): Builder
     {
         return Expense::query()
             ->whereIn('expense_type', $types)
             ->whereBetween('created_at', [$start, $end])
-            ->when($branchId, fn (Builder $q) => $q->whereHas(
+            ->whereHas(
                 'branchManager',
-                fn (Builder $m) => $m->where('branch_id', $branchId)
-            ));
+                fn (Builder $m) => $m->whereIn('branch_id', $branchIds)
+            );
     }
 
     // ----------------------------------------------------------------
@@ -140,7 +152,7 @@ class BrandOwnerHomeService
     // ----------------------------------------------------------------
 
     /** Daily granularity: the week around the reference day, day-by-day. */
-    private function dailyTrend(?string $branchId, int $month, int $year): array
+    private function dailyTrend(array $branchIds, int $month, int $year): array
     {
         $monthStart = Carbon::create($year, $month, 1)->startOfMonth();
         $daysInMonth = $monthStart->daysInMonth;
@@ -155,7 +167,7 @@ class BrandOwnerHomeService
         $start = $monthStart->copy()->day($firstDay)->startOfDay();
         $end = $monthStart->copy()->day($lastDay)->endOfDay();
 
-        $rows = $this->approvedExpenseRows($branchId, $start, $end);
+        $rows = $this->approvedExpenseRows($branchIds, $start, $end);
 
         $chart = [];
         for ($day = $firstDay; $day <= $lastDay; $day++) {
@@ -164,7 +176,7 @@ class BrandOwnerHomeService
 
         $total = (float) $rows->sum('total_amount');
         $previous = $this->approvedExpenseSum(
-            $branchId,
+            $branchIds,
             $start->copy()->subDays(7),
             $start->copy()->subDay()->endOfDay()
         );
@@ -179,14 +191,14 @@ class BrandOwnerHomeService
     }
 
     /** Weekly granularity: the selected month, broken into 7-day weeks. */
-    private function weeklyTrend(?string $branchId, int $month, int $year): array
+    private function weeklyTrend(array $branchIds, int $month, int $year): array
     {
         $monthStart = Carbon::create($year, $month, 1)->startOfMonth();
         $monthEnd = (clone $monthStart)->endOfMonth();
         $daysInMonth = $monthStart->daysInMonth;
         $weekCount = (int) ceil($daysInMonth / 7);
 
-        $rows = $this->approvedExpenseRows($branchId, $monthStart, $monthEnd);
+        $rows = $this->approvedExpenseRows($branchIds, $monthStart, $monthEnd);
 
         $chart = [];
         for ($week = 0; $week < $weekCount; $week++) {
@@ -200,7 +212,7 @@ class BrandOwnerHomeService
 
         $total = (float) $rows->sum('total_amount');
         $prevStart = $monthStart->copy()->subMonthNoOverflow()->startOfMonth();
-        $previous = $this->approvedExpenseSum($branchId, $prevStart, (clone $prevStart)->endOfMonth());
+        $previous = $this->approvedExpenseSum($branchIds, $prevStart, (clone $prevStart)->endOfMonth());
 
         return [
             'trend_period' => $monthStart->format('F Y').' (Week 1-'.$weekCount.')',
@@ -212,12 +224,12 @@ class BrandOwnerHomeService
     }
 
     /** Monthly granularity: the selected year, broken into 12 months. */
-    private function monthlyTrend(?string $branchId, int $month, int $year): array
+    private function monthlyTrend(array $branchIds, int $month, int $year): array
     {
         $yearStart = Carbon::create($year, 1, 1)->startOfYear();
         $yearEnd = (clone $yearStart)->endOfYear();
 
-        $rows = $this->approvedExpenseRows($branchId, $yearStart, $yearEnd);
+        $rows = $this->approvedExpenseRows($branchIds, $yearStart, $yearEnd);
 
         $chart = [];
         for ($m = 1; $m <= 12; $m++) {
@@ -226,7 +238,7 @@ class BrandOwnerHomeService
 
         $total = (float) $rows->sum('total_amount');
         $prevStart = Carbon::create($year - 1, 1, 1)->startOfYear();
-        $previous = $this->approvedExpenseSum($branchId, $prevStart, (clone $prevStart)->endOfYear());
+        $previous = $this->approvedExpenseSum($branchIds, $prevStart, (clone $prevStart)->endOfYear());
 
         return [
             'trend_period' => Carbon::create($year, $month, 1)->format('F Y'),
@@ -238,27 +250,27 @@ class BrandOwnerHomeService
     }
 
     /** Approved expenses (any type) in a window — rows kept for bucketing. */
-    private function approvedExpenseRows(?string $branchId, Carbon $start, Carbon $end): Collection
+    private function approvedExpenseRows(array $branchIds, Carbon $start, Carbon $end): Collection
     {
-        return $this->approvedExpenseQuery($branchId, $start, $end)
+        return $this->approvedExpenseQuery($branchIds, $start, $end)
             ->get(['total_amount', 'created_at']);
     }
 
     /** Approved expense total (any type) in a window. */
-    private function approvedExpenseSum(?string $branchId, Carbon $start, Carbon $end): float
+    private function approvedExpenseSum(array $branchIds, Carbon $start, Carbon $end): float
     {
-        return (float) $this->approvedExpenseQuery($branchId, $start, $end)->sum('total_amount');
+        return (float) $this->approvedExpenseQuery($branchIds, $start, $end)->sum('total_amount');
     }
 
-    private function approvedExpenseQuery(?string $branchId, Carbon $start, Carbon $end): Builder
+    private function approvedExpenseQuery(array $branchIds, Carbon $start, Carbon $end): Builder
     {
         return Expense::query()
             ->where('status', 'approved')
             ->whereBetween('created_at', [$start, $end])
-            ->when($branchId, fn (Builder $q) => $q->whereHas(
+            ->whereHas(
                 'branchManager',
-                fn (Builder $m) => $m->where('branch_id', $branchId)
-            ));
+                fn (Builder $m) => $m->whereIn('branch_id', $branchIds)
+            );
     }
 
     /** Sum total_amount over the rows matching the predicate. */

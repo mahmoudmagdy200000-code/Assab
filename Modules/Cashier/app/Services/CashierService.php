@@ -8,6 +8,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Modules\Cashier\Events\CashierCreatedEvent;
 use Modules\Cashier\Models\Cashier;
 use Modules\Cashier\Repositories\CashierRepositoryInterface;
 use Modules\Shift\Enums\ShiftStatus;
@@ -83,9 +84,13 @@ class CashierService
                 );
             }
 
-            $this->activationService->sendActivationLink($cashier, $defaultPassword);
-
             DB::commit();
+
+            // After commit, never inside it: the listeners send the activation
+            // link, raise the account notification and mirror the cashier into
+            // the dashboard (asab_employees) — none of which may outlive a
+            // rolled-back creation.
+            CashierCreatedEvent::dispatch($cashier, $defaultPassword);
 
             return $cashier->fresh(['branch', 'creator']);
         } catch (\Exception $e) {

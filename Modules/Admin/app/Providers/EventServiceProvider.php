@@ -17,6 +17,7 @@ use Modules\Admin\Listeners\SyncLegacyExpenseOperation;
 use Modules\Admin\Listeners\SyncSupplierCredential;
 use Modules\BranchManagers\Events\PasswordChangedEvent as BranchManagerPasswordChanged;
 use Modules\BrandOwner\Events\BrandOwnerPasswordChanged;
+use Modules\Cashier\Events\CashierCreatedEvent;
 use Modules\Expense\Events\ExpenseApprovedEvent;
 use Modules\Expense\Events\ExpenseSubmittedEvent;
 use Modules\Shift\Events\ShiftEndedEvent;
