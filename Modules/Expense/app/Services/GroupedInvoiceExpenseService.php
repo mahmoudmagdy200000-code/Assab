@@ -16,11 +16,15 @@ use Modules\Expense\Models\InvoiceDetail;
  */
 class GroupedInvoiceExpenseService
 {
+    public function __construct(private SupplierBrandScopeService $supplierScope) {}
+
     /**
      * Create Grouped Invoice Expense
      */
     public function createGroupedInvoice(array $data): Expense
     {
+        $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
+
         $grandTotals = $this->calculateGrandTotals($data['invoices']);
 
         $expense = Expense::create([
@@ -55,6 +59,8 @@ class GroupedInvoiceExpenseService
      */
     public function updateGroupedInvoice(Expense $expense, array $data): Expense
     {
+        $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
+
         DB::beginTransaction();
         try {
             // Update payment info in grouped invoice

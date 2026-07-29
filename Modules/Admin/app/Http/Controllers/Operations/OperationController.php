@@ -13,6 +13,7 @@ use Modules\Admin\Services\PurchasePresenterService;
 use Modules\Admin\Services\PurchaseReceivingBridge;
 use Modules\Admin\Services\SalesReconciliationService;
 use Modules\Admin\Support\OperationEnums;
+use Modules\Branch\Models\Branch;
 
 class OperationController extends AsabController
 {
@@ -46,6 +47,10 @@ class OperationController extends AsabController
             if ($search = $request->query('search')) {
                 $q->where('public_id', 'like', "%{$search}%");
             }
+            // Meeting 2026-07-29: «فلترة بحسب العلامة التجارية» — brandId narrows
+            // to the branches tagged with that brand; ANDs with the caller's
+            // assigned-branch scope, so it can only narrow, never widen.
+            $this->applyBrandFilter($q, $request->query('brandId'));
             // ACC-3.2 purchases-only filters (payload-keyed).
             if ($supplierId = $request->query('supplierId')) {
                 $q->where('payload->supplierId', $supplierId);
@@ -393,12 +398,23 @@ class OperationController extends AsabController
         )->firstOrFail();
     }
 
+    /** brandId → the brand's branch ids (branches.asab_brand_id tagging). */
+    private function applyBrandFilter($query, ?string $brandId): void
+    {
+        if (! $brandId) {
+            return;
+        }
+
+        $query->whereIn('branch_id', Branch::where('asab_brand_id', $brandId)->pluck('id'));
+    }
+
     private function summary(Request $request): array
     {
         $base = $this->scopeToAssignedBranches(Operation::query());
         if ($module = $request->query('moduleKey')) {
             $base->where('module_key', $module);
         }
+        $this->applyBrandFilter($base, $request->query('brandId'));
 
         $summary = [
             'total' => (clone $base)->count(),

@@ -14,11 +14,15 @@ use Modules\Expense\Models\PreApprovalRequest;
  */
 class PreApprovalRequestService
 {
+    public function __construct(private SupplierBrandScopeService $supplierScope) {}
+
     /**
      * Create Pre-Approval Request
      */
     public function createPreApprovalRequest(array $data): Expense
     {
+        $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
+
         $totals = $this->calculateTotals($data);
 
         $expense = Expense::create([
@@ -80,6 +84,8 @@ class PreApprovalRequestService
      */
     public function updatePreApprovalRequest(Expense $expense, array $data): Expense
     {
+        $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
+
         // Update main expense
         $expenseUpdateData = [];
 

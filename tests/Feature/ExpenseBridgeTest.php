@@ -174,6 +174,37 @@ class ExpenseBridgeTest extends TestCase
         $this->assertSame(Operation::STATUS_APPROVED, $op->fresh()->status);
     }
 
+    public function test_the_payload_carries_supplier_identity_when_the_tax_name_is_absent(): void
+    {
+        [, $branch] = $this->asabBranch();
+        $supplier = \Modules\Expense\Models\Supplier::factory()->create(['name' => 'مورد الكهرباء']);
+
+        $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
+        $expense = Expense::factory()->create([
+            'branch_manager_id' => $manager->id,
+            'expense_type' => 'single_invoice',
+            'status' => 'pending',
+            'supplier_id' => $supplier->id,
+            'total_amount' => 115.00, 'net_amount' => 100.00, 'vat_amount' => 15.00,
+        ]);
+        // The meeting shape: a plain (non-tax) invoice — no tax_supplier_name
+        // and no per-invoice supplier either, so the chain must reach the
+        // expense-level supplier.
+        InvoiceDetail::factory()->create([
+            'expense_id' => $expense->id, 'invoice_number' => 'ELEC-1',
+            'supplier_id' => null, 'tax_supplier_name' => null, 'issue_date' => '2026-07-29',
+            'tax_net_amount' => null, 'tax_vat_amount' => null, 'tax_total_amount' => null,
+        ]);
+
+        event(new ExpenseSubmittedEvent($expense->fresh()));
+
+        $op = Operation::withoutGlobalScopes()->where('source_id', $expense->id)->firstOrFail();
+        $this->assertSame('مورد الكهرباء', $op->payload['supplierName']);
+        $this->assertSame($expense->id, $op->payload['legacyExpenseId']);
+        $this->assertSame('مورد الكهرباء', $op->payload['invoices'][0]['vendor']);
+        $this->assertSame($supplier->id, $op->payload['invoices'][0]['supplierId']);
+    }
+
     public function test_a_branch_outside_asab_produces_no_operation(): void
     {
         $branch = Branch::factory()->create(['name' => 'فرع قديم', 'asab_company_id' => null]);

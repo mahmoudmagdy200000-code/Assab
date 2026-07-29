@@ -15,11 +15,15 @@ use Modules\Expense\Models\InvoiceDetail;
  */
 class SingleInvoiceExpenseService
 {
+    public function __construct(private SupplierBrandScopeService $supplierScope) {}
+
     /**
      * Create Single Invoice Expense
      */
     public function createSingleInvoice(array $data): Expense
     {
+        $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
+
         $totals = $this->calculateTotals($data);
 
         $expense = Expense::create([
@@ -97,6 +101,8 @@ class SingleInvoiceExpenseService
      */
     public function updateSingleInvoice(Expense $expense, array $data): Expense
     {
+        $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
+
         // Update basic expense info
         $updateData = [];
 

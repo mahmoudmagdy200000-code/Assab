@@ -94,6 +94,7 @@ class AdminServiceProvider extends ServiceProvider
             \Modules\Admin\Console\Commands\MarkLateShiftsCommand::class,
             \Modules\Admin\Console\Commands\BackfillIdentityMap::class,
             \Modules\Admin\Console\Commands\MirrorMobileCashiers::class,
+            \Modules\Admin\Console\Commands\BridgeBackfillCommand::class,
         ]);
     }
 

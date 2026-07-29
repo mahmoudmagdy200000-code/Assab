@@ -21,12 +21,15 @@ class SupplierController extends BaseController
     ) {}
 
     /**
-     * Get all suppliers
+     * Get the caller's brand suppliers (brand-scoped, fail-closed)
      * GET /api/branch-manager/expenses/suppliers
      */
     public function index(Request $request): JsonResponse
     {
-        $suppliers = $this->helperService->getSuppliers($request->input('search'));
+        $suppliers = $this->helperService->getSuppliersForBranch(
+            $request->user()?->branch_id,
+            $request->input('search'),
+        );
 
         return $this->successResponse(
             $suppliers,

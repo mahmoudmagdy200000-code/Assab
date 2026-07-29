@@ -27,6 +27,7 @@ class ExpenseBridgeService
         private readonly ExpenseInvoiceService $invoices,
         private readonly RealtimeBroadcaster $rt,
         private readonly BranchHierarchyLinker $branches,
+        private readonly \Psr\Log\LoggerInterface $log,
     ) {}
 
     public const SOURCE = 'expense';
@@ -34,13 +35,24 @@ class ExpenseBridgeService
     /** @return Operation|null null when the expense belongs to no ASAB company */
     public function sync(Expense $expense): ?Operation
     {
+        // Every skip below is LOUD (meeting 2026-07-29: invoices "sent but never
+        // arrived" were these silent returns) — the log line names the record
+        // and the reason so ops can fix the link and run asab:bridge-backfill.
         $branchId = $expense->branchManager?->branch_id;
         if ($branchId === null) {
+            $this->log->warning('expense-bridge: skipped — submitter has no branch', [
+                'expense_id' => $expense->id, 'reason' => 'BRANCH_MISSING',
+            ]);
+
             return null;
         }
 
         $branch = Branch::whereKey($branchId)->first(['id', 'asab_company_id', 'asab_brand_id', 'asab_restaurant_id']);
         if ($branch === null) {
+            $this->log->warning('expense-bridge: skipped — branch row gone', [
+                'expense_id' => $expense->id, 'branch_id' => $branchId, 'reason' => 'BRANCH_GONE',
+            ]);
+
             return null;
         }
         // Heal the branch's hierarchy tags so the mirrored op resolves for a
@@ -49,6 +61,11 @@ class ExpenseBridgeService
 
         $companyId = $branch->asab_company_id;
         if ($companyId === null) {
+            $this->log->warning('expense-bridge: skipped — branch not linked to an ASAB company', [
+                'expense_id' => $expense->id, 'branch_id' => $branchId, 'reason' => 'BRANCH_UNLINKED',
+                'fix' => 'PATCH /api/v1/admin/branches/{id} with restaurantId, then php artisan asab:bridge-backfill',
+            ]);
+
             return null;   // legacy-only branch — nothing to mirror into.
         }
 
@@ -75,6 +92,13 @@ class ExpenseBridgeService
             'legacyStatus' => $expense->status,
             'expenseType' => $expense->expense_type,
             'paymentMethod' => $expense->payment_method,
+            // Meeting 2026-07-29: the accountant saw ops with no supplier and a
+            // bare UID — carry the mobile-side identity so the dashboard can
+            // label the record instead of showing an unlinked row.
+            'supplierId' => $expense->supplier_id,
+            'supplierName' => $expense->supplier?->name,
+            'legacyExpenseId' => $expense->id,
+            'submittedBy' => $expense->branchManager?->name,
         ];
 
         if ($existing) {
@@ -127,7 +151,8 @@ class ExpenseBridgeService
      */
     private function mapInvoices(Expense $expense): array
     {
-        $details = InvoiceDetail::where('expense_id', $expense->id)->orderBy('created_at')->get();
+        $details = InvoiceDetail::with('supplier:id,name')
+            ->where('expense_id', $expense->id)->orderBy('created_at')->get();
         if ($details->isEmpty()) {
             return [];
         }
@@ -135,9 +160,13 @@ class ExpenseBridgeService
         $attachments = ExpenseAttachment::where('expense_id', $expense->id)
             ->get()->groupBy('invoice_detail_id');
 
+        // Vendor fallback chain (meeting 2026-07-29 «بيانات ناقصة/غلط»): the
+        // free-text tax name is only present on tax invoices, so fall back to
+        // the invoice's picked supplier, then the expense-level supplier.
         return $details->values()->map(fn (InvoiceDetail $d) => array_filter([
             'invNum' => $d->invoice_number,
-            'vendor' => $d->tax_supplier_name,
+            'vendor' => $d->tax_supplier_name ?? $d->supplier?->name ?? $expense->supplier?->name,
+            'supplierId' => $d->supplier_id ?? $expense->supplier_id,
             'desc' => $expense->expense_type,
             'date' => optional($d->issue_date)->toDateString(),
             'amountHalalas' => $this->halalas($d->tax_total_amount),

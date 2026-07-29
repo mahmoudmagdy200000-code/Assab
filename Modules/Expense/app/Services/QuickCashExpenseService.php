@@ -10,11 +10,15 @@ use Modules\Expense\Models\QuickCashItem;
 
 class QuickCashExpenseService
 {
+    public function __construct(private SupplierBrandScopeService $supplierScope) {}
+
     /**
      * Create Quick Cash Expense
      */
     public function createQuickCashExpense(array $data): Expense
     {
+        $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
+
         $vatCalculation = $this->calculateVAT($data);
         $netAmount = $data['net_amount'] ?? $vatCalculation['net_amount'];
 
@@ -69,6 +73,8 @@ class QuickCashExpenseService
      */
     public function updateQuickCashExpense(Expense $expense, array $data): Expense
     {
+        $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
+
         // Prepare data for VAT calculation
         $calculationData = array_merge($expense->toArray(), $data);
         $vatCalculation = $this->calculateVAT($calculationData);

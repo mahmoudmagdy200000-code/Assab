@@ -11,6 +11,10 @@ use Modules\Expense\Models\Supplier;
  */
 class ExpenseHelperService
 {
+    public function __construct(
+        private SupplierBrandScopeService $supplierScope,
+    ) {}
+
     /**
      * Get all categories
      */
@@ -162,6 +166,34 @@ class ExpenseHelperService
         }
 
         $category->delete();
+    }
+
+    /**
+     * Suppliers visible to one branch: the caller's own brand only (meeting
+     * 2026-07-29 — «تقييد قائمة الموردين بحسب العلامة/الفرع»). Fail-closed: an
+     * unlinked branch gets an empty list, not every tenant's suppliers.
+     */
+    public function getSuppliersForBranch(?string $branchId, ?string $search = null)
+    {
+        $visibleIds = $this->supplierScope->visibleSupplierIds($branchId);
+        if ($visibleIds === []) {
+            return collect([]);
+        }
+
+        $query = Supplier::whereIn('id', $visibleIds)
+            ->where('is_active', true)
+            ->orderBy('name');
+
+        if ($search) {
+            $query->where('name', 'like', "%{$search}%");
+        }
+
+        return $query->get()->map(fn ($supplier) => [
+            'id' => $supplier->id,
+            'name' => $supplier->name,
+            'phone' => $supplier->phone,
+            'email' => $supplier->email,
+        ]);
     }
 
     /**

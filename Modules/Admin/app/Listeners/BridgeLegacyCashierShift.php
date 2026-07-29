@@ -27,6 +27,7 @@ class BridgeLegacyCashierShift
         private readonly ShiftCloseService $shifts,
         private readonly BranchHierarchyLinker $branches,
         private readonly LegacyShiftMirror $mirror,
+        private readonly \Psr\Log\LoggerInterface $log,
     ) {}
 
     public function handle(ShiftEndedEvent $event): void
@@ -43,7 +44,15 @@ class BridgeLegacyCashierShift
         // Resolve the ASAB employee mirroring this legacy cashier.
         $employee = Employee::where('legacy_cashier_id', $legacy->cashier_id)->first();
         if ($employee === null || $employee->branch_id === null) {
-            return; // no ASAB counterpart — nothing to review on the dashboard
+            // no ASAB counterpart — nothing to review on the dashboard, but say
+            // so (meeting 2026-07-29: closed shifts "never appeared" silently).
+            $this->log->warning('shift-bridge: skipped — cashier has no mirrored ASAB employee', [
+                'cashier_shift_id' => $legacy->id, 'cashier_id' => $legacy->cashier_id,
+                'reason' => $employee === null ? 'CASHIER_NOT_MIRRORED' : 'EMPLOYEE_BRANCH_MISSING',
+                'fix' => 'php artisan asab:mirror-mobile-cashiers, then php artisan asab:bridge-backfill',
+            ]);
+
+            return;
         }
 
         // The SHF op's branch_id comes from the employee, so a scoped accountant
@@ -60,6 +69,11 @@ class BridgeLegacyCashierShift
         // bridge can't create a pipeline op, so it no-ops.
         $actor = $this->systemActor($employee->company_id);
         if ($actor === null) {
+            $this->log->warning('shift-bridge: skipped — company has no ASAB user to attribute the operation to', [
+                'cashier_shift_id' => $legacy->id, 'company_id' => $employee->company_id,
+                'reason' => 'NO_ASAB_ACTOR',
+            ]);
+
             return;
         }
 
