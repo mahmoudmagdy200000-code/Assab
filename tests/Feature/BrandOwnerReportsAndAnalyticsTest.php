@@ -10,6 +10,7 @@ use Modules\BrandOwner\Models\BrandOwner;
 use Modules\Custody\Models\CustodyTransaction;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Models\Supplier;
+use Tests\Concerns\LinksMobileBrandScope;
 use Tests\TestCase;
 
 /**
@@ -18,13 +19,15 @@ use Tests\TestCase;
  */
 class BrandOwnerReportsAndAnalyticsTest extends TestCase
 {
-    use RefreshDatabase;
+    use LinksMobileBrandScope, RefreshDatabase;
 
     private Branch $branch;
 
     private BranchManager $manager;
 
     private BrandOwner $owner;
+
+    private \Modules\Admin\Models\AsabBrand $brand;
 
     protected function setUp(): void
     {
@@ -41,6 +44,9 @@ class BrandOwnerReportsAndAnalyticsTest extends TestCase
             'is_first_login' => false,
             'status' => 'active',
         ]);
+
+        // Mobile branch lists are brand-isolated (MobileBranchScopeService).
+        $this->brand = $this->linkBrandOwner($this->owner, $this->branch);
     }
 
     public function test_reports_and_analytics_returns_reports_and_export_history(): void

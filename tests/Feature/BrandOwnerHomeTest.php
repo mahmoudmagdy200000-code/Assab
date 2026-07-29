@@ -7,6 +7,7 @@ use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\Expense\Models\Expense;
+use Tests\Concerns\LinksMobileBrandScope;
 use Tests\TestCase;
 
 /**
@@ -14,13 +15,15 @@ use Tests\TestCase;
  */
 class BrandOwnerHomeTest extends TestCase
 {
-    use RefreshDatabase;
+    use LinksMobileBrandScope, RefreshDatabase;
 
     private Branch $branch;
 
     private BranchManager $manager;
 
     private BrandOwner $owner;
+
+    private \Modules\Admin\Models\AsabBrand $brand;
 
     protected function setUp(): void
     {
@@ -37,6 +40,10 @@ class BrandOwnerHomeTest extends TestCase
             'is_first_login' => false,
             'status' => 'active',
         ]);
+
+        // Mobile branch lists are brand-isolated, so the owner must own a brand
+        // this branch belongs to (see MobileBranchScopeService).
+        $this->brand = $this->linkBrandOwner($this->owner, $this->branch);
     }
 
     public function test_dashboard_branches_returns_branch_list(): void
@@ -133,6 +140,7 @@ class BrandOwnerHomeTest extends TestCase
     public function test_dashboard_filters_by_branch(): void
     {
         $otherBranch = Branch::factory()->create(['name' => 'Branch 2']);
+        $this->tagBranchesWithBrand($this->brand, $otherBranch);
         $otherManager = BranchManager::factory()->create(['branch_id' => $otherBranch->id]);
 
         Expense::factory()->create([

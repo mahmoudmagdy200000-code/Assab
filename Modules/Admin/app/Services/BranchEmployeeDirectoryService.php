@@ -62,22 +62,30 @@ class BranchEmployeeDirectoryService
             $query->where('status', $status);
         }
 
-        return $query->orderBy('name')->limit(self::SOURCE_CAP)->get()
-            ->map(fn (Employee $e) => [
-                'id' => $e->id,
-                'empNumber' => $e->emp_number,
-                'name' => $e->name,
-                'role' => $e->role,
-                'monthlySalary' => $e->monthly_salary,
-                'shiftType' => $e->shift_type,
-                'nationalId' => $e->national_id,
-                'hireDate' => optional($e->hire_date)->toDateString(),
-                'status' => $e->status,
-                'email' => null,
-                'phone' => $e->phone,
-                'source' => 'dashboard',
-                'addedBy' => null,
-            ]);
+        $employees = $query->orderBy('name')->limit(self::SOURCE_CAP)->get();
+
+        // Rows mirrored from the mobile app keep their origin (and the manager
+        // who added them) instead of passing for dashboard-entered staff.
+        $mobileOrigins = Cashier::with('creator:id,name')
+            ->whereIn('id', $employees->pluck('legacy_cashier_id')->filter()->all())
+            ->get()
+            ->keyBy('id');
+
+        return $employees->map(fn (Employee $e) => [
+            'id' => $e->id,
+            'empNumber' => $e->emp_number,
+            'name' => $e->name,
+            'role' => $e->role,
+            'monthlySalary' => $e->monthly_salary,
+            'shiftType' => $e->shift_type,
+            'nationalId' => $e->national_id,
+            'hireDate' => optional($e->hire_date)->toDateString(),
+            'status' => $e->status,
+            'email' => $mobileOrigins->get($e->legacy_cashier_id)?->email,
+            'phone' => $e->phone,
+            'source' => $e->legacy_cashier_id ? 'mobile' : 'dashboard',
+            'addedBy' => $mobileOrigins->get($e->legacy_cashier_id)?->creator?->name,
+        ]);
     }
 
     /** @param array<string, mixed> $filters */
