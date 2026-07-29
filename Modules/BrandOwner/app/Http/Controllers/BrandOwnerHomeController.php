@@ -4,6 +4,7 @@ namespace Modules\BrandOwner\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
+use Modules\Admin\Services\MobileBranchScopeService;
 use Modules\BrandOwner\Http\Requests\BrandOwnerHomeDashboardRequest;
 use Modules\BrandOwner\Services\BrandOwnerHomeService;
 
@@ -16,7 +17,8 @@ use Modules\BrandOwner\Services\BrandOwnerHomeService;
 class BrandOwnerHomeController extends BaseController
 {
     public function __construct(
-        private BrandOwnerHomeService $service
+        private BrandOwnerHomeService $service,
+        private MobileBranchScopeService $branchScope
     ) {}
 
     /**
@@ -25,7 +27,7 @@ class BrandOwnerHomeController extends BaseController
     public function branches(): JsonResponse
     {
         return $this->successResponse(
-            $this->service->getBranches(),
+            $this->service->getBranches($this->branchScope->visibleBranchIds(auth()->user())),
             'Branches retrieved successfully'
         );
     }
@@ -36,7 +38,10 @@ class BrandOwnerHomeController extends BaseController
     public function dashboard(BrandOwnerHomeDashboardRequest $request): JsonResponse
     {
         return $this->successResponse(
-            $this->service->getDashboard($request->filters()),
+            $this->service->getDashboard(
+                $request->filters(),
+                $this->branchScope->visibleBranchIds(auth()->user()),
+            ),
             'Dashboard retrieved successfully'
         );
     }
