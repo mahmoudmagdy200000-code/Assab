@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Services;
 
+use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\BrandShiftConfig;
 use Modules\Admin\Support\ShiftEnums;
 
@@ -72,6 +73,30 @@ class ShiftConfigService
             'first_shift_start' => $data['firstShiftStart'] ?? '06:00',
             'shifts' => ['openingFloatHalalas' => (int) ($data['openingFloatHalalas'] ?? ShiftEnums::DEFAULT_FLOAT_HALALAS)],
         ];
+    }
+
+    /**
+     * A day holds 24 hours: N shifts × H hours must fit inside one, or the
+     * windows wrap onto each other. Two identical windows collide on the mobile
+     * `shifts` natural key (branch_id, start_time, end_time), so a 4×8h schedule
+     * silently landed as THREE template rows in the app — the fourth renamed the
+     * first instead of adding a shift.
+     *
+     * @throws AsabException 422 SHIFT_SCHEDULE_OVERFLOW
+     */
+    public function assertFitsDay(int $numShifts, int $durationHours): void
+    {
+        $total = $numShifts * $durationHours;
+        if ($total <= 24) {
+            return;
+        }
+
+        throw new AsabException(
+            'SHIFT_SCHEDULE_OVERFLOW',
+            "{$numShifts} shifts × {$durationHours}h = {$total}h does not fit in a 24-hour day.",
+            "عدد الورديات ({$numShifts}) × مدة الوردية ({$durationHours} ساعة) = {$total} ساعة، وهو أكبر من اليوم (24 ساعة).",
+            422,
+        );
     }
 
     /**

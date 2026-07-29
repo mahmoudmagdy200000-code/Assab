@@ -79,14 +79,17 @@ class AsabIdentityMapTest extends TestCase
 
     // ── Dual-write from the provisioners ─────────────────────────────────────
 
-    public function test_cashier_provision_writes_the_map(): void
+    public function test_cashier_mirror_writes_the_map(): void
     {
-        $this->actingAs($this->manager, 'sanctum')->postJson('/api/v1/company/me/branch/employees', [
-            'name' => 'سارة', 'role' => 'Cashier', 'salaryHalalas' => 450000, 'email' => 'sara@map.test',
-        ])->assertCreated();
+        // Cashiers are created in the mobile app; the mirror writes the link.
+        $cashier = app(\Modules\Cashier\Services\CashierService::class)->createCashier([
+            'name' => 'سارة',
+            'email' => 'sara@map.test',
+            'branch_id' => $this->branch->id,
+            'created_by' => $this->legacyManager->id,
+        ]);
 
         $emp = Employee::withoutGlobalScopes()->first();
-        $cashier = Cashier::where('email', 'sara@map.test')->first();
         $row = AsabIdentityMap::where('entity_type', 'cashier')->where('dashboard_id', $emp->id)->first();
         $this->assertNotNull($row);
         $this->assertSame($cashier->id, $row->legacy_id);

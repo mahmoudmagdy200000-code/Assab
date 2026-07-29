@@ -491,6 +491,10 @@ class AccountantCompanyController extends AsabController
             ]);
 
             $cols = $configService->fromInput($data);
+            // A schedule longer than a day wraps: two windows become identical
+            // and the mobile app ends up with fewer shifts than the dashboard shows.
+            $configService->assertFitsDay((int) $cols['num_shifts'], (int) $cols['duration_hours']);
+
             $cfg = BrandShiftConfig::firstOrNew(['brand_id' => $brandId]);
             $cfg->fill($cols)->save();
 
@@ -513,8 +517,12 @@ class AccountantCompanyController extends AsabController
             $brand = AsabBrand::where('company_id', $request->user()->company_id)->findOrFail($brandId);
             $this->assertBrandAssigned($brandId);
 
-            $seeded = $scheduleBridge->regenerateForBrand($brandId);
             $cfg = BrandShiftConfig::where('brand_id', $brandId)->first();
+            if ($cfg !== null) {
+                $configService->assertFitsDay((int) $cfg->num_shifts, (int) $cfg->duration_hours);
+            }
+
+            $seeded = $scheduleBridge->regenerateForBrand($brandId);
 
             return $this->ok($configService->present($brandId, $brand->name, $cfg) + ['mobileShiftsSeeded' => $seeded]);
         });
