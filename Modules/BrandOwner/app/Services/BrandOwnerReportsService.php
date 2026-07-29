@@ -263,11 +263,14 @@ class BrandOwnerReportsService
      * GET /brand-owner/branches
      *
      * When $branchId is provided (branch-manager callers) only that branch is
-     * returned; brand owners pass null and receive every branch.
+     * returned; brand owners pass null and receive their own brand's branches.
+     *
+     * @param  string[]  $allowedBranchIds  brand isolation, resolved per caller
      */
-    public function getBranches(?string $branchId = null): array
+    public function getBranches(?string $branchId = null, array $allowedBranchIds = []): array
     {
         $branches = Branch::query()
+            ->whereIn('id', $allowedBranchIds)
             ->when($branchId, fn (Builder $q) => $q->where('id', $branchId))
             ->with(['branchManager:id,branch_id,name'])
             ->orderBy('name')

@@ -15,17 +15,17 @@ use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\Asset;
 use Modules\Admin\Models\BrandShiftConfig;
-use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\SupplierItem as AsabSupplierItem;
 use Modules\Admin\Services\BranchHierarchyLinker;
-use Modules\Admin\Services\CashierProvisioningService;
+use Modules\Admin\Services\MobileCashierMirrorService;
 use Modules\Admin\Services\ExpenseTaxonomyBridgeService;
 use Modules\Admin\Services\ProcurementCatalogBridgeService;
 use Modules\Admin\Services\ShiftScheduleBridgeService;
 use Modules\Aggregator\Models\Aggregator;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Cashier\Models\Cashier;
 use Modules\Expense\Database\Seeders\CategorySeeder;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Models\InvoiceDetail;
@@ -294,7 +294,7 @@ class FullDemoSeeder extends Seeder
     // ── per branch: manager + cashiers (linked), then operational history ──────
     private function seedPeopleAndOperations(): void
     {
-        $cashierProvisioner = app(CashierProvisioningService::class);
+        $cashierMirror = app(MobileCashierMirrorService::class);
         $linker = app(BranchHierarchyLinker::class);
         $empNo = 1000;
 
@@ -308,24 +308,28 @@ class FullDemoSeeder extends Seeder
                 'password' => self::PASSWORD, 'is_first_login' => false, 'status' => 'active', 'is_active' => true,
             ]);
 
-            // Two cashiers per branch: an ASAB employee mirrored into a mobile
-            // login, linked by legacy_cashier_id so their shift closes bridge to
+            // Two cashiers per branch, created the way production does it now:
+            // in the MOBILE world by the branch manager, then mirrored into
+            // asab_employees (legacy_cashier_id) so their shift closes bridge to
             // the dashboard and reach the brand's accountant.
             $cashierIds = [];
             foreach ([1, 2] as $n) {
                 $empNo++;
-                $employee = Employee::create([
-                    'company_id' => $this->company->id, 'branch_id' => $branch->id,
-                    'emp_number' => 'EMP-'.$empNo, 'name' => 'كاشير '.$n.' — '.$branch->name,
-                    'role' => 'cashier', 'phone' => '05541'.str_pad((string) $empNo, 5, '0', STR_PAD_LEFT),
-                    'monthly_salary' => 450000, 'status' => 'active',
+                $cashier = Cashier::create([
+                    'name' => 'كاشير '.$n.' — '.$branch->name,
+                    'email' => 'cashier'.$empNo.'@nakhat.sa',
+                    'phone' => '05541'.str_pad((string) $empNo, 5, '0', STR_PAD_LEFT),
+                    'password' => self::PASSWORD,
+                    'branch_id' => $branch->id,
+                    'status' => 'active',
+                    'created_by' => $manager->id,
+                    'activated_at' => now(),
                 ]);
-                $email = 'cashier'.$empNo.'@nakhat.sa';
-                $result = $cashierProvisioner->provision($branch->id, $this->company->id, $employee->name, $email, $employee->phone, $employee->id);
-                if (! empty($result['cashierId'])) {
-                    $employee->forceFill(['legacy_cashier_id' => $result['cashierId']])->save();
-                    $cashierIds[] = $result['cashierId'];
-                }
+
+                // The mirror carries no salary (the mobile form has none); the
+                // demo fills one so the payroll screens are not empty.
+                $cashierMirror->mirror($cashier)?->update(['monthly_salary' => 450000]);
+                $cashierIds[] = $cashier->id;
             }
 
             // Operational history on every other branch (realistic: not every
