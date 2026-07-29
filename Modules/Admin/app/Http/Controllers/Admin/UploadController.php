@@ -17,7 +17,6 @@ use Modules\Admin\Models\Asset;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\UploadStatus;
-use Modules\Admin\Services\CashierProvisioningService;
 use Modules\Admin\Services\ExpenseTaxonomyBridgeService;
 use Modules\Admin\Services\ProcurementCatalogBridgeService;
 use Modules\Admin\Support\AssetEnums;
@@ -755,9 +754,9 @@ class UploadController extends AsabController
      * overlap is a cashier-role row, which provisions the same mobile login the
      * one-by-one add already does.
      */
-    public function employees(Request $request, CashierProvisioningService $cashiers, string $restaurantId): JsonResponse
+    public function employees(Request $request, string $restaurantId): JsonResponse
     {
-        return $this->run(function () use ($request, $cashiers, $restaurantId) {
+        return $this->run(function () use ($request, $restaurantId) {
             $restaurant = AsabRestaurant::withoutGlobalScope('tenant')->findOrFail($restaurantId);
             $this->assertBrandAssigned($restaurant->brand_id);
             $request->validate(['file' => self::FILE_RULES]);
@@ -774,7 +773,7 @@ class UploadController extends AsabController
             $errors = [];
             $cell = fn (array $row, string $key) => isset($map[$key]) ? trim((string) ($row[$map[$key]] ?? '')) : '';
 
-            DB::transaction(function () use ($rows, $cell, $branches, $restaurant, $cashiers, &$count, &$errors) {
+            DB::transaction(function () use ($rows, $cell, $branches, $restaurant, &$count, &$errors) {
                 foreach ($rows as $i => $row) {
                     try {
                         $name = $cell($row, 'name');
@@ -793,7 +792,7 @@ class UploadController extends AsabController
                             throw new \RuntimeException("لا يوجد فرع باسم «{$branchName}» ضمن هذا المطعم");
                         }
 
-                        $this->importEmployeeRow($restaurant, $branchId, $cashiers, [
+                        $this->importEmployeeRow($restaurant, $branchId, [
                             'name' => $name,
                             'role' => $role,
                             'phone' => $cell($row, 'phone') ?: null,
@@ -850,9 +849,13 @@ class UploadController extends AsabController
     }
 
     /** @param  array<string, string|null>  $data */
-    private function importEmployeeRow(AsabRestaurant $restaurant, ?string $branchId, CashierProvisioningService $cashiers, array $data): void
+    private function importEmployeeRow(AsabRestaurant $restaurant, ?string $branchId, array $data): void
     {
-        $employee = Employee::create([
+        // Cashiers are created in the mobile app by the branch manager, so a
+        // cashier row here would duplicate an account this sheet cannot make.
+        CashierRole::assertNotCashier($data['role']);
+
+        Employee::create([
             'company_id' => $restaurant->company_id,
             'branch_id' => $branchId,
             'emp_number' => $this->nextEmpNumber($restaurant->company_id),
@@ -869,17 +872,6 @@ class UploadController extends AsabController
             'status' => 'active',
         ]);
 
-        // Cashier-role employees also get a mobile-app login (WS2 bridge) —
-        // same rule as the one-by-one add, or an imported cashier could never
-        // open a shift.
-        if ($branchId !== null && $cashiers->isCashierRole($data['role'])) {
-            $provision = $cashiers->provision(
-                $branchId, $restaurant->company_id, $data['name'], null, $data['phone'], $employee->id,
-            );
-            if ($provision['cashierId'] ?? null) {
-                $employee->forceFill(['legacy_cashier_id' => $provision['cashierId']])->save();
-            }
-        }
     }
 
     /**
