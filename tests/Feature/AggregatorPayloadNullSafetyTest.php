@@ -34,7 +34,10 @@ class AggregatorPayloadNullSafetyTest extends TestCase
 
     public function test_available_list_emits_strings_not_nulls(): void
     {
-        $res = $this->getJson('/api/aggregators/available');
+        $branch = Branch::factory()->create();
+        $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
+
+        $res = $this->actingAs($manager, 'sanctum')->getJson('/api/aggregators/available');
         $res->assertOk();
 
         $row = collect($res->json('data'))->firstWhere('id', $this->aggregator->id);
@@ -64,6 +67,22 @@ class AggregatorPayloadNullSafetyTest extends TestCase
             $this->assertIsString($row[$field], "{$field} must be a string, got null");
         }
         $this->assertSame('', $row['logo']);
+    }
+
+    public function test_branch_manager_settings_list_emits_strings_not_nulls(): void
+    {
+        $branch = Branch::factory()->create();
+        $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
+
+        $res = $this->actingAs($manager, 'sanctum')
+            ->getJson('/api/branch-manager/settings/aggregators/available');
+        $res->assertOk();
+
+        $row = collect($res->json('data'))->firstWhere('id', $this->aggregator->id);
+        $this->assertNotNull($row);
+        $this->assertIsString($row['name']);
+        $this->assertIsString($row['logo_url']);
+        $this->assertSame('', $row['logo_url']);
     }
 
     public function test_detail_payload_emits_strings_not_nulls(): void
