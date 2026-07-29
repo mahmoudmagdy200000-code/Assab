@@ -13,11 +13,11 @@ use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Shift;
 use Modules\Admin\Models\SupplierRequest;
-use Modules\Admin\Services\CashierProvisioningService;
 use Modules\Admin\Services\NotificationService;
 use Modules\Admin\Services\OperationAttachmentService;
 use Modules\Admin\Services\OperationFactory;
 use Modules\Admin\Services\RealtimeBroadcaster;
+use Modules\Admin\Support\CashierRole;
 
 /**
  * Company-scoped Branch Manager surface — NEW endpoints beyond the shared
@@ -31,7 +31,6 @@ class BranchCompanyController extends AsabController
         private readonly OperationFactory $factory,
         private readonly NotificationService $notifications,
         private readonly RealtimeBroadcaster $rt,
-        private readonly CashierProvisioningService $cashiers,
         private readonly OperationAttachmentService $attachments,
         private readonly \Modules\Admin\Services\BranchDailyReportsService $dailyReports,
     ) {}
@@ -362,68 +361,46 @@ class BranchCompanyController extends AsabController
                 'shift' => 'sometimes|nullable|string|max:16',
                 'nationalId' => 'sometimes|nullable|string|max:32',
                 'hireDate' => 'sometimes|nullable|date',
-                'email' => 'sometimes|nullable|email|max:255',
                 'phone' => 'sometimes|nullable|string|max:32',
             ]);
+            // Cashier accounts live in the mobile app only: the branch manager
+            // creates them there, and GET .../branch/employees reads them back.
+            CashierRole::assertNotCashier($data['role']);
             $branchId = $this->branchId($request);
 
             // Retry on the (company_id, emp_number) unique index so concurrent
             // creates never collide on the derived number (T12.11).
-            [$emp, $provision] = $this->createEmployeeWithRetry($request, $data, $branchId);
+            $emp = $this->createEmployeeWithRetry($request, $data, $branchId);
 
-            $payload = [
+            return $this->created([
                 'id' => $emp->id, 'empNumber' => $emp->emp_number, 'name' => $emp->name,
                 'role' => $emp->role, 'monthlySalary' => $emp->monthly_salary,
                 'shiftType' => $emp->shift_type, 'branchId' => $emp->branch_id, 'status' => $emp->status,
-            ];
-            if ($provision !== null) {
-                $payload['cashier'] = $provision;
-            }
-
-            return $this->created($payload);
+            ]);
         });
     }
 
     /**
-     * Create the employee (+ cashier provisioning) in a transaction, retrying
-     * when the derived emp_number races another concurrent create.
-     *
-     * @return array{0: Employee, 1: array|null}
+     * Create the employee in a transaction, retrying when the derived
+     * emp_number races another concurrent create.
      */
-    private function createEmployeeWithRetry(Request $request, array $data, ?string $branchId): array
+    private function createEmployeeWithRetry(Request $request, array $data, ?string $branchId): Employee
     {
         for ($attempt = 1; ; $attempt++) {
             try {
-                return DB::transaction(function () use ($request, $data, $branchId) {
-                    $emp = Employee::create([
-                        'company_id' => $request->user()->company_id,
-                        'branch_id' => $branchId,
-                        'emp_number' => $this->nextEmpNumber($request->user()->company_id),
-                        'name' => $data['name'],
-                        'phone' => $data['phone'] ?? null,
-                        'national_id' => $data['nationalId'] ?? null,
-                        'role' => $data['role'],
-                        'monthly_salary' => $data['salaryHalalas'],
-                        'shift_type' => $data['shift'] ?? null,
-                        'hire_date' => $data['hireDate'] ?? now(),
-                        'status' => 'active',
-                    ]);
-
-                    // Cashier-role employees also get a mobile-app login (WS2 bridge).
-                    $provision = null;
-                    if ($this->cashiers->isCashierRole($data['role'])) {
-                        $provision = $this->cashiers->provision(
-                            $branchId, $request->user()->company_id,
-                            $data['name'], $data['email'] ?? null, $data['phone'] ?? null,
-                            $emp->id,
-                        );
-                        if ($provision['cashierId']) {
-                            $emp->forceFill(['legacy_cashier_id' => $provision['cashierId']])->save();
-                        }
-                    }
-
-                    return [$emp, $provision];
-                });
+                return DB::transaction(fn () => Employee::create([
+                    'company_id' => $request->user()->company_id,
+                    'branch_id' => $branchId,
+                    'emp_number' => $this->nextEmpNumber($request->user()->company_id),
+                    'name' => $data['name'],
+                    'phone' => $data['phone'] ?? null,
+                    'national_id' => $data['nationalId'] ?? null,
+                    'role' => $data['role'],
+                    'monthly_salary' => $data['salaryHalalas'],
+                    'shift_type' => $data['shift'] ?? null,
+                    'hire_date' => $data['hireDate'] ?? now(),
+                    'status' => 'active',
+                ]));
             } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
                 if ($attempt >= 5) {
                     throw $e;

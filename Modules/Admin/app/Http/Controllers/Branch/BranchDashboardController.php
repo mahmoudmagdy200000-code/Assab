@@ -4,15 +4,15 @@ namespace Modules\Admin\Http\Controllers\Branch;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\SupplierRequest;
+use Modules\Admin\Services\BranchEmployeeDirectoryService;
 use Modules\Admin\Services\BranchOverviewService;
-use Modules\Admin\Services\CashierProvisioningService;
 use Modules\Admin\Services\ExpenseInvoiceService;
 use Modules\Admin\Services\OperationAttachmentService;
 use Modules\Admin\Services\OperationFactory;
+use Modules\Admin\Support\CashierRole;
 
 /**
  * Branch Manager (مدير الفرع) web companion (BACKEND_API_SPEC.md §6.4).
@@ -22,7 +22,7 @@ class BranchDashboardController extends AsabController
 {
     public function __construct(
         private readonly OperationFactory $factory,
-        private readonly CashierProvisioningService $cashiers,
+        private readonly BranchEmployeeDirectoryService $directory,
         private readonly ExpenseInvoiceService $invoices,
         private readonly BranchOverviewService $overviewService,
         private readonly OperationAttachmentService $attachments,
@@ -111,31 +111,16 @@ class BranchDashboardController extends AsabController
     public function employees(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $q = Employee::where('branch_id', $this->branchId($request))->orderBy('name');
+            // Dashboard employees + the cashiers this branch's manager added
+            // from the mobile app (cashier accounts are mobile-only).
+            $page = $this->directory->paginate($this->branchId($request), [
+                'search' => $request->query('search'),
+                'status' => $request->query('status'),
+                'page' => (int) $request->query('page', 1),
+                'pageSize' => (int) $request->query('pageSize', 25),
+            ]);
 
-            if ($search = $request->query('search')) {
-                $q->where(fn ($w) => $w->where('name', 'like', "%{$search}%")
-                    ->orWhere('emp_number', 'like', "%{$search}%")
-                    ->orWhere('role', 'like', "%{$search}%"));
-            }
-            if ($status = $request->query('status')) {
-                $q->where('status', $status);
-            }
-
-            $perPage = min((int) $request->query('pageSize', 25), 100);
-            $p = $q->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
-
-            return $this->paginated($p, array_map(fn ($e) => [
-                'id' => $e->id,
-                'empNumber' => $e->emp_number,
-                'name' => $e->name,
-                'role' => $e->role,
-                'monthlySalary' => $e->monthly_salary,
-                'shiftType' => $e->shift_type,
-                'nationalId' => $e->national_id,
-                'hireDate' => optional($e->hire_date)->toDateString(),
-                'status' => $e->status,
-            ], $p->items()));
+            return $this->paginated($page);
         });
     }
 
@@ -150,46 +135,26 @@ class BranchDashboardController extends AsabController
                 'monthlySalary' => 'required|integer|min:0',
                 'shiftType' => 'nullable|string|max:16',
                 'hireDate' => 'nullable|date',
-                'email' => 'nullable|email|max:255',
                 'phone' => 'nullable|string|max:32',
             ]);
+            // Cashier accounts live in the mobile app only (branch manager adds them).
+            CashierRole::assertNotCashier($data['role']);
             $branchId = $this->branchId($request);
 
-            [$emp, $provision] = DB::transaction(function () use ($request, $data, $branchId) {
-                $emp = Employee::create([
-                    'branch_id' => $branchId,
-                    'emp_number' => $data['empNumber'],
-                    'name' => $data['name'],
-                    'national_id' => $data['nationalId'] ?? null,
-                    'role' => $data['role'],
-                    'monthly_salary' => $data['monthlySalary'],
-                    'shift_type' => $data['shiftType'] ?? null,
-                    'hire_date' => $data['hireDate'] ?? now(),
-                    'status' => 'active',
-                ]);
+            $emp = Employee::create([
+                'branch_id' => $branchId,
+                'emp_number' => $data['empNumber'],
+                'name' => $data['name'],
+                'phone' => $data['phone'] ?? null,
+                'national_id' => $data['nationalId'] ?? null,
+                'role' => $data['role'],
+                'monthly_salary' => $data['monthlySalary'],
+                'shift_type' => $data['shiftType'] ?? null,
+                'hire_date' => $data['hireDate'] ?? now(),
+                'status' => 'active',
+            ]);
 
-                // Cashier-role employees also get a mobile-app login (WS2 bridge).
-                $provision = null;
-                if ($this->cashiers->isCashierRole($data['role'])) {
-                    $provision = $this->cashiers->provision(
-                        $branchId, $request->user()->company_id,
-                        $data['name'], $data['email'] ?? null, $data['phone'] ?? null,
-                        $emp->id,
-                    );
-                    if ($provision['cashierId']) {
-                        $emp->forceFill(['legacy_cashier_id' => $provision['cashierId']])->save();
-                    }
-                }
-
-                return [$emp, $provision];
-            });
-
-            $payload = ['id' => $emp->id, 'empNumber' => $emp->emp_number, 'name' => $emp->name];
-            if ($provision !== null) {
-                $payload['cashier'] = $provision;
-            }
-
-            return $this->created($payload);
+            return $this->created(['id' => $emp->id, 'empNumber' => $emp->emp_number, 'name' => $emp->name]);
         });
     }
 
