@@ -55,12 +55,7 @@ class CashierCustodyService
             return $existing;
         }
 
-        $toName = null;
-        if ($handover->handover_to_type === 'cashier') {
-            $toName = Cashier::find($handover->handover_to_id)?->name;
-        } elseif ($handover->handover_to_type === 'branch_manager') {
-            $toName = \Modules\BranchManagers\Models\BranchManager::find($handover->handover_to_id)?->name;
-        }
+        $toName = $this->resolveRecipientName($handover);
 
         return CashierCustodyTransaction::create([
             'cashier_id' => $sendingCashier->id,
@@ -108,12 +103,7 @@ class CashierCustodyService
             $totalSales = (float) $handover->handover_amount;
         }
 
-        $toName = null;
-        if ($handover->handover_to_type === 'cashier') {
-            $toName = Cashier::find($handover->handover_to_id)?->name;
-        } elseif ($handover->handover_to_type === 'branch_manager') {
-            $toName = \Modules\BranchManagers\Models\BranchManager::find($handover->handover_to_id)?->name;
-        }
+        $toName = $this->resolveRecipientName($handover);
 
         return CashierCustodyTransaction::create([
             'cashier_id' => $sendingCashier->id,
