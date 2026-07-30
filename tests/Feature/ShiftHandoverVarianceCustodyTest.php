@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Schema;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
@@ -126,10 +125,6 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
 
     public function test_variance_custody_listener_only_writes_when_responsibility_approved(): void
     {
-        if (Schema::getConnection()->getDriverName() === 'sqlite') {
-            $this->markTestSkipped('SQLite schema uses a strict transaction_type check without Variance; run against MySQL for full custody enum coverage.');
-        }
-
         $branch = Branch::factory()->create();
         $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
         $cashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
@@ -173,10 +168,6 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
 
     public function test_variance_over_uses_cash_in_for_cashier(): void
     {
-        if (Schema::getConnection()->getDriverName() === 'sqlite') {
-            $this->markTestSkipped('SQLite schema uses a strict transaction_type check without Variance; run against MySQL for full custody enum coverage.');
-        }
-
         $branch = Branch::factory()->create();
         $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
         $cashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);

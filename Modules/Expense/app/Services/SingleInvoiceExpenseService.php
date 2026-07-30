@@ -335,7 +335,7 @@ class SingleInvoiceExpenseService
         try {
             $custodyBalanceService = app(\Modules\Custody\Services\CustodyBalanceService::class);
 
-            return $custodyBalanceService->getCustodyBalance($branchManagerId);
+            return $custodyBalanceService->getAvailableExpenseBalance($branchManagerId);
         } catch (\Exception $e) {
             Log::error('Failed to get custody balance', [
                 'branch_manager_id' => $branchManagerId,

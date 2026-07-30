@@ -35,6 +35,31 @@ class CustodyBalanceService
     }
 
     /**
+     * Personal-ledger balance (sales cash the manager physically holds).
+     */
+    public function getPersonalLedgerBalance(string $branchManagerId): float
+    {
+        $balance = PersonalLedgerTransaction::where('branch_manager_id', $branchManagerId)
+            ->selectRaw(self::SQL_BALANCE_EXPRESSION)
+            ->value('balance');
+
+        return round((float) ($balance ?? 0), 2);
+    }
+
+    /**
+     * Cash available to spend on expenses = branch custody (granted by the
+     * brand owner) + personal ledger (sales cash in hand). The expense
+     * deduction takes branch custody first, then the personal ledger.
+     */
+    public function getAvailableExpenseBalance(string $branchManagerId): float
+    {
+        return round(
+            $this->getCustodyBalance($branchManagerId) + $this->getPersonalLedgerBalance($branchManagerId),
+            2
+        );
+    }
+
+    /**
      * Get balance trends data for UI (Balance Trend Stats screen).
      * Filters: custodyType (branch|personal), month, year, granularity (daily|weekly|monthly).
      * Returns structure matching the UI 100%.

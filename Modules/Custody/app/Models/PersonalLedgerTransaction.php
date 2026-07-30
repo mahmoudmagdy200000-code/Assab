@@ -21,6 +21,7 @@ class PersonalLedgerTransaction extends Model
         'brand_owner_name',
         'related_shift_id',
         'related_handover_id',
+        'related_expense_id',
         'transaction_date',
     ];
 

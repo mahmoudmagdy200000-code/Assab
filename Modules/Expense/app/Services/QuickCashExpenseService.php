@@ -239,7 +239,7 @@ class QuickCashExpenseService
         try {
             $custodyBalanceService = app(\Modules\Custody\Services\CustodyBalanceService::class);
 
-            return $custodyBalanceService->getCustodyBalance($branchManagerId);
+            return $custodyBalanceService->getAvailableExpenseBalance($branchManagerId);
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to get custody balance', [
                 'branch_manager_id' => $branchManagerId,
