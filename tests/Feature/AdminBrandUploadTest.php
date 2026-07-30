@@ -319,6 +319,39 @@ class AdminBrandUploadTest extends TestCase
         $this->assertSame('purchase', $cat->type);
     }
 
+    public function test_item_sheet_with_sub_category_column_builds_the_hierarchical_taxonomy(): void
+    {
+        $brand = $this->brand();
+
+        // Client sheets label the grouping column «الفئة» and add «اسم الفئة»
+        // (its sub-category) — the mobile picker is parent → children.
+        $csv = 'رمز الصنف,اسم الصنف,الفئة,اسم الفئة,وحدة البيع,السعر'."\n"
+            .'SKU-1,فاتورة كهرباء,مرافق,كهرباء,حبة,25.50'."\n";
+
+        $url = "/api/v1/admin/brands/{$brand->id}/upload/sales-items";
+        $this->upload($url, 'items.csv', $csv)->assertStatus(200);
+        // Re-upload: neither level duplicates.
+        $this->upload($url, 'items.csv', $csv)->assertStatus(200);
+
+        $parent = Category::where('name', 'مرافق')->whereNull('parent_id')->first();
+        $this->assertNotNull($parent, '«الفئة» must become the parent category');
+        $this->assertSame('expense', $parent->type);
+
+        $child = Category::where('name', 'كهرباء')->first();
+        $this->assertNotNull($child, '«اسم الفئة» must become the sub-category');
+        $this->assertSame($parent->id, $child->parent_id);
+        $this->assertSame('expense', $child->type);
+
+        $this->assertSame(2, Category::count());
+
+        // The shifted unit/price columns still land on the item row.
+        $item = InventoryCatalogItem::where('name', 'فاتورة كهرباء')->first();
+        $this->assertNotNull($item);
+        $this->assertSame('مرافق', $item->category);
+        $this->assertSame('حبة', $item->unit);
+        $this->assertSame(2550, (int) $item->unit_price);
+    }
+
     public function test_expense_category_bridge_is_idempotent_and_skips_blank(): void
     {
         $brand = $this->brand();

@@ -33,22 +33,42 @@ class ExpenseTaxonomyBridgeService
     private const NAME_MAX = 100;
 
     /**
-     * Ensure the mobile Expense category for one uploaded catalog row exists.
-     * No-op for a blank category cell.
+     * Ensure the mobile Expense taxonomy for one uploaded catalog row exists.
+     * «الفئة» is the PARENT category and the optional «اسم الفئة» is its
+     * SUB-category (parent_id child) — the mobile pickers are hierarchical
+     * (parent-categories → children, exactly like CategorySeeder), so a flat
+     * row here rendered wrong in the app. No-op for a blank category cell.
      *
      * @param  string  $uploadType  'sales-items' | 'raw-materials'
      */
-    public function syncCategoryFor(string $uploadType, ?string $categoryName): void
+    public function syncCategoryFor(string $uploadType, ?string $categoryName, ?string $subCategoryName = null): void
     {
         $name = trim((string) $categoryName);
         if ($name === '') {
             return;
         }
 
-        Category::firstOrCreate(
+        $type = $uploadType === 'raw-materials' ? 'purchase' : 'expense';
+
+        $parent = Category::firstOrCreate(
             [
                 'name' => mb_substr($name, 0, self::NAME_MAX),
-                'type' => $uploadType === 'raw-materials' ? 'purchase' : 'expense',
+                'type' => $type,
+                'parent_id' => null,
+            ],
+            ['is_active' => true],
+        );
+
+        $subName = trim((string) $subCategoryName);
+        if ($subName === '') {
+            return;
+        }
+
+        Category::firstOrCreate(
+            [
+                'name' => mb_substr($subName, 0, self::NAME_MAX),
+                'type' => $type,
+                'parent_id' => $parent->id,
             ],
             ['is_active' => true],
         );

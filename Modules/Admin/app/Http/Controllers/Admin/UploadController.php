@@ -102,7 +102,11 @@ class UploadController extends AsabController
             $request->validate(['file' => self::FILE_RULES]);
             // Throws before the first tick: a file with no data rows must not
             // stamp an UploadStatus row that reads as a completed upload.
-            [, $rows] = $this->parse($request->file('file'), $type);
+            [$header, $rows] = $this->parse($request->file('file'), $type);
+            // Client sheets may add «اسم الفئة» (sub-category) after «الفئة» —
+            // it shifts the unit/price columns right by one.
+            $hasSubCategory = in_array($type, ['sales-items', 'raw-materials'], true)
+                && in_array('اسم الفئة', $header, true);
 
             // FE completion request §1.7 (Option B) — emit a processing tick, then a terminal tick.
             $rt->brandUploadProgress($brand->company_id, $brand->id, $type, 'processing', 0, 0, 0);
@@ -116,13 +120,13 @@ class UploadController extends AsabController
 
             $count = 0;
             $errors = [];
-            DB::transaction(function () use ($rows, $brand, $type, $brandBranchIds, &$count, &$errors) {
+            DB::transaction(function () use ($rows, $brand, $type, $brandBranchIds, $hasSubCategory, &$count, &$errors) {
                 foreach ($rows as $i => $row) {
                     try {
                         if ($type === 'suppliers') {
                             $this->importSupplierRow($brand, $row);
                         } else {
-                            $this->importCatalogRow($brand, $type, $row, $brandBranchIds);
+                            $this->importCatalogRow($brand, $type, $row, $brandBranchIds, $hasSubCategory);
                         }
                         $count++;
                     } catch (\Throwable $e) {
@@ -260,14 +264,16 @@ class UploadController extends AsabController
      * items table so uploaded materials actually reach the purchasing flows.
      *
      * @param  string[]  $branchIds  the brand's branch ids (raw-materials seeding)
+     * @param  bool  $hasSubCategory  sheet carries «اسم الفئة» after «الفئة» (shifts unit/price right)
      */
-    private function importCatalogRow(AsabBrand $brand, string $type, array $row, array $branchIds = []): void
+    private function importCatalogRow(AsabBrand $brand, string $type, array $row, array $branchIds = [], bool $hasSubCategory = false): void
     {
         $code = trim((string) ($row[0] ?? ''));
         $name = trim((string) ($row[1] ?? ''));
         $category = $row[2] ?? null;
-        $unit = $row[3] ?? null;
-        $priceHalalas = $this->toHalalas($row[4] ?? 0);
+        $subCategory = $hasSubCategory ? ($row[3] ?? null) : null;
+        $unit = $row[$hasSubCategory ? 4 : 3] ?? null;
+        $priceHalalas = $this->toHalalas($row[$hasSubCategory ? 5 : 4] ?? 0);
 
         InventoryCatalogItem::create([
             'brand_id' => $brand->id,
@@ -283,7 +289,8 @@ class UploadController extends AsabController
         // BUG-9 write-through: surface the row's category in the mobile Expense
         // taxonomy (`categories`) so the app's «الأصناف»/«المصروفات» pickers are
         // not empty (raw-materials → purchase tab, sales-items → expense tab).
-        $this->expenseTaxonomy->syncCategoryFor($type, $category);
+        // «الفئة» = parent, «اسم الفئة» = its sub-category (hierarchical picker).
+        $this->expenseTaxonomy->syncCategoryFor($type, $category, $subCategory);
 
         if ($type === 'raw-materials' && $name !== '') {
             // Create-only into the (global) purchasing items table: never
@@ -1032,13 +1039,28 @@ class UploadController extends AsabController
         // The FE labels the grouping column «الفئة» while the ratified *item*
         // templates say «التصنيف» — accept both so real user files import.
         // Suppliers legitimately use «الفئة»; that split is intentional.
-        $actual = in_array($type, ['sales-items', 'raw-materials'], true)
+        $isItemSheet = in_array($type, ['sales-items', 'raw-materials'], true);
+        $actual = $isItemSheet
             ? array_map(fn (string $h) => $h === 'الفئة' ? 'التصنيف' : $h, $header)
             : $header;
 
-        if ($actual !== self::TEMPLATES[$type]) {
-            throw $this->headerMismatch($header, self::TEMPLATES[$type]);
+        if ($actual === self::TEMPLATES[$type]) {
+            return;
         }
+
+        // Item sheets may also carry «اسم الفئة» (the category's sub-category)
+        // right after the grouping column — accept that 6-column layout too.
+        if ($isItemSheet) {
+            $withSub = self::TEMPLATES[$type];
+            array_splice($withSub, 3, 0, ['اسم الفئة']);
+            if ($actual === $withSub) {
+                return;
+            }
+
+            throw $this->headerMismatch($header, self::TEMPLATES[$type], $withSub);
+        }
+
+        throw $this->headerMismatch($header, self::TEMPLATES[$type]);
     }
 
     /** @param  array<int, string>  ...$expected  one entry per accepted layout */
