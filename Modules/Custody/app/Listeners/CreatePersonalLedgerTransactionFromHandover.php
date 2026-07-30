@@ -44,7 +44,7 @@ class CreatePersonalLedgerTransactionFromHandover
 
             Log::info('Personal ledger transaction created from approved handover', [
                 'handover_id' => $handover->id,
-                'branch_manager_id' => $handover->handover_to_id,
+                'branch_manager_id' => $handover->receivingBranchManagerId() ?? $handover->handover_to_id,
                 'amount' => $handover->handover_amount,
             ]);
         } catch (\Exception $e) {

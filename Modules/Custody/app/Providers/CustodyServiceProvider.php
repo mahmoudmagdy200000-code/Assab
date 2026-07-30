@@ -43,7 +43,9 @@ class CustodyServiceProvider extends ServiceProvider
      */
     protected function registerCommands(): void
     {
-        // $this->commands([]);
+        $this->commands([
+            \Modules\Custody\Console\RepointHandoverLedgerCommand::class,
+        ]);
     }
 
     /**
