@@ -118,6 +118,24 @@ class CashierCustodyService
     }
 
     /**
+     * Display name of who actually received the handover: the receiving cashier,
+     * or — for manager handovers — the branch manager who approved (branch-wide
+     * approval means the approver holds the cash, not necessarily the addressee).
+     */
+    private function resolveRecipientName(CashierShiftHandover $handover): ?string
+    {
+        if ($handover->handover_to_type === 'cashier') {
+            return Cashier::find($handover->handover_to_id)?->name;
+        }
+
+        $receivingManagerId = $handover->receivingBranchManagerId();
+
+        return $receivingManagerId
+            ? \Modules\BranchManagers\Models\BranchManager::find($receivingManagerId)?->name
+            : null;
+    }
+
+    /**
      * Record a Cash-OUT entry from the custody/handover endpoint (manual handover, not shift-based).
      */
     public function recordManualHandoverSent(string $cashierId, float $amount, ?string $recipientName): CashierCustodyTransaction
