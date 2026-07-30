@@ -304,14 +304,22 @@ class BranchManagerShiftService
                                 $cq->whereDate('shift_date', $shiftDate);
                             })->orWhereDate('handover_date', $shiftDate);
                         })
-                        // Previous days (up to 7 days back) — only pending/rejected (not yet approved)
+                        // Previous days (up to 7 days back): pending/rejected, plus
+                        // approved handovers never swept into a submitted daily close
+                        // (daily_closed_at NULL) — cash reviewed late must not vanish.
                             ->orWhere(function ($subQ) use ($managerShift, $shiftDate, $sevenDaysAgo) {
                                 $subQ->whereHas('cashierShift.shift', function ($sq) use ($managerShift) {
                                     $sq->where('branch_id', $managerShift->branch_id);
                                 })
                                     ->whereDate('handover_date', '>=', $sevenDaysAgo)
                                     ->whereDate('handover_date', '<', $shiftDate)
-                                    ->whereNotIn('status', ['approved', 'rejected_final']);
+                                    ->where(function ($sq) {
+                                        $sq->whereNotIn('status', ['approved', 'rejected_final'])
+                                            ->orWhere(function ($aq) {
+                                                $aq->where('status', 'approved')
+                                                    ->whereNull('daily_closed_at');
+                                            });
+                                    });
                             });
                     });
                 break;
@@ -624,6 +632,29 @@ class BranchManagerShiftService
     public function prepareDailyCloseSummary(BranchManagerShift $shift): array
     {
         return $this->financialService()->prepareDailyCloseSummary($shift);
+    }
+
+    /**
+     * Name of the dashboard accountant responsible for the branch — the final
+     * daily-close approver shown on the mobile Final Handover screen. Null when
+     * the branch is not linked to the ASAB world or no accountant covers it.
+     */
+    public function responsibleAccountantNameForBranch(?string $branchId): ?string
+    {
+        if (! $branchId) {
+            return null;
+        }
+
+        $branch = \Modules\Branch\Models\Branch::query()
+            ->select(['id', 'asab_company_id', 'asab_brand_id', 'asab_restaurant_id'])
+            ->find($branchId);
+
+        if (! $branch) {
+            return null;
+        }
+
+        return app(\Modules\Admin\Services\AccountantScopeService::class)
+            ->responsibleAccountantForMobileBranch($branch)?->name;
     }
 
     /**

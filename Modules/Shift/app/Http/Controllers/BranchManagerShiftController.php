@@ -550,6 +550,7 @@ class BranchManagerShiftController extends BaseController
                 $managerShift->load('nextManager');
 
                 $cashierBreakdownResponse = $this->shiftService->buildCashierBreakdownFromHandovers($updatedHandovers);
+                $accountantName = $this->shiftService->responsibleAccountantNameForBranch($managerShift->branch_id);
 
                 DB::commit();
 
@@ -560,7 +561,8 @@ class BranchManagerShiftController extends BaseController
                         'status' => $handoverStatus,
                         'status_options' => ['pending', 'accepted', 'rejected'],
                         'handover_from' => $manager->name,
-                        'handover_to' => $managerShift->nextManager?->name ?? 'Not specified',
+                        'handover_to' => $managerShift->nextManager?->name ?? $accountantName ?? 'Not specified',
+                        'accountant_name' => $accountantName,
                         'handover_date' => $managerShift->handover_date?->format(self::DATE_FORMAT) ?? now()->format(self::DATE_FORMAT),
                         'handover_time' => $managerShift->handover_time?->format(self::TIME_FORMAT) ?? now()->format(self::TIME_FORMAT),
                         'current_time' => $currentTime,
@@ -755,7 +757,23 @@ class BranchManagerShiftController extends BaseController
                     'daily_report_notes' => $request->final_notes,
                     'can_reopen' => true,
                 ]);
+
+                // Sweep every approved handover included in this close (today's
+                // plus carried-over unclosed days) so it is never re-included
+                // in a future daily close.
+                $includedIds = $this->shiftService
+                    ->getShiftHandovers($managerShift, 'to_manager', true)
+                    ->where('status', 'approved')
+                    ->pluck('id');
+
+                if ($includedIds->isNotEmpty()) {
+                    CashierShiftHandover::whereIn('id', $includedIds)
+                        ->whereNull('daily_closed_at')
+                        ->update(['daily_closed_at' => now()]);
+                }
             });
+
+            $this->shiftService->clearShiftCaches($managerShift);
 
             return $this->successResponse([
                 'shift' => new BranchManagerShiftResource($managerShift),
@@ -936,6 +954,7 @@ class BranchManagerShiftController extends BaseController
             $closingBalance = (float) ($managerShift->handover_amount ?? $managerShift->closing_balance ?? 0);
             $variance = $totalSales - $closingBalance;
             $handoverStatus = $this->shiftService->normalizeHandoverStatus($managerShift->handover_status);
+            $accountantName = $this->shiftService->responsibleAccountantNameForBranch($managerShift->branch_id);
             $currentTime = $managerShift->handover_timing === 'yesterday'
                 ? now()->subDay()->format(self::DATETIME_FORMAT)
                 : now()->format(self::DATETIME_FORMAT);
@@ -955,7 +974,8 @@ class BranchManagerShiftController extends BaseController
                     'status' => $handoverStatus,
                     'status_options' => ['pending', 'accepted', 'rejected'],
                     'handover_from' => $managerShift->branchManager->name,
-                    'handover_to' => $managerShift->nextManager?->name ?? 'Not specified',
+                    'handover_to' => $managerShift->nextManager?->name ?? $accountantName ?? 'Not specified',
+                    'accountant_name' => $accountantName,
                     'handover_to_id' => $managerShift->next_manager_id,
                     'handover_date' => $managerShift->handover_date?->format(self::DATE_FORMAT) ?? now()->format(self::DATE_FORMAT),
                     'handover_time' => $managerShift->handover_time?->format(self::TIME_FORMAT) ?? now()->format(self::TIME_FORMAT),

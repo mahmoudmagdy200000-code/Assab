@@ -110,8 +110,9 @@ class CreateCustodyLedgerEntriesForVariance implements ShouldQueue
         if ($shift->handover) {
             $handoverId = $shift->handover->id;
             $transactionDate = $shift->handover->handover_time ?? now();
-            if ($shift->handover->handover_to_type === 'branch_manager' && $shift->handover->handover_to_id) {
-                $counterpartName = \Modules\BranchManagers\Models\BranchManager::find($shift->handover->handover_to_id)?->name;
+            $receivingManagerId = $shift->handover->receivingBranchManagerId();
+            if ($receivingManagerId) {
+                $counterpartName = \Modules\BranchManagers\Models\BranchManager::find($receivingManagerId)?->name;
             }
         }
 
@@ -159,7 +160,7 @@ class CreateCustodyLedgerEntriesForVariance implements ShouldQueue
             ->implode(', ');
 
         PersonalLedgerTransaction::create([
-            'branch_manager_id' => $shift->handover->handover_to_id,
+            'branch_manager_id' => $shift->handover->receivingBranchManagerId() ?? $shift->handover->handover_to_id,
             'transaction_type' => 'Variance from Cashier',
             'amount' => abs($net),
             'is_cash_in' => $net > 0,

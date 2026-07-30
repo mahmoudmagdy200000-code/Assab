@@ -171,12 +171,18 @@ class BranchManagerShiftResource extends JsonResource
 
         $varianceType = $variance > 0 ? 'Over' : ($variance < 0 ? 'Short' : 'None');
 
+        // FR-SAL: with no next manager, the final handover goes to the
+        // responsible dashboard accountant for approval.
+        $accountantName = app(\Modules\Shift\Services\BranchManagerShiftService::class)
+            ->responsibleAccountantNameForBranch($this->branch_id);
+
         return [
             'handover_amount' => (float) ($this->handover_amount ?? 0),
             'status' => $status,
             'status_options' => ['Completed', self::STATUS_NOT_SUBMITTED, 'Pending'],
             'handover_from' => $this->branchManager?->name ?? 'N/A',
-            'handover_to' => $this->nextManager?->name ?? 'Not specified',
+            'handover_to' => $this->nextManager?->name ?? $accountantName ?? 'Not specified',
+            'accountant_name' => $accountantName,
             'handover_date' => $this->handover_date?->format('Y-m-d') ?? now()->format('Y-m-d'),
             'handover_time' => $this->handover_time?->format('H:i:s') ?? now()->format('H:i:s'),
             'current_time' => $currentTime,

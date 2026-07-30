@@ -117,7 +117,9 @@ class PersonalLedgerService
         $cashier = $handover->cashierShift->cashier;
 
         return PersonalLedgerTransaction::create([
-            'branch_manager_id' => $handover->handover_to_id,
+            // The approving manager physically received the cash (branch-wide
+            // approval), so the ledger entry follows them, not the addressee.
+            'branch_manager_id' => $handover->receivingBranchManagerId() ?? $handover->handover_to_id,
             'transaction_type' => 'Total Sales',
             'amount' => $handover->handover_amount,
             'is_cash_in' => true,

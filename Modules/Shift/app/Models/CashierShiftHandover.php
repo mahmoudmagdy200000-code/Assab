@@ -34,6 +34,7 @@ class CashierShiftHandover extends Model
         'approved_by_type',
         'approved_at',
         'handed_over_at',
+        'daily_closed_at',
     ];
 
     protected $casts = [
@@ -46,6 +47,7 @@ class CashierShiftHandover extends Model
         'second_rejected_at' => 'datetime',
         'approved_at' => 'datetime',
         'handed_over_at' => 'datetime',
+        'daily_closed_at' => 'datetime',
     ];
 
     // Relationships
@@ -88,6 +90,25 @@ class CashierShiftHandover extends Model
         }
 
         return null;
+    }
+
+    /**
+     * The branch manager who actually took custody of the cash: approval is
+     * branch-wide, so when a branch manager other than the addressed one
+     * approved, the cash physically sits with the approver — custody ledger
+     * entries must follow them, not the addressed recipient.
+     */
+    public function receivingBranchManagerId(): ?string
+    {
+        if ($this->handover_to_type !== 'branch_manager') {
+            return null;
+        }
+
+        $approverType = (string) ($this->approved_by_type ?? '');
+        $approverIsBranchManager = $this->approved_by_id
+            && (str_contains($approverType, 'BranchManager') || $approverType === 'branch_manager');
+
+        return $approverIsBranchManager ? (string) $this->approved_by_id : $this->handover_to_id;
     }
 
     // Scopes
