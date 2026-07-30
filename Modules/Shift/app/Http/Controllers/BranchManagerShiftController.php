@@ -775,6 +775,10 @@ class BranchManagerShiftController extends BaseController
 
             $this->shiftService->clearShiftCaches($managerShift);
 
+            // Bridge to the ASAB world: the daily close becomes the branch's
+            // sales statement in the accountant's المبيعات inbox.
+            event(new \Modules\Shift\Events\DailyReportSubmittedEvent($managerShift->fresh()));
+
             return $this->successResponse([
                 'shift' => new BranchManagerShiftResource($managerShift),
                 'message' => 'Daily report submitted successfully. Waiting for Sales Team approval.',

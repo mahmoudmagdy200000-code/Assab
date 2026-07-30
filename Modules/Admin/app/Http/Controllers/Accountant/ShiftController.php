@@ -77,7 +77,11 @@ class ShiftController extends AsabController
 
         return [
             'openNow' => (clone $base())->whereIn('status', ['active', 'late'])->count(),
-            'closedToday' => (clone $base())->where('status', 'closed')->where('ended_at', '>=', $today)->count(),
+            // A shift that ended today counts as closed even while it awaits the
+            // accountant/head review (`pending_review`) — the card read 0 all day
+            // otherwise, since bridged closes only reach `closed` on final approval.
+            'closedToday' => (clone $base())->whereIn('status', ['pending_review', 'closed'])
+                ->where('ended_at', '>=', $today)->count(),
             'todaySalesHalalas' => (int) (clone $base())->where('started_at', '>=', $today)->sum('sales_amount'),
             'cashGapsPendingReview' => (clone $base())->whereIn('status', ['pending_review', 'closed'])
                 ->where('variance', '<', 0)->count(),

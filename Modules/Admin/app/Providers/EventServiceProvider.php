@@ -8,6 +8,7 @@ use Modules\Admin\Events\OperationRejected;
 use Modules\Admin\Listeners\BridgeExpenseDecisionToLegacy;
 use Modules\Admin\Listeners\BridgeLegacyCashierShift;
 use Modules\Admin\Listeners\BridgeLegacyShiftStart;
+use Modules\Admin\Listeners\BridgeManagerDailyClose;
 use Modules\Admin\Listeners\BridgeShiftDecisionToLegacy;
 use Modules\Admin\Listeners\MirrorMobileCashierToEmployee;
 use Modules\Admin\Listeners\ProcessShiftOperationDecision;
@@ -60,6 +61,10 @@ class EventServiceProvider extends ServiceProvider
         // (minting the SHF- pipeline operation).
         ShiftStartedEvent::class => [BridgeLegacyShiftStart::class],
         ShiftEndedEvent::class => [BridgeLegacyCashierShift::class],
+
+        // FR-SAL: the manager's mobile daily close becomes the branch's daily
+        // sales statement (sales operation) in the accountant's المبيعات inbox.
+        \Modules\Shift\Events\DailyReportSubmittedEvent::class => [BridgeManagerDailyClose::class],
 
         // Cashiers are added in the mobile app by the branch manager (the
         // dashboard no longer creates them), so mirror each one into
