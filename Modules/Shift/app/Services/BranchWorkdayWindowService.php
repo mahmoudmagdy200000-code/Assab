@@ -34,6 +34,7 @@ class BranchWorkdayWindowService
         }
 
         $shifts = Shift::where('branch_id', $branchId)
+            ->where('is_active', true)
             ->orderBy('start_time')
             ->get(['start_time', 'end_time']);
 

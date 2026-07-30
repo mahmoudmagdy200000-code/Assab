@@ -16,10 +16,10 @@ use Modules\Branch\Models\Branch;
  *
  * Idempotent by the schedule's natural key (branch_id, start_time, end_time)
  * (the table's `unique_shift_time` index): a re-run activates/renames in place
- * instead of duplicating. Deliberately ADDITIVE — a shift no longer in the
- * config is left untouched, because `shifts.cashier_shifts` cascade-delete and
- * pruning would erase live shift history. Trimming the schedule down is a
- * separate, explicit operation, not a side effect of Regenerate.
+ * instead of duplicating. Templates that fall out of the new schedule are
+ * DEACTIVATED (is_active=false), never deleted — `shifts.cashier_shifts`
+ * cascade-delete, so pruning would erase live shift history, but leaving them
+ * active duplicated the mobile shift picker after every schedule change.
  *
  * Writes go through the query builder on purpose: the Shift model casts the time
  * columns `datetime:H:i`, which on SQLite would persist a full date-stamped
@@ -79,6 +79,19 @@ class ShiftScheduleBridgeService
                     }
                     $count++;
                 }
+
+                // Templates outside the new schedule: deactivate, keep history.
+                $deactivate = DB::table('shifts')
+                    ->where('branch_id', $branchId)
+                    ->where('is_active', true);
+                foreach ($windows as $window) {
+                    $deactivate->whereNot(function ($q) use ($branchId, $window) {
+                        $q->where('branch_id', $branchId)
+                            ->where('start_time', $window['start'].':00')
+                            ->where('end_time', $window['end'].':00');
+                    });
+                }
+                $deactivate->update(['is_active' => false, 'updated_at' => $now]);
             }
 
             return $count;
