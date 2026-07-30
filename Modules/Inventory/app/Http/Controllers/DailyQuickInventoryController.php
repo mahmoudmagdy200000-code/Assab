@@ -69,9 +69,9 @@ class DailyQuickInventoryController extends BaseController
                 $schedule->load('scheduleItems.item');
                 $dailyItems = $schedule->scheduleItems->map(fn ($si) => [
                     'item_id' => $si->item_id,
-                    'item_name' => $si->item?->name,
-                    'unit' => $si->item?->unit,
-                    'logo' => $si->item?->logo,
+                    'item_name' => $si->item?->name ?? '',
+                    'unit' => $si->item?->unit ?? 'kg',
+                    'logo' => $si->item?->logo_url ?? '',
                 ])->values()->toArray();
                 $dailyItemsCount = $schedule->scheduleItems->count();
             }
@@ -513,7 +513,7 @@ class DailyQuickInventoryController extends BaseController
 
             $productsRequiringClarification = $discrepancies->map(function ($d) {
                 return [
-                    'product_name' => $d->inventoryItem->item_name ?? $d->inventoryItem->item?->name,
+                    'product_name' => $d->inventoryItem->item_name ?? $d->inventoryItem->item?->name ?? '',
                     'opening_balance' => (float) $d->opening_balance,
                     'purchases' => (float) $d->purchases,
                     'sales' => (float) $d->sales,

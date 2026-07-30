@@ -19,7 +19,13 @@ class SupplierController extends BaseController
     public function index(Request $request): JsonResponse
     {
         try {
-            $query = Supplier::query()->active();
+            // Meeting 2026-07-30: the order picker offers ONLY the brand's
+            // account suppliers (can log in and receive orders) — Excel-uploaded
+            // expense-only suppliers stay out. Fail-closed for unlinked branches.
+            $orderableIds = app(\Modules\Expense\Services\SupplierBrandScopeService::class)
+                ->orderableSupplierIds(auth()->user()?->branch_id);
+
+            $query = Supplier::query()->active()->whereIn('id', $orderableIds);
 
             // Filter by status
             if ($request->has('status')) {

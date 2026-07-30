@@ -30,6 +30,7 @@ class QuickCashExpenseService
             'branch_manager_id' => auth()->id(),
             'expense_type' => 'quick_cash',
             'status' => $data['is_draft'] ?? false ? 'draft' : 'pending',
+            'submitted_at' => ($data['is_draft'] ?? false) ? null : now(),
             'total_amount' => round($data['total_amount'], 2),
             'net_amount' => round($netAmount, 2),
             'vat_amount' => round($data['vat_amount'] ?? $vatCalculation['vat_amount'], 2),
@@ -65,6 +66,12 @@ class QuickCashExpenseService
 
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
+        // Non-draft create = submission — fire after all children persist so
+        // the ASAB bridge mirrors the complete record.
+        if (! ($data['is_draft'] ?? false)) {
+            event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
+        }
+
         return $expense->load(['quickCashExpense.paymentSupplier']);
     }
 
@@ -74,6 +81,8 @@ class QuickCashExpenseService
     public function updateQuickCashExpense(Expense $expense, array $data): Expense
     {
         $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
+
+        $wasDraft = $expense->status === 'draft';
 
         // Prepare data for VAT calculation
         $calculationData = array_merge($expense->toArray(), $data);
@@ -158,6 +167,11 @@ class QuickCashExpenseService
         }
 
         $this->createTimelineEntry($expense, 'updated');
+
+        // Draft flipped to pending = a submission — bridge it (idempotent).
+        if ($wasDraft && $expense->fresh()->status === 'pending') {
+            event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
+        }
 
         return $expense->load(['quickCashExpense.paymentSupplier']);
     }

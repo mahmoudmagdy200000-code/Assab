@@ -108,7 +108,9 @@ class AccountantController extends AsabController
             }
             $p = $q->orderByDesc('operation_date')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
-            return $this->paginated($p, array_map(fn ($o) => $this->present($o), $p->items()), [
+            $maps = $this->opDisplayMaps($p->items());
+
+            return $this->paginated($p, array_map(fn ($o) => $this->present($o, $maps), $p->items()), [
                 'summary' => [
                     'totalUploaded' => $p->total(),
                     'underReview' => (clone $q)->where('status', 'pending')->count(),
@@ -431,17 +433,53 @@ class AccountantController extends AsabController
         )->firstOrFail();
     }
 
-    private function present(Operation $op): array
+    /**
+     * Branch/brand display names for a page of ops in two batched queries
+     * (meeting 2026-07-30: the accountant list showed bare ids/empty فرع).
+     *
+     * @param  array<int, Operation>  $ops
+     * @return array{branches: array, brands: array}
+     */
+    private function opDisplayMaps(array $ops): array
     {
+        $collection = collect($ops);
+        if ($collection->isEmpty()) {
+            return ['branches' => [], 'brands' => []];
+        }
+
+        $branches = \Modules\Branch\Models\Branch::whereIn('id', $collection->pluck('branch_id')->filter()->unique())
+            ->get(['id', 'name', 'asab_brand_id'])->keyBy('id');
+
+        $brands = \Modules\Admin\Models\AsabBrand::whereIn('id', $branches->pluck('asab_brand_id')->filter()->unique())
+            ->get(['id', 'name'])->pluck('name', 'id');
+
+        return [
+            'branches' => $branches->map(fn ($b) => ['name' => $b->name, 'brandId' => $b->asab_brand_id])->all(),
+            'brands' => $brands->all(),
+        ];
+    }
+
+    private function present(Operation $op, array $maps = []): array
+    {
+        $branch = $maps['branches'][$op->branch_id] ?? null;
+        $brandId = $branch['brandId'] ?? null;
+
         return [
             'id' => $op->id,
             'publicId' => $op->public_id,
             'branchId' => $op->branch_id,
+            'branchName' => $branch['name'] ?? null,
+            'brandId' => $brandId,
+            'brandName' => $brandId ? ($maps['brands'][$brandId] ?? null) : null,
             'moduleKey' => $op->module_key,
             'amount' => $op->amount,
             'match' => $op->match,
             'status' => $op->status,
             'origin' => $op->origin,
+            'attachmentCount' => (int) $op->attachment_count,
+            'supplierName' => $op->payload['supplierName'] ?? null,
+            'submittedAt' => optional($op->submitted_at)->toIso8601String(),
+            'date' => optional($op->operation_date)->toDateString(),
             'operationDate' => optional($op->operation_date)->toIso8601String(),
         ];
     }

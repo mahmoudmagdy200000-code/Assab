@@ -70,6 +70,7 @@ enum NotificationType: string
     case ASSET_HANDOVER_STARTED = 'asset_handover_started';
     case ASSET_HANDOVER_SIGNATURE_REQUIRED = 'asset_handover_signature_required';
     case ASSET_HANDOVER_COMPLETED = 'asset_handover_completed';
+    case ASSET_RECEIVE_REQUESTED = 'asset_receive_requested';
 
     // Inventory
     case INVENTORY_SESSION_UPDATED = 'inventory_session_updated';
@@ -121,6 +122,7 @@ enum NotificationType: string
             self::ASSET_HANDOVER_STARTED,
             self::ASSET_HANDOVER_SIGNATURE_REQUIRED,
             self::ASSET_HANDOVER_COMPLETED,
+            self::ASSET_RECEIVE_REQUESTED,
             self::INVENTORY_SESSION_UPDATED => NotificationCategory::OPERATIONAL,
 
             self::CASHIER_ACCOUNT_CREATED,
@@ -208,6 +210,7 @@ enum NotificationType: string
             self::ASSET_HANDOVER_STARTED => 'Asset Handover Started',
             self::ASSET_HANDOVER_SIGNATURE_REQUIRED => 'Signature Required',
             self::ASSET_HANDOVER_COMPLETED => 'Asset Handover Completed',
+            self::ASSET_RECEIVE_REQUESTED => 'Asset Receive Requested',
             self::INVENTORY_SESSION_UPDATED => 'Inventory Session Updated',
         };
     }

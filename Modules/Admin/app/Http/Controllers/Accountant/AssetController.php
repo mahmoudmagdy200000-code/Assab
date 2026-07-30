@@ -103,6 +103,11 @@ class AssetController extends AsabController
                 'purchased_at' => $data['purchaseDate'] ?? now(),
             ]));
             $rt->assetConfirmationNeeded($asset);
+            // Meeting 2026-07-30: the branch manager gets a real mobile receive
+            // request + push, not just a dashboard socket event.
+            if ($asset->branch_id !== null) {
+                \Modules\Admin\Events\AssetAssignedToBranch::dispatch($asset);
+            }
 
             return $this->created($this->present($asset));
         });

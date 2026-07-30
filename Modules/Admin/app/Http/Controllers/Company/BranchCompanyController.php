@@ -172,13 +172,28 @@ class BranchCompanyController extends AsabController
             }
 
             // Capture expected qty per line for the accountant's variance view.
-            $expected = InventoryCatalogItem::whereIn('id', $submitted)->pluck('expected_qty', 'id');
+            $catalog = InventoryCatalogItem::whereIn('id', $submitted)->get(['id', 'name', 'unit', 'unit_price', 'expected_qty'])->keyBy('id');
             $counts = collect($data['counts'])->map(fn ($c) => $c + [
-                'expectedQty' => isset($expected[$c['inventoryItemId']]) ? (float) $expected[$c['inventoryItemId']] : null,
+                'expectedQty' => isset($catalog[$c['inventoryItemId']]) && $catalog[$c['inventoryItemId']]->expected_qty !== null
+                    ? (float) $catalog[$c['inventoryItemId']]->expected_qty
+                    : null,
+            ])->all();
+
+            // `counts` was write-only — every reader (daily reconciliation,
+            // review, export) iterates payload.items[*].itemId, so the daily
+            // count was invisible to the whole variance chain. Persist BOTH:
+            // `counts` keeps the FE contract, `items` feeds the readers.
+            $items = collect($counts)->map(fn ($c) => [
+                'itemId' => $c['inventoryItemId'],
+                'name' => $catalog[$c['inventoryItemId']]->name ?? null,
+                'unit' => $catalog[$c['inventoryItemId']]->unit ?? null,
+                'actualQty' => (float) $c['actualQty'],
+                'expectedQty' => $c['expectedQty'],
+                'unitPriceHalalas' => (int) ($catalog[$c['inventoryItemId']]->unit_price ?? 0),
             ])->all();
 
             $op = $this->factory->createFromUpload('inventory',
-                ['counts' => $counts, 'countType' => 'daily'], $request->user(), $branchId, 0, 'mobile', 'dashboard');
+                ['counts' => $counts, 'items' => $items, 'countType' => 'daily'], $request->user(), $branchId, 0, 'mobile', 'dashboard');
 
             return $this->created(['id' => $op->id, 'publicId' => $op->public_id, 'status' => $op->status]);
         });

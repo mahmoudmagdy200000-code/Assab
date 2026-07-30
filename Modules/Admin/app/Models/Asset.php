@@ -17,6 +17,7 @@ class Asset extends Model
         'company_id', 'public_id', 'name', 'category', 'branch_id', 'zone', 'cost', 'book_value',
         'useful_life_months', 'case_type', 'status', 'inv_num', 'serial', 'submitted_by_id',
         'custodian', 'purchased_at', 'notes', 'quantity', 'qty_excellent', 'qty_maintenance', 'qty_problem',
+        'received_by_id', 'received_at', 'received_note',
     ];
 
     protected $casts = [
@@ -28,5 +29,6 @@ class Asset extends Model
         'qty_excellent' => 'integer',
         'qty_maintenance' => 'integer',
         'qty_problem' => 'integer',
+        'received_at' => 'datetime',
     ];
 }

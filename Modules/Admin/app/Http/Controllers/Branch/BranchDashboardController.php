@@ -77,11 +77,41 @@ class BranchDashboardController extends AsabController
             if ($reportType === 'expenses') {
                 $rules = array_merge($rules, $this->invoices->uploadRules());
             }
+            // Meeting 2026-07-30: the item lines were validated away, so every
+            // waste/inventory op stored an empty payload and the الهدر report
+            // aggregated nothing. Accept and persist them.
+            if ($reportType === 'inventory') {
+                $rules = array_merge($rules, [
+                    'items' => 'sometimes|array',
+                    'items.*.itemId' => 'required_with:items|string',
+                    'items.*.name' => 'sometimes|nullable|string|max:200',
+                    'items.*.unit' => 'sometimes|nullable|string|max:32',
+                    'items.*.actualQty' => 'required_with:items|numeric|min:0',
+                    'items.*.expectedQty' => 'sometimes|nullable|numeric',
+                    'items.*.openingQty' => 'sometimes|nullable|numeric',
+                    'items.*.unitPriceHalalas' => 'sometimes|nullable|integer|min:0',
+                ]);
+            }
+            if ($reportType === 'waste') {
+                $rules = array_merge($rules, [
+                    'products' => 'sometimes|array',
+                    'products.*.itemId' => 'sometimes|nullable|string',
+                    'products.*.name' => 'required_with:products|string|max:200',
+                    'products.*.qty' => 'required_with:products|numeric|min:0',
+                    'products.*.value' => 'required_with:products|integer|min:0',
+                    'products.*.classification' => 'sometimes|nullable|string|max:40',
+                    'products.*.responsibility' => 'sometimes|nullable|string|max:40',
+                ]);
+            }
             $data = $request->validate($rules);
 
-            $amount = $reportType === 'expenses'
-                ? $this->invoices->statementTotal($request->input('invoices', []))
-                : (int) ($data['totalSales'] ?? $data['amount'] ?? 0);
+            $amount = match (true) {
+                $reportType === 'expenses' => $this->invoices->statementTotal($request->input('invoices', [])),
+                // A waste report with product lines totals from them, never
+                // from a client-picked number.
+                $reportType === 'waste' && ! empty($data['products']) => (int) array_sum(array_column($data['products'], 'value')),
+                default => (int) ($data['totalSales'] ?? $data['amount'] ?? 0),
+            };
 
             // Only validated keys enter the payload.
             $payload = array_filter([
@@ -89,6 +119,8 @@ class BranchDashboardController extends AsabController
                 'totalSales' => $data['totalSales'] ?? null, 'amount' => $data['amount'] ?? null,
                 'note' => $data['note'] ?? null,
                 'invoices' => $reportType === 'expenses' ? ($data['invoices'] ?? null) : null,
+                'items' => $reportType === 'inventory' ? ($data['items'] ?? null) : null,
+                'products' => $reportType === 'waste' ? ($data['products'] ?? null) : null,
             ], fn ($v) => $v !== null);
 
             $op = $this->factory->createFromUpload(

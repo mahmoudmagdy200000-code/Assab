@@ -246,7 +246,32 @@ class ExpenseInvoiceService
         // unlabelled documents are that invoice's documents.
         $statementIndex = count($byIndex) === 1 ? 0 : -1;
 
+        // Statement-level documents bridged from the mobile expense live in
+        // payload.attachments; the loop above only reads invoices[].attachments,
+        // so without this merge they vanish whenever invoices[] is non-empty
+        // (the empty-invoices fallback in stored() already surfaces them).
+        if ($byIndex !== []) {
+            foreach (array_values($op->payload['attachments'] ?? []) as $a) {
+                $byIndex[$statementIndex][] = is_array($a)
+                    ? $a
+                    : ['publicUrl' => $a, 'filename' => basename((string) $a)];
+            }
+        }
+
+        $seen = [];
+        foreach ($byIndex as $index => $docs) {
+            foreach ($docs as $doc) {
+                $seen[$doc['storageKey'] ?? $doc['publicUrl'] ?? ''] = true;
+            }
+        }
+
         foreach ($rows as $row) {
+            // The same physical file may already be present via the payload —
+            // do not list it twice once the asab_attachments mirror exists.
+            if (isset($seen[$row->storage_key]) || isset($seen[$row->public_url])) {
+                continue;
+            }
+
             $index = $this->invoiceIndexOfLabel($row->label);
             $byIndex[$index ?? $statementIndex][] = [
                 'id' => $row->id,

@@ -444,6 +444,9 @@ Route::prefix('v1')->group(function () {
                 Route::post('inventory/branches/{branchId}/send-confirmation', [InventoryController::class, 'sendConfirmation']);
                 Route::get('inventory/catalog', [InventoryController::class, 'catalog']);
                 Route::post('inventory/catalog', [InventoryController::class, 'storeCatalogItem']);
+                // «تحديد الأصناف للجرد»: brand pills → branch pills (meeting 2026-07-30)
+                Route::get('inventory/brands', [InventoryController::class, 'brands']);
+                Route::get('inventory/brands/{brandId}/branches', [InventoryController::class, 'brandBranches']);
                 Route::get('inventory/branches/{branchId}/daily-list', [InventoryController::class, 'dailyList']);
                 Route::put('inventory/branches/{branchId}/daily-list', [InventoryController::class, 'saveDailyList']);
                 Route::get('inventory/branches/{branchId}/daily-reconciliation', [InventoryController::class, 'dailyReconciliation']);
@@ -759,6 +762,8 @@ Route::prefix('v1')->group(function () {
                     Route::post('inventory/branches/{branchId}/send-notification', [AccountantCompanyController::class, 'inventorySendNotification']);
                     Route::post('inventory/branches/{branchId}/mark-confirmed', [AccountantCompanyController::class, 'inventoryMarkConfirmed']);
                     Route::get('inventory/items', [InventoryController::class, 'catalog']);
+                    Route::get('inventory/brands', [InventoryController::class, 'brands']);
+                    Route::get('inventory/brands/{brandId}/branches', [InventoryController::class, 'brandBranches']);
                     Route::get('branches/{branchId}/inventory-list', [InventoryController::class, 'dailyList']);
                     Route::put('branches/{branchId}/inventory-list', [InventoryController::class, 'saveDailyList']);
                     // Doc-conformance (FE wiring §2.8, §2.9)

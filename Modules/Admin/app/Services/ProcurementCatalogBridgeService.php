@@ -315,13 +315,19 @@ class ProcurementCatalogBridgeService
      */
     private function syncPricedSupplierRow(AsabSupplierItem $item, PurchaseItem $mobile): void
     {
+        // Platform suppliers carry company_id NULL and are shared with every
+        // tenant — a company-scoped lookup silently missed them and the item
+        // published with no supplier at all (meeting 2026-07-30: «مورد عصب
+        // بيبيع بيتزا ما ظهرش»). Same for the old `price <= 0` guard: an item
+        // entered with only min/avg figures still belongs to its supplier.
         $legacySupplierId = $item->supplier_id
-            ? AsabSupplier::where('company_id', $item->company_id)
+            ? AsabSupplier::withoutGlobalScope('tenant')
                 ->whereKey($item->supplier_id)
+                ->where(fn ($q) => $q->whereNull('company_id')->orWhere('company_id', $item->company_id))
                 ->value('legacy_supplier_id')
             : null;
 
-        if ($legacySupplierId === null || (int) $item->price <= 0) {
+        if ($legacySupplierId === null) {
             return;
         }
 

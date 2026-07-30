@@ -29,6 +29,7 @@ class PreApprovalRequestService
             'branch_manager_id' => auth()->id(),
             'expense_type' => 'pre_approval',
             'status' => $data['is_draft'] ?? false ? 'draft' : 'pending',
+            'submitted_at' => ($data['is_draft'] ?? false) ? null : now(),
             'total_amount' => $data['estimated_amount'],
             'net_amount' => $data['estimated_amount'],
             'vat_amount' => 0,
@@ -76,6 +77,11 @@ class PreApprovalRequestService
 
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
+        // Non-draft create = submission — bridge to the accountant dashboard.
+        if (! ($data['is_draft'] ?? false)) {
+            event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
+        }
+
         return $expense->load(['preApprovalRequest.paymentSupplier']);
     }
 
@@ -85,6 +91,8 @@ class PreApprovalRequestService
     public function updatePreApprovalRequest(Expense $expense, array $data): Expense
     {
         $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
+
+        $wasDraft = $expense->status === 'draft';
 
         // Update main expense
         $expenseUpdateData = [];
@@ -172,6 +180,11 @@ class PreApprovalRequestService
         }
 
         $this->createTimelineEntry($expense, 'updated');
+
+        // Draft flipped to pending = a submission — bridge it (idempotent).
+        if ($wasDraft && $expense->fresh()->status === 'pending') {
+            event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
+        }
 
         return $expense->load(['preApprovalRequest.paymentSupplier']);
     }

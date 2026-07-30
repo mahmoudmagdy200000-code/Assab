@@ -30,6 +30,7 @@ class SingleInvoiceExpenseService
             'branch_manager_id' => auth()->id(),
             'expense_type' => 'single_invoice',
             'status' => $data['is_draft'] ?? false ? 'draft' : 'pending',
+            'submitted_at' => ($data['is_draft'] ?? false) ? null : now(),
             'total_amount' => $data['total_amount'],
             'net_amount' => $totals['net_amount'],
             'vat_amount' => $totals['vat_amount'],
@@ -93,6 +94,13 @@ class SingleInvoiceExpenseService
 
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
+        // Created straight as pending = submitted: fire the domain event AFTER
+        // invoices/items/receipts persist so the ASAB bridge sees the full
+        // record (a non-draft create never fired it — «الفاتورة اتبعتت ومجاتش»).
+        if (! ($data['is_draft'] ?? false)) {
+            event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
+        }
+
         return $expense->load(['invoiceDetails.paymentSupplier']);
     }
 
@@ -102,6 +110,8 @@ class SingleInvoiceExpenseService
     public function updateSingleInvoice(Expense $expense, array $data): Expense
     {
         $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
+
+        $wasDraft = $expense->status === 'draft';
 
         // Update basic expense info
         $updateData = [];
@@ -221,6 +231,12 @@ class SingleInvoiceExpenseService
         }
 
         $this->createTimelineEntry($expense, 'updated');
+
+        // Draft flipped to pending via PUT = a submission — bridge it (the
+        // ASAB sync is idempotent on (source_module, source_id)).
+        if ($wasDraft && $expense->fresh()->status === 'pending') {
+            event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
+        }
 
         return $expense->load(['invoiceDetails.paymentSupplier']);
     }

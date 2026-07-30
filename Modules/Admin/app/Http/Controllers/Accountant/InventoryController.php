@@ -105,6 +105,86 @@ class InventoryController extends AsabController
         });
     }
 
+    /**
+     * GET inventory/brands — the brand pills of «تحديد الأصناف للجرد»
+     * (meeting 2026-07-30: «العلامات التجارية مش راجعة»). Accountant-scoped;
+     * an empty scope returns 200 + [] so the FE can render an empty state.
+     */
+    public function brands(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $ids = $this->assignedBrandIds();
+
+            $brands = \Modules\Admin\Models\AsabBrand::query()
+                ->where('company_id', $request->user()->company_id)
+                ->when($ids !== null, fn ($q) => $q->whereIn('id', $ids))
+                ->orderBy('name')
+                ->get(['id', 'name', 'abbr']);
+
+            $branchCounts = \Modules\Branch\Models\Branch::query()
+                ->whereIn('asab_brand_id', $brands->pluck('id'))
+                ->selectRaw('asab_brand_id, count(*) as c')
+                ->groupBy('asab_brand_id')
+                ->pluck('c', 'asab_brand_id');
+
+            $itemCounts = InventoryCatalogItem::query()
+                ->whereIn('brand_id', $brands->pluck('id'))
+                ->where('type', InventoryCatalogItem::TYPE_SALES_ITEM)
+                ->selectRaw('brand_id, count(*) as c')
+                ->groupBy('brand_id')
+                ->pluck('c', 'brand_id');
+
+            return $this->ok($brands->map(fn ($b) => [
+                'id' => $b->id,
+                'name' => $b->name,
+                'abbr' => $b->abbr,
+                'branchCount' => (int) ($branchCounts[$b->id] ?? 0),
+                'itemCount' => (int) ($itemCounts[$b->id] ?? 0),
+            ])->values()->all());
+        });
+    }
+
+    /**
+     * GET inventory/brands/{brandId}/branches — the branch pills after a brand
+     * is picked; intersected with the caller's assigned branch set.
+     */
+    public function brandBranches(Request $request, string $brandId): JsonResponse
+    {
+        return $this->run(function () use ($brandId) {
+            $this->assertBrandAssigned($brandId);
+
+            $restaurantIds = \Modules\Admin\Models\AsabRestaurant::withoutGlobalScopes()
+                ->where('brand_id', $brandId)->pluck('id');
+
+            $q = \Modules\Branch\Models\Branch::query()
+                ->where(function ($w) use ($brandId, $restaurantIds) {
+                    $w->where('asab_brand_id', $brandId);
+                    if ($restaurantIds->isNotEmpty()) {
+                        $w->orWhereIn('asab_restaurant_id', $restaurantIds);
+                    }
+                });
+
+            if (($assigned = $this->assignedBranchIds()) !== null) {
+                $q->whereIn('id', $assigned);
+            }
+
+            $branches = $q->orderBy('name')->get(['id', 'name', 'asab_restaurant_id']);
+
+            $listCounts = BranchInventoryList::query()
+                ->whereIn('branch_id', $branches->pluck('id'))
+                ->selectRaw('branch_id, count(*) as c')
+                ->groupBy('branch_id')
+                ->pluck('c', 'branch_id');
+
+            return $this->ok($branches->map(fn ($b) => [
+                'id' => $b->id,
+                'name' => $b->name,
+                'restaurantId' => $b->asab_restaurant_id,
+                'listItemCount' => (int) ($listCounts[$b->id] ?? 0),
+            ])->values()->all());
+        });
+    }
+
     public function catalog(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
@@ -170,7 +250,26 @@ class InventoryController extends AsabController
             ]);
             $branchId = $data['branchId'];
             $this->assertBranchAssigned($branchId);
-            $brandId = $rt->brandIdForBranch($branchId);
+
+            // Resolve the brand for real — brandIdForBranch() returns the
+            // literal 'unknown' for an unlinked branch, poisoning catalog rows
+            // that no scoped read could ever return.
+            $branch = \Modules\Branch\Models\Branch::whereKey($branchId)
+                ->first(['id', 'asab_brand_id', 'asab_restaurant_id']);
+            $brandId = $branch?->asab_brand_id
+                ?? ($branch?->asab_restaurant_id
+                    ? \Modules\Admin\Models\AsabRestaurant::withoutGlobalScopes()
+                        ->whereKey($branch->asab_restaurant_id)->value('brand_id')
+                    : null);
+
+            if ($brandId === null) {
+                throw new \Modules\Admin\Exceptions\AsabException(
+                    'BRANCH_UNLINKED',
+                    'Branch is not linked to a brand',
+                    'الفرع غير مرتبط بعلامة تجارية — اربط الفرع أولاً من إدارة الفروع',
+                    422,
+                );
+            }
 
             $result = DB::transaction(function () use ($data, $branchId, $brandId, $request) {
                 $out = [];

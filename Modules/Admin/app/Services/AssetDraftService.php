@@ -137,6 +137,9 @@ class AssetDraftService
 
         foreach ($created as $asset) {
             $this->rt->assetConfirmationNeeded($asset);
+            if ($asset->branch_id !== null) {
+                \Modules\Admin\Events\AssetAssignedToBranch::dispatch($asset);
+            }
         }
         foreach ($branches as $branchId) {
             $this->rt->assetDraftConfirmed($draft->fresh(), $branchId);

@@ -47,6 +47,7 @@ class EventServiceProvider extends ServiceProvider
             [ProcessShiftOperationDecision::class, 'handleFinalApproved'],
             [BridgeShiftDecisionToLegacy::class, 'handleFinalApproved'],
             [BridgeExpenseDecisionToLegacy::class, 'handleFinalApproved'],
+            [\Modules\Admin\Listeners\BridgePurchaseDecisionToLegacy::class, 'handleFinalApproved'],
             // SRS §14.3 ERP-1: seed the (day × module) ready batch for export.
             SyncErpReadyBatch::class,
         ],
@@ -54,6 +55,7 @@ class EventServiceProvider extends ServiceProvider
             [ProcessShiftOperationDecision::class, 'handleRejected'],
             [BridgeShiftDecisionToLegacy::class, 'handleRejected'],
             [BridgeExpenseDecisionToLegacy::class, 'handleRejected'],
+            [\Modules\Admin\Listeners\BridgePurchaseDecisionToLegacy::class, 'handleRejected'],
         ],
 
         // MOB-1.6 cashier bridge: a mobile shift START opens the asab_shifts row
@@ -65,6 +67,23 @@ class EventServiceProvider extends ServiceProvider
         // FR-SAL: the manager's mobile daily close becomes the branch's daily
         // sales statement (sales operation) in the accountant's المبيعات inbox.
         \Modules\Shift\Events\DailyReportSubmittedEvent::class => [BridgeManagerDailyClose::class],
+
+        // Meeting 2026-07-30: a submitted mobile daily inventory becomes an
+        // INV- operation for the accountant (re-synced on approval).
+        \Modules\Inventory\Events\InventorySessionSubmittedEvent::class => [\Modules\Admin\Listeners\SyncLegacyInventoryOperation::class],
+
+        // Meeting 2026-07-30: assigning a dashboard asset to a branch creates
+        // the mobile receive request + pushes the branch manager.
+        \Modules\Admin\Events\AssetAssignedToBranch::class => [\Modules\Admin\Listeners\BridgeAssetToBranchReceipt::class],
+
+        // Meeting 2026-07-30: a mobile purchase order becomes a PUR- operation
+        // in the accountant's inbox; later status changes refresh rcvQty.
+        \Modules\Purchase\Events\OrderCreated::class => [
+            [\Modules\Admin\Listeners\BridgeLegacyPurchaseOrder::class, 'handleCreated'],
+        ],
+        \Modules\Purchase\Events\OrderStatusChanged::class => [
+            [\Modules\Admin\Listeners\BridgeLegacyPurchaseOrder::class, 'handleStatusChanged'],
+        ],
 
         // Cashiers are added in the mobile app by the branch manager (the
         // dashboard no longer creates them), so mirror each one into

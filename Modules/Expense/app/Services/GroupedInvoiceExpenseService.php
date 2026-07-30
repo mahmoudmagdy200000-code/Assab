@@ -31,6 +31,7 @@ class GroupedInvoiceExpenseService
             'branch_manager_id' => auth()->id(),
             'expense_type' => 'grouped_invoice',
             'status' => $data['is_draft'] ?? false ? 'draft' : 'pending',
+            'submitted_at' => ($data['is_draft'] ?? false) ? null : now(),
             'total_amount' => $grandTotals['total_amount'],
             'net_amount' => $grandTotals['net_amount'],
             'vat_amount' => $grandTotals['vat_amount'],
@@ -51,6 +52,11 @@ class GroupedInvoiceExpenseService
 
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
+        // Non-draft create = submission — bridge to the accountant dashboard.
+        if (! ($data['is_draft'] ?? false)) {
+            event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
+        }
+
         return $expense->load(['groupedInvoice.paymentSupplier']);
     }
 
@@ -60,6 +66,8 @@ class GroupedInvoiceExpenseService
     public function updateGroupedInvoice(Expense $expense, array $data): Expense
     {
         $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
+
+        $wasDraft = $expense->status === 'draft';
 
         DB::beginTransaction();
         try {
@@ -232,6 +240,11 @@ class GroupedInvoiceExpenseService
             $this->createTimelineEntry($expense, 'updated');
 
             DB::commit();
+
+            // Draft flipped to pending = a submission — bridge it (idempotent).
+            if ($wasDraft && $expense->fresh()->status === 'pending') {
+                event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
+            }
 
             return $expense->fresh(['groupedInvoice.paymentSupplier', 'invoiceDetails.attachments', 'items', 'expenseLines', 'attachments']);
         } catch (\Exception $e) {

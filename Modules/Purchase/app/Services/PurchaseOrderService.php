@@ -268,7 +268,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
      */
     public function createOrder(array $data): PurchaseOrder
     {
-        return DB::transaction(function () use ($data) {
+        $order = DB::transaction(function () use ($data) {
             $orderType = is_string($data['order_type'])
                 ? OrderType::from($data['order_type'])
                 : $data['order_type'];
@@ -313,6 +313,14 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
             return $order->fresh(['items', 'supplier', 'branch']);
         });
+
+        // AFTER commit so the ASAB bridge never reads an uncommitted order —
+        // this is what lands the order in the accountant's inbox (PUR- op).
+        if ($order->status !== OrderStatus::DRAFT) {
+            \Modules\Purchase\Events\OrderCreated::dispatch($order);
+        }
+
+        return $order;
     }
 
     /**

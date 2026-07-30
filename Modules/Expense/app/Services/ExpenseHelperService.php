@@ -111,6 +111,69 @@ class ExpenseHelperService
     }
 
     /**
+     * Items of the brand master catalog under a category — the mobile «Item
+     * List» screen (meeting: «اختار معدات → يجيب التلاجة والبوتاجاز»). Items
+     * live in the dashboard catalog (asab_inventory_catalog_items) tagged by
+     * the sheet's «التصنيف», so a category matches items carrying its own name
+     * or any of its children's names. Brand-scoped through the caller's branch
+     * link — an unlinked branch gets an empty list (fail-closed, same rule as
+     * the supplier picker).
+     */
+    public function getCategoryItems(string $categoryId, ?string $branchId, ?string $search = null): array
+    {
+        $category = Category::with('children:id,parent_id,name')->findOrFail($categoryId);
+
+        $payload = [
+            'category' => [
+                'id' => $category->id,
+                'name' => $category->name,
+                'type' => $category->type,
+            ],
+            'items' => [],
+        ];
+
+        $brandId = $branchId
+            ? \Modules\Branch\Models\Branch::whereKey($branchId)->value('asab_brand_id')
+            : null;
+
+        if (! $brandId) {
+            return $payload;
+        }
+
+        $names = $category->children->pluck('name')
+            ->prepend($category->name)
+            ->unique()
+            ->values()
+            ->all();
+
+        // Bridge mapping: raw-materials → 'purchase' taxonomy, sales-items → 'expense'.
+        $itemType = $category->type === 'purchase'
+            ? \Modules\Admin\Models\InventoryCatalogItem::TYPE_RAW_MATERIAL
+            : \Modules\Admin\Models\InventoryCatalogItem::TYPE_SALES_ITEM;
+
+        $payload['items'] = \Modules\Admin\Models\InventoryCatalogItem::query()
+            ->where('brand_id', $brandId)
+            ->where('type', $itemType)
+            ->where('status', 'active')
+            ->whereIn('category', $names)
+            ->when($search, fn ($q) => $q->where('name', 'like', "%{$search}%"))
+            ->orderBy('name')
+            ->limit(200)
+            ->get(['id', 'name', 'code', 'category', 'unit', 'unit_price'])
+            ->map(fn ($item) => [
+                'id' => $item->id,
+                'name' => $item->name,
+                'code' => $item->code,
+                'category' => $item->category,
+                'unit' => $item->unit,
+                'price' => round(((int) $item->unit_price) / 100, 2),
+            ])
+            ->all();
+
+        return $payload;
+    }
+
+    /**
      * Create category
      */
     public function createCategory(array $data): Category

@@ -67,9 +67,12 @@ class OperationController extends AsabController
                     && $this->purchases->orderSource($o)['key'] === $source));
             }
 
+            $supplierNames = $this->supplierNamesFor($p->items());
+            $maps = $this->opDisplayMaps($items);
+
             return $this->paginated(
                 $p,
-                array_map(fn ($o) => $this->present($o, $this->supplierNamesFor($p->items())), $items),
+                array_map(fn ($o) => $this->present($o, $supplierNames, $maps), $items),
                 ['summary' => $this->summary($request)],
             );
         });
@@ -99,7 +102,7 @@ class OperationController extends AsabController
             $op = $this->scopeToAssignedBranches(
                 Operation::with('steps')->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id)),
             )->firstOrFail();
-            $data = $this->present($op);
+            $data = $this->present($op, [], $this->opDisplayMaps([$op]));
             $data['payload'] = $op->payload;
             // ACC-1.4 «جدول المقارنة والتسوية» — computed, never stored.
             if ($op->module_key === 'sales') {
@@ -445,16 +448,49 @@ class OperationController extends AsabController
      * canonical Arabic label of each rides alongside as `*LabelAr` so no screen
      * re-implements a label map (SRS §5, master-plan cross-cutting rule).
      */
-    private function present(Operation $op, array $supplierNames = []): array
+    /**
+     * Branch + brand display names for a page of operations in two batched
+     * queries (meeting 2026-07-30: rows showed bare UUIDs / empty الفرع
+     * والعلامة التجارية). Same shape as HeadController::buildOpMaps.
+     *
+     * @param  array<int, Operation>  $ops
+     * @return array{branches: array, brands: array}
+     */
+    private function opDisplayMaps(array $ops): array
+    {
+        $collection = collect($ops);
+        if ($collection->isEmpty()) {
+            return ['branches' => [], 'brands' => []];
+        }
+
+        $branches = Branch::whereIn('id', $collection->pluck('branch_id')->filter()->unique())
+            ->get(['id', 'name', 'asab_brand_id'])->keyBy('id');
+
+        $brands = \Modules\Admin\Models\AsabBrand::whereIn('id', $branches->pluck('asab_brand_id')->filter()->unique())
+            ->get(['id', 'name'])->pluck('name', 'id');
+
+        return [
+            'branches' => $branches->map(fn ($b) => ['name' => $b->name, 'brandId' => $b->asab_brand_id])->all(),
+            'brands' => $brands->all(),
+        ];
+    }
+
+    private function present(Operation $op, array $supplierNames = [], array $maps = []): array
     {
         $status = OperationEnums::status($op->status);
         $origin = OperationEnums::origin($op->origin);
         $match = OperationEnums::match($op->match);
+        $branch = $maps['branches'][$op->branch_id] ?? null;
+        $brandId = $branch['brandId'] ?? null;
 
         return [
             'id' => $op->id,
             'publicId' => $op->public_id,
             'branchId' => $op->branch_id,
+            'branchName' => $branch['name'] ?? null,
+            'brandId' => $brandId,
+            'brandName' => $brandId ? ($maps['brands'][$brandId] ?? null) : null,
+            'date' => optional($op->operation_date)->toDateString(),
             'moduleKey' => $op->module_key,
             'sourceModule' => $op->source_module,
             'sourceId' => $op->source_id,

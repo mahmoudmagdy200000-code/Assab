@@ -59,6 +59,9 @@ Route::prefix('branch-manager/expenses')
         Route::get('/categories/{category}/subcategories', [CategoryController::class, 'getSubcategories']);
         // Then parameterized routes
         Route::get('/categories/{category}/children', [CategoryController::class, 'children']);
+        // Items of the brand catalog under the category (meeting: choose a
+        // category → list its items from the uploaded sheet)
+        Route::get('/categories/{category}/items', [CategoryController::class, 'items']);
         Route::get('/categories/{category}', [CategoryController::class, 'show']);
         Route::post('/categories', [CategoryController::class, 'store']);
         Route::put('/categories/{category}', [CategoryController::class, 'update']);

@@ -340,4 +340,51 @@ class ProcurementCatalogBridgeTest extends TestCase
         $this->assertSame($legacy->id, $supplier['legacyId']);
         $this->assertSame(1, LegacySupplier::withTrashed()->where('email', 'legacy@bridge.test')->count());
     }
+
+    // ---- Meeting 2026-07-30: supplier link must never drop silently ----
+
+    public function test_priceless_item_still_links_to_its_supplier(): void
+    {
+        $supplier = $this->createSupplier();
+
+        $res = $this->as()->postJson('/api/v1/company/me/procurement/items', [
+            'name' => 'بيتزا', 'unit' => 'كجم', 'lastPriceHalalas' => 0,
+            'supplierId' => $supplier['asabId'], 'code' => 'PZA-01',
+        ]);
+        $res->assertCreated();
+
+        $asabItem = AsabSupplierItem::findOrFail($res->json('id'));
+        $priced = MobileSupplierItem::where('supplier_id', $supplier['legacyId'])
+            ->where('item_id', $asabItem->purchase_item_id)->first();
+
+        $this->assertNotNull($priced, 'a min/avg-only (price 0) item must STILL belong to its supplier');
+        $this->assertTrue((bool) $priced->is_available);
+    }
+
+    public function test_platform_supplier_item_links_despite_null_company(): void
+    {
+        $legacy = LegacySupplier::create([
+            'name' => 'مورد عصب', 'email' => 'asab-supplier@bridge.test',
+            'password' => 'irrelevant-password', 'is_active' => true,
+        ]);
+        $platform = AsabSupplier::withoutGlobalScope('tenant')->create([
+            'company_id' => null, 'name' => 'مورد عصب', 'status' => 'active',
+        ]);
+        $platform->forceFill(['legacy_supplier_id' => $legacy->id])->save();
+
+        $item = AsabSupplierItem::withoutGlobalScopes()->create([
+            'company_id' => $this->company->id,
+            'name' => 'بيتزا', 'unit' => 'كجم', 'price' => 5000,
+            'supplier_id' => $platform->id, 'status' => 'active',
+        ]);
+
+        app(\Modules\Admin\Services\ProcurementCatalogBridgeService::class)->syncItem($item->fresh());
+
+        $mobileItemId = $item->fresh()->purchase_item_id;
+        $this->assertNotNull($mobileItemId);
+        $this->assertNotNull(
+            MobileSupplierItem::where('supplier_id', $legacy->id)->where('item_id', $mobileItemId)->first(),
+            'a PLATFORM supplier (company_id NULL) must still get its supplier_items link'
+        );
+    }
 }

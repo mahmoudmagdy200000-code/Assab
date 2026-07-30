@@ -76,6 +76,21 @@ class CategoryController extends BaseController
     }
 
     /**
+     * Items of the brand catalog under this category (mobile Item List screen).
+     * GET /api/branch-manager/expenses/categories/{category}/items
+     */
+    public function items(string $category, Request $request): JsonResponse
+    {
+        $data = $this->helperService->getCategoryItems(
+            $category,
+            auth()->user()?->branch_id,
+            $request->input('search'),
+        );
+
+        return $this->successResponse($data, 'Category items retrieved successfully');
+    }
+
+    /**
      * Get category by ID
      * GET /api/branch-manager/expenses/categories/{category}
      */

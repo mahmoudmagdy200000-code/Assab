@@ -801,7 +801,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             }));
         }
 
-        return $query->get()->map(function ($item) {
+        $fromSupplierItems = $query->get()->map(function ($item) {
             return [
                 'supplier_id' => $item->supplier_id,
                 'supplier' => $item->supplier,
@@ -813,6 +813,41 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                 'rating' => $item->rating ?? $item->supplier->rating,
             ];
         });
+
+        // The supplier's own mobile inventory lives in supplier_products —
+        // getDirectSupplierItems already merges both tables, but this list
+        // read supplier_items only, so a supplier selling the item through
+        // their app never appeared here (meeting 2026-07-30). Union them,
+        // supplier_products winning on conflict.
+        $fromSupplierProducts = \Modules\Supplier\Models\SupplierProduct::with('supplier')
+            ->where('item_id', $itemId)
+            ->available()
+            ->whereHas('supplier', fn ($q) => $q->active())
+            ->when(! empty($filters['max_delivery_hours']), fn ($q) => $q->where('delivery_hours', '<=', $filters['max_delivery_hours']))
+            ->when(! empty($filters['search']), function ($q) use ($filters) {
+                $term = $filters['search'];
+                $q->whereHas('supplier', fn ($s) => $s->where(function ($s) use ($term) {
+                    $s->where('name', 'like', "%{$term}%")
+                        ->orWhere('email', 'like', "%{$term}%")
+                        ->orWhere('phone', 'like', "%{$term}%");
+                }));
+            })
+            ->get()
+            ->map(fn ($p) => [
+                'supplier_id' => $p->supplier_id,
+                'supplier' => $p->supplier,
+                'unit_price' => $p->unit_price,
+                'economy_price' => $p->economy_price,
+                'standard_price' => $p->standard_price,
+                'premium_price' => $p->premium_price,
+                'delivery_hours' => $p->delivery_hours,
+                'rating' => $p->rating ?? $p->supplier?->rating,
+            ]);
+
+        return $fromSupplierProducts
+            ->concat($fromSupplierItems)
+            ->unique('supplier_id')
+            ->values();
     }
 
     /**

@@ -111,8 +111,20 @@ abstract class AsabController extends Controller
         $fromBranches = \Modules\Branch\Models\Branch::query()
             ->whereIn('id', $branchIds)->whereNotNull('asab_brand_id')->pluck('asab_brand_id')->all();
 
+        // Restaurant-scoped accountants whose branches were never brand-linked
+        // (asab_brand_id NULL) used to resolve to [] and every scoped read
+        // failed closed to empty — derive the brand through the restaurant too.
+        $fromRestaurants = $ctx->restaurantIds === []
+            ? []
+            : \Modules\Admin\Models\AsabRestaurant::withoutGlobalScopes()
+                ->whereIn('id', $ctx->restaurantIds)
+                ->whereNotNull('brand_id')
+                ->pluck('brand_id')
+                ->all();
+
         return array_values(array_unique(array_merge(
             $fromBranches,
+            array_intersect($fromRestaurants, $companyBrandIds),
             array_intersect($ctx->brandIds, $companyBrandIds),
         )));
     }

@@ -46,9 +46,13 @@ class UploadController extends AsabController
 
     // Item templates use 'التصنيف' for the grouping column to match the mobile
     // app's item labels (client meeting: rename the 'category' field).
+    // «اسم الفئة» is the category's SUB-category: the mobile pickers are
+    // hierarchical, so the downloadable template must carry both levels or
+    // every uploaded category lands flat («No sub-categories found»).
+    // Sheets without the column are still accepted (assertHeader).
     private const TEMPLATES = [
-        'sales-items' => ['رمز الصنف', 'اسم الصنف', 'التصنيف', 'وحدة البيع', 'السعر'],
-        'raw-materials' => ['رمز المادة', 'اسم المادة', 'التصنيف', 'وحدة القياس', 'التكلفة'],
+        'sales-items' => ['رمز الصنف', 'اسم الصنف', 'التصنيف', 'اسم الفئة', 'وحدة البيع', 'السعر'],
+        'raw-materials' => ['رمز المادة', 'اسم المادة', 'التصنيف', 'اسم الفئة', 'وحدة القياس', 'التكلفة'],
         'suppliers' => ['رقم المورد', 'اسم المورد', 'الفئة', 'جهة الاتصال', 'شروط الدفع'],
         'fixed-assets' => ['اسم الأصل', 'الفئة', 'اسم الفرع', 'رقم الفاتورة', 'التكلفة (ر.س)', 'العمر الافتراضي (شهر)', 'أمين العهدة', 'ملاحظات'],
         // Restored: the employees template was dropped to avoid confusion with
@@ -270,9 +274,11 @@ class UploadController extends AsabController
     {
         $code = trim((string) ($row[0] ?? ''));
         $name = trim((string) ($row[1] ?? ''));
-        $category = $row[2] ?? null;
-        $subCategory = $hasSubCategory ? ($row[3] ?? null) : null;
-        $unit = $row[$hasSubCategory ? 4 : 3] ?? null;
+        // Whitespace-only Excel cells must not masquerade as data (the mobile
+        // resources coalesce nulls, but keep the stored data honest too).
+        $category = trim((string) ($row[2] ?? '')) ?: null;
+        $subCategory = $hasSubCategory ? (trim((string) ($row[3] ?? '')) ?: null) : null;
+        $unit = trim((string) ($row[$hasSubCategory ? 4 : 3] ?? '')) ?: null;
         $priceHalalas = $this->toHalalas($row[$hasSubCategory ? 5 : 4] ?? 0);
 
         InventoryCatalogItem::create([
@@ -289,8 +295,16 @@ class UploadController extends AsabController
         // BUG-9 write-through: surface the row's category in the mobile Expense
         // taxonomy (`categories`) so the app's «الأصناف»/«المصروفات» pickers are
         // not empty (raw-materials → purchase tab, sales-items → expense tab).
-        // «الفئة» = parent, «اسم الفئة» = its sub-category (hierarchical picker).
-        $this->expenseTaxonomy->syncCategoryFor($type, $category, $subCategory);
+        // «التصنيف» = parent, «اسم الفئة» = its sub-category. A sheet WITHOUT
+        // the sub column nests the ITEM NAME under its التصنيف instead — the
+        // mobile picker is strictly parent → children, so a flat parent renders
+        // as «No sub-categories found» and the meeting ask («اختار معدات →
+        // يجيب التلاجة والبوتاجاز») never shows without this.
+        $this->expenseTaxonomy->syncCategoryFor(
+            $type,
+            $category,
+            $hasSubCategory ? $subCategory : ($name !== '' ? $name : null),
+        );
 
         if ($type === 'raw-materials' && $name !== '') {
             // Create-only into the (global) purchasing items table: never
@@ -1048,16 +1062,16 @@ class UploadController extends AsabController
             return;
         }
 
-        // Item sheets may also carry «اسم الفئة» (the category's sub-category)
-        // right after the grouping column — accept that 6-column layout too.
+        // Item sheets may omit «اسم الفئة» (older 5-column files) — the
+        // category then imports flat, exactly as before the column existed.
         if ($isItemSheet) {
-            $withSub = self::TEMPLATES[$type];
-            array_splice($withSub, 3, 0, ['اسم الفئة']);
-            if ($actual === $withSub) {
+            $withoutSub = self::TEMPLATES[$type];
+            array_splice($withoutSub, 3, 1);
+            if ($actual === $withoutSub) {
                 return;
             }
 
-            throw $this->headerMismatch($header, self::TEMPLATES[$type], $withSub);
+            throw $this->headerMismatch($header, self::TEMPLATES[$type], $withoutSub);
         }
 
         throw $this->headerMismatch($header, self::TEMPLATES[$type]);

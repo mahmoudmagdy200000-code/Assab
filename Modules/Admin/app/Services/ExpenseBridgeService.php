@@ -3,7 +3,9 @@
 namespace Modules\Admin\Services;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Modules\Admin\Models\ApprovalStep;
+use Modules\Admin\Models\Attachment;
 use Modules\Admin\Models\Operation;
 use Modules\Branch\Models\Branch;
 use Modules\Expense\Models\Expense;
@@ -101,15 +103,23 @@ class ExpenseBridgeService
             'submittedBy' => $expense->branchManager?->name,
         ];
 
+        // The op date is the day the expense was actually submitted/issued —
+        // never the bridge-run clock (a backfilled day-23 invoice must land on
+        // day 23, not float to the top of the list on the backfill day).
+        $date = $expense->submitted_at
+            ?? InvoiceDetail::where('expense_id', $expense->id)->orderBy('created_at')->value('issue_date')
+            ?? $expense->created_at;
+
         if ($existing) {
-            $existing->update(['payload' => $payload, 'amount' => $amount]);
+            $existing->update(['payload' => $payload, 'amount' => $amount, 'operation_date' => $date]);
+            $this->syncAttachments($existing, $expense);
 
             return $existing;
         }
 
         $op = OperationSequence::createWithPublicId(
             'EXP',
-            fn (string $publicId) => DB::transaction(function () use ($publicId, $expense, $companyId, $branchId, $payload, $amount) {
+            fn (string $publicId) => DB::transaction(function () use ($publicId, $expense, $companyId, $branchId, $payload, $amount, $date) {
                 $op = Operation::create([
                     'public_id' => $publicId,
                     'company_id' => $companyId,
@@ -122,8 +132,8 @@ class ExpenseBridgeService
                     'match' => 'exact',
                     'origin' => 'mobile',
                     'status' => Operation::STATUS_PENDING,
-                    'submitted_at' => $expense->submitted_at ?? now(),
-                    'operation_date' => $expense->submitted_at ?? now(),
+                    'submitted_at' => $date,
+                    'operation_date' => $date,
                 ]);
 
                 ApprovalStep::create([
@@ -138,9 +148,52 @@ class ExpenseBridgeService
             }),
         );
 
+        $this->syncAttachments($op, $expense);
         $this->rt->operationCreated($op);
 
         return $op;
+    }
+
+    /**
+     * Mirror the mobile expense's image/PDF attachments into `asab_attachments`
+     * so GET /operations/{id}/attachments actually returns them (they only
+     * lived inside `payload` before — the dashboard viewer saw nothing).
+     * Idempotent on (owner_id, storage_key); never blocks the bridge.
+     */
+    private function syncAttachments(Operation $op, Expense $expense): void
+    {
+        try {
+            $rows = ExpenseAttachment::where('expense_id', $expense->id)->get();
+
+            // invoice_detail_id → positional index matching mapInvoices()'
+            // created_at ordering and the 'invoice:i' label convention.
+            $indexOf = array_flip(
+                InvoiceDetail::where('expense_id', $expense->id)->orderBy('created_at')->pluck('id')->all()
+            );
+
+            foreach ($rows as $a) {
+                Attachment::updateOrCreate(
+                    ['owner_id' => $op->id, 'storage_key' => $a->file_path],
+                    [
+                        'owner_type' => 'operation',
+                        'filename' => $a->file_name,
+                        'mime_type' => $this->mime($a->file_type),
+                        'size' => (int) $a->file_size,
+                        'public_url' => Storage::disk('public')->url($a->file_path),
+                        'label' => $a->invoice_detail_id !== null && isset($indexOf[$a->invoice_detail_id])
+                            ? 'invoice:'.$indexOf[$a->invoice_detail_id]
+                            : 'expense',
+                        'uploaded_at' => $a->created_at,
+                    ],
+                );
+            }
+
+            $op->update(['attachment_count' => Attachment::where('owner_id', $op->id)->count()]);
+        } catch (\Throwable $e) {
+            $this->log->warning('expense-bridge: attachment mirror failed — operation minted without documents', [
+                'expense_id' => $expense->id, 'operation_id' => $op->id, 'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -189,10 +242,24 @@ class ExpenseBridgeService
         return $rows->map(fn (ExpenseAttachment $a) => [
             'id' => $a->id,
             'filename' => $a->file_name,
-            'mimeType' => $a->file_type,
+            'mimeType' => $this->mime($a->file_type),
             'size' => $a->file_size,
-            'publicUrl' => $a->file_path,
+            'storageKey' => $a->file_path,
+            // A real absolute URL — the raw storage key rendered as a broken
+            // image on the dashboard.
+            'publicUrl' => Storage::disk('public')->url($a->file_path),
         ])->values()->all();
+    }
+
+    /** Legacy `file_type` stores the EXTENSION, not a MIME type. */
+    private function mime(?string $ext): string
+    {
+        return match (strtolower((string) $ext)) {
+            'pdf' => 'application/pdf',
+            'png' => 'image/png',
+            'jpg', 'jpeg' => 'image/jpeg',
+            default => 'application/octet-stream',
+        };
     }
 
     private function halalas(mixed $sar): int

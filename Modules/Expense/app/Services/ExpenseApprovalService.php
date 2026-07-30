@@ -15,6 +15,15 @@ class ExpenseApprovalService
      */
     public function submitExpense(Expense $expense): void
     {
+        // Already pending (created non-draft): re-submitting is a no-op on the
+        // record, but re-fire the event so the ASAB bridge (idempotent) can
+        // catch anything that slipped — never 500 the client for it.
+        if ($expense->status === 'pending') {
+            event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense));
+
+            return;
+        }
+
         if ($expense->status !== 'draft') {
             throw new \Exception('Only draft expenses can be submitted');
         }

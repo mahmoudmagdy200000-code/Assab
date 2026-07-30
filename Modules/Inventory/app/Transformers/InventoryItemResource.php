@@ -16,12 +16,14 @@ class InventoryItemResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            // Uploaded catalog rows carry NULL code/unit (and `logo` is an array
+            // cast) — the app casts these to String, so coalesce and use logo_url.
             'item' => [
                 'id' => $this->item_id,
-                'name' => $this->item_name,
-                'code' => $this->item->code ?? null,
-                'logo' => $this->item->logo ?? null,
-                'unit' => $this->item->unit ?? null,
+                'name' => $this->item_name ?? $this->item?->name ?? '',
+                'code' => $this->item?->code ?? '',
+                'logo' => $this->item?->logo_url ?? '',
+                'unit' => $this->item?->unit ?? 'kg',
             ],
             'purchase_order_item' => [
                 'id' => $this->purchase_order_item_id,

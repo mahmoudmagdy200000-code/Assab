@@ -27,7 +27,8 @@ use Modules\Shift\Models\CashierShift;
 class BridgeBackfillCommand extends Command
 {
     protected $signature = 'asab:bridge-backfill
-        {--dry-run : List the stranded records and why, without bridging}';
+        {--dry-run : List the stranded records and why, without bridging}
+        {--catalog : Also re-run the supplier-item catalog bridge (heals supplier links dropped by the old price-0/platform-supplier guards)}';
 
     protected $description = 'Re-bridge mobile expenses and closed shifts that never reached the dashboard';
 
@@ -37,12 +38,134 @@ class BridgeBackfillCommand extends Command
 
         $this->backfillExpenses($expenses, $dry);
         $this->backfillShifts($shifts, $dry);
+        $this->backfillPurchaseOrders($dry);
+        $this->backfillInventorySessions($dry);
+
+        if ($this->option('catalog')) {
+            $this->backfillCatalog($dry);
+        }
 
         if ($dry) {
             $this->comment('Dry run — nothing was written. Re-run without --dry-run to bridge.');
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Re-run the catalog bridge over every dashboard/portal supplier item so
+     * `supplier_items` links dropped by the old guards (price <= 0, platform
+     * suppliers with company_id NULL) exist again — the mobile order screen
+     * reads that table to suggest suppliers per item.
+     */
+    private function backfillCatalog(bool $dry): void
+    {
+        $bridge = app(\Modules\Admin\Services\ProcurementCatalogBridgeService::class);
+        $synced = 0;
+
+        \Modules\Admin\Models\SupplierItem::withoutGlobalScopes()
+            ->whereNotNull('supplier_id')
+            ->orderBy('created_at')
+            ->chunkById(200, function ($chunk) use ($bridge, $dry, &$synced) {
+                foreach ($chunk as $item) {
+                    if ($dry) {
+                        $this->line("[dry] catalog item {$item->id} ({$item->name}) → re-sync supplier link");
+                        $synced++;
+
+                        continue;
+                    }
+
+                    try {
+                        $bridge->syncItem($item);
+                        $synced++;
+                    } catch (\Throwable $e) {
+                        $this->warn("catalog item {$item->id}: {$e->getMessage()}");
+                    }
+                }
+            });
+
+        $this->info(($dry ? 'Would re-sync ' : 'Re-synced ')."{$synced} catalog item(s).");
+    }
+
+    /**
+     * Submitted mobile inventory sessions with no live INV- operation mirror.
+     */
+    private function backfillInventorySessions(bool $dry): void
+    {
+        $bridge = app(\Modules\Admin\Services\InventoryBridgeService::class);
+        $bridged = 0;
+        $skipped = 0;
+
+        \Modules\Inventory\Models\InventorySession::query()
+            ->whereNotNull('submitted_at')
+            ->whereNotExists(function ($q) {
+                $q->selectRaw('1')
+                    ->from('asab_operations')
+                    ->whereColumn('asab_operations.source_id', 'inventory_sessions.id')
+                    ->where('asab_operations.source_module', \Modules\Admin\Services\InventoryBridgeService::SOURCE)
+                    ->whereNull('asab_operations.deleted_at');
+            })
+            ->orderBy('created_at')
+            ->chunkById(200, function ($chunk) use ($bridge, $dry, &$bridged, &$skipped) {
+                foreach ($chunk as $session) {
+                    if ($dry) {
+                        $this->line("[dry] inventory session {$session->id} → bridge to INV op");
+                        $bridged++;
+
+                        continue;
+                    }
+
+                    try {
+                        $bridge->sync($session) !== null ? $bridged++ : $skipped++;
+                    } catch (\Throwable $e) {
+                        $skipped++;
+                        $this->warn("inventory session {$session->id}: {$e->getMessage()}");
+                    }
+                }
+            });
+
+        $this->info(($dry ? 'Would bridge ' : 'Bridged ')."{$bridged} inventory session(s), skipped: {$skipped}.");
+    }
+
+    /**
+     * Submitted mobile purchase orders with no live PUR- operation mirror —
+     * the pre-bridge backlog the meeting called «المشتريات مش واصلة للمحاسب».
+     */
+    private function backfillPurchaseOrders(bool $dry): void
+    {
+        $bridge = app(\Modules\Admin\Services\PurchaseOrderBridgeService::class);
+        $bridged = 0;
+        $skipped = 0;
+
+        \Modules\Purchase\Models\PurchaseOrder::query()
+            ->where('status', '!=', \Modules\Purchase\Enums\OrderStatus::DRAFT->value)
+            ->whereNotExists(function ($q) {
+                $q->selectRaw('1')
+                    ->from('asab_operations')
+                    ->whereColumn('asab_operations.source_id', 'purchase_orders.id')
+                    ->where('asab_operations.source_module', \Modules\Admin\Services\PurchaseOrderBridgeService::SOURCE)
+                    ->whereNull('asab_operations.deleted_at');
+            })
+            ->orderBy('created_at')
+            ->chunkById(200, function ($chunk) use ($bridge, $dry, &$bridged, &$skipped) {
+                foreach ($chunk as $order) {
+                    if ($dry) {
+                        $this->line("[dry] purchase order {$order->order_number} ({$order->id}) → bridge to PUR op");
+                        $bridged++;
+
+                        continue;
+                    }
+
+                    try {
+                        $bridge->sync($order) !== null ? $bridged++ : $skipped++;
+                    } catch (\Throwable $e) {
+                        $skipped++;
+                        $this->warn("purchase order {$order->id}: {$e->getMessage()}");
+                    }
+                }
+            });
+
+        $this->info(($dry ? 'Would bridge ' : 'Bridged ')."{$bridged} purchase order(s), skipped: {$skipped}.");
     }
 
     private function backfillExpenses(ExpenseBridgeService $bridge, bool $dry): void

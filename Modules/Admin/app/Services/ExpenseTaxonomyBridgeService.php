@@ -64,13 +64,25 @@ class ExpenseTaxonomyBridgeService
             return;
         }
 
-        Category::firstOrCreate(
-            [
-                'name' => mb_substr($subName, 0, self::NAME_MAX),
+        $subName = mb_substr($subName, 0, self::NAME_MAX);
+        $sub = Category::where('name', $subName)->where('type', $type)->first();
+
+        if ($sub === null) {
+            Category::create([
+                'name' => $subName,
                 'type' => $type,
                 'parent_id' => $parent->id,
-            ],
-            ['is_active' => true],
-        );
+                'is_active' => true,
+            ]);
+
+            return;
+        }
+
+        // Heal rows uploaded before the sub-category column existed: the same
+        // name sitting as a CHILDLESS flat parent is this sub — re-parent it
+        // instead of minting a duplicate («غاز» flat + «غاز» child).
+        if ($sub->parent_id === null && $sub->id !== $parent->id && ! $sub->children()->exists()) {
+            $sub->update(['parent_id' => $parent->id]);
+        }
     }
 }

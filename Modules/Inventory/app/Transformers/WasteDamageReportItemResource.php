@@ -17,8 +17,8 @@ class WasteDamageReportItemResource extends JsonResource
         $causeOfDamage = $item->cause_of_damage;
         $reason = $item->reason;
 
-        $productName = $this->whenLoaded('item', fn () => $this->item?->name)
-            ?? $this->whenLoaded('purchaseOrderItem', fn () => $this->purchaseOrderItem?->item_name);
+        $productName = ($this->whenLoaded('item', fn () => $this->item?->name)
+            ?? $this->whenLoaded('purchaseOrderItem', fn () => $this->purchaseOrderItem?->item_name)) ?? '';
         $requiresPhoto = $problemType && $item->requiresPhoto();
         $hasPhoto = ! empty($this->photo_path);
 
@@ -38,7 +38,7 @@ class WasteDamageReportItemResource extends JsonResource
             'quantity_wasted' => (float) $this->quantity,
             'reason' => $reason?->value,
             'reason_label' => $reason?->label(),
-            'unit' => $this->unit,
+            'unit' => $this->unit ?? $this->item?->unit ?? 'kg',
             'total_value' => (float) $this->total_value,
             'price_per_unit' => $this->price_per_unit ? (float) $this->price_per_unit : null,
             'justification_text' => $this->justification_text,
@@ -50,11 +50,11 @@ class WasteDamageReportItemResource extends JsonResource
             'responsible_employees' => WasteDamageReportItemEmployeeResource::collection(
                 $this->whenLoaded('responsibleEmployees')
             ),
-            'item' => $this->whenLoaded('item', fn () => [
+            'item' => $this->whenLoaded('item', fn () => $this->item !== null ? [
                 'id' => $this->item->id,
-                'name' => $this->item->name,
-                'unit' => $this->item->unit ?? null,
-            ]),
+                'name' => $this->item->name ?? '',
+                'unit' => $this->item->unit ?? 'kg',
+            ] : null),
             'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
             'updated_at' => $this->updated_at?->format('Y-m-d H:i:s'),
         ];

@@ -86,6 +86,7 @@ class ReceiveAssetsService
             ->whereHas('request', function ($q) use ($branchId, $recipientOnly) {
                 if ($recipientOnly) {
                     $q->where('recipient_branch_id', $branchId);
+
                     return;
                 }
                 $q->where(function ($q2) use ($branchId) {
@@ -99,6 +100,7 @@ class ReceiveAssetsService
             $role = (string) $item->request?->recipient_branch_id === $branchId
                 ? 'recipient'
                 : 'sender';
+
             return ['type' => 'transfer', 'model' => $item, 'viewer_role' => $role];
         }
 
@@ -124,6 +126,7 @@ class ReceiveAssetsService
             ->whereHas('request', function ($q) use ($branchId, $recipientOnly) {
                 if ($recipientOnly) {
                     $q->where('recipient_branch_id', $branchId);
+
                     return;
                 }
                 $q->where(function ($q2) use ($branchId) {
@@ -140,6 +143,7 @@ class ReceiveAssetsService
             Log::info('ReceiveAssets fallback: matched by request_id', [
                 'request_id' => $id, 'branch_id' => $branchId, 'item_id' => (string) $first->id, 'role' => $role,
             ]);
+
             return ['type' => 'transfer', 'model' => $first, 'viewer_role' => $role];
         }
 
@@ -156,6 +160,7 @@ class ReceiveAssetsService
                 $q->where('status', '!=', RequestStatus::REJECTED->value);
                 if ($recipientOnly) {
                     $q->where('recipient_branch_id', $branchId);
+
                     return;
                 }
                 $q->where(function ($q2) use ($branchId) {
@@ -175,6 +180,7 @@ class ReceiveAssetsService
             Log::info('ReceiveAssets fallback: matched by asset_id', [
                 'asset_id' => $id, 'branch_id' => $branchId, 'item_id' => (string) $byAsset->id, 'role' => $role,
             ]);
+
             return ['type' => 'transfer', 'model' => $byAsset, 'viewer_role' => $role];
         }
 
@@ -246,6 +252,19 @@ class ReceiveAssetsService
             'status' => 'received',
             'received_at' => now(),
         ]);
+
+        // Close the loop with the dashboard: stamp the asab_assets row so the
+        // accountant's register flips to pending_accountant with the receiver
+        // recorded. withoutGlobalScope: mobile requests carry no asab tenant.
+        if ($pending->asab_asset_id !== null) {
+            \Modules\Admin\Models\Asset::withoutGlobalScope('tenant')
+                ->whereKey($pending->asab_asset_id)
+                ->update([
+                    'status' => 'pending_accountant',
+                    'received_by_id' => $manager->id,
+                    'received_at' => now(),
+                ]);
+        }
 
         $this->timelineService->log(
             $fixedAsset,

@@ -25,14 +25,16 @@ class DailyInventoryScheduleResource extends JsonResource
                         'id' => $si->id,
                         'item_id' => $si->item_id,
                         'sort_order' => $si->sort_order,
-                        'item' => $si->relationLoaded('item') ? [
+                        // `$si->item !== null` (not relationLoaded): a soft-deleted
+                        // item loads as null and `$si->item->id` would 500.
+                        'item' => $si->item !== null ? [
                             'id' => $si->item->id,
-                            'name' => $si->item->name,
-                            'code' => $si->item->code,
-                            'unit' => $si->item->unit,
-                            'logo' => $si->item->logo,
-                            'category' => $si->item->category,
-                            'subcategory' => $si->item->subcategory,
+                            'name' => $si->item->name ?? '',
+                            'code' => $si->item->code ?? '',
+                            'unit' => $si->item->unit ?? 'kg',
+                            'logo' => $si->item->logo_url ?? '',
+                            'category' => $si->item->category ?? '',
+                            'subcategory' => $si->item->subcategory ?? '',
                         ] : null,
                     ];
                 })->values();

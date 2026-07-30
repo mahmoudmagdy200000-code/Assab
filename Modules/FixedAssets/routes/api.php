@@ -38,6 +38,11 @@ Route::middleware(['auth:sanctum', 'branch.manager'])
         Route::get('branches', [ReferenceDataController::class, 'branches'])->name('branches');
         Route::get('assets', [ReferenceDataController::class, 'assets'])->name('assets.index');
 
+        // Dashboard-owned register (Excel/accountant-added assets of the branch)
+        // — literal route, declared before the assets/{assetId} wildcard.
+        Route::get('register', [\Modules\FixedAssets\Http\Controllers\AssetRegisterController::class, 'index'])
+            ->name('register');
+
         Route::get('assets/{assetId}', [AssetController::class, 'show'])
             ->name('assets.show');
         Route::match(['patch', 'post'], 'assets/{assetId}/settings', [AssetController::class, 'updateSettings'])

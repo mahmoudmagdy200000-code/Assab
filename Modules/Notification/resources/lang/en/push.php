@@ -219,6 +219,10 @@ return [
         'title' => 'Asset handover completed',
         'body' => 'The asset handover has been completed.',
     ],
+    'asset_receive_requested' => [
+        'title' => 'New asset awaiting receipt',
+        'body' => 'Asset :asset_name (:public_id) was assigned to your branch — open receive requests and confirm receipt.',
+    ],
 
     // ── Inventory ───────────────────────────────────────────────────────────
     'inventory_session_updated' => [

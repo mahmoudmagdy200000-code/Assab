@@ -120,7 +120,9 @@ enum OrderStatus: string
             self::PENDING => [self::CONFIRMED, self::REJECTED, self::EMERGENCY, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
             self::EMERGENCY => [self::CONFIRMED, self::REJECTED, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
             self::CONFIRMED => [self::PREPARING, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
-            self::REJECTED => [],
+            // Meeting 2026-07-30: a rejected order must be editable + resendable
+            // for re-approval (accounting reject loop), or cancellable.
+            self::REJECTED => [self::PENDING, self::CANCELED],
             self::CANCELED => [],
             self::CANCELLED_BY_BRANCH => [],
             self::CANCELLED_BY_SUPPLIER => [],

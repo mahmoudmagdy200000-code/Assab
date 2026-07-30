@@ -27,8 +27,12 @@ class InventorySessionService
      */
     public function getBranchItems(string $branchId, bool $includeAll = false): Collection
     {
+        // whereHas('item'): a soft-deleted catalog item (deactivated on the
+        // dashboard while branch stock != 0) leaves a ghost branch_item whose
+        // every display field is null — the mobile app casts them to String.
         $query = BranchItem::with(['item:id,name,code,logo,unit,category,subcategory'])
-            ->where('branch_id', $branchId);
+            ->where('branch_id', $branchId)
+            ->whereHas('item');
 
         if (! $includeAll) {
             $activeStatuses = [
@@ -56,12 +60,14 @@ class InventorySessionService
                     'id' => $branchItem->id,
                     'branch_item_id' => $branchItem->id,
                     'item_id' => $branchItem->item_id,
-                    'item_name' => $branchItem->item?->name ?? $branchItem->item_name,
-                    'item_code' => $branchItem->item?->code ?? $branchItem->item_code,
-                    'item_logo' => $branchItem->item?->logo ?? $branchItem->item_logo,
-                    'item_unit' => $branchItem->item?->unit ?? $branchItem->item_unit,
-                    'category' => $branchItem->item?->category ?? $branchItem->category,
-                    'subcategory' => $branchItem->item?->subcategory ?? $branchItem->subcategory,
+                    // Uploaded catalog rows carry NULL code/unit/category and the
+                    // app casts these to String — coalesce like BranchItemResource.
+                    'item_name' => $branchItem->item?->name ?? '',
+                    'item_code' => $branchItem->item?->code ?? '',
+                    'item_logo' => $branchItem->item?->logo_url ?? '',
+                    'item_unit' => $branchItem->item?->unit ?? 'kg',
+                    'category' => $branchItem->item?->category ?? '',
+                    'subcategory' => $branchItem->item?->subcategory ?? '',
                     'price' => $branchItem->price,
                     'quantity' => $branchItem->quantity,
                 ];
@@ -87,14 +93,14 @@ class InventorySessionService
                     'id' => $item->id,
                     'purchase_order_item_id' => $item->id,
                     'purchase_order_id' => $item->purchase_order_id,
-                    'order_number' => $item->purchaseOrder->order_number ?? null,
+                    'order_number' => $item->purchaseOrder->order_number ?? '',
                     'item_id' => $item->item_id,
-                    'item_name' => $item->item_name,
-                    'item_code' => $item->item->code ?? null,
-                    'item_logo' => $item->item->logo ?? null,
-                    'item_unit' => $item->item->unit ?? null,
-                    'category' => $item->category,
-                    'subcategory' => $item->subcategory,
+                    'item_name' => $item->item_name ?? $item->item?->name ?? '',
+                    'item_code' => $item->item?->code ?? '',
+                    'item_logo' => $item->item?->logo_url ?? '',
+                    'item_unit' => $item->item?->unit ?? 'kg',
+                    'category' => $item->category ?? '',
+                    'subcategory' => $item->subcategory ?? '',
                     'quantity_ordered' => $item->quantity_ordered,
                     'quantity_received' => $item->quantity_received,
                     'unit_price' => $item->unit_price,
@@ -355,7 +361,7 @@ class InventorySessionService
      */
     public function submitSession(string $sessionId, BranchManager|Cashier $actor): InventorySession
     {
-        return DB::transaction(function () use ($sessionId, $actor) {
+        $session = DB::transaction(function () use ($sessionId, $actor) {
             $query = InventorySession::where('id', $sessionId)
                 ->where('branch_id', $actor->branch_id);
 
@@ -400,6 +406,11 @@ class InventorySessionService
 
             return $session->fresh(['items.item', 'items.purchaseOrderItem.purchaseOrder']);
         });
+
+        // AFTER commit: bridge to the ASAB accountant inbox (INV- operation).
+        event(new \Modules\Inventory\Events\InventorySessionSubmittedEvent($session));
+
+        return $session;
     }
 
     /**
@@ -580,7 +591,7 @@ class InventorySessionService
      */
     public function approveSession(string $sessionId, array $sales = [], array $recordedWaste = []): InventorySession
     {
-        return DB::transaction(function () use ($sessionId, $sales, $recordedWaste) {
+        $session = DB::transaction(function () use ($sessionId, $sales, $recordedWaste) {
             $session = InventorySession::where('id', $sessionId)
                 ->where('status', InventorySessionStatus::PENDING)
                 ->where(function ($q) {
@@ -634,6 +645,11 @@ class InventorySessionService
 
             return $session->fresh(['items.item', 'discrepancies']);
         });
+
+        // AFTER commit: re-sync the ASAB operation with the discrepancy figures.
+        event(new \Modules\Inventory\Events\InventorySessionSubmittedEvent($session));
+
+        return $session;
     }
 
     /**
@@ -862,10 +878,10 @@ class InventorySessionService
             ],
             'all_inventoried_products' => $items->map(function ($item) {
                 return [
-                    'item_name' => $item->item_name,
+                    'item_name' => $item->item_name ?? $item->item?->name ?? '',
                     'recorded_quantity' => (float) $item->quantity_inventory,
                     'quantity' => (float) $item->quantity_inventory,
-                    'unit' => $item->item?->unit ?? null,
+                    'unit' => $item->item?->unit ?? 'kg',
                     'notes' => $item->notes,
                 ];
             })->toArray(),

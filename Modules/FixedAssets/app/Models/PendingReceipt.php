@@ -22,6 +22,7 @@ class PendingReceipt extends Model
         'source',
         'status',
         'received_at',
+        'asab_asset_id',
     ];
 
     protected $casts = [

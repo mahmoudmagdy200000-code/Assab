@@ -352,6 +352,24 @@ class AdminBrandUploadTest extends TestCase
         $this->assertSame(2550, (int) $item->unit_price);
     }
 
+    public function test_reupload_with_sub_column_reparents_an_old_flat_category(): void
+    {
+        $brand = $this->brand();
+        // A flat parent minted by an old 5-column upload («No sub-categories found»).
+        $flat = Category::create(['name' => 'غاز', 'type' => 'expense', 'is_active' => true]);
+
+        $csv = 'رمز الصنف,اسم الصنف,الفئة,اسم الفئة,وحدة البيع,السعر'."\n"
+            .'SKU-9,أسطوانة غاز,مرافق,غاز,حبة,80'."\n";
+        $this->upload("/api/v1/admin/brands/{$brand->id}/upload/sales-items", 'items.csv', $csv)
+            ->assertStatus(200);
+
+        $parent = Category::where('name', 'مرافق')->whereNull('parent_id')->first();
+        $this->assertNotNull($parent);
+        // Healed in place: re-parented under «مرافق», no duplicate row.
+        $this->assertSame($parent->id, $flat->fresh()->parent_id);
+        $this->assertSame(1, Category::where('name', 'غاز')->count());
+    }
+
     public function test_expense_category_bridge_is_idempotent_and_skips_blank(): void
     {
         $brand = $this->brand();
@@ -365,8 +383,13 @@ class AdminBrandUploadTest extends TestCase
         $this->upload($url, 'items.csv', $csv)->assertStatus(200);
 
         $this->assertSame(1, Category::where('name', 'وجبات')->count());
-        // Only the one real category — the blank cell created nothing.
-        $this->assertSame(1, Category::count());
+        // A sheet without «اسم الفئة» nests the item name under its التصنيف —
+        // and re-uploading must not duplicate either level.
+        $burger = Category::where('name', 'برجر')->first();
+        $this->assertNotNull($burger, 'item name must nest as the category child');
+        $this->assertSame(Category::where('name', 'وجبات')->value('id'), $burger->parent_id);
+        // وجبات + برجر only — the blank-category row created nothing.
+        $this->assertSame(2, Category::count());
     }
 
     // ---- defect B: header validation ----

@@ -65,6 +65,29 @@ class SupplierBrandScopeService
     }
 
     /**
+     * Suppliers the ORDER flow may offer (meeting 2026-07-30): the brand's
+     * visible suppliers narrowed to those with a real supplier ACCOUNT — a
+     * mobile login that can receive and act on purchase orders. Excel-uploaded
+     * expense-only suppliers are provisioned without an email/login and must
+     * not appear in the order picker.
+     *
+     * @return string[]
+     */
+    public function orderableSupplierIds(?string $branchId): array
+    {
+        $visible = $this->visibleSupplierIds($branchId);
+        if ($visible === []) {
+            return [];
+        }
+
+        return \Modules\Supplier\Models\Supplier::query()
+            ->whereIn('id', $visible)
+            ->whereNotNull('email')
+            ->pluck('id')
+            ->all();
+    }
+
+    /**
      * Zero-trust guard for expense writes: every supplier id in the payload
      * (top-level and per-invoice rows) must be visible to the caller's branch.
      *
