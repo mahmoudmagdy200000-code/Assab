@@ -213,19 +213,42 @@ class ExpenseBridgeService
         $attachments = ExpenseAttachment::where('expense_id', $expense->id)
             ->get()->groupBy('invoice_detail_id');
 
+        // Non-tax invoices carry no tax_* amounts — their total lives on the
+        // line items (grouped) or on the expense itself (single invoice).
+        // Without this fallback every non-tax invoice bridged as 0.00 SAR in
+        // the accountant's ACC-2 «الفواتير» table.
+        $itemTotals = \Modules\Expense\Models\ExpenseItem::where('expense_id', $expense->id)
+            ->whereNotNull('invoice_detail_id')
+            ->selectRaw('invoice_detail_id, SUM(total_amount) as t')
+            ->groupBy('invoice_detail_id')->pluck('t', 'invoice_detail_id');
+        $lineTotals = \Modules\Expense\Models\ExpenseLine::where('expense_id', $expense->id)
+            ->whereNotNull('invoice_detail_id')
+            ->selectRaw('invoice_detail_id, SUM(price) as t')
+            ->groupBy('invoice_detail_id')->pluck('t', 'invoice_detail_id');
+        $single = $details->count() === 1;
+
         // Vendor fallback chain (meeting 2026-07-29 «بيانات ناقصة/غلط»): the
         // free-text tax name is only present on tax invoices, so fall back to
         // the invoice's picked supplier, then the expense-level supplier.
-        return $details->values()->map(fn (InvoiceDetail $d) => array_filter([
-            'invNum' => $d->invoice_number,
-            'vendor' => $d->tax_supplier_name ?? $d->supplier?->name ?? $expense->supplier?->name,
-            'supplierId' => $d->supplier_id ?? $expense->supplier_id,
-            'desc' => $expense->expense_type,
-            'date' => optional($d->issue_date)->toDateString(),
-            'amountHalalas' => $this->halalas($d->tax_total_amount),
-            'vatHalalas' => $d->tax_vat_amount === null ? null : $this->halalas($d->tax_vat_amount),
-            'attachments' => $this->files($attachments->get($d->id, collect())),
-        ], fn ($v) => $v !== null))->all();
+        return $details->values()->map(function (InvoiceDetail $d) use ($expense, $attachments, $itemTotals, $lineTotals, $single) {
+            $lineSum = (float) ($itemTotals[$d->id] ?? 0) + (float) ($lineTotals[$d->id] ?? 0);
+            $amount = $d->tax_total_amount
+                ?? ($lineSum > 0 ? $lineSum : null)
+                ?? ($single ? $expense->total_amount : null);
+            $vat = $d->tax_vat_amount
+                ?? ($single && $d->tax_total_amount === null ? $expense->vat_amount : null);
+
+            return array_filter([
+                'invNum' => $d->invoice_number,
+                'vendor' => $d->tax_supplier_name ?? $d->supplier?->name ?? $expense->supplier?->name,
+                'supplierId' => $d->supplier_id ?? $expense->supplier_id,
+                'desc' => $expense->expense_type,
+                'date' => optional($d->issue_date)->toDateString(),
+                'amountHalalas' => $this->halalas($amount),
+                'vatHalalas' => $vat === null ? null : $this->halalas($vat),
+                'attachments' => $this->files($attachments->get($d->id, collect())),
+            ], fn ($v) => $v !== null);
+        })->all();
     }
 
     /** Documents attached to the expense itself rather than to one invoice. */

@@ -18,8 +18,8 @@ use Modules\Admin\Models\BrandShiftConfig;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\SupplierItem as AsabSupplierItem;
 use Modules\Admin\Services\BranchHierarchyLinker;
-use Modules\Admin\Services\MobileCashierMirrorService;
 use Modules\Admin\Services\ExpenseTaxonomyBridgeService;
+use Modules\Admin\Services\MobileCashierMirrorService;
 use Modules\Admin\Services\ProcurementCatalogBridgeService;
 use Modules\Admin\Services\ShiftScheduleBridgeService;
 use Modules\Aggregator\Models\Aggregator;
@@ -82,6 +82,15 @@ class FullDemoSeeder extends Seeder
         $this->seedCatalog();
         $this->seedShiftSchedule();
         $this->seedPeopleAndOperations();
+
+        // Receive-assets confirm requires FK-valid zones/types; without them the
+        // whole dashboard→mobile asset round-trip dead-ends at confirm with an
+        // empty picker (meeting area 6 E2E finding). Zones are per-branch, so
+        // this must run AFTER the branches exist.
+        $this->call([
+            \Modules\FixedAssets\Database\Seeders\AssetTypeSeeder::class,
+            \Modules\FixedAssets\Database\Seeders\AssetZoneSeeder::class,
+        ]);
 
         $this->command?->info('✅ FullDemoSeeder done. Logins (password: "'.self::PASSWORD.'"):');
         foreach ($this->staff as $label => $user) {
@@ -187,10 +196,22 @@ class FullDemoSeeder extends Seeder
 
         $this->staff['procurement'] = $this->makeUser('مدير المشتريات', 'فهد القحطاني', 'procurement@nakhat.sa', 'procurement', $this->company->id, 'all');
         $this->staff['brand-owner'] = $this->makeUser('مالك العلامة', 'ناصر التميمي', 'owner@nakhat.sa', 'brand-owner', $this->company->id, 'all');
+
+        // Branch-portal user («بوابة الفرع» on the dashboard): the waste/inventory
+        // upload write-path sits behind asab.role:branch with no head/admin
+        // bypass — without this login it is un-demonstrable (E2E area 7).
+        $firstBranch = $this->branches[0];
+        $this->staff['branch-portal'] = $this->makeUser(
+            'بوابة الفرع', 'بوابة '.$firstBranch->name, 'branch@nakhat.sa',
+            'branch', $this->company->id, 'branch', [], [$firstBranch->id],
+        );
     }
 
-    /** @param  string[]  $brandIds */
-    private function makeUser(string $label, string $name, string $email, string $role, ?string $companyId, string $scope, array $brandIds = []): AsabUser
+    /**
+     * @param  string[]  $brandIds
+     * @param  string[]  $branchIds
+     */
+    private function makeUser(string $label, string $name, string $email, string $role, ?string $companyId, string $scope, array $brandIds = [], array $branchIds = []): AsabUser
     {
         $user = AsabUser::updateOrCreate(['email' => $email], [
             'company_id' => $companyId, 'name' => $name, 'avatar' => mb_substr($name, 0, 1),
@@ -201,7 +222,7 @@ class FullDemoSeeder extends Seeder
             'scope' => $scope,
             'brand_ids' => $brandIds,
             'restaurant_ids' => [],
-            'branch_ids' => [],
+            'branch_ids' => $branchIds,
             'module_keys' => ['sales', 'expenses', 'purchases', 'inventory', 'shifts', 'assets'],
         ]);
 
@@ -337,8 +358,9 @@ class FullDemoSeeder extends Seeder
             // brand-scoped accountant gets a populated inbox. Only where a
             // cashier actually linked across the two worlds.
             if ($i % 2 === 0 && $cashierIds !== []) {
-                $this->seedShiftCloses($branch, $cashierIds);
+                $this->seedShiftCloses($branch, $cashierIds, $manager);
                 $this->seedExpenses($branch, $manager);
+                $this->seedManagerDailyClose($branch, $manager);
             }
 
             // A branch-level asset on every branch; a couple of brand-level
@@ -350,14 +372,14 @@ class FullDemoSeeder extends Seeder
     }
 
     /** Complete a mobile CashierShift → fires ShiftEndedEvent → SHF op in the accountant inbox. */
-    private function seedShiftCloses(Branch $branch, array $cashierIds): void
+    private function seedShiftCloses(Branch $branch, array $cashierIds, BranchManager $manager): void
     {
         $shift = MobileShift::where('branch_id', $branch->id)->orderBy('start_time')->first();
         if ($shift === null) {
             return;
         }
 
-        foreach ($cashierIds as $cashierId) {
+        foreach ($cashierIds as $h => $cashierId) {
             $sales = rand(600, 1800) * 10;          // SAR
             $card = (int) round($sales * 0.35);
             $apps = (int) round($sales * 0.25);
@@ -379,7 +401,61 @@ class FullDemoSeeder extends Seeder
                 'status' => ShiftStatus::COMPLETED, 'total_sales' => $sales, 'net_sales' => $sales,
                 'cash_collected' => $cash, 'card_payments' => $card, 'actual_end_time' => now(),
             ]);
+
+            // Cash handover to the branch manager — one pending + one approved
+            // per seeded branch so every handover surface has demo rows (the
+            // E2E found all three lists rendering zero-state).
+            $approved = $h % 2 === 1;
+            \Modules\Shift\Models\CashierShiftHandover::create([
+                'cashier_shift_id' => $cs->id,
+                'handover_to_id' => $manager->id,
+                'handover_to_type' => 'branch_manager',
+                'handover_amount' => $cash,
+                'handover_date' => today(),
+                'handover_time' => now()->format('H:i:s'),
+                'status' => $approved ? 'approved' : 'pending',
+                'approved_by_id' => $approved ? $manager->id : null,
+                'approved_by_type' => $approved ? 'branch_manager' : null,
+                'approved_at' => $approved ? now() : null,
+                'handed_over_at' => now(),
+            ]);
         }
+    }
+
+    /**
+     * Completed manager daily close → DailyReportSubmittedEvent →
+     * BridgeManagerDailyClose mints the module_key='sales' operation. Without
+     * this the accountant's المبيعات screen was empty on a fresh demo.
+     */
+    private function seedManagerDailyClose(Branch $branch, BranchManager $manager): void
+    {
+        $totals = CashierShift::query()
+            ->whereIn('cashier_id', Cashier::where('branch_id', $branch->id)->pluck('id'))
+            ->where('status', ShiftStatus::COMPLETED)
+            ->selectRaw('COALESCE(SUM(total_sales),0) s, COALESCE(SUM(cash_collected),0) c, COALESCE(SUM(card_payments),0) k')
+            ->first();
+
+        // updateOrCreate: closing the cashier shifts above may auto-open the
+        // manager's daily shift row for today (unique branch_manager_id+date).
+        $shift = \Modules\Shift\Models\BranchManagerShift::updateOrCreate(
+            ['branch_manager_id' => $manager->id, 'shift_date' => today()],
+            [
+                'branch_id' => $branch->id,
+                'status' => 'completed',
+                'actual_start_time' => now()->subHours(9),
+                'actual_end_time' => now(),
+                'total_sales' => $totals->s,
+                'net_sales' => $totals->s,
+                'cash_collected' => $totals->c,
+                'card_payments' => $totals->k,
+                'aggregator_payments' => $totals->s - $totals->c - $totals->k,
+                'variance' => 0,
+                'daily_report_submitted' => true,
+                'daily_report_submitted_at' => now(),
+            ],
+        );
+
+        event(new \Modules\Shift\Events\DailyReportSubmittedEvent($shift));
     }
 
     /** A grouped-invoice mobile expense → fires ExpenseSubmittedEvent → EXP op in the accountant inbox. */

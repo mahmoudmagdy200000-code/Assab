@@ -436,7 +436,8 @@ class DailyQuickInventoryController extends BaseController
     public function rejectSession(RejectInventorySessionRequest $request, string $id): JsonResponse
     {
         try {
-            $session = $this->sessionService->rejectSession($id, $request->validated('comment'));
+            $manager = $this->resolveInventoryActor()->requireManager();
+            $session = $this->sessionService->rejectSession($id, $request->validated('comment'), $manager);
 
             return $this->successResponse(
                 new InventorySessionResource($session->load(['items', 'assignedTo', 'createdBy'])),
@@ -475,8 +476,10 @@ class DailyQuickInventoryController extends BaseController
     public function approveSession(ApproveInventorySessionRequest $request, string $id): JsonResponse
     {
         try {
+            $manager = $this->resolveInventoryActor()->requireManager();
             $session = $this->sessionService->approveSession(
                 $id,
+                $manager,
                 $request->validated('sales', []),
                 $request->validated('recorded_waste', [])
             );

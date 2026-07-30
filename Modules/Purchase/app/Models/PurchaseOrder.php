@@ -553,13 +553,20 @@ class PurchaseOrder extends Model
 
     public function submit(): bool
     {
-        if ($this->status !== OrderStatus::DRAFT) {
+        // REJECTED is resubmittable by design (edit-then-resend loop, meeting
+        // 2026-07-30): the enum already allows REJECTED→PENDING but this guard
+        // made the loop unreachable from any HTTP route.
+        if (! in_array($this->status, [OrderStatus::DRAFT, OrderStatus::REJECTED], true)) {
             return false;
         }
 
+        $wasRejected = $this->status === OrderStatus::REJECTED;
         $transitioned = $this->transitionTo(OrderStatus::PENDING);
         if ($transitioned) {
             $this->items()->where('status', OrderItemStatus::DRAFT)->update(['status' => OrderItemStatus::PENDING->value]);
+            if ($wasRejected) {
+                $this->update(['rejection_reason' => null, 'rejected_at' => null]);
+            }
         }
 
         return $transitioned;

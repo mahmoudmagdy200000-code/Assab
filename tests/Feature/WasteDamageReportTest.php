@@ -151,9 +151,11 @@ class WasteDamageReportTest extends TestCase
             ->postJson("/api/v1/inventory/waste-damage/reports/{$report->id}/submit");
 
         $submitResponse->assertStatus(200);
+        // Personal (manager) submissions land in PENDING — pending_your_confirmation
+        // is a legacy value kept only for pre-2026-05-26 staff rows.
         $this->assertDatabaseHas('waste_damage_reports', [
             'id' => $report->id,
-            'status' => 'pending_your_confirmation',
+            'status' => 'pending',
         ]);
     }
 

@@ -31,10 +31,16 @@ class PurchaseFeedbackBridgeService
         DB::transaction(function () use ($order, $op) {
             if ($op->status === Operation::STATUS_REJECTED) {
                 // Quietly stamp the rejection; the branch edits items via the
-                // existing PUT /orders/{id}/items then resubmits.
+                // existing PUT /orders/{id}/items then resubmits. rejected_at +
+                // decided_by mirror what transitionTo(REJECTED) would have set —
+                // the mobile app shows both on the rejection card.
+                $actor = auth()->user();
                 PurchaseOrder::whereKey($order->id)->update([
                     'status' => \Modules\Purchase\Enums\OrderStatus::REJECTED->value,
                     'rejection_reason' => $op->reject_reason,
+                    'rejected_at' => now(),
+                    'decided_at' => now(),
+                    'decided_by_asab_user_id' => $actor instanceof \Modules\Admin\Models\AsabUser ? $actor->id : null,
                 ]);
 
                 $order->timelines()->create([

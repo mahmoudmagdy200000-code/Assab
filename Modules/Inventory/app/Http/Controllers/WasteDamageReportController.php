@@ -38,17 +38,15 @@ class WasteDamageReportController extends BaseController
     public function assignmentInfo(): JsonResponse
     {
         try {
-            $actor = $this->resolveInventoryActor();
-            $branchId = $actor->getBranchId();
+            // Assigning a waste count is a Branch-Manager action (the OpenAPI
+            // contract says so) — cashiers must get 403, not branch metadata.
+            $manager = $this->resolveInventoryActor()->requireManager();
+            $branchId = $manager->branch_id;
             if (! $branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
-            $creatorName = $actor->isManager()
-                ? $actor->getManager()->name
-                : $actor->getCashier()->name;
-
-            $info = $this->productService->getAssignmentInfo($branchId, $creatorName);
+            $info = $this->productService->getAssignmentInfo($branchId, $manager->name);
 
             return $this->successResponse($info, 'Assignment info retrieved successfully');
         } catch (\Exception $e) {

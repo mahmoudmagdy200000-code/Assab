@@ -28,6 +28,10 @@ class UpdateWasteDamageReportItemRequest extends FormRequest
                 Rule::in(array_map(fn ($c) => $c->value, CauseOfDamage::cases())),
             ],
             'quantity' => ['sometimes', 'numeric', 'min:0.001'],
+            // Previously absent — the PUT accepted these keys and silently
+            // dropped them, so a wrong unit/price could never be corrected.
+            'unit' => ['sometimes', 'string', 'max:32'],
+            'price_per_unit' => ['sometimes', 'numeric', 'min:0'],
             'reason' => ['sometimes', 'string', Rule::in(WasteDamageReason::values())],
             'justification_text' => ['nullable', 'string', 'max:2000'],
             'photo' => ['nullable', 'image', 'max:5120'],

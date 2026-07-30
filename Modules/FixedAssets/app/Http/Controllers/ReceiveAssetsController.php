@@ -76,6 +76,11 @@ class ReceiveAssetsController extends BaseController
                 ] + $this->service->confirmSingle($assetId, $type, $payload, $manager);
             } catch (ModelNotFoundException $e) {
                 $errors[] = ['assetId' => $assetId, 'message' => "Incoming asset not found: {$assetId}"];
+            } catch (\Illuminate\Database\QueryException $e) {
+                // QueryException extends RuntimeException — without this arm the
+                // raw SQL (DB name, full INSERT with values) leaked to the client.
+                report($e);
+                $errors[] = ['assetId' => $assetId, 'message' => 'Could not save the receipt — check that the selected zone and asset type exist.'];
             } catch (\RuntimeException $e) {
                 $errors[] = ['assetId' => $assetId, 'message' => $e->getMessage()];
             }

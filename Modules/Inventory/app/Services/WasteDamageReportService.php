@@ -287,7 +287,9 @@ class WasteDamageReportService
                 'quantity_accountable' => (float) $e->quantity_accountable,
             ])->values()->toArray();
 
-        $pricePerUnit = (float) ($item->price_per_unit ?? 0);
+        $pricePerUnit = isset($data['price_per_unit'])
+            ? (float) $data['price_per_unit']
+            : (float) ($item->price_per_unit ?? 0);
         $quantity = isset($data['quantity']) ? (float) $data['quantity'] : (float) $item->quantity;
         $totalValue = -1 * $quantity * $pricePerUnit;
 
@@ -296,6 +298,9 @@ class WasteDamageReportService
             'cause_of_damage' => $item->cause_of_damage?->value,
             'quantity' => $quantity,
             'reason' => $item->reason->value,
+            // Default to the stored text — a partial PUT that omitted the key
+            // used to silently NULL the item's existing justification.
+            'justification_text' => $item->justification_text,
             'my_quantity_accountable' => $existingMyQty,
             'responsible_employees' => $existingCashiers,
         ], $data);
@@ -306,6 +311,8 @@ class WasteDamageReportService
             'problem_type' => $payload['problem_type'],
             'cause_of_damage' => $payload['cause_of_damage'] ?? null,
             'quantity' => $quantity,
+            'unit' => $payload['unit'] ?? $item->unit,
+            'price_per_unit' => $pricePerUnit,
             'reason' => $payload['reason'],
             'total_value' => $totalValue,
             'justification_text' => $payload['justification_text'] ?? null,

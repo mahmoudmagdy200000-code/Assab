@@ -1,5 +1,7 @@
 # Meeting 2026-07-30 fixes — shipped overnight (deadline 07-31)
 
+> **تحديث 2026-07-31 — تيست E2E كامل على البرودكشن + إصلاحاته: انظر آخر قسم في الملف.**
+
 كل بند من الميتنج اتحلل بمسح متوازي (8 وكلاء استكشاف، file:line evidence) ثم اتنفذ بالترتيب أدناه. Envelopes unchanged. كل فيكس معاه تستات + Pint.
 
 ## 1) كراش «الجرد اليومي السريع» في الموبايل — ✅ اتصلح
@@ -91,3 +93,61 @@
 - `WasteDamageReportTest > assignment info fails when actor is not branch manager`
 - `WasteDamageReportTest > add item and submit succeeds for waste without photo` (بيتوقع `pending_your_confirmation` والكود بيسجل `pending`)
 - داشبورد `orchid-crow…/#/preview/asab/ASABPrototype` = بروتوتايب فرونت بتاريخ ثابت «14 أكتوبر 2025» — فلتر «هذا الشهر» المبني عليه هيخفي داتا يوليو 2026. للفرونت.
+
+---
+
+# E2E على البرودكشن (2026-07-31) — النتائج والإصلاحات
+
+تيست متكامل بحسابات الديمو ضد السيرفر المباشر: **8 فلوهات، 92 خطوة (78 نجحت)، 26 باج مؤكد** (كل باج اتأكد بإعادة تشغيله بوكيل مستقل قبل تسجيله). الفلوهات الجوهرية شغالة: مصروفات موبايل→محاسب→هيد حتى الاعتماد النهائي، مشتريات حتى الرفض ورجوعه للموبايل بالسبب والتايم لاين، عزل علامات الجرد بين المحاسبين، جسر الجرد بتاريخه الصحيح.
+
+## إصلاحات كود اتشحنت (2026-07-31)
+
+| # | الباج | الفيكس |
+|---|---|---|
+| 1 | **500 على قائمة هدر مدير الفرع** — `WasteDamageReportStatus::PENDING_YOUR_CONFIRMATION` غير معرّف (وصفوف legacy في الداتابيز تحمل القيمة → كراش cast) | أُعيدت الحالة للـ enum كقيمة legacy + فيكس التست القديم (كان أحد الفشلين الـ pre-existing) |
+| 2 | **ثغرة أمنية: أي مدير/كاشير يعتمد جرد أي فرع** (approve/reject بلا سكوب) | السيرفيس بيطلب `BranchManager` وبيقفل على `branch_id` بتاعه؛ كاشير → 403، فرع أجنبي → 404 |
+| 3 | **تسريب SQL خام** (اسم الداتابيز + INSERT كامل) في confirm استلام الأصول | `QueryException` بيتمسك منفصل برسالة عامة + `report()` + حذف صورة الإيصال اليتيمة عند فشل الترانزاكشن |
+| 4 | **فاتورة non-tax بتتجسّر بمبلغ 0.00** في جدول فواتير المحاسب | fallback: مجموع سطور الفاتورة ثم إجمالي المصروف (للفاتورة الواحدة) + تست |
+| 5 | **إعادة إرسال الأوردر المرفوض مستحيلة** (`submit()` كان DRAFT فقط) | `submit()` بيقبل REJECTED وبيمسح سبب/تاريخ الرفض؛ حلقة التعديل+الإرسال كاملة الآن ويسك عملية PUR جديدة بـ supersedes |
+| 6 | `rejected_at` فاضي و`rejected_by` بيظهر **منشئ** الأوردر بدل صاحب قرار الرفض | الجسر العكسي بيختم rejected_at/decided_at/decided_by، والـ resource بيعرض مستخدم ASAB الحقيقي |
+| 7 | `time_taken` **سالب** في جلسات الجرد (Carbon 3 signed diff) | الاتجاه اتعكس start→end |
+| 8 | **Shift/Expense (و12 موديول) مش متسجلين على `/api` في البرودكشن** — الـ glob في `routes/api.php` حساس لحالة الأحرف (`Routes/` vs `routes/`) على لينكس، وبيفوّت `apilocale` كمان | الـ glob بيلقط الحالتين مع dedupe بالـ realpath — سطح الراوتس بقى متطابق dev/prod |
+| 9 | `/api/v1/inventories` بيرجع **صفحة HTML** (سكافولد nwidart ميت تحت auth) | الراوت اتشال |
+| 10 | تحديث بند هدر بـ `unit`/`price_per_unit` **بيتتجاهل بصمت** + الـ PUT الجزئي بيمسح `justification_text` | الحقلين اتضافوا للفاليديشن والتحديث بإعادة حساب القيمة، والنص محفوظ |
+| 11 | كاشير يقدر يجيب `assignment-info` للهدر (كان الفشل الـ pre-existing الثاني) | `requireManager()` → 403 |
+| 12 | **zones/types فاضية** → تأكيد استلام الأصول مستحيل بنيويًا على كل الفروع | `FullDemoSeeder` بينادي `AssetTypeSeeder`+`AssetZoneSeeder` (idempotent — ينفع تشغيلهم على الداتابيز الحالية فورًا) |
+| 13 | ديمو ناقص: **صفر عمليات مبيعات، صفر تسليمات عهدة، ولا يوجد مستخدم بوابة فرع** | السييدر بيقفل يومية مدير (→ عملية sales حقيقية عبر الجسر) + تسليمة pending وتسليمة approved لكل فرع مفعّل + مستخدم `branch@nakhat.sa` (رول branch على فرع العليا) |
+
+تستات جديدة: `E2eHardeningTest` (6) + `FullDemoSeederSmokeTest` (1). **الفشلان الـ pre-existing في `WasteDamageReportTest` اتصلحوا** — المتبقي الوحيد المعروف: `OperationsPipelineTest > procurement status change` (409 vs 422، pre-existing وموثّق).
+
+## مطلوب على السيرفر (كونفج — مش كود)
+
+```bash
+cd ~/domains/ivory-snail-183262.hostingersite.com/public_html
+
+# 1) بعد سحب الكود الجديد:
+/opt/alt/php83/usr/bin/php artisan optimize:clear   # كمان بيصلّح auth/me المعكوسة (build قديم متكاش)
+
+# 2) صور المرفقات كلها 404 — الـ symlink ناقص:
+/opt/alt/php83/usr/bin/php artisan storage:link
+curl -sI https://ivory-snail-183262.hostingersite.com/storage/ | head -1   # المفروض مش 404 بعدها
+
+# 3) في .env (تسريب معلومات + دبل سلاش في روابط الصور):
+#    APP_DEBUG=false
+#    APP_URL=https://ivory-snail-183262.hostingersite.com   ← من غير / في الآخر
+/opt/alt/php83/usr/bin/php artisan config:clear
+
+# 4) zones/types للأصول (idempotent — بدون إعادة seeding):
+/opt/alt/php83/usr/bin/php artisan db:seed --class='Modules\FixedAssets\Database\Seeders\AssetTypeSeeder' --force
+/opt/alt/php83/usr/bin/php artisan db:seed --class='Modules\FixedAssets\Database\Seeders\AssetZoneSeeder' --force
+
+# 5) تصحيح روابط الصور المخزنة بالدبل سلاش (يعيد sync العمليات الـ pending):
+   
+```
+
+> **ملاحظة**: مفيش migrations جديدة في دفعة الإصلاحات دي. متعملش `migrate:fresh` — الداتابيز فيها داتا حقيقية (فاتورة يوم 23 وغيرها) جنب داتا الديمو. مستخدم بوابة الفرع وعمليات المبيعات/التسليمات هيظهروا مع أول استخدام حقيقي، أو مع إعادة seeding كاملة لو قررت تبدأ الديمو من الصفر.
+
+## باقي ملاحظات الـ E2E (مش كود عندنا)
+
+- **البروتوتايب** لسه مثبّت على «14 أكتوبر 2025» — راسل الفرونت (البرومت الكامل في `docs/tasks/FE-INTEGRATION-PROMPT-2026-07-31.md`).
+- `auth/me` للموبايل مش بيرجع `branch_id` (فجوة سبيك مش انحراف ديبلوي) — لو الابليكيشن محتاجها نضيفها بسطرين.

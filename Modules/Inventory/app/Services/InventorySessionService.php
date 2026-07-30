@@ -521,10 +521,14 @@ class InventorySessionService
     /**
      * Reject session (Account Manager). Status → Rejected; Branch Manager can edit and resubmit.
      */
-    public function rejectSession(string $sessionId, string $comment): InventorySession
+    public function rejectSession(string $sessionId, string $comment, BranchManager $manager): InventorySession
     {
-        return DB::transaction(function () use ($sessionId, $comment) {
-            $session = InventorySession::where('id', $sessionId)->firstOrFail();
+        return DB::transaction(function () use ($sessionId, $comment, $manager) {
+            // Zero-trust: the actor may only act on sessions of their own branch —
+            // an unscoped lookup let any manager/cashier approve foreign branches.
+            $session = InventorySession::where('id', $sessionId)
+                ->where('branch_id', $manager->branch_id)
+                ->firstOrFail();
             if ($session->status !== InventorySessionStatus::PENDING) {
                 throw new \InvalidArgumentException('Only pending sessions can be rejected.');
             }
@@ -589,10 +593,12 @@ class InventorySessionService
      * @param  array  $sales  Map of inventory_item_id or item_id => sales_quantity
      * @param  array  $recordedWaste  Optional map of inventory_item_id or item_id => recorded_waste
      */
-    public function approveSession(string $sessionId, array $sales = [], array $recordedWaste = []): InventorySession
+    public function approveSession(string $sessionId, BranchManager $manager, array $sales = [], array $recordedWaste = []): InventorySession
     {
-        $session = DB::transaction(function () use ($sessionId, $sales, $recordedWaste) {
+        $session = DB::transaction(function () use ($sessionId, $manager, $sales, $recordedWaste) {
+            // Zero-trust: same-branch only (see rejectSession).
             $session = InventorySession::where('id', $sessionId)
+                ->where('branch_id', $manager->branch_id)
                 ->where('status', InventorySessionStatus::PENDING)
                 ->where(function ($q) {
                     $q->where('assigned_to_type', '!=', 'staff')

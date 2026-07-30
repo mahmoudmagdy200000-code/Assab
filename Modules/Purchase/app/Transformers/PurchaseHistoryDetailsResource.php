@@ -87,7 +87,22 @@ class PurchaseHistoryDetailsResource extends JsonResource
         // Check if order is rejected
         if ($status === OrderStatus::REJECTED) {
             $rejectedBy = null;
-            if ($this->relationLoaded('requestedBy') && $this->requestedBy) {
+            // Dashboard-side rejection: the true actor is the ASAB user stamped
+            // by the decision bridge — showing the order CREATOR here misled the
+            // branch into thinking they rejected their own order.
+            if ($this->decided_by_asab_user_id !== null) {
+                $asabActor = \Modules\Admin\Models\AsabUser::withoutGlobalScopes()
+                    ->whereKey($this->decided_by_asab_user_id)->first(['id', 'name']);
+                if ($asabActor !== null) {
+                    $rejectedBy = [
+                        'id' => $asabActor->id,
+                        'name' => $asabActor->name,
+                        'type' => 'accountant',
+                        'image' => null,
+                    ];
+                }
+            }
+            if ($rejectedBy === null && $this->relationLoaded('requestedBy') && $this->requestedBy) {
                 $rejectedBy = [
                     'id' => $this->requestedBy->id ?? null,
                     'name' => $this->requestedBy->name ?? null,

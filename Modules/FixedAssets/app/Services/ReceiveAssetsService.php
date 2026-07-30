@@ -197,15 +197,30 @@ class ReceiveAssetsService
         return null;
     }
 
+    /** Receipt image stored during the current confirm attempt — removed if the DB transaction rolls back. */
+    private ?string $pendingImagePath = null;
+
     public function confirmSingle(string $requestId, string $type, array $itemPayload, BranchManager $manager): array
     {
-        return DB::transaction(function () use ($requestId, $type, $itemPayload, $manager) {
-            $incoming = $this->findIncoming($requestId, $manager->branch_id);
+        $this->pendingImagePath = null;
 
-            return $incoming['type'] === 'transfer'
-                ? $this->confirmTransfer($incoming['model'], $type, $itemPayload, $manager)
-                : $this->confirmPending($incoming['model'], $type, $itemPayload, $manager);
-        });
+        try {
+            return DB::transaction(function () use ($requestId, $type, $itemPayload, $manager) {
+                $incoming = $this->findIncoming($requestId, $manager->branch_id);
+
+                return $incoming['type'] === 'transfer'
+                    ? $this->confirmTransfer($incoming['model'], $type, $itemPayload, $manager)
+                    : $this->confirmPending($incoming['model'], $type, $itemPayload, $manager);
+            });
+        } catch (\Throwable $e) {
+            // Disk writes don't roll back with the transaction — without this every
+            // failed confirm leaked an orphaned file under fixed-assets/receipts.
+            if ($this->pendingImagePath !== null) {
+                \Illuminate\Support\Facades\Storage::disk('public')->delete($this->pendingImagePath);
+                $this->pendingImagePath = null;
+            }
+            throw $e;
+        }
     }
 
     private function confirmPending(PendingReceipt $pending, string $type, array $itemPayload, BranchManager $manager): array
@@ -335,9 +350,11 @@ class ReceiveAssetsService
 
     private function storeImage(?UploadedFile $image): ?string
     {
-        return $image instanceof UploadedFile
+        $path = $image instanceof UploadedFile
             ? $image->store('fixed-assets/receipts', 'public')
             : null;
+
+        return $this->pendingImagePath = ($path === false ? null : $path);
     }
 
     private function resolveStatusFromCounts(array $payload): string

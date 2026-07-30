@@ -159,7 +159,8 @@ class InventorySession extends Model
     public function calculateTimeTaken(): void
     {
         if ($this->end_time && $this->start_time) {
-            $this->time_taken = $this->end_time->diffInSeconds($this->start_time);
+            // Carbon 3 diffs are signed: end→start yields a NEGATIVE duration.
+            $this->time_taken = (int) $this->start_time->diffInSeconds($this->end_time);
         }
     }
 
