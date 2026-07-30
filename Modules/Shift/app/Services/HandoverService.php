@@ -248,7 +248,24 @@ class HandoverService
                     }
                 }
 
-                // Re-dispatch VarianceRecorded so the branch manager ledger entry is created/updated
+                // The manager's handover approval covers the cashier's OWN
+                // variance claim (self / self-share): the cashier already
+                // declared it at end-shift, so no further acceptance exists in
+                // the flow — without this, self-variance details stay 'pending'
+                // forever and the custody ledger entries below never write.
+                // Other cashiers' assigned shares still need their own acceptance.
+                ShiftVarianceDetail::where('cashier_shift_id', $shift->id)
+                    ->where('responsible_cashier_id', $shift->cashier_id)
+                    ->where('responsibility_status', 'pending')
+                    ->update([
+                        'responsibility_status' => 'approved',
+                        'reviewed_by_id' => $reviewerId,
+                        'reviewed_by_type' => $reviewerType,
+                        'reviewed_at' => now(),
+                    ]);
+
+                // Re-dispatch VarianceRecorded so the cashier + branch manager
+                // ledger entries are created/updated
                 // (variance may have been recorded before the handover was submitted)
                 $shiftFresh = $shift->fresh(['varianceDetails']);
                 if ($shiftFresh && $shiftFresh->varianceDetails->isNotEmpty()) {

@@ -200,4 +200,88 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
         $this->assertNotNull($txn);
         $this->assertTrue($txn->is_cash_in);
     }
+
+    public function test_manager_handover_approval_approves_self_variance_and_writes_both_ledgers(): void
+    {
+        $branch = Branch::factory()->create();
+        $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
+        $cashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
+        $shiftTemplate = Shift::factory()->create(['branch_id' => $branch->id]);
+
+        $cashierShift = CashierShift::factory()->completed()->create([
+            'cashier_id' => $cashier->id,
+            'shift_id' => $shiftTemplate->id,
+            'shift_date' => today(),
+            'variance' => 1500,
+        ]);
+
+        ShiftHandoverStatus::create([
+            'cashier_shift_id' => $cashierShift->id,
+            'status' => HandoverStatus::PENDING,
+            'manager_approval_status' => 'pending',
+        ]);
+
+        $handover = CashierShiftHandover::create([
+            'cashier_shift_id' => $cashierShift->id,
+            'handover_to_id' => $manager->id,
+            'handover_to_type' => 'branch_manager',
+            'handover_amount' => 3500,
+            'variance_amount' => 1500,
+            'handover_date' => today()->toDateString(),
+            'handover_time' => now(),
+            'status' => 'pending',
+        ]);
+
+        // Cashier declared the variance on himself at end-shift → detail stays
+        // pending; nobody calls a separate responsibility-approval endpoint.
+        ShiftVarianceDetail::create([
+            'cashier_shift_id' => $cashierShift->id,
+            'variance_amount' => 1500,
+            'variance_type' => VarianceType::OVER,
+            'responsibility_type' => ResponsibilityType::I_WAS_RESPONSIBLE,
+            'responsible_cashier_id' => $cashier->id,
+            'assigned_amount' => 1500,
+            'reason' => 'test',
+            'responsibility_status' => 'pending',
+        ]);
+
+        app(HandoverService::class)->approveHandover(
+            $cashierShift->fresh(['handoverStatus', 'cashier']),
+            $manager->id,
+            get_class($manager),
+            null
+        );
+
+        // The manager's approval covers the cashier's own claim.
+        $this->assertDatabaseHas('shift_variance_details', [
+            'cashier_shift_id' => $cashierShift->id,
+            'responsible_cashier_id' => $cashier->id,
+            'responsibility_status' => 'approved',
+        ]);
+
+        // Cashier ledger: cash-out for the handover + the variance entry (Over → cash-in).
+        $this->assertDatabaseHas('cashier_custody_transactions', [
+            'cashier_id' => $cashier->id,
+            'related_shift_id' => $cashierShift->id,
+            'transaction_type' => 'Handover Sent',
+        ]);
+        $varianceTxn = CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)
+            ->where('transaction_type', 'Variance')
+            ->first();
+        $this->assertNotNull($varianceTxn);
+        $this->assertTrue($varianceTxn->is_cash_in);
+        $this->assertEquals(1500.0, (float) $varianceTxn->amount);
+
+        // Manager ledger: the variance counterpart lands on the APPROVING manager.
+        $this->assertDatabaseHas('personal_ledger_transactions', [
+            'branch_manager_id' => $manager->id,
+            'transaction_type' => 'Variance from Cashier',
+            'related_shift_id' => $cashierShift->id,
+        ]);
+        $this->assertDatabaseHas('personal_ledger_transactions', [
+            'branch_manager_id' => $manager->id,
+            'transaction_type' => 'Total Sales',
+            'related_handover_id' => $handover->id,
+        ]);
+    }
 }

@@ -45,6 +45,7 @@ class CustodyServiceProvider extends ServiceProvider
     {
         $this->commands([
             \Modules\Custody\Console\RepointHandoverLedgerCommand::class,
+            \Modules\Custody\Console\BackfillCashierLedgerCommand::class,
         ]);
     }
 
