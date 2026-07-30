@@ -43,13 +43,17 @@ class BranchManagerShiftService
             return;
         }
 
-        $managerIds = $shifts->pluck('branch_manager_id')->unique()->filter()->values()->all();
-        if (empty($managerIds)) {
+        $branchIds = $shifts->pluck('branch_id')->unique()->filter()->values()->all();
+        if (empty($branchIds)) {
             return;
         }
 
+        // Branch-scoped: a handover addressed to any manager of the branch belongs
+        // to that branch's workday, regardless of which manager is viewing it.
         $handovers = CashierShiftHandover::where('handover_to_type', 'branch_manager')
-            ->whereIn('handover_to_id', $managerIds)
+            ->whereHas('cashierShift.shift', function ($q) use ($branchIds) {
+                $q->whereIn('branch_id', $branchIds);
+            })
             ->with(['cashierShift.shift', 'cashierShift.salesBreakdown.aggregator'])
             ->get();
 
@@ -58,11 +62,11 @@ class BranchManagerShiftService
             $shiftDate = $cs?->shift_date?->format('Y-m-d');
             $branchId = $cs?->shift?->branch_id;
 
-            return ($h->handover_to_id ?? '').'|'.($shiftDate ?? '').'|'.($branchId ?? '');
+            return ($shiftDate ?? '').'|'.($branchId ?? '');
         });
 
         foreach ($shifts as $shift) {
-            $key = ($shift->branch_manager_id ?? '').'|'.($shift->shift_date?->format('Y-m-d') ?? '').'|'.($shift->branch_id ?? '');
+            $key = ($shift->shift_date?->format('Y-m-d') ?? '').'|'.($shift->branch_id ?? '');
             $shiftHandovers = $grouped->get($key, collect());
 
             $shift->setAttribute('handoffs_summary', [
@@ -139,7 +143,7 @@ class BranchManagerShiftService
      */
     public function updateShiftStatistics(BranchManagerShift $shift): void
     {
-        $handovers = $shift->cashierHandovers;
+        $handovers = $shift->cashierHandovers()->get();
 
         $statistics = [
             'total_cashier_shifts' => $handovers->count(),
@@ -287,8 +291,9 @@ class BranchManagerShiftService
 
         switch ($handoverType) {
             case 'to_manager':
+                // Branch-scoped: any manager of the branch sees handovers addressed
+                // to any branch manager of this branch (approval flow is branch-wide).
                 $query->where('handover_to_type', 'branch_manager')
-                    ->where('handover_to_id', $managerShift->branch_manager_id)
                     ->where(function ($q) use ($managerShift) {
                         $shiftDate = $managerShift->shift_date;
                         $sevenDaysAgo = $shiftDate->copy()->subDays(7);
@@ -434,9 +439,9 @@ class BranchManagerShiftService
                 ->get()
                 ->keyBy('cashier_id');
 
-            // Single query to fetch all handovers
+            // Single query to fetch all handovers (branch-scoped: cashier shift ids
+            // are already limited to this branch and workday)
             $handovers = CashierShiftHandover::where('handover_to_type', 'branch_manager')
-                ->where('handover_to_id', $managerShift->branch_manager_id)
                 ->whereIn('cashier_shift_id', $cashierShifts->pluck('id'))
                 ->get()
                 ->keyBy('cashier_shift_id');
@@ -583,7 +588,7 @@ class BranchManagerShiftService
         if ($shift->status === 'in_progress') {
             $expectedEndTime = $endTime ?: $startTime->copy()->addMinutes((int) round($workday['totalHours'] * 60));
             $totalMinutes = $startTime->diffInMinutes($expectedEndTime);
-            $elapsedMinutes = now()->diffInMinutes($startTime);
+            $elapsedMinutes = $startTime->diffInMinutes(now());
 
             $progress['elapsed_hours'] = round($elapsedMinutes / 60, 2);
             $progress['progress_percentage'] = $totalMinutes > 0
@@ -606,11 +611,11 @@ class BranchManagerShiftService
     }
 
     /**
-     * Sum all approved handover amounts directed to a specific manager (delegates to ShiftFinancialService).
+     * Sum all approved handover amounts for the branch workday (delegates to ShiftFinancialService).
      */
-    public function sumApprovedHandoverAmount(BranchManagerShift $managerShift, string $managerId): float
+    public function sumApprovedHandoverAmount(BranchManagerShift $managerShift): float
     {
-        return $this->financialService()->sumApprovedHandoverAmount($managerShift, $managerId);
+        return $this->financialService()->sumApprovedHandoverAmount($managerShift);
     }
 
     /**

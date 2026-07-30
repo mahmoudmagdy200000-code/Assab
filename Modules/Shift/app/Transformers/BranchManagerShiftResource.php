@@ -3,7 +3,6 @@
 namespace Modules\Shift\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
-use Modules\Shift\Models\CashierShiftHandover;
 
 /**
  * BranchManagerShiftResource
@@ -115,15 +114,7 @@ class BranchManagerShiftResource extends JsonResource
             return $precomputed;
         }
 
-        $handovers = CashierShiftHandover::where('handover_to_type', 'branch_manager')
-            ->where('handover_to_id', $this->branch_manager_id)
-            ->whereHas('cashierShift', function ($query) {
-                $query->whereDate('shift_date', $this->shift_date)
-                    ->whereHas('shift', function ($q) {
-                        $q->where('branch_id', $this->branch_id);
-                    });
-            })
-            ->get();
+        $handovers = $this->resource->cashierHandovers()->get();
 
         return [
             'total_handovers' => $handovers->count(),
@@ -247,14 +238,7 @@ class BranchManagerShiftResource extends JsonResource
             ];
         }
 
-        $handovers = CashierShiftHandover::where('handover_to_type', 'branch_manager')
-            ->where('handover_to_id', $this->branch_manager_id)
-            ->whereHas('cashierShift', function ($query) {
-                $query->whereDate('shift_date', $this->shift_date)
-                    ->whereHas('shift', function ($q) {
-                        $q->where('branch_id', $this->branch_id);
-                    });
-            })
+        $handovers = $this->resource->cashierHandovers()
             ->with(['cashierShift.salesBreakdown.aggregator'])
             ->get();
 
@@ -318,7 +302,7 @@ class BranchManagerShiftResource extends JsonResource
             $expectedEndTime = $this->actual_end_time
                 ?? $this->actual_start_time->copy()->addMinutes((int) round($plannedHours * 60));
             $totalMinutes = $this->actual_start_time->diffInMinutes($expectedEndTime);
-            $elapsedMinutes = now()->diffInMinutes($this->actual_start_time);
+            $elapsedMinutes = $this->actual_start_time->diffInMinutes(now());
 
             $elapsedHours = round($elapsedMinutes / 60, 2);
             $progressPercentage = $totalMinutes > 0 ? min(($elapsedMinutes / $totalMinutes) * 100, 100) : 0;

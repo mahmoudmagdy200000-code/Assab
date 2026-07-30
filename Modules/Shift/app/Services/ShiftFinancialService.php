@@ -147,13 +147,12 @@ class ShiftFinancialService
     }
 
     /**
-     * Sum all approved handover amounts directed to a specific manager for a given shift.
+     * Sum all approved handover amounts for the branch workday of a given shift.
      */
-    public function sumApprovedHandoverAmount(BranchManagerShift $managerShift, string $managerId): float
+    public function sumApprovedHandoverAmount(BranchManagerShift $managerShift): float
     {
         // Same inclusion rules as handoffs list / daily close (shift_date OR handover_date window).
-        $handovers = $this->shiftService->getShiftHandovers($managerShift, 'to_manager', true)
-            ->filter(fn ($h) => (string) $h->handover_to_id === (string) $managerId);
+        $handovers = $this->shiftService->getShiftHandovers($managerShift, 'to_manager', true);
         $sum = $handovers->where('status', 'approved')->sum(fn ($h) => (float) $h->handover_amount);
 
         return (float) ($sum ?: ($managerShift->closing_balance ?? 0));
@@ -189,7 +188,6 @@ class ShiftFinancialService
                 ->values();
 
             $handoversByShiftId = CashierShiftHandover::where('handover_to_type', 'branch_manager')
-                ->where('handover_to_id', $shift->branch_manager_id)
                 ->whereIn('cashier_shift_id', $allCashierShiftIds)
                 ->get()
                 ->keyBy('cashier_shift_id');

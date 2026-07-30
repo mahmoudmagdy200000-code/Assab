@@ -87,14 +87,6 @@ class BranchManagerShiftController extends BaseController
                     'branch:id,name',
                     'nextManager:id,name',
                     'approvedBy:id,name',
-                    'cashierHandovers' => function ($query) {
-                        $query->select(['id', 'cashier_shift_id', 'handover_to_id', 'status'])
-                            ->with([
-                                'cashierShift:id,cashier_id,shift_id',
-                                'cashierShift.cashier:id,name',
-                                'cashierShift.shift:id,name',
-                            ]);
-                    },
                 ])
                 ->when(
                     $request->has('shift_id'),
@@ -256,7 +248,9 @@ class BranchManagerShiftController extends BaseController
             $manager = Auth::user();
             $handover = CashierShiftHandover::with('handoverTo')->findOrFail($request->handover_id);
 
-            if (! $handover->handoverTo || $handover->handover_to_id !== $manager->id) {
+            // Branch-scoped: any manager of the branch may approve a handover
+            // addressed to a branch manager (branch ownership verified below).
+            if ($handover->handover_to_type !== 'branch_manager') {
                 return $this->errorResponse('Unauthorized to approve this handover', 403);
             }
 
@@ -306,7 +300,9 @@ class BranchManagerShiftController extends BaseController
             $manager = Auth::user();
             $handover = CashierShiftHandover::with('handoverTo')->findOrFail($request->handover_id);
 
-            if (! $handover->handoverTo || $handover->handover_to_id !== $manager->id) {
+            // Branch-scoped: any manager of the branch may reject a handover
+            // addressed to a branch manager (branch ownership verified below).
+            if ($handover->handover_to_type !== 'branch_manager') {
                 return $this->errorResponse('Unauthorized to reject this handover', 403);
             }
 
@@ -515,7 +511,7 @@ class BranchManagerShiftController extends BaseController
                 $financial = $this->shiftService->resolveFinancialValues($request, $financialSummary, $managerShift);
                 $handoverAmount = $request->handover_amount !== null
                     ? (float) $request->handover_amount
-                    : $this->shiftService->sumApprovedHandoverAmount($managerShift, $manager->id);
+                    : $this->shiftService->sumApprovedHandoverAmount($managerShift);
                 $closingBalance = $handoverAmount;
                 $handoverTime = $request->handover_timing === 'yesterday' ? now()->subDay() : now();
 
@@ -673,7 +669,7 @@ class BranchManagerShiftController extends BaseController
                 $handoverAmount = $request->handover_amount ?? $managerShift->handover_amount;
 
                 if ($handoverAmount === null) {
-                    $handoverAmount = $this->shiftService->sumApprovedHandoverAmount($managerShift, $manager->id);
+                    $handoverAmount = $this->shiftService->sumApprovedHandoverAmount($managerShift);
                 }
 
                 $closingBalance = (float) $handoverAmount;
@@ -1061,11 +1057,8 @@ class BranchManagerShiftController extends BaseController
             return $this->errorResponse('Invalid handover type', 403);
         }
 
-        if ($isManagerHandover && $handover->handover_to_id !== $manager->id) {
-            return $this->errorResponse('You do not have access to this handover', 403);
-        }
-
-        if ($isCashierHandover && $shift->branch_id !== $manager->branch_id) {
+        // Branch-scoped: both handover types are accessible to any manager of the branch.
+        if ($shift->branch_id !== $manager->branch_id) {
             return $this->errorResponse('You do not have access to this handover', 403);
         }
 
