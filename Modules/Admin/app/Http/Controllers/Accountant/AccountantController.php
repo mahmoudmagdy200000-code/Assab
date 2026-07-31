@@ -90,9 +90,6 @@ class AccountantController extends AsabController
             if ($module = $request->query('moduleKey')) {
                 $q->where('module_key', $module);
             }
-            if ($status = $request->query('status')) {
-                $q->where('status', $status);
-            }
             if ($branch = $request->query('branchId')) {
                 $q->where('branch_id', $branch);
             }
@@ -106,16 +103,28 @@ class AccountantController extends AsabController
             if ($search = $request->query('search')) {
                 $q->where('public_id', 'like', "%{$search}%");
             }
+            // Summary = the status distribution of the full filtered scope. It
+            // must be taken status-free (a ?status= filter would zero the
+            // sibling buckets) and BEFORE paginate() — paginate mutates the
+            // builder with limit/offset, so a clone taken afterwards counts an
+            // empty window past page 1.
+            $statusCounts = (clone $q)->toBase()
+                ->selectRaw('status, count(*) as c')
+                ->groupBy('status')
+                ->pluck('c', 'status');
+            if ($status = $request->query('status')) {
+                $q->where('status', $status);
+            }
             $p = $q->orderByDesc('operation_date')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
             $maps = $this->opDisplayMaps($p->items());
 
             return $this->paginated($p, array_map(fn ($o) => $this->present($o, $maps), $p->items()), [
                 'summary' => [
-                    'totalUploaded' => $p->total(),
-                    'underReview' => (clone $q)->where('status', 'pending')->count(),
-                    'approved' => (clone $q)->where('status', 'approved')->count(),
-                    'rejected' => (clone $q)->where('status', 'rejected')->count(),
+                    'totalUploaded' => (int) $statusCounts->sum(),
+                    'underReview' => (int) ($statusCounts[Operation::STATUS_PENDING] ?? 0),
+                    'approved' => (int) ($statusCounts[Operation::STATUS_APPROVED] ?? 0),
+                    'rejected' => (int) ($statusCounts[Operation::STATUS_REJECTED] ?? 0),
                 ],
             ]);
         });

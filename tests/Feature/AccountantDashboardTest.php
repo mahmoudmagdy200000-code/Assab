@@ -228,4 +228,42 @@ class AccountantDashboardTest extends TestCase
 
         $this->assertNotContains($old->id, array_column($rows, 'id'));
     }
+
+    /**
+     * meta.summary must survive pagination: paginate() mutates the builder
+     * with limit/offset, so a clone taken afterwards counted an empty window
+     * past page 1 and every bucket silently read 0.
+     */
+    public function test_operations_summary_is_identical_on_every_page(): void
+    {
+        $this->op();
+        $this->op();
+        $this->op(['status' => Operation::STATUS_APPROVED]);
+        $this->op(['status' => Operation::STATUS_REJECTED]);
+
+        $expected = ['totalUploaded' => 4, 'underReview' => 2, 'approved' => 1, 'rejected' => 1];
+
+        foreach ([1, 3] as $page) {
+            $summary = $this->acc()->getJson("/api/v1/accountant/operations?pageSize=1&page={$page}")
+                ->assertOk()->json('meta.summary');
+            $this->assertSame($expected, $summary, "summary drifted on page {$page}");
+        }
+    }
+
+    /** A ?status= tab must not zero the sibling summary buckets. */
+    public function test_operations_summary_ignores_the_status_filter(): void
+    {
+        $this->op();
+        $this->op(['status' => Operation::STATUS_APPROVED]);
+        $this->op(['status' => Operation::STATUS_REJECTED]);
+
+        $body = $this->acc()->getJson('/api/v1/accountant/operations?status=approved')->assertOk()->json();
+
+        $this->assertCount(1, $body['data']);
+        $this->assertSame(1, $body['meta']['total']);
+        $this->assertSame(
+            ['totalUploaded' => 3, 'underReview' => 1, 'approved' => 1, 'rejected' => 1],
+            $body['meta']['summary'],
+        );
+    }
 }

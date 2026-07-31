@@ -310,6 +310,39 @@ class InventoryWasteTest extends TestCase
         $this->assertSame(1, AsabNotification::where('user_id', $brm->id)->where('type', 'inventory.daily_list_updated')->count());
     }
 
+    /**
+     * A repeated id in one payload used to hit the (branch_id,
+     * catalog_item_id) unique index and 500 the whole save.
+     */
+    public function test_saving_a_daily_list_dedupes_repeated_ids(): void
+    {
+        $this->acc()->putJson("/api/v1/company/me/branches/{$this->branchA->id}/inventory-list", ['items' => ['cat-1', 'cat-1', 'cat-2']])
+            ->assertOk()->assertJsonPath('savedCount', 2);
+
+        $this->assertSame(
+            ['cat-1', 'cat-2'],
+            \Modules\Admin\Models\BranchInventoryList::where('branch_id', $this->branchA->id)
+                ->orderBy('catalog_item_id')->pluck('catalog_item_id')->all(),
+        );
+    }
+
+    /** Bulk catalog create against an unlinked branch must 422, not poison rows. */
+    public function test_store_catalog_on_an_unlinked_branch_is_422_branch_unlinked(): void
+    {
+        $unlinked = Branch::factory()->create([
+            'asab_company_id' => $this->company->id, 'asab_brand_id' => null, 'asab_restaurant_id' => null,
+        ]);
+
+        $res = $this->acc()->putJson('/api/v1/company/me/inventory/catalog', [
+            'branchId' => $unlinked->id,
+            'items' => [['name' => 'دجاج مجمد', 'category' => 'لحوم', 'unit' => 'كجم']],
+        ])->assertStatus(422);
+
+        $this->assertSame('BRANCH_UNLINKED', $res->json('error.code'));
+        $this->assertNotNull($res->json('error.messageAr'));
+        $this->assertSame(0, \Modules\Admin\Models\InventoryCatalogItem::count());
+    }
+
     // ── Catalog search (T07.10) ──────────────────────────────────────────────
 
     public function test_catalog_search_filters_by_name(): void

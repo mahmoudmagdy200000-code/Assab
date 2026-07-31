@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
+use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\PurchaseFeedbackBridgeService;
 use Modules\Branch\Models\Branch;
@@ -118,6 +120,38 @@ class PurchaseOrderBridgeTest extends TestCase
         $this->assertNotSame($op->id, $fresh->id, 'resend must mint a NEW operation — the rejected one is locked');
         $this->assertSame(Operation::STATUS_PENDING, $fresh->status);
         $this->assertSame($op->id, $fresh->payload['supersedesOperationId']);
+    }
+
+    /**
+     * The FE banner contract: the show response must expose the supersedes
+     * pointer at payload.supersedesOperationId (a uuid), and that uuid must
+     * resolve through the same endpoint to the rejected op's PUR- publicId.
+     */
+    public function test_show_exposes_the_supersedes_pointer_over_http(): void
+    {
+        $order = $this->createOrder();
+        $op = $this->opFor($order);
+        $op->update(['status' => Operation::STATUS_REJECTED, 'reject_reason' => 'سعر غير مطابق']);
+        app(PurchaseFeedbackBridgeService::class)->syncFromOperation($op->fresh());
+        $order->refresh();
+        $this->assertTrue($order->transitionTo(OrderStatus::PENDING));
+        $fresh = $this->opFor($order->fresh());
+
+        $accountant = AsabUser::create([
+            'company_id' => $this->branch->asab_company_id, 'name' => 'محاسب', 'email' => 'acc@bridge.test',
+            'password' => 'secret-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+
+        $body = $this->actingAs($accountant, 'sanctum')
+            ->getJson("/api/v1/company/me/operations/{$fresh->id}")
+            ->assertOk()->json();
+        $this->assertSame($op->id, $body['payload']['supersedesOperationId']);
+
+        $superseded = $this->actingAs($accountant, 'sanctum')
+            ->getJson("/api/v1/company/me/operations/{$body['payload']['supersedesOperationId']}")
+            ->assertOk()->json();
+        $this->assertSame($op->public_id, $superseded['publicId']);
     }
 
     public function test_internal_transfer_orders_stay_out_of_the_accountant_inbox(): void

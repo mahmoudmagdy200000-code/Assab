@@ -323,9 +323,14 @@ class InventoryController extends AsabController
             $data = $request->validate(['items' => 'required|array', 'items.*' => 'string']);
             $this->assertBranchAssigned($branchId);
 
-            DB::transaction(function () use ($branchId, $data, $request) {
+            // A repeated id in one payload would hit the (branch_id,
+            // catalog_item_id) unique index and 500 — dedupe, order preserved;
+            // savedCount reports the rows actually stored.
+            $itemIds = array_values(array_unique($data['items']));
+
+            DB::transaction(function () use ($branchId, $itemIds, $request) {
                 BranchInventoryList::where('branch_id', $branchId)->delete();
-                foreach ($data['items'] as $catalogItemId) {
+                foreach ($itemIds as $catalogItemId) {
                     BranchInventoryList::create([
                         'branch_id' => $branchId,
                         'catalog_item_id' => $catalogItemId,
@@ -337,14 +342,14 @@ class InventoryController extends AsabController
             // T07.1 / MOB-1.2 — «حفظ وتحديث التطبيق فوراً»: the branch app must
             // learn its count list changed. Durable notification + realtime event;
             // `pushedAt` reflects a push that actually happened.
-            $rt->inventoryDailyListUpdated($branchId, count($data['items']));
+            $rt->inventoryDailyListUpdated($branchId, count($itemIds));
             $notifications->pushToBranch(
                 $request->user()->company_id, $branchId, 'branch', 'inventory.daily_list_updated',
                 'تم تحديث قائمة الجرد اليومي', 'قائمة أصناف الجرد لديك تم تحديثها',
                 null, ['type' => 'branch', 'id' => $branchId],
             );
 
-            return $this->ok(['savedCount' => count($data['items']), 'pushedAt' => now()->toIso8601String()]);
+            return $this->ok(['savedCount' => count($itemIds), 'pushedAt' => now()->toIso8601String()]);
         });
     }
 
