@@ -195,7 +195,19 @@ class FullDemoSeeder extends Seeder
         }
 
         $this->staff['procurement'] = $this->makeUser('مدير المشتريات', 'فهد القحطاني', 'procurement@nakhat.sa', 'procurement', $this->company->id, 'all');
-        $this->staff['brand-owner'] = $this->makeUser('مالك العلامة', 'ناصر التميمي', 'owner@nakhat.sa', 'brand-owner', $this->company->id, 'all');
+
+        // The brand owner's product surface is the MOBILE one (/api/v1/brand-owner/*),
+        // guarded by BrandOwnerMiddleware against the legacy brand_owners table.
+        // Seeding only the asab_users row (prod E2E 2026-07-31) left the demo owner
+        // authenticated but 403 on every screen in both worlds. Route the account
+        // through the real provisioner so one password opens both, exactly as an
+        // admin-created owner would be.
+        $ownerBrand = $this->brands['برجر بيت'];
+        $this->staff['brand-owner'] = $this->makeUser('مالك العلامة', 'ناصر التميمي', 'owner@nakhat.sa', 'brand-owner', $this->company->id, 'brand', [$ownerBrand->id]);
+        // The returned welcome notification is deliberately dropped: it carries a
+        // credential, and the demo password is already known.
+        app(\Modules\Admin\Services\BrandOwnerProvisioningService::class)
+            ->provision($ownerBrand, 'owner@nakhat.sa', 'ناصر التميمي');
 
         // Branch-portal user («بوابة الفرع» on the dashboard): the waste/inventory
         // upload write-path sits behind asab.role:branch with no head/admin

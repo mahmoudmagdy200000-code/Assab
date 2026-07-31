@@ -90,7 +90,13 @@ class InventoryReconciliationService
                 'consumed' => $consumed,
                 'waste' => $waste,
                 'transfers' => $transfers,
-                'expectedClosing' => $expectedClosing,
+                // Only when the equation terms are real. Emitting the computed
+                // closing for a payload that carries no opening balance put a
+                // second, different «متوقع» on the same row as the one the
+                // variance was calculated from — the row visibly failed to add
+                // up (prod E2E 2026-07-31: expectedClosing −0.5 beside
+                // expectedQty −1.5 and varianceQty −4.5).
+                'expectedClosing' => $hasEquation ? $expectedClosing : null,
                 'actualClosing' => $actual,
                 'equationMatch' => $hasEquation ? abs($expectedClosing - $actual) < self::EPSILON : null,
                 'minLevel' => $minLevel,

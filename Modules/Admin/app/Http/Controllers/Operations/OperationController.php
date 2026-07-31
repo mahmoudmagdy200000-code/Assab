@@ -495,6 +495,11 @@ class OperationController extends AsabController
             'sourceModule' => $op->source_module,
             'sourceId' => $op->source_id,
             'amount' => $op->amount,
+            // The head rows already carry this alias; the accountant surface did
+            // not, and the dashboard prints a bare `amount` verbatim — so the
+            // same figure read 100× too large depending on which screen you were
+            // on (prod E2E 2026-07-31).
+            'amountHalalas' => (int) $op->amount,
             'match' => $op->match,
             'matchLabelAr' => $match['labelAr'],
             'diffNote' => $op->diff_note,

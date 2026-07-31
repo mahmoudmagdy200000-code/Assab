@@ -4,6 +4,7 @@ namespace Modules\Admin\Console\Commands;
 
 use Illuminate\Console\Command;
 use Modules\Admin\Listeners\BridgeLegacyCashierShift;
+use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\ExpenseBridgeService;
 use Modules\Branch\Models\Branch;
 use Modules\Expense\Models\Expense;
@@ -28,7 +29,8 @@ class BridgeBackfillCommand extends Command
 {
     protected $signature = 'asab:bridge-backfill
         {--dry-run : List the stranded records and why, without bridging}
-        {--catalog : Also re-run the supplier-item catalog bridge (heals supplier links dropped by the old price-0/platform-supplier guards)}';
+        {--catalog : Also re-run the supplier-item catalog bridge (heals supplier links dropped by the old price-0/platform-supplier guards)}
+        {--resync-payloads : Also re-map ALREADY-mirrored expenses that are still pending, so payload fixes reach operations minted by older code}';
 
     protected $description = 'Re-bridge mobile expenses and closed shifts that never reached the dashboard';
 
@@ -40,6 +42,10 @@ class BridgeBackfillCommand extends Command
         $this->backfillShifts($shifts, $dry);
         $this->backfillPurchaseOrders($dry);
         $this->backfillInventorySessions($dry);
+
+        if ($this->option('resync-payloads')) {
+            $this->resyncExpensePayloads($expenses, $dry);
+        }
 
         if ($this->option('catalog')) {
             $this->backfillCatalog($dry);
@@ -209,6 +215,96 @@ class BridgeBackfillCommand extends Command
 
         $this->info(($dry ? '[dry] ' : '')."Expenses — bridgeable: {$bridged}, stranded: ".count($skipped).'.');
         $this->printSkips($skipped, 'expense');
+    }
+
+    /**
+     * Re-map expenses that ARE mirrored but whose operation still shows the old
+     * payload. backfillExpenses() selects on the ABSENCE of a mirror, so a payload
+     * bug fixed after the op was minted never reaches production data (2026-07-31:
+     * a non-tax invoice bridged with amountHalalas 0 stayed 0 after the fix).
+     *
+     * Only PENDING operations are candidates — sync() refuses to touch a record
+     * the accountant has already approved or rejected.
+     *
+     * PENDING IS NOT ENOUGH ON ITS OWN, though: invoice verification, document
+     * matching and expense→asset conversion all write into the SAME payload while
+     * the record is still pending, and sync() replaces that payload wholesale. Any
+     * operation carrying that work is skipped, so a data fix can never cost an
+     * accountant their review.
+     */
+    private function resyncExpensePayloads(ExpenseBridgeService $bridge, bool $dry): void
+    {
+        $resynced = 0;
+        $preserved = 0;
+        $failed = [];
+
+        Expense::query()
+            ->where('status', '!=', 'draft')
+            ->whereExists(function ($q) {
+                $q->selectRaw('1')
+                    ->from('asab_operations')
+                    ->whereColumn('asab_operations.source_id', 'expenses.id')
+                    ->where('asab_operations.source_module', ExpenseBridgeService::SOURCE)
+                    ->where('asab_operations.status', 'pending')
+                    ->whereNull('asab_operations.deleted_at');
+            })
+            ->orderBy('created_at')
+            ->chunkById(200, function ($chunk) use ($bridge, $dry, &$resynced, &$preserved, &$failed) {
+                foreach ($chunk as $expense) {
+                    $op = Operation::withoutGlobalScopes()
+                        ->where('source_module', ExpenseBridgeService::SOURCE)
+                        ->where('source_id', $expense->id)
+                        ->whereNull('deleted_at')
+                        ->first();
+
+                    if ($op && $this->carriesAccountantWork($op)) {
+                        $preserved++;
+
+                        continue;
+                    }
+
+                    if ($dry) {
+                        $resynced++;
+
+                        continue;
+                    }
+
+                    try {
+                        $bridge->sync($expense) === null
+                            ? $failed[] = [$expense->id, 'SKIPPED']
+                            : $resynced++;
+                    } catch (\Throwable $e) {
+                        $failed[] = [$expense->id, 'ERROR: '.$e->getMessage()];
+                    }
+                }
+            });
+
+        $this->info(($dry ? '[dry] ' : '')."Expense payloads re-synced: {$resynced}, preserved (accountant work): {$preserved}, failed: ".count($failed).'.');
+        $this->printSkips($failed, 'expense');
+    }
+
+    /**
+     * True when the accountant has already written into this pending operation's
+     * payload — invoice verified, document matched, or converted to an asset.
+     */
+    private function carriesAccountantWork(Operation $op): bool
+    {
+        foreach (($op->payload['invoices'] ?? []) as $invoice) {
+            if (! is_array($invoice)) {
+                continue;
+            }
+
+            if (! empty($invoice['verified'])
+                || ! empty($invoice['convertedToAsset'])
+                || ! empty($invoice['assetDraftId'])
+                || isset($invoice['documentAmountHalalas'], $invoice['documentInvNum'])
+                || ! empty($invoice['documentVendor'])
+                || ! empty($invoice['documentDate'])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function backfillShifts(BridgeLegacyCashierShift $listener, bool $dry): void

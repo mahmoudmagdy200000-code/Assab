@@ -18,6 +18,9 @@ use Modules\Admin\Support\AssetEnums;
  */
 class AssetController extends AsabController
 {
+    /** branch_id → name, resolved once per request (assets reference mobile branches). */
+    private array $branchNames = [];
+
     public function __construct(private readonly AssetDraftService $drafts) {}
 
     /**
@@ -55,6 +58,8 @@ class AssetController extends AsabController
             $p = $q->orderByDesc('created_at')->paginate(
                 min((int) $request->query('pageSize', 20), 100), ['*'], 'page', (int) $request->query('page', 1),
             );
+
+            $this->primeBranchNames($p->items());
 
             return $this->paginated($p, array_map([$this, 'present'], $p->items()), [
                 'summary' => $this->summary(),
@@ -200,6 +205,30 @@ class AssetController extends AsabController
         return $branchIds === null || array_intersect($draft->target_branches ?? [], $branchIds) !== [];
     }
 
+    private function primeBranchNames(array $assets): void
+    {
+        $ids = array_filter(array_unique(array_map(fn (Asset $a) => $a->branch_id, $assets)));
+        $missing = array_diff($ids, array_keys($this->branchNames));
+        if ($missing !== []) {
+            $found = \Modules\Branch\Models\Branch::whereIn('id', $missing)->pluck('name', 'id')->all();
+            foreach ($missing as $id) {
+                $this->branchNames[$id] = $found[$id] ?? null;
+            }
+        }
+    }
+
+    private function branchName(?string $id): ?string
+    {
+        if ($id === null) {
+            return null;
+        }
+        if (! array_key_exists($id, $this->branchNames)) {
+            $this->branchNames[$id] = \Modules\Branch\Models\Branch::whereKey($id)->value('name');
+        }
+
+        return $this->branchNames[$id];
+    }
+
     public function present(Asset $a): array
     {
         $cost = (int) $a->cost;
@@ -211,8 +240,13 @@ class AssetController extends AsabController
             'category' => $a->category,
             'categoryLabelAr' => AssetEnums::categoryLabelAr($a->category),
             'branchId' => $a->branch_id,
+            'branchName' => $this->branchName($a->branch_id),
             'cost' => $cost,
             'priceHalalas' => $cost,
+            // The register reads `costHalalas` when present and otherwise prints
+            // `cost` verbatim, so the cost column rendered 100× too large beside
+            // a correct book value (which does have its halalas alias).
+            'costHalalas' => $cost,
             'bookValue' => $a->book_value,
             'bookValueHalalas' => $a->book_value,
             'usefulLifeMonths' => $a->useful_life_months,

@@ -7,6 +7,7 @@ use Modules\Admin\Models\ApprovalStep;
 use Modules\Admin\Models\Operation;
 use Modules\Branch\Models\Branch;
 use Modules\Inventory\Models\InventorySession;
+use Modules\Purchase\Models\BranchItem;
 
 /**
  * Two-worlds bridge (meeting 2026-07-30): a submitted mobile daily-quick
@@ -119,12 +120,13 @@ class InventoryBridgeService
         $session->loadMissing(['items.item', 'discrepancies']);
 
         $discrepancies = $session->discrepancies->keyBy('inventory_item_id');
+        $prices = $this->branchPrices($session);
 
         return [
             'legacySessionId' => $session->id,
             'countType' => 'daily',
             'inventoryDate' => $session->inventory_date?->format('Y-m-d'),
-            'items' => $session->items->map(function ($item) use ($discrepancies) {
+            'items' => $session->items->map(function ($item) use ($discrepancies, $prices) {
                 $d = $discrepancies->get($item->id);
 
                 return [
@@ -135,9 +137,52 @@ class InventoryBridgeService
                     'actualQty' => (float) $item->quantity_inventory,
                     'purchases' => $d ? (float) $d->purchases : null,
                     'waste' => $d ? (float) $d->recorded_waste : null,
-                    'expectedQty' => $d ? (float) $d->theoretically_expected : null,
+                    'expectedQty' => $this->expectedQty($d),
+                    'unitPriceHalalas' => $prices[$item->item_id] ?? null,
                 ];
             })->values()->all(),
         ];
+    }
+
+    /**
+     * A branch's FIRST count has no prior approved session, so the mobile
+     * calculation opens at zero and subtracts the day's sales and waste — which
+     * yields a NEGATIVE theoretical stock (prod E2E 2026-07-31: «الكمية المتوقعة
+     * −1.5 كيس»). Stock can never be negative: the number does not mean "minus
+     * one and a half", it means the opening baseline is unknown. Report it as
+     * unknown — the contract already renders a null expectedQty as «—».
+     */
+    private function expectedQty(?object $discrepancy): ?float
+    {
+        if ($discrepancy === null) {
+            return null;
+        }
+
+        $expected = (float) $discrepancy->theoretically_expected;
+
+        return $expected < 0 ? null : $expected;
+    }
+
+    /**
+     * The reconciliation screen prices variances from the ASAB catalog, but a
+     * mobile payload carries LEGACY item ids, so every lookup missed and every
+     * variance was valued at 0.00 ر.س. Carry the branch's own price across the
+     * bridge so the reader never has to resolve the id space. One query for the
+     * whole session, not one per line.
+     *
+     * @return array<string, int> legacy item_id → unit price in halalas
+     */
+    private function branchPrices(InventorySession $session): array
+    {
+        $itemIds = $session->items->pluck('item_id')->filter()->unique();
+        if ($itemIds->isEmpty()) {
+            return [];
+        }
+
+        return BranchItem::where('branch_id', $session->branch_id)
+            ->whereIn('item_id', $itemIds)
+            ->pluck('price', 'item_id')
+            ->map(fn ($price) => (int) round(((float) $price) * 100))
+            ->all();
     }
 }

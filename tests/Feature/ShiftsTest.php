@@ -276,6 +276,21 @@ class ShiftsTest extends TestCase
         $this->assertSame('صباحي', $rows[0]['shiftType']);
     }
 
+    /**
+     * A bridged close stops at `pending_review` and only reaches `closed` on final
+     * approval. The `closedToday` KPI already counts both, so filtering history on
+     * `closed` alone left the table empty beside a KPI counting the same shifts
+     * (prod E2E 2026-07-31: 10 SHF operations, zero history rows).
+     */
+    public function test_history_includes_shifts_still_awaiting_review(): void
+    {
+        Shift::create(['company_id' => $this->company->id, 'branch_id' => $this->branchA->id, 'supervisor_name' => 'a', 'started_at' => now(), 'ended_at' => now(), 'status' => 'pending_review']);
+
+        $rows = $this->acc()->getJson('/api/v1/accountant/shifts/history')->assertOk()->json('data');
+
+        $this->assertCount(1, $rows);
+    }
+
     public function test_export_streams_and_is_branch_scoped(): void
     {
         Shift::create(['company_id' => $this->company->id, 'branch_id' => $this->branchA->id, 'supervisor_name' => 'a', 'started_at' => now(), 'ended_at' => now(), 'status' => 'closed']);

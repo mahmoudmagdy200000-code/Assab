@@ -4,8 +4,10 @@ namespace Tests\Feature;
 
 use Database\Seeders\FullDemoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Modules\Admin\Models\AsabIdentityMap;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Operation;
+use Modules\BrandOwner\Models\BrandOwner;
 use Modules\FixedAssets\Models\AssetType;
 use Modules\FixedAssets\Models\AssetZone;
 use Modules\Shift\Models\CashierShiftHandover;
@@ -43,5 +45,20 @@ class FullDemoSeederSmokeTest extends TestCase
         $branchUser = AsabUser::withoutGlobalScopes()->where('email', 'branch@nakhat.sa')->first();
         $this->assertNotNull($branchUser, 'branch portal user must exist');
         $this->assertTrue($branchUser->roleAssignments()->where('role_key', 'branch')->exists());
+
+        // The brand owner's screens live on the MOBILE surface, behind
+        // BrandOwnerMiddleware. A demo owner with no legacy row authenticates
+        // and then 403s on every screen (prod E2E 2026-07-31), so the seeded
+        // owner must exist in both worlds on one credential.
+        $owner = AsabUser::withoutGlobalScopes()->where('email', 'owner@nakhat.sa')->firstOrFail();
+        $mobileOwner = BrandOwner::where('email', 'owner@nakhat.sa')->first();
+        $this->assertNotNull($mobileOwner, 'brand owner must exist in the mobile world too');
+        $this->assertSame($owner->password, $mobileOwner->password, 'one credential must open both worlds');
+        $this->assertTrue(
+            AsabIdentityMap::where('dashboard_id', $owner->id)
+                ->where('legacy_id', $mobileOwner->id)
+                ->where('entity_type', AsabIdentityMap::ENTITY_BRAND_OWNER)->exists(),
+            'the cross-world identity link must be recorded',
+        );
     }
 }

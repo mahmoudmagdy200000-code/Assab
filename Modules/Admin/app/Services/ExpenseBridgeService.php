@@ -232,11 +232,17 @@ class ExpenseBridgeService
         // the invoice's picked supplier, then the expense-level supplier.
         return $details->values()->map(function (InvoiceDetail $d) use ($expense, $attachments, $itemTotals, $lineTotals, $single) {
             $lineSum = (float) ($itemTotals[$d->id] ?? 0) + (float) ($lineTotals[$d->id] ?? 0);
-            $amount = $d->tax_total_amount
+            // A ZERO tax_total_amount is as absent as a null one: the mobile app
+            // writes 0.00 on a non-tax invoice, and taking it literally rendered
+            // «0.00 ر.س» in the accountant's invoice table under a header that
+            // showed the real 3,008.00 (EXP-0011, prod E2E 2026-07-31). Fall
+            // through to the line sum / statement total exactly as for null.
+            $taxTotal = ((float) $d->tax_total_amount) > 0 ? $d->tax_total_amount : null;
+            $amount = $taxTotal
                 ?? ($lineSum > 0 ? $lineSum : null)
                 ?? ($single ? $expense->total_amount : null);
             $vat = $d->tax_vat_amount
-                ?? ($single && $d->tax_total_amount === null ? $expense->vat_amount : null);
+                ?? ($single && $taxTotal === null ? $expense->vat_amount : null);
 
             return array_filter([
                 'invNum' => $d->invoice_number,

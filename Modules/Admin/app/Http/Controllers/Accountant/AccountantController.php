@@ -482,6 +482,11 @@ class AccountantController extends AsabController
             'brandName' => $brandId ? ($maps['brands'][$brandId] ?? null) : null,
             'moduleKey' => $op->module_key,
             'amount' => $op->amount,
+            // Same integer, named for its unit. `amount` alone is ambiguous, and
+            // the dashboard reads `amountHalalas` when present and otherwise
+            // prints `amount` verbatim — so every figure in the operations inbox
+            // rendered 100× too large (prod E2E 2026-07-31).
+            'amountHalalas' => (int) $op->amount,
             'match' => $op->match,
             'status' => $op->status,
             'origin' => $op->origin,

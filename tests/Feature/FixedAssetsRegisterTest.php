@@ -245,6 +245,13 @@ class FixedAssetsRegisterTest extends TestCase
         $this->assertSame(2, $body['meta']['total']);
         $this->assertSame(2, $body['meta']['summary']['pendingBranch']);
         $this->assertSame(600000, $body['meta']['summary']['bookValueTotal']);
+        // The register renders a branch column — rows must carry the resolved
+        // name, not just the id (dashboard-mobile linking FRD: names, not IDs).
+        $names = [$this->branchA->id => 'فرع أ', $this->branchB->id => 'فرع ب'];
+        $this->assertSame($names[$body['data'][0]['branchId']], $body['data'][0]['branchName']);
+        // The register divides `costHalalas` by 100 and prints a bare `cost`
+        // verbatim, so the cost column read 100× the book value beside it.
+        $this->assertSame($body['data'][0]['cost'], $body['data'][0]['costHalalas']);
 
         $this->acc()->getJson('/api/v1/company/me/assets?search=ثلاجة')->assertOk()->assertJsonCount(1, 'data');
         $this->acc()->getJson('/api/v1/company/me/assets?category=tech')->assertOk()->assertJsonCount(1, 'data');

@@ -91,6 +91,50 @@ class ExpenseBridgeTest extends TestCase
         $this->assertSame(20000, $invoices[1]['preTaxHalalas']);
     }
 
+    /**
+     * Prod E2E 2026-07-31 (EXP-0011): a non-tax invoice carries tax_total_amount
+     * 0.00 rather than null, so the null-coalescing fallback never fired and the
+     * accountant's invoice table read «0.00 ر.س» — and matched ✅ — beneath a
+     * header showing the real 3,008.00.
+     */
+    public function test_a_zero_tax_total_falls_back_to_the_statement_total(): void
+    {
+        [$company, $branch] = $this->asabBranch();
+        $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
+        $expense = Expense::factory()->create([
+            'branch_manager_id' => $manager->id,
+            'expense_type' => 'single_invoice',
+            'status' => 'draft',
+            'total_amount' => 3008.00,
+            'net_amount' => 2616.52,
+            'vat_amount' => 392.48,
+        ]);
+        InvoiceDetail::factory()->create([
+            'expense_id' => $expense->id, 'invoice_number' => 'hgfg555',
+            'issue_date' => '2026-07-23',
+            'tax_net_amount' => 0.00, 'tax_vat_amount' => 0.00, 'tax_total_amount' => 0.00,
+        ]);
+
+        event(new ExpenseSubmittedEvent($expense->fresh()));
+
+        $op = Operation::withoutGlobalScopes()->where('source_id', $expense->id)->firstOrFail();
+        $this->assertSame(300800, $op->amount);
+        $this->assertSame(300800, $op->payload['invoices'][0]['amountHalalas']);
+
+        $accountant = AsabUser::create([
+            'company_id' => $company->id, 'name' => 'محاسب', 'email' => 'acc@zero.test',
+            'password' => 'secret-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+
+        $body = $this->actingAs($accountant, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")->assertOk()->json();
+
+        // The invoice row must foot to the header the accountant sees.
+        $this->assertSame(300800, $body['expenses']['invoices'][0]['inclTaxHalalas']);
+        $this->assertSame($body['amount'], $body['expenses']['invoices'][0]['inclTaxHalalas']);
+    }
+
     public function test_the_linker_heals_brand_and_company_from_the_restaurant(): void
     {
         $company = AsabCompany::create(['name' => 'Heal Co', 'plan' => 'Basic', 'status' => 'active']);

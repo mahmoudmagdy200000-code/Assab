@@ -85,7 +85,7 @@ class PurchasePresenterService
             'deliveryDate' => $payload['deliveryDate'] ?? null,
             'description' => $payload['description'] ?? ($payload['notes'] ?? null),
             'purchaseItems' => $lines,
-            'summary' => $this->summary($lines),
+            'summary' => $this->summary($lines, $op),
             'isDocumented' => ! empty($payload['documentation']['documentedAt']),
             'documentation' => $payload['documentation'] ?? null,
             'attachments' => $attachments ?? $this->attachments($op),
@@ -223,8 +223,16 @@ class PurchasePresenterService
         ];
     }
 
-    /** @param  array<int, array<string,mixed>>  $lines */
-    private function summary(array $lines): array
+    /**
+     * @param  array<int, array<string,mixed>>  $lines
+     * @param  Operation|null  $op  supplies the stored order total so the block can
+     *                              state the VAT explicitly — the line items are NET
+     *                              while `operations.amount` is VAT-inclusive, so the
+     *                              detail card showed two totals differing by exactly
+     *                              15% with nothing on screen to explain the gap
+     *                              (prod E2E 2026-07-31, 3/3 purchase operations).
+     */
+    private function summary(array $lines, ?Operation $op = null): array
     {
         $ordered = array_sum(array_column($lines, 'totalHalalas'));
         $received = array_sum(array_map(fn ($l) => $l['receivedValueHalalas'] ?? 0, $lines));
@@ -232,10 +240,17 @@ class PurchasePresenterService
         $priceDiff = count(array_filter($lines, fn ($l) => ! $l['priceMatched']));
         $pending = count(array_filter($lines, fn ($l) => ! $l['received']));
 
+        // Only when the stored total genuinely exceeds the net lines — a partially
+        // mapped payload must not invent a VAT figure out of a rounding gap.
+        $storedTotal = $op !== null ? (int) $op->amount : 0;
+        $vat = $storedTotal > $ordered ? $storedTotal - $ordered : null;
+
         return [
             'lineCount' => count($lines),
             'orderedValueHalalas' => $ordered,
             'receivedValueHalalas' => $received,
+            'vatHalalas' => $vat,
+            'orderedValueWithVatHalalas' => $vat === null ? $ordered : $storedTotal,
             'qtyDiscrepancyCount' => $qtyDiff,
             'priceDiscrepancyCount' => $priceDiff,
             'pendingReceiptCount' => $pending,
@@ -266,11 +281,19 @@ class PurchasePresenterService
         return $total > 0 && $ordQty > self::EPSILON ? (int) round($total / $ordQty) : 0;
     }
 
+    /**
+     * A mobile purchase order carries a LEGACY supplier id, which never resolves
+     * against asab_suppliers — so the lookup returned null and the detail panel
+     * showed «—» while the list row (which reads the payload directly) showed the
+     * real name (prod E2E 2026-07-31, all 3 PUR ops). Fall back to the name the
+     * bridge already stored rather than leaving the panel blank.
+     */
     private function supplierName(Operation $op): ?string
     {
         $id = $op->payload['supplierId'] ?? null;
+        $resolved = $id ? AsabSupplier::where('id', $id)->value('name') : null;
 
-        return $id ? AsabSupplier::where('id', $id)->value('name') : null;
+        return $resolved ?? ($op->payload['supplierName'] ?? null);
     }
 
     /** @return array<int, array<string, mixed>> */

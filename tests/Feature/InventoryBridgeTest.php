@@ -89,6 +89,53 @@ class InventoryBridgeTest extends TestCase
         $this->assertEquals(7.5, $row['actualQty']);
     }
 
+    /**
+     * The branch item's own price must cross the bridge: the reconciliation screen
+     * prices variances from the ASAB catalog, and a mobile payload carries LEGACY
+     * item ids, so every variance was valued at 0.00 ر.س (prod E2E 2026-07-31).
+     */
+    public function test_the_payload_carries_the_branch_unit_price(): void
+    {
+        $session = $this->submittedSession();
+
+        $op = Operation::withoutGlobalScopes()
+            ->where('source_module', 'inventory')->where('source_id', $session->id)->firstOrFail();
+
+        $this->assertSame(5000, $op->payload['items'][0]['unitPriceHalalas']);
+    }
+
+    /**
+     * A first count has no prior approved session, so the mobile calculation opens
+     * at zero and subtracts the day's sales and waste — yielding a NEGATIVE
+     * theoretical stock. Stock is never negative; the baseline is simply unknown,
+     * and the contract renders a null expectedQty as «—».
+     */
+    public function test_a_negative_theoretical_expectation_is_reported_as_unknown(): void
+    {
+        $session = $this->submittedSession();
+
+        $op = Operation::withoutGlobalScopes()
+            ->where('source_module', 'inventory')->where('source_id', $session->id)->firstOrFail();
+
+        \Modules\Inventory\Models\DailyInventoryDiscrepancy::updateOrCreate(
+            [
+                'inventory_session_id' => $session->id,
+                'inventory_item_id' => $session->items()->first()->id,
+            ],
+            [
+                'item_id' => $session->items()->first()->item_id,
+                'opening_balance' => 0, 'purchases' => 0, 'sales' => 1.0, 'recorded_waste' => 0.5,
+                'net_transfer_in' => 0, 'net_transfer_out' => 0,
+                'theoretically_expected' => -1.5, 'actual' => 3,
+                'difference_quantity' => -4.5,
+            ],
+        );
+
+        app(\Modules\Admin\Services\InventoryBridgeService::class)->sync($session->fresh());
+
+        $this->assertNull($op->fresh()->payload['items'][0]['expectedQty']);
+    }
+
     public function test_resubmit_is_idempotent(): void
     {
         $session = $this->submittedSession();

@@ -218,6 +218,23 @@ class AccountantDashboardTest extends TestCase
         $this->assertSame($company[0]['hasUrgent'], $platform[0]['hasUrgent']);
     }
 
+    /**
+     * `amount` alone does not say what unit it is in, and the dashboard prints a
+     * bare `amount` verbatim while dividing `amountHalalas` by 100 — so the whole
+     * operations inbox rendered 100× too large against the accountant surface
+     * while the head surface (which already sent the alias) was correct.
+     * Prod E2E 2026-07-31.
+     */
+    public function test_operation_rows_carry_the_halalas_alias_the_dashboard_reads(): void
+    {
+        $this->op(['amount' => 300800]);
+
+        $row = $this->acc()->getJson('/api/v1/accountant/operations')->assertOk()->json('data.0');
+
+        $this->assertSame(300800, $row['amountHalalas']);
+        $this->assertSame($row['amount'], $row['amountHalalas']);
+    }
+
     public function test_the_legacy_operations_list_filters_by_date(): void
     {
         $this->op();

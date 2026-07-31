@@ -157,6 +157,7 @@ class WasteController extends AsabController
             'date' => optional($o->operation_date)->toIso8601String(),
             'status' => $o->status,
             'amount' => $o->amount,
+            'amountHalalas' => (int) $o->amount,
             'productsCount' => count($products),
             'employeeChargedHalalas' => $this->employeeCharged($products),
             'products' => $products,

@@ -117,6 +117,54 @@ class PurchasesAccountantTest extends TestCase
         $this->assertSame('procurement', $body['purchases']['orderSource']['key']);
     }
 
+    /**
+     * Prod E2E 2026-07-31: a mobile order stores a LEGACY supplier id, so the
+     * asab_suppliers lookup missed and the detail panel showed «—» while the list
+     * row (which reads the payload) showed the real name.
+     */
+    public function test_detail_falls_back_to_the_payload_supplier_name(): void
+    {
+        $op = $this->purchaseOp([$this->line('itm-1', 10, 500)], ['payload' => [
+            'supplierId' => '019fb384-c76a-7396-af09-9e3ef6250c8f',   // a legacy id — not in asab_suppliers
+            'supplierName' => 'مؤسسة اللحوم الطازجة',
+            'items' => [$this->line('itm-1', 10, 500)],
+        ]]);
+
+        $body = $this->acc()->getJson("/api/v1/company/me/operations/{$op->id}")->assertOk()->json();
+
+        $this->assertSame('مؤسسة اللحوم الطازجة', $body['purchases']['supplierName']);
+    }
+
+    /**
+     * The line items are NET while operations.amount is VAT-inclusive, so the card
+     * showed two totals differing by exactly 15% with nothing explaining the gap.
+     * The block must now state the VAT rather than leave it implicit.
+     */
+    public function test_summary_states_the_vat_between_the_net_lines_and_the_stored_total(): void
+    {
+        $op = $this->purchaseOp([$this->line('itm-1', 10, 500)]);
+        $op->forceFill(['amount' => 5750])->save();   // 5000 net + 15%
+
+        $summary = $this->acc()->getJson("/api/v1/company/me/operations/{$op->id}")
+            ->assertOk()->json('purchases.summary');
+
+        $this->assertSame(5000, $summary['orderedValueHalalas']);
+        $this->assertSame(750, $summary['vatHalalas']);
+        $this->assertSame(5750, $summary['orderedValueWithVatHalalas']);
+    }
+
+    /** With no VAT in the stored total the block must not invent one. */
+    public function test_summary_reports_no_vat_when_the_stored_total_matches_the_lines(): void
+    {
+        $op = $this->purchaseOp([$this->line('itm-1', 10, 500)]);
+
+        $summary = $this->acc()->getJson("/api/v1/company/me/operations/{$op->id}")
+            ->assertOk()->json('purchases.summary');
+
+        $this->assertNull($summary['vatHalalas']);
+        $this->assertSame(5000, $summary['orderedValueWithVatHalalas']);
+    }
+
     /** E1 — a line with no received qty is `pending`, NOT a shortfall. */
     public function test_e1_unreceived_line_is_pending_not_a_shortfall(): void
     {

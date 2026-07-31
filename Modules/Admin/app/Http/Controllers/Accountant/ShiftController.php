@@ -47,7 +47,12 @@ class ShiftController extends AsabController
     {
         return $this->run(function () use ($request) {
             $perPage = min((int) $request->query('pageSize', 20), 100);
-            $q = $this->scopeToAssignedBranches(Shift::where('status', 'closed'));
+            // Same rule the `closedToday` KPI below already applies: a bridged
+            // close stops at `pending_review` and only reaches `closed` on final
+            // approval, so filtering on `closed` alone left the history table
+            // empty while the KPI beside it counted the very same shifts
+            // (prod E2E 2026-07-31: 10 SHF operations, zero history rows).
+            $q = $this->scopeToAssignedBranches(Shift::whereIn('status', ['pending_review', 'closed']));
             if ($branch = $request->query('branchId')) {
                 $q->where('branch_id', $branch);
             }
