@@ -212,12 +212,19 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
 
             $deliveryHours = $supplierItem->delivery_hours ?? PurchaseConstants::DEFAULT_DELIVERY_HOURS;
 
+            $supplierStatus = $supplierItem->supplier?->status;
+
             return [
                 'supplier_id' => $supplierId,
-                'supplier_name' => $supplierItem->supplier->name,
-                'supplier_status' => $supplierItem->supplier->status->value,
-                'unit_price' => $supplierItem->unit_price,
-                'total_price' => $supplierItem->unit_price * $quantity,
+                'supplier_name' => $supplierItem->supplier?->name ?? '',
+                // `suppliers.status` is a plain string column on this model, not
+                // an enum cast — `->value` on it raised a warning Laravel turns
+                // into an ErrorException, i.e. a 500 on price comparison.
+                'supplier_status' => $supplierStatus instanceof \BackedEnum
+                    ? $supplierStatus->value
+                    : ($supplierStatus ?? 'offline'),
+                'unit_price' => (float) $supplierItem->unit_price,
+                'total_price' => (float) $supplierItem->unit_price * $quantity,
                 'delivery_hours' => $deliveryHours,
                 'delivery_days' => $avgDeliveryDays ?? ceil($deliveryHours / PurchaseConstants::HOURS_PER_DAY),
                 'rating' => round($rating, 1),

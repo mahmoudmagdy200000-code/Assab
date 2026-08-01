@@ -557,7 +557,9 @@ class PurchaseHistoryDetailsResource extends JsonResource
                 'id' => $this->supplier->id ?? 'n/a',
                 'name' => $this->supplier->name ?? 'n/a',
                 'image' => $this->supplier->image_url ?? 'n/a',
-                'status' => $this->supplier->status?->value ?? 'n/a',
+                // Plain string column, not an enum cast (see line 424) — `?->value`
+                // on a string is a warning Laravel escalates to a 500.
+                'status' => $this->supplier->status ?? 'n/a',
             ];
         }
 

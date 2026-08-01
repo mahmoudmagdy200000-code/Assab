@@ -49,7 +49,9 @@ class OrderSummaryResource extends JsonResource
                         'id' => $this->supplier->id,
                         'name' => $this->supplier->name,
                         'image' => $this->supplier->image_url,
-                        'status' => $this->supplier->status?->value ?? null, // online, away, offline
+                        // Plain string column, not an enum cast — `?->value` on
+                        // it is a warning Laravel escalates to a 500.
+                        'status' => $this->supplier->status ?? 'offline', // online, away, offline
                     ];
                 }),
                 'order_number' => $this->order_number,

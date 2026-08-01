@@ -88,7 +88,8 @@ class PurchaseServiceProvider extends ServiceProvider
                 $app->make(TimelineService::class),
                 $app->make(OrderCreationService::class),
                 $app->make(PurchaseOrderDelayService::class),
-                $app->make(PurchaseOrderItemService::class)
+                $app->make(PurchaseOrderItemService::class),
+                $app->make(\Modules\Purchase\Services\SupplierCatalogService::class)
             );
         });
 
