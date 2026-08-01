@@ -30,16 +30,20 @@ class SupplierResource extends JsonResource
             // Contact methods
             'contact_methods' => $this->contact_methods ?? [],
 
-            // Delivery info
-            'default_delivery_hours' => $this->default_delivery_hours,
-            'min_order_amount' => $this->min_order_amount ? (float) $this->min_order_amount : null,
+            // Delivery info — every numeric is coalesced for the same reason
+            // the strings above are: the app casts them with `as num`, and a
+            // dashboard-provisioned supplier leaves all of them null, which
+            // crashed the order screens with «type 'Null' is not a subtype of
+            // type 'num' in type cast».
+            'default_delivery_hours' => (int) ($this->default_delivery_hours ?? 0),
+            'min_order_amount' => (float) ($this->min_order_amount ?? 0),
 
             // Statistics
-            'average_response_time_hours' => $this->average_response_time_hours ? (float) $this->average_response_time_hours : null,
-            'response_rate_percentage' => $this->response_rate_percentage ? (float) $this->response_rate_percentage : null,
-            'rating' => $this->rating ? (float) $this->rating : null,
-            'total_orders' => $this->total_orders,
-            'completed_orders' => $this->completed_orders,
+            'average_response_time_hours' => (float) ($this->average_response_time_hours ?? 0),
+            'response_rate_percentage' => (float) ($this->response_rate_percentage ?? 0),
+            'rating' => (float) ($this->rating ?? 0),
+            'total_orders' => (int) ($this->total_orders ?? 0),
+            'completed_orders' => (int) ($this->completed_orders ?? 0),
 
             'last_seen_at' => $this->last_seen_at?->diffForHumans(),
         ];

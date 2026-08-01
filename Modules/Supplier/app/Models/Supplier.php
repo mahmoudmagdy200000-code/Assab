@@ -260,4 +260,57 @@ class Supplier extends Authenticatable
     {
         return $query->whereJsonContains('categories', $categoryId);
     }
+
+    /**
+     * Scope a query to suppliers that can take an order right now.
+     *
+     * These five scopes are called from the mobile order flow
+     * (Purchase\SupplierController::index, OrderDataService::
+     * getDirectSupplierItems) but were never defined here, so ANY filtered
+     * supplier request — including the empty `search=` the picker sends on
+     * every keystroke — died with BadMethodCallException and reached the app
+     * as a 500 the list renders as «No Search Results Found».
+     */
+    public function scopeAvailable($query)
+    {
+        return $query->where('is_active', true)->where('status', 'online');
+    }
+
+    /**
+     * @param  string|\BackedEnum  $status  Purchase\Enums\SupplierStatus or its raw value
+     */
+    public function scopeByStatus($query, $status)
+    {
+        return $query->where('status', $status instanceof \BackedEnum ? $status->value : $status);
+    }
+
+    public function scopeByDeliveryTime($query, int $maxHours)
+    {
+        return $query->where('default_delivery_hours', '<=', $maxHours);
+    }
+
+    public function scopeByRating($query, float $minRating)
+    {
+        return $query->where('rating', '>=', $minRating);
+    }
+
+    /**
+     * Grouped so the ORs can never leak out of an outer where chain and widen
+     * a brand/tenant filter.
+     */
+    public function scopeSearch($query, ?string $term)
+    {
+        $term = trim((string) $term);
+
+        if ($term === '') {
+            return $query;
+        }
+
+        return $query->where(function ($q) use ($term) {
+            $q->where('name', 'like', "%{$term}%")
+                ->orWhere('company_name', 'like', "%{$term}%")
+                ->orWhere('email', 'like', "%{$term}%")
+                ->orWhere('phone', 'like', "%{$term}%");
+        });
+    }
 }

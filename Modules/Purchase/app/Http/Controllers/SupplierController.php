@@ -27,9 +27,18 @@ class SupplierController extends BaseController
 
             $query = Supplier::query()->active()->whereIn('id', $orderableIds);
 
-            // Filter by status
-            if ($request->has('status')) {
-                $query->byStatus(SupplierStatus::from($request->status));
+            // Filters are keyed off filled(), not has(): the picker ships every
+            // filter key on every request, so has() turned an untouched search
+            // box (`search=`) into a LIKE '%%' and an untouched status chip
+            // (`status=`) into SupplierStatus::from('') — a 500.
+            if ($request->filled('status')) {
+                $status = SupplierStatus::tryFrom((string) $request->input('status'));
+
+                if ($status === null) {
+                    return $this->errorResponse('Invalid status filter', 400);
+                }
+
+                $query->byStatus($status);
             }
 
             // Filter by availability
@@ -38,18 +47,18 @@ class SupplierController extends BaseController
             }
 
             // Filter by delivery time
-            if ($request->has('max_delivery_hours')) {
-                $query->byDeliveryTime((int) $request->max_delivery_hours);
+            if ($request->filled('max_delivery_hours')) {
+                $query->byDeliveryTime((int) $request->input('max_delivery_hours'));
             }
 
             // Filter by rating
-            if ($request->has('min_rating')) {
-                $query->byRating((float) $request->min_rating);
+            if ($request->filled('min_rating')) {
+                $query->byRating((float) $request->input('min_rating'));
             }
 
             // Search
-            if ($request->has('search')) {
-                $query->search($request->search);
+            if ($request->filled('search')) {
+                $query->search((string) $request->input('search'));
             }
 
             $suppliers = $query->orderBy('rating', 'desc')
@@ -57,7 +66,12 @@ class SupplierController extends BaseController
 
             return $this->paginatedResponse(
                 SupplierResource::collection($suppliers),
-                'Suppliers retrieved successfully'
+                // An unlinked branch resolves to an empty scope and gets an
+                // empty list by design — say so, instead of leaving the app to
+                // render a silent «no results» the user reads as a bug.
+                $orderableIds === []
+                    ? 'No suppliers are linked to your branch yet'
+                    : 'Suppliers retrieved successfully'
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'fetching suppliers');
