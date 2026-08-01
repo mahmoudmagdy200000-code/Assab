@@ -24,9 +24,10 @@ interface PriceComparisonServiceInterface
     public function getPurchasingOfficerPrices(string $itemId): ?array;
 
     /**
-     * Get suppliers for an item
+     * Get suppliers for an item, or — when no item is given — every supplier the
+     * branch may order from ("All Suppliers" in the app's source picker).
      */
-    public function getSuppliers(string $itemId, array $filters = []): Collection;
+    public function getSuppliers(?string $itemId, array $filters = [], ?string $branchId = null): Collection;
 
     /**
      * Get branches with stock for internal transfer

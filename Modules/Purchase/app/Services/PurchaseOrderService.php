@@ -24,7 +24,8 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         private readonly TimelineService $timelineService,
         private readonly OrderCreationService $orderCreationService,
         private readonly PurchaseOrderDelayService $delayService,
-        private readonly PurchaseOrderItemService $itemService
+        private readonly PurchaseOrderItemService $itemService,
+        private readonly SupplierCatalogService $supplierCatalog
     ) {}
 
     /**
@@ -64,10 +65,23 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
         }
 
         // Order by item name through relationship
-        return $query->join('items', 'branch_item.item_id', '=', 'items.id')
+        $branchItems = $query->join('items', 'branch_item.item_id', '=', 'items.id')
             ->orderBy('items.name', 'asc')
             ->select('branch_item.*', 'items.name as item_name', 'items.code as item_code', 'items.unit as item_unit', 'items.logo as item_logo', 'items.category', 'items.subcategory')
             ->paginate($perPage);
+
+        // Resolve the supplier counts for the whole page in one pass — the
+        // resource would otherwise have to ask per row (N+1).
+        $counts = $this->supplierCatalog->supplierCountsForItems(
+            $branchItems->getCollection()->pluck('item_id')->all(),
+            $branchId
+        );
+
+        $branchItems->getCollection()->each(
+            fn ($branchItem) => $branchItem->setAttribute('suppliers_count', $counts[$branchItem->item_id] ?? 0)
+        );
+
+        return $branchItems;
     }
 
     /**

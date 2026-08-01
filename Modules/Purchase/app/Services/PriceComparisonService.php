@@ -24,6 +24,7 @@ use Modules\Purchase\Models\SupplierItem;
 use Modules\Purchase\Traits\ItemHelperTrait;
 use Modules\Purchase\Transformers\SupplierResource;
 use Modules\Supplier\Models\Supplier;
+use Modules\Supplier\Models\SupplierProduct;
 
 class PriceComparisonService implements \Modules\Purchase\Services\Contracts\PriceComparisonServiceInterface
 {
@@ -769,10 +770,20 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
     }
 
     /**
-     * Get suppliers for an item
+     * Get suppliers for an item, or every orderable supplier when no item is
+     * given.
+     *
+     * `item_id` is optional on the route, but this method used to type-hint it
+     * as `string`: the app's «All Suppliers» screen, which sends no item, hit a
+     * TypeError that surfaced as a 500 and rendered as an empty list under a
+     * header still counting the suppliers it expected to see.
      */
-    public function getSuppliers(string $itemId, array $filters = []): Collection
+    public function getSuppliers(?string $itemId, array $filters = [], ?string $branchId = null): Collection
     {
+        if ($itemId === null || $itemId === '') {
+            return $this->allOrderableSuppliers($filters, $branchId);
+        }
+
         $query = SupplierItem::with('supplier')
             ->byItem($itemId)
             ->available()
@@ -809,7 +820,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         // read supplier_items only, so a supplier selling the item through
         // their app never appeared here (meeting 2026-07-30). Union them,
         // supplier_products winning on conflict.
-        $fromSupplierProducts = \Modules\Supplier\Models\SupplierProduct::with('supplier')
+        $fromSupplierProducts = SupplierProduct::with('supplier')
             ->where('item_id', $itemId)
             ->available()
             ->whereHas('supplier', fn ($q) => $q->active())
@@ -829,6 +840,81 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             ->concat($fromSupplierItems)
             ->unique('supplier_id')
             ->values();
+    }
+
+    /**
+     * «All Suppliers»: every supplier the branch may order from, with its
+     * cheapest catalog row attached when it has one. Brand-scoped and
+     * fail-closed exactly like GET /purchase/suppliers (meeting 2026-07-30) —
+     * an unlinked branch sees nothing rather than every tenant's suppliers.
+     */
+    private function allOrderableSuppliers(array $filters, ?string $branchId): Collection
+    {
+        $orderableIds = $branchId !== null
+            ? app(\Modules\Expense\Services\SupplierBrandScopeService::class)->orderableSupplierIds($branchId)
+            : null;
+
+        if ($orderableIds === []) {
+            return collect();
+        }
+
+        $suppliers = Supplier::query()
+            ->active()
+            ->when($orderableIds !== null, fn ($q) => $q->whereIn('id', $orderableIds))
+            ->when(! empty($filters['status']), function ($q) use ($filters) {
+                $status = $filters['status'];
+
+                $q->byStatus($status instanceof \Modules\Purchase\Enums\SupplierStatus ? $status->value : $status);
+            })
+            ->when(! empty($filters['max_delivery_hours']), fn ($q) => $q->byDeliveryTime((int) $filters['max_delivery_hours']))
+            ->when(! empty($filters['search']), fn ($q) => $q->search($filters['search']))
+            ->orderBy('name')
+            // Bounded read: the picker is a list, not an export.
+            ->limit(PurchaseConstants::MAX_PER_PAGE)
+            ->get();
+
+        if ($suppliers->isEmpty()) {
+            return collect();
+        }
+
+        // Cheapest available row per supplier, both catalogs, one query each —
+        // no N+1 over the supplier list.
+        $supplierIds = $suppliers->modelKeys();
+
+        $cheapest = SupplierItem::whereIn('supplier_id', $supplierIds)
+            ->available()
+            ->get()
+            ->concat(
+                SupplierProduct::whereIn('supplier_id', $supplierIds)->available()->get()
+            )
+            ->sortBy(fn ($row) => (float) ($row->unit_price ?? 0))
+            ->groupBy('supplier_id')
+            // keyBy() would keep the LAST row per supplier — the dearest.
+            ->map(fn ($rows) => $rows->first());
+
+        return $suppliers->map(function ($supplier) use ($cheapest) {
+            $row = $cheapest->get($supplier->getKey());
+
+            if ($row !== null) {
+                $row->setRelation('supplier', $supplier);
+
+                return $this->supplierOptionRow($row);
+            }
+
+            // No priced row yet — the supplier is still selectable, the app just
+            // shows no price. Zeros, never nulls (the app casts with `as num`).
+            return [
+                'supplier_id' => $supplier->getKey(),
+                'supplier' => (new SupplierResource($supplier))->toArray(request()),
+                'supplier_name' => $supplier->name ?? '',
+                'unit_price' => 0.0,
+                'economy_price' => 0.0,
+                'standard_price' => 0.0,
+                'premium_price' => 0.0,
+                'delivery_hours' => (int) ($supplier->default_delivery_hours ?? 0),
+                'rating' => round((float) ($supplier->rating ?? 0), 1),
+            ];
+        })->values();
     }
 
     /**

@@ -244,7 +244,8 @@ class NewOrderController extends BaseController
     }
 
     /**
-     * Get suppliers for an item
+     * Get suppliers for an item — or, with no item_id, every supplier the
+     * caller's branch may order from ("All Suppliers").
      *
      * @group New Order
      */
@@ -258,7 +259,11 @@ class NewOrderController extends BaseController
                 'search' => $request->get('search'),
             ];
 
-            $suppliers = $this->priceService->getSuppliers($itemId, $filters);
+            $suppliers = $this->priceService->getSuppliers(
+                $itemId,
+                $filters,
+                $request->user()?->branch_id
+            );
 
             return $this->successResponse(
                 $suppliers,
