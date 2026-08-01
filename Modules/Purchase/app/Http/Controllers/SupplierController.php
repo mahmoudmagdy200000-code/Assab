@@ -6,6 +6,7 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Purchase\Enums\SupplierStatus;
+use Modules\Purchase\Transformers\SupplierItemResource;
 use Modules\Purchase\Transformers\SupplierResource;
 use Modules\Supplier\Models\Supplier;
 
@@ -117,11 +118,24 @@ class SupplierController extends BaseController
             }
 
             $items = $supplier->supplierItems()
+                ->with('item:id,name,code,unit,logo,category,subcategory')
                 ->when($request->boolean('available_only'), fn ($q) => $q->available())
                 ->paginate($request->get('per_page', 15));
 
+            // Raw models leaked decimal-cast strings and null numerics straight
+            // to the app, whose `as num` casts crash on both. Same shape as the
+            // order flow's supplier-items list.
+            $rows = SupplierItemResource::collection(
+                $items->getCollection()->map(fn ($supplierItem) => [
+                    'supplier_item' => $supplierItem,
+                    'branch_item' => null,
+                    'item' => $supplierItem->item,
+                ])
+            );
+            $rows->resource = $items;
+
             return $this->paginatedResponse(
-                $items,
+                $rows,
                 'Supplier items retrieved successfully'
             );
         } catch (\Exception $e) {
