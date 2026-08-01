@@ -288,12 +288,17 @@ class OrderDataService
         $itemId = $validated['item_id'];
         $quantity = isset($validated['quantity']) ? (float) $validated['quantity'] : 1.0;
 
-        // Get branch item (item_id is Item.id, not BranchItem.id)
+        // Get branch item (item_id is Item.id, not BranchItem.id). A branch that
+        // has never stocked the item still has to be able to order it from a
+        // supplier who sells it, so a missing branch row falls back to the
+        // catalog item instead of 404-ing the whole supplier list.
         $branchItem = BranchItem::where('branch_id', $branchId)
             ->where('item_id', $itemId)
             ->first();
 
-        if (! $branchItem) {
+        $item = $branchItem?->item ?? Item::find($itemId);
+
+        if (! $branchItem && ! $item) {
             throw new \InvalidArgumentException('Item not found in your branch');
         }
 
@@ -374,7 +379,7 @@ class OrderDataService
         }
 
         // Get item logo URL using helper method
-        $itemLogo = $this->getItemLogoUrl($branchItem->item_logo);
+        $itemLogo = $this->getItemLogoUrl($branchItem?->item_logo ?? $item?->logo);
 
         // Get current branch for distance calculation
         $currentBranch = Branch::find($branchId);
@@ -383,6 +388,7 @@ class OrderDataService
         // Build suppliers list with structure similar to getBranches
         $suppliersList = collect($supplierItems)->map(function ($supplierItem) use (
             $branchItem,
+            $item,
             $itemId,
             $quantity,
             $itemLogo,
@@ -424,39 +430,42 @@ class OrderDataService
             $unitPrice = (float) $supplierItem->unit_price;
             $totalAmount = $unitPrice * $quantity;
 
+            // Every numeric below is coalesced, never null: the app casts them
+            // with `as num` and a null is a hard crash on the order screen
+            // («type 'Null' is not a subtype of type 'num' in type cast»).
             return [
                 'supplier_id' => $supplier->id,
                 'supplier' => (new SupplierResource($supplier))->toArray(request()),
                 // Item Details
                 'item_id' => $itemId,
-                'item_price' => $branchItem->item_price,
-                'item_unit' => $branchItem->item_unit,
+                'item_price' => round((float) ($branchItem?->item_price ?? $supplierItem->unit_price ?? 0), 2),
+                'item_unit' => $branchItem?->item_unit ?? $item?->unit ?? 'kg',
 
-                'item_title' => $branchItem->item_name,
-                'item_code' => $branchItem->item_code,
+                'item_title' => $branchItem?->item_name ?? $item?->name ?? '',
+                'item_code' => $branchItem?->item_code ?? $item?->code ?? '',
                 'item_logo' => $itemLogo,
                 'quantity' => $quantity,
                 'total_amount' => round($totalAmount, 2),
                 // Pricing
                 'price_rate' => round($unitPrice, 2),
-                'economy_price' => $supplierItem->economy_price ? round((float) $supplierItem->economy_price, 2) : null,
-                'standard_price' => $supplierItem->standard_price ? round((float) $supplierItem->standard_price, 2) : null,
-                'premium_price' => $supplierItem->premium_price ? round((float) $supplierItem->premium_price, 2) : null,
+                'economy_price' => round((float) ($supplierItem->economy_price ?? $unitPrice), 2),
+                'standard_price' => round((float) ($supplierItem->standard_price ?? $unitPrice), 2),
+                'premium_price' => round((float) ($supplierItem->premium_price ?? $unitPrice), 2),
                 // Delivery
-                'delivery_hours' => $supplierItem->delivery_hours,
+                'delivery_hours' => (int) ($supplierItem->delivery_hours ?? 0),
                 'delivery_days' => $supplierItem->delivery_hours
                     ? round($supplierItem->delivery_hours / PurchaseConstants::HOURS_PER_DAY, 1)
-                    : null,
+                    : 0.0,
                 // Availability
-                'availability_percentage' => $availabilityPercentage,
-                'min_order_quantity' => $supplierItem->min_order_quantity ? (float) $supplierItem->min_order_quantity : null,
-                'max_order_quantity' => $supplierItem->max_order_quantity ? (float) $supplierItem->max_order_quantity : null,
+                'availability_percentage' => (float) $availabilityPercentage,
+                'min_order_quantity' => (float) ($supplierItem->min_order_quantity ?? 0),
+                'max_order_quantity' => (float) ($supplierItem->max_order_quantity ?? 0),
                 // Distance
-                'distance_km' => $distanceKm,
-                'estimated_hours' => $distance ? round($distance['estimated_hours'], 1) : null,
+                'distance_km' => (float) ($distanceKm ?? 0),
+                'estimated_hours' => $distance ? round($distance['estimated_hours'], 1) : 0.0,
                 // Rating
                 'rating' => round((float) ($supplierItem->rating ?? $supplier->rating ?? 0), 1),
-                'response_rate' => $supplier->response_rate_percentage ? round((float) $supplier->response_rate_percentage, 1) : null,
+                'response_rate' => round((float) ($supplier->response_rate_percentage ?? 0), 1),
             ];
         })->filter()->values(); // Remove null values from filters
 
@@ -678,32 +687,43 @@ class OrderDataService
             return $legacy ?: null;
         })->filter()->values();
 
-        $supplierItemIds = $supplierItems->pluck('item_id')->toArray();
+        $supplierItemIds = $supplierItems->pluck('item_id')->filter()->unique()->values()->toArray();
 
-        // Get branch items in current branch that match the referenced items by item_id
-        $branchItemsQuery = BranchItem::where('branch_id', $branchId)
-            ->with('item:id,name,code,unit,category,subcategory')
-            ->whereIn('item_id', $supplierItemIds);
+        // The supplier's catalog is the source of truth here, NOT the branch's
+        // stock list. This used to paginate branch_item rows, so an item the
+        // supplier sells but the branch had never stocked (no branch_item seed —
+        // e.g. a branch outside the uploader's company, or an item the supplier
+        // added from their own app) vanished from the list, and a supplier with
+        // a full catalog rendered empty in the app. Paginate `items` instead and
+        // attach the branch row only when it exists.
+        $itemsQuery = Item::whereIn('id', $supplierItemIds);
 
-        // Apply filters using scopes (which use whereHas on item relationship)
         if (! empty($validated['search'])) {
-            $branchItemsQuery->search($validated['search']);
+            $itemsQuery->search($validated['search']);
         }
 
         if (! empty($validated['category'])) {
-            $branchItemsQuery->byCategory($validated['category']);
+            $itemsQuery->byCategory($validated['category']);
         }
 
-        $branchItems = $branchItemsQuery->paginate($perPage);
-        $itemsCollection = $branchItems->getCollection();
+        $items = $itemsQuery->orderBy('name', 'asc')->paginate($perPage);
+        $itemsCollection = $items->getCollection();
+
+        // Branch rows for this page only — keeps the read bounded and the price
+        // branch-specific where one exists.
+        $branchItemsByItemId = BranchItem::where('branch_id', $branchId)
+            ->with('item:id,name,code,unit,logo,category,subcategory')
+            ->whereIn('item_id', $itemsCollection->pluck('id'))
+            ->get()
+            ->keyBy('item_id');
 
         // Create maps for matching by item_id (both use item_id from items table)
         $supplierItemsByItemIdMap = $supplierItems->keyBy('item_id');
 
         // Transform the collection for the resource
-        $transformedItems = $itemsCollection->map(function ($branchItem) use ($supplierItemsByItemIdMap) {
+        $transformedItems = $itemsCollection->map(function ($item) use ($supplierItemsByItemIdMap, $branchItemsByItemId) {
             // Match by item_id (both SupplierItem and SupplierProduct use item_id from items table)
-            $supplierItem = $supplierItemsByItemIdMap[$branchItem->item_id] ?? null;
+            $supplierItem = $supplierItemsByItemIdMap[$item->id] ?? null;
 
             if (! $supplierItem) {
                 return null;
@@ -711,13 +731,14 @@ class OrderDataService
 
             return [
                 'supplier_item' => $supplierItem,
-                'branch_item' => $branchItem,
+                'branch_item' => $branchItemsByItemId->get($item->id),
+                'item' => $item,
             ];
         })->filter()->values(); // Remove null values
 
         // Create ResourceCollection
         $resourceCollection = SupplierItemResource::collection($transformedItems);
-        $resourceCollection->resource = $branchItems;
+        $resourceCollection->resource = $items;
 
         return [
             'data' => $resourceCollection,

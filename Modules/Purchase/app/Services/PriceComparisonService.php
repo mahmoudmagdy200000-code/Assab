@@ -22,6 +22,7 @@ use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Purchase\Models\SavedPriceComparison;
 use Modules\Purchase\Models\SupplierItem;
 use Modules\Purchase\Traits\ItemHelperTrait;
+use Modules\Purchase\Transformers\SupplierResource;
 use Modules\Supplier\Models\Supplier;
 
 class PriceComparisonService implements \Modules\Purchase\Services\Contracts\PriceComparisonServiceInterface
@@ -801,18 +802,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             }));
         }
 
-        $fromSupplierItems = $query->get()->map(function ($item) {
-            return [
-                'supplier_id' => $item->supplier_id,
-                'supplier' => $item->supplier,
-                'unit_price' => $item->unit_price,
-                'economy_price' => $item->economy_price,
-                'standard_price' => $item->standard_price,
-                'premium_price' => $item->premium_price,
-                'delivery_hours' => $item->delivery_hours,
-                'rating' => $item->rating ?? $item->supplier->rating,
-            ];
-        });
+        $fromSupplierItems = $query->get()->map(fn ($item) => $this->supplierOptionRow($item));
 
         // The supplier's own mobile inventory lives in supplier_products —
         // getDirectSupplierItems already merges both tables, but this list
@@ -833,21 +823,41 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                 }));
             })
             ->get()
-            ->map(fn ($p) => [
-                'supplier_id' => $p->supplier_id,
-                'supplier' => $p->supplier,
-                'unit_price' => $p->unit_price,
-                'economy_price' => $p->economy_price,
-                'standard_price' => $p->standard_price,
-                'premium_price' => $p->premium_price,
-                'delivery_hours' => $p->delivery_hours,
-                'rating' => $p->rating ?? $p->supplier?->rating,
-            ]);
+            ->map(fn ($p) => $this->supplierOptionRow($p));
 
         return $fromSupplierProducts
             ->concat($fromSupplierItems)
             ->unique('supplier_id')
             ->values();
+    }
+
+    /**
+     * One supplier option for the «choose supplier» picker, shaped identically
+     * whether it came from supplier_items or supplier_products.
+     *
+     * The supplier goes through SupplierResource rather than out as a raw model:
+     * the model's decimal casts emit strings and its unset columns emit nulls,
+     * both of which the app's `as num` casts turn into a fatal
+     * «type 'Null' is not a subtype of type 'num' in type cast».
+     *
+     * @param  \Modules\Purchase\Models\SupplierItem|\Modules\Supplier\Models\SupplierProduct  $row
+     */
+    private function supplierOptionRow($row): array
+    {
+        $supplier = $row->supplier;
+        $unitPrice = (float) ($row->unit_price ?? 0);
+
+        return [
+            'supplier_id' => $row->supplier_id,
+            'supplier' => $supplier ? (new SupplierResource($supplier))->toArray(request()) : null,
+            'supplier_name' => $supplier?->name ?? '',
+            'unit_price' => round($unitPrice, 2),
+            'economy_price' => round((float) ($row->economy_price ?? $unitPrice), 2),
+            'standard_price' => round((float) ($row->standard_price ?? $unitPrice), 2),
+            'premium_price' => round((float) ($row->premium_price ?? $unitPrice), 2),
+            'delivery_hours' => (int) ($row->delivery_hours ?? $supplier?->default_delivery_hours ?? 0),
+            'rating' => round((float) ($row->rating ?? $supplier?->rating ?? 0), 1),
+        ];
     }
 
     /**
