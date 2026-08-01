@@ -3,40 +3,25 @@
 namespace Modules\Purchase\Transformers;
 
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
+use Modules\Purchase\Services\SupplierCatalogService;
 
 class BranchItemResource extends JsonResource
 {
     public function toArray($request): array
     {
-        // Get suppliers count for this item (with error handling)
-        // IMPORTANT: Using raw SQL to avoid Eloquent soft delete checks on suppliers table
-        // The suppliers table does NOT have deleted_at column
-        $suppliersCount = 0;
-        try {
-            $result = DB::selectOne(
-                'SELECT COUNT(DISTINCT suppliers.id) as count
-                FROM suppliers
-                WHERE EXISTS (
-                    SELECT 1
-                    FROM expenses
-                    INNER JOIN expense_items ON expense_items.expense_id = expenses.id
-                    WHERE expenses.supplier_id = suppliers.id
-                    AND expense_items.name = ?
-                    AND expenses.deleted_at IS NULL
-                )',
-                [$this->item?->name ?? $this->item_name ?? '']
+        // `suppliers_count` is the number of suppliers this branch can actually
+        // ORDER the item from — the same set the supplier picker lists. It used
+        // to be counted from expense invoices matching the item by name, which
+        // is a different population entirely: the card promised «8 suppliers»
+        // and the picker it opened came back empty.
+        //
+        // PurchaseOrderService::getBranchItems resolves it for the whole page;
+        // the per-row fallback keeps any other caller correct.
+        $suppliersCount = $this->resource->suppliers_count
+            ?? app(SupplierCatalogService::class)->supplierCountForItem(
+                $this->item_id,
+                $request->user()?->branch_id ?? $this->branch_id,
             );
-            $suppliersCount = $result->count ?? 0;
-        } catch (\Exception $e) {
-            // Log the error but don't fail the entire request
-            Log::warning('Error counting suppliers for branch item', [
-                'item_id' => $this->id,
-                'item_name' => $this->item_name,
-                'error' => $e->getMessage(),
-            ]);
-        }
 
         return [
             'id' => $this->id,
@@ -55,7 +40,7 @@ class BranchItemResource extends JsonResource
             'subcategory' => $this->subcategory ?? '',
 
             // Suppliers info
-            'suppliers_count' => $suppliersCount,
+            'suppliers_count' => (int) $suppliersCount,
 
             // For display
             'unit' => $this->item_unit ?? 'kg',
