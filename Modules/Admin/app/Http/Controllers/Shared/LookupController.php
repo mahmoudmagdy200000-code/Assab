@@ -13,6 +13,7 @@ use Modules\Admin\Support\AssetEnums;
 use Modules\Admin\Support\ExpenseEnums;
 use Modules\Admin\Support\ModuleCatalog;
 use Modules\Admin\Support\OperationEnums;
+use Modules\Admin\Support\RoleLabels;
 use Modules\Branch\Models\Branch;
 
 /**
@@ -47,16 +48,45 @@ class LookupController extends AsabController
         return $this->listResponse($q->orderBy('name')->get()->map(fn ($b) => ['id' => $b->id, 'name' => $b->name])->all());
     }
 
+    /**
+     * GET /lookups/users?role=head[&status=active] — the picker behind
+     * «يرفع تقريره إلى» among others.
+     *
+     * It used to return `{id, name, role}` with `role` as the bare English key,
+     * so a picker had a name and nothing to disambiguate two people with the
+     * same one — the option rendered as an unreadable stub («الاسامي غير
+     * واضحة», 2026-08-03). `label` is the ready-to-render string; `roleLabel`
+     * and `email` are there for a client that composes its own.
+     */
     public function users(Request $request): JsonResponse
     {
         $q = AsabUser::query()->with('roleAssignments');
         if ($role = $request->query('role')) {
             $q->whereHas('roleAssignments', fn ($r) => $r->where('role_key', $role));
         }
+        // A deactivated account must not be offered as someone's new manager.
+        if ($status = $request->query('status')) {
+            $q->where('status', $status);
+        }
 
-        return $this->listResponse($q->orderBy('name')->get()->map(fn ($u) => [
-            'id' => $u->id, 'name' => $u->name, 'role' => $u->primaryRole(),
-        ])->all());
+        return $this->listResponse($q->orderBy('name')->get()->map(function ($u) {
+            $roleKey = $u->primaryRole();
+            $roleLabel = RoleLabels::labelAr($roleKey);
+            // Nameless rows exist (an invite that never completed); falling back
+            // to the email keeps the option selectable instead of blank.
+            $name = trim((string) $u->name) !== '' ? $u->name : (string) $u->email;
+
+            return [
+                'id' => $u->id,
+                'name' => $name,
+                'email' => $u->email,
+                'role' => $roleKey,
+                'roleKey' => $roleKey,
+                'roleLabel' => $roleLabel,
+                'status' => $u->status,
+                'label' => $roleLabel === null ? $name : "{$name} — {$roleLabel}",
+            ];
+        })->all());
     }
 
     public function suppliers(Request $request): JsonResponse

@@ -27,7 +27,23 @@ class AsabSubscriptionService
         $base = $currentExpiry && $currentExpiry->isFuture() ? $currentExpiry : now();
         $expires = $base->copy()->addMonths(max(1, $months));
 
-        return ['expires' => $expires, 'daysLeft' => (int) now()->diffInDays($expires)];
+        return ['expires' => $expires, 'daysLeft' => self::daysUntil($expires)];
+    }
+
+    /**
+     * Whole calendar days from today until `$expires`, never negative.
+     *
+     * Day-boundary math, not a raw diff: an expiry 23 hours out is «يوم واحد»
+     * on the card, and Carbon 3's diffInDays returns a SIGNED float, so the old
+     * `(int) now()->diffInDays($expires)` truncated 0.96 to 0 on the last day.
+     */
+    public static function daysUntil(?Carbon $expires): ?int
+    {
+        if ($expires === null) {
+            return null;
+        }
+
+        return max(0, (int) now()->startOfDay()->diffInDays($expires->copy()->startOfDay(), false));
     }
 
     /** Extend a subscription by N months from the later of now / current expiry. */
@@ -86,7 +102,18 @@ class AsabSubscriptionService
             'plan' => $s->plan,
             'status' => $s->status,
             'expiresAt' => optional($s->expires_at)->toIso8601String(),
-            'daysLeft' => $s->days_left,
+            // The card prints a DATE, and the ISO timestamp rendered raw on it
+            // («2026-09-03T15:55:41+03:00» where «03/09/2026» belongs) because
+            // the payload carried no date-only field to bind (reported
+            // 2026-08-03). Both ship; expiresAt stays for existing consumers.
+            'expiresAtDate' => optional($s->expires_at)->toDateString(),
+            // Derived from expires_at on every read. `days_left` is a STORED
+            // column that only CheckExpiringSubscriptions touches, and only for
+            // subscriptions already inside the warning window — so every other
+            // row kept printing the count it was created with and never counted
+            // down.
+            'daysLeft' => self::daysUntil($s->expires_at) ?? $s->days_left,
+            'isExpired' => $s->expires_at !== null && $s->expires_at->isPast(),
             'monthlyPrice' => $s->monthly_price,
             'autoRenew' => (bool) $s->auto_renew,
             'reminderEnabled' => (bool) $s->reminder_enabled,

@@ -173,8 +173,32 @@ class UploadController extends AsabController
      */
     private function brandBranchIds(AsabBrand $brand, bool $backfill = true): array
     {
+        $branches = $this->brandBranches($brand, ['id', 'asab_brand_id'], $backfill);
+
+        return $branches->pluck('id')->all();
+    }
+
+    /**
+     * The brand's branches, by the canonical link OR through its restaurants.
+     *
+     * Every reader of «branches of this brand» must go through here. The
+     * الأصول الثابتة column used to filter on `asab_brand_id` alone, so for a
+     * brand whose branches carry only `asab_restaurant_id` the status call
+     * returned an EMPTY branch list while the screen (which builds its rows from
+     * the restaurants) still drew them — every row then fell back to «لم يُرفع»
+     * no matter how many times the assets were uploaded (reported 2026-08-03).
+     *
+     * @param  string[]  $columns
+     * @return \Illuminate\Database\Eloquent\Collection<int, Branch>
+     */
+    private function brandBranches(AsabBrand $brand, array $columns = ['*'], bool $backfill = true)
+    {
         $restaurantIds = AsabRestaurant::withoutGlobalScope('tenant')
             ->where('brand_id', $brand->id)->pluck('id')->all();
+
+        // asab_brand_id is needed to decide the backfill even when the caller
+        // asked for a narrower column list.
+        $select = $columns === ['*'] ? ['*'] : array_values(array_unique([...$columns, 'id', 'asab_brand_id']));
 
         $branches = Branch::query()
             ->where(function ($q) use ($brand, $restaurantIds) {
@@ -183,7 +207,8 @@ class UploadController extends AsabController
                     $q->orWhereIn('asab_restaurant_id', $restaurantIds);
                 }
             })
-            ->get(['id', 'asab_brand_id']);
+            ->orderBy('name')
+            ->get($select);
 
         if ($backfill) {
             $unlinked = $branches->filter(fn (Branch $b) => $b->asab_brand_id !== $brand->id)
@@ -193,7 +218,7 @@ class UploadController extends AsabController
             }
         }
 
-        return $branches->pluck('id')->all();
+        return $branches;
     }
 
     /**
@@ -281,16 +306,26 @@ class UploadController extends AsabController
         $unit = trim((string) ($row[$hasSubCategory ? 4 : 3] ?? '')) ?: null;
         $priceHalalas = $this->toHalalas($row[$hasSubCategory ? 5 : 4] ?? 0);
 
-        InventoryCatalogItem::create([
-            'brand_id' => $brand->id,
-            'type' => $type === 'raw-materials' ? InventoryCatalogItem::TYPE_RAW_MATERIAL : InventoryCatalogItem::TYPE_SALES_ITEM,
-            'name' => $name,
-            'code' => $code !== '' ? $code : null,
-            'category' => $category,
-            'unit' => $unit,
-            'unit_price' => $priceHalalas,
-            'status' => 'active',
-        ]);
+        $catalogType = $type === 'raw-materials' ? InventoryCatalogItem::TYPE_RAW_MATERIAL : InventoryCatalogItem::TYPE_SALES_ITEM;
+
+        // Idempotent on re-upload, like importSupplierRow: the template download
+        // now ships the brand's SAVED rows, so «download → correct → re-upload»
+        // is the normal edit path and a plain create() would double the catalog
+        // on every pass. Matched on the row's code, or on its name when the
+        // sheet is codeless.
+        InventoryCatalogItem::updateOrCreate(
+            [
+                'brand_id' => $brand->id,
+                'type' => $catalogType,
+            ] + ($code !== '' ? ['code' => $code] : ['code' => null, 'name' => $name]),
+            [
+                'name' => $name,
+                'category' => $category,
+                'unit' => $unit,
+                'unit_price' => $priceHalalas,
+                'status' => 'active',
+            ],
+        );
 
         // BUG-9 write-through: surface the row's category in the mobile Expense
         // taxonomy (`categories`) so the app's «الأصناف»/«المصروفات» pickers are
@@ -521,10 +556,20 @@ class UploadController extends AsabController
         }
 
         $cost = $this->toHalalas($this->cell($row, $map, 'cost'));
+        $serial = $this->text($row, $map, 'serial');
 
-        Asset::create([
+        // A serial number identifies the physical asset, so a re-upload of the
+        // register the download now hands back UPDATES that row rather than
+        // minting a second FA-### for the same machine. Serial-less rows (the
+        // Arabic template has no such column) still always create.
+        $existing = $serial === null ? null : Asset::where('company_id', $owner['company_id'])
+            ->where('branch_id', $owner['branch_id'])
+            ->where('serial', $serial)
+            ->first();
+
+        $attributes = [
             'company_id' => $owner['company_id'],
-            'public_id' => $this->nextFixedAssetPublicId($seq),
+            'public_id' => $existing->public_id ?? $this->nextFixedAssetPublicId($seq),
             'name' => (string) ($this->cell($row, $map, 'name') ?? ''),
             'category' => AssetEnums::canonicalCategory($this->text($row, $map, 'category')),
             'branch_id' => $owner['branch_id'],
@@ -544,7 +589,19 @@ class UploadController extends AsabController
             'status' => 'pending_branch',
             'submitted_by_id' => $request->user()->id,
             'purchased_at' => $this->toDate($this->cell($row, $map, 'purchasedAt')),
-        ]);
+        ];
+
+        if ($existing !== null) {
+            // A corrected sheet re-states the asset's DATA, never its workflow:
+            // an asset the branch has already received must not be dragged back
+            // to pending_branch by a re-upload.
+            unset($attributes['status'], $attributes['submitted_by_id']);
+            $existing->fill($attributes)->save();
+
+            return;
+        }
+
+        Asset::create($attributes);
     }
 
     /** Highest numeric FA- suffix across all assets, including soft-deleted. */
@@ -581,6 +638,17 @@ class UploadController extends AsabController
         ['SN-12346', 'Dining', 'Furniture & Fixtures', 'Dining Table', 9, 4, 3, 2, '2025-07-01', 22000.00, 'Sample only'],
     ];
 
+    /**
+     * GET /admin/upload/templates/{type} — the blank sheet, or the owner's
+     * SAVED rows when the caller names one (`?brandId=` / `?branchId=` /
+     * `?restaurantId=`).
+     *
+     * «بعد رفع جميع البيانات، عند تحميل النموذج مرة أخرى لا يكون فارغاً» —
+     * reported 2026-08-03. The download is the only way to see (and correct)
+     * what the system stored, so once an owner has rows the sheet ships them in
+     * the very layout the importer reads back, and `?withData=0` opts out to the
+     * blank one. An owner with nothing stored still gets the blank template.
+     */
     public function template(Request $request, string $type): Response
     {
         // Unknown/retired template types (e.g. the dropped employees upload)
@@ -593,18 +661,23 @@ class UploadController extends AsabController
         // client's file is purely a UX alignment.
         $isAssets = $type === 'fixed-assets';
         $headers = $isAssets ? self::FIXED_ASSETS_EN_TEMPLATE : self::TEMPLATES[$type];
-        $sampleRows = $isAssets ? self::FIXED_ASSETS_SAMPLE_ROWS : [];
+
+        $saved = $this->savedTemplateRows($request, $type);
+        // Sample rows are scaffolding for an EMPTY sheet — shipping them above
+        // real data would re-import two throwaway assets on the next upload.
+        $rows = $saved ?? ($isAssets ? self::FIXED_ASSETS_SAMPLE_ROWS : []);
+        $name = $saved === null ? "{$type}-template" : "{$type}-data";
 
         // CSV stays available via ?format=csv (UTF-8 BOM for Excel Arabic).
         if ($request->query('format') === 'csv') {
             $csv = "\xEF\xBB\xBF".implode(',', $headers)."\n";
-            foreach ($sampleRows as $row) {
-                $csv .= implode(',', $row)."\n";
+            foreach ($rows as $row) {
+                $csv .= implode(',', array_map([$this, 'csvCell'], $row))."\n";
             }
 
             return response($csv, 200, [
                 'Content-Type' => 'text/csv; charset=UTF-8',
-                'Content-Disposition' => "attachment; filename=\"{$type}-template.csv\"",
+                'Content-Disposition' => "attachment; filename=\"{$name}.csv\"",
             ]);
         }
 
@@ -613,7 +686,7 @@ class UploadController extends AsabController
         $writer = new \OpenSpout\Writer\XLSX\Writer;
         $writer->openToFile($tmp);
         $writer->addRow(\OpenSpout\Common\Entity\Row::fromValues($headers));
-        foreach ($sampleRows as $row) {
+        foreach ($rows as $row) {
             $writer->addRow(\OpenSpout\Common\Entity\Row::fromValues($row));
         }
         $writer->close();
@@ -623,20 +696,166 @@ class UploadController extends AsabController
 
         return response($contents, 200, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'Content-Disposition' => "attachment; filename=\"{$type}-template.xlsx\"",
+            'Content-Disposition' => "attachment; filename=\"{$name}.xlsx\"",
         ]);
+    }
+
+    /**
+     * A cell in the CSV variant. Exported names carry commas and quotes far more
+     * often than the hand-written sample rows did, and an unescaped one shifts
+     * every later column of that row on re-upload.
+     */
+    private function csvCell(mixed $value): string
+    {
+        $value = (string) $value;
+
+        return preg_match('/[",\r\n]/', $value) === 1
+            ? '"'.str_replace('"', '""', $value).'"'
+            : $value;
+    }
+
+    /**
+     * The owner's stored rows for `$type`, laid out exactly like the header the
+     * download ships, or null when no owner was named / nothing is stored yet.
+     *
+     * The owner id is authorized before it is read: these endpoints sit under
+     * the admin group, but a scoped caller (head / accountant) must not be able
+     * to export a brand or branch outside their assignment by guessing its id.
+     *
+     * @return array<int, array<int, mixed>>|null
+     */
+    private function savedTemplateRows(Request $request, string $type): ?array
+    {
+        // Explicit opt-out, for a client that wants the pristine sheet back.
+        if (in_array($request->query('withData'), ['0', 'false'], true)) {
+            return null;
+        }
+
+        $brandId = $request->query('brandId');
+        $branchId = $request->query('branchId');
+        $restaurantId = $request->query('restaurantId');
+
+        $rows = match ($type) {
+            'sales-items', 'raw-materials' => $brandId === null ? null : $this->catalogExportRows($brandId, $type),
+            'suppliers' => $brandId === null ? null : $this->supplierExportRows($brandId),
+            'fixed-assets' => $this->assetExportRows($brandId, $branchId),
+            'employees' => $restaurantId === null ? null : $this->employeeExportRows($restaurantId),
+            default => null,
+        };
+
+        return $rows === [] ? null : $rows;
+    }
+
+    /** @return array<int, array<int, mixed>> */
+    private function catalogExportRows(string $brandId, string $type): array
+    {
+        $this->assertBrandAssigned($brandId);
+
+        return InventoryCatalogItem::where('brand_id', $brandId)
+            ->where('type', $type === 'raw-materials' ? InventoryCatalogItem::TYPE_RAW_MATERIAL : InventoryCatalogItem::TYPE_SALES_ITEM)
+            ->orderBy('name')
+            ->get(['code', 'name', 'category', 'unit', 'unit_price'])
+            // «اسم الفئة» (the sub-category) is not stored on the catalog row —
+            // the importer folds it into the mobile taxonomy only — so it is
+            // exported blank and re-imports flat, exactly like a 5-column sheet.
+            ->map(fn (InventoryCatalogItem $i) => [
+                (string) ($i->code ?? ''), (string) $i->name, (string) ($i->category ?? ''), '',
+                (string) ($i->unit ?? ''), $this->toRiyals($i->unit_price),
+            ])->all();
+    }
+
+    /** @return array<int, array<int, mixed>> */
+    private function supplierExportRows(string $brandId): array
+    {
+        $this->assertBrandAssigned($brandId);
+
+        return AsabSupplier::where('brand_id', $brandId)
+            ->orderBy('name')
+            ->get(['code', 'name', 'category', 'contact_name', 'payment_terms'])
+            ->map(fn (AsabSupplier $s) => [
+                (string) ($s->code ?? ''), (string) $s->name, (string) ($s->category ?? ''),
+                (string) ($s->contact_name ?? ''), (string) ($s->payment_terms ?? ''),
+            ])->all();
+    }
+
+    /**
+     * Assets in the English layout the download ships. A branch exports its own
+     * register; a brand exports the registers of all its branches (assets carry
+     * no brand column, so a brand-level upload — which lands with branch_id
+     * NULL — is deliberately not attributed to one brand of a multi-brand
+     * company).
+     *
+     * @return array<int, array<int, mixed>>|null
+     */
+    private function assetExportRows(?string $brandId, ?string $branchId): ?array
+    {
+        if ($branchId !== null) {
+            $this->assertBranchAssigned($branchId);
+            $branchIds = [$branchId];
+        } elseif ($brandId !== null) {
+            $this->assertBrandAssigned($brandId);
+            $branchIds = $this->brandBranchIds(
+                AsabBrand::withoutGlobalScope('tenant')->findOrFail($brandId),
+                backfill: false,
+            );
+        } else {
+            return null;
+        }
+
+        if ($branchIds === []) {
+            return [];
+        }
+
+        return Asset::whereIn('branch_id', $branchIds)
+            ->orderBy('public_id')
+            ->get()
+            ->map(fn (Asset $a) => [
+                (string) ($a->serial ?? ''), (string) ($a->zone ?? ''), (string) ($a->category ?? ''),
+                (string) $a->name, $a->quantity, $a->qty_excellent, $a->qty_maintenance, $a->qty_problem,
+                optional($a->purchased_at)->format('Y-m-d') ?? '', $this->toRiyals($a->cost),
+                (string) ($a->notes ?? ''),
+            ])->all();
+    }
+
+    /** @return array<int, array<int, mixed>> */
+    private function employeeExportRows(string $restaurantId): array
+    {
+        $restaurant = AsabRestaurant::withoutGlobalScope('tenant')->findOrFail($restaurantId);
+        $this->assertBrandAssigned($restaurant->brand_id);
+
+        $branchNames = Branch::where('asab_restaurant_id', $restaurant->id)->pluck('name', 'id');
+        if ($branchNames->isEmpty()) {
+            return [];
+        }
+
+        return Employee::whereIn('branch_id', $branchNames->keys()->all())
+            ->orderBy('name')
+            ->get()
+            ->map(fn (Employee $e) => [
+                (string) $e->name, (string) ($e->role ?? ''), (string) ($branchNames[$e->branch_id] ?? ''),
+                (string) ($e->phone ?? ''), (string) ($e->national_id ?? ''),
+                $this->toRiyals($e->monthly_salary), (string) ($e->shift_type ?? ''),
+                optional($e->hire_date)->format('Y-m-d') ?? '',
+            ])->all();
+    }
+
+    /** Halalas → the riyals string the sheets are written in (toHalalas' inverse). */
+    private function toRiyals(?int $halalas): string
+    {
+        return number_format(((int) $halalas) / 100, 2, '.', '');
     }
 
     public function status(string $brandId): JsonResponse
     {
         return $this->run(function () use ($brandId) {
+            $brand = AsabBrand::withoutGlobalScope('tenant')->findOrFail($brandId);
             // Read-only (no backfill on a GET): how many branches the brand's
             // catalog write-through can reach. 0 explains an app item list that
             // stays empty after a «تم الرفع ✓».
-            $branchesLinked = count($this->brandBranchIds(
-                AsabBrand::withoutGlobalScope('tenant')->findOrFail($brandId),
-                backfill: false,
-            ));
+            $branchIds = $this->brandBranchIds($brand, backfill: false);
+            $restaurantIds = AsabRestaurant::withoutGlobalScope('tenant')
+                ->where('brand_id', $brand->id)->pluck('id')->all();
+
             // Brand uploads are the only rows keyed to a brand id; branch
             // uploads are stamped owner_type='branch' with a Branch id and are
             // read back through branchStatus().
@@ -645,11 +864,20 @@ class UploadController extends AsabController
                 ->get();
 
             $has = $this->completedPredicate($rows);
-            // The four brand-level steps. fixed-assets used to be excluded from
-            // the denominator while still appearing in uploads[], so a brand that
-            // had uploaded its assets read as 0% credit for that step and the two
-            // fields disagreed.
-            $steps = ['sales-items', 'raw-materials', 'suppliers', 'fixed-assets'];
+            // «بيانات مشتركة» is the three catalog cards the screen actually
+            // offers at brand level. fixed-assets was folded in here on
+            // 2026-07-20, which pinned the tile at 3/4 and «اكتمال الإعداد» at
+            // 75% for a brand that had uploaded everything the screen asks for
+            // (reported 2026-08-03) — assets are uploaded PER BRANCH and are
+            // counted in `summary.branchAssets` instead.
+            $sharedSteps = ['sales-items', 'raw-materials', 'suppliers'];
+            $sharedDone = collect($sharedSteps)->filter($has)->count();
+
+            $branchAssetsDone = $this->completedOwnerCount('branch', $branchIds, 'fixed-assets');
+            $employeesDone = $this->completedOwnerCount('restaurant', $restaurantIds, 'employees');
+
+            $done = $sharedDone + $branchAssetsDone + $employeesDone;
+            $total = count($sharedSteps) + count($branchIds) + count($restaurantIds);
 
             return $this->ok([
                 'uploads' => $this->presentUploads($rows),
@@ -657,12 +885,44 @@ class UploadController extends AsabController
                     'sales' => $has('sales-items'),
                     'materials' => $has('raw-materials'),
                     'suppliers' => $has('suppliers'),
-                    'fixedAssets' => $has('fixed-assets'),
                 ],
-                'completionPct' => (int) round(collect($steps)->filter($has)->count() / count($steps) * 100),
-                'branchesLinked' => $branchesLinked,
+                // Brand-level asset upload, kept OUT of `shared` so the three
+                // shared cards and the tile that counts them agree.
+                'brandFixedAssets' => $has('fixed-assets'),
+                'completionPct' => $total === 0 ? 0 : (int) round($done / $total * 100),
+                'branchesLinked' => count($branchIds),
+                // «ملخص رفع البيانات» — every tile on the screen, computed here
+                // so the FE stops deriving them from four different payloads.
+                'summary' => [
+                    'shared' => ['done' => $sharedDone, 'total' => count($sharedSteps)],
+                    'branchAssets' => ['done' => $branchAssetsDone, 'total' => count($branchIds)],
+                    'restaurantEmployees' => ['done' => $employeesDone, 'total' => count($restaurantIds)],
+                    'completionPct' => $total === 0 ? 0 : (int) round($done / $total * 100),
+                ],
             ]);
         });
+    }
+
+    /**
+     * How many of the given owners have a SUCCESSFUL upload of `$type`.
+     *
+     * Mirrors completedPredicate() at the query layer (a NULL status predates
+     * the column and reads as done, exactly as it does per row).
+     *
+     * @param  string[]  $ownerIds
+     */
+    private function completedOwnerCount(string $ownerType, array $ownerIds, string $type): int
+    {
+        if ($ownerIds === []) {
+            return 0;
+        }
+
+        return UploadStatus::where('owner_type', $ownerType)
+            ->whereIn('owner_id', $ownerIds)
+            ->where('upload_type', $type)
+            ->where('uploaded_count', '>', 0)
+            ->where(fn ($q) => $q->where('status', 'done')->orWhereNull('status'))
+            ->count();
     }
 
     /**
@@ -706,9 +966,10 @@ class UploadController extends AsabController
             $brand = AsabBrand::withoutGlobalScope('tenant')->findOrFail($brandId);
             $this->assertBrandAssigned($brand->id);
 
-            $branches = Branch::where('asab_brand_id', $brand->id)
-                ->orderBy('name')
-                ->get(['id', 'name', 'asab_restaurant_id']);
+            // Resolved through the shared helper: a branch linked only by
+            // `asab_restaurant_id` belongs to this brand too, and filtering on
+            // `asab_brand_id` alone answered «no branches» for it.
+            $branches = $this->brandBranches($brand, ['id', 'name', 'asab_restaurant_id']);
             $restaurantNames = AsabRestaurant::withoutGlobalScope('tenant')
                 ->whereIn('id', $branches->pluck('asab_restaurant_id')->filter()->unique()->all())
                 ->pluck('name', 'id');

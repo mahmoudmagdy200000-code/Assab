@@ -4,6 +4,7 @@ namespace Modules\Admin\Http\Controllers\Admin;
 
 use Illuminate\Http\JsonResponse;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Services\AsabSubscriptionService;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
@@ -34,11 +35,12 @@ class OverviewController extends AsabController
                 'branchCount' => 0,
                 'plan' => $b->plan,
                 'subStatus' => $b->sub_status,
-                'daysLeft' => $b->days_left,
+                'daysLeft' => AsabSubscriptionService::daysUntil($b->expires) ?? $b->days_left,
             ])->values()->all(),
             'expiringBrands' => $expiring->map(fn ($b) => [
                 'id' => $b->id, 'name' => $b->name, 'abbr' => $b->abbr,
-                'color' => $b->color, 'subStatus' => $b->sub_status, 'daysLeft' => $b->days_left,
+                'color' => $b->color, 'subStatus' => $b->sub_status,
+                'daysLeft' => AsabSubscriptionService::daysUntil($b->expires) ?? $b->days_left,
             ])->values()->all(),
             'accountantsByRole' => $this->roleCounts(),
         ]);

@@ -480,9 +480,15 @@ class AdminBrandUploadTest extends TestCase
         $res->assertStatus(200)
             ->assertJsonPath('shared.sales', true)
             ->assertJsonPath('shared.materials', false)
-            // 1 of the 4 brand-level steps (sales, materials, suppliers, assets).
-            ->assertJsonPath('shared.fixedAssets', false)
-            ->assertJsonPath('completionPct', 25);
+            // «بيانات مشتركة» is the three catalog cards the screen offers, and
+            // this brand has no branch/restaurant step yet, so 1 of 3.
+            ->assertJsonPath('summary.shared.done', 1)
+            ->assertJsonPath('summary.shared.total', 3)
+            ->assertJsonPath('summary.branchAssets.total', 0)
+            ->assertJsonPath('summary.restaurantEmployees.total', 0)
+            // Brand-level assets are their own flag, never one of the three.
+            ->assertJsonPath('brandFixedAssets', false)
+            ->assertJsonPath('completionPct', 33);
     }
 
     public function test_status_does_not_count_a_failed_upload_as_complete(): void

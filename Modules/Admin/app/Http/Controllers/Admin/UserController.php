@@ -19,15 +19,13 @@ use Modules\Admin\Services\CredentialMailer;
 use Modules\Admin\Services\CredentialSyncService;
 use Modules\Admin\Services\IdentityMapService;
 use Modules\Admin\Services\Provisioning\LegacyProvisionerRegistry;
+use Modules\Admin\Support\RoleLabels;
 use Modules\Branch\Models\Branch;
 
 class UserController extends AsabController
 {
-    private const ROLE_LABELS = [
-        'accountant' => 'محاسب', 'head' => 'رئيس حسابات', 'branch' => 'مدير فرع',
-        'procurement' => 'مدير مشتريات', 'supplier' => 'مورد', 'admin' => 'أدمن',
-        'brand-owner' => 'مالك العلامة التجارية',
-    ];
+    /** @see RoleLabels — shared with the lookups the pickers read. */
+    private const ROLE_LABELS = RoleLabels::LABELS;
 
     /**
      * Why an accountant's restaurants/scope are refused here rather than dropped.

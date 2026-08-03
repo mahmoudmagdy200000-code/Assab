@@ -267,8 +267,10 @@ class BrandController extends AsabController
         return [
             'brandId' => $b->id,
             'subStatus' => $b->sub_status,
-            'daysLeft' => $b->days_left,
+            // Derived, not the stored column — see AsabSubscriptionService.
+            'daysLeft' => AsabSubscriptionService::daysUntil($b->expires) ?? $b->days_left,
             'expiresAt' => optional($b->expires)->toIso8601String(),
+            'expiresAtDate' => optional($b->expires)->toDateString(),
         ];
     }
 
@@ -290,7 +292,9 @@ class BrandController extends AsabController
             'ownerUserId' => $b->owner_user_id,
             'plan' => $b->plan,
             'subStatus' => $b->sub_status,
-            'daysLeft' => $b->days_left,
+            'daysLeft' => AsabSubscriptionService::daysUntil($b->expires) ?? $b->days_left,
+            'expiresAt' => optional($b->expires)->toIso8601String(),
+            'expiresAtDate' => optional($b->expires)->toDateString(),
             'modules' => $b->modules ?? [],
             'moduleCount' => count($effectiveModules),
             'status' => $b->status,
