@@ -531,7 +531,18 @@ Route::prefix('v1')->group(function () {
                 Route::post('orders/consolidate', [ProcurementController::class, 'consolidate']);
                 Route::post('orders/{groupId}/send', [ProcurementController::class, 'send']);
                 Route::get('suppliers', [ProcurementController::class, 'suppliers']);
+                // «كتالوج الأصناف» — read AND write. A PLATFORM procurement
+                // account (company_id NULL) cannot use the /company/me surface
+                // at all (ResolveTenant answers «المستخدم غير مرتبط بشركة»), so
+                // without these it could never add an item (2026-08-04).
+                // Literal segments before items/{id}.
+                Route::get('items/template', [ProcurementCompanyController::class, 'itemsTemplate']);
+                Route::post('items/import', [ProcurementCompanyController::class, 'importItems']);
                 Route::get('items', [ProcurementController::class, 'items']);
+                Route::post('items', [ProcurementCompanyController::class, 'storeItem']);
+                Route::get('items/{id}/price-history', [ProcurementCompanyController::class, 'priceHistory']);
+                Route::patch('items/{id}', [ProcurementCompanyController::class, 'updateItem']);
+                Route::delete('items/{id}', [ProcurementCompanyController::class, 'destroyItem']);
 
                 // Mobile purchase-order pipeline (meeting flow: app request → dashboard
                 // decision). Literal segments before the {id} route.
@@ -871,6 +882,8 @@ Route::prefix('v1')->group(function () {
                     Route::get('supplier-requests', [ProcurementCompanyController::class, 'supplierRequests']);
                     Route::post('supplier-requests/{id}/approve', [ProcurementCompanyController::class, 'approveSupplierRequest']);
                     Route::get('items/export', [CompanyExportController::class, 'procurementItemsExport']);
+                    Route::get('items/template', [ProcurementCompanyController::class, 'itemsTemplate']);
+                    Route::post('items/import', [ProcurementCompanyController::class, 'importItems']);
                     Route::get('items/{id}/price-history', [ProcurementCompanyController::class, 'priceHistory']);
                     Route::get('items', [ProcurementController::class, 'items']);
                     Route::post('items', [ProcurementCompanyController::class, 'storeItem']);

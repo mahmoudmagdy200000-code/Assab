@@ -17,6 +17,7 @@ use Modules\Admin\Models\SupplierRequest;
 use Modules\Admin\Services\OperationFactory;
 use Modules\Admin\Services\OperationService;
 use Modules\Admin\Services\ProcurementCatalogBridgeService;
+use Modules\Admin\Services\SupplierItemImportService;
 
 /**
  * Company-scoped Procurement surface — NEW endpoints beyond the shared
@@ -199,10 +200,13 @@ class ProcurementCompanyController extends AsabController
                 'lastPriceHalalas' => 'sometimes|integer|min:0',
                 // doc field `defaultPriceHalalas` is an alias for lastPriceHalalas.
                 'defaultPriceHalalas' => 'sometimes|integer|min:0',
+                // …and this is the decimal the «آخر سعر (ر.س)» field holds. Sent
+                // into the halalas fields, 500 ر.س stored as 5.00 (2026-08-04).
+                'lastPriceSar' => 'sometimes|numeric|min:0',
                 'category' => 'sometimes|nullable|string|max:80', 'supplierId' => 'sometimes|nullable|string',
                 'brandId' => 'sometimes|nullable|string', 'code' => 'sometimes|nullable|string|max:32',
             ]);
-            $price = $data['lastPriceHalalas'] ?? $data['defaultPriceHalalas'] ?? null;
+            $price = $this->priceHalalas($data);
             $item = DB::transaction(function () use ($request, $data, $price) {
                 $item = SupplierItem::create([
                     'company_id' => $request->user()->company_id, 'brand_id' => $data['brandId'] ?? null,
@@ -221,7 +225,8 @@ class ProcurementCompanyController extends AsabController
 
             return $this->created([
                 'id' => $item->id, 'name' => $item->name, 'unit' => $item->unit, 'category' => $item->category,
-                'brandId' => $item->brand_id, 'supplierId' => $item->supplier_id, 'lastPriceHalalas' => $item->price,
+                'brandId' => $item->brand_id, 'supplierId' => $item->supplier_id,
+                'lastPriceHalalas' => $item->price, 'lastPriceSar' => round(((int) $item->price) / 100, 2),
             ]);
         });
     }
@@ -229,30 +234,120 @@ class ProcurementCompanyController extends AsabController
     public function updateItem(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $item = SupplierItem::where('company_id', $request->user()->company_id)->findOrFail($id);
+            $item = $this->ownedItem($request, $id);
             $data = $request->validate([
                 'name' => 'sometimes|string|max:200', 'unit' => 'sometimes|string|max:16',
                 'lastPriceHalalas' => 'sometimes|integer|min:0', 'status' => 'sometimes|string|max:16',
+                'lastPriceSar' => 'sometimes|numeric|min:0',
                 'brandId' => 'sometimes|nullable|string', 'supplierId' => 'sometimes|nullable|string',
             ]);
-            DB::transaction(function () use ($item, $data) {
+            $price = $this->priceHalalas($data);
+            DB::transaction(function () use ($item, $data, $price) {
                 // Capture the price change BEFORE the update syncs the model's originals.
-                $priceChanged = isset($data['lastPriceHalalas']) && $data['lastPriceHalalas'] !== (int) $item->price;
+                $priceChanged = $price !== null && $price !== (int) $item->price;
                 $item->update(array_filter([
                     'name' => $data['name'] ?? null, 'unit' => $data['unit'] ?? null,
-                    'price' => $data['lastPriceHalalas'] ?? null, 'status' => $data['status'] ?? null,
+                    'price' => $price, 'status' => $data['status'] ?? null,
                     'brand_id' => $data['brandId'] ?? null, 'supplier_id' => $data['supplierId'] ?? null,
                 ], fn ($v) => $v !== null));
                 // Append a price-history point AFTER the item reflects the new
                 // supplier, so the row is attributed to the right supplier (T11.12).
                 if ($priceChanged) {
-                    $this->recordPrice($item, $data['lastPriceHalalas']);
+                    $this->recordPrice($item, $price);
                 }
                 $this->bridge->syncItem($item);
             });
 
-            return $this->ok(['id' => $item->id, 'name' => $item->name, 'brandId' => $item->brand_id, 'lastPriceHalalas' => $item->price]);
+            return $this->ok([
+                'id' => $item->id, 'name' => $item->name, 'brandId' => $item->brand_id,
+                'lastPriceHalalas' => $item->price, 'lastPriceSar' => round(((int) $item->price) / 100, 2),
+            ]);
         });
+    }
+
+    /**
+     * The catalog row this actor may WRITE.
+     *
+     * A tenant procurement user owns their company's rows. A PLATFORM
+     * procurement user (company_id NULL — they buy for ASAB, not for one
+     * company) owns the companyless rows: `where('company_id', null)` compiles
+     * to `= NULL` and matches nothing, so the platform account could create an
+     * item and then never edit it («لا يمكن إضافة صنف»/404, 2026-08-04). It must
+     * stay a whereNull — a platform account editing a company's private catalog
+     * would be a cross-tenant write.
+     */
+    /**
+     * The price in halalas from whichever field the client sent, or null when
+     * the request carries no price at all.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function priceHalalas(array $data): ?int
+    {
+        if (isset($data['lastPriceHalalas'])) {
+            return (int) $data['lastPriceHalalas'];
+        }
+        if (isset($data['defaultPriceHalalas'])) {
+            return (int) $data['defaultPriceHalalas'];
+        }
+        if (isset($data['lastPriceSar'])) {
+            return (int) round(((float) $data['lastPriceSar']) * 100);
+        }
+
+        return null;
+    }
+
+    private function ownedItem(Request $request, string $id): SupplierItem
+    {
+        $companyId = $request->user()->company_id;
+
+        return SupplierItem::query()
+            ->when($companyId, fn ($q) => $q->where('company_id', $companyId), fn ($q) => $q->whereNull('company_id'))
+            ->findOrFail($id);
+    }
+
+    /**
+     * POST /procurement/items/import (and the /company/me alias) — bulk
+     * «كتالوج الأصناف» upload. The screen shipped an Excel button with no
+     * endpoint behind it, so a catalog could only be typed in row by row.
+     */
+    public function importItems(Request $request, SupplierItemImportService $importer): JsonResponse
+    {
+        return $this->run(function () use ($request, $importer) {
+            $request->validate(['file' => 'required|file|mimes:xlsx,xls,csv,txt|max:5120']);
+
+            $result = $importer->importForCatalog(
+                $request->file('file'),
+                $request->user()->company_id,
+                $request->input('brandId'),
+            );
+
+            return $this->ok(['itemCount' => $result['count'], 'errors' => $result['errors']]);
+        });
+    }
+
+    /** GET /procurement/items/template?format=xlsx|csv — the sheet the import expects. */
+    public function itemsTemplate(Request $request): \Illuminate\Http\Response
+    {
+        $headers = SupplierItemImportService::TEMPLATE;
+
+        if ($request->query('format') === 'csv') {
+            return response("\xEF\xBB\xBF".implode(',', $headers)."\n", 200, [
+                'Content-Type' => 'text/csv; charset=UTF-8',
+                'Content-Disposition' => 'attachment; filename="items-template.csv"',
+            ]);
+        }
+
+        $tmp = tempnam(sys_get_temp_dir(), 'itm_').'.xlsx';
+        $writer = new \OpenSpout\Writer\XLSX\Writer;
+        $writer->openToFile($tmp);
+        $writer->addRow(\OpenSpout\Common\Entity\Row::fromValues($headers));
+        $writer->close();
+
+        return response(file_get_contents($tmp), 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="items-template.xlsx"',
+        ]);
     }
 
     /**
@@ -274,7 +369,7 @@ class ProcurementCompanyController extends AsabController
     public function destroyItem(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $item = SupplierItem::where('company_id', $request->user()->company_id)->findOrFail($id);
+            $item = $this->ownedItem($request, $id);
             DB::transaction(function () use ($item) {
                 // Deactivate (never hard-delete) the bridged mobile rows first.
                 $this->bridge->deactivateItem($item);
@@ -288,8 +383,14 @@ class ProcurementCompanyController extends AsabController
     public function priceHistory(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $rows = ProcurementItemPrice::where('company_id', $request->user()->company_id)->where('item_id', $id)
-                ->orderByDesc('recorded_at')->get()
+            $companyId = $request->user()->company_id;
+            $rows = ProcurementItemPrice::query()
+                ->when($companyId, fn ($q) => $q->where('company_id', $companyId), fn ($q) => $q->whereNull('company_id'))
+                ->where('item_id', $id)
+                // id is an ordered UUID, so it breaks the tie when two points
+                // land in the same second — otherwise «آخر سعر» could show the
+                // older of two same-second edits.
+                ->orderByDesc('recorded_at')->orderByDesc('id')->get()
                 ->map(fn ($p) => ['supplierId' => $p->supplier_id, 'supplierName' => $p->supplier_name, 'priceHalalas' => $p->price, 'recordedAt' => optional($p->recorded_at)->toIso8601String()])->all();
 
             return $this->listResponse($rows);

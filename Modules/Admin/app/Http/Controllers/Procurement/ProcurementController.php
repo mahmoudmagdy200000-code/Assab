@@ -398,6 +398,8 @@ class ProcurementController extends AsabController
                     'supplierName' => $i->supplier_id ? ($supplierNames[$i->supplier_id] ?? null) : null,
                     'supplierCount' => $suppliers->count(),
                     'lastPriceHalalas' => (int) $i->price,
+                    // The «آخر سعر (ر.س)» column renders this one verbatim.
+                    'lastPriceSar' => round(((int) $i->price) / 100, 2),
                     'available' => (bool) $i->available,
                     'status' => $i->status,
                 ];

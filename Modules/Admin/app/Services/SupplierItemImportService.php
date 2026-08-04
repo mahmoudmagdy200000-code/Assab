@@ -43,19 +43,54 @@ class SupplierItemImportService
     public function __construct(private readonly ProcurementCatalogBridgeService $bridge) {}
 
     /**
+     * The supplier portal's own catalog: rows belong to this login's supplier
+     * record and publish to that supplier's company.
+     *
      * @return array{count:int, errors:array<int, array{row:int, message:string}>}
      */
     public function import(UploadedFile $file, AsabUser $user, AsabSupplier $owner): array
+    {
+        return $this->importFor($file, [
+            'supplier_user_id' => $user->id,
+            'company_id' => $owner->company_id,
+            'supplier_id' => $owner->id,
+            'brand_id' => $owner->brand_id,
+        ]);
+    }
+
+    /**
+     * The procurement catalog («كتالوج الأصناف»). Same sheet, no supplier login
+     * behind it: a platform procurement account carries company_id NULL and its
+     * rows are platform-wide, exactly like the ones its «إضافة صنف» form
+     * creates (2026-08-04).
+     *
+     * @return array{count:int, errors:array<int, array{row:int, message:string}>}
+     */
+    public function importForCatalog(UploadedFile $file, ?string $companyId, ?string $brandId = null): array
+    {
+        return $this->importFor($file, [
+            'supplier_user_id' => null,
+            'company_id' => $companyId,
+            'supplier_id' => null,
+            'brand_id' => $brandId,
+        ]);
+    }
+
+    /**
+     * @param  array<string, string|null>  $owner
+     * @return array{count:int, errors:array<int, array{row:int, message:string}>}
+     */
+    private function importFor(UploadedFile $file, array $owner): array
     {
         [$map, $rows] = $this->parse($file);
         $count = 0;
         $errors = [];
         $items = [];
 
-        DB::transaction(function () use ($rows, $map, $user, $owner, &$count, &$errors, &$items) {
+        DB::transaction(function () use ($rows, $map, $owner, &$count, &$errors, &$items) {
             foreach ($rows as $i => $row) {
                 try {
-                    $items[] = $this->importRow($row, $map, $user, $owner);
+                    $items[] = $this->importRow($row, $map, $owner);
                     $count++;
                 } catch (AsabException $e) {
                     $errors[] = ['row' => $i + 2, 'message' => $e->messageAr ?? $e->getMessage()];
@@ -89,8 +124,11 @@ class SupplierItemImportService
         return ['count' => $count, 'errors' => $errors];
     }
 
-    /** @param  array<string, int>  $map */
-    private function importRow(array $row, array $map, AsabUser $user, AsabSupplier $owner): SupplierItem
+    /**
+     * @param  array<string, int>  $map
+     * @param  array<string, string|null>  $owner
+     */
+    private function importRow(array $row, array $map, array $owner): SupplierItem
     {
         $name = $this->text($row, $map, 'name');
         if ($name === null) {
@@ -101,10 +139,10 @@ class SupplierItemImportService
         $available = $this->toBool($this->cell($row, $map, 'available'));
 
         $attributes = [
-            'supplier_user_id' => $user->id,
-            'company_id' => $owner->company_id,
-            'supplier_id' => $owner->id,
-            'brand_id' => $owner->brand_id,
+            'supplier_user_id' => $owner['supplier_user_id'],
+            'company_id' => $owner['company_id'],
+            'supplier_id' => $owner['supplier_id'],
+            'brand_id' => $owner['brand_id'],
             'name' => $name,
             'code' => $code,
             'unit' => $this->text($row, $map, 'unit'),
@@ -117,9 +155,11 @@ class SupplierItemImportService
             'status' => $available ? 'active' : 'inactive',
         ];
 
-        // Matched inside this login's own catalog only — never across suppliers.
-        $existing = SupplierItem::where('supplier_user_id', $user->id)
-            ->where('supplier_id', $owner->id)
+        // Matched inside THIS catalog only — never across suppliers or tenants.
+        // NULL owner columns must compare with IS NULL: `where(col, null)` never
+        // matches, which would turn every re-upload into a duplicate.
+        $existing = SupplierItem::query()
+            ->where(fn ($q) => $this->scopeToOwner($q, $owner))
             ->when($code !== null, fn ($q) => $q->where('code', $code))
             ->when($code === null, fn ($q) => $q->whereNull('code')->where('name', $name))
             ->first();
@@ -131,6 +171,19 @@ class SupplierItemImportService
         }
 
         return SupplierItem::create($attributes);
+    }
+
+    /**
+     * @param  \Illuminate\Contracts\Database\Query\Builder|\Illuminate\Database\Eloquent\Builder  $query
+     * @param  array<string, string|null>  $owner
+     */
+    private function scopeToOwner($query, array $owner): void
+    {
+        foreach (['supplier_user_id', 'company_id', 'supplier_id'] as $column) {
+            $owner[$column] === null
+                ? $query->whereNull($column)
+                : $query->where($column, $owner[$column]);
+        }
     }
 
     /**

@@ -11,6 +11,18 @@ class ProcurementItemPrice extends Model
 {
     use BelongsToTenant, HasUuids;
 
+    /**
+     * A PLATFORM procurement account keeps its own (companyless) catalog, so it
+     * must be able to read the price history of the rows it owns. Fail-closed
+     * would answer «لا يوجد سجل أسعار» for every platform item. The controller
+     * still narrows to `company_id IS NULL`, so a company's history stays
+     * unreadable from a platform account (2026-08-04).
+     */
+    protected static function platformVisible(): bool
+    {
+        return true;
+    }
+
     protected $table = 'asab_procurement_item_prices';
 
     public $timestamps = false;
