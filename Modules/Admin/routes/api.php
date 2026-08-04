@@ -558,7 +558,11 @@ Route::prefix('v1')->group(function () {
                 Route::post('orders/{id}/accept', [SupplierController::class, 'accept']);
                 Route::post('orders/{id}/reject', [SupplierController::class, 'reject']);
                 Route::post('orders/{id}/mark-delivered', [SupplierController::class, 'markDelivered']);
+                // Literal paths before items/{id} — «export/template/import» must
+                // not be swallowed by the parameterised routes below.
                 Route::get('items/export', [SupplierController::class, 'itemsExport']);
+                Route::get('items/template', [SupplierController::class, 'itemsTemplate']);
+                Route::post('items/import', [SupplierController::class, 'itemsImport']);
                 Route::get('items', [SupplierController::class, 'items']);
                 Route::post('items', [SupplierController::class, 'storeItem']);
                 Route::patch('items/{id}', [SupplierController::class, 'updateItem']);

@@ -12,10 +12,13 @@ return [
     |
     */
 
-    // ASAB dashboard supplier portal (/v1/asab/supplier/*). Hidden per the
-    // client meeting until the supplier module is unified with the mobile
-    // portal; the legacy /v1/supplier/* mobile API is unaffected.
-    'asab_supplier_portal' => (bool) env('FEATURE_ASAB_SUPPLIER_PORTAL', false),
+    // ASAB dashboard supplier portal (/v1/asab/supplier/*). Was hidden per the
+    // 2026-07 meeting; the client now runs the portal (suppliers manage their
+    // own «الأصناف والأسعار»), and with the flag off the routes are not
+    // registered at all — every call 404s and the SPA reports «تعذر الاتصال
+    // بالخادم» (2026-08-04). Default ON; set FEATURE_ASAB_SUPPLIER_PORTAL=false
+    // to hide it again. The legacy /v1/supplier/* mobile API is unaffected.
+    'asab_supplier_portal' => (bool) env('FEATURE_ASAB_SUPPLIER_PORTAL', true),
 
     // Mobile «activate Account»: force a password change before the account can
     // be used. Unlike the flag above this one is REQUEST-TIME behaviour — the

@@ -5,6 +5,7 @@ namespace Modules\Admin\Http\Controllers\Supplier;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Exceptions\AsabException;
@@ -15,6 +16,7 @@ use Modules\Admin\Models\SupplierItem;
 use Modules\Admin\Services\ExportService;
 use Modules\Admin\Services\ProcurementCatalogBridgeService;
 use Modules\Admin\Services\PurchasePresenterService;
+use Modules\Admin\Services\SupplierItemImportService;
 use Modules\Admin\Support\SupplierOrderStatus;
 use Modules\Branch\Models\Branch;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -139,9 +141,13 @@ class SupplierController extends AsabController
                 'code' => 'nullable|string|max:32',
                 'name' => 'required|string|max:200',
                 'unit' => 'nullable|string|max:16',
-                // priceHalalas is the doc field name; price is the legacy alias. Money is integer halalas.
-                'price' => 'required_without:priceHalalas|integer|min:0',
-                'priceHalalas' => 'required_without:price|integer|min:0',
+                // priceHalalas is the doc field name; price is the legacy alias.
+                // BOTH are integer halalas. `priceSar` is the decimal the «السعر
+                // (ر.س)» field actually holds — sending 20 there means 20 ر.س,
+                // sending 20 in `price` means 0.20 ر.س (2026-08-04).
+                'price' => 'required_without_all:priceHalalas,priceSar|integer|min:0',
+                'priceHalalas' => 'required_without_all:price,priceSar|integer|min:0',
+                'priceSar' => 'required_without_all:price,priceHalalas|numeric|min:0',
                 'minQty' => 'nullable|integer|min:0',
                 'maxQty' => 'nullable|integer|min:0',
                 'available' => 'nullable|boolean',
@@ -168,7 +174,7 @@ class SupplierController extends AsabController
                     'code' => $data['code'] ?? null,
                     'name' => $data['name'],
                     'unit' => $data['unit'] ?? null,
-                    'price' => $data['priceHalalas'] ?? $data['price'],
+                    'price' => $this->priceHalalas($data),
                     'min_qty' => $data['minQty'] ?? null,
                     'max_qty' => $data['maxQty'] ?? null,
                     'available' => $available,
@@ -197,6 +203,8 @@ class SupplierController extends AsabController
                 // priceHalalas is the doc field name; price is the legacy alias. Money is integer halalas.
                 'price' => 'sometimes|integer|min:0',
                 'priceHalalas' => 'sometimes|integer|min:0',
+                // Decimal ر.س — see storeItem() for why the two live side by side.
+                'priceSar' => 'sometimes|numeric|min:0',
                 'minQty' => 'sometimes|integer|min:0',
                 'maxQty' => 'sometimes|integer|min:0',
                 'available' => 'sometimes|boolean',
@@ -206,7 +214,7 @@ class SupplierController extends AsabController
                 'code' => $data['code'] ?? null,
                 'name' => $data['name'] ?? null,
                 'unit' => $data['unit'] ?? null,
-                'price' => $data['priceHalalas'] ?? $data['price'] ?? null,
+                'price' => $this->priceHalalas($data, null),
                 'min_qty' => $data['minQty'] ?? null,
                 'max_qty' => $data['maxQty'] ?? null,
                 'lead_time_days' => $data['leadTimeDays'] ?? null,
@@ -363,6 +371,54 @@ class SupplierController extends AsabController
         $format = $request->query('format', 'xlsx') === 'csv' ? 'csv' : 'xlsx';
 
         return $this->exports->supplierItems($format, $request->user()->id);
+    }
+
+    /**
+     * GET /asab/supplier/items/template?format=xlsx|csv — the sheet shape the
+     * import expects. The portal's Excel button had no upload target at all
+     * before 2026-08-04, so a supplier could only add items one by one.
+     */
+    public function itemsTemplate(Request $request): Response
+    {
+        $headers = SupplierItemImportService::TEMPLATE;
+
+        if ($request->query('format') === 'csv') {
+            $csv = "\xEF\xBB\xBF".implode(',', $headers)."\n";
+
+            return response($csv, 200, [
+                'Content-Type' => 'text/csv; charset=UTF-8',
+                'Content-Disposition' => 'attachment; filename="supplier-items-template.csv"',
+            ]);
+        }
+
+        $tmp = tempnam(sys_get_temp_dir(), 'sup_').'.xlsx';
+        $writer = new \OpenSpout\Writer\XLSX\Writer;
+        $writer->openToFile($tmp);
+        $writer->addRow(\OpenSpout\Common\Entity\Row::fromValues($headers));
+        $writer->close();
+
+        return response(file_get_contents($tmp), 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="supplier-items-template.xlsx"',
+        ])->withHeaders(['X-Filename' => 'supplier-items-template.xlsx']);
+    }
+
+    /** POST /asab/supplier/items/import — bulk «الأصناف والأسعار» upload. */
+    public function itemsImport(Request $request, SupplierItemImportService $importer): JsonResponse
+    {
+        return $this->run(function () use ($request, $importer) {
+            $request->validate([
+                'file' => 'required|file|mimes:xlsx,xls,csv,txt|max:5120',
+            ]);
+            $owner = $this->ownSupplier($request);
+
+            $result = $importer->import($request->file('file'), $request->user(), $owner);
+
+            return $this->ok([
+                'itemCount' => $result['count'],
+                'errors' => $result['errors'],
+            ]);
+        });
     }
 
     /** GET /asab/supplier/orders/export?status=accepted|rejected&format=xlsx|csv */
@@ -535,6 +591,26 @@ class SupplierController extends AsabController
         return rtrim(rtrim(number_format($n, 3, '.', ''), '0'), '.');
     }
 
+    /**
+     * The stored price in halalas from whichever field the client sent.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function priceHalalas(array $data, ?int $default = 0): ?int
+    {
+        if (isset($data['priceHalalas'])) {
+            return (int) $data['priceHalalas'];
+        }
+        if (isset($data['price'])) {
+            return (int) $data['price'];
+        }
+        if (isset($data['priceSar'])) {
+            return (int) round(((float) $data['priceSar']) * 100);
+        }
+
+        return $default;
+    }
+
     public function presentItem(SupplierItem $i): array
     {
         return [
@@ -544,6 +620,8 @@ class SupplierController extends AsabController
             'unit' => $i->unit,
             'price' => $i->price,
             'priceHalalas' => $i->price,
+            // The «السعر (ر.س)» column renders this one verbatim.
+            'priceSar' => round(((int) $i->price) / 100, 2),
             'minQty' => $i->min_qty,
             'maxQty' => $i->max_qty,
             'available' => $i->available,

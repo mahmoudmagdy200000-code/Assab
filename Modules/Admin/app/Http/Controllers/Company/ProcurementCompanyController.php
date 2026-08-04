@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabSupplier;
+use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\ProcurementItemPrice;
 use Modules\Admin\Models\SupplierItem;
@@ -338,16 +339,37 @@ class ProcurementCompanyController extends AsabController
                 'contactName' => 'sometimes|nullable|string|max:200', 'contactPhone' => 'sometimes|nullable|string|max:32',
                 'contactEmail' => 'sometimes|nullable|email', 'paymentTerms' => 'sometimes|nullable|string|max:80',
             ]);
-            DB::transaction(function () use ($sup, $data) {
+            $previousName = $sup->name;
+            DB::transaction(function () use ($sup, $data, $previousName) {
                 $sup->update(array_filter([
                     'name' => $data['name'] ?? null, 'category' => $data['category'] ?? null, 'contact_name' => $data['contactName'] ?? null,
                     'contact_phone' => $data['contactPhone'] ?? null, 'contact_email' => $data['contactEmail'] ?? null, 'payment_terms' => $data['paymentTerms'] ?? null,
                 ], fn ($v) => $v !== null));
                 $this->bridge->syncSupplier($sup);
+                $this->renameSupplierLogin($sup, $previousName);
             });
 
             return $this->ok(['id' => $sup->id, 'name' => $sup->name]);
         });
+    }
+
+    /**
+     * A supplier login provisioned from the supplier itself carries the
+     * supplier's name (SupplierUserProvisioner seeds one from the other), so a
+     * rename that stopped at asab_suppliers left the portal greeting the old
+     * name. Only rewrite a login whose name still MATCHES the previous supplier
+     * name — a login named after a person is that person's name, not a stale
+     * copy, and must not be overwritten.
+     */
+    private function renameSupplierLogin(AsabSupplier $sup, string $previousName): void
+    {
+        if ($sup->user_id === null || $sup->name === $previousName) {
+            return;
+        }
+
+        AsabUser::where('id', $sup->user_id)
+            ->where('name', $previousName)
+            ->update(['name' => $sup->name]);
     }
 
     public function toggleSupplier(Request $request, string $id): JsonResponse

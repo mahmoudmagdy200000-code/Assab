@@ -142,7 +142,53 @@ class AuthService
             $payload['permissions'] = $this->permissions->forUser($user);
         }
 
+        if ($supplier = $this->supplierIdentity($user)) {
+            $payload['supplier'] = $supplier;
+        }
+
         return $payload;
+    }
+
+    /**
+     * A supplier login's COMMERCIAL identity. `name` above is the person who
+     * signs in; the portal header shows the supplier company, and reading it
+     * from the login meant a renamed supplier still displayed its old name
+     * («اسم المورد لم يحدث في النظام», 2026-08-04). Read live from
+     * asab_suppliers so a rename is visible on the next request.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function supplierIdentity(AsabUser $user): ?array
+    {
+        $isSupplier = $user->roleAssignments->contains(fn ($r) => $r->role_key === 'supplier');
+        if (! $isSupplier) {
+            return null;
+        }
+
+        $records = \Modules\Admin\Models\AsabSupplier::withoutGlobalScope('tenant')
+            ->where('user_id', $user->id)
+            ->orderBy('name')
+            ->get(['id', 'name', 'category', 'company_id', 'status']);
+
+        if ($records->isEmpty()) {
+            return null;
+        }
+
+        $primary = $records->first();
+
+        return [
+            'id' => $primary->id,
+            // The display name for every supplier surface — header included.
+            'name' => $primary->name,
+            'category' => $primary->category,
+            'companyId' => $primary->company_id,
+            'status' => $primary->status,
+            // A login may own several commercial records; the portal needs the
+            // list to send `supplierId` when adding an item.
+            'records' => $records->map(fn ($s) => [
+                'id' => $s->id, 'name' => $s->name, 'status' => $s->status,
+            ])->values()->all(),
+        ];
     }
 
     public function changePassword(AsabUser $user, string $current, string $new): void
