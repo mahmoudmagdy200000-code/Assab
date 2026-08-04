@@ -28,7 +28,18 @@ Route::group(
         ))));
 
         foreach ($moduleRoutes as $file) {
-            require $file;
+            // Every one of these files is ALSO registered by its own module
+            // RouteServiceProvider under /api/v1, so each ->name() in it is
+            // declared twice. Laravel tolerates that at runtime (last one wins
+            // in the name lookup) but `route:cache` refuses to serialize it:
+            //   «Unable to prepare route [api/v1/notifications/unread] for
+            //    serialization. Another route has already been assigned name
+            //    [notifications.unread].»
+            // — which left production unable to cache its routes at all
+            // (2026-08-04). The provider copy keeps the bare names; this
+            // apilocale copy takes a prefix, so `route('notifications.unread')`
+            // still resolves to the canonical /api/v1 URL.
+            Route::name('apilocale.')->group(fn () => require $file);
         }
     }
 );

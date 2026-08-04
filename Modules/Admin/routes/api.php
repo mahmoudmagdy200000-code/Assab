@@ -247,6 +247,11 @@ Route::prefix('v1')->group(function () {
                 Route::post('brands/{brandId}/upload/{type}', [AdminUploadController::class, 'brandUpload']);
                 Route::post('branches/{branchId}/upload/fixed-assets', [AdminUploadController::class, 'fixedAssets']);
                 Route::post('branches/{branchId}/uploads/fixed-assets', [AdminUploadController::class, 'fixedAssets']);
+                // «موظفو الفروع» — the same roster sheet, per branch. Employees
+                // could only be uploaded per restaurant, so a newly added branch
+                // had no way to load its own staff (2026-08-04).
+                Route::post('branches/{branchId}/upload/employees', [AdminUploadController::class, 'branchEmployees']);
+                Route::post('branches/{branchId}/uploads/employees', [AdminUploadController::class, 'branchEmployees']);
                 Route::get('upload/templates/{type}', [AdminUploadController::class, 'template']);
                 Route::get('brands/{brandId}/upload-status', [AdminUploadController::class, 'status']);
                 // The branch counterpart. Without it the owner_type='branch' rows

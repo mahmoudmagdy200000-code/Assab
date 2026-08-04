@@ -1012,12 +1012,19 @@ class UploadController extends AsabController
 
             $has = $this->completedPredicate($rows);
 
+            $done = (int) $has('fixed-assets') + (int) $has('employees');
+
             return $this->ok([
                 'branchId' => $branch->id,
                 'uploads' => $this->presentUploads($rows),
                 'fixedAssets' => $has('fixed-assets'),
+                // `completionPct` keeps its published meaning (fixed assets
+                // only) — the setup screen's existing progress bar reads it.
                 'completionPct' => $has('fixed-assets') ? 100 : 0,
-            ] + $this->fixedAssetsState($rows));
+                // …and this one covers BOTH per-branch datasets now that the
+                // roster can be uploaded per branch too.
+                'overallCompletionPct' => (int) round($done / 2 * 100),
+            ] + $this->fixedAssetsState($rows) + $this->employeesState($rows));
         });
     }
 
@@ -1057,7 +1064,7 @@ class UploadController extends AsabController
                     'restaurantId' => $branch->asab_restaurant_id,
                     'restaurantName' => $restaurantNames[$branch->asab_restaurant_id] ?? null,
                     'uploads' => $this->presentUploads($statuses),
-                ] + $this->fixedAssetsState($statuses);
+                ] + $this->fixedAssetsState($statuses) + $this->employeesState($statuses);
             })->values();
 
             return $this->ok([
@@ -1067,6 +1074,9 @@ class UploadController extends AsabController
                     'branches' => $rows->count(),
                     'uploaded' => $rows->where('fixedAssets', true)->count(),
                     'failed' => $rows->where('fixedAssetsStatus', 'failed')->count(),
+                    // The «موظفو الفروع» column reads these two.
+                    'employeesUploaded' => $rows->where('employees', true)->count(),
+                    'employeesFailed' => $rows->where('employeesStatus', 'failed')->count(),
                 ],
             ]);
         });
@@ -1096,6 +1106,28 @@ class UploadController extends AsabController
     }
 
     /**
+     * The per-branch roster column, same shape as fixedAssetsState so the table
+     * can render both with one component.
+     *
+     * @param  \Illuminate\Support\Collection<int, UploadStatus>  $rows
+     * @return array<string, mixed>
+     */
+    private function employeesState($rows): array
+    {
+        $row = $rows->firstWhere('upload_type', 'employees');
+        $done = $this->completedPredicate($rows)('employees');
+
+        return [
+            'employees' => $done,
+            'employeesStatus' => $row === null ? 'not_uploaded' : ($done ? 'done' : 'failed'),
+            'employeesCount' => (int) ($row->uploaded_count ?? 0),
+            'employeesFailedRows' => (int) ($row->failed_rows ?? 0),
+            'employeesFailureReason' => $row->failure_reason ?? null,
+            'employeesUploadedAt' => optional($row->uploaded_at ?? null)->toIso8601String(),
+        ];
+    }
+
+    /**
      * POST /admin/restaurants/{restaurantId}/upload/employees — the «موظفي
      * المطاعم» roster. Deliberately per RESTAURANT: the screen states كل مطعم له
      * قائمة موظفين مستقلة, and asab_employees is keyed to a branch, so each row's
@@ -1114,56 +1146,152 @@ class UploadController extends AsabController
             $request->validate(['file' => self::FILE_RULES]);
             [$header, $rows] = $this->parse($request->file('file'), 'employees');
 
-            $map = $this->mapEmployeeHeaders($header);
             // Branch names are matched inside this restaurant only, so a name
             // that also exists under another restaurant cannot capture the row.
             $branches = Branch::where('asab_restaurant_id', $restaurant->id)
                 ->pluck('id', 'name')
                 ->mapWithKeys(fn ($id, $name) => [$this->foldBranchName($name) => $id]);
 
-            $count = 0;
-            $errors = [];
-            $cell = fn (array $row, string $key) => isset($map[$key]) ? trim((string) ($row[$map[$key]] ?? '')) : '';
-
-            DB::transaction(function () use ($rows, $cell, $branches, $restaurant, &$count, &$errors) {
-                foreach ($rows as $i => $row) {
-                    try {
-                        $name = $cell($row, 'name');
-                        $role = $cell($row, 'role');
-                        if ($name === '' || $role === '') {
-                            throw new \RuntimeException('اسم الموظف والوظيفة مطلوبان');
-                        }
-
-                        $branchName = $cell($row, 'branch');
-                        $branchId = $branchName === '' ? null : $branches->get($this->foldBranchName($branchName));
-                        // Unlike the fixed-assets importer, an unmatched branch
-                        // name is reported rather than silently nulled — a roster
-                        // row landing on no branch is invisible to the branch
-                        // screens that consume it.
-                        if ($branchName !== '' && $branchId === null) {
-                            throw new \RuntimeException("لا يوجد فرع باسم «{$branchName}» ضمن هذا المطعم");
-                        }
-
-                        $this->importEmployeeRow($restaurant, $branchId, [
-                            'name' => $name,
-                            'role' => $role,
-                            'phone' => $cell($row, 'phone') ?: null,
-                            'nationalId' => $cell($row, 'nationalId') ?: null,
-                            'salary' => $cell($row, 'salary'),
-                            'shift' => $cell($row, 'shift') ?: null,
-                            'hireDate' => $cell($row, 'hireDate') ?: null,
-                        ]);
-                        $count++;
-                    } catch (\Throwable $e) {
-                        $errors[] = ['row' => $i + 2, 'message' => $e->getMessage()];
+            $result = $this->importEmployeeRows(
+                $rows,
+                $this->mapEmployeeHeaders($header),
+                $restaurant,
+                // Unlike the fixed-assets importer, an unmatched branch name is
+                // reported rather than silently nulled — a roster row landing on
+                // no branch is invisible to the branch screens that consume it.
+                function (string $branchName) use ($branches): ?string {
+                    if ($branchName === '') {
+                        return null;
                     }
-                }
-            });
+                    $id = $branches->get($this->foldBranchName($branchName));
+                    if ($id === null) {
+                        throw new \RuntimeException("لا يوجد فرع باسم «{$branchName}» ضمن هذا المطعم");
+                    }
 
-            $this->stampStatus('restaurant', $restaurant->id, 'employees', $count, $request, $errors);
+                    return $id;
+                },
+            );
 
-            return $this->ok(['employeeCount' => $count, 'errors' => $errors]);
+            $this->stampStatus('restaurant', $restaurant->id, 'employees', $result['count'], $request, $result['errors']);
+
+            return $this->ok(['employeeCount' => $result['count'], 'errors' => $result['errors']]);
         });
+    }
+
+    /**
+     * POST /admin/branches/{branchId}/upload/employees — the SAME roster sheet,
+     * uploaded for ONE branch.
+     *
+     * The screen sets up a brand branch by branch, and employees were the only
+     * dataset with no per-branch entry point: the roster could be loaded per
+     * restaurant only, so a newly added branch had nowhere to upload its own
+     * staff from («أين رفع موظفي الفروع لكل فرع», 2026-08-04). Every row lands on
+     * THIS branch; an «اسم الفرع» column naming a different branch is a row
+     * error rather than a silent misfile.
+     */
+    public function branchEmployees(Request $request, string $branchId): JsonResponse
+    {
+        return $this->run(function () use ($request, $branchId) {
+            $branch = Branch::findOrFail($branchId);
+            $this->assertBranchAssigned($branch->id);
+            $request->validate(['file' => self::FILE_RULES]);
+
+            $restaurant = $this->branchRestaurant($branch);
+            [$header, $rows] = $this->parse($request->file('file'), 'employees');
+
+            $expected = $this->foldBranchName($branch->name);
+            $result = $this->importEmployeeRows(
+                $rows,
+                $this->mapEmployeeHeaders($header),
+                $restaurant,
+                function (string $branchName) use ($branch, $expected): ?string {
+                    if ($branchName !== '' && $this->foldBranchName($branchName) !== $expected) {
+                        throw new \RuntimeException("هذا الملف يخص فرع «{$branch->name}» — الصف يذكر «{$branchName}»");
+                    }
+
+                    return $branch->id;
+                },
+            );
+
+            $this->stampStatus('branch', $branch->id, 'employees', $result['count'], $request, $result['errors']);
+            $this->assertSomethingImported(['count' => $result['count'], 'errors' => $result['errors']]);
+
+            return $this->ok(['employeeCount' => $result['count'], 'errors' => $result['errors']]);
+        });
+    }
+
+    /**
+     * The restaurant a branch belongs to — employees carry the company through
+     * it. A branch linked to no restaurant cannot own a roster: asab_employees
+     * is NOT NULL on company_id, so say so instead of failing every row.
+     */
+    private function branchRestaurant(Branch $branch): AsabRestaurant
+    {
+        $restaurant = $branch->asab_restaurant_id
+            ? AsabRestaurant::withoutGlobalScope('tenant')->find($branch->asab_restaurant_id)
+            : null;
+
+        if ($restaurant !== null) {
+            $this->assertBrandAssigned($restaurant->brand_id);
+
+            return $restaurant;
+        }
+
+        // A branch that carries the company link but no restaurant still has a
+        // valid roster home; synthesise the carrier rather than refusing.
+        if ($branch->asab_company_id) {
+            return new AsabRestaurant(['company_id' => $branch->asab_company_id, 'brand_id' => $branch->asab_brand_id]);
+        }
+
+        throw new AsabException(
+            'BRANCH_NOT_LINKED',
+            'This branch is not linked to a restaurant/company, so its roster cannot be stored.',
+            'هذا الفرع غير مرتبط بمطعم/شركة، فلا يمكن حفظ موظفيه. اربط الفرع أولاً.',
+            422,
+            ['branchId' => $branch->id],
+        );
+    }
+
+    /**
+     * Shared roster loop for both entry points. `$resolveBranch` receives the
+     * row's «اسم الفرع» cell and returns the branch id (or throws a row error).
+     *
+     * @param  array<int, array<int, mixed>>  $rows
+     * @param  array<string, int>  $map
+     * @return array{count:int, errors:array<int, array{row:int, message:string}>}
+     */
+    private function importEmployeeRows(array $rows, array $map, AsabRestaurant $restaurant, callable $resolveBranch): array
+    {
+        $count = 0;
+        $errors = [];
+        $cell = fn (array $row, string $key) => isset($map[$key]) ? trim((string) ($row[$map[$key]] ?? '')) : '';
+
+        DB::transaction(function () use ($rows, $cell, $restaurant, $resolveBranch, &$count, &$errors) {
+            foreach ($rows as $i => $row) {
+                try {
+                    $name = $cell($row, 'name');
+                    $role = $cell($row, 'role');
+                    if ($name === '' || $role === '') {
+                        throw new \RuntimeException('اسم الموظف والوظيفة مطلوبان');
+                    }
+
+                    $this->importEmployeeRow($restaurant, $resolveBranch($cell($row, 'branch')), [
+                        'name' => $name,
+                        'role' => $role,
+                        'phone' => $cell($row, 'phone') ?: null,
+                        'nationalId' => $cell($row, 'nationalId') ?: null,
+                        'salary' => $cell($row, 'salary'),
+                        'shift' => $cell($row, 'shift') ?: null,
+                        'hireDate' => $cell($row, 'hireDate') ?: null,
+                    ]);
+                    $count++;
+                } catch (\Throwable $e) {
+                    $errors[] = ['row' => $i + 2, 'message' => $e->getMessage()];
+                }
+            }
+        });
+
+        return ['count' => $count, 'errors' => $errors];
     }
 
     /**

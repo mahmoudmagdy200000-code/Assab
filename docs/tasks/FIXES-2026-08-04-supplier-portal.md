@@ -36,6 +36,11 @@ php artisan config:cache && php artisan route:cache
 للتحقق: `php artisan route:list --path=asab/supplier` يجب أن يعرض مسارات
 `items` و`items/import`.
 
+> **ملاحظة:** `route:cache` كان يفشل على السيرفر بالخطأ
+> «Unable to prepare route [api/v1/notifications/unread] for serialization.
+> Another route has already been assigned name [notifications.unread]» — راجع
+> قسم «كاش المسارات» أدناه؛ تم إصلاحه في نفس الدفعة.
+
 ### السبب الثاني — لا يوجد مسار رفع إكسيل أصلًا
 
 كان موجودًا `GET items/export` فقط؛ زر Excel في الشاشة لم يكن له endpoint يناديه.
@@ -105,6 +110,47 @@ POST /api/v1/asab/supplier/items/import      (multipart: file=xlsx|xls|csv, ≤5
 **للفرونت:** اعرض `supplier.name` في ترويسة بوابة المورد و`name` في بطاقة المستخدم أسفل القائمة.
 
 2. `PATCH /company/me/suppliers/{id}` صار يُحدِّث اسم حساب الدخول أيضًا — لكن **فقط** إذا كان مطابقًا للاسم القديم للمورد (أي منسوخًا عنه عند الإنشاء). حساب باسم شخص لا يُلمس.
+
+---
+
+---
+
+## 3) كاش المسارات كان يفشل — `route:cache`
+
+```
+Unable to prepare route [api/v1/notifications/unread] for serialization.
+Another route has already been assigned name [notifications.unread].
+```
+
+**السبب:** كل ملف `Modules/*/routes/api.php` يُسجَّل **مرتين** عن قصد:
+
+1. من `RouteServiceProvider` الخاص بالموديول تحت البادئة `/api/v1`،
+2. من `routes/api.php` داخل مجموعة `apilocale` تحت `/api` (أُضيفت في إصلاح
+   2026-07-31 حتى لا تختفي 14 موديولًا على المضيف الحساس لحالة الأحرف).
+
+فكل `->name()` داخل تلك الملفات (≈400 اسم) كان مُعلنًا مرتين. لارافيل يتسامح مع
+ذلك أثناء التشغيل لكن `route:cache` يرفض التسلسل — فبقي الإنتاج بلا كاش مسارات
+أصلًا، ومعه تُدفع كلفة تجميع ~1500 مسار في كل طلب.
+
+**ما تم:** النسخة الثانية (نسخة `apilocale`) صارت تأخذ بادئة أسماء:
+
+```php
+Route::name('apilocale.')->group(fn () => require $file);
+```
+
+فتبقى الأسماء المجرّدة (`notifications.unread`) للنسخة القانونية تحت `/api/v1`،
+ولا يتغيّر أي مسار URL. اختبار `tests/Feature/RouteCacheableTest.php` يمنع تكرار
+أي اسم مستقبلًا.
+
+**على الإنتاج:**
+
+```bash
+php artisan route:clear && php artisan route:cache   # ينجح الآن
+php artisan config:clear && php artisan config:cache
+```
+
+> بما أن المسارات ستصبح مُخزَّنة، أي تغيير في `FEATURE_ASAB_SUPPLIER_PORTAL`
+> يتطلب `route:clear && route:cache` من جديد.
 
 ---
 
