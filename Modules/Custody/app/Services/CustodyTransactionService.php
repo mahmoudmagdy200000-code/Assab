@@ -15,6 +15,10 @@ class CustodyTransactionService
     {
         $query = CustodyTransaction::where('branch_manager_id', $branchManagerId);
 
+        if (! empty($filters['branchId'])) {
+            $query->where('branch_id', $filters['branchId']);
+        }
+
         // Type filter
         if (! empty($filters['type'])) {
             // Normalize the value to match database values exactly
@@ -53,17 +57,22 @@ class CustodyTransactionService
     }
 
     /**
-     * Create transaction from approved custody request
+     * Create transaction from a received custody request. `$branchId` overrides
+     * the request's branch when the receiving manager sits elsewhere.
      */
-    public function createTransactionFromRequest(CustodyRequest $request): CustodyTransaction
+    public function createTransactionFromRequest(CustodyRequest $request, ?string $branchId = null): CustodyTransaction
     {
-        return DB::transaction(function () use ($request) {
+        return DB::transaction(function () use ($request, $branchId) {
             return CustodyTransaction::create([
                 'branch_manager_id' => $request->branch_manager_id,
-                'branch_id' => $request->branch_id,
-                'type' => $request->preferred_receipt_method === 'Cash Handover'
-                    ? 'Cash Handover'
-                    : 'Bank Transfer',
+                'branch_id' => $branchId ?? $request->branch_id,
+                // `type` is an ENUM — an owner transfer may carry no receipt
+                // method at all, and that must not silently become a bank one.
+                'type' => match ($request->preferred_receipt_method) {
+                    'Cash Handover' => 'Cash Handover',
+                    'Bank Transfer' => 'Bank Transfer',
+                    default => 'Cash Transfer',
+                },
                 'amount' => $request->requested_amount,
                 'is_cash_in' => true,
                 'related_custody_request_id' => $request->id,

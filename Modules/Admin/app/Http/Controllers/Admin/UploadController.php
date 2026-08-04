@@ -179,6 +179,34 @@ class UploadController extends AsabController
     }
 
     /**
+     * lowercased branch name → id, for the fixed-assets «اسم الفرع» column.
+     * A duplicated name inside one brand is ambiguous, so it is dropped rather
+     * than resolved to whichever row the database returned first.
+     *
+     * @return array<string, string>
+     */
+    private function brandBranchesByName(AsabBrand $brand): array
+    {
+        $byName = [];
+        $ambiguous = [];
+
+        foreach ($this->brandBranches($brand, ['id', 'name', 'asab_brand_id']) as $branch) {
+            $key = mb_strtolower(trim((string) $branch->name));
+            if ($key === '') {
+                continue;
+            }
+            if (isset($byName[$key])) {
+                $ambiguous[$key] = true;
+
+                continue;
+            }
+            $byName[$key] = $branch->id;
+        }
+
+        return array_diff_key($byName, $ambiguous);
+    }
+
+    /**
      * The brand's branches, by the canonical link OR through its restaurants.
      *
      * Every reader of «branches of this brand» must go through here. The
@@ -468,9 +496,10 @@ class UploadController extends AsabController
 
     /**
      * Brand-level fixed-assets upload — the Data Upload tab is per brand.
-     * Neither accepted layout names a branch (the English one carries a Zone
-     * instead), so rows land with a NULL branch_id (the column is nullable and
-     * indexed) and stay pending assignment to a branch.
+     * The Arabic template carries «اسم الفرع», so a row naming one of the
+     * brand's branches lands IN that branch (and reaches the app's receive
+     * queue); rows that name nothing keep a NULL branch_id (the column is
+     * nullable and indexed) and stay pending assignment.
      */
     public function brandFixedAssets(Request $request, string $brandId): JsonResponse
     {
@@ -482,6 +511,7 @@ class UploadController extends AsabController
             $result = $this->importAssetRows($rows, $header, $request, [
                 'company_id' => $brand->company_id,
                 'branch_id' => null,
+                'branches_by_name' => $this->brandBranchesByName($brand),
                 'case_type' => 'brand_upload',
             ]);
 
@@ -501,21 +531,34 @@ class UploadController extends AsabController
         $map = $this->mapAssetHeaders($header);
         $count = 0;
         $errors = [];
+        $assigned = [];
 
-        DB::transaction(function () use ($rows, $map, $owner, $request, &$count, &$errors) {
+        DB::transaction(function () use ($rows, $map, $owner, $request, &$count, &$errors, &$assigned) {
             // public_id is UNIQUE: seed the counter from the highest existing
             // FA-#### suffix (withTrashed — soft-deleted rows still hold their
             // id), not from count(), which collides after deletes.
             $seq = $this->maxFixedAssetSequence();
             foreach ($rows as $i => $row) {
                 try {
-                    $this->importAssetRow($row, $map, $owner, $request, $seq);
+                    $asset = $this->importAssetRow($row, $map, $owner, $request, $seq);
                     $count++;
+                    if ($asset !== null && $asset->branch_id !== null && $asset->status === 'pending_branch') {
+                        $assigned[] = $asset;
+                    }
                 } catch (\Throwable $e) {
                     $errors[] = ['row' => $i + 2, 'message' => $this->rowErrorMessage($e)];
                 }
             }
         });
+
+        // AFTER commit. A bulk upload used to write asab_assets and stop there:
+        // the single-asset paths (AssetController, AssetDraftService) dispatch
+        // this event, the importer did not — so «طلبات الاستلام» on the phone
+        // stayed empty and the branch's asset screen read 0 for assets the
+        // dashboard had already stored (reported 2026-08-03).
+        foreach ($assigned as $asset) {
+            \Modules\Admin\Events\AssetAssignedToBranch::dispatch($asset);
+        }
 
         return ['count' => $count, 'errors' => $errors];
     }
@@ -537,8 +580,11 @@ class UploadController extends AsabController
         return $e->getMessage();
     }
 
-    /** @param  array<string, mixed>  $owner */
-    private function importAssetRow(array $row, array $map, array $owner, Request $request, int &$seq): void
+    /**
+     * @param  array<string, mixed>  $owner
+     * @return Asset|null the stored row, or null when an existing one was updated
+     */
+    private function importAssetRow(array $row, array $map, array $owner, Request $request, int &$seq): ?Asset
     {
         $qty = $this->toInt($this->cell($row, $map, 'quantity'));
         $excellent = $this->toInt($this->cell($row, $map, 'excellent'));
@@ -557,13 +603,16 @@ class UploadController extends AsabController
 
         $cost = $this->toHalalas($this->cell($row, $map, 'cost'));
         $serial = $this->text($row, $map, 'serial');
+        // A per-branch upload owns the branch outright; a brand-level one reads
+        // it from the row's «اسم الفرع» so its rows reach a branch at all.
+        $branchId = $owner['branch_id'] ?? $this->rowBranchId($row, $map, $owner);
 
         // A serial number identifies the physical asset, so a re-upload of the
         // register the download now hands back UPDATES that row rather than
         // minting a second FA-### for the same machine. Serial-less rows (the
         // Arabic template has no such column) still always create.
         $existing = $serial === null ? null : Asset::where('company_id', $owner['company_id'])
-            ->where('branch_id', $owner['branch_id'])
+            ->where('branch_id', $branchId)
             ->where('serial', $serial)
             ->first();
 
@@ -572,7 +621,7 @@ class UploadController extends AsabController
             'public_id' => $existing->public_id ?? $this->nextFixedAssetPublicId($seq),
             'name' => (string) ($this->cell($row, $map, 'name') ?? ''),
             'category' => AssetEnums::canonicalCategory($this->text($row, $map, 'category')),
-            'branch_id' => $owner['branch_id'],
+            'branch_id' => $branchId,
             'zone' => $this->text($row, $map, 'zone'),
             'inv_num' => $this->text($row, $map, 'invNum'),
             'serial' => $this->text($row, $map, 'serial'),
@@ -598,10 +647,30 @@ class UploadController extends AsabController
             unset($attributes['status'], $attributes['submitted_by_id']);
             $existing->fill($attributes)->save();
 
-            return;
+            // Still a candidate for the receive bridge when the row never left
+            // pending_branch — re-uploading is how a stranded asset is healed.
+            return $existing->status === 'pending_branch' ? $existing : null;
         }
 
-        Asset::create($attributes);
+        return Asset::create($attributes);
+    }
+
+    /**
+     * Resolve a row's «اسم الفرع» to a branch of the uploaded brand. Never
+     * resolves across brands (a name is not unique platform-wide) and never
+     * fails the row: an unmatched name leaves the asset brand-level, exactly
+     * where it landed before this column was read at all.
+     *
+     * @param  array<string, mixed>  $owner
+     */
+    private function rowBranchId(array $row, array $map, array $owner): ?string
+    {
+        $name = $this->text($row, $map, 'branchId');
+        if ($name === null || empty($owner['branches_by_name'])) {
+            return null;
+        }
+
+        return $owner['branches_by_name'][mb_strtolower(trim($name))] ?? null;
     }
 
     /** Highest numeric FA- suffix across all assets, including soft-deleted. */

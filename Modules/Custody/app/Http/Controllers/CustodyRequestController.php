@@ -6,6 +6,7 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\Custody\Services\CustodyRequestService;
 
@@ -84,7 +85,8 @@ class CustodyRequestController extends BaseController
                 $timePeriod,
                 $status,
                 $preferredReceiptMethod,
-                $isBrandOwner
+                $isBrandOwner,
+                $isBrandOwner ? null : ($user->branch_id ?? null)
             );
 
             return $this->successResponse([
@@ -245,6 +247,41 @@ class CustodyRequestController extends BaseController
             ], 'Custody request approved');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 400);
+        }
+    }
+
+    /**
+     * Confirm the money reached the branch (Branch Manager only)
+     * POST /api/custody/requests/{requestId}/confirm-receipt
+     *
+     * Credits the branch custody balance — this is the only endpoint that
+     * writes a cash-in CustodyTransaction for a request.
+     */
+    public function confirmReceipt(string $requestId): JsonResponse
+    {
+        $user = auth()->user();
+        if (! ($user instanceof BranchManager)) {
+            return $this->errorResponse('Only branch managers can confirm receipt of custody', 403);
+        }
+
+        try {
+            $custodyRequest = $this->requestService->confirmReceipt($requestId, $user);
+
+            return $this->successResponse([
+                'requestId' => $custodyRequest->id,
+                'status' => $this->normalizeStatus($custodyRequest->status),
+                'receivedAt' => $custodyRequest->received_at?->toIso8601String(),
+            ], 'Custody receipt confirmed');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Custody request not found', 404);
+        } catch (\Illuminate\Database\QueryException $e) {
+            // QueryException IS a RuntimeException — without this arm the raw
+            // SQL (table, columns, ids) travels to the phone as the message.
+            report($e);
+
+            return $this->errorResponse('Could not record the receipt. Please try again.', 500);
+        } catch (\RuntimeException $e) {
+            return $this->errorResponse($e->getMessage(), 422);
         }
     }
 

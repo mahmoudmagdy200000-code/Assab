@@ -13,6 +13,7 @@ use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Services\ManagerBranchSyncService;
 use Modules\Admin\Services\NotificationService;
 use Modules\Admin\Services\PlanLimitService;
 use Modules\Admin\Services\RealtimeBroadcaster;
@@ -27,6 +28,7 @@ class OrgController extends AsabController
         private readonly PlanLimitService $limits,
         private readonly NotificationService $notifications,
         private readonly RealtimeBroadcaster $rt,
+        private readonly ManagerBranchSyncService $managerSync,
     ) {}
 
     public function tree(Request $request): JsonResponse
@@ -188,6 +190,8 @@ class OrgController extends AsabController
                 'asab_manager_user_id' => $data['managerUserId'] ?? null,
                 'asab_monthly_target' => $data['targetHalalas'] ?? null,
             ]);
+            $this->managerSync->sync($data['managerUserId'] ?? null, $branch->id);
+
             // Notify platform admins that a request awaits review.
             foreach (AsabUserRole::where('role_key', 'admin')->pluck('user_id') as $adminId) {
                 $this->notifications->push($adminId, 'branch.review_requested', 'طلب فرع جديد بانتظار المراجعة', $branch->name, null, ['type' => 'branch', 'id' => $branch->id]);
@@ -263,6 +267,10 @@ class OrgController extends AsabController
                 $member->update(['branch_id' => $branch->id]);
                 AsabUserRole::where('user_id', $data['newManagerUserId'])->where('role_key', 'branch')
                     ->update(['scope' => 'branch', 'branch_ids' => [$branch->id]]);
+                // …and the MOBILE login, which is what the app actually scopes
+                // by. Without it the transferred manager keeps opening their
+                // previous branch's data (2026-08-03).
+                $this->managerSync->sync($data['newManagerUserId'], $branch->id);
             });
             $this->rt->branchChanged($companyId, 'updated', $branch->id, $branch->name);
 

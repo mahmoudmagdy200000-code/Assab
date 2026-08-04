@@ -10,6 +10,7 @@ use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Services\ManagerBranchSyncService;
 use Modules\Admin\Services\NotificationService;
 use Modules\Branch\Models\Branch;
 
@@ -19,6 +20,8 @@ use Modules\Branch\Models\Branch;
  */
 class BranchController extends AsabController
 {
+    public function __construct(private readonly ManagerBranchSyncService $managerSync) {}
+
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
@@ -127,6 +130,10 @@ class BranchController extends AsabController
 
             $branch = DB::transaction(fn () => Branch::create([
                 'name' => $data['name'],
+                // `branches.location` is NOT NULL and predates the ASAB
+                // city/address columns — leaving it out made every branch
+                // created here die on the constraint (a 500, not a branch).
+                'location' => $data['address'] ?? $data['city'] ?? $data['name'],
                 'manager' => $data['manager'] ?? null,
                 'asab_manager_user_id' => $data['managerUserId'] ?? null,
                 'city' => $data['city'] ?? null,
@@ -138,6 +145,10 @@ class BranchController extends AsabController
                 'asab_brand_id' => $restaurant->brand_id,
                 'asab_company_id' => $restaurant->company_id,
             ]));
+
+            // Without this the manager's PHONE still opens their previous
+            // branch — the new branch shows that branch's old data.
+            $this->managerSync->sync($data['managerUserId'] ?? null, $branch->id);
 
             return $this->created($this->present($branch));
         });
@@ -184,6 +195,8 @@ class BranchController extends AsabController
                 'asab_brand_id' => $restaurant?->brand_id,
                 'asab_company_id' => $restaurant?->company_id,
             ], fn ($v) => $v !== null)));
+
+            $this->managerSync->sync($data['managerUserId'] ?? null, $branch->id);
 
             return $this->ok($this->present($branch->fresh()));
         });

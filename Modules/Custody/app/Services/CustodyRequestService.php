@@ -12,12 +12,17 @@ use Modules\Custody\Models\CustodyRequestTimeline;
 
 class CustodyRequestService
 {
+    public function __construct(
+        private readonly CustodyNotifier $notifier,
+        private readonly CustodyTransactionService $transactions,
+    ) {}
+
     /**
      * Create new custody request
      */
     public function createRequest(array $data): CustodyRequest
     {
-        return DB::transaction(function () use ($data) {
+        $request = DB::transaction(function () use ($data) {
             $isBrandOwner = ! empty($data['created_by_brand_owner_id']);
 
             $request = CustodyRequest::create([
@@ -41,6 +46,15 @@ class CustodyRequestService
 
             return $request->load(['attachments', 'timeline']);
         });
+
+        // AFTER commit — a request nobody is told about is the «لا يوجد إشعار»
+        // report: an owner-created transfer notifies the recipient manager, a
+        // manager-created request notifies the owners who must approve it.
+        $request->created_by_brand_owner_id
+            ? $this->notifier->transferSentToManager($request)
+            : $this->notifier->requestAwaitingOwner($request);
+
+        return $request;
     }
 
     /**
@@ -96,6 +110,8 @@ class CustodyRequestService
             'timeline' => $timeline,
             'approval' => $approval,
             'cancellation' => $this->buildCancellationBlock($request),
+            'canConfirmReceipt' => $this->awaitsReceipt($request),
+            'receivedAt' => $request->received_at?->toIso8601String(),
         ];
     }
 
@@ -193,11 +209,16 @@ class CustodyRequestService
         ?string $timePeriod = null,
         ?string $status = null,
         ?string $preferredReceiptMethod = null,
-        bool $isBrandOwner = false
+        bool $isBrandOwner = false,
+        ?string $branchId = null
     ): array {
+        // Branch scope, not just manager scope: a manager reassigned to a new
+        // branch used to drag their previous branch's requests into it — the
+        // «فرع جديد وفيه بيانات قديمة» report (2026-08-03).
         $query = $isBrandOwner
             ? CustodyRequest::query()
-            : CustodyRequest::where('branch_manager_id', $branchManagerId);
+            : CustodyRequest::where('branch_manager_id', $branchManagerId)
+                ->when($branchId, fn ($q) => $q->where('branch_id', $branchId));
 
         // Status filter
         if (! empty($status)) {
@@ -229,23 +250,63 @@ class CustodyRequestService
         // ]);
 
         $requests = $query->with(['branchManager:id,name'])->orderBy('created_at', 'desc')->get();
+        $ownerNames = $this->ownerNames($requests);
 
-        return $requests->map(function ($request) use ($isBrandOwner) {
-            $submittedBy = $isBrandOwner
-                ? ($request->branchManager?->name ?? 'Branch Manager')
-                : 'Me (Branch Manager)';
-
+        return $requests->map(function ($request) use ($isBrandOwner, $ownerNames) {
             return [
                 'id' => $request->id,
-                'type' => 'Custody Request',
-                'submittedBy' => $submittedBy,
+                'type' => $request->created_by_brand_owner_id ? 'Owner Transfer' : 'Custody Request',
+                'submittedBy' => $this->submitterLabel($request, $ownerNames, $isBrandOwner),
                 'dateTime' => $request->created_at->toIso8601String(),
                 'status' => strtolower((string) $request->status),
                 'amount' => (float) $request->requested_amount,
                 'preferredReceiptMethod' => $request->preferred_receipt_method,
                 'purpose' => $request->purpose,
+                'canConfirmReceipt' => ! $isBrandOwner && $this->awaitsReceipt($request),
+                'receivedAt' => $request->received_at?->toIso8601String(),
             ];
         })->toArray();
+    }
+
+    /**
+     * A request the branch manager still has to acknowledge. An owner-created
+     * transfer needs no approval step (the payer already acted), a manager's own
+     * request needs the owner's approval first.
+     */
+    public function awaitsReceipt(CustodyRequest $request): bool
+    {
+        return $request->awaitsReceipt();
+    }
+
+    /**
+     * «Me (Branch Manager)» was hardcoded, so an owner's transfer showed on the
+     * manager's screen as if the manager had raised it themselves (screenshot,
+     * 2026-08-03). The label now follows who actually created the row.
+     *
+     * @param  array<string, string>  $ownerNames
+     */
+    private function submitterLabel(CustodyRequest $request, array $ownerNames, bool $isBrandOwner): string
+    {
+        if ($request->created_by_brand_owner_id) {
+            $name = $ownerNames[$request->created_by_brand_owner_id] ?? 'Brand Owner';
+
+            return $isBrandOwner ? 'Me (Brand Owner)' : $name.' (Brand Owner)';
+        }
+
+        return $isBrandOwner
+            ? ($request->branchManager?->name ?? 'Branch Manager')
+            : 'Me (Branch Manager)';
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, CustodyRequest>  $requests
+     * @return array<string, string>
+     */
+    private function ownerNames(\Illuminate\Support\Collection $requests): array
+    {
+        $ids = $requests->pluck('created_by_brand_owner_id')->filter()->unique()->values();
+
+        return $ids->isEmpty() ? [] : BrandOwner::whereIn('id', $ids)->pluck('name', 'id')->all();
     }
 
     /**
@@ -344,7 +405,7 @@ class CustodyRequestService
      */
     public function approveRequest(string $requestId, BrandOwner $actor): CustodyRequest
     {
-        return DB::transaction(function () use ($requestId, $actor) {
+        $request = DB::transaction(function () use ($requestId, $actor) {
             $request = CustodyRequest::lockForUpdate()->findOrFail($requestId);
 
             if (strcasecmp((string) $request->status, 'Pending') !== 0) {
@@ -362,6 +423,66 @@ class CustodyRequestService
 
             return $request->fresh(['attachments', 'timeline']);
         });
+
+        $this->notifier->requestApproved($request);
+
+        return $request;
+    }
+
+    /**
+     * The branch manager confirms the cash/transfer actually arrived. THIS is
+     * the step that moves money: until it runs no CustodyTransaction exists and
+     * «رصيد عهدة الفرع» reads 0.00 no matter how many requests were approved
+     * (reported 2026-08-03). Idempotent — a second confirm is refused, so the
+     * balance can never be credited twice for one request.
+     */
+    public function confirmReceipt(string $requestId, BranchManager $actor): CustodyRequest
+    {
+        $request = DB::transaction(function () use ($requestId, $actor) {
+            $request = CustodyRequest::lockForUpdate()->findOrFail($requestId);
+
+            // Zero-trust: a manager may only receive their own branch's money.
+            if ($request->branch_manager_id !== $actor->id) {
+                throw new \RuntimeException('This custody request does not belong to you.');
+            }
+            if ($request->branch_id !== null && $actor->branch_id !== null && $request->branch_id !== $actor->branch_id) {
+                throw new \RuntimeException('This custody request belongs to another branch.');
+            }
+            if ($request->received_at !== null) {
+                throw new \RuntimeException('This custody request was already received.');
+            }
+            // Single source of truth for «receivable» — an owner transfer needs
+            // no approval, the manager's own request must be approved first.
+            if (! $request->awaitsReceipt()) {
+                throw new \RuntimeException('This custody request is not awaiting receipt.');
+            }
+
+            // The transaction carries the branch of the RECEIVING manager: a
+            // request minted before a branch move must credit where the cash
+            // actually landed, not the branch stamped at creation time.
+            // custody_transactions.branch_id is NOT NULL, so an unassigned
+            // manager is a domain error, never a constraint violation.
+            $branchId = $actor->branch_id ?? $request->branch_id;
+            if ($branchId === null) {
+                throw new \RuntimeException('You are not assigned to a branch, so custody cannot be received.');
+            }
+
+            $request->update([
+                'status' => 'Completed',
+                'received_at' => now(),
+                'received_by' => $actor->id,
+            ]);
+
+            $this->transactions->createTransactionFromRequest($request, $branchId);
+
+            $this->createTimelineEntry($request, 'Receive Case', 'Received', $actor->id, 'branch_manager');
+
+            return $request->fresh(['attachments', 'timeline']);
+        });
+
+        $this->notifier->receiptConfirmed($request);
+
+        return $request;
     }
 
     /**
@@ -369,7 +490,7 @@ class CustodyRequestService
      */
     public function rejectRequest(string $requestId, BrandOwner $actor, string $reason): CustodyRequest
     {
-        return DB::transaction(function () use ($requestId, $actor, $reason) {
+        $request = DB::transaction(function () use ($requestId, $actor, $reason) {
             $request = CustodyRequest::lockForUpdate()->findOrFail($requestId);
 
             if (strcasecmp((string) $request->status, 'Pending') !== 0) {
@@ -388,5 +509,9 @@ class CustodyRequestService
 
             return $request->fresh(['attachments', 'timeline']);
         });
+
+        $this->notifier->requestRejected($request, $reason);
+
+        return $request;
     }
 }

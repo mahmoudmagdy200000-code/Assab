@@ -4,6 +4,7 @@ namespace Modules\Custody\Services;
 
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Modules\BrandOwner\Models\BrandOwner;
 use Modules\Custody\Models\CustodyRequest;
 use Modules\Custody\Models\CustodyTransaction;
 use Modules\Custody\Models\PersonalLedgerTransaction;
@@ -25,9 +26,13 @@ class CustodyBalanceService
     /**
      * Get custody balance for branch manager (single aggregated query).
      */
-    public function getCustodyBalance(string $branchManagerId): float
+    public function getCustodyBalance(string $branchManagerId, ?string $branchId = null): float
     {
+        // Pass the branch wherever the caller knows it: custody belongs to a
+        // BRANCH, so a manager who moved must not spend the balance they built
+        // up at their previous one (2026-08-03).
         $balance = CustodyTransaction::where('branch_manager_id', $branchManagerId)
+            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
             ->selectRaw(self::SQL_BALANCE_EXPRESSION)
             ->value('balance');
 
@@ -51,10 +56,10 @@ class CustodyBalanceService
      * brand owner) + personal ledger (sales cash in hand). The expense
      * deduction takes branch custody first, then the personal ledger.
      */
-    public function getAvailableExpenseBalance(string $branchManagerId): float
+    public function getAvailableExpenseBalance(string $branchManagerId, ?string $branchId = null): float
     {
         return round(
-            $this->getCustodyBalance($branchManagerId) + $this->getPersonalLedgerBalance($branchManagerId),
+            $this->getCustodyBalance($branchManagerId, $branchId) + $this->getPersonalLedgerBalance($branchManagerId),
             2
         );
     }
@@ -447,10 +452,10 @@ class CustodyBalanceService
         $transactions = $transactionsQuery->orderBy('transaction_date', 'desc')->get();
         $requests = $requestsQuery->orderBy('created_at', 'desc')->get();
 
-        $branchTransactionsQuery = CustodyTransaction::where('branch_id', $branchId);
-        $this->applyTimePeriodFilter($branchTransactionsQuery, $timePeriod, $filters, 'transaction_date');
-
-        $currentBalance = (float) ($branchTransactionsQuery
+        // The CURRENT balance is all-time by definition: the period filter
+        // narrows the lists below it, never the number in the card (a «last 7
+        // days» filter used to report a fraction of the real custody balance).
+        $currentBalance = (float) (CustodyTransaction::where('branch_id', $branchId)
             ->selectRaw(self::SQL_BALANCE_EXPRESSION)
             ->value('balance') ?? 0);
 
@@ -458,8 +463,9 @@ class CustodyBalanceService
             return $this->formatTransactionForBalance($transaction);
         })->values();
 
-        $formattedRequests = $requests->map(function ($request) {
-            return $this->formatRequestForBalance($request);
+        $ownerNames = $this->ownerNames($requests);
+        $formattedRequests = $requests->map(function ($request) use ($ownerNames) {
+            return $this->formatRequestForBalance($request, $ownerNames);
         })->values();
 
         $recentActivity = $transactions->take(5)->map(function ($transaction) {
@@ -508,17 +514,37 @@ class CustodyBalanceService
     /**
      * Format request for balance view
      */
-    private function formatRequestForBalance(CustodyRequest $request): array
+    /**
+     * @param  \Illuminate\Support\Collection<int, CustodyRequest>  $requests
+     * @return array<string, string>
+     */
+    private function ownerNames(Collection $requests): array
     {
+        $ids = $requests->pluck('created_by_brand_owner_id')->filter()->unique()->values();
+
+        return $ids->isEmpty() ? [] : BrandOwner::whereIn('id', $ids)->pluck('name', 'id')->all();
+    }
+
+    /** @param  array<string, string>  $ownerNames */
+    private function formatRequestForBalance(CustodyRequest $request, array $ownerNames = []): array
+    {
+        // An owner transfer is NOT «Me (Branch Manager)» — that hardcoded label
+        // is why the owner's 5,000 ر.س showed as the manager's own request.
+        $ownerId = $request->created_by_brand_owner_id;
+
         return [
             'id' => $request->id,
-            'type' => 'Custody Request',
-            'submittedBy' => 'Me (Branch Manager)',
+            'type' => $ownerId ? 'Owner Transfer' : 'Custody Request',
+            'submittedBy' => $ownerId
+                ? ($ownerNames[$ownerId] ?? 'Brand Owner').' (Brand Owner)'
+                : 'Me (Branch Manager)',
             'dateTime' => $request->created_at->toIso8601String(),
             'status' => $request->status,
             'amount' => (float) $request->requested_amount,
             'preferredReceiptMethod' => $request->preferred_receipt_method,
             'purpose' => $request->purpose,
+            'canConfirmReceipt' => $request->awaitsReceipt(),
+            'receivedAt' => $request->received_at?->toIso8601String(),
         ];
     }
 

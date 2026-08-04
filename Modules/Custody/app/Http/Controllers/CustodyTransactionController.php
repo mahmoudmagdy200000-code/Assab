@@ -60,6 +60,9 @@ class CustodyTransactionController extends BaseController
             $filters = [
                 'type' => $type,
                 'timePeriod' => $timePeriod,
+                // Branch scope: a manager moved to a new branch must not see the
+                // previous branch's custody movements (2026-08-03).
+                'branchId' => auth()->user()->branch_id ?? null,
             ];
 
             $transactions = $this->transactionService->listTransactions(auth()->id(), $filters);

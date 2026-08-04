@@ -42,6 +42,7 @@ class BridgeBackfillCommand extends Command
         $this->backfillShifts($shifts, $dry);
         $this->backfillPurchaseOrders($dry);
         $this->backfillInventorySessions($dry);
+        $this->backfillAssetReceipts($dry);
 
         if ($this->option('resync-payloads')) {
             $this->resyncExpensePayloads($expenses, $dry);
@@ -91,6 +92,47 @@ class BridgeBackfillCommand extends Command
             });
 
         $this->info(($dry ? 'Would re-sync ' : 'Re-synced ')."{$synced} catalog item(s).");
+    }
+
+    /**
+     * Branch-assigned dashboard assets with no mobile receive request.
+     *
+     * The bulk fixed-assets importer wrote asab_assets without dispatching
+     * AssetAssignedToBranch, so every uploaded register is invisible to the
+     * branch — «لا توجد بيانات الأصول الثابتة التي رفعناها» (2026-08-03). Runs
+     * the same listener the single-asset path uses; PendingReceipt is keyed on
+     * asab_asset_id, so re-running never duplicates a request.
+     */
+    private function backfillAssetReceipts(bool $dry): void
+    {
+        $bridge = app(\Modules\Admin\Listeners\BridgeAssetToBranchReceipt::class);
+        $bridged = 0;
+
+        \Modules\Admin\Models\Asset::withoutGlobalScopes()
+            ->whereNull('deleted_at')
+            ->whereNotNull('branch_id')
+            ->where('status', 'pending_branch')
+            ->whereNotExists(function ($q) {
+                $q->selectRaw('1')
+                    ->from('fixed_asset_pending_receipts')
+                    ->whereColumn('fixed_asset_pending_receipts.asab_asset_id', 'asab_assets.id');
+            })
+            ->orderBy('created_at')
+            ->chunkById(200, function ($chunk) use ($bridge, $dry, &$bridged) {
+                foreach ($chunk as $asset) {
+                    if ($dry) {
+                        $this->line("[dry] asset {$asset->public_id} ({$asset->name}) → receive request for branch {$asset->branch_id}");
+                        $bridged++;
+
+                        continue;
+                    }
+
+                    $bridge->handle(new \Modules\Admin\Events\AssetAssignedToBranch($asset));
+                    $bridged++;
+                }
+            });
+
+        $this->info(($dry ? 'Would create ' : 'Created ')."{$bridged} mobile asset receive request(s).");
     }
 
     /**

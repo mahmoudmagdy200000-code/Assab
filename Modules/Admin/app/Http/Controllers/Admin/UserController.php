@@ -18,6 +18,7 @@ use Modules\Admin\Services\AccountantScopeService;
 use Modules\Admin\Services\CredentialMailer;
 use Modules\Admin\Services\CredentialSyncService;
 use Modules\Admin\Services\IdentityMapService;
+use Modules\Admin\Services\ManagerBranchSyncService;
 use Modules\Admin\Services\Provisioning\LegacyProvisionerRegistry;
 use Modules\Admin\Support\RoleLabels;
 use Modules\Branch\Models\Branch;
@@ -44,6 +45,7 @@ class UserController extends AsabController
         private readonly IdentityMapService $identity,
         private readonly AccountantScopeService $scope,
         private readonly AccountantModuleService $modules,
+        private readonly ManagerBranchSyncService $managerSync,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -258,6 +260,12 @@ class UserController extends AsabController
                     $assignment->update($updates);
                 }
             });
+
+            // Moving a branch manager here changed the DASHBOARD scope only —
+            // their phone kept opening the old branch (2026-08-03).
+            if ($roleKey === 'branch' && ! empty($data['branches'][0])) {
+                $this->managerSync->sync($user->id, $data['branches'][0]);
+            }
 
             return $this->ok($this->present($user->fresh(['roleAssignments', 'reportsTo:id,name'])));
         });

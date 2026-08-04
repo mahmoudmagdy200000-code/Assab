@@ -74,12 +74,13 @@ class ExpenseController extends BaseController
     public function custodyBalance(): JsonResponse
     {
         $managerId = (string) auth()->id();
+        $branchId = auth()->user()->branch_id ?? null;
 
         return $this->successResponse([
             // Spendable = branch custody (brand-owner granted) + personal
             // ledger (sales cash in hand) — the payment sheet reads `balance`.
-            'balance' => $this->custodyBalanceService->getAvailableExpenseBalance($managerId),
-            'branch_custody_balance' => $this->custodyBalanceService->getCustodyBalance($managerId),
+            'balance' => $this->custodyBalanceService->getAvailableExpenseBalance($managerId, $branchId),
+            'branch_custody_balance' => $this->custodyBalanceService->getCustodyBalance($managerId, $branchId),
             'personal_ledger_balance' => $this->custodyBalanceService->getPersonalLedgerBalance($managerId),
         ], 'Custody balance retrieved successfully');
     }

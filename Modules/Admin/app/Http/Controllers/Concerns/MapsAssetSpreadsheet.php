@@ -27,7 +27,10 @@ trait MapsAssetSpreadsheet
             'name' => ['name', 'asset', 'asset name', 'الاسم', 'اسم', 'الأصل', 'اسم الأصل'],
             'category' => ['category', 'asset category', 'asset category (type)', 'الفئة', 'التصنيف', 'النوع'],
             'cost' => ['cost', 'value', 'price', 'amount', 'purchase value', 'القيمة', 'التكلفة', 'التكلفة (ر.س)', 'السعر', 'المبلغ'],
-            'branchId' => ['branchid', 'branch', 'الفرع', 'فرع'],
+            // «اسم الفرع» ships in the ratified Arabic template — it was mapped
+            // nowhere, so a brand-level upload could never place a row in a
+            // branch and the assets stayed invisible to the app (2026-08-03).
+            'branchId' => ['branchid', 'branch', 'branch name', 'الفرع', 'فرع', 'اسم الفرع'],
             'usefulLife' => ['usefullife', 'useful_life_months', 'life', 'العمر', 'العمر الإنتاجي', 'العمر الانتاجي', 'العمر الافتراضي (شهر)'],
             'serial' => ['serial', 'serialnumber', 'الرقم التسلسلي', 'السيريال'],
             'zone' => ['zone', 'المنطقة', 'النطاق'],

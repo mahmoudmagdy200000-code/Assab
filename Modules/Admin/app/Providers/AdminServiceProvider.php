@@ -96,6 +96,7 @@ class AdminServiceProvider extends ServiceProvider
             \Modules\Admin\Console\Commands\MirrorMobileCashiers::class,
             \Modules\Admin\Console\Commands\BridgeBackfillCommand::class,
             \Modules\Admin\Console\Commands\DemoTopUpCommand::class,
+            \Modules\Admin\Console\Commands\SyncManagerBranchesCommand::class,
         ]);
     }
 

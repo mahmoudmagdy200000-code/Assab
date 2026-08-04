@@ -34,6 +34,8 @@ class CustodyRequest extends Model
         'rejected_at',
         'rejection_reason',
         'viewed_at',
+        'received_at',
+        'received_by',
     ];
 
     protected $casts = [
@@ -41,9 +43,28 @@ class CustodyRequest extends Model
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
         'viewed_at' => 'datetime',
+        'received_at' => 'datetime',
         'handover_date' => 'datetime',
         'transfer_date' => 'datetime',
     ];
+
+    /**
+     * The branch manager still owes an «استلام» on this row. An owner-created
+     * transfer needs no approval (the payer already acted); the manager's own
+     * request must be approved first. Receiving is what credits the balance.
+     */
+    public function awaitsReceipt(): bool
+    {
+        if ($this->received_at !== null) {
+            return false;
+        }
+
+        $status = strtolower((string) $this->status);
+
+        return $this->created_by_brand_owner_id
+            ? in_array($status, ['pending', 'approved'], true)
+            : $status === 'approved';
+    }
 
     // Relationships
     public function branchManager(): BelongsTo
