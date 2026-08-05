@@ -355,11 +355,13 @@ class AccountantBrandScopeTest extends TestCase
         $itemA = InventoryCatalogItem::create(['brand_id' => $this->brandA->id, 'type' => InventoryCatalogItem::TYPE_SALES_ITEM, 'name' => 'صنف أ', 'category' => 'مشروبات', 'unit' => 'حبة', 'status' => 'active']);
         InventoryCatalogItem::create(['brand_id' => $this->brandB->id, 'type' => InventoryCatalogItem::TYPE_SALES_ITEM, 'name' => 'صنف ب', 'category' => 'مشروبات', 'unit' => 'حبة', 'status' => 'active']);
 
-        $list = $this->asAccountant()->getJson('/api/v1/accountant/inventory/catalog');
+        // type=all: this case is about brand scoping, not which sheet is listed
+        // (the catalog now defaults to «أصناف المشتريات»).
+        $list = $this->asAccountant()->getJson('/api/v1/accountant/inventory/catalog?type=all');
         $list->assertStatus(200);
         $this->assertSame([$itemA->id], collect($list->json('items'))->pluck('id')->all());
 
-        $other = $this->asAccountant()->getJson('/api/v1/accountant/inventory/catalog?brandId='.$this->brandB->id);
+        $other = $this->asAccountant()->getJson('/api/v1/accountant/inventory/catalog?type=all&brandId='.$this->brandB->id);
         $other->assertStatus(200);
         $this->assertSame([], $other->json('items'));
 
@@ -367,7 +369,7 @@ class AccountantBrandScopeTest extends TestCase
         $this->asAccountant()->postJson('/api/v1/accountant/inventory/catalog', $payload)->assertStatus(404);
         $this->asAccountant()->postJson('/api/v1/accountant/inventory/catalog', array_merge($payload, ['brandId' => $this->brandA->id]))->assertStatus(201);
 
-        $headList = $this->asHead()->getJson('/api/v1/accountant/inventory/catalog');
+        $headList = $this->asHead()->getJson('/api/v1/accountant/inventory/catalog?type=all');
         $headList->assertStatus(200);
         $this->assertCount(3, $headList->json('items'));
     }

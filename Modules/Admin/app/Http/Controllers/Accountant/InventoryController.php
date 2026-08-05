@@ -203,13 +203,13 @@ class InventoryController extends AsabController
     public function catalog(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            // Two sheets share this table: «أصناف المبيعات» (the menu) and «مواد
-            // خام المشتريات» (what a branch actually counts). Listing only the
-            // first made the screen disagree with the app's جرد on BOTH the count
-            // and the categories — 22 menu items with menu categories instead of
-            // the brand's 30 rows (2026-08-04). `type=all` now returns both, and
-            // the daily-count selection asks for `raw_material`.
-            $type = $request->query('type', InventoryCatalogItem::TYPE_SALES_ITEM);
+            // Two sheets share this table: «أصناف المبيعات» (the menu) and «أصناف
+            // المشتريات / المواد الخام» (what a branch actually counts). This
+            // screen is the جرد item picker, so PURCHASE items are the default —
+            // it used to default to the menu, which made it disagree with the
+            // app's جرد on the items, the count and the categories at once
+            // (2026-08-04/05). Pass `type=sales_item` or `all` explicitly.
+            $type = $this->catalogType($request->query('type'));
 
             $scoped = fn () => InventoryCatalogItem::query()
                 // The catalog table has no tenant scope: pin reads to the caller's brands.
@@ -259,15 +259,33 @@ class InventoryController extends AsabController
                 'name' => 'required|string|max:200',
                 'category' => 'required|string|max:80',
                 'unit' => 'required|string|max:16',
+                'type' => 'nullable|in:sales_item,raw_material',
             ]);
             $this->assertBrandAssigned($data['brandId']);
             $item = InventoryCatalogItem::create([
                 'brand_id' => $data['brandId'], 'name' => $data['name'],
+                // The column default is `sales_item`, so an item added from the
+                // جرد picker used to land on the MENU sheet and then vanish from
+                // the very list that created it (2026-08-05).
+                'type' => $this->catalogType($data['type'] ?? null),
                 'category' => $data['category'], 'unit' => $data['unit'], 'status' => 'active',
             ]);
 
-            return $this->created(['id' => $item->id, 'name' => $item->name]);
+            return $this->created(['id' => $item->id, 'name' => $item->name, 'type' => $item->type]);
         });
+    }
+
+    /**
+     * The accountant inventory surfaces are the جرد item picker: «أصناف
+     * المشتريات» (raw materials) are what a branch counts, so they are the
+     * default sheet here. `all` is honoured; anything unknown falls back rather
+     * than silently returning an empty list.
+     */
+    private function catalogType(?string $type): string
+    {
+        return in_array($type, [InventoryCatalogItem::TYPE_SALES_ITEM, InventoryCatalogItem::TYPE_RAW_MATERIAL, 'all'], true)
+            ? $type
+            : InventoryCatalogItem::TYPE_RAW_MATERIAL;
     }
 
     /**
@@ -284,6 +302,7 @@ class InventoryController extends AsabController
                 'items.*.name' => 'required|string|max:200',
                 'items.*.category' => 'required|string|max:80',
                 'items.*.unit' => 'required|string|max:16',
+                'items.*.type' => 'nullable|in:sales_item,raw_material',
             ]);
             $branchId = $data['branchId'];
             $this->assertBranchAssigned($branchId);
@@ -312,8 +331,16 @@ class InventoryController extends AsabController
                 $out = [];
                 foreach ($data['items'] as $row) {
                     // Create from the full definition only when no matching catalog item exists for the brand.
+                    // `type` is part of the identity: matching on name alone
+                    // would hand back the MENU row of the same name, and the new
+                    // purchase item would never appear in the جرد picker.
                     $item = InventoryCatalogItem::firstOrCreate(
-                        ['brand_id' => $brandId, 'name' => $row['name'], 'category' => $row['category']],
+                        [
+                            'brand_id' => $brandId,
+                            'type' => $this->catalogType($row['type'] ?? null),
+                            'name' => $row['name'],
+                            'category' => $row['category'],
+                        ],
                         ['unit' => $row['unit'], 'status' => 'active'],
                     );
                     // Link to the branch's daily list (idempotent).
@@ -326,6 +353,7 @@ class InventoryController extends AsabController
                         'name' => $item->name,
                         'category' => $item->category,
                         'unit' => $item->unit,
+                        'type' => $item->type,
                     ];
                 }
 

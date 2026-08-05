@@ -213,13 +213,14 @@ class BranchDashboardController extends AsabController
                 return $this->ok(['items' => $items->map($present)->all(), 'configuredBy' => $configuredBy]);
             }
 
-            // No branch list configured yet — fall back to the brand-wide sales catalog.
+            // No branch list configured yet — fall back to the brand's purchase
+            // items (the جرد counts raw materials, not the menu — 2026-08-05).
             $brandId = \Modules\Branch\Models\Branch::whereKey($branchId)
                 ->where('asab_company_id', $request->user()->company_id)
                 ->value('asab_brand_id');
             $items = $brandId
                 ? \Modules\Admin\Models\InventoryCatalogItem::where('brand_id', $brandId)
-                    ->where('type', \Modules\Admin\Models\InventoryCatalogItem::TYPE_SALES_ITEM)
+                    ->where('type', \Modules\Admin\Models\InventoryCatalogItem::TYPE_RAW_MATERIAL)
                     ->orderBy('category')->orderBy('name')->limit(500)->get()->map($present)->all()
                 : [];
 

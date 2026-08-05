@@ -122,7 +122,7 @@ class InventoryBrandSelectionTest extends TestCase
         ]);
         $accountant = $this->accountant(['scope' => 'restaurant', 'restaurant_ids' => [$restaurant->id]]);
 
-        $res = $this->actingAs($accountant, 'sanctum')->getJson('/api/v1/accountant/inventory/catalog');
+        $res = $this->actingAs($accountant, 'sanctum')->getJson('/api/v1/accountant/inventory/catalog?type=all');
 
         $res->assertStatus(200);
         $this->assertNotEmpty($res->json('items'), 'restaurant-scoped accountant must see the brand catalog');

@@ -347,8 +347,8 @@ class InventoryWasteTest extends TestCase
 
     public function test_catalog_search_filters_by_name(): void
     {
-        \Modules\Admin\Models\InventoryCatalogItem::create(['brand_id' => $this->brand->id, 'name' => 'دجاج مجمد', 'category' => 'لحوم', 'unit' => 'كجم', 'status' => 'active', 'type' => 'sales_item']);
-        \Modules\Admin\Models\InventoryCatalogItem::create(['brand_id' => $this->brand->id, 'name' => 'أرز بسمتي', 'category' => 'حبوب', 'unit' => 'كجم', 'status' => 'active', 'type' => 'sales_item']);
+        \Modules\Admin\Models\InventoryCatalogItem::create(['brand_id' => $this->brand->id, 'name' => 'دجاج مجمد', 'category' => 'لحوم', 'unit' => 'كجم', 'status' => 'active', 'type' => 'raw_material']);
+        \Modules\Admin\Models\InventoryCatalogItem::create(['brand_id' => $this->brand->id, 'name' => 'أرز بسمتي', 'category' => 'حبوب', 'unit' => 'كجم', 'status' => 'active', 'type' => 'raw_material']);
 
         $items = $this->acc()->getJson('/api/v1/company/me/inventory/items?search=دجاج')->assertOk()->json('items');
         $this->assertCount(1, $items);

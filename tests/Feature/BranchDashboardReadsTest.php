@@ -120,7 +120,11 @@ class BranchDashboardReadsTest extends TestCase
         $this->assertSame('المحاسب أحمد', $res->json('configuredBy'));
     }
 
-    public function test_items_falls_back_to_brand_sales_catalog_when_no_list_configured(): void
+    /**
+     * 2026-08-05: the fallback listed «أصناف المبيعات», so an unconfigured
+     * branch was handed the MENU to count. A جرد counts purchase items.
+     */
+    public function test_items_falls_back_to_brand_purchase_items_when_no_list_configured(): void
     {
         InventoryCatalogItem::create([
             'brand_id' => $this->brand->id, 'type' => InventoryCatalogItem::TYPE_SALES_ITEM,
@@ -131,16 +135,16 @@ class BranchDashboardReadsTest extends TestCase
             'name' => 'دقيق خام', 'category' => 'مواد خام', 'unit' => 'كجم', 'status' => 'active',
         ]);
         InventoryCatalogItem::create([
-            'brand_id' => $this->otherBrand->id, 'type' => InventoryCatalogItem::TYPE_SALES_ITEM,
-            'name' => 'صنف شركة تانية', 'category' => 'وجبات', 'unit' => 'حبة', 'status' => 'active',
+            'brand_id' => $this->otherBrand->id, 'type' => InventoryCatalogItem::TYPE_RAW_MATERIAL,
+            'name' => 'صنف شركة تانية', 'category' => 'مواد خام', 'unit' => 'كجم', 'status' => 'active',
         ]);
 
         $res = $this->actingAs($this->manager, 'sanctum')->getJson('/api/v1/branch/inventory-items');
 
         $res->assertOk();
         $names = collect($res->json('items'))->pluck('name');
-        $this->assertTrue($names->contains('شاورما دجاج'));
-        $this->assertFalse($names->contains('دقيق خام'), 'raw materials are not sales items');
+        $this->assertTrue($names->contains('دقيق خام'));
+        $this->assertFalse($names->contains('شاورما دجاج'), 'menu items are not counted in a جرد');
         $this->assertFalse($names->contains('صنف شركة تانية'), 'other tenant item must not leak');
         $this->assertNull($res->json('configuredBy'));
     }

@@ -96,6 +96,97 @@ class AccountantDailyInventoryListTest extends TestCase
         $this->assertSame(['ألبان', 'زيوت', 'لحوم'], $response->json('categories'));
     }
 
+    /**
+     * 2026-08-05 «الأصناف اللي موجودة أصناف المبيعات، الصحيح أصناف المشتريات»:
+     * the جرد picker must serve PURCHASE items with no `type` parameter at all.
+     */
+    public function test_the_catalog_defaults_to_purchase_items(): void
+    {
+        $response = $this->actingAs($this->accountant, 'sanctum')
+            ->getJson("/api/v1/accountant/inventory/catalog?brandId={$this->brand->id}")
+            ->assertSuccessful()
+            ->assertJsonPath('type', InventoryCatalogItem::TYPE_RAW_MATERIAL)
+            ->assertJsonPath('total', 3);
+
+        $this->assertSame(
+            [InventoryCatalogItem::TYPE_RAW_MATERIAL],
+            collect($response->json('items'))->pluck('type')->unique()->all(),
+        );
+        // …and no menu category leaks into the picker.
+        $this->assertSame(['ألبان', 'زيوت', 'لحوم'], $response->json('categories'));
+    }
+
+    /** An unknown type falls back to the purchase sheet, never to an empty list. */
+    public function test_an_unknown_type_falls_back_to_purchase_items(): void
+    {
+        $this->actingAs($this->accountant, 'sanctum')
+            ->getJson("/api/v1/accountant/inventory/catalog?brandId={$this->brand->id}&type=nonsense")
+            ->assertSuccessful()
+            ->assertJsonPath('type', InventoryCatalogItem::TYPE_RAW_MATERIAL)
+            ->assertJsonPath('total', 3);
+    }
+
+    /**
+     * The column default is `sales_item`: an item added from the جرد picker used
+     * to land on the menu sheet and disappear from the list that created it.
+     */
+    public function test_an_item_added_from_the_picker_is_a_purchase_item(): void
+    {
+        $this->actingAs($this->accountant, 'sanctum')
+            ->postJson('/api/v1/accountant/inventory/catalog', [
+                'brandId' => $this->brand->id, 'name' => 'أرز بسمتي',
+                'category' => 'حبوب', 'unit' => 'كجم',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('type', InventoryCatalogItem::TYPE_RAW_MATERIAL);
+
+        $this->actingAs($this->accountant, 'sanctum')
+            ->getJson("/api/v1/accountant/inventory/catalog?brandId={$this->brand->id}")
+            ->assertSuccessful()
+            ->assertJsonPath('total', 4);
+    }
+
+    /** …and an explicit sales_item still reaches the menu sheet. */
+    public function test_the_picker_can_still_add_a_menu_item_explicitly(): void
+    {
+        $this->actingAs($this->accountant, 'sanctum')
+            ->postJson('/api/v1/accountant/inventory/catalog', [
+                'brandId' => $this->brand->id, 'name' => 'آيس كوفي',
+                'category' => 'مشروبات', 'unit' => 'حبة', 'type' => 'sales_item',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('type', InventoryCatalogItem::TYPE_SALES_ITEM);
+
+        $this->actingAs($this->accountant, 'sanctum')
+            ->getJson("/api/v1/accountant/inventory/catalog?brandId={$this->brand->id}")
+            ->assertSuccessful()
+            ->assertJsonPath('total', 3)
+            ->assertJsonPath('counts.salesItem', 3);
+    }
+
+    /**
+     * A purchase item whose name collides with a menu item must be created, not
+     * silently resolved to the menu row (bulk `PUT inventory/catalog`).
+     */
+    public function test_bulk_catalog_create_does_not_reuse_a_menu_row_of_the_same_name(): void
+    {
+        $this->actingAs($this->accountant, 'sanctum')
+            ->putJson('/api/v1/company/me/inventory/catalog', [
+                'branchId' => $this->branch->id,
+                'items' => [['name' => 'بطاطس مقلية', 'category' => 'أطعمة', 'unit' => 'كجم']],
+            ])
+            ->assertSuccessful();
+
+        $rows = InventoryCatalogItem::where('brand_id', $this->brand->id)
+            ->where('name', 'بطاطس مقلية')->get();
+
+        $this->assertCount(2, $rows, 'the menu row must not absorb the purchase item');
+        $this->assertSame(
+            [InventoryCatalogItem::TYPE_RAW_MATERIAL],
+            $rows->where('unit', 'كجم')->pluck('type')->all(),
+        );
+    }
+
     public function test_type_all_returns_both_sheets(): void
     {
         $this->actingAs($this->accountant, 'sanctum')

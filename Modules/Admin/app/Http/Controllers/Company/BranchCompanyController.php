@@ -199,7 +199,7 @@ class BranchCompanyController extends AsabController
         });
     }
 
-    /** Catalog item ids countable for a branch: its daily list, else the brand sales catalog. */
+    /** Catalog item ids countable for a branch: its daily list, else the brand's purchase items. */
     private function countableItemIds(Request $request, ?string $branchId): \Illuminate\Support\Collection
     {
         $listIds = BranchInventoryList::where('branch_id', $branchId)->pluck('catalog_item_id');
@@ -209,8 +209,10 @@ class BranchCompanyController extends AsabController
         $brandId = \Modules\Branch\Models\Branch::whereKey($branchId)
             ->where('asab_company_id', $request->user()->company_id)->value('asab_brand_id');
 
+        // A جرد counts purchase items (raw materials), not menu items — the
+        // sales sheet here rejected every legitimate count line (2026-08-05).
         return $brandId
-            ? InventoryCatalogItem::where('brand_id', $brandId)->where('type', InventoryCatalogItem::TYPE_SALES_ITEM)->pluck('id')
+            ? InventoryCatalogItem::where('brand_id', $brandId)->where('type', InventoryCatalogItem::TYPE_RAW_MATERIAL)->pluck('id')
             : collect();
     }
 
