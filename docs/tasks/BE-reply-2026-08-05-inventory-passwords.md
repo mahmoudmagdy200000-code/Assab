@@ -1,0 +1,146 @@
+# ردّ الباك إند — 2026-08-05
+
+ثلاثة بنود: (1) كلمة المرور المُرسلة بالإيميل، (2) جرد المحاسب — العدد/التصنيفات/عدم
+تطابقها مع الجرد، (3) تأكيدات النشر المطلوبة منكم.
+
+---
+
+## 1) كلمة المرور المُولَّدة لم تكن تستوفي شروط شاشة الدخول ✅
+
+`Str::password(12)` يسحب من مجموعة رموز واسعة، فأنتج `%OP43zSVf}-h` — والتطبيق
+يفرض على الحقل نفسه «8+ حرف، a-z، A-Z، 0-9، وأحد `$ & @`»، فيبقى زر **Log In
+معطّلاً** والحساب غير قابل للاستخدام أصلاً.
+
+**ما تم:** مُولِّد واحد لكل كلمة مرور تُرسل لإنسان — `App\Support\TemporaryPassword`:
+
+- 12 حرفاً، **يضمن بالبناء** حرفاً صغيراً وكبيراً ورقماً وأحد `$ & @`؛
+- لا رموز أخرى إطلاقاً (فلا شيء يرفضه التطبيق، ولا شيء ينكسر في رابط أو Excel)؛
+- بلا أحرف متشابهة (`0/O`, `1/l/I`) — وهي مصدر «الباسورد في الإيميل ما يشتغل»؛
+- خلط بـ `random_int` (CSPRNG) لا `str_shuffle`.
+
+مُطبَّق على كل المسارات التي تُرسل كلمة مرور: إنشاء مستخدم، إعادة تعيين الأدمن،
+الاستيراد بالـ CSV، مالك العلامة، أدمن الشركة، وحسابات الكاشير (كانت
+`Str::random(12)` — قد تخلو من رقم أو حرف كبير تماماً).
+
+**للحسابات القائمة** التي وصلتها كلمة مرور قديمة غير قابلة للكتابة:
+
+```
+POST /api/v1/admin/users/{id}/reset-password    { "sendEmail": true }
+```
+
+يولّد كلمة مرور مطابقة للشروط، يكتبها في العالمين (داشبورد + موبايل) ويرسلها.
+
+> ملاحظة: تحقّق السيرفر على تغيير كلمة المرور لا يزال `min:8` فقط. إن أردتم أن
+> يرفض السيرفر أيضاً أي كلمة لا تستوفي سياسة التطبيق، قولوا لنا ونضيف نفس القاعدة
+> (`TemporaryPassword::satisfiesPolicy()` جاهزة كدالة).
+
+---
+
+## 2) جرد المحاسب — «22 صنف» بدل 30، تصنيفات غير صحيحة، ومختلفة عن الجرد ✅
+
+تشخيصكم للعلامات كان صحيحاً وقد صار الربط يعمل. الثلاث ملاحظات الباقية كانت **ثلاث
+أخطاء باك إند حقيقية**:
+
+### (أ) الكتالوج كان يعرض «أصناف المبيعات» فقط
+
+جدول `asab_inventory_catalog` يحمل **ورقتَي رفع**: `sales_item` (المنيو) و
+`raw_material` (مواد خام المشتريات). و`GET /accountant/inventory/catalog` كان
+يفلتر `type=sales_item` افتراضياً — فبراند رُفعت له 30 صفاً يظهر **22**، وبتصنيفات
+المنيو (أطعمة/حلويات/مشروبات) لا تصنيفات المواد الخام.
+
+### (ب) وعدّاد شريحة العلامة كان يحسب المبيعات فقط
+
+`GET /accountant/inventory/brands` → `itemCount` كان `sales_item` فقط.
+
+### (ج) والأهم: اختيار المحاسب لم يكن يصل إلى جرد التطبيق إطلاقاً
+
+`PUT /accountant/inventory/branches/{id}/daily-list` كان يكتب في جدول الداشبورد
+(`asab_branch_inventory_list`) **فقط**. والتطبيق يبني ورقة الجرد من
+`daily_inventory_schedule_items → items` (الجدول القديم). فالقائمتان لا علاقة
+بينهما: أيّاً كان ما يحدّده المحاسب، الفرع يظل يجرد ما في جدوله القديم. هذا هو سبب
+«مختلفة عن الموجود في الجرد».
+
+### العقد بعد الإصلاح
+
+```jsonc
+// GET /accountant/inventory/brands
+{ "id": "…", "name": "جورمية كافيه", "branchCount": 3,
+  "itemCount": 30,            // ← كل ما رُفع (كان 22)
+  "salesItemCount": 22,       // ← جديد
+  "rawMaterialCount": 8 }     // ← جديد
+```
+
+```jsonc
+// GET /accountant/inventory/catalog?brandId=…&type=raw_material|sales_item|all
+{
+  "type": "raw_material",
+  "categories": ["ألبان", "زيوت", "لحوم"],   // ← تصنيفات النوع المعروض فقط
+  "items": [{ "id": "…", "name": "صدور دجاج", "cat": "لحوم", "unit": "كجم",
+              "type": "raw_material", "code": null }],
+  "total": 8,
+  "counts": { "salesItem": 22, "rawMaterial": 8, "all": 30 }
+}
+```
+
+**مهم للفرونت:** شاشة «تحديد أصناف الجرد اليومي» يجب أن تنادي
+**`type=raw_material`** — لأن الفرع يجرد **المواد الخام** لا أصناف المنيو. استخدم
+`type=all` إن أردت تبويبين، و`counts` لعرض العدد الصحيح لكل ورقة.
+
+```jsonc
+// PUT /accountant/inventory/branches/{branchId}/daily-list   { items: [catalogItemId…] }
+{
+  "savedCount": 8,        // المحفوظ في قائمة الداشبورد
+  "appListCount": 8,      // ← جديد: ما وصل فعلاً لورقة جرد التطبيق
+  "newMobileItems": 2,    // ← جديد: أصناف أُنشئت في الجدول القديم لأول مرة
+  "pushedAt": "…"
+}
+```
+
+`appListCount` هو الرقم الذي يُنظر إليه لو قال الفرع «الجرد لسه بالأصناف القديمة».
+الجسر يطابق صنف الكتالوج بالـ«الرمز» وإلا بالاسم (نفس قاعدة مستورد المواد الخام)،
+ويُنشئ الصف القديم فقط إن لم يوجد، ويزرع `branch_item` (وإلا يبقى الصنف غير مرئي
+لشاشات الفرع)، وينشئ جدول جرد للفرع إن لم يكن له واحد. إعادة الحفظ **تستبدل** ولا
+تُضيف.
+
+---
+
+## 3) تأكيدات النشر — مسؤوليتنا مقابل مسؤوليتكم
+
+كل ما ذكرتموه في القسم الأول **موجود في الكود ومغطّى باختبارات**، لكنه لا يعمل حتى
+يُنشر على `ivory-snail-183262`. أمر النشر الكامل:
+
+```bash
+git pull
+php artisan migrate                     # عهدة/استلام + received_at + notification_alert_settings + procurement prices nullable
+php artisan config:clear && php artisan route:clear
+php artisan config:cache && php artisan route:cache
+
+# تحقّق سريع
+php artisan route:list --path=asab/supplier        # items, items/import, items/template
+php artisan route:list --path=procurement/items    # POST/PATCH/DELETE + import + template
+php artisan route:list --path=upload/employees     # branches/{id}/upload/employees
+php artisan route:list --path=settings/notifications
+```
+
+وفي `.env` على الإنتاج: `FEATURE_ASAB_SUPPLIER_PORTAL=true`.
+
+**نُذكّر بأمرين تشغيليين لم يُنفَّذا بعد** (بلا كود إضافي):
+
+```bash
+php artisan asab:sync-manager-branches   # حساب مدير الفرع يفتح فرعه الصحيح
+php artisan asab:bridge-backfill         # ينشئ «طلبات استلام» الأصول المرفوعة (13 أصلاً معلّقاً)
+```
+
+بدون الثاني تبقى شاشة أصول الفرع = 0، لأن عدّادات التطبيق تحسب الأصول **المستلَمة**
+فقط (`pending_branch` = بانتظار تأكيد الفرع).
+
+---
+
+## الاختبارات المضافة في هذه الدفعة
+
+| الملف | التغطية |
+| --- | --- |
+| `tests/Unit/TemporaryPasswordTest.php` | 5 — كل كلمة مرور تستوفي سياسة التطبيق (200 تكرار)، لا رموز مرفوضة، لا أحرف متشابهة، لا تكرار |
+| `tests/Feature/AccountantDailyInventoryListTest.php` | 6 — عدّاد العلامة، الكتالوج بالنوع + التصنيفات، `type=all`، وصول الاختيار لجرد التطبيق، الاستبدال عند إعادة الحفظ، إعادة استخدام الصنف القديم |
+| `tests/Feature/NotificationAlertSettingsTest.php` | 5 — إشعارات لكل الأدوار، عزل بين المستخدمين، ترحيل إعدادات مالك العلامة |
+| `tests/Feature/ExpensePreviousListNullSafetyTest.php` | 3 — لا `null` في الحقول النصية، صف بلا تفاصيل لا يُسقط القائمة |
