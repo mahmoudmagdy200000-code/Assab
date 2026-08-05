@@ -9,6 +9,7 @@ use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\BranchInventoryList;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Services\DailyInventoryListBridgeService;
 use Modules\Admin\Services\InventoryReconciliationService;
 use Modules\Admin\Services\InventoryReviewService;
 use Modules\Admin\Services\NotificationService;
@@ -23,6 +24,7 @@ class InventoryController extends AsabController
     public function __construct(
         private readonly InventoryReconciliationService $reconciliation,
         private readonly InventoryReviewService $review,
+        private readonly DailyInventoryListBridgeService $listBridge,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -127,20 +129,33 @@ class InventoryController extends AsabController
                 ->groupBy('asab_brand_id')
                 ->pluck('c', 'asab_brand_id');
 
+            // Per TYPE, not sales-items-only: the pill said «22 صنف» for a brand
+            // whose uploaded catalog holds 30 rows, because the raw materials —
+            // the very things a branch counts — were left out (2026-08-04).
             $itemCounts = InventoryCatalogItem::query()
                 ->whereIn('brand_id', $brands->pluck('id'))
-                ->where('type', InventoryCatalogItem::TYPE_SALES_ITEM)
-                ->selectRaw('brand_id, count(*) as c')
-                ->groupBy('brand_id')
-                ->pluck('c', 'brand_id');
+                ->selectRaw('brand_id, type, count(*) as c')
+                ->groupBy('brand_id', 'type')
+                ->get()
+                ->groupBy('brand_id');
 
-            return $this->ok($brands->map(fn ($b) => [
-                'id' => $b->id,
-                'name' => $b->name,
-                'abbr' => $b->abbr,
-                'branchCount' => (int) ($branchCounts[$b->id] ?? 0),
-                'itemCount' => (int) ($itemCounts[$b->id] ?? 0),
-            ])->values()->all());
+            return $this->ok($brands->map(function ($b) use ($branchCounts, $itemCounts) {
+                $rows = $itemCounts->get($b->id, collect());
+                $sales = (int) ($rows->firstWhere('type', InventoryCatalogItem::TYPE_SALES_ITEM)->c ?? 0);
+                $raw = (int) ($rows->firstWhere('type', InventoryCatalogItem::TYPE_RAW_MATERIAL)->c ?? 0);
+
+                return [
+                    'id' => $b->id,
+                    'name' => $b->name,
+                    'abbr' => $b->abbr,
+                    'branchCount' => (int) ($branchCounts[$b->id] ?? 0),
+                    // Everything the brand has uploaded…
+                    'itemCount' => $sales + $raw,
+                    // …and the split, so the screen can label which sheet it shows.
+                    'salesItemCount' => $sales,
+                    'rawMaterialCount' => $raw,
+                ];
+            })->values()->all());
         });
     }
 
@@ -188,28 +203,50 @@ class InventoryController extends AsabController
     public function catalog(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            // Inventory catalog = sales items; uploaded raw materials belong to
-            // the purchasing module and are excluded unless explicitly requested.
-            $q = InventoryCatalogItem::where('type', $request->query('type', InventoryCatalogItem::TYPE_SALES_ITEM));
-            // The catalog table has no tenant scope: pin reads to the caller's brands.
-            if (($brandIds = $this->assignedBrandIds()) !== null) {
-                $q->whereIn('brand_id', $brandIds);
-            }
-            if ($brand = $request->query('brandId')) {
-                $q->where('brand_id', $brand);
-            }
-            if ($cat = $request->query('category')) {
-                $q->where('category', $cat);
-            }
-            // ACC-4.5 item-selection search (matches the name, ar/en).
-            if ($search = $request->query('search')) {
-                $q->where('name', 'like', "%{$search}%");
-            }
+            // Two sheets share this table: «أصناف المبيعات» (the menu) and «مواد
+            // خام المشتريات» (what a branch actually counts). Listing only the
+            // first made the screen disagree with the app's جرد on BOTH the count
+            // and the categories — 22 menu items with menu categories instead of
+            // the brand's 30 rows (2026-08-04). `type=all` now returns both, and
+            // the daily-count selection asks for `raw_material`.
+            $type = $request->query('type', InventoryCatalogItem::TYPE_SALES_ITEM);
+
+            $scoped = fn () => InventoryCatalogItem::query()
+                // The catalog table has no tenant scope: pin reads to the caller's brands.
+                ->when($this->assignedBrandIds() !== null, fn ($q) => $q->whereIn('brand_id', $this->assignedBrandIds()))
+                ->when($request->query('brandId'), fn ($q, $brand) => $q->where('brand_id', $brand));
+
+            $q = $scoped()
+                ->when($type !== 'all', fn ($w) => $w->where('type', $type))
+                ->when($request->query('category'), fn ($w, $cat) => $w->where('category', $cat))
+                // ACC-4.5 item-selection search (matches the name, ar/en).
+                ->when($request->query('search'), fn ($w, $search) => $w->where('name', 'like', "%{$search}%"));
+
             $items = $q->orderBy('category')->orderBy('name')->get();
 
+            // Per-type totals for the SAME brand scope, so «عدد الأصناف» is the
+            // truth about the brand rather than the size of one filtered slice.
+            $counts = $scoped()->selectRaw('type, COUNT(*) as c')->groupBy('type')->pluck('c', 'type');
+
             return $this->ok([
-                'categories' => $items->pluck('category')->unique()->values()->all(),
-                'items' => $items->map(fn ($i) => ['id' => $i->id, 'name' => $i->name, 'cat' => $i->category, 'unit' => $i->unit])->all(),
+                'type' => $type,
+                'categories' => $items->pluck('category')->filter()->unique()->values()->all(),
+                'items' => $items->map(fn ($i) => [
+                    'id' => $i->id,
+                    'name' => $i->name,
+                    'cat' => $i->category,
+                    'unit' => $i->unit,
+                    // The two sheets look identical without it, and the branch
+                    // counts only raw materials.
+                    'type' => $i->type,
+                    'code' => $i->code,
+                ])->all(),
+                'total' => $items->count(),
+                'counts' => [
+                    'salesItem' => (int) ($counts[InventoryCatalogItem::TYPE_SALES_ITEM] ?? 0),
+                    'rawMaterial' => (int) ($counts[InventoryCatalogItem::TYPE_RAW_MATERIAL] ?? 0),
+                    'all' => (int) $counts->sum(),
+                ],
             ]);
         });
     }
@@ -339,6 +376,18 @@ class InventoryController extends AsabController
                 }
             });
 
+            // …and the list the APP counts from. Without this the accountant's
+            // selection lived only on the dashboard while the branch kept
+            // counting the old mobile schedule — «الأصناف مختلفة عن الموجود في
+            // الجرد» (2026-08-04). After the dashboard write, so a bridge failure
+            // never loses the accountant's choice.
+            $bridged = ['items' => 0, 'created' => 0];
+            try {
+                $bridged = $this->listBridge->sync($branchId, $itemIds);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+
             // T07.1 / MOB-1.2 — «حفظ وتحديث التطبيق فوراً»: the branch app must
             // learn its count list changed. Durable notification + realtime event;
             // `pushedAt` reflects a push that actually happened.
@@ -349,7 +398,15 @@ class InventoryController extends AsabController
                 null, ['type' => 'branch', 'id' => $branchId],
             );
 
-            return $this->ok(['savedCount' => count($itemIds), 'pushedAt' => now()->toIso8601String()]);
+            return $this->ok([
+                'savedCount' => count($itemIds),
+                // What actually reached the app's count sheet — a mismatch here
+                // is the one number worth looking at when a branch says its جرد
+                // still shows the old items.
+                'appListCount' => $bridged['items'],
+                'newMobileItems' => $bridged['created'],
+                'pushedAt' => now()->toIso8601String(),
+            ]);
         });
     }
 
