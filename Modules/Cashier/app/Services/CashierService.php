@@ -2,6 +2,7 @@
 
 namespace Modules\Cashier\Services;
 
+use App\Support\TemporaryPassword;
 use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -63,7 +64,7 @@ class CashierService
         DB::beginTransaction();
         try {
             // Random one-time password per cashier; delivered via the activation link and changed on first login.
-            $defaultPassword = Str::random(12);
+            $defaultPassword = TemporaryPassword::generate();
 
             $cashier = Cashier::create([
                 'name' => $data['name'],
@@ -365,7 +366,7 @@ class CashierService
         }
 
         // Generate new password
-        $newPassword = Str::random(12);
+        $newPassword = TemporaryPassword::generate();
         $cashier->update([
             'password' => Hash::make($newPassword),
         ]);

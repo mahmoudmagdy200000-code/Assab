@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Http\Controllers\Admin;
 
+use App\Support\TemporaryPassword;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -250,7 +251,7 @@ class CompanyController extends AsabController
                 throw new AsabException('NOT_FOUND', 'Company has no admin account', 'لا يوجد حساب مدير لهذه الشركة', 404);
             }
 
-            $temporaryPassword = Str::password(12);
+            $temporaryPassword = TemporaryPassword::generate();
             $resetAt = now();
 
             DB::transaction(function () use ($admin, $temporaryPassword, $credentials) {

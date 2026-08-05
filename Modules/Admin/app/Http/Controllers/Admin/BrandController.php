@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Http\Controllers\Admin;
 
+use App\Support\TemporaryPassword;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -222,7 +223,7 @@ class BrandController extends AsabController
                 throw new AsabException('NOT_FOUND', 'Brand has no owner account', 'لا يوجد حساب مالك لهذه العلامة التجارية', 404);
             }
 
-            $temporaryPassword = Str::password(12);
+            $temporaryPassword = TemporaryPassword::generate();
             $resetAt = now();
 
             DB::transaction(function () use ($owner, $temporaryPassword, $credentials) {

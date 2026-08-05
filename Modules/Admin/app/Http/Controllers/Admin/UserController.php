@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Http\Controllers\Admin;
 
+use App\Support\TemporaryPassword;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -153,7 +154,7 @@ class UserController extends AsabController
 
             // One temporary password: used for the account and (optionally) emailed
             // so the user can sign in (Admin dashboard batch 1, Part B).
-            $temporaryPassword = Str::password(12);
+            $temporaryPassword = TemporaryPassword::generate();
 
             $user = DB::transaction(function () use ($data, $temporaryPassword) {
                 $user = AsabUser::create([
@@ -202,7 +203,7 @@ class UserController extends AsabController
         return $this->run(function () use ($request, $id) {
             $data = $request->validate(['sendEmail' => 'sometimes|boolean']);
             $user = AsabUser::findOrFail($id);
-            $temporaryPassword = Str::password(12);
+            $temporaryPassword = TemporaryPassword::generate();
 
             DB::transaction(function () use ($user, $temporaryPassword) {
                 $user->forceFill(['password' => $temporaryPassword])->save();
@@ -333,7 +334,7 @@ class UserController extends AsabController
 
                     continue;
                 }
-                $temporaryPassword = Str::password(12);
+                $temporaryPassword = TemporaryPassword::generate();
                 $user = AsabUser::create([
                     'company_id' => $request->user()->company_id,
                     'name' => $name,

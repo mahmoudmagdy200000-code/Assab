@@ -2,6 +2,7 @@
 
 namespace Modules\Cashier\Console;
 
+use App\Support\TemporaryPassword;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Modules\Cashier\Models\Cashier;
@@ -39,7 +40,7 @@ class SendPendingActivationRemindersCommand extends Command
         foreach ($cashiers as $cashier) {
             try {
                 // Generate new password
-                $newPassword = \Str::random(12);
+                $newPassword = TemporaryPassword::generate();
                 $cashier->update([
                     'password' => \Hash::make($newPassword),
                 ]);

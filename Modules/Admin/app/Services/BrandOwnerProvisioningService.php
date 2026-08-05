@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Services;
 
+use App\Support\TemporaryPassword;
 use Illuminate\Support\Str;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\AsabBrand;
@@ -59,7 +60,7 @@ class BrandOwnerProvisioningService
         // instead: resetting a live account would lock out a working login, and
         // emailing a password that was written to only one of the two tables is
         // what made the welcome mail's promise false.
-        $oneTimePassword = (! $dashboardLive && ! $mobileLive) ? Str::password(12) : null;
+        $oneTimePassword = (! $dashboardLive && ! $mobileLive) ? TemporaryPassword::generate() : null;
 
         $user = $this->ensureDashboardUser($existing, $brand, $displayName, $email, $oneTimePassword, $mobileLive ? $mobileOwner->password : null);
         $legacyOwner = $this->provisionMobileOwner($mobileOwner, $email, $displayName, $oneTimePassword, $user->password);

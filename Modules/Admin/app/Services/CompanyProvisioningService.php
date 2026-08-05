@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Services;
 
+use App\Support\TemporaryPassword;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Modules\Admin\Models\AsabCompany;
@@ -31,7 +32,7 @@ class CompanyProvisioningService
      */
     public function createAdminUser(AsabCompany $company, string $email, ?string $name, ?string $phone): AsabUser
     {
-        $oneTimePassword = Str::password(12);
+        $oneTimePassword = TemporaryPassword::generate();
 
         $user = AsabUser::create([
             'company_id' => $company->id,
