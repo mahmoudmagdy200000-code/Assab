@@ -2,10 +2,22 @@
 
 use Illuminate\Support\Facades\Route;
 use Modules\Notification\Http\Controllers\DeviceTokenController;
+use Modules\Notification\Http\Controllers\NotificationAlertSettingController;
 use Modules\Notification\Http\Controllers\NotificationController;
 use Modules\Notification\Http\Controllers\NotificationPreferenceController;
 
 Route::middleware(['auth:sanctum'])->group(function () {
+    /*
+     | «Notifications & alerts» — every mobile role, not just the brand owner.
+     | The app used to call /brand-owner/settings/notifications for everyone and
+     | a branch manager got «Brand Owner access required» (2026-08-04). Same
+     | payload shape as that endpoint, which stays for compatibility.
+     */
+    Route::prefix('settings/notifications')->group(function () {
+        Route::get('/', [NotificationAlertSettingController::class, 'show'])->name('settings.notifications.show');
+        Route::patch('/', [NotificationAlertSettingController::class, 'update'])->name('settings.notifications.update');
+    });
+
     // Notifications
     Route::prefix('notifications')->group(function () {
         Route::get('/', [NotificationController::class, 'index'])->name('notifications.index');
