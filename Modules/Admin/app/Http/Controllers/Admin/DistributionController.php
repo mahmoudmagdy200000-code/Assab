@@ -49,8 +49,19 @@ class DistributionController extends AsabController
 
             $restaurants = AsabRestaurant::query()->get(['id', 'name', 'brand_id']);
             $restaurantNames = $restaurants->pluck('name', 'id');
-            $brandNames = AsabBrand::whereIn('id', $restaurants->pluck('brand_id')->filter()->unique()->all())
-                ->pluck('name', 'id');
+            // Brand names cover the restaurants' brands AND the brands assigned
+            // to accountants (an accountant may hold a brand with no restaurant
+            // yet, and its chip must still render a name).
+            $assignedBrandIds = $accountants
+                ->flatMap(fn ($a) => $a->roleAssignments->firstWhere('role_key', 'accountant')?->brand_ids ?? [])
+                ->filter()->unique();
+            $brandNames = AsabBrand::whereIn(
+                'id',
+                $restaurants->pluck('brand_id')->filter()->merge($assignedBrandIds)->unique()->all(),
+            )->pluck('name', 'id');
+            // «تابعين لـ undefined» on the screen: the row carried headId only,
+            // so the client had no name to print (2026-08-04).
+            $headNames = $heads->pluck('name', 'id');
             // Every accountant's stored cells in ONE query — the grid used to be
             // faked from the flat list, and resolving it per row would be N+1.
             $cellsByAccountant = $this->modules->grantsFor($accountants->pluck('id')->all());
@@ -60,7 +71,7 @@ class DistributionController extends AsabController
             $accModulesByRestaurant = [];
 
             $accountantRows = $accountants->map(function ($acc) use (
-                $restaurantNames, $cellsByAccountant, &$assigned, &$accModules, &$accModulesByRestaurant
+                $restaurantNames, $brandNames, $headNames, $cellsByAccountant, &$assigned, &$accModules, &$accModulesByRestaurant
             ) {
                 $assignment = $acc->roleAssignments->firstWhere('role_key', 'accountant');
                 // Accountants are BRAND-level: the restaurants they cover are the
@@ -80,9 +91,26 @@ class DistributionController extends AsabController
                 }
                 $granted = $this->modules->grantedUnion($effective);
 
+                $brandIds = array_values(array_filter($assignment->brand_ids ?? []));
+
                 return [
                     'id' => $acc->id, 'name' => $acc->name, 'avatar' => $acc->avatar,
                     'headId' => $acc->reports_to_id,
+                    'headName' => $acc->reports_to_id ? ($headNames[$acc->reports_to_id] ?? null) : null,
+                    // The accountant's own brand scope — «العلامة التجارية» reads
+                    // it, and an empty array is exactly why their portal said «لا
+                    // توجد علامات تجارية مخصّصة لك بعد».
+                    'brands' => $brandIds,
+                    'brandsNamed' => array_values(array_map(
+                        fn (string $id) => ['id' => $id, 'name' => $brandNames[$id] ?? null],
+                        $brandIds,
+                    )),
+                    'brandCount' => count($brandIds),
+                    // A companyless accountant is an INERT account: every company
+                    // surface answers WRONG_TENANT. Surfaced so the screen can flag
+                    // it instead of the admin discovering it from the user's phone.
+                    'companyId' => $acc->company_id,
+                    'needsCompany' => $acc->company_id === null,
                     'restaurants' => $restIds,
                     // Names alongside ids so the screen renders restaurant names,
                     // not raw uuids (client meeting).
@@ -216,6 +244,12 @@ class DistributionController extends AsabController
                 // which is what auth resolution reads. No-op before the grid is
                 // first edited (the legacy flat list above stands).
                 $this->modules->resyncUnion($assignment);
+                // …and the account's TENANT. Distribution used to write scope
+                // only, so an accountant created without a company stayed
+                // companyless after being assigned brands — every company
+                // surface then answered «المستخدم غير مرتبط بشركة» and their
+                // brand list was empty (reported 2026-08-04).
+                $this->backfillCompanyFromScope($acc, $brands, $restaurants);
             });
 
             $fresh = $assignment->fresh();
@@ -228,6 +262,37 @@ class DistributionController extends AsabController
                 'restaurants' => $fresh->restaurant_ids ?? [],
             ]);
         });
+    }
+
+    /**
+     * Give a companyless account the tenant its new scope implies.
+     *
+     * Only ever FILLS a NULL — moving an accountant between companies is not a
+     * side effect of a distribution edit, and their operations/reports already
+     * carry the old company. Brands (or the restaurants' brands) must resolve to
+     * exactly one company; anything else is left alone for an admin to fix
+     * explicitly rather than guessed at.
+     *
+     * @param  array<int, string>|null  $brands
+     * @param  array<int, string>|null  $restaurants
+     */
+    private function backfillCompanyFromScope(AsabUser $acc, ?array $brands, ?array $restaurants): void
+    {
+        if ($acc->company_id !== null) {
+            return;
+        }
+
+        $companyIds = collect();
+        if (! empty($brands)) {
+            $companyIds = AsabBrand::withoutGlobalScope('tenant')->whereIn('id', $brands)->pluck('company_id');
+        } elseif (! empty($restaurants)) {
+            $companyIds = AsabRestaurant::withoutGlobalScope('tenant')->whereIn('id', $restaurants)->pluck('company_id');
+        }
+
+        $resolved = $companyIds->filter()->unique()->values();
+        if ($resolved->count() === 1) {
+            $acc->forceFill(['company_id' => $resolved->first()])->save();
+        }
     }
 
     /**

@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRestaurant;
@@ -121,6 +122,10 @@ class UserController extends AsabController
                 // field in error.details instead.
             } elseif ($role === 'accountant') {
                 $rules['brands'] = 'required|array|min:1';
+                // The brand ids are consumed as the account's tenant below, so an
+                // unknown id must fail here rather than produce a companyless
+                // accountant whose every screen answers WRONG_TENANT.
+                $rules['brands.*'] = ['uuid', Rule::exists('asab_brands', 'id')->whereNull('deleted_at')];
                 // assignmentAttributes() hard-forces scope=brand and zeroes
                 // restaurant_ids, so accepting these returned a 201 echoing
                 // "restaurants": [] that read as saved. Reject instead —
@@ -139,6 +144,12 @@ class UserController extends AsabController
                 $rules['supplierId'] = 'nullable|uuid|exists:asab_suppliers,id';
             }
             $data = $request->validate($rules, self::ACCOUNTANT_SCOPE_MESSAGES);
+            // Resolved BEFORE the insert: an accountant with no company is a
+            // dead account — ResolveTenant answers «المستخدم غير مرتبط بشركة» on
+            // every company surface, and their brand list comes back empty
+            // (reported 2026-08-04). The wizard sends brands, brands name a
+            // company, so derive it instead of storing NULL.
+            $data['companyId'] = $this->resolveAssignedCompanyId($data);
 
             // One temporary password: used for the account and (optionally) emailed
             // so the user can sign in (Admin dashboard batch 1, Part B).
@@ -403,6 +414,58 @@ class UserController extends AsabController
      * non-empty id array regardless of the scope string, so a stale array left
      * behind would silently widen access.
      */
+    /**
+     * The company an accountant belongs to: whatever the caller sent, else the
+     * company of the brands they were just assigned.
+     *
+     * Also the zero-trust check that was missing: `brands` was never compared to
+     * `companyId`, so a wizard could attach one company's accountant to another
+     * company's brand. Brands spanning two companies is refused outright — an
+     * accountant has ONE tenant, and silently keeping the first would hide half
+     * their scope.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function resolveAssignedCompanyId(array $data): ?string
+    {
+        $sent = $data['companyId'] ?? null;
+
+        if (($data['role'] ?? null) !== 'accountant' || empty($data['brands'])) {
+            return $sent;
+        }
+
+        $companyIds = AsabBrand::withoutGlobalScope('tenant')
+            ->whereIn('id', $data['brands'])
+            ->pluck('company_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($companyIds->count() > 1) {
+            throw new AsabException(
+                'BRANDS_SPAN_COMPANIES',
+                'The selected brands belong to different companies; an accountant serves one company.',
+                'العلامات المختارة تتبع شركات مختلفة — المحاسب يتبع شركة واحدة.',
+                422,
+                ['brands' => ['العلامات المختارة تتبع شركات مختلفة']],
+            );
+        }
+
+        $resolved = $companyIds->first();
+
+        if ($sent !== null && $resolved !== null && $sent !== $resolved) {
+            throw new AsabException(
+                'BRAND_NOT_IN_COMPANY',
+                'The selected brands do not belong to this company.',
+                'العلامات المختارة لا تتبع الشركة المحددة.',
+                422,
+                ['brands' => ['العلامات المختارة لا تتبع الشركة المحددة']],
+            );
+        }
+
+        return $sent ?? $resolved;
+    }
+
     private function assignmentAttributes(string $role, array $data): array
     {
         return match ($role) {
