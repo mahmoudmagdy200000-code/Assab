@@ -27,29 +27,31 @@ class CashierObserver
         ]);
     }
 
-    public function updating(Cashier $cashier): void
-    {
-        // Detect status changes
-        if ($cashier->isDirty('status')) {
-            $oldStatus = $cashier->getOriginal('status');
-            $newStatus = $cashier->status;
-
-            if ($newStatus === 'active' && $oldStatus !== 'active') {
-                event(new CashierActivatedEvent($cashier));
-            }
-
-            if ($newStatus === 'deactivated' && $oldStatus !== 'deactivated') {
-                event(new CashierDeactivatedEvent($cashier));
-            }
-        }
-    }
-
     public function updated(Cashier $cashier): void
     {
         Log::info('Cashier updated', [
             'cashier_id' => $cashier->id,
             'changes' => $cashier->getChanges(),
         ]);
+
+        // Status side effects fire AFTER the row is written. They used to run on
+        // `updating`: a deactivation revoked tokens and cancelled shifts before
+        // the cashier row existed in that state, so a failure further down the
+        // save left an active cashier with a cancelled schedule.
+        if (! $cashier->wasChanged('status')) {
+            return;
+        }
+
+        $oldStatus = $cashier->getOriginal('status');
+        $newStatus = $cashier->status;
+
+        if ($newStatus === 'active' && $oldStatus !== 'active') {
+            event(new CashierActivatedEvent($cashier));
+        }
+
+        if ($newStatus === 'deactivated' && $oldStatus !== 'deactivated') {
+            event(new CashierDeactivatedEvent($cashier));
+        }
     }
 
     public function deleting(Cashier $cashier): void

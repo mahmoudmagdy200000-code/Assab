@@ -4,6 +4,7 @@ namespace Modules\Cashier\Listeners;
 
 use Illuminate\Support\Facades\Log;
 use Modules\Cashier\Events\CashierDeactivatedEvent;
+use Modules\Shift\Enums\ShiftStatus;
 
 class HandleCashierDeactivationListener
 {
@@ -18,10 +19,12 @@ class HandleCashierDeactivationListener
         // Revoke all tokens
         $event->cashier->tokens()->delete();
 
-        // Cancel pending shifts
+        // Cancel pending shifts. The literal used to be 'cancelled' — a spelling
+        // that exists in neither the PHP enum ('canceled') nor the MySQL column,
+        // so every deactivation blew up with «Data truncated for column status».
         $event->cashier->shifts()
-            ->where('status', 'not_started')
+            ->where('status', ShiftStatus::NOT_STARTED->value)
             ->whereDate('shift_date', '>=', today())
-            ->update(['status' => 'cancelled']);
+            ->update(['status' => ShiftStatus::CANCELED->value]);
     }
 }
