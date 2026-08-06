@@ -190,6 +190,28 @@ class EmployeeRosterIntegrityTest extends TestCase
         $this->assertSame(1, Employee::withoutGlobalScope('tenant')->where('name', 'زكريا صبري 2')->count());
     }
 
+    /** The undo pass removes what it created and nothing else. */
+    public function test_undo_managers_removes_only_untouched_manager_rows(): void
+    {
+        \Modules\BranchManagers\Models\BranchManager::factory()->create([
+            'name' => 'مدير برجر بيت — فرع العليا', 'phone' => '0557777777', 'branch_id' => $this->branch->id,
+        ]);
+        $this->artisan('asab:repair-employees')->assertExitCode(0);
+
+        // An uploaded employee (real salary) must survive the undo.
+        Employee::create([
+            'company_id' => $this->company->id, 'branch_id' => $this->branch->id,
+            'emp_number' => 'EMP-9001', 'name' => 'موظف مرفوع', 'role' => 'مدير فرع',
+            'monthly_salary' => 800000, 'hire_date' => now(), 'status' => 'active',
+        ]);
+
+        $this->artisan('asab:repair-employees', ['--undo-managers' => true])->assertExitCode(0);
+
+        $live = Employee::withoutGlobalScope('tenant')->whereNull('deleted_at')->pluck('name');
+        $this->assertFalse($live->contains('مدير برجر بيت — فرع العليا'));
+        $this->assertTrue($live->contains('موظف مرفوع'), 'an uploaded employee is never removed');
+    }
+
     /** A manager already on the uploaded roster is not added a second time. */
     public function test_a_manager_already_in_the_roster_is_not_duplicated(): void
     {

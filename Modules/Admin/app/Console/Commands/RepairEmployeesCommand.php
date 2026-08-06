@@ -32,13 +32,24 @@ class RepairEmployeesCommand extends Command
 
     protected $signature = 'asab:repair-employees
         {--dry-run : Report what would change without writing}
-        {--skip-managers : Only de-duplicate; do not create employee rows for branch managers}';
+        {--skip-managers : Only de-duplicate; do not create employee rows for branch managers}
+        {--undo-managers : Remove the manager rows this command created (only untouched ones)}';
 
     protected $description = 'De-duplicate uploaded employees and give every branch manager an employee record';
 
     public function handle(): int
     {
         $dry = (bool) $this->option('dry-run');
+
+        if ($this->option('undo-managers')) {
+            $this->undoManagers($dry);
+
+            if ($dry) {
+                $this->comment('Dry run — nothing was written.');
+            }
+
+            return self::SUCCESS;
+        }
 
         $this->dedupe($dry);
 
@@ -159,6 +170,40 @@ class RepairEmployeesCommand extends Command
             });
 
         $this->info(($dry ? 'Would create ' : 'Created ')."{$created} manager employee record(s).");
+    }
+
+    /**
+     * The escape hatch for the pass above: seeded/demo manager logins («مدير
+     * برجر بيت — فرع العليا») become roster rows too, and an accountant may not
+     * want them on the statement list. Only rows this command could have
+     * created are eligible — role «مدير فرع», zero salary, and NO ledger
+     * movements — so an uploaded or hand-edited manager is never removed.
+     */
+    private function undoManagers(bool $dry): void
+    {
+        $removed = 0;
+
+        Employee::withoutGlobalScopes()
+            ->whereNull('deleted_at')
+            ->where('role', 'مدير فرع')
+            ->where('monthly_salary', 0)
+            ->get()
+            ->each(function (Employee $employee) use ($dry, &$removed) {
+                if (EmployeeMovement::where('employee_id', $employee->id)->exists()) {
+                    $this->warn("  ⚠ {$employee->name} — عليه حركات، لم يُحذف");
+
+                    return;
+                }
+
+                $this->line(($dry ? '[dry] ' : '')."حذف صف مدير: {$employee->name} ({$employee->emp_number})");
+                $removed++;
+
+                if (! $dry) {
+                    $employee->delete();
+                }
+            });
+
+        $this->info(($dry ? 'Would remove ' : 'Removed ')."{$removed} manager employee record(s).");
     }
 
     /** @return bool whether a row was (or would be) created */
