@@ -164,3 +164,100 @@ To maintain enterprise-grade security, consistency, and performance, Claude Code
 
 - **Test Integrity:** If the local test suite fails due to environmental issues (e.g., SQLite migration incompatibilities), do not proceed with features "on blind faith." Isolate the testing issue, guard the migrations using driver checks (`DB::getDriverName() !== 'sqlite'`), and ensure a passing baseline before shipping.
 - **Manual Blueprinting:** For high-risk refactors (like RBAC, Auth, or financial calculation updates), present a text-based blueprint/diff to the user for structural approval before executing file updates.
+
+---
+
+## Workflow — Skills & Agents (Mandatory)
+
+The `.claude/` directory ships five skills and five agents. They are adapted to THIS repo's layout
+(`Modules/{Name}/app/{Services,Repositories,Transformers}`) — where a skill still says "Action" or
+`app/Domain/`, read it as **Service** in the module. **Never create `app/Domain/` or `app/Actions/`.**
+
+### Skills — invoke before the work, not after
+
+| When | Skill |
+|---|---|
+| Creating a feature, endpoint, module, or asking "how does X work" | `/laravel-feature` |
+| Any business logic, multi-write orchestration, or state transition | `/laravel-service` |
+| Any query, relation load, list endpoint, report, or export | `/laravel-query-performance` |
+| Any job, event listener, broadcast, or scheduled command | `/laravel-job-queue` |
+| Before declaring a task done | `/laravel-code-review` |
+
+### Agents — proactively suggest, don't wait to be asked
+
+- `@debugger` — a bug, 500, exception, failed job, slow endpoint, or "works locally / fails on prod"
+- `@migration-reviewer` — **always** when a migration is created or modified, before it is committed
+- `@code-reviewer` — after `/laravel-code-review` passes, for an independent deeper pass before PR
+- `@test-writer` — code added or changed without matching tests
+- `@git-expert` — branch, commit, PR, merge conflict, rebase, or any non-trivial git situation
+
+---
+
+## Additional Engineering Rules
+
+### 7. Change Discipline & Shared Code
+
+- Make the smallest change that solves the problem. Fix root causes, not symptoms.
+- Don't refactor unrelated code unless asked. Read the relevant code before modifying it.
+- Never break an existing API response shape, route, or DB contract unless explicitly instructed.
+- Logic reused in 2+ modules goes in `app/Support/`; module-local helpers in `Modules/{Name}/app/Support/`. Check both before writing new shared code.
+- No new Composer package without justification. Prefer first-party Laravel packages.
+
+### 8. Transactions, Side Effects & Queues
+
+- Multi-table writes run inside a transaction (`DB::transaction()`).
+- **Never** put an HTTP call, file upload, mail, broadcast, or `sleep` inside a transaction.
+- Dispatch jobs/events that depend on committed data with `->afterCommit()` (or `public $afterCommit = true;` on the job).
+- Events and jobs carry **IDs** (UUID strings), not hydrated models — the handler re-fetches fresh state.
+- Anything slower than ~300ms the user doesn't need to wait for goes on a queue.
+- Jobs must be **idempotent** — they will run more than once. Every job sets `$tries` and `$backoff`, and implements `failed()`.
+- For money, balances, counters, or stock: `lockForUpdate()` inside the transaction, or an atomic `increment()`.
+
+### 9. Migrations
+
+- Migrations are additive and reversible. **Never edit a migration that has already run on staging or production** — write a new one.
+- `down()` must actually reverse `up()`. If a step is not reversible (a data backfill), say so explicitly.
+- Data backfills go in their own migration or a dedicated idempotent command — never mixed with schema changes on a large table.
+- Every foreign key gets an index. Money uses `decimal(x, 2)`, never `float`/`double`.
+- Adding an index or changing a column type **locks the table on MySQL** — flag it on any large table.
+- A column in active use is changed with expand → backfill → migrate reads → contract (drop) in a **later** release, never all in one deploy.
+- Guard MySQL-only DDL with `DB::getDriverName() !== 'sqlite'` so the test suite stays green.
+- Prefer `string` + a PHP backed enum over a DB `enum` column — DB enums need a migration to add a member, and drift between MySQL and the PHP enum is a known source of `SQLSTATE 1265` on production.
+
+### 10. API Contract
+
+- Every response goes through a Transformer/Resource and a `BaseController` helper. Never `return $model` or a raw array.
+- Adding a response key is safe. **Renaming or removing one is a breaking change** — add, don't rename.
+- Correct status codes: 201 create, 204 no content, 403 vs 404, 422 validation.
+- Every public endpoint carries `throttle` middleware.
+- Never render a third-party exception message straight to the client.
+
+### 11. Config, Env & Debug Artifacts
+
+- `env()` is **forbidden outside `config/*.php`** — it returns `null` once `config:cache` runs on production.
+- Read everything through `config('key')`. Any new setting gets a `config/` entry **and** an `.env.example` line in the same change.
+- No `dd()`, `dump()`, `ray()`, `var_dump`, or leftover `Log::debug` in committed code.
+- Never log passwords, tokens, OTPs, national IDs, card data, or full request bodies.
+
+### 12. Naming Conventions
+
+| Thing | Convention | Example |
+|---|---|---|
+| Model | singular, StudlyCase | `Invoice` |
+| Table | plural, snake_case | `invoices` |
+| Controller | `{Noun}Controller` | `InvoiceController` |
+| Service | `{Noun}Service`, method named for the operation | `InvoiceService::issue()` |
+| Repository | `{Noun}Repository` (+ `Interface` when bound) | `InvoiceRepository` |
+| FormRequest | `{Verb}{Noun}Request` | `StoreInvoiceRequest` |
+| Transformer | `{Noun}Resource` | `InvoiceResource` |
+| Job | `{Verb}{Noun}Job` | `SendInvoiceJob` |
+| Event | past tense | `InvoiceIssued` |
+| Migration | descriptive verb | `add_status_to_invoices_table` |
+| Test | `{Class}Test` | `InvoiceServiceTest` |
+
+### 13. Toolchain Facts (do not assume otherwise)
+
+- Laravel **12**, PHP **8.2**, Pest **4**, nwidart/laravel-modules **12**, Sanctum tokens, UUID PKs + SoftDeletes.
+- `declare(strict_types=1)` is **not** used in this codebase — don't add it to existing files and don't flag its absence.
+- **PHPStan is not installed.** The formatting gate is `./vendor/bin/pint`; the test gate is `php artisan test` / `./vendor/bin/pest`.
+- `Model::preventLazyLoading()` is **not** enabled — a lazy load fails silently in dev, so check for N+1 by reading the code, not by waiting for an error.
