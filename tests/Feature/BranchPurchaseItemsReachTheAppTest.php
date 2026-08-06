@@ -243,14 +243,18 @@ class BranchPurchaseItemsReachTheAppTest extends TestCase
     {
         $other = Branch::factory()->create(['name' => 'التعاون 1', 'asab_company_id' => $this->company->id]);
 
+        // `branch_managers.phone` is unique, so a duplicate person carries a
+        // second phone — the name is what gives the twin away.
         \Modules\BranchManagers\Models\BranchManager::factory()->create([
             'name' => 'زكريا صبري', 'phone' => '0558544750', 'branch_id' => $this->branch->id,
         ]);
         \Modules\BranchManagers\Models\BranchManager::factory()->create([
-            'name' => 'زكريا صبري 2', 'phone' => '0558544750', 'branch_id' => $other->id,
+            'name' => 'زكريا صبري 2', 'phone' => '0558544751', 'branch_id' => $other->id,
         ]);
 
-        $this->artisan('asab:inventory-doctor', ['--phone' => '0558544750'])
+        // The second login opens a DIFFERENT branch than the one the accountant
+        // configured — which is what an empty screen on a healthy branch means.
+        $this->artisan('asab:inventory-doctor', ['--phone' => '0558544751'])
             ->expectsOutputToContain('التعاون 1')
             ->assertExitCode(0);
 
