@@ -56,6 +56,12 @@ class WasteDamageBranchCatalogProductsTest extends TestCase
         $this->assertSame('كجم', $rows[0]['item_unit']);
         $this->assertSame(12.5, (float) $rows[0]['price_per_unit']);
 
+        // The quantity/price fields are `decimal:` casts on the closed-order
+        // half, so they reach the app as STRINGS — it casts them `as String`.
+        $this->assertSame('0.000', $rows[0]['quantity_ordered']);
+        $this->assertSame('0.000', $rows[0]['quantity_received']);
+        $this->assertSame('12.50', $rows[0]['unit_price']);
+
         // «type 'Null' is not a subtype of type 'String'» — one null anywhere
         // in this payload takes the whole screen down.
         foreach ($rows[0] as $key => $value) {

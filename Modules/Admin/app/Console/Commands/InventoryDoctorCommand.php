@@ -39,7 +39,7 @@ class InventoryDoctorCommand extends Command
         {--brand= : Every branch of this brand id (or name)}
         {--phone= : The LOGIN phone of a branch manager — shows which branch that phone actually opens}';
 
-    protected $description = 'Explain why a branch shows no items on the mobile daily-inventory screen';
+    protected $description = 'Explain why a branch shows no items (or no shifts) on the mobile screens';
 
     public function handle(): int
     {
@@ -197,7 +197,50 @@ class InventoryDoctorCommand extends Command
             }
         }
 
+        $this->shifts($branch);
         $this->verdict($selected, $schedules, $managers->count());
+    }
+
+    /**
+     * «عيّنّا 3 شفتات والموبايل يعرض شفت واحد في اليوم»: the dashboard config
+     * creates SHIFT TEMPLATES per branch, but the app lists `cashier_shifts` —
+     * rows that exist only for a template a cashier is actually assigned to. A
+     * template with no cashier is invisible on every phone.
+     */
+    private function shifts(Branch $branch): void
+    {
+        $templates = \Illuminate\Support\Facades\DB::table('shifts')
+            ->where('branch_id', $branch->id)
+            ->where('is_active', true)
+            ->orderBy('start_time')
+            ->get(['id', 'name', 'start_time', 'end_time']);
+
+        if ($templates->isEmpty()) {
+            $this->row('شفتات الفرع (shifts)', '✗ لا يوجد — احفظ إعداد الشفتات أو اضغط «إعادة التوليد»');
+
+            return;
+        }
+
+        $this->row('شفتات الفرع (shifts)', $templates->count().' شفت نشط');
+
+        foreach ($templates as $template) {
+            $cashiers = \Modules\Cashier\Models\Cashier::whereIn(
+                'id',
+                \Modules\Shift\Models\CashierShift::where('shift_id', $template->id)
+                    ->whereDate('shift_date', '>=', now()->toDateString())
+                    ->pluck('cashier_id')->unique(),
+            )->pluck('name');
+
+            $upcoming = \Modules\Shift\Models\CashierShift::where('shift_id', $template->id)
+                ->whereDate('shift_date', '>=', now()->toDateString())
+                ->count();
+
+            $who = $cashiers->isEmpty()
+                ? '✗ بلا كاشير — لن يظهر في أي موبايل'
+                : $cashiers->implode('، ')." — {$upcoming} يوم قادم";
+
+            $this->row("  {$template->start_time} → {$template->end_time}", $who);
+        }
     }
 
     private function verdict(int $selected, $schedules, int $managers): void

@@ -48,7 +48,18 @@ class ShiftScheduleBridgeService
             (int) $cfg->duration_hours,
             $cfg->first_shift_start,
         );
-        $branchIds = Branch::where('asab_brand_id', $brandId)->pluck('id');
+        // Brand branches are linked directly OR through a restaurant — matching
+        // `asab_brand_id` alone silently skipped every restaurant-linked branch,
+        // which then had NO shift templates at all (2026-08-03 rule).
+        $restaurantIds = \Modules\Admin\Models\AsabRestaurant::withoutGlobalScopes()
+            ->where('brand_id', $brandId)->pluck('id')->all();
+
+        $branchIds = Branch::where(function ($q) use ($brandId, $restaurantIds) {
+            $q->where('asab_brand_id', $brandId);
+            if ($restaurantIds !== []) {
+                $q->orWhereIn('asab_restaurant_id', $restaurantIds);
+            }
+        })->pluck('id');
         if ($branchIds->isEmpty() || $windows === []) {
             return 0;
         }

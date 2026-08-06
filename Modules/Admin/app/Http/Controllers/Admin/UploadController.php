@@ -1339,10 +1339,7 @@ class UploadController extends AsabController
             throw new \RuntimeException('يتم إضافة الكاشير من تطبيق الموبايل بواسطة مدير الفرع');
         }
 
-        Employee::create([
-            'company_id' => $restaurant->company_id,
-            'branch_id' => $branchId,
-            'emp_number' => $this->nextEmpNumber($restaurant->company_id),
+        $attributes = [
             'name' => $data['name'],
             'phone' => $data['phone'],
             'national_id' => $data['nationalId'],
@@ -1354,6 +1351,38 @@ class UploadController extends AsabController
             'shift_type' => $data['shift'],
             'hire_date' => $data['hireDate'] ? \Illuminate\Support\Carbon::parse($data['hireDate']) : now(),
             'status' => 'active',
+        ];
+
+        // IDEMPOTENT: the template ships the branch's SAVED roster, so «حمّل →
+        // صحّح → ارفع» is the normal edit path — and a plain create() minted a
+        // second «أحمد محمود السيد» on every pass («أسماء مكررة في كشف حساب
+        // الموظفين», 2026-08-06). Identity is the national id when the sheet
+        // carries one, else the name within the branch.
+        $existing = Employee::withTrashed()
+            ->where('company_id', $restaurant->company_id)
+            ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId), fn ($q) => $q->whereNull('branch_id'))
+            ->when(
+                ! empty($data['nationalId']),
+                fn ($q) => $q->where('national_id', $data['nationalId']),
+                fn ($q) => $q->where('name', $data['name']),
+            )
+            ->first();
+
+        if ($existing !== null) {
+            if ($existing->trashed()) {
+                $existing->restore();
+            }
+            // emp_number is the employee's identity on payslips and statements —
+            // never re-issued on an update.
+            $existing->fill($attributes)->save();
+
+            return;
+        }
+
+        Employee::create($attributes + [
+            'company_id' => $restaurant->company_id,
+            'branch_id' => $branchId,
+            'emp_number' => $this->nextEmpNumber($restaurant->company_id),
         ]);
     }
 

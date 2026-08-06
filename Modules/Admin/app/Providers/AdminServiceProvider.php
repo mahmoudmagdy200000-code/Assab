@@ -99,6 +99,7 @@ class AdminServiceProvider extends ServiceProvider
             \Modules\Admin\Console\Commands\SyncManagerBranchesCommand::class,
             \Modules\Admin\Console\Commands\RepairUserCompaniesCommand::class,
             \Modules\Admin\Console\Commands\InventoryDoctorCommand::class,
+            \Modules\Admin\Console\Commands\RepairEmployeesCommand::class,
         ]);
     }
 

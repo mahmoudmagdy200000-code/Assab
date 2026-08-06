@@ -113,9 +113,13 @@ class WasteDamageProductService
                 'item_unit' => (string) $unit,
                 'category' => (string) ($item->category ?? ''),
                 'subcategory' => (string) ($item->subcategory ?? ''),
-                'quantity_ordered' => (float) $item->quantity_ordered,
-                'quantity_received' => (float) $item->quantity_received,
-                'unit_price' => (float) $item->unit_price,
+                // STRINGS, not floats: `quantity_ordered` and friends are
+                // `decimal:` casts, so this endpoint has always emitted
+                // "10.000" — and the app casts them with `as String`. Coercing
+                // them to numbers broke the screen exactly like a null would.
+                'quantity_ordered' => $this->decimalString($item->quantity_ordered, 3),
+                'quantity_received' => $this->decimalString($item->quantity_received, 3),
+                'unit_price' => $this->decimalString($item->unit_price, 2),
                 'closed_at' => (string) ($item->purchaseOrder->closed_at ?? ''),
                 'available_in_stock' => $availableInStock,
                 'price_per_unit' => $pricePerUnit,
@@ -127,6 +131,15 @@ class WasteDamageProductService
         return $fromOrders
             ->concat($this->presentCatalogProducts($catalogRows, $branchId, $storageLocation))
             ->values();
+    }
+
+    /**
+     * Mirrors a `decimal:$scale` Eloquent cast — the app reads these fields as
+     * strings, so a raw float (or a null) takes the screen down.
+     */
+    private function decimalString(mixed $value, int $scale): string
+    {
+        return number_format((float) ($value ?? 0), $scale, '.', '');
     }
 
     /**
@@ -191,9 +204,10 @@ class WasteDamageProductService
                 'item_unit' => (string) ($bi->item?->unit ?: 'unit'),
                 'category' => (string) ($bi->item?->category ?? ''),
                 'subcategory' => (string) ($bi->item?->subcategory ?? ''),
-                'quantity_ordered' => 0.0,
-                'quantity_received' => 0.0,
-                'unit_price' => (float) $bi->price,
+                // Same shape as the closed-order half above — decimal strings.
+                'quantity_ordered' => $this->decimalString(0, 3),
+                'quantity_received' => $this->decimalString(0, 3),
+                'unit_price' => $this->decimalString($bi->price, 2),
                 'closed_at' => '',
                 'available_in_stock' => $inv
                     ? (float) $inv->available_quantity - (float) $inv->reserved_quantity
