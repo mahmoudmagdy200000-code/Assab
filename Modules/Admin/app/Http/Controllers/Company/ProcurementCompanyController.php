@@ -109,12 +109,15 @@ class ProcurementCompanyController extends AsabController
                 $reason ?? throw new AsabException('REJECT_REASON_REQUIRED', 'A rejection reason is required', 'يجب إدخال سبب الرفض', 422),
             ),
             // Procurement may never self-set the final (locked) state — that is the
-            // head accountant's transition through the pipeline (NFR-10).
+            // head accountant's transition through the pipeline (NFR-10). This is a
+            // FORBIDDEN TRANSITION, not a conflict: the order is still pending, so
+            // answering OP_ALREADY_FINAL/409 told the client the opposite of the
+            // truth (that code belongs to the reopen guard above).
             Operation::STATUS_FINAL => throw new AsabException(
-                'OP_ALREADY_FINAL',
+                'OP_STATUS_TRANSITION_FORBIDDEN',
                 'Final approval cannot be set from this endpoint',
                 'لا يمكن الاعتماد النهائي من هذا المسار',
-                409,
+                422,
                 ['currentStatus' => $op->status, 'requestedStatus' => $target],
             ),
             default => throw new AsabException(

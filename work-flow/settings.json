@@ -1,0 +1,59 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(open:*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(composer show:*)",
+      "Bash(composer diagnose:*)",
+      "Bash(php artisan about:*)",
+      "Bash(php artisan route:list:*)",
+      "Bash(php artisan schedule:list:*)",
+      "Bash(php artisan queue:failed:*)",
+      "Bash(php artisan test:*)",
+      "Bash(./vendor/bin/pint:*)",
+      "Bash(./vendor/bin/pest:*)",
+      "Bash(./vendor/bin/phpstan:*)"
+    ],
+    "deny": [
+      "Bash(php artisan migrate:fresh:*)",
+      "Bash(php artisan migrate:reset:*)",
+      "Bash(php artisan db:wipe:*)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "description": "Dangerous command warning: prints a caution when destructive git, filesystem, or database commands are detected. Does NOT block — user keeps full control",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'input=\"${CLAUDE_TOOL_INPUT:-}\"; if echo \"$input\" | grep -qE \"git push.*--force|git reset --hard|rm -rf|migrate:fresh|migrate:reset|migrate:rollback|db:wipe|migrate.*--force|DROP TABLE|TRUNCATE|DELETE FROM\"; then echo \"⚠️  Destructive command detected. Confirm the target environment and database before proceeding.\"; fi; exit 0'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "description": "Auto-format changed PHP files with Laravel Pint (--dirty only touches modified files). Never blocks",
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '[ -x ./vendor/bin/pint ] && ./vendor/bin/pint --dirty --quiet || true; exit 0'"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {},
+  "effortLevel": "medium",
+  "autoUpdatesChannel": "latest",
+  "model": "opus"
+}
