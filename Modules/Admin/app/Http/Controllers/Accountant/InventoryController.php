@@ -410,10 +410,16 @@ class InventoryController extends AsabController
             // الجرد» (2026-08-04). After the dashboard write, so a bridge failure
             // never loses the accountant's choice.
             $bridged = ['items' => 0, 'created' => 0];
+            $bridgeError = null;
             try {
                 $bridged = $this->listBridge->sync($branchId, $itemIds);
             } catch (\Throwable $e) {
                 report($e);
+                // Swallowing this silently is how «حفظنا الأصناف والتطبيق لسه
+                // فاضي» stayed invisible for a week: the save reported success
+                // while nothing reached the branch. The dashboard now gets the
+                // reason back and can say so.
+                $bridgeError = $e->getMessage();
             }
 
             // T07.1 / MOB-1.2 — «حفظ وتحديث التطبيق فوراً»: the branch app must
@@ -433,6 +439,9 @@ class InventoryController extends AsabController
                 // still shows the old items.
                 'appListCount' => $bridged['items'],
                 'newMobileItems' => $bridged['created'],
+                // null on success. Non-null means the branch will NOT see the
+                // new list — surface it instead of a green toast.
+                'appListError' => $bridgeError,
                 'pushedAt' => now()->toIso8601String(),
             ]);
         });

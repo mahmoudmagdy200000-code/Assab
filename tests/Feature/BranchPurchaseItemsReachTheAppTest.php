@@ -201,6 +201,40 @@ class BranchPurchaseItemsReachTheAppTest extends TestCase
         $this->assertSame('لتر', $row['item_unit']);
     }
 
+    /**
+     * A save that never reaches the app must say so — the endpoint used to
+     * report success while the branch stayed empty.
+     */
+    public function test_the_save_reports_whether_it_reached_the_app(): void
+    {
+        $ids = [$this->rawMaterial('صوص حار', 'كجم', 'RM-016')->id];
+
+        $this->actingAs($this->accountant(), 'sanctum')
+            ->putJson("/api/v1/accountant/inventory/branches/{$this->branch->id}/daily-list", ['items' => $ids])
+            ->assertSuccessful()
+            ->assertJsonPath('appListCount', 1)
+            ->assertJsonPath('appListError', null);
+    }
+
+    /** The ops doctor prints the chain instead of crashing on real data. */
+    public function test_the_inventory_doctor_explains_the_branch(): void
+    {
+        $ids = [$this->rawMaterial('زبدة', 'كجم', 'RM-021')->id];
+        $this->actingAs($this->accountant(), 'sanctum')
+            ->putJson("/api/v1/accountant/inventory/branches/{$this->branch->id}/daily-list", ['items' => $ids])
+            ->assertSuccessful();
+
+        $this->artisan('asab:inventory-doctor', ['--branch' => $this->branch->id])
+            ->assertExitCode(0);
+
+        $this->artisan('asab:inventory-doctor', ['--brand' => 'جورمية كافيه'])
+            ->assertExitCode(0);
+
+        // An unknown target is a clear failure, not a silent success.
+        $this->artisan('asab:inventory-doctor', ['--branch' => 'no-such-branch'])
+            ->assertExitCode(1);
+    }
+
     /** Re-running the sweep never duplicates a pivot row. */
     public function test_seeding_is_idempotent(): void
     {

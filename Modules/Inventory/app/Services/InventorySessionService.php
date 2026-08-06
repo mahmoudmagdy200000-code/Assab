@@ -104,7 +104,8 @@ class InventorySessionService
                     'quantity_ordered' => $item->quantity_ordered,
                     'quantity_received' => $item->quantity_received,
                     'unit_price' => $item->unit_price,
-                    'closed_at' => $item->purchaseOrder->closed_at ?? null,
+                    // `as String` on the client — a null closes the screen.
+                    'closed_at' => (string) ($item->purchaseOrder->closed_at ?? ''),
                 ];
             });
     }

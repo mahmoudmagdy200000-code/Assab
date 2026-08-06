@@ -98,26 +98,29 @@ class WasteDamageProductService
 
             $unit = $item->item?->unit ?? $item->unit_of_measurement ?? 'unit';
 
+            // Every string field is coalesced: the app casts them with
+            // `as String` and a single null takes the whole screen down with
+            // «type 'Null' is not a subtype of type 'String'» (2026-08-05).
             return [
-                'id' => $item->id,
-                'purchase_order_item_id' => $item->id,
-                'purchase_order_id' => $item->purchase_order_id,
-                'order_number' => $item->purchaseOrder->order_number ?? '',
-                'item_id' => $item->item_id,
-                'item_name' => $item->item_name ?? $item->item?->name ?? '',
-                'item_code' => $item->item?->code ?? '',
-                'item_logo' => $item->item?->logo_url ?? '',
-                'item_unit' => $unit,
-                'category' => $item->category ?? '',
-                'subcategory' => $item->subcategory ?? '',
-                'quantity_ordered' => $item->quantity_ordered,
-                'quantity_received' => $item->quantity_received,
-                'unit_price' => $item->unit_price,
-                'closed_at' => $item->purchaseOrder->closed_at ?? null,
+                'id' => (string) $item->id,
+                'purchase_order_item_id' => (string) $item->id,
+                'purchase_order_id' => (string) ($item->purchase_order_id ?? ''),
+                'order_number' => (string) ($item->purchaseOrder->order_number ?? ''),
+                'item_id' => (string) ($item->item_id ?? ''),
+                'item_name' => (string) ($item->item_name ?? $item->item?->name ?? ''),
+                'item_code' => (string) ($item->item?->code ?? ''),
+                'item_logo' => (string) ($item->item?->logo_url ?? ''),
+                'item_unit' => (string) $unit,
+                'category' => (string) ($item->category ?? ''),
+                'subcategory' => (string) ($item->subcategory ?? ''),
+                'quantity_ordered' => (float) $item->quantity_ordered,
+                'quantity_received' => (float) $item->quantity_received,
+                'unit_price' => (float) $item->unit_price,
+                'closed_at' => (string) ($item->purchaseOrder->closed_at ?? ''),
                 'available_in_stock' => $availableInStock,
                 'price_per_unit' => $pricePerUnit,
-                'expiration_date' => $expirationDate,
-                'storage_location' => $storageLocation,
+                'expiration_date' => (string) ($expirationDate ?? ''),
+                'storage_location' => (string) ($storageLocation ?? ''),
             ];
         })->values();
 
@@ -172,28 +175,32 @@ class WasteDamageProductService
 
             return [
                 // The row identity is the item itself: there is no order line
-                // behind it, and the report writer keys on item_id.
-                'id' => $bi->item_id,
-                'purchase_order_item_id' => null,
-                'purchase_order_id' => null,
+                // behind it, and the report writer keys on item_id. The order
+                // ids are EMPTY STRINGS rather than nulls — the app casts them
+                // with `as String`, and Laravel's ConvertEmptyStringsToNull
+                // turns them back into the null the report writer expects when
+                // the client sends the row back.
+                'id' => (string) $bi->item_id,
+                'purchase_order_item_id' => '',
+                'purchase_order_id' => '',
                 'order_number' => '',
-                'item_id' => $bi->item_id,
-                'item_name' => $bi->item?->name ?? '',
-                'item_code' => $bi->item?->code ?? '',
-                'item_logo' => $bi->item?->logo_url ?? '',
-                'item_unit' => $bi->item?->unit ?: 'unit',
-                'category' => $bi->item?->category ?? '',
-                'subcategory' => $bi->item?->subcategory ?? '',
-                'quantity_ordered' => 0,
-                'quantity_received' => 0,
+                'item_id' => (string) $bi->item_id,
+                'item_name' => (string) ($bi->item?->name ?? ''),
+                'item_code' => (string) ($bi->item?->code ?? ''),
+                'item_logo' => (string) ($bi->item?->logo_url ?? ''),
+                'item_unit' => (string) ($bi->item?->unit ?: 'unit'),
+                'category' => (string) ($bi->item?->category ?? ''),
+                'subcategory' => (string) ($bi->item?->subcategory ?? ''),
+                'quantity_ordered' => 0.0,
+                'quantity_received' => 0.0,
                 'unit_price' => (float) $bi->price,
-                'closed_at' => null,
+                'closed_at' => '',
                 'available_in_stock' => $inv
                     ? (float) $inv->available_quantity - (float) $inv->reserved_quantity
                     : 0,
                 'price_per_unit' => (float) $bi->price,
-                'expiration_date' => $inv?->earliest_expiry_date?->format('F j, Y'),
-                'storage_location' => $storageLocation,
+                'expiration_date' => (string) ($inv?->earliest_expiry_date?->format('F j, Y') ?? ''),
+                'storage_location' => (string) ($storageLocation ?? ''),
             ];
         })->values();
     }

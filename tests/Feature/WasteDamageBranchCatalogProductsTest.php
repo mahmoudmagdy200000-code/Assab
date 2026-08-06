@@ -49,11 +49,18 @@ class WasteDamageBranchCatalogProductsTest extends TestCase
         $rows = collect($res->json('data'));
         $this->assertCount(1, $rows);
         $this->assertSame($item->id, $rows[0]['item_id']);
-        // No order line behind it — the report writer accepts a null id and
-        // resolves one later if an order ever closes.
-        $this->assertNull($rows[0]['purchase_order_item_id']);
+        // No order line behind it. Sent as '' rather than null because the app
+        // casts it with `as String`; ConvertEmptyStringsToNull turns it back
+        // into the null the report writer expects on submit.
+        $this->assertSame('', $rows[0]['purchase_order_item_id']);
         $this->assertSame('كجم', $rows[0]['item_unit']);
         $this->assertSame(12.5, (float) $rows[0]['price_per_unit']);
+
+        // «type 'Null' is not a subtype of type 'String'» — one null anywhere
+        // in this payload takes the whole screen down.
+        foreach ($rows[0] as $key => $value) {
+            $this->assertNotNull($value, "field {$key} must never be null");
+        }
     }
 
     public function test_the_search_filter_applies_to_the_catalog_half_too(): void
