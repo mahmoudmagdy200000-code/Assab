@@ -212,6 +212,47 @@ class EmployeeRosterIntegrityTest extends TestCase
         $this->assertTrue($live->contains('موظف مرفوع'), 'an uploaded employee is never removed');
     }
 
+    /**
+     * Demo brands share this database with the live ones, so an unscoped pass
+     * touches both — and an unscoped undo then removed the REAL managers along
+     * with the demo ones (2026-08-06).
+     */
+    public function test_the_run_can_be_limited_to_one_branch(): void
+    {
+        $otherBranch = Branch::factory()->create([
+            'name' => 'برجر بيت — فرع العليا',
+            'asab_company_id' => $this->company->id,
+            'asab_restaurant_id' => $this->restaurant->id,
+        ]);
+
+        \Modules\BranchManagers\Models\BranchManager::factory()->create([
+            'name' => 'قدورة', 'phone' => '0545444444', 'branch_id' => $this->branch->id,
+        ]);
+        \Modules\BranchManagers\Models\BranchManager::factory()->create([
+            'name' => 'مدير ديمو', 'phone' => '0559999999', 'branch_id' => $otherBranch->id,
+        ]);
+
+        $this->artisan('asab:repair-employees', ['--branch' => $this->branch->id])->assertExitCode(0);
+
+        $names = Employee::withoutGlobalScope('tenant')->whereNull('deleted_at')->pluck('name');
+        $this->assertTrue($names->contains('قدورة'));
+        $this->assertFalse($names->contains('مدير ديمو'), 'a branch outside the scope must be untouched');
+
+        // …and the undo respects the same scope.
+        $this->artisan('asab:repair-employees', ['--undo-managers' => true, '--branch' => $otherBranch->id])
+            ->assertExitCode(0);
+        $this->assertTrue(
+            Employee::withoutGlobalScope('tenant')->whereNull('deleted_at')->pluck('name')->contains('قدورة'),
+            'undoing another branch must not remove this one',
+        );
+    }
+
+    /** An unmatched scope is a failure, not a silent full-database run. */
+    public function test_an_unmatched_scope_fails_instead_of_running_everywhere(): void
+    {
+        $this->artisan('asab:repair-employees', ['--brand' => 'no-such-brand'])->assertExitCode(1);
+    }
+
     /** A manager already on the uploaded roster is not added a second time. */
     public function test_a_manager_already_in_the_roster_is_not_duplicated(): void
     {

@@ -33,13 +33,32 @@ class RepairEmployeesCommand extends Command
     protected $signature = 'asab:repair-employees
         {--dry-run : Report what would change without writing}
         {--skip-managers : Only de-duplicate; do not create employee rows for branch managers}
-        {--undo-managers : Remove the manager rows this command created (only untouched ones)}';
+        {--undo-managers : Remove the manager rows this command created (only untouched ones)}
+        {--brand= : Limit every pass to one brand id (its branches, direct or via restaurant)}
+        {--branch= : Limit every pass to a single branch id}';
 
     protected $description = 'De-duplicate uploaded employees and give every branch manager an employee record';
+
+    /** @var string[]|null branch ids the run is limited to, null = every branch */
+    private ?array $scope = null;
 
     public function handle(): int
     {
         $dry = (bool) $this->option('dry-run');
+
+        // Demo brands share the database with the live ones on this deployment,
+        // so an unscoped pass adds «مدير برجر بيت — فرع العليا» rows to the
+        // accountant's list — and an unscoped undo then removes the REAL
+        // managers along with them (2026-08-06). Scope the run instead.
+        $this->scope = $this->resolveScope();
+        if ($this->scope !== null) {
+            if ($this->scope === []) {
+                $this->error('No branch matched --brand/--branch.');
+
+                return self::FAILURE;
+            }
+            $this->info('Scoped to '.count($this->scope).' branch(es).');
+        }
 
         if ($this->option('undo-managers')) {
             $this->undoManagers($dry);
@@ -65,6 +84,30 @@ class RepairEmployeesCommand extends Command
     }
 
     /**
+     * @return string[]|null branch ids for --brand/--branch, null when unscoped
+     */
+    private function resolveScope(): ?array
+    {
+        if ($branchId = $this->option('branch')) {
+            return Branch::where('id', $branchId)->pluck('id')->all();
+        }
+
+        if ($brandId = $this->option('brand')) {
+            $restaurantIds = \Modules\Admin\Models\AsabRestaurant::withoutGlobalScopes()
+                ->where('brand_id', $brandId)->pluck('id')->all();
+
+            return Branch::where(function ($q) use ($brandId, $restaurantIds) {
+                $q->where('asab_brand_id', $brandId);
+                if ($restaurantIds !== []) {
+                    $q->orWhereIn('asab_restaurant_id', $restaurantIds);
+                }
+            })->pluck('id')->all();
+        }
+
+        return null;
+    }
+
+    /**
      * Identity is the national id when present, else the name within the
      * branch — the same key the importer now writes through.
      */
@@ -78,6 +121,7 @@ class RepairEmployeesCommand extends Command
             // this, an already-deleted row could be chosen as «the original»
             // and the live duplicates deleted in its place.
             ->whereNull('deleted_at')
+            ->when($this->scope !== null, fn ($q) => $q->whereIn('branch_id', $this->scope))
             ->orderBy('created_at')
             ->get()
             ->groupBy(fn (Employee $e) => implode('|', [
@@ -134,6 +178,7 @@ class RepairEmployeesCommand extends Command
 
         // 1) The mobile logins — the authoritative «who runs this branch».
         \Modules\BranchManagers\Models\BranchManager::whereNotNull('branch_id')
+            ->when($this->scope !== null, fn ($q) => $q->whereIn('branch_id', $this->scope))
             ->get(['id', 'name', 'phone', 'branch_id'])
             ->each(function ($manager) use ($dry, &$created) {
                 $branch = Branch::find($manager->branch_id);
@@ -153,6 +198,7 @@ class RepairEmployeesCommand extends Command
         // 2) …and the dashboard assignment, for a branch whose manager has no
         // mobile login yet.
         Branch::whereNotNull('asab_manager_user_id')
+            ->when($this->scope !== null, fn ($q) => $q->whereIn('id', $this->scope))
             ->get(['id', 'name', 'asab_company_id', 'asab_manager_user_id'])
             ->each(function (Branch $branch) use ($dry, &$created) {
                 $user = AsabUser::withoutGlobalScopes()->find($branch->asab_manager_user_id);
@@ -187,6 +233,7 @@ class RepairEmployeesCommand extends Command
             ->whereNull('deleted_at')
             ->where('role', 'مدير فرع')
             ->where('monthly_salary', 0)
+            ->when($this->scope !== null, fn ($q) => $q->whereIn('branch_id', $this->scope))
             ->get()
             ->each(function (Employee $employee) use ($dry, &$removed) {
                 if (EmployeeMovement::where('employee_id', $employee->id)->exists()) {
