@@ -235,6 +235,29 @@ class BranchPurchaseItemsReachTheAppTest extends TestCase
             ->assertExitCode(1);
     }
 
+    /**
+     * The decisive lookup when the branch data is healthy but the phone shows
+     * nothing: a duplicate manager login pointing at another branch.
+     */
+    public function test_the_doctor_follows_a_login_phone_to_the_branch_it_opens(): void
+    {
+        $other = Branch::factory()->create(['name' => 'التعاون 1', 'asab_company_id' => $this->company->id]);
+
+        \Modules\BranchManagers\Models\BranchManager::factory()->create([
+            'name' => 'زكريا صبري', 'phone' => '0558544750', 'branch_id' => $this->branch->id,
+        ]);
+        \Modules\BranchManagers\Models\BranchManager::factory()->create([
+            'name' => 'زكريا صبري 2', 'phone' => '0558544750', 'branch_id' => $other->id,
+        ]);
+
+        $this->artisan('asab:inventory-doctor', ['--phone' => '0558544750'])
+            ->expectsOutputToContain('التعاون 1')
+            ->assertExitCode(0);
+
+        $this->artisan('asab:inventory-doctor', ['--phone' => '0500000000'])
+            ->assertExitCode(1);
+    }
+
     /** Re-running the sweep never duplicates a pivot row. */
     public function test_seeding_is_idempotent(): void
     {

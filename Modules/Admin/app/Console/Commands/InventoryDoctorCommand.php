@@ -36,12 +36,17 @@ class InventoryDoctorCommand extends Command
 {
     protected $signature = 'asab:inventory-doctor
         {--branch= : A single branch id}
-        {--brand= : Every branch of this brand id (or name)}';
+        {--brand= : Every branch of this brand id (or name)}
+        {--phone= : The LOGIN phone of a branch manager — shows which branch that phone actually opens}';
 
     protected $description = 'Explain why a branch shows no items on the mobile daily-inventory screen';
 
     public function handle(): int
     {
+        if ($phone = $this->option('phone')) {
+            return $this->diagnosePhone($phone);
+        }
+
         $branches = $this->targetBranches();
 
         if ($branches->isEmpty()) {
@@ -52,6 +57,42 @@ class InventoryDoctorCommand extends Command
 
         foreach ($branches as $branch) {
             $this->diagnose($branch);
+        }
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * The decisive check when the data looks healthy but the phone still shows
+     * nothing: WHICH branch does that login actually open? Duplicate manager
+     * rows («فلان» and «فلان 2») are the usual answer — the app scopes by
+     * `branch_managers.branch_id`, not by anything the dashboard shows.
+     */
+    private function diagnosePhone(string $phone): int
+    {
+        $managers = BranchManager::where('phone', $phone)
+            ->orWhere('phone', 'like', '%'.ltrim($phone, '0').'%')
+            ->get(['id', 'name', 'phone', 'branch_id']);
+
+        if ($managers->isEmpty()) {
+            $this->error("No branch manager logs in with {$phone}.");
+
+            return self::FAILURE;
+        }
+
+        if ($managers->count() > 1) {
+            $this->warn('⚠ '.$managers->count().' حساب مدير بنفس الرقم — التطبيق يفتح الحساب الذي يسجّل الدخول به فقط:');
+        }
+
+        foreach ($managers as $manager) {
+            $branch = $manager->branch_id ? Branch::find($manager->branch_id) : null;
+            $this->newLine();
+            $this->info("━━ {$manager->name}  ({$manager->phone})");
+            $this->row('يفتح الفرع', $branch?->name ?? '✗ غير مربوط بأي فرع');
+
+            if ($branch !== null) {
+                $this->diagnose($branch);
+            }
         }
 
         return self::SUCCESS;
@@ -119,6 +160,18 @@ class InventoryDoctorCommand extends Command
 
         foreach ($managers as $manager) {
             $this->row('مدير الفرع', "{$manager->name} ({$manager->phone})");
+
+            // A duplicate login with the same phone/name pointing somewhere else
+            // is what makes a healthy branch look empty on the phone: the app
+            // scopes by branch_managers.branch_id of whoever signed in.
+            $twins = BranchManager::where('id', '!=', $manager->id)
+                ->where(fn ($q) => $q->where('phone', $manager->phone)->orWhere('name', $manager->name))
+                ->get(['id', 'name', 'phone', 'branch_id']);
+
+            foreach ($twins as $twin) {
+                $twinBranch = $twin->branch_id ? Branch::find($twin->branch_id)?->name : null;
+                $this->row('  ⚠ حساب مكرر بنفس الرقم/الاسم', "{$twin->name} → ".($twinBranch ?? 'بلا فرع'));
+            }
         }
 
         // …and the dashboard-side assignment, which is a DIFFERENT column: the
@@ -127,6 +180,21 @@ class InventoryDoctorCommand extends Command
             $assigned = \Modules\Admin\Models\AsabUser::withoutGlobalScopes()
                 ->whereKey($branch->asab_manager_user_id)->value('name');
             $this->row('المعيَّن من الداشبورد (asab_manager_user_id)', $assigned ?? $branch->asab_manager_user_id);
+
+            // Where the identity map says that dashboard user logs in — if that
+            // legacy row points at another branch, the manager opens it instead.
+            $legacyId = app(\Modules\Admin\Services\IdentityMapService::class)->legacyIdFor(
+                \Modules\Admin\Models\AsabIdentityMap::ENTITY_BRANCH_MANAGER,
+                $branch->asab_manager_user_id,
+            );
+            $legacy = $legacyId ? BranchManager::find($legacyId) : null;
+
+            if ($legacy === null) {
+                $this->row('  ⚠ ربط الدخول (asab_identity_map)', '✗ لا يوجد — الحساب لم يُنشأ في العالم القديم');
+            } elseif ((string) $legacy->branch_id !== (string) $branch->id) {
+                $openedBranch = $legacy->branch_id ? Branch::find($legacy->branch_id)?->name : null;
+                $this->row('  ⚠ حساب الدخول يفتح', ($openedBranch ?? 'بلا فرع').' — شغّل asab:sync-manager-branches');
+            }
         }
 
         $this->verdict($selected, $schedules, $managers->count());
