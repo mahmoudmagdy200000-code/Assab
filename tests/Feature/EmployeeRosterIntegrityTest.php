@@ -167,4 +167,46 @@ class EmployeeRosterIntegrityTest extends TestCase
         $this->artisan('asab:repair-employees')->assertExitCode(0);
         $this->assertSame(1, Employee::withoutGlobalScope('tenant')->where('name', 'قدورة')->count());
     }
+
+    /**
+     * Production reality: the branch's manager exists as a MOBILE login only —
+     * `branches.asab_manager_user_id` is null — and the first pass created 0
+     * records for exactly those branches (2026-08-06).
+     */
+    public function test_a_manager_known_only_to_the_mobile_world_is_added_too(): void
+    {
+        \Modules\BranchManagers\Models\BranchManager::factory()->create([
+            'name' => 'زكريا صبري 2', 'phone' => '055854475', 'branch_id' => $this->branch->id,
+        ]);
+        $this->assertNull($this->branch->fresh()->asab_manager_user_id, 'precondition: no dashboard assignment');
+
+        $this->artisan('asab:repair-employees')->assertExitCode(0);
+
+        $row = Employee::withoutGlobalScope('tenant')->where('name', 'زكريا صبري 2')->sole();
+        $this->assertSame($this->branch->id, $row->branch_id);
+        $this->assertSame('مدير فرع', $row->role);
+
+        $this->artisan('asab:repair-employees')->assertExitCode(0);
+        $this->assertSame(1, Employee::withoutGlobalScope('tenant')->where('name', 'زكريا صبري 2')->count());
+    }
+
+    /** A manager already on the uploaded roster is not added a second time. */
+    public function test_a_manager_already_in_the_roster_is_not_duplicated(): void
+    {
+        Employee::create([
+            'company_id' => $this->company->id, 'branch_id' => $this->branch->id,
+            'emp_number' => 'EMP-0001', 'name' => 'قدورة', 'phone' => '0545444444',
+            'role' => 'مدير الفرع', 'monthly_salary' => 900000, 'hire_date' => now(), 'status' => 'active',
+        ]);
+        \Modules\BranchManagers\Models\BranchManager::factory()->create([
+            'name' => 'قدورة', 'phone' => '0545444444', 'branch_id' => $this->branch->id,
+        ]);
+
+        $this->artisan('asab:repair-employees')->assertExitCode(0);
+
+        $this->assertSame(1, Employee::withoutGlobalScope('tenant')->where('name', 'قدورة')->count());
+        // …and the uploaded salary/role are untouched.
+        $row = Employee::withoutGlobalScope('tenant')->where('name', 'قدورة')->sole();
+        $this->assertSame(900000, $row->monthly_salary);
+    }
 }

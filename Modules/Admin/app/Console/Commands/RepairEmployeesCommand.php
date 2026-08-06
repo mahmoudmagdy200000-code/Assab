@@ -109,11 +109,38 @@ class RepairEmployeesCommand extends Command
     /**
      * A branch manager belongs on the roster: they hold custody, submit
      * expenses and carry a balance like any other employee.
+     *
+     * TWO sources, because they disagree in production: the dashboard column
+     * `branches.asab_manager_user_id`, and the mobile login table
+     * `branch_managers.branch_id` — the one the app itself scopes by. A branch
+     * whose manager predates the dashboard has the second only, which is why
+     * the first pass over prod created 0 records for branches that plainly had
+     * managers (2026-08-06).
      */
     private function syncManagers(bool $dry): void
     {
         $created = 0;
 
+        // 1) The mobile logins — the authoritative «who runs this branch».
+        \Modules\BranchManagers\Models\BranchManager::whereNotNull('branch_id')
+            ->get(['id', 'name', 'phone', 'branch_id'])
+            ->each(function ($manager) use ($dry, &$created) {
+                $branch = Branch::find($manager->branch_id);
+                if ($branch === null || $branch->asab_company_id === null) {
+                    return;
+                }
+
+                $created += $this->ensureManagerEmployee(
+                    $branch,
+                    (string) $manager->name,
+                    $manager->phone,
+                    $manager->created_at,
+                    $dry,
+                ) ? 1 : 0;
+            });
+
+        // 2) …and the dashboard assignment, for a branch whose manager has no
+        // mobile login yet.
         Branch::whereNotNull('asab_manager_user_id')
             ->get(['id', 'name', 'asab_company_id', 'asab_manager_user_id'])
             ->each(function (Branch $branch) use ($dry, &$created) {
@@ -122,36 +149,52 @@ class RepairEmployeesCommand extends Command
                     return;
                 }
 
-                $exists = Employee::withoutGlobalScopes()
-                    ->where('company_id', $branch->asab_company_id)
-                    ->where('branch_id', $branch->id)
-                    ->where('name', $user->name)
-                    ->exists();
-
-                if ($exists) {
-                    return;
-                }
-
-                $this->line(($dry ? '[dry] ' : '')."إضافة مدير الفرع للكشف: {$user->name} — {$branch->name}");
-                $created++;
-
-                if ($dry) {
-                    return;
-                }
-
-                Employee::create([
-                    'company_id' => $branch->asab_company_id,
-                    'branch_id' => $branch->id,
-                    'emp_number' => $this->nextEmpNumber($branch->asab_company_id),
-                    'name' => $user->name,
-                    'phone' => $user->phone,
-                    'role' => 'مدير فرع',
-                    'monthly_salary' => 0,
-                    'hire_date' => $user->created_at ?? now(),
-                    'status' => 'active',
-                ]);
+                $created += $this->ensureManagerEmployee(
+                    $branch,
+                    (string) $user->name,
+                    $user->phone,
+                    $user->created_at,
+                    $dry,
+                ) ? 1 : 0;
             });
 
         $this->info(($dry ? 'Would create ' : 'Created ')."{$created} manager employee record(s).");
+    }
+
+    /** @return bool whether a row was (or would be) created */
+    private function ensureManagerEmployee(Branch $branch, string $name, ?string $phone, $hiredAt, bool $dry): bool
+    {
+        if (trim($name) === '') {
+            return false;
+        }
+
+        $exists = Employee::withoutGlobalScopes()
+            ->whereNull('deleted_at')
+            ->where('company_id', $branch->asab_company_id)
+            ->where('branch_id', $branch->id)
+            ->where(fn ($q) => $q->where('name', $name)->when($phone, fn ($w) => $w->orWhere('phone', $phone)))
+            ->exists();
+
+        if ($exists) {
+            return false;
+        }
+
+        $this->line(($dry ? '[dry] ' : '')."إضافة مدير الفرع للكشف: {$name} — {$branch->name}");
+
+        if (! $dry) {
+            Employee::create([
+                'company_id' => $branch->asab_company_id,
+                'branch_id' => $branch->id,
+                'emp_number' => $this->nextEmpNumber($branch->asab_company_id),
+                'name' => $name,
+                'phone' => $phone,
+                'role' => 'مدير فرع',
+                'monthly_salary' => 0,
+                'hire_date' => $hiredAt ?? now(),
+                'status' => 'active',
+            ]);
+        }
+
+        return true;
     }
 }
