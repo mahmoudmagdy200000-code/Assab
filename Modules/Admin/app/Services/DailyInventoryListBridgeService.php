@@ -79,6 +79,20 @@ class DailyInventoryListBridgeService
                 $existing->restore();
             }
 
+            // Fill blanks only — `items` has no tenant column, so overwriting a
+            // populated unit could rewrite another brand's row. A blank unit is
+            // why the app labelled everything «(Kg)» (2026-08-05).
+            $fill = [];
+            if (trim((string) $existing->unit) === '' && trim((string) $row->unit) !== '') {
+                $fill['unit'] = $row->unit;
+            }
+            if (trim((string) $existing->category) === '' && trim((string) $row->category) !== '') {
+                $fill['category'] = $row->category;
+            }
+            if ($fill !== []) {
+                $existing->fill($fill)->save();
+            }
+
             return $existing;
         }
 
@@ -86,8 +100,11 @@ class DailyInventoryListBridgeService
 
         return PurchaseItem::create([
             'name' => $row->name,
+            // NOT defaulted to 'kg': the mobile resources already fall back to
+            // 'kg' when the unit is blank, and writing a literal one made every
+            // uploaded material read «(Kg)» whatever the sheet said (2026-08-05).
+            'unit' => $row->unit ?: null,
             'code' => $row->code ?: null,
-            'unit' => $row->unit ?: 'kg',
             'category' => $row->category,
             'is_active' => true,
         ]);
@@ -104,7 +121,16 @@ class DailyInventoryListBridgeService
     private function replaceScheduleItems(string $branchId, array $itemIds): void
     {
         DB::transaction(function () use ($branchId, $itemIds) {
-            $schedule = DailyInventorySchedule::where('branch_id', $branchId)->first();
+            // The app reads the branch's schedule through an `active()` scope
+            // (DailyInventoryScheduleRepository::findByBranch). Writing into a
+            // DEACTIVATED row left the manager's «Daily Quick Inventory» screen
+            // at «0 products» with the items sitting right there in the table —
+            // so prefer an active row, and re-activate whatever we write to
+            // (the accountant saving a list IS the intent to run it).
+            $schedule = DailyInventorySchedule::where('branch_id', $branchId)
+                ->orderByDesc('is_active')
+                ->orderByDesc('created_at')
+                ->first();
 
             if ($schedule === null) {
                 if ($itemIds === []) {
@@ -116,6 +142,12 @@ class DailyInventoryListBridgeService
                     'start_date' => now()->toDateString(),
                     'start_time' => '20:00',
                     'is_active' => true,
+                ]);
+            } elseif ($itemIds !== [] && ! $schedule->is_active) {
+                $schedule->forceFill(['is_active' => true])->save();
+                $this->log->info('asab.daily_list.schedule_reactivated', [
+                    'branch_id' => $branchId,
+                    'schedule_id' => $schedule->id,
                 ]);
             }
 

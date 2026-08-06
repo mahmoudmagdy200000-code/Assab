@@ -32,7 +32,8 @@ class BranchItemResource extends JsonResource
             // Nullable item columns the app casts to non-null String — a
             // bridge-seeded item leaves code/subcategory unset. Coalesce to ''.
             'item_code' => $this->item_code ?? '',
-            'item_unit' => $this->item_unit ?? 'kg',
+            // `?:` — a blank unit falls back, it does not render as «(Kg)».
+            'item_unit' => $this->item_unit ?: 'kg',
             'rate' => (float) $this->item_price, // Cost per unit
             'item_price' => (float) $this->item_price,
             'item_quantity' => (float) $this->item_quantity,
@@ -43,7 +44,7 @@ class BranchItemResource extends JsonResource
             'suppliers_count' => (int) $suppliersCount,
 
             // For display
-            'unit' => $this->item_unit ?? 'kg',
+            'unit' => $this->item_unit ?: 'kg',
         ];
     }
 }

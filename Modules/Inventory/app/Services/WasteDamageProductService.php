@@ -51,6 +51,15 @@ class WasteDamageProductService
 
         $itemIds = $items->pluck('item_id')->filter()->unique()->values()->all();
 
+        // Meeting 2026-08-05 «منتجات المشتريات لا تظهر في الهدر والتالف»: a
+        // branch that has not yet CLOSED a purchase order had nothing to report
+        // waste on, even with a full purchase catalog assigned to it. The
+        // branch's own item list is the honest source; closed-order rows stay
+        // first (they carry the real received qty / price / expiry), and the
+        // rest are appended with a null purchase_order_item_id — which the
+        // report writer already accepts and resolves later if an order exists.
+        $catalogRows = $this->branchCatalogProducts($branchId, $itemIds, $filters);
+
         $branchInventoryByItem = [];
         $branchItemByItem = [];
         if (! empty($itemIds)) {
@@ -74,7 +83,7 @@ class WasteDamageProductService
         $branch = Branch::find($branchId);
         $storageLocation = $branch ? ($branch->name ?? $branch->location) : null;
 
-        return $items->map(function (PurchaseOrderItem $item) use (
+        $fromOrders = $items->map(function (PurchaseOrderItem $item) use (
             $branchInventoryByItem,
             $branchItemByItem,
             $storageLocation
@@ -108,6 +117,82 @@ class WasteDamageProductService
                 'available_in_stock' => $availableInStock,
                 'price_per_unit' => $pricePerUnit,
                 'expiration_date' => $expirationDate,
+                'storage_location' => $storageLocation,
+            ];
+        })->values();
+
+        return $fromOrders
+            ->concat($this->presentCatalogProducts($catalogRows, $branchId, $storageLocation))
+            ->values();
+    }
+
+    /**
+     * The branch's assigned purchase items that no closed order has delivered
+     * yet. Same filters as the closed-order query so a search behaves the same
+     * on both halves of the list.
+     *
+     * @param  string[]  $excludeItemIds
+     * @param  array{search?: string, category?: string, subcategory?: string}  $filters
+     * @return Collection<int, BranchItem>
+     */
+    private function branchCatalogProducts(string $branchId, array $excludeItemIds, array $filters): Collection
+    {
+        return BranchItem::query()
+            ->where('branch_id', $branchId)
+            ->whereNotIn('item_id', $excludeItemIds)
+            ->whereHas('item')
+            ->with('item:id,name,code,logo,unit,category,subcategory')
+            ->when(! empty($filters['search']), fn ($q) => $q->search($filters['search']))
+            ->when(! empty($filters['category']), fn ($q) => $q->byCategory($filters['category']))
+            ->when(! empty($filters['subcategory']), fn ($q) => $q->bySubcategory($filters['subcategory']))
+            ->limit(500)
+            ->get()
+            ->sortBy(fn (BranchItem $bi) => $bi->item?->name ?? '')
+            ->values();
+    }
+
+    /**
+     * @param  Collection<int, BranchItem>  $rows
+     * @return Collection<int, array>
+     */
+    private function presentCatalogProducts(Collection $rows, string $branchId, ?string $storageLocation): Collection
+    {
+        if ($rows->isEmpty()) {
+            return collect();
+        }
+
+        $inventory = BranchInventory::query()
+            ->where('branch_id', $branchId)
+            ->whereIn('item_id', $rows->pluck('item_id')->all())
+            ->get()
+            ->keyBy('item_id');
+
+        return $rows->map(function (BranchItem $bi) use ($inventory, $storageLocation) {
+            $inv = $inventory->get($bi->item_id);
+
+            return [
+                // The row identity is the item itself: there is no order line
+                // behind it, and the report writer keys on item_id.
+                'id' => $bi->item_id,
+                'purchase_order_item_id' => null,
+                'purchase_order_id' => null,
+                'order_number' => '',
+                'item_id' => $bi->item_id,
+                'item_name' => $bi->item?->name ?? '',
+                'item_code' => $bi->item?->code ?? '',
+                'item_logo' => $bi->item?->logo_url ?? '',
+                'item_unit' => $bi->item?->unit ?: 'unit',
+                'category' => $bi->item?->category ?? '',
+                'subcategory' => $bi->item?->subcategory ?? '',
+                'quantity_ordered' => 0,
+                'quantity_received' => 0,
+                'unit_price' => (float) $bi->price,
+                'closed_at' => null,
+                'available_in_stock' => $inv
+                    ? (float) $inv->available_quantity - (float) $inv->reserved_quantity
+                    : 0,
+                'price_per_unit' => (float) $bi->price,
+                'expiration_date' => $inv?->earliest_expiry_date?->format('F j, Y'),
                 'storage_location' => $storageLocation,
             ];
         })->values();

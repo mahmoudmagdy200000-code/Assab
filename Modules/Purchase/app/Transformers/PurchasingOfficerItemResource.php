@@ -37,7 +37,9 @@ class PurchasingOfficerItemResource extends JsonResource
             'item_id' => $item->item_id, // Use item_id from BranchItem, not id
             'item_name' => $item->item_name ?? $item->item?->name,
             'item_code' => $item->item_code ?? $item->item?->code,
-            'item_unit' => $item->item_unit ?? 'kg',
+            // `?:` not `??`: a blank unit must fall through to the item's own,
+            // else every uploaded material renders as «(Kg)» (2026-08-05).
+            'item_unit' => $item->item_unit ?: ($item->item?->unit ?: 'kg'),
             'item_logo' => $itemLogo,
             'item_price' => (float) ($this->resource['resolved_item_price'] ?? $item->item_price ?? 0),
 

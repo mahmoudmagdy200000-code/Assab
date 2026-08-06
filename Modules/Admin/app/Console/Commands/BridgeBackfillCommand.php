@@ -43,6 +43,8 @@ class BridgeBackfillCommand extends Command
         $this->backfillPurchaseOrders($dry);
         $this->backfillInventorySessions($dry);
         $this->backfillAssetReceipts($dry);
+        $this->backfillBranchRawMaterials($dry);
+        $this->backfillDailyInventoryLists($dry);
 
         if ($this->option('resync-payloads')) {
             $this->resyncExpensePayloads($expenses, $dry);
@@ -133,6 +135,96 @@ class BridgeBackfillCommand extends Command
             });
 
         $this->info(($dry ? 'Would create ' : 'Created ')."{$bridged} mobile asset receive request(s).");
+    }
+
+    /**
+     * Re-project every brand's raw-material catalog onto ITS BRANCHES.
+     *
+     * The upload seeds `branch_item` for the branches that exist at upload
+     * time, so a branch created later opens the app's purchasing picker empty —
+     * or half-full: «عدد منتجات المشتريات يفترض 30 وليس 15» (2026-08-05). Also
+     * fills blank units on the legacy rows, which is what made the app label
+     * every material «(Kg)».
+     */
+    private function backfillBranchRawMaterials(bool $dry): void
+    {
+        $sync = app(\Modules\Admin\Services\RawMaterialBranchSyncService::class);
+        $seeded = 0;
+        $units = 0;
+
+        \Modules\Admin\Models\AsabBrand::withoutGlobalScopes()
+            ->orderBy('created_at')
+            ->chunkById(50, function ($chunk) use ($sync, $dry, &$seeded, &$units) {
+                foreach ($chunk as $brand) {
+                    $branchIds = $sync->brandBranchIds($brand);
+                    $items = \Modules\Admin\Models\InventoryCatalogItem::where('brand_id', $brand->id)
+                        ->where('type', \Modules\Admin\Models\InventoryCatalogItem::TYPE_RAW_MATERIAL)
+                        ->count();
+
+                    if ($branchIds === [] || $items === 0) {
+                        continue;
+                    }
+
+                    if ($dry) {
+                        $this->line("[dry] brand {$brand->name}: {$items} raw material(s) × ".count($branchIds).' branch(es)');
+
+                        continue;
+                    }
+
+                    try {
+                        $state = $sync->syncBrand($brand, $branchIds);
+                        $seeded += $state['seeded'];
+                        $units += $state['unitsFilled'];
+                    } catch (\Throwable $e) {
+                        $this->warn("brand {$brand->id}: {$e->getMessage()}");
+                    }
+                }
+            });
+
+        $this->info(($dry ? 'Would seed ' : 'Seeded ')."{$seeded} branch item row(s); units filled: {$units}.");
+    }
+
+    /**
+     * The accountant's «تحديد أصناف الجرد اليومي» rows that never reached the
+     * app's count sheet — saved before the daily-list bridge existed, or landed
+     * in a DEACTIVATED schedule the app's active() scope hides («0 products» on
+     * the manager's Daily Quick Inventory screen, 2026-08-05).
+     */
+    private function backfillDailyInventoryLists(bool $dry): void
+    {
+        $bridge = app(\Modules\Admin\Services\DailyInventoryListBridgeService::class);
+        $branches = 0;
+        $items = 0;
+
+        \Modules\Admin\Models\BranchInventoryList::query()
+            ->select('branch_id')
+            ->groupBy('branch_id')
+            ->pluck('branch_id')
+            ->each(function ($branchId) use ($bridge, $dry, &$branches, &$items) {
+                $catalogIds = \Modules\Admin\Models\BranchInventoryList::where('branch_id', $branchId)
+                    ->pluck('catalog_item_id')->unique()->values()->all();
+
+                if ($catalogIds === []) {
+                    return;
+                }
+
+                if ($dry) {
+                    $this->line('[dry] branch '.$branchId.': '.count($catalogIds).' selected item(s) → app count sheet');
+                    $branches++;
+
+                    return;
+                }
+
+                try {
+                    $state = $bridge->sync($branchId, $catalogIds);
+                    $branches++;
+                    $items += $state['items'];
+                } catch (\Throwable $e) {
+                    $this->warn("branch {$branchId}: {$e->getMessage()}");
+                }
+            });
+
+        $this->info(($dry ? 'Would push ' : 'Pushed ')."{$items} item(s) onto the count sheet of {$branches} branch(es).");
     }
 
     /**

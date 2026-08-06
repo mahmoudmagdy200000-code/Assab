@@ -176,7 +176,7 @@ class OrderDataService
     public function getTransferItems(array $validated, string $toBranchId): array
     {
         $fromBranchId = $validated['branch_id'];
-        $perPage = $validated['per_page'] ?? PurchaseConstants::DEFAULT_PER_PAGE;
+        $perPage = $validated['per_page'] ?? PurchaseConstants::PICKER_PER_PAGE;
 
         // Get transport details once (same for all items)
         $transportDetails = $this->calculateTransportDetails($fromBranchId, $toBranchId);
@@ -485,7 +485,7 @@ class OrderDataService
      */
     public function getPurchasingOfficerItems(array $validated, string $branchId): array
     {
-        $perPage = $validated['per_page'] ?? PurchaseConstants::DEFAULT_PER_PAGE;
+        $perPage = $validated['per_page'] ?? PurchaseConstants::PICKER_PER_PAGE;
 
         // Get branch items with filters (similar to getTransferItems)
         // Performance: Eager load only needed item columns
@@ -621,7 +621,7 @@ class OrderDataService
     public function getSupplierItems(array $validated, string $branchId): array
     {
         $supplierId = $validated['supplier_id'];
-        $perPage = $validated['per_page'] ?? PurchaseConstants::DEFAULT_PER_PAGE;
+        $perPage = $validated['per_page'] ?? PurchaseConstants::PICKER_PER_PAGE;
 
         // Get supplier with details (using new Supplier model)
         $supplier = \Modules\Supplier\Models\Supplier::find($supplierId);

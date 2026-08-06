@@ -20,7 +20,10 @@ use Modules\Branch\Models\Branch;
  */
 class BranchController extends AsabController
 {
-    public function __construct(private readonly ManagerBranchSyncService $managerSync) {}
+    public function __construct(
+        private readonly ManagerBranchSyncService $managerSync,
+        private readonly \Modules\Admin\Services\RawMaterialBranchSyncService $rawMaterials,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -150,6 +153,11 @@ class BranchController extends AsabController
             // branch — the new branch shows that branch's old data.
             $this->managerSync->sync($data['managerUserId'] ?? null, $branch->id);
 
+            // The brand's raw-material upload seeded only the branches that
+            // existed at upload time, so a branch created later opened with an
+            // empty purchasing picker until the catalog was re-uploaded.
+            $this->rawMaterials->syncBranchQuietly($branch);
+
             return $this->created($this->present($branch));
         });
     }
@@ -197,6 +205,12 @@ class BranchController extends AsabController
             ], fn ($v) => $v !== null)));
 
             $this->managerSync->sync($data['managerUserId'] ?? null, $branch->id);
+
+            // Linking a pre-existing branch to a restaurant is the moment it
+            // joins a brand — seed its purchase items from that brand's catalog.
+            if ($restaurant !== null) {
+                $this->rawMaterials->syncBranchQuietly($branch->fresh());
+            }
 
             return $this->ok($this->present($branch->fresh()));
         });

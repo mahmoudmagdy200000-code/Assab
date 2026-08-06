@@ -29,6 +29,7 @@ class OrgController extends AsabController
         private readonly NotificationService $notifications,
         private readonly RealtimeBroadcaster $rt,
         private readonly ManagerBranchSyncService $managerSync,
+        private readonly \Modules\Admin\Services\RawMaterialBranchSyncService $rawMaterials,
     ) {}
 
     public function tree(Request $request): JsonResponse
@@ -191,6 +192,11 @@ class OrgController extends AsabController
                 'asab_monthly_target' => $data['targetHalalas'] ?? null,
             ]);
             $this->managerSync->sync($data['managerUserId'] ?? null, $branch->id);
+
+            // The brand's raw materials were seeded onto the branches that
+            // existed when the catalog was uploaded — a new branch needs its own
+            // copy or its purchasing picker opens empty (2026-08-05).
+            $this->rawMaterials->syncBranchQuietly($branch);
 
             // Notify platform admins that a request awaits review.
             foreach (AsabUserRole::where('role_key', 'admin')->pluck('user_id') as $adminId) {

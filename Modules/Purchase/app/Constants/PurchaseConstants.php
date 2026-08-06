@@ -63,6 +63,15 @@ class PurchaseConstants
 
     public const MAX_PER_PAGE = 100;
 
+    /**
+     * Item PICKERS ("choose items and quantity") page in one go: a branch with
+     * 30 assigned materials reported «All Items (15)» because the picker
+     * inherited the 15-row list default and the app renders the page it gets
+     * (2026-08-05). Lists of orders keep DEFAULT_PER_PAGE; `per_page` still
+     * overrides, capped at MAX_PER_PAGE by the form requests.
+     */
+    public const PICKER_PER_PAGE = 100;
+
     // Chunk sizes for batch processing
     public const CHUNK_SIZE_SMALL = 100;
 
