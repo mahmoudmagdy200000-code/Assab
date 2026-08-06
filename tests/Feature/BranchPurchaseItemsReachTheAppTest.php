@@ -236,6 +236,48 @@ class BranchPurchaseItemsReachTheAppTest extends TestCase
     }
 
     /**
+     * A branch with NO manager assigned must not be told to run
+     * asab:sync-manager-branches — that command repairs a mismatch and
+     * correctly answers «nothing to do» here, sending the operator in a circle
+     * (2026-08-06, السعادة 1).
+     */
+    public function test_a_branch_with_no_manager_is_told_to_assign_one(): void
+    {
+        $this->assertNull($this->branch->asab_manager_user_id);
+        // Same shape as السعادة 1: the list is configured, the manager is not.
+        $this->saveDailyList();
+
+        $this->artisan('asab:inventory-doctor', ['--branch' => $this->branch->id])
+            ->expectsOutputToContain('عيّن مدير الفرع من الداشبورد')
+            ->assertExitCode(0);
+    }
+
+    /** …whereas an assigned-but-mis-pointed manager IS the sync command's job. */
+    public function test_an_assigned_manager_without_a_matching_login_points_at_the_sync_command(): void
+    {
+        $user = AsabUser::create([
+            'company_id' => $this->company->id, 'name' => 'مدير معيَّن', 'email' => 'assigned@doctor.test',
+            'password' => 'secret-password', 'status' => 'active',
+        ]);
+        $this->branch->forceFill(['asab_manager_user_id' => $user->id])->save();
+        $this->saveDailyList();
+
+        $this->artisan('asab:inventory-doctor', ['--branch' => $this->branch->id])
+            ->expectsOutputToContain('asab:sync-manager-branches')
+            ->assertExitCode(0);
+    }
+
+    /** The accountant's selection, so the verdict reaches the manager check. */
+    private function saveDailyList(): void
+    {
+        $ids = [$this->rawMaterial('ملح', 'كجم', 'RM-040')->id];
+
+        $this->actingAs($this->accountant(), 'sanctum')
+            ->putJson("/api/v1/accountant/inventory/branches/{$this->branch->id}/daily-list", ['items' => $ids])
+            ->assertSuccessful();
+    }
+
+    /**
      * The decisive lookup when the branch data is healthy but the phone shows
      * nothing: a duplicate manager login pointing at another branch.
      */

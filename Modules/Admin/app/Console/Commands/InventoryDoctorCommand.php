@@ -155,7 +155,13 @@ class InventoryDoctorCommand extends Command
         // 4. the phone's own branch column
         $managers = BranchManager::where('branch_id', $branch->id)->get(['id', 'name', 'phone']);
         if ($managers->isEmpty()) {
-            $this->row('مدير الفرع (branch_managers.branch_id)', '✗ لا يوجد مدير مربوط بهذا الفرع — شغّل asab:sync-manager-branches');
+            // Distinguish «assigned but mis-pointed» (sync repairs it) from «no
+            // manager at all» (nothing to sync — someone has to be assigned).
+            // Telling the operator to run a repair that reports «nothing to do»
+            // is worse than saying nothing.
+            $this->row('مدير الفرع (branch_managers.branch_id)', $branch->asab_manager_user_id
+                ? '✗ اللوجن غير مربوط بالفرع — شغّل asab:sync-manager-branches'
+                : '✗ لا يوجد مدير معيَّن لهذا الفرع أصلاً — عيّنه من الداشبورد');
         }
 
         foreach ($managers as $manager) {
@@ -198,7 +204,7 @@ class InventoryDoctorCommand extends Command
         }
 
         $this->shifts($branch);
-        $this->verdict($selected, $schedules, $managers->count());
+        $this->verdict($selected, $schedules, $managers->count(), $branch->asab_manager_user_id !== null);
     }
 
     /**
@@ -243,7 +249,7 @@ class InventoryDoctorCommand extends Command
         }
     }
 
-    private function verdict(int $selected, $schedules, int $managers): void
+    private function verdict(int $selected, $schedules, int $managers, bool $assignedOnDashboard = false): void
     {
         $active = $schedules->firstWhere('is_active', true);
         $activeItems = $active
@@ -255,7 +261,11 @@ class InventoryDoctorCommand extends Command
             $schedules->isEmpty() => 'شغّل: php artisan asab:bridge-backfill  (سينشئ جدول الجرد ويملأه).',
             $active === null => 'كل جداول الفرع معطّلة — شغّل asab:bridge-backfill أو أعد الحفظ من الداشبورد (الحفظ يعيد التفعيل).',
             $activeItems === 0 => 'الجدول النشط فارغ — شغّل: php artisan asab:bridge-backfill',
-            $managers === 0 => 'لا مدير مربوط بالفرع في العالم القديم — شغّل: php artisan asab:sync-manager-branches',
+            // asab:sync-manager-branches only repairs a MISMATCH; with nobody
+            // assigned it correctly answers «nothing to do», so pointing the
+            // operator at it would send them in a circle.
+            $managers === 0 && ! $assignedOnDashboard => 'الفرع بلا مدير — عيّن مدير الفرع من الداشبورد، ثم أعد تشغيل هذا الأمر.',
+            $managers === 0 => 'المدير معيَّن على الداشبورد لكن لوجنه لا يشير للفرع — شغّل: php artisan asab:sync-manager-branches',
             default => "سليم: {$activeItems} صنف على الجدول النشط. لو الشاشة لسه 0 فالمستخدم يفتح فرعاً آخر — راجع سطر «مدير الفرع» أعلاه.",
         };
 
