@@ -11,6 +11,7 @@ use Modules\Admin\Services\CustodyService;
 use Modules\Admin\Services\EmployeeLedgerService;
 use Modules\Admin\Services\ExportService;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Spreadsheet exports (COMPANY_DASHBOARD_API_SPEC.md §5.3). The spec returns a
@@ -29,6 +30,14 @@ class ExportController extends AsabController
     private function format(Request $request): string
     {
         return $request->query('format', 'xlsx') === 'csv' ? 'csv' : 'xlsx';
+    }
+
+    /** Formats for the surfaces that also print (statement «تحميل PDF»). */
+    private function printableFormat(Request $request): string
+    {
+        $format = (string) $request->query('format', 'xlsx');
+
+        return in_array($format, ['pdf', 'csv'], true) ? $format : 'xlsx';
     }
 
     /** GET /operations/{id}/export — single operation detail sheet. */
@@ -62,28 +71,39 @@ class ExportController extends AsabController
         return $this->exports->shifts($this->format($request), $request->query('branchId'), $this->assignedBranchIds());
     }
 
-    /** GET /employees/payroll/export?month=YYYY-MM */
+    /** GET /employees/payroll/export?month=YYYY-MM&brandId= */
     public function payroll(Request $request): BinaryFileResponse
     {
         // Zero-trust: a branch-scoped accountant exports only their branches.
-        return $this->exports->payroll($this->format($request), $request->query('month'), $this->assignedBranchIds());
+        return $this->exports->payroll(
+            $this->format($request),
+            $request->query('month'),
+            $this->assignedBranchIds(),
+            $request->query('brandId'),
+        );
     }
 
     /** GET /employees/{id}/statement/export?month=YYYY-MM — per-employee ledger. */
-    public function employeeStatement(Request $request, string $id): BinaryFileResponse
+    public function employeeStatement(Request $request, string $id): BinaryFileResponse|Response
     {
         // Zero-trust: an employee outside the caller's branches reads as absent.
         $employee = $this->scopeToAssignedBranches(Employee::query())->findOrFail($id);
         $statement = $this->ledger->statement($employee, $request->query('month'), 1, 2000);
 
-        return $this->exports->employeeStatement($this->format($request), $statement);
+        // `?format=pdf` is the «تحميل PDF» button on the statement screen.
+        return $this->exports->employeeStatement($this->printableFormat($request), $statement);
     }
 
-    /** GET /cash-custody/export */
+    /** GET /cash-custody/export?brandId=&branchId=&status= */
     public function cashCustody(Request $request): BinaryFileResponse
     {
         // Zero-trust: a branch-scoped accountant exports only their branches.
-        return $this->exports->cashCustody($this->format($request), $request->query('branchId'), $this->assignedBranchIds());
+        return $this->exports->cashCustody(
+            $this->format($request),
+            $request->query('branchId'),
+            $this->assignedBranchIds(),
+            ['brandId' => $request->query('brandId'), 'status' => $request->query('status')],
+        );
     }
 
     /** GET /cash-custody/{id}/transactions/export?month=YYYY-MM — HEAD-4 monthly ledger. */

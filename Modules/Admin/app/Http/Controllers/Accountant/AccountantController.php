@@ -10,7 +10,6 @@ use Illuminate\Support\Str;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AuditLog;
 use Modules\Admin\Models\Operation;
-use Modules\Admin\Models\Reminder;
 use Modules\Admin\Services\AccountantDashboardService;
 use Modules\Admin\Services\AssetDraftService;
 use Modules\Admin\Services\ExpenseKpiService;
@@ -145,37 +144,6 @@ class AccountantController extends AsabController
         });
     }
 
-    public function reminders(Request $request): JsonResponse
-    {
-        return $this->run(function () use ($request) {
-            $q = Reminder::query();
-            if ($status = $request->query('status')) {
-                $q->where('reminder_status', $status);
-            }
-            $items = $q->orderByDesc('created_at')->get();
-
-            return $this->listResponse(
-                $items->map(fn ($r) => [
-                    'id' => $r->id,
-                    'publicId' => $r->public_id,
-                    'branchId' => $r->branch_id,
-                    'reportType' => $r->report_type,
-                    'moduleKey' => $r->module_key,
-                    'urgency' => $r->urgency,
-                    'reminderStatus' => $r->reminder_status,
-                    'daysMissing' => $r->days_missing,
-                    'requiredBy' => optional($r->required_by)->toIso8601String(),
-                ])->all(),
-                ['summary' => [
-                    'notSent' => $items->where('reminder_status', 'not_sent')->count(),
-                    'sent' => $items->where('reminder_status', 'sent')->count(),
-                    'responded' => $items->where('reminder_status', 'responded')->count(),
-                    'totalMissing' => $items->count(),
-                ]],
-            );
-        });
-    }
-
     /**
      * PATCH …/sales-details — the accountant's reconciliation edit (ACC-1.4).
      *
@@ -286,7 +254,14 @@ class AccountantController extends AsabController
                 'ordQty' => 'sometimes|numeric|min:0',
                 'rcvQty' => 'sometimes|nullable|numeric|min:0',
                 'unitPriceHalalas' => 'sometimes|integer|min:0',
+                // «سعر الوحدة» is typed in riyals on the board; both are accepted.
+                'unitPriceSar' => 'sometimes|numeric|min:0',
+                // The per-line «توثيق» checkbox («0/2 موثّق» under the table).
+                'documented' => 'sometimes|boolean',
             ]);
+            if (! isset($data['unitPriceHalalas']) && isset($data['unitPriceSar'])) {
+                $data['unitPriceHalalas'] = (int) round(((float) $data['unitPriceSar']) * 100);
+            }
 
             $result = DB::transaction(function () use ($op, $purchases, $receiving, $operations, $rowId, $data, $request) {
                 $received = $receiving->receivedByRow($op);
@@ -308,6 +283,13 @@ class AccountantController extends AsabController
                 if (array_key_exists('rcvQty', $data)) {
                     $raw[$target]['rcvQty'] = $data['rcvQty'];
                 }
+                if (array_key_exists('documented', $data)) {
+                    $raw[$target]['documentation'] = $data['documented'] ? [
+                        'documentedAt' => now()->toIso8601String(),
+                        'documentedBy' => $request->user()->id,
+                        'documentedByName' => $request->user()->name,
+                    ] : null;
+                }
 
                 $payload = $op->payload ?? [];
                 $payload['purchaseItems'] = $raw;
@@ -323,8 +305,13 @@ class AccountantController extends AsabController
                 ]);
 
                 $after = collect($derived)->firstWhere('rowId', (string) $rowId);
+                // A pure توثيق tick reads differently in the trail than a price edit.
+                $onlyDocumented = array_keys($data) === ['documented'];
+                $label = $onlyDocumented
+                    ? (($data['documented'] ?? false) ? 'وثّق المحاسب سطر الشراء: ' : 'ألغى المحاسب توثيق سطر الشراء: ')
+                    : 'عدّل المحاسب سطر الشراء: ';
                 $operations->recordStep(
-                    $op, 'review', 'عدّل المحاسب سطر الشراء: '.($before['item'] ?? $rowId), $request->user(),
+                    $op, 'review', $label.($before['item'] ?? $rowId), $request->user(),
                     null, ['rowId' => (string) $rowId, 'before' => $this->purchaseLineSnapshot($before), 'after' => $this->purchaseLineSnapshot($after)],
                 );
 
@@ -335,6 +322,7 @@ class AccountantController extends AsabController
                 'operationId' => $op->id,
                 'rowId' => $rowId,
                 'row' => $result['line'],
+                'documented' => ! empty(($result['line']['documentation'] ?? [])['documentedAt']),
                 'match' => $result['match'],
                 'amount' => $result['op']->amount,
             ]);
@@ -348,6 +336,8 @@ class AccountantController extends AsabController
             'rowId' => $line['rowId'], 'item' => $line['item'], 'itemId' => $line['itemId'], 'unit' => $line['unit'],
             'ordQty' => $line['ordQty'], 'rcvQty' => $line['rcvQty'],
             'unitPriceHalalas' => $line['unitPriceHalalas'], 'orderedUnitPriceHalalas' => $line['orderedUnitPriceHalalas'],
+            // The «توثيق ✓» stamp survives every later edit of the line.
+            'documentation' => $line['documentation'] ?? null,
         ];
     }
 

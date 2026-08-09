@@ -12,7 +12,12 @@ class BrandShiftConfig extends Model
 
     protected $table = 'asab_brand_shift_configs';
 
-    protected $fillable = ['brand_id', 'num_shifts', 'duration_hours', 'first_shift_start', 'shifts'];
+    protected $fillable = ['brand_id', 'num_shifts', 'duration_hours', 'duration_minutes', 'first_shift_start', 'shifts'];
 
-    protected $casts = ['num_shifts' => 'integer', 'duration_hours' => 'integer', 'shifts' => 'array'];
+    protected $casts = [
+        'num_shifts' => 'integer',
+        'duration_hours' => 'integer',
+        'duration_minutes' => 'integer',
+        'shifts' => 'array',
+    ];
 }

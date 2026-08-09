@@ -18,6 +18,7 @@ use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\SettlementRequest;
 use Modules\Admin\Services\AccountantDashboardService;
 use Modules\Admin\Services\AssetSequence;
+use Modules\Admin\Services\BrandBranchResolver;
 use Modules\Admin\Services\CustodyService;
 use Modules\Admin\Services\ExpenseInvoiceService;
 use Modules\Admin\Services\ExpenseKpiService;
@@ -45,6 +46,7 @@ class AccountantCompanyController extends AsabController
         private readonly ExpenseKpiService $expenseKpi,
         private readonly TenantContext $tenant,
         private readonly CustodyService $custody,
+        private readonly BrandBranchResolver $brandBranches,
     ) {}
 
     /** GET …/sales/kpis — ACC-1.1 cards + ACC-1.5 variance banner. */
@@ -449,29 +451,94 @@ class AccountantCompanyController extends AsabController
         });
     }
 
+    /**
+     * GET …/shifts/configs[?scope=brand|branch|all][&brandId=]
+     *
+     * «تعيين الشفتات» is assigned EITHER by brand or by branch, so the setup
+     * screen reads both lists off one endpoint. Default stays `brand` — the
+     * existing FE call is untouched.
+     */
     public function shiftConfigs(Request $request, \Modules\Admin\Services\ShiftConfigService $configService): JsonResponse
     {
         return $this->run(function () use ($request, $configService) {
+            $request->validate(['scope' => 'sometimes|in:brand,branch,all']);
+            $scope = (string) $request->query('scope', 'brand');
+
             // Scope to the brands this accountant is responsible for, not every
             // brand in the company (client meeting: shift settings must load the
             // accountant's own brand, not a placeholder). null = admin/company-wide.
             $assignedBrandIds = $this->assignedBrandIds();
             $brands = AsabBrand::where('company_id', $request->user()->company_id)
                 ->when($assignedBrandIds !== null, fn ($q) => $q->whereIn('id', $assignedBrandIds))
+                ->when($request->query('brandId'), fn ($q, $id) => $q->where('id', $id))
                 ->get();
             $configs = BrandShiftConfig::whereIn('brand_id', $brands->pluck('id'))->get()->keyBy('brand_id');
 
-            return $this->listResponse($brands->map(
-                fn (AsabBrand $b) => $configService->present($b->id, $b->name, $configs->get($b->id)),
-            )->all());
+            $rows = [];
+            if ($scope !== 'branch') {
+                foreach ($brands as $brand) {
+                    $rows[] = $configService->present($brand->id, $brand->name, $configs->get($brand->id));
+                }
+            }
+            if ($scope !== 'brand') {
+                $rows = array_merge($rows, $this->branchShiftConfigRows($brands, $configs, $configService));
+            }
+
+            return $this->listResponse($rows);
         });
     }
 
     /**
+     * One row per branch of the in-scope brands: its own config when it has an
+     * override, otherwise the brand's schedule with `hasOwnConfig=false` so the
+     * screen can show «يتبع العلامة التجارية».
+     *
+     * @param  \Illuminate\Support\Collection<int, AsabBrand>  $brands
+     * @param  \Illuminate\Support\Collection<string, BrandShiftConfig>  $brandConfigs
+     * @return array<int, array<string, mixed>>
+     */
+    private function branchShiftConfigRows($brands, $brandConfigs, \Modules\Admin\Services\ShiftConfigService $configService): array
+    {
+        $assignedBranchIds = $this->assignedBranchIds();
+        $rows = [];
+
+        foreach ($brands as $brand) {
+            // Brand → branches through the restaurant too (2026-08-03 rule).
+            $branches = $this->brandBranches->branches($brand->id, ['id', 'name']);
+            if ($assignedBranchIds !== null) {
+                $branches = $branches->whereIn('id', $assignedBranchIds);
+            }
+            if ($branches->isEmpty()) {
+                continue;
+            }
+
+            $own = \Modules\Admin\Models\BranchShiftConfig::whereIn('branch_id', $branches->pluck('id'))
+                ->get()->keyBy('branch_id');
+
+            foreach ($branches as $branch) {
+                $rows[] = array_merge($configService->present(
+                    $branch->id,
+                    $branch->name,
+                    $own->get($branch->id) ?? $brandConfigs->get($brand->id),
+                    'branch',
+                    $brand->id,
+                    $own->has($branch->id),
+                ), ['brandName' => $brand->name]);
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
      * PUT …/brands/{brandId}/shift-config — the meeting N-shift model (T08.1).
-     * Accepts `{numShifts, durationHours, firstShiftStart, openingFloatHalalas}`
-     * or the legacy `{morningWindow, eveningWindow, openingFloatHalalas}` pair;
-     * persists the real columns and emits computed windows + legacy aliases.
+     * Accepts `{numShifts, durationHours, firstShiftStart, openingFloatHalalas}`,
+     * the legacy `{morningWindow, eveningWindow, openingFloatHalalas}` pair, or a
+     * `shiftOverrides[]` list (the ✏️ per-shift editor); persists the real
+     * columns and emits computed windows + legacy aliases.
+     *
+     * `durationHours` is free text on the dashboard, so it is validated as a
+     * NUMBER (7.5 is legal) and stored to the minute.
      */
     public function saveShiftConfig(Request $request, \Modules\Admin\Services\ShiftConfigService $configService, \Modules\Admin\Services\ShiftScheduleBridgeService $scheduleBridge, string $brandId): JsonResponse
     {
@@ -480,22 +547,18 @@ class AccountantCompanyController extends AsabController
             // Zero-trust: a scoped accountant may only configure their assigned
             // brands, not any brand that merely shares the company.
             $this->assertBrandAssigned($brandId);
-            $data = $request->validate([
-                'numShifts' => 'sometimes|integer|min:1|max:4',
-                'durationHours' => 'sometimes|integer|min:1|max:24',
-                'firstShiftStart' => ['sometimes', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d$/'],
-                'openingFloatHalalas' => 'sometimes|integer|min:0',
-                // Legacy pair — still accepted.
-                'morningWindow' => ['sometimes', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/'],
-                'eveningWindow' => ['sometimes', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/'],
-            ]);
-
-            $cols = $configService->fromInput($data);
-            // A schedule longer than a day wraps: two windows become identical
-            // and the mobile app ends up with fewer shifts than the dashboard shows.
-            $configService->assertFitsDay((int) $cols['num_shifts'], (int) $cols['duration_hours']);
+            $data = $request->validate($this->shiftConfigRules());
 
             $cfg = BrandShiftConfig::firstOrNew(['brand_id' => $brandId]);
+            $cols = $configService->fromInput($data, $cfg->exists ? $cfg : null);
+            // A schedule longer than a day wraps: two windows become identical
+            // and the mobile app ends up with fewer shifts than the dashboard shows.
+            $configService->assertFitsDayMinutes(
+                (int) $cols['num_shifts'],
+                (int) $cols['duration_minutes'],
+                $configService->overrides($cols['shifts']),
+            );
+
             $cfg->fill($cols)->save();
 
             // Project the schedule into the mobile `shifts` table so the app's
@@ -504,6 +567,123 @@ class AccountantCompanyController extends AsabController
 
             return $this->ok($configService->present($brandId, $brand->name, $cfg->fresh()) + ['mobileShiftsSeeded' => $seeded]);
         });
+    }
+
+    /**
+     * PUT …/branches/{branchId}/shift-config — the same model assigned to ONE
+     * branch. A branch row wins over its brand's schedule and is skipped by the
+     * brand regenerate, so the two never fight over the mobile templates.
+     */
+    public function saveBranchShiftConfig(Request $request, \Modules\Admin\Services\ShiftConfigService $configService, \Modules\Admin\Services\ShiftScheduleBridgeService $scheduleBridge, string $branchId): JsonResponse
+    {
+        return $this->run(function () use ($request, $configService, $scheduleBridge, $branchId) {
+            // Zero-trust: out-of-scope branch ids read as absent (404), never as
+            // «configurable».
+            $this->assertBranchAssigned($branchId);
+            $branch = \Modules\Branch\Models\Branch::where('asab_company_id', $request->user()->company_id)
+                ->findOrFail($branchId);
+            $data = $request->validate($this->shiftConfigRules());
+
+            $cfg = \Modules\Admin\Models\BranchShiftConfig::firstOrNew(['branch_id' => $branchId]);
+            // A first branch override starts from the brand's schedule, so saving
+            // one field does not silently reset the branch to the defaults.
+            $base = $cfg->exists
+                ? $cfg
+                : ($branch->asab_brand_id ? BrandShiftConfig::where('brand_id', $branch->asab_brand_id)->first() : null);
+
+            $cols = $configService->fromInput($data, $base);
+            $configService->assertFitsDayMinutes(
+                (int) $cols['num_shifts'],
+                (int) $cols['duration_minutes'],
+                $configService->overrides($cols['shifts']),
+            );
+
+            $cfg->fill($cols)->save();
+            $seeded = $scheduleBridge->regenerateForBranch($branchId);
+
+            return $this->ok(array_merge(
+                $configService->present($branchId, $branch->name, $cfg->fresh(), 'branch', $branch->asab_brand_id, true),
+                ['mobileShiftsSeeded' => $seeded],
+            ));
+        });
+    }
+
+    /**
+     * DELETE …/branches/{branchId}/shift-config — drop the override; the branch
+     * follows its brand again (and is re-seeded from it).
+     */
+    public function deleteBranchShiftConfig(Request $request, \Modules\Admin\Services\ShiftConfigService $configService, \Modules\Admin\Services\ShiftScheduleBridgeService $scheduleBridge, string $branchId): JsonResponse
+    {
+        return $this->run(function () use ($request, $configService, $scheduleBridge, $branchId) {
+            $this->assertBranchAssigned($branchId);
+            $branch = \Modules\Branch\Models\Branch::where('asab_company_id', $request->user()->company_id)
+                ->findOrFail($branchId);
+
+            \Modules\Admin\Models\BranchShiftConfig::where('branch_id', $branchId)->delete();
+            $seeded = $scheduleBridge->regenerateForBranch($branchId);
+
+            $brandCfg = $branch->asab_brand_id
+                ? BrandShiftConfig::where('brand_id', $branch->asab_brand_id)->first()
+                : null;
+
+            return $this->ok(array_merge(
+                $configService->present($branchId, $branch->name, $brandCfg, 'branch', $branch->asab_brand_id, false),
+                ['mobileShiftsSeeded' => $seeded],
+            ));
+        });
+    }
+
+    /**
+     * POST …/branches/{branchId}/shift-config/regenerate — re-project one
+     * branch's effective schedule onto the mobile shift templates.
+     */
+    public function regenerateBranchShifts(Request $request, \Modules\Admin\Services\ShiftConfigService $configService, \Modules\Admin\Services\ShiftScheduleBridgeService $scheduleBridge, string $branchId): JsonResponse
+    {
+        return $this->run(function () use ($request, $configService, $scheduleBridge, $branchId) {
+            $this->assertBranchAssigned($branchId);
+            $branch = \Modules\Branch\Models\Branch::where('asab_company_id', $request->user()->company_id)
+                ->findOrFail($branchId);
+
+            $cfg = \Modules\Admin\Models\BranchShiftConfig::where('branch_id', $branchId)->first();
+            $effective = $cfg ?? ($branch->asab_brand_id ? BrandShiftConfig::where('brand_id', $branch->asab_brand_id)->first() : null);
+            $seeded = $scheduleBridge->regenerateForBranch($branchId);
+
+            return $this->ok(array_merge(
+                $configService->present($branchId, $branch->name, $effective, 'branch', $branch->asab_brand_id, $cfg !== null),
+                ['mobileShiftsSeeded' => $seeded],
+            ));
+        });
+    }
+
+    /**
+     * Shared validation for both shift-config writers.
+     *
+     * @return array<string, mixed>
+     */
+    private function shiftConfigRules(): array
+    {
+        // Times are free text on the dashboard («06:00», «6:00», «6:00 AM») and
+        // normalised by the service — but an impossible clock time is still a
+        // 422, not a silent wrap to 01:59.
+        $time = ['string', 'max:12', 'regex:/^\s*(\d|0\d|1\d|2[0-3])\s*(:\s*[0-5]\d)?\s*(am|pm|ص|م)?\s*$/iu'];
+
+        return [
+            'numShifts' => 'sometimes|integer|min:1|max:'.\Modules\Admin\Support\ShiftEnums::MAX_SHIFTS,
+            // Free text: 8, 7.5, «٨» all land on the same stored minutes.
+            'durationHours' => 'sometimes|numeric|min:0.25|max:24',
+            'durationMinutes' => 'sometimes|integer|min:15|max:1440',
+            'firstShiftStart' => array_merge(['sometimes'], $time),
+            'openingFloatHalalas' => 'sometimes|integer|min:0',
+            // Per-shift editor («اضغط ✏️ لتعديل وقت أي شفت بشكل منفرد»).
+            'shiftOverrides' => 'sometimes|array|max:'.\Modules\Admin\Support\ShiftEnums::MAX_SHIFTS,
+            'shiftOverrides.*.no' => 'required_with:shiftOverrides|integer|min:1|max:'.\Modules\Admin\Support\ShiftEnums::MAX_SHIFTS,
+            'shiftOverrides.*.start' => array_merge(['sometimes'], $time),
+            'shiftOverrides.*.durationHours' => 'sometimes|numeric|min:0.25|max:24',
+            'shiftOverrides.*.durationMinutes' => 'sometimes|integer|min:15|max:1440',
+            // Legacy pair — still accepted.
+            'morningWindow' => ['sometimes', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/'],
+            'eveningWindow' => ['sometimes', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/'],
+        ];
     }
 
     /**
@@ -519,7 +699,11 @@ class AccountantCompanyController extends AsabController
 
             $cfg = BrandShiftConfig::where('brand_id', $brandId)->first();
             if ($cfg !== null) {
-                $configService->assertFitsDay((int) $cfg->num_shifts, (int) $cfg->duration_hours);
+                $configService->assertFitsDayMinutes(
+                    (int) $cfg->num_shifts,
+                    $configService->durationMinutes($cfg),
+                    $configService->overrides(is_array($cfg->shifts) ? $cfg->shifts : []),
+                );
             }
 
             $seeded = $scheduleBridge->regenerateForBrand($brandId);

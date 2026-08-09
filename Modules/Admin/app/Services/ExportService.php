@@ -33,6 +33,11 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class ExportService
 {
+    public function __construct(
+        private readonly BrandBranchResolver $brandBranches,
+        private readonly CustodyService $custody,
+    ) {}
+
     /** Write headings + rows to a temp file and return a self-deleting download response. */
     public function make(string $format, string $filename, array $headings, array $rows): BinaryFileResponse
     {
@@ -311,7 +316,7 @@ class ExportService
      * reduces net pay, a credit (مكافأة/تسوية) raises it. Columns split advances
      * from other deductions and surface bonuses. Branch-scoped for zero-trust.
      */
-    public function payroll(string $format, ?string $month, ?array $branchIds = null): BinaryFileResponse
+    public function payroll(string $format, ?string $month, ?array $branchIds = null, ?string $brandId = null): BinaryFileResponse
     {
         $month = $month && preg_match('/^\d{4}-\d{2}$/', $month) ? $month : now()->format('Y-m');
         $start = Carbon::createFromFormat('Y-m-d', $month.'-01')->startOfMonth();
@@ -319,6 +324,7 @@ class ExportService
 
         $employees = Employee::query()
             ->when($branchIds !== null, fn ($q) => $q->whereIn('branch_id', $branchIds))
+            ->tap(fn ($q) => $this->brandBranches->applyFilter($q, $brandId))
             ->orderBy('emp_number')->limit(10000)->get();
         $branchNames = $this->branchNames($employees->pluck('branch_id'));
 
@@ -372,8 +378,17 @@ class ExportService
     }
 
     /** ACC-7.2 per-employee monthly statement sheet (rows mirror the JSON statement). */
-    public function employeeStatement(string $format, array $statement): BinaryFileResponse
+    /**
+     * ACC-7.2 «كشف حساب الموظف». `$format` accepts `pdf` beside xlsx/csv —
+     * the statement is the one sheet the accountant prints and hands over, so
+     * it ships a real RTL PDF rather than a spreadsheet only.
+     */
+    public function employeeStatement(string $format, array $statement): BinaryFileResponse|Response
     {
+        if ($format === 'pdf') {
+            return $this->employeeStatementPdf($statement);
+        }
+
         $emp = $statement['employee'];
         $headings = ['التاريخ', 'المرجع', 'التصنيف', 'الوصف', 'النوع', 'المبلغ (ر.س)', 'الرصيد الجاري (ر.س)'];
         $rows = array_map(fn (array $m) => [
@@ -394,13 +409,64 @@ class ExportService
         return $this->make($format, $label, $headings, $rows);
     }
 
-    public function cashCustody(string $format, ?string $branchId, ?array $branchIds = null): BinaryFileResponse
+    /** «تحميل PDF» on the statement screen — same rows, print-ready RTL sheet. */
+    private function employeeStatementPdf(array $statement): Response
+    {
+        $emp = $statement['employee'];
+        $period = $statement['period'];
+        $e = fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+
+        $body = '';
+        foreach ($statement['movements'] as $m) {
+            $body .= '<tr>'
+                .'<td>'.$e($m['movementDate'] ? Carbon::parse($m['movementDate'])->toDateString() : '—').'</td>'
+                .'<td>'.$e($m['ref'] ?? '—').'</td>'
+                .'<td>'.$e($m['categoryLabelAr'] ?? ($m['category'] ?? '—')).'</td>'
+                .'<td>'.$e($m['description'] ?? '—').'</td>'
+                .'<td>'.$e($m['movementTypeLabelAr'] ?? $m['movementType']).'</td>'
+                .'<td style="text-align:left">'.$this->sar($m['amountHalalas']).'</td>'
+                .'<td style="text-align:left">'.$this->sar($m['runningBalanceHalalas']).'</td>'
+                .'</tr>';
+        }
+
+        $html = '<html dir="rtl"><head><style>'
+            .'body{font-family:dejavusans;font-size:11px;color:#222} h1{font-size:18px;margin:0 0 4px}'
+            .'table{width:100%;border-collapse:collapse;margin-top:10px} th,td{border:1px solid #ddd;padding:5px;text-align:right}'
+            .'th{background:#f3f4f6} .muted{color:#888} .tot{width:55%;margin-right:auto;margin-top:12px}'
+            .'</style></head><body>'
+            .'<h1>كشف حساب الموظف</h1>'
+            .'<p class="muted">'.$e($emp['name'] ?? '—').' — رقم الموظف: '.$e($emp['empNumber'] ?? '—').'</p>'
+            .'<p>الفترة: '.$e($period['from']).' → '.$e($period['to']).' ('.$e($period['month']).')</p>'
+            .'<table><thead><tr><th>التاريخ</th><th>المرجع</th><th>التصنيف</th><th>الوصف</th><th>النوع</th>'
+            .'<th>المبلغ (ر.س)</th><th>الرصيد الجاري (ر.س)</th></tr></thead><tbody>'
+            .($body ?: '<tr><td colspan="7" class="muted">لا توجد حركات في هذه الفترة</td></tr>')
+            .'</tbody></table>'
+            .'<table class="tot">'
+            .'<tr><th>الرصيد الافتتاحي</th><td style="text-align:left">'.$this->sar($statement['openingBalanceHalalas']).'</td></tr>'
+            .'<tr><th>إجمالي الدائن</th><td style="text-align:left">'.$this->sar($statement['totalCredit'] ?? 0).'</td></tr>'
+            .'<tr><th>إجمالي المدين</th><td style="text-align:left">'.$this->sar($statement['totalDebit'] ?? 0).'</td></tr>'
+            .'<tr><th>الرصيد الختامي</th><td style="text-align:left">'.$this->sar($statement['closingBalanceHalalas']).'</td></tr>'
+            .'</table>'
+            .'</body></html>';
+
+        return $this->renderPdf($html, 'statement-'.($emp['empNumber'] ?? $emp['id']).'-'.$period['month']);
+    }
+
+    /**
+     * ACC-8 «ملخص عهد Excel». Honours the same filters as the list screen so the
+     * sheet matches what the accountant is looking at.
+     *
+     * @param  array{brandId?:?string, status?:?string}  $filters
+     */
+    public function cashCustody(string $format, ?string $branchId, ?array $branchIds = null, array $filters = []): BinaryFileResponse
     {
         $q = CashCustody::query();
         // Zero-trust: a branch-scoped accountant exports only their branches.
         if ($branchIds !== null) {
             $q->whereIn('branch_id', $branchIds);
         }
+        $this->brandBranches->applyFilter($q, $filters['brandId'] ?? null);
+        $this->custody->applyStatusFilter($q, $filters['status'] ?? null);
         if ($branchId) {
             $q->where('branch_id', $branchId);
         }
@@ -422,6 +488,60 @@ class ExportService
         ])->all();
 
         return $this->make($format, 'cash-custody', $headings, $rows);
+    }
+
+    /**
+     * ACC-3 «تصدير Excel» on the purchases board: one row per invoice LINE, with
+     * its card (supplier or branch) repeated so the sheet pivots cleanly.
+     *
+     * @param  array<int, array<string, mixed>>  $groups  cards from PurchaseBoardService
+     */
+    public function purchaseBoard(string $format, array $groups, string $groupBy = 'supplier'): BinaryFileResponse
+    {
+        $headings = [
+            'المورد', 'الفرع', 'رقم الفاتورة', 'التاريخ', 'الحالة', 'المطابقة',
+            'اسم الصنف', 'الوحدة', 'سعر الوحدة (ر.س)', 'آخر سعر وصول (ر.س)', 'الفرق (ر.س)',
+            'الكمية', 'الإجمالي (ر.س)', 'موثّق',
+        ];
+
+        $rows = [];
+        foreach ($groups as $group) {
+            foreach ($group['invoices'] ?? [] as $invoice) {
+                $lines = $invoice['lines'] ?? [];
+                if ($lines === []) {
+                    // An invoice with no mapped lines still belongs on the sheet.
+                    $rows[] = [
+                        $invoice['supplierName'] ?? '—', $invoice['branchName'] ?? '—',
+                        $invoice['invoiceNumber'] ?? '—', $invoice['date'] ?? '—',
+                        $invoice['statusLabelAr'] ?? '—', $invoice['matchLabelAr'] ?? '—',
+                        '—', '—', '', '', '', '', $this->sar($invoice['totalHalalas'] ?? 0),
+                        ($invoice['isDocumented'] ?? false) ? 'نعم' : 'لا',
+                    ];
+
+                    continue;
+                }
+                foreach ($lines as $line) {
+                    $rows[] = [
+                        $invoice['supplierName'] ?? '—',
+                        $invoice['branchName'] ?? '—',
+                        $invoice['invoiceNumber'] ?? '—',
+                        $invoice['date'] ?? '—',
+                        $invoice['statusLabelAr'] ?? '—',
+                        $invoice['matchLabelAr'] ?? '—',
+                        $line['item'] ?? '—',
+                        $line['unit'] ?? '—',
+                        $this->sar($line['unitPriceHalalas'] ?? 0),
+                        $line['lastArrivalPriceHalalas'] === null ? '—' : $this->sar($line['lastArrivalPriceHalalas']),
+                        $line['priceDeltaHalalas'] === null ? '—' : $this->sar($line['priceDeltaHalalas']),
+                        (string) ($line['qty'] ?? 0),
+                        $this->sar($line['totalHalalas'] ?? 0),
+                        ($line['documented'] ?? false) ? 'نعم' : 'لا',
+                    ];
+                }
+            }
+        }
+
+        return $this->make($format, 'purchases-by-'.$groupBy, $headings, $rows);
     }
 
     // ── Operations / list exports (sync xlsx/csv; honour list filters) ──────

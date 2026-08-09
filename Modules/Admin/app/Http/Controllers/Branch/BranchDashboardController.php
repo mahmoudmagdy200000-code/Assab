@@ -354,9 +354,12 @@ class BranchDashboardController extends AsabController
         $branch = \Modules\Branch\Models\Branch::whereKey($branchId)
             ->where('asab_company_id', $companyId)->first();
 
-        // Admin-set shift configuration (read-only mirror for this role).
+        // Admin-set shift configuration (read-only mirror for this role). A
+        // branch-level override wins over its brand's schedule — otherwise the
+        // manager reads timings the app no longer runs on.
         $brandId = $branch?->asab_brand_id;
-        $cfg = $brandId ? \Modules\Admin\Models\BrandShiftConfig::where('brand_id', $brandId)->first() : null;
+        $cfg = \Modules\Admin\Models\BranchShiftConfig::where('branch_id', $branchId)->first()
+            ?? ($brandId ? \Modules\Admin\Models\BrandShiftConfig::where('brand_id', $brandId)->first() : null);
 
         return [
             // Locked identity (admin-owned) — mirrored, never edited here.
@@ -381,8 +384,10 @@ class BranchDashboardController extends AsabController
             'shiftConfig' => $cfg ? [
                 'numShifts' => $cfg->num_shifts,
                 'durationHours' => $cfg->duration_hours,
+                'durationMinutes' => $cfg->duration_minutes ?? ((int) $cfg->duration_hours * 60),
                 'firstStart' => $cfg->first_shift_start,
                 'shifts' => $cfg->shifts,
+                'scope' => $cfg instanceof \Modules\Admin\Models\BranchShiftConfig ? 'branch' : 'brand',
                 'readOnly' => true,
             ] : ['readOnly' => true],
         ];

@@ -189,6 +189,9 @@ class PurchasePresenterService
             'rcvQty' => $rcvQty,
             'unitPriceHalalas' => $unitPrice,
             'orderedUnitPriceHalalas' => $orderedUnitPrice,
+            // ACC-3.4 «توثيق» is per LINE on the board («0/2 موثّق»), so the
+            // stamp rides the line rather than only the operation.
+            'documentation' => is_array($row['documentation'] ?? null) ? $row['documentation'] : null,
         ];
     }
 

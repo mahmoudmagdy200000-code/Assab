@@ -6,6 +6,7 @@ use Modules\Admin\Http\Controllers\Accountant\AssetController;
 use Modules\Admin\Http\Controllers\Accountant\CashCustodyController;
 use Modules\Admin\Http\Controllers\Accountant\EmployeeController;
 use Modules\Admin\Http\Controllers\Accountant\InventoryController;
+use Modules\Admin\Http\Controllers\Accountant\PurchaseBoardController;
 use Modules\Admin\Http\Controllers\Accountant\PurchaseReturnController;
 use Modules\Admin\Http\Controllers\Accountant\ReminderController;
 use Modules\Admin\Http\Controllers\Accountant\ShiftController;
@@ -319,6 +320,13 @@ Route::prefix('v1')->group(function () {
             Route::patch('operations/{id}/purchase-lines/{rowId}', [AccountantController::class, 'purchaseLineUpdate'])->middleware('asab.role:accountant,head');
             // ACC-3 «المرتجعات» read surface (accountant/head).
             Route::get('purchases/returns', [PurchaseReturnController::class, 'index'])->middleware('asab.role:accountant,head');
+            // ACC-3 «موديول المشتريات» — the grouped board (عرض حسب المورد /
+            // حسب الفرع) + its Excel export + «توثيق» in bulk.
+            Route::middleware('asab.role:accountant,head')->group(function () {
+                Route::get('purchases/export', [PurchaseBoardController::class, 'export']);
+                Route::get('purchases', [PurchaseBoardController::class, 'index']);
+                Route::post('purchases/bulk-document', [PurchaseBoardController::class, 'bulkDocument']);
+            });
 
             // ERP (§5 / §7.4)
             Route::post('erp/batches', [HeadController::class, 'erpCreateBatch'])->middleware(['asab.role:head', 'asab.idempotency']);
@@ -475,14 +483,18 @@ Route::prefix('v1')->group(function () {
                 // ACC-6.4 accountant's split of the cash gap before head approval.
                 Route::post('shifts/{id}/variance-allocations', [ShiftController::class, 'varianceAllocations']);
 
-                // Employees (§6.3.10)
+                // Employees (§6.3.10) — list/statement take `brandId` + `branchId`.
+                Route::get('employees/payroll/export', [CompanyExportController::class, 'payroll']);
                 Route::get('employees', [EmployeeController::class, 'index']);
                 Route::get('employees/{id}/statement', [EmployeeController::class, 'statement']);
+                // «تحميل PDF» on the statement (?format=pdf|xlsx|csv).
+                Route::get('employees/{id}/statement/export', [CompanyExportController::class, 'employeeStatement']);
                 Route::post('employees/{id}/movements', [EmployeeController::class, 'addMovement']);
                 // ACC-7.3 «تسوية الرصيد».
                 Route::post('employees/{id}/settle-balance', [EmployeeController::class, 'settleBalance']);
 
-                // Cash custody (§6.3.11)
+                // Cash custody (§6.3.11) — filters: brandId, branchId, status.
+                Route::get('cash-custody/export', [CompanyExportController::class, 'cashCustody']);
                 Route::get('cash-custody', [CashCustodyController::class, 'index']);
                 Route::post('cash-custody/{id}/settlement-request', [CashCustodyController::class, 'settlementRequest']);
                 Route::post('cash-custody/{id}/transactions', [CashCustodyController::class, 'addTransaction']);
@@ -490,10 +502,15 @@ Route::prefix('v1')->group(function () {
 
             // Reminders (§6.3.12) — accountant + head
             Route::middleware('asab.role:accountant,head')->group(function () {
-                Route::get('reminders', [AccountantController::class, 'reminders']);
+                Route::get('reminders/export', [CompanyExportController::class, 'remindersExport']);
+                Route::get('reminders', [ReminderController::class, 'index']);
+                // «تحديث» — rebuild the missing-data list on demand.
+                Route::post('reminders/scan', [ReminderController::class, 'scan']);
                 Route::post('reminders/broadcast', [ReminderController::class, 'broadcast']);
                 Route::post('reminders/{id}/send', [ReminderController::class, 'send']);
                 Route::post('reminders/bulk-send', [ReminderController::class, 'bulkSend']);
+                // «إرسال تذكير للكل» — same handler, the button's own path.
+                Route::post('reminders/send-all', [ReminderController::class, 'bulkSend']);
                 Route::post('reminders/{id}/respond', [ReminderController::class, 'respond']);
                 Route::get('reminders/rules', [ReminderController::class, 'rules']);
                 Route::post('reminders/rules', [ReminderController::class, 'storeRule']);
@@ -744,6 +761,29 @@ Route::prefix('v1')->group(function () {
                     Route::patch('accountant/reminders/{id}', [PersonalReminderController::class, 'update']);
                     Route::delete('accountant/reminders/{id}', [PersonalReminderController::class, 'destroy']);
 
+                    /*
+                     | §6.3.12 «التذكيرات — بيانات الفروع المفقودة». Distinct from
+                     | `accountant/reminders` above, which is the accountant's
+                     | own personal to-do list: these are the branch-data gaps,
+                     | their auto-rules and the «إرسال للكل» action. The company
+                     | portal only ever had the personal list, which is why the
+                     | screen showed 0/0/0/0 and nothing could be sent.
+                     */
+                    Route::get('reminders/export', [CompanyExportController::class, 'remindersExport']);
+                    Route::get('reminders', [ReminderController::class, 'index']);
+                    Route::post('reminders/scan', [ReminderController::class, 'scan']);
+                    Route::post('reminders/broadcast', [ReminderController::class, 'broadcast']);
+                    Route::post('reminders/bulk-send', [ReminderController::class, 'bulkSend']);
+                    Route::post('reminders/send-all', [ReminderController::class, 'bulkSend']);
+                    Route::get('reminders/rules', [ReminderController::class, 'rules']);
+                    Route::post('reminders/rules', [ReminderController::class, 'storeRule']);
+                    Route::patch('reminders/rules/{id}', [ReminderController::class, 'updateRule']);
+                    Route::delete('reminders/rules/{id}', [ReminderController::class, 'deleteRule']);
+                    Route::post('reminders/rules/{id}/toggle', [ReminderController::class, 'toggleRule']);
+                    // Declared after the literal paths so they cannot shadow them.
+                    Route::post('reminders/{id}/send', [ReminderController::class, 'send']);
+                    Route::post('reminders/{id}/respond', [ReminderController::class, 'respond']);
+
                     Route::get('operations/export', [CompanyExportController::class, 'operationsExport']);
                     Route::get('operations', [OperationController::class, 'index']);
                     // Declared after the literal `operations/export` so it cannot shadow it.
@@ -760,6 +800,11 @@ Route::prefix('v1')->group(function () {
                     Route::post('operations/{id}/document', [OperationController::class, 'document']);
                     Route::patch('operations/{id}/purchase-lines/{rowId}', [AccountantController::class, 'purchaseLineUpdate']);
                     Route::get('purchases/returns', [PurchaseReturnController::class, 'index']);
+                    // ACC-3 «موديول المشتريات»: cards by supplier or by branch,
+                    // KPI header, per-line آخر سعر وصول + توثيق, Excel export.
+                    Route::get('purchases/export', [PurchaseBoardController::class, 'export']);
+                    Route::get('purchases', [PurchaseBoardController::class, 'index']);
+                    Route::post('purchases/bulk-document', [PurchaseBoardController::class, 'bulkDocument']);
                     Route::post('operations/{id}/notes', [AccountantController::class, 'addNote']);
                     Route::get('operations/{id}/export', [CompanyExportController::class, 'operation']);
                     Route::get('branches/{branchId}/employees/lookup', [AccountantCompanyController::class, 'employeeLookup']);
@@ -812,6 +857,11 @@ Route::prefix('v1')->group(function () {
                     Route::post('shifts/{id}/variance-allocations', [ShiftController::class, 'varianceAllocations']);
                     Route::put('brands/{brandId}/shift-config', [AccountantCompanyController::class, 'saveShiftConfig']);
                     Route::post('brands/{brandId}/shift-config/regenerate', [AccountantCompanyController::class, 'regenerateShifts']);
+                    // «تعيين الشفتات» per BRANCH — an override that wins over the
+                    // brand's schedule (meeting 2026-08-09).
+                    Route::put('branches/{branchId}/shift-config', [AccountantCompanyController::class, 'saveBranchShiftConfig']);
+                    Route::delete('branches/{branchId}/shift-config', [AccountantCompanyController::class, 'deleteBranchShiftConfig']);
+                    Route::post('branches/{branchId}/shift-config/regenerate', [AccountantCompanyController::class, 'regenerateBranchShifts']);
 
                     Route::get('employees/payroll/export', [CompanyExportController::class, 'payroll']);
                     Route::get('employees', [EmployeeController::class, 'index']);

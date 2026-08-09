@@ -26,6 +26,9 @@ final class ShiftEnums
     /** Sequential shift names for the meeting model, indexed by shift number. */
     public const SEQUENTIAL_NAMES = [1 => 'الأول', 2 => 'الثاني', 3 => 'الثالث', 4 => 'الرابع'];
 
+    /** Upper bound on the shift count a config may carry (§4.4). */
+    public const MAX_SHIFTS = 4;
+
     public const LATE_BANNER_AR = 'انتهى وقت الشفت — لم يُغلق الصندوق بعد';
 
     /** Default opening float when a brand config omits it — SRS §4.4 = 500 SAR. */

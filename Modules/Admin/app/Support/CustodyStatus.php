@@ -27,6 +27,12 @@ final class CustodyStatus
         'critical' => 'حرج',
     ];
 
+    /** @return string[] */
+    public static function keys(): array
+    {
+        return array_keys(self::LABELS);
+    }
+
     public static function derive(int $remaining, ?int $minAlert): string
     {
         $minAlert = $minAlert ?: self::DEFAULT_MIN_ALERT_HALALAS;

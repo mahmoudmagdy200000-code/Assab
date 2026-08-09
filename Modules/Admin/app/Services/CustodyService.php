@@ -40,6 +40,31 @@ class CustodyService
     }
 
     /**
+     * «حالة العهدة» filter, expressed in SQL against the LIVE balance rather
+     * than the stored `status` column — legacy rows carry `active` there, so a
+     * plain `where('status', …)` silently drops every pre-T09 custody.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $query
+     */
+    public function applyStatusFilter($query, ?string $status)
+    {
+        if ($status === null || $status === '') {
+            return $query;
+        }
+
+        $near = CustodyStatus::NEAR_DEPLETION_HALALAS;
+        $remaining = '(amount - used)';
+        // A zero/NULL min_alert means «unset» → the SRS default threshold.
+        $threshold = 'COALESCE(NULLIF(min_alert, 0), '.CustodyStatus::DEFAULT_MIN_ALERT_HALALAS.')';
+
+        return match ($status) {
+            'critical' => $query->whereRaw("{$remaining} < ?", [$near]),
+            'low' => $query->whereRaw("{$remaining} >= ?", [$near])->whereRaw("{$remaining} < {$threshold}"),
+            default => $query->whereRaw("{$remaining} >= ?", [$near])->whereRaw("{$remaining} >= {$threshold}"),
+        };
+    }
+
+    /**
      * @param  array<string,string>  $branchNames
      * @param  Collection<int,CashTransaction>|null  $txns  eager-loaded, else read from relation
      * @return array<string,mixed>

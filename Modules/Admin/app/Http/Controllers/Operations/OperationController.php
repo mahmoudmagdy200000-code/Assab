@@ -401,14 +401,15 @@ class OperationController extends AsabController
         )->firstOrFail();
     }
 
-    /** brandId → the brand's branch ids (branches.asab_brand_id tagging). */
+    /**
+     * brandId → the brand's branch ids. Resolved through the shared resolver:
+     * a branch linked to the brand only by its restaurant carries a NULL
+     * `asab_brand_id`, and filtering on that column alone answered «no
+     * branches» — the whole brand-filtered list came back empty (2026-08-03).
+     */
     private function applyBrandFilter($query, ?string $brandId): void
     {
-        if (! $brandId) {
-            return;
-        }
-
-        $query->whereIn('branch_id', Branch::where('asab_brand_id', $brandId)->pluck('id'));
+        app(\Modules\Admin\Services\BrandBranchResolver::class)->applyFilter($query, $brandId);
     }
 
     private function summary(Request $request): array

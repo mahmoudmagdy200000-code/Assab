@@ -3,6 +3,7 @@
 namespace Modules\Admin\Services;
 
 use Illuminate\Support\Carbon;
+use Modules\Admin\Models\BranchShiftConfig;
 use Modules\Admin\Models\BrandShiftConfig;
 use Modules\Admin\Models\Shift;
 use Modules\Branch\Models\Branch;
@@ -31,12 +32,16 @@ class ShiftLatenessService
             return 0;
         }
 
-        $brandByBranch = Branch::whereIn('id', $shifts->pluck('branch_id')->filter()->unique())->pluck('asab_brand_id', 'id');
+        $branchIds = $shifts->pluck('branch_id')->filter()->unique();
+        $brandByBranch = Branch::whereIn('id', $branchIds)->pluck('asab_brand_id', 'id');
         $configs = BrandShiftConfig::whereIn('brand_id', $brandByBranch->filter()->unique())->get()->keyBy('brand_id');
+        // A branch running its own schedule is judged against ITS windows.
+        $branchConfigs = BranchShiftConfig::whereIn('branch_id', $branchIds)->get()->keyBy('branch_id');
 
         $flipped = 0;
         foreach ($shifts as $shift) {
-            $config = $configs->get($brandByBranch[$shift->branch_id] ?? null);
+            $config = $branchConfigs->get($shift->branch_id)
+                ?? $configs->get($brandByBranch[$shift->branch_id] ?? null);
             if ($this->isOverdue($shift, $config, $now)) {
                 $shift->update(['status' => 'late']);
                 $this->rt->shiftChanged($shift->fresh(), 'late');
@@ -48,22 +53,28 @@ class ShiftLatenessService
     }
 
     /**
-     * A shift is overdue when its window end (from the brand config, matched by
-     * shift number) is in the past. Fallback: `started_at + duration_hours`.
+     * A shift is overdue when its window end (from the effective config —
+     * branch override first, else the brand's — matched by shift number) is in
+     * the past. Fallback: `started_at + duration`.
      */
-    public function isOverdue(Shift $shift, ?BrandShiftConfig $config, Carbon $now): bool
+    public function isOverdue(Shift $shift, BrandShiftConfig|BranchShiftConfig|null $config, Carbon $now): bool
     {
         return $now->greaterThan($this->windowEnd($shift, $config));
     }
 
-    private function windowEnd(Shift $shift, ?BrandShiftConfig $config): Carbon
+    private function windowEnd(Shift $shift, BrandShiftConfig|BranchShiftConfig|null $config): Carbon
     {
         $start = Carbon::parse($shift->started_at);
-        $duration = max(1, min(24, (int) ($config->duration_hours ?? 8)));
+        $minutes = $this->configs->durationMinutes($config);
 
         // Prefer the configured window end for the shift's number; else duration.
         if ($config !== null && $shift->shift_no !== null) {
-            $windows = collect($this->configs->windows($config->num_shifts ?? 2, $duration, $config->first_shift_start ?? '06:00'));
+            $windows = collect($this->configs->windowsFromMinutes(
+                $config->num_shifts ?? 2,
+                $minutes,
+                $config->first_shift_start ?? '06:00',
+                $this->configs->overrides(is_array($config->shifts) ? $config->shifts : []),
+            ));
             $window = $windows->firstWhere('no', $shift->shift_no);
             if ($window !== null) {
                 [$h, $m] = array_pad(explode(':', $window['end']), 2, '0');
@@ -77,6 +88,6 @@ class ShiftLatenessService
             }
         }
 
-        return $start->copy()->addHours($duration);
+        return $start->copy()->addMinutes($minutes);
     }
 }

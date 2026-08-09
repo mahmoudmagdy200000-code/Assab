@@ -100,6 +100,8 @@ class AdminServiceProvider extends ServiceProvider
             \Modules\Admin\Console\Commands\RepairUserCompaniesCommand::class,
             \Modules\Admin\Console\Commands\InventoryDoctorCommand::class,
             \Modules\Admin\Console\Commands\RepairEmployeesCommand::class,
+            \Modules\Admin\Console\Commands\GenerateRemindersCommand::class,
+            \Modules\Admin\Console\Commands\DispatchRemindersCommand::class,
         ]);
     }
 
@@ -118,6 +120,18 @@ class AdminServiceProvider extends ServiceProvider
             $schedule->command('asab:shifts-mark-late')
                 ->everyFifteenMinutes()
                 ->timezone('Asia/Riyadh');
+            // §6.3.12 — raise/close «بيانات الفروع المفقودة». Hourly so a late
+            // upload clears its own reminder without anyone touching the screen.
+            $schedule->command('asab:reminders-generate')
+                ->hourly()
+                ->timezone('Asia/Riyadh')
+                ->withoutOverlapping();
+            // …then deliver whatever the auto-rules say is due (trigger hour +
+            // repeat window). Runs after the generator on the same tick.
+            $schedule->command('asab:reminders-dispatch')
+                ->hourlyAt(5)
+                ->timezone('Asia/Riyadh')
+                ->withoutOverlapping();
         });
     }
 

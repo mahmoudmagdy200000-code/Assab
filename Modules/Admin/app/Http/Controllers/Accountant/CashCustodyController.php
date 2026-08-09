@@ -9,7 +9,9 @@ use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\CashCustody;
 use Modules\Admin\Models\CashTransaction;
 use Modules\Admin\Models\SettlementRequest;
+use Modules\Admin\Services\BrandBranchResolver;
 use Modules\Admin\Services\CustodyService;
+use Modules\Admin\Support\CustodyStatus;
 use Modules\Branch\Models\Branch;
 
 /**
@@ -18,21 +20,36 @@ use Modules\Branch\Models\Branch;
  */
 class CashCustodyController extends AsabController
 {
-    public function __construct(private readonly CustodyService $custody) {}
+    public function __construct(
+        private readonly CustodyService $custody,
+        private readonly BrandBranchResolver $brandBranches,
+    ) {}
 
-    /** ACC-8.1 list: derived status per row + KPI header, paginated. */
+    /**
+     * ACC-8.1 list: derived status per row + KPI header, paginated.
+     * Filters: `brandId` (العلامة التجارية), `branchId` (الفرع), `status`
+     * (حالة العهدة: normal|low|critical), `q` (branch or custodian name).
+     */
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
+            $request->validate([
+                'status' => 'sometimes|nullable|in:'.implode(',', CustodyStatus::keys()),
+            ]);
+
             // KPIs reflect the whole assigned scope (not the filtered view).
             $scopeBase = $this->scopeToAssignedBranches(CashCustody::query());
             $kpiSet = (clone $scopeBase)->get(['id', 'branch_id', 'amount', 'used', 'min_alert']);
             $kpis = $this->custody->kpis($kpiSet);
 
             $q = clone $scopeBase;
+            // Brand → branches resolves through the restaurant too (2026-08-03 rule).
+            $this->brandBranches->applyFilter($q, $request->query('brandId'));
             if ($branch = $request->query('branchId')) {
                 $q->where('branch_id', $branch);
             }
+            // Derived from the live balance, not the stored column (legacy rows).
+            $this->custody->applyStatusFilter($q, $request->query('status'));
             if ($needle = trim((string) $request->query('q', ''))) {
                 $branchIds = Branch::where('name', 'like', '%'.$needle.'%')->pluck('id');
                 $q->where(fn ($sub) => $sub->where('custodian_name', 'like', '%'.$needle.'%')

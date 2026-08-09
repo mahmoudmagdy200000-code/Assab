@@ -6,6 +6,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\Employee;
+use Modules\Admin\Services\BrandBranchResolver;
 use Modules\Admin\Services\EmployeeLedgerService;
 use Modules\Admin\Support\EmployeeMovementCategory as Cat;
 use Modules\Branch\Models\Branch;
@@ -16,14 +17,23 @@ use Modules\Branch\Models\Branch;
  */
 class EmployeeController extends AsabController
 {
-    public function __construct(private readonly EmployeeLedgerService $ledger) {}
+    public function __construct(
+        private readonly EmployeeLedgerService $ledger,
+        private readonly BrandBranchResolver $brandBranches,
+    ) {}
 
-    /** ACC-7.1 master list: signed balance + branch name per row, name search. */
+    /**
+     * ACC-7.1 master list: signed balance + branch name per row, name search.
+     * Filters: `brandId` (العلامة التجارية), `branchId` (الفرع), `empNumber`, `q`.
+     */
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
             $perPage = min((int) $request->query('pageSize', 20), 100);
             $q = $this->scopeToAssignedBranches(Employee::query());
+            // Brand → branches resolves through the restaurant too; a brand whose
+            // branches carry only `asab_restaurant_id` must not read as empty.
+            $this->brandBranches->applyFilter($q, $request->query('brandId'));
             if ($branch = $request->query('branchId')) {
                 $q->where('branch_id', $branch);
             }

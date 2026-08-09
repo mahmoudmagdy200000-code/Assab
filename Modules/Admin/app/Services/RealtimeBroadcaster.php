@@ -89,6 +89,20 @@ class RealtimeBroadcaster
         $this->safe(fn () => $this->toUsers($this->roleUserIds($batch->company_id, 'head'), 'erp.batch.completed', $payload));
     }
 
+    /** A missing-data reminder was pushed to the branch («تم الإرسال»). */
+    public function reminderSent(Reminder $reminder): void
+    {
+        $this->safe(fn () => $this->emit(
+            'reminders.branch.'.$reminder->branch_id,
+            'reminder.sent',
+            [
+                'reminderId' => $reminder->id,
+                'moduleKey' => $reminder->module_key,
+                'message' => $reminder->message,
+            ],
+        ));
+    }
+
     public function reminderResponded(Reminder $reminder): void
     {
         $this->safe(fn () => $this->emit(
