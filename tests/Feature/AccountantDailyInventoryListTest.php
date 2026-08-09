@@ -187,6 +187,31 @@ class AccountantDailyInventoryListTest extends TestCase
         );
     }
 
+    /**
+     * 2026-08-09 «اسم الفرع غير صحيح — بيبعت الـid»: the monthly-review row
+     * carried `branchId` only, so the screen printed the raw UUID.
+     */
+    public function test_the_review_row_carries_the_branch_name(): void
+    {
+        \Modules\Admin\Models\Operation::create([
+            'company_id' => $this->accountant->company_id,
+            'branch_id' => $this->branch->id,
+            'module_key' => 'inventory',
+            'public_id' => 'INV-DOC-1',
+            'status' => 'pending',
+            'operation_date' => now(),
+            'amount' => 0,
+            'origin' => 'mobile',
+            'payload' => ['items' => [['itemId' => 'i-1', 'name' => 'صدور دجاج', 'actualQty' => 5]]],
+        ]);
+
+        $this->actingAs($this->accountant, 'sanctum')
+            ->getJson('/api/v1/accountant/inventory/review?type=monthly')
+            ->assertSuccessful()
+            ->assertJsonPath('branches.0.branchId', $this->branch->id)
+            ->assertJsonPath('branches.0.branchName', 'الريان 1');
+    }
+
     public function test_type_all_returns_both_sheets(): void
     {
         $this->actingAs($this->accountant, 'sanctum')

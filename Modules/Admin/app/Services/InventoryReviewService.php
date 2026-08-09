@@ -39,6 +39,13 @@ class InventoryReviewService
         $prevMonth = now()->subMonthNoOverflow()->format('Y-m');
 
         $byBranch = $ops->groupBy('branch_id');
+
+        // The row carried the branch UUID only, so the screen printed
+        // «019fc7b0-b0c1-…» where the branch name belongs (2026-08-09). One
+        // query for the whole page — never a lookup inside the loop.
+        $branchNames = \Modules\Branch\Models\Branch::whereIn('id', $byBranch->keys()->filter()->all())
+            ->pluck('name', 'id');
+
         $branches = [];
         $anomalyAlerts = 0;
         $lowItems = 0;
@@ -56,6 +63,8 @@ class InventoryReviewService
 
             $branches[] = [
                 'branchId' => $branchId,
+                // Never null: a row whose branch was deleted still has to render.
+                'branchName' => (string) ($branchNames[$branchId] ?? ''),
                 'operationId' => $currentOp->id,
                 'status' => $currentOp->status,
                 'items' => $items,

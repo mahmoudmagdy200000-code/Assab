@@ -152,6 +152,7 @@ class WasteController extends AsabController
             'id' => $o->id,
             'publicId' => $o->public_id,
             'branchId' => $o->branch_id,
+            'branchName' => $brandNames[$o->branch_id]['branchName'] ?? null,
             'brandId' => $brandNames[$o->branch_id]['brandId'] ?? null,
             'brandName' => $brandNames[$o->branch_id]['brandName'] ?? null,
             'date' => optional($o->operation_date)->toIso8601String(),
@@ -202,12 +203,15 @@ class WasteController extends AsabController
     /** @return array<string, array{brandId:?string, brandName:?string}> branchId → brand */
     private function brandNamesFor($ops): array
     {
-        $branches = Branch::whereIn('id', $ops->pluck('branch_id')->filter()->unique())->get(['id', 'asab_brand_id']);
+        $branches = Branch::whereIn('id', $ops->pluck('branch_id')->filter()->unique())->get(['id', 'name', 'asab_brand_id']);
         $brandNames = AsabBrand::whereIn('id', $branches->pluck('asab_brand_id')->filter()->unique())->pluck('name', 'id');
 
         return $branches->mapWithKeys(fn ($b) => [$b->id => [
             'brandId' => $b->asab_brand_id,
             'brandName' => $brandNames[$b->asab_brand_id] ?? null,
+            // The row carried the brand only, so a per-branch list had nothing
+            // but the branch UUID to show (same defect as the جرد screen).
+            'branchName' => $b->name,
         ]])->all();
     }
 
