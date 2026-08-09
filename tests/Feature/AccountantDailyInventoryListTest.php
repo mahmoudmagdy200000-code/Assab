@@ -206,7 +206,7 @@ class AccountantDailyInventoryListTest extends TestCase
         ]);
 
         $this->actingAs($this->accountant, 'sanctum')
-            ->getJson('/api/v1/accountant/inventory/review?type=monthly')
+            ->getJson('/api/v1/accountant/inventory?type=monthly')
             ->assertSuccessful()
             ->assertJsonPath('branches.0.branchId', $this->branch->id)
             ->assertJsonPath('branches.0.branchName', 'الريان 1');
