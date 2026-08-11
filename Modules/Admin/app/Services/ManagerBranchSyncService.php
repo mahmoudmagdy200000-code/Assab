@@ -23,6 +23,7 @@ class ManagerBranchSyncService
 {
     public function __construct(
         private readonly IdentityMapService $identity,
+        private readonly ManagerRosterService $roster,
         private readonly \Psr\Log\LoggerInterface $log,
     ) {}
 
@@ -36,6 +37,13 @@ class ManagerBranchSyncService
         if ($asabUserId === null || $branchId === null) {
             return false;
         }
+
+        // The accountant's roster is the THIRD place a manager's branch is
+        // recorded, and it was the one nobody moved — so «كشف حساب الموظفين»
+        // filtered by the new branch came back without its own manager
+        // (2026-08-10). Runs first and independently: a manager with no mobile
+        // login at all still belongs on the roster.
+        $this->roster->sync($asabUserId, $branchId);
 
         try {
             $legacyId = $this->identity->legacyIdFor(AsabIdentityMap::ENTITY_BRANCH_MANAGER, $asabUserId);

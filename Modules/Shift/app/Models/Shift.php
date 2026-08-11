@@ -19,10 +19,14 @@ class Shift extends Model
         'end_time',
         'branch_id',
         'is_active',
+        // «الرصيد الافتتاحي» of the schedule this template belongs to, in SAR.
+        // A cashier shift created against it defaults its opening_balance here.
+        'opening_float',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'opening_float' => 'decimal:2',
         'start_time' => 'datetime:H:i',
         'end_time' => 'datetime:H:i',
     ];

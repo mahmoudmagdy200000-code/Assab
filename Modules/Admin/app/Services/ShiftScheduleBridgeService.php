@@ -67,7 +67,7 @@ class ShiftScheduleBridgeService
             return 0;
         }
 
-        return DB::transaction(fn () => $this->seed($branchIds, $windows));
+        return DB::transaction(fn () => $this->seed($branchIds, $windows, $this->floatSarOf($cfg)));
     }
 
     /**
@@ -91,7 +91,20 @@ class ShiftScheduleBridgeService
             return 0;
         }
 
-        return DB::transaction(fn () => $this->seed([$branchId], $windows));
+        return DB::transaction(fn () => $this->seed([$branchId], $windows, $this->floatSarOf($cfg)));
+    }
+
+    /**
+     * «الرصيد الافتتاحي» of this schedule, in SAR — the mobile column's unit.
+     * Projected onto the templates so a cashier shift can default its
+     * `opening_balance` from the schedule it was created against; before this
+     * the setting never left the dashboard (2026-08-10).
+     */
+    private function floatSarOf(BrandShiftConfig|BranchShiftConfig $cfg): float
+    {
+        $settings = is_array($cfg->shifts) ? $cfg->shifts : [];
+
+        return round(((int) ($settings['openingFloatHalalas'] ?? 0)) / 100, 2);
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -111,7 +124,7 @@ class ShiftScheduleBridgeService
      * @param  string[]  $branchIds
      * @param  array<int, array<string, mixed>>  $windows
      */
-    private function seed(array $branchIds, array $windows): int
+    private function seed(array $branchIds, array $windows, float $openingFloat = 0.0): int
     {
         $now = now();
         $count = 0;
@@ -127,12 +140,14 @@ class ShiftScheduleBridgeService
                 $matched = DB::table('shifts')->where($key)->exists();
                 if ($matched) {
                     DB::table('shifts')->where($key)->update([
-                        'name' => $window['name'], 'is_active' => true, 'updated_at' => $now,
+                        'name' => $window['name'], 'is_active' => true,
+                        'opening_float' => $openingFloat, 'updated_at' => $now,
                     ]);
                 } else {
                     DB::table('shifts')->insert($key + [
                         'id' => (string) Str::uuid(),
                         'name' => $window['name'], 'is_active' => true,
+                        'opening_float' => $openingFloat,
                         'created_at' => $now, 'updated_at' => $now,
                     ]);
                 }

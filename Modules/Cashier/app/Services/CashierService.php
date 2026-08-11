@@ -8,7 +8,6 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 use Modules\Cashier\Events\CashierCreatedEvent;
 use Modules\Cashier\Models\Cashier;
 use Modules\Cashier\Repositories\CashierRepositoryInterface;
@@ -266,19 +265,31 @@ class CashierService
         $assignedBy = auth('branch_manager')->id() ?? auth()->id();
 
         if ($forFullWeek) {
-            // Generate 7 consecutive days starting from the reference date
-            $dates = [];
-            for ($i = 0; $i < 7; $i++) {
-                $dates[] = $refDate->copy()->addDays($i);
-            }
+            // The work week from `shift.week`, holidays excluded — the SAME rule
+            // `shifts:renew-week` applies. This used to be 7 consecutive days,
+            // so a cashier got Friday/Saturday shifts on creation that the
+            // weekly renewal then never reproduced (2026-08-10).
+            $dates = array_values(array_filter(
+                \Modules\Shift\Helpers\ShiftHelper::workWeekDatesExcludingHolidays($refDate),
+                fn (Carbon $d) => $d->greaterThanOrEqualTo($refDate->copy()->startOfDay()),
+            ));
         } else {
             $dates = [$refDate];
         }
 
+        $branchId = Cashier::whereKey($cashierId)->value('branch_id');
+
         foreach ($dates as $date) {
             $d = $date->format('Y-m-d');
             foreach ($shiftIds as $shiftId) {
-                Shift::findOrFail($shiftId);
+                $template = Shift::findOrFail($shiftId);
+
+                // Zero-trust: the shift template must belong to the cashier's own
+                // branch. Nothing checked this, so an id from another branch
+                // would have put that branch's window on this cashier's roster.
+                if ($branchId !== null && $template->branch_id !== $branchId) {
+                    throw new \InvalidArgumentException('Shift template does not belong to this cashier\'s branch');
+                }
 
                 $cashierShift = CashierShift::create([
                     'cashier_id' => $cashierId,

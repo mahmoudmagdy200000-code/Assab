@@ -27,9 +27,6 @@ use Modules\Branch\Models\Branch;
  */
 class RepairEmployeesCommand extends Command
 {
-    // Same EMP-#### sequence the upload and branch screens draw from.
-    use \Modules\Admin\Http\Controllers\Concerns\GeneratesEmployeeNumbers;
-
     protected $signature = 'asab:repair-employees
         {--dry-run : Report what would change without writing}
         {--skip-managers : Only de-duplicate; do not create employee rows for branch managers}
@@ -41,6 +38,13 @@ class RepairEmployeesCommand extends Command
 
     /** @var string[]|null branch ids the run is limited to, null = every branch */
     private ?array $scope = null;
+
+    public function __construct(
+        private readonly \Modules\Admin\Services\ManagerRosterService $roster,
+        private readonly \Modules\Admin\Services\IdentityMapService $identity,
+    ) {
+        parent::__construct();
+    }
 
     public function handle(): int
     {
@@ -190,6 +194,13 @@ class RepairEmployeesCommand extends Command
                     $branch,
                     (string) $manager->name,
                     $manager->phone,
+                    // The dashboard account behind this mobile login, when the
+                    // two are linked — that is what stamps the row so a later
+                    // transfer moves it instead of losing it.
+                    $this->identity->dashboardIdFor(
+                        \Modules\Admin\Models\AsabIdentityMap::ENTITY_BRANCH_MANAGER,
+                        (string) $manager->id,
+                    ),
                     $manager->created_at,
                     $dry,
                 ) ? 1 : 0;
@@ -210,6 +221,7 @@ class RepairEmployeesCommand extends Command
                     $branch,
                     (string) $user->name,
                     $user->phone,
+                    $branch->asab_manager_user_id,
                     $user->created_at,
                     $dry,
                 ) ? 1 : 0;
@@ -253,38 +265,46 @@ class RepairEmployeesCommand extends Command
         $this->info(($dry ? 'Would remove ' : 'Removed ')."{$removed} manager employee record(s).");
     }
 
-    /** @return bool whether a row was (or would be) created */
-    private function ensureManagerEmployee(Branch $branch, string $name, ?string $phone, $hiredAt, bool $dry): bool
-    {
+    /**
+     * @param  \DateTimeInterface|null  $hiredAt
+     * @return bool whether a row was (or would be) created or MOVED
+     */
+    private function ensureManagerEmployee(
+        Branch $branch,
+        string $name,
+        ?string $phone,
+        ?string $asabUserId,
+        $hiredAt,
+        bool $dry,
+    ): bool {
         if (trim($name) === '') {
             return false;
         }
 
-        $exists = Employee::withoutGlobalScopes()
+        $existing = Employee::withoutGlobalScopes()
             ->whereNull('deleted_at')
             ->where('company_id', $branch->asab_company_id)
             ->where('branch_id', $branch->id)
             ->where(fn ($q) => $q->where('name', $name)->when($phone, fn ($w) => $w->orWhere('phone', $phone)))
-            ->exists();
+            ->first();
 
-        if ($exists) {
+        // Already on this branch: nothing to create, but stamp the dashboard
+        // link so the NEXT transfer moves this row instead of stranding it.
+        if ($existing !== null) {
+            if (! $dry && $asabUserId !== null && $existing->asab_user_id !== $asabUserId) {
+                $existing->forceFill(['asab_user_id' => $asabUserId])->save();
+            }
+
             return false;
         }
 
         $this->line(($dry ? '[dry] ' : '')."إضافة مدير الفرع للكشف: {$name} — {$branch->name}");
 
         if (! $dry) {
-            Employee::create([
-                'company_id' => $branch->asab_company_id,
-                'branch_id' => $branch->id,
-                'emp_number' => $this->nextEmpNumber($branch->asab_company_id),
-                'name' => $name,
-                'phone' => $phone,
-                'role' => 'مدير فرع',
-                'monthly_salary' => 0,
-                'hire_date' => $hiredAt ?? now(),
-                'status' => 'active',
-            ]);
+            // Delegate: the service adopts a row this manager already has on a
+            // PREVIOUS branch and moves it, rather than minting a duplicate
+            // that splits their ledger across two branches (2026-08-10).
+            $this->roster->ensure($branch, $name, $phone, $asabUserId, $hiredAt);
         }
 
         return true;

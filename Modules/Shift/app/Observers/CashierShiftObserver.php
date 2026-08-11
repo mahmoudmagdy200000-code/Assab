@@ -23,9 +23,18 @@ class CashierShiftObserver
      */
     public function creating(CashierShift $shift): void
     {
-        // Set default opening balance if not set
-        if (is_null($shift->opening_balance)) {
-            $shift->opening_balance = 0;
+        // Opening balance defaults to the schedule's «الرصيد الافتتاحي», which
+        // the accountant sets on the dashboard and the regenerate bridge
+        // projects onto the template. Every creator (roster upload, week
+        // renewal, manual assignment) passed a hard 0, so the app's shift card
+        // read «Not yet recorded» on the first shift of every day and the
+        // configured float was never handed to anyone (2026-08-10).
+        //
+        // A handover still wins: it runs later, on an existing row.
+        if (is_null($shift->opening_balance) || (float) $shift->opening_balance === 0.0) {
+            $shift->opening_balance = $shift->shift_id
+                ? (float) (\Modules\Shift\Models\Shift::whereKey($shift->shift_id)->value('opening_float') ?? 0)
+                : 0;
         }
     }
 

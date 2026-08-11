@@ -171,7 +171,12 @@ class CashierShiftController extends BaseController
                 'handoverStatus',
             ])
                 ->where('cashier_id', $cashier->id)
-                ->where('status', ShiftStatus::NOT_STARTED)
+                // «upcoming», not «not_started»: a shift a manager reassigned TO
+                // this cashier keeps status `reassigned` until it is started, so
+                // filtering on not_started alone dropped it out of the cashier's
+                // Pending tab entirely — the manager's own pending list
+                // (CashierShiftRepository::getUpcomingPaginated) always used both.
+                ->whereIn('status', [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED])
                 ->whereDate('shift_date', '>=', $minDate)
                 ->whereDate('shift_date', '<=', $maxDate)
                 ->orderBy('shift_date')
@@ -190,7 +195,9 @@ class CashierShiftController extends BaseController
                     'id' => $shift->id,
                     'date' => $shift->shift_date->format('Y-m-d'),
                     'status' => $shift->status->value,
-                    'status_label' => 'Not Started',
+                    // Was hardcoded «Not Started» — a reassigned shift now shows
+                    // in this list too and must not lie about what it is.
+                    'status_label' => $shift->status->label(),
                     'start_time' => $shift->shift->start_time?->format('H:i') ?? 'N/A',
                     'end_time' => $shift->shift->end_time?->format('H:i') ?? 'N/A',
                     'opening_balance' => (float) ($shift->opening_balance ?? 0),

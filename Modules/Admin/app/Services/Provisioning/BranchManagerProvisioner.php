@@ -21,7 +21,10 @@ use Modules\BranchManagers\Models\BranchManager;
  */
 class BranchManagerProvisioner implements LegacyProvisioner
 {
-    public function __construct(private readonly IdentityMapService $identity) {}
+    public function __construct(
+        private readonly IdentityMapService $identity,
+        private readonly \Modules\Admin\Services\ManagerRosterService $roster,
+    ) {}
 
     public function roleKey(): string
     {
@@ -39,6 +42,11 @@ class BranchManagerProvisioner implements LegacyProvisioner
         $manager = $this->ensureManager($user, $existing, $branchId, $temporaryPassword);
 
         $this->identity->linkBranchManager($user->id, $manager->id, $user->company_id, $user->email);
+
+        // …and put them on the accountant's roster from day one. Before this the
+        // only way a manager reached «كشف حساب الموظفين» was a manual
+        // `asab:repair-employees` run (2026-08-10).
+        $this->roster->sync($user->id, $branchId);
     }
 
     /**

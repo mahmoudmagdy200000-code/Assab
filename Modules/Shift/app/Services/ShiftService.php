@@ -33,38 +33,60 @@ class ShiftService
             return null;
         }
 
-        $endTime = $shift->shift->end_time;
-        $endTimeStr = $endTime instanceof \Carbon\Carbon
-            ? $endTime->format('H:i:s')
-            : (string) $endTime;
-        $isMidnightEnd = $endTimeStr === '00:00:00';
-        $isNightShiftEnd = $endTimeStr === '06:00:00';
-
-        if ($isNightShiftEnd) {
+        $endMinutes = $this->minutesOf($shift->shift->end_time);
+        if ($endMinutes === null) {
             return null;
         }
 
-        $query = CashierShift::where('cashier_shifts.id', '!=', $shift->id)
+        // Night shift (ends 06:00) is the last of the day: it hands over to the
+        // branch manager, not back to the morning cashier of the same date.
+        if ($endMinutes === 360) {
+            return null;
+        }
+
+        $candidates = CashierShift::where('cashier_shifts.id', '!=', $shift->id)
             ->where('cashier_shifts.shift_date', $shift->shift_date)
             ->join('shifts', 'cashier_shifts.shift_id', '=', 'shifts.id')
             ->where('shifts.branch_id', $shift->shift->branch_id)
             ->whereIn('cashier_shifts.status', [
                 ShiftStatus::NOT_STARTED->value,
+                // A shift the manager reassigned is still the next shift of the
+                // day — leaving it out made «Next Cashier» fall through to the
+                // branch manager as soon as any later shift changed hands.
+                ShiftStatus::REASSIGNED->value,
                 ShiftStatus::IN_PROGRESS->value,
-            ]);
-
-        if ($isMidnightEnd) {
-            $query->where('shifts.start_time', '00:00:00');
-        } else {
-            $query->where('shifts.start_time', '>=', $endTime);
-        }
-
-        $next = $query->orderBy('shifts.start_time')
+            ])
             ->select('cashier_shifts.*')
-            ->with('cashier:id,name,email,phone')
+            ->with(['shift:id,start_time,end_time,branch_id', 'cashier:id,name,email,phone'])
+            ->get();
+
+        // Compared in PHP, not SQL. `shifts.start_time` holds 'HH:MM' when
+        // written through the model (the `datetime:H:i` cast) and 'HH:MM:SS'
+        // when written by the dashboard's regenerate bridge, and binding the
+        // Carbon end_time sent a full 'Y-m-d H:i:s' into the comparison — so
+        // the SQL predicate matched nothing and EVERY shift reported the branch
+        // manager as its next recipient (2026-08-10).
+        $next = $candidates
+            ->map(fn (CashierShift $c) => [$this->minutesOf($c->shift?->start_time), $c])
+            ->filter(fn ($row) => $row[0] !== null && ($endMinutes === 0 ? $row[0] === 0 : $row[0] >= $endMinutes))
+            ->sortBy(fn ($row) => $row[0])
             ->first();
 
-        return $next?->cashier;
+        return $next[1]->cashier ?? null;
+    }
+
+    /** Minutes past midnight for a time column in either stored shape. */
+    private function minutesOf($time): ?int
+    {
+        if ($time === null) {
+            return null;
+        }
+        $value = $time instanceof \DateTimeInterface ? $time->format('H:i') : (string) $time;
+        if (! preg_match('/^(\d{1,2}):(\d{2})/', $value, $m)) {
+            return null;
+        }
+
+        return ((int) $m[1] % 24) * 60 + (int) $m[2];
     }
 
     /**

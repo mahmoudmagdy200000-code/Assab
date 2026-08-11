@@ -20,6 +20,7 @@ class EmployeeController extends AsabController
     public function __construct(
         private readonly EmployeeLedgerService $ledger,
         private readonly BrandBranchResolver $brandBranches,
+        private readonly \Modules\Admin\Services\ManagerRosterService $roster,
     ) {}
 
     /**
@@ -31,11 +32,21 @@ class EmployeeController extends AsabController
         return $this->run(function () use ($request) {
             $perPage = min((int) $request->query('pageSize', 20), 100);
             $q = $this->scopeToAssignedBranches(Employee::query());
+            /** @var array<string,string> employeeId → branchId, for rows admitted as a branch's manager */
+            $managing = [];
             // Brand → branches resolves through the restaurant too; a brand whose
             // branches carry only `asab_restaurant_id` must not read as empty.
             $this->brandBranches->applyFilter($q, $request->query('brandId'));
             if ($branch = $request->query('branchId')) {
-                $q->where('branch_id', $branch);
+                // The branch's MANAGER belongs to the branch they run even when
+                // their roster row still carries the branch they ran before the
+                // transfer — `?branchId=X` used to answer without them
+                // (2026-08-10). ManagerRosterService keeps the stored value in
+                // step going forward; this covers rows written before it did.
+                $managerIds = $this->roster->employeesManagingBranch($branch);
+                $managing = array_fill_keys($managerIds, (string) $branch);
+                $q->where(fn ($w) => $w->where('branch_id', $branch)
+                    ->when($managerIds !== [], fn ($x) => $x->orWhereIn('id', $managerIds)));
             }
             if ($num = $request->query('empNumber')) {
                 $q->where('emp_number', $num);
@@ -46,14 +57,21 @@ class EmployeeController extends AsabController
             $p = $q->orderBy('name')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
             $balances = $this->ledger->balancesFor(collect($p->items())->pluck('id'));
-            $branchNames = $this->branchNames(collect($p->items())->pluck('branch_id'));
+            // A manager's row is presented on the branch they currently manage,
+            // so the `branchId` the row reports and the `branchId` the dropdown
+            // filters by are the same value on both the filtered and the
+            // unfiltered list.
+            $managed = $this->roster->managedBranchByUser(collect($p->items())->pluck('asab_user_id'));
+            $branchOf = fn ($e) => $managing[$e->id] ?? $managed[$e->asab_user_id] ?? $e->branch_id;
+            $branchNames = $this->branchNames(collect($p->items())->map($branchOf));
 
-            return $this->paginated($p, array_map(function ($e) use ($balances, $branchNames) {
+            return $this->paginated($p, array_map(function ($e) use ($balances, $branchNames, $branchOf) {
                 $balance = $balances[$e->id] ?? 0;
+                $branchId = $branchOf($e);
 
                 return [
                     'id' => $e->id, 'empNumber' => $e->emp_number, 'name' => $e->name, 'phone' => $e->phone,
-                    'role' => $e->role, 'branchId' => $e->branch_id, 'branchName' => $branchNames[$e->branch_id] ?? null,
+                    'role' => $e->role, 'branchId' => $branchId, 'branchName' => $branchNames[$branchId] ?? null,
                     'monthlySalary' => $e->monthly_salary, 'status' => $e->status,
                     'balanceHalalas' => $balance, 'balanceCaption' => Cat::balanceCaption($balance),
                 ];

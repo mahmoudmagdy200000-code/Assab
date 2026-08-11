@@ -14,7 +14,7 @@ class Employee extends Model
     protected $table = 'asab_employees';
 
     protected $fillable = [
-        'company_id', 'branch_id', 'emp_number', 'name', 'phone', 'national_id', 'role',
+        'company_id', 'branch_id', 'asab_user_id', 'emp_number', 'name', 'phone', 'national_id', 'role',
         'monthly_salary', 'shift_type', 'hire_date', 'status',
     ];
 

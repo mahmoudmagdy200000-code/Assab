@@ -104,9 +104,32 @@ class ShiftWeekRenewalCommand extends Command
             ->distinct()
             ->get();
 
+        // A schedule change on the dashboard DEACTIVATES the templates that fell
+        // out of it (ShiftScheduleBridgeService) instead of deleting them, so
+        // their history survives. Renewing this week's pattern blindly would
+        // keep minting next week's shifts on those dead windows — the app would
+        // show the OLD times forever, whatever the accountant saved.
+        $active = \Modules\Shift\Models\Shift::whereIn('id', $rows->pluck('shift_id')->unique()->all())
+            ->where('is_active', true)
+            ->pluck('id')
+            ->all();
+        $activeSet = array_flip($active);
+
         $pattern = [];
+        $skipped = 0;
         foreach ($rows as $r) {
+            if (! isset($activeSet[$r->shift_id])) {
+                $skipped++;
+
+                continue;
+            }
             $pattern[$r->cashier_id][$r->shift_id] = true;
+        }
+
+        if ($skipped > 0) {
+            $this->warn("Skipped {$skipped} cashier/shift pair(s) on deactivated templates — "
+                .'their schedule changed; reassign those cashiers to the new shifts.');
+            Log::warning('Shift week renewal: pairs on deactivated templates skipped', ['pairs' => $skipped]);
         }
 
         return array_map(fn ($ids) => array_keys($ids), $pattern);

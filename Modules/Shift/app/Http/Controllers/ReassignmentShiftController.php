@@ -178,6 +178,19 @@ class ReassignmentShiftController extends Controller
                 ], 404);
             }
 
+            // Zero-trust: `exists:cashiers,id` validates existence, not tenancy.
+            // Without this a pending shift could be handed to a cashier of
+            // ANOTHER branch, who would then hold this branch's till — the
+            // in-progress path (reassignWithHandover) always checked this.
+            if ($newCashier->branch_id !== $branchId) {
+                DB::rollBack();
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized: The selected cashier does not belong to your branch',
+                ], 403);
+            }
+
             // Check if new cashier is already assigned to this shift
             $conflictingShift = CashierShift::where('cashier_id', $newCashier->id)
                 ->where('shift_date', $shiftModel->shift_date)
