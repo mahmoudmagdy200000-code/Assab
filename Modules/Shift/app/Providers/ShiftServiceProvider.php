@@ -4,7 +4,9 @@ namespace Modules\Shift\Providers;
 
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\ServiceProvider;
+use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Observers\BranchManagerShiftObserver;
 use Modules\Shift\Observers\CashierShiftObserver;
 use Modules\Shift\Repositories\CashierShiftRepository;
 use Modules\Shift\Repositories\CashierShiftRepositoryInterface;
@@ -25,6 +27,7 @@ class ShiftServiceProvider extends ServiceProvider
         $this->registerViews();
         $this->loadMigrationsFrom(module_path($this->moduleName, 'database/migrations'));
         CashierShift::observe(CashierShiftObserver::class);
+        BranchManagerShift::observe(BranchManagerShiftObserver::class);
         Relation::morphMap([
             'cashier' => \Modules\Cashier\Models\Cashier::class,
             'branch_manager' => \Modules\BranchManagers\Models\BranchManager::class,

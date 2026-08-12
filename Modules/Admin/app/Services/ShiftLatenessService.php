@@ -27,7 +27,11 @@ class ShiftLatenessService
     {
         $now ??= Carbon::now();
 
-        $shifts = Shift::withoutGlobalScopes()->where('status', 'active')->whereNotNull('started_at')->get();
+        // Till shifts only: a manager's mirrored row covers the WHOLE workday,
+        // so judging it against one shift window would flip it «تأخير» hours
+        // before the manager is actually late.
+        $shifts = Shift::withoutGlobalScopes()->cashierRole()
+            ->where('status', 'active')->whereNotNull('started_at')->get();
         if ($shifts->isEmpty()) {
             return 0;
         }

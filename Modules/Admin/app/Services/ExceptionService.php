@@ -120,7 +120,9 @@ class ExceptionService
 
     private function unclosedShifts(?string $branchId): Collection
     {
-        return Shift::whereIn('status', ['active', 'late'])
+        // «وردية لم تُغلق» is about an open till. A manager's mirrored workday
+        // closes with their daily report, not from this exceptions list.
+        return Shift::cashierRole()->whereIn('status', ['active', 'late'])
             ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
             ->orderBy('started_at')->limit(500)->get()
             ->map(fn (Shift $s) => $this->row(

@@ -43,6 +43,19 @@ class ShiftCloseService
      */
     public function close(Shift $shift, array $data, AsabUser $actor, string $origin = 'mobile'): array
     {
+        // A manager's mirrored workday is display-only: its money already reaches
+        // the accountant as the branch's daily sales statement, so closing it
+        // here would review the same riyals twice and charge a phantom cash gap.
+        if ($shift->isBranchManagerShift()) {
+            throw new AsabException(
+                'SHIFT_NOT_CLOSABLE',
+                'A branch manager workday is closed from the mobile daily report, not the shift pipeline',
+                'وردية مدير الفرع تُغلق من التقرير اليومي في التطبيق، وليس من هنا',
+                422,
+                ['role' => $shift->role],
+            );
+        }
+
         if (! in_array($shift->status, ['active', 'late'], true)) {
             throw new AsabException(
                 'SHIFT_ALREADY_CLOSED',

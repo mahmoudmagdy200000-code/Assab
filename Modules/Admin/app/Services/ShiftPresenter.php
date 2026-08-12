@@ -44,6 +44,11 @@ class ShiftPresenter
             'cashierName' => $s->cashier_name,
             'cashierPhone' => $phone,
             'whatsapp' => $whatsapp,
+            // Who the row belongs to. `cashier` for every till shift (and for
+            // every row that predates the column), `branch_manager` for the
+            // manager's mirrored workday — same card, different badge.
+            'role' => $s->role,
+            'roleLabelAr' => ShiftEnums::roleLabelAr($s->role),
             'supervisor' => $s->supervisor_name,          // deprecated alias
             'supervisorName' => $s->supervisor_name,
             'shiftNo' => $s->shift_no,

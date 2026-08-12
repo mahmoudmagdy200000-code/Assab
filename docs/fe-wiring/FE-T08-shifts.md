@@ -87,9 +87,19 @@ Body: `{ cashierEmpNumber? (alias cashierId), openingCashHalalas? }`. Resolves t
   "startedAt":"…", "endedAt":null, "status":"active", "statusLabelAr":"نشط",
   "isLate":false, "lateBannerAr":null,
   "ordersCount":12, "salesHalalas":940000, "openingFloatHalalas":50000,
-  "cashExpectedHalalas":990000, "cashActualHalalas":null, "varianceHalalas":null }
+  "cashExpectedHalalas":990000, "cashActualHalalas":null, "varianceHalalas":null,
+  "role":"cashier", "roleLabelAr":"كاشير" }
 ```
 Deprecated aliases still emitted: `supervisor`, `salesAmount`, `cashExpected`, `cashActual`, `variance`.
+
+**NEW `role` (2026-08-12)** — `cashier` (every till shift; also every row that predates the field) or
+`branch_manager`. A branch manager who starts their workday in the mobile app now appears on the live
+board as a `branch_manager` row: `cashierName` = the manager's name, `shiftType` = «يوم كامل»,
+`salesHalalas` = 0 (the branch's sales are the cashier rows beneath it) and no cash figures — it is a
+presence row, not a till. It closes when the manager ends their workday; their money still reaches the
+accountant once, as the daily sales statement (`module_key='sales'`). Suggested FE: badge the card with
+`roleLabelAr` and hide the cash columns when `role === 'branch_manager'`; the close action does not apply
+to it (`422 SHIFT_NOT_CLOSABLE`).
 
 ## 5. Close — `POST /company/me/shifts/{id}/close`
 
@@ -106,7 +116,8 @@ Binary stream. Columns include نوع الشفت + الكاشير. Branch-scoped
 ## Enums (key → labelAr)
 
 - **status**: `active` نشط · `late` تأخير (banner «انتهى وقت الشفت — لم يُغلق الصندوق بعد») · `pending_review` بانتظار المراجعة · `closed` مغلق
-- **shiftType**: sequential «الأول/الثاني/الثالث/الرابع» or `صباحي`/`مسائي`
+- **shiftType**: sequential «الأول/الثاني/الثالث/الرابع» or `صباحي`/`مسائي` (manager row: «يوم كامل»)
+- **role**: `cashier` كاشير · `branch_manager` مدير فرع
 - **ledger category**: `cash_variance` «خصم فرق كاش»
 
 ## Realtime

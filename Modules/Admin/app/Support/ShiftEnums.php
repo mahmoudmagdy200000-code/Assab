@@ -31,12 +31,29 @@ final class ShiftEnums
 
     public const LATE_BANNER_AR = 'انتهى وقت الشفت — لم يُغلق الصندوق بعد';
 
+    /** Who the shift row belongs to — the till, or the manager running the branch. */
+    public const ROLE = [
+        'cashier' => 'كاشير',
+        'branch_manager' => 'مدير فرع',
+    ];
+
+    /**
+     * `shift_type` for a mirrored manager row: the manager covers the whole
+     * workday, not one numbered shift, so no sequential name fits.
+     */
+    public const MANAGER_DAY_TYPE_AR = 'يوم كامل';
+
     /** Default opening float when a brand config omits it — SRS §4.4 = 500 SAR. */
     public const DEFAULT_FLOAT_HALALAS = 50000;
 
     public static function statusLabelAr(?string $key): ?string
     {
         return $key === null ? null : (self::STATUS[$key] ?? $key);
+    }
+
+    public static function roleLabelAr(?string $key): ?string
+    {
+        return $key === null ? null : (self::ROLE[$key] ?? $key);
     }
 
     public static function shiftName(int $no): string
@@ -50,6 +67,7 @@ final class ShiftEnums
         return [
             'status' => array_map(fn ($k, $v) => ['key' => $k, 'labelAr' => $v], array_keys(self::STATUS), array_values(self::STATUS)),
             'type' => array_values(self::TYPE),
+            'role' => array_map(fn ($k, $v) => ['key' => $k, 'labelAr' => $v], array_keys(self::ROLE), array_values(self::ROLE)),
             'sequentialNames' => self::SEQUENTIAL_NAMES,
             'lateBannerAr' => self::LATE_BANNER_AR,
             'defaultFloatHalalas' => self::DEFAULT_FLOAT_HALALAS,

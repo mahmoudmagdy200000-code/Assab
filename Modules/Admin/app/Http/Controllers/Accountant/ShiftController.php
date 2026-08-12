@@ -87,7 +87,10 @@ class ShiftController extends AsabController
             // otherwise, since bridged closes only reach `closed` on final approval.
             'closedToday' => (clone $base())->whereIn('status', ['pending_review', 'closed'])
                 ->where('ended_at', '>=', $today)->count(),
-            'todaySalesHalalas' => (int) (clone $base())->where('started_at', '>=', $today)->sum('sales_amount'),
+            // Till rows only: a manager's mirrored workday carries 0 sales on
+            // purpose (its money is the sum of the cashier rows beneath it), so
+            // this stays a sum of real till sales even if that ever changes.
+            'todaySalesHalalas' => (int) (clone $base())->cashierRole()->where('started_at', '>=', $today)->sum('sales_amount'),
             'cashGapsPendingReview' => (clone $base())->whereIn('status', ['pending_review', 'closed'])
                 ->where('variance', '<', 0)->count(),
         ];

@@ -64,6 +64,13 @@ class EventServiceProvider extends ServiceProvider
         ShiftStartedEvent::class => [BridgeLegacyShiftStart::class],
         ShiftEndedEvent::class => [BridgeLegacyCashierShift::class],
 
+        // Same board, manager half: a branch manager running the branch is a
+        // `role='branch_manager'` mirror row, opened at «بدء الشيفت» and closed
+        // at end of workday. Display-only — no SHF- operation (the manager's
+        // money reaches the accountant once, via the daily sales statement).
+        \Modules\Shift\Events\ManagerShiftStartedEvent::class => [\Modules\Admin\Listeners\BridgeManagerShiftStart::class],
+        \Modules\Shift\Events\ManagerShiftEndedEvent::class => [\Modules\Admin\Listeners\BridgeManagerShiftClose::class],
+
         // FR-SAL: the manager's mobile daily close becomes the branch's daily
         // sales statement (sales operation) in the accountant's المبيعات inbox.
         \Modules\Shift\Events\DailyReportSubmittedEvent::class => [BridgeManagerDailyClose::class],

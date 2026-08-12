@@ -282,7 +282,9 @@ class ExportService
 
     public function shifts(string $format, ?string $branchId, ?array $branchIds = null): BinaryFileResponse
     {
-        $q = Shift::where('status', 'closed');
+        // Till shifts only — the columns below (expected/actual cash, variance)
+        // are empty by construction on a manager's mirrored workday.
+        $q = Shift::cashierRole()->where('status', 'closed');
         // Zero-trust: a branch-scoped accountant exports only their branches.
         if ($branchIds !== null) {
             $q->whereIn('branch_id', $branchIds);

@@ -6,10 +6,12 @@ use Illuminate\Console\Command;
 use Modules\Admin\Listeners\BridgeLegacyCashierShift;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\ExpenseBridgeService;
+use Modules\Admin\Services\LegacyManagerShiftMirror;
 use Modules\Branch\Models\Branch;
 use Modules\Expense\Models\Expense;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Events\ShiftEndedEvent;
+use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 
 /**
@@ -34,12 +36,13 @@ class BridgeBackfillCommand extends Command
 
     protected $description = 'Re-bridge mobile expenses and closed shifts that never reached the dashboard';
 
-    public function handle(ExpenseBridgeService $expenses, BridgeLegacyCashierShift $shifts): int
+    public function handle(ExpenseBridgeService $expenses, BridgeLegacyCashierShift $shifts, LegacyManagerShiftMirror $managerShifts): int
     {
         $dry = (bool) $this->option('dry-run');
 
         $this->backfillExpenses($expenses, $dry);
         $this->backfillShifts($shifts, $dry);
+        $this->backfillManagerShifts($managerShifts, $dry);
         $this->backfillPurchaseOrders($dry);
         $this->backfillInventorySessions($dry);
         $this->backfillAssetReceipts($dry);
@@ -478,6 +481,59 @@ class BridgeBackfillCommand extends Command
         if (! $dry && $bridged > 0) {
             $this->comment('Shifts whose cashier/actor is still unlinked were logged by the bridge (grep "shift-bridge: skipped").');
         }
+    }
+
+    /**
+     * Manager workdays that started (or ended) before the manager bridge
+     * existed: without this sweep a manager already mid-shift stays invisible on
+     * the live board until their NEXT workday.
+     */
+    private function backfillManagerShifts(LegacyManagerShiftMirror $mirror, bool $dry): void
+    {
+        $opened = 0;
+        $closed = 0;
+        $skipped = [];
+
+        BranchManagerShift::query()
+            ->whereIn('status', ['in_progress', 'completed'])
+            // Yesterday's forgotten workdays are noise on today's board; the
+            // sweep exists for the day that is actually running.
+            ->whereDate('shift_date', '>=', today()->subDay())
+            ->orderBy('created_at')
+            ->chunkById(200, function ($chunk) use ($mirror, $dry, &$opened, &$closed, &$skipped) {
+                foreach ($chunk as $shift) {
+                    $mirrored = $mirror->existing($shift->id);
+                    $needsOpen = $shift->status === 'in_progress' && $mirrored === null;
+                    $needsClose = $shift->status === 'completed'
+                        && ($mirrored === null || in_array($mirrored->status, ['active', 'late'], true));
+
+                    if (! $needsOpen && ! $needsClose) {
+                        continue;
+                    }
+
+                    if ($dry) {
+                        $needsOpen ? $opened++ : $closed++;
+
+                        continue;
+                    }
+
+                    try {
+                        if ($needsOpen) {
+                            $mirror->open($shift) === null
+                                ? $skipped[] = [$shift->id, 'BRANCH_NOT_LINKED — see the log for the fix']
+                                : $opened++;
+                        } else {
+                            $mirror->close($shift);
+                            $closed++;
+                        }
+                    } catch (\Throwable $e) {
+                        $skipped[] = [$shift->id, 'ERROR: '.$e->getMessage()];
+                    }
+                }
+            });
+
+        $this->info(($dry ? '[dry] ' : '')."Manager workdays — mirrored live: {$opened}, finished: {$closed}, failed: ".count($skipped).'.');
+        $this->printSkips($skipped, 'branch_manager_shift');
     }
 
     /** Mirror of ExpenseBridgeService::sync's skip conditions, read-only. */

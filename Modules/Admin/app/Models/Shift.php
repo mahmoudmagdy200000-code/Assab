@@ -13,11 +13,31 @@ class Shift extends Model
 
     protected $table = 'asab_shifts';
 
+    /** A cashier's till shift — the pipeline (SHF-) subject. */
+    public const ROLE_CASHIER = 'cashier';
+
+    /**
+     * A branch manager's workday, mirrored from `branch_manager_shifts` so the
+     * live board shows who is running the branch. Display-only: it carries no
+     * sales of its own (they belong to the cashier rows underneath it), is not
+     * judged against a shift window, and never walks the close pipeline.
+     */
+    public const ROLE_BRANCH_MANAGER = 'branch_manager';
+
     protected $fillable = [
         'company_id', 'branch_id', 'supervisor_user_id', 'supervisor_name',
-        'cashier_employee_id', 'cashier_name', 'shift_type', 'shift_no',
+        'cashier_employee_id', 'cashier_name', 'role', 'shift_type', 'shift_no',
         'started_at', 'ended_at', 'status', 'orders_count', 'sales_amount',
         'opening_float', 'cash_expected', 'cash_actual', 'variance', 'notes', 'legacy_shift_id',
+    ];
+
+    /**
+     * Mirrors the column default so a freshly created row is presented with its
+     * role already set — without this the create response says `role: null`
+     * while a re-read says `cashier`.
+     */
+    protected $attributes = [
+        'role' => self::ROLE_CASHIER,
     ];
 
     protected $casts = [
@@ -31,4 +51,19 @@ class Shift extends Model
         'cash_actual' => 'integer',
         'variance' => 'integer',
     ];
+
+    /**
+     * Till shifts only. Every figure-bearing read (sales sums, the «وردية مفتوحة»
+     * guard, lateness, exports, the close pipeline) means THIS set — a manager's
+     * mirrored workday would otherwise double-count or block them.
+     */
+    public function scopeCashierRole($query)
+    {
+        return $query->where('role', self::ROLE_CASHIER);
+    }
+
+    public function isBranchManagerShift(): bool
+    {
+        return $this->role === self::ROLE_BRANCH_MANAGER;
+    }
 }

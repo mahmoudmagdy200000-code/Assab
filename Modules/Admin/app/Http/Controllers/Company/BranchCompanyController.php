@@ -297,7 +297,9 @@ class BranchCompanyController extends AsabController
     public function activeShift(Request $request, \Modules\Admin\Services\ShiftPresenter $presenter): JsonResponse
     {
         return $this->run(function () use ($request, $presenter) {
-            $shift = Shift::where('company_id', $request->user()->company_id)
+            // The till shift this screen opens/closes — never the manager's
+            // mirrored workday, which would hide the actual open register.
+            $shift = Shift::cashierRole()->where('company_id', $request->user()->company_id)
                 ->when($this->branchId($request), fn ($q, $b) => $q->where('branch_id', $b))
                 ->whereIn('status', ['active', 'late'])->orderByDesc('started_at')->first();
 
@@ -329,7 +331,9 @@ class BranchCompanyController extends AsabController
                 'openingCashHalalas' => 'sometimes|nullable|integer|min:0',
             ]);
 
-            $exists = Shift::where('company_id', $request->user()->company_id)->where('branch_id', $branchId)->whereIn('status', ['active', 'late'])->exists();
+            // Only an open TILL shift blocks a new one; the manager's mirrored
+            // workday runs alongside every shift of the day by definition.
+            $exists = Shift::cashierRole()->where('company_id', $request->user()->company_id)->where('branch_id', $branchId)->whereIn('status', ['active', 'late'])->exists();
             if ($exists) {
                 throw new AsabException('SHIFT_ALREADY_OPEN', 'A shift is already open for this branch', 'يوجد وردية مفتوحة بالفعل لهذا الفرع', 409);
             }

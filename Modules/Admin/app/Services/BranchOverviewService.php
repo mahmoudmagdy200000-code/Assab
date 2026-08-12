@@ -73,9 +73,11 @@ class BranchOverviewService
         $inventoryCounted = Operation::where('branch_id', $branchId)->where('module_key', 'inventory')
             ->where('payload->countType', 'daily')->whereDate('operation_date', today())->exists();
 
-        $activeShift = Shift::where('company_id', $companyId)->where('branch_id', $branchId)
+        // «إغلاق الوردية المسائية» tracks the till, so the manager's mirrored
+        // workday must not mark the task pending (or done) on its own.
+        $activeShift = Shift::cashierRole()->where('company_id', $companyId)->where('branch_id', $branchId)
             ->whereIn('status', ['active', 'late'])->exists();
-        $shiftStartedToday = Shift::where('company_id', $companyId)->where('branch_id', $branchId)
+        $shiftStartedToday = Shift::cashierRole()->where('company_id', $companyId)->where('branch_id', $branchId)
             ->whereDate('started_at', today())->exists();
         $closeState = $activeShift ? 'pending' : ($shiftStartedToday ? 'completed' : 'later');
 
