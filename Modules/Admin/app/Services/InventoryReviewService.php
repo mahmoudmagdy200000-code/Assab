@@ -27,9 +27,9 @@ class InventoryReviewService
      * @param  string[]|null  $branchIds  assigned-branch scope (null = company-wide)
      * @return array{branches: array<int, array<string,mixed>>, summary: array<string,mixed>}
      */
-    public function overview(string $companyId, ?array $branchIds, string $type = 'monthly'): array
+    public function overview(string|array $companyId, ?array $branchIds, string $type = 'monthly'): array
     {
-        $ops = Operation::where('company_id', $companyId)
+        $ops = Operation::whereIn('company_id', (array) $companyId)
             ->where('module_key', 'inventory')
             ->when($branchIds !== null, fn ($q) => $q->whereIn('branch_id', $branchIds))
             ->orderByDesc('operation_date')
@@ -130,14 +130,14 @@ class InventoryReviewService
     }
 
     /** ACC-4.2 KPI block. */
-    private function summary(string $companyId, ?array $branchIds, Collection $ops, array $branches, int $lowItems, int $normalItems, int $anomalyAlerts): array
+    private function summary(string|array $companyId, ?array $branchIds, Collection $ops, array $branches, int $lowItems, int $normalItems, int $anomalyAlerts): array
     {
         $today = now()->toDateString();
-        $wasteToday = (int) Operation::where('company_id', $companyId)
+        $wasteToday = (int) Operation::whereIn('company_id', (array) $companyId)
             ->where('module_key', 'waste')
             ->when($branchIds !== null, fn ($q) => $q->whereIn('branch_id', $branchIds))
             ->whereDate('operation_date', $today)->sum('amount');
-        $salesToday = (int) Operation::where('company_id', $companyId)
+        $salesToday = (int) Operation::whereIn('company_id', (array) $companyId)
             ->where('module_key', 'sales')
             ->when($branchIds !== null, fn ($q) => $q->whereIn('branch_id', $branchIds))
             ->whereDate('operation_date', $today)->sum('amount');

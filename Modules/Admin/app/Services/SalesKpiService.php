@@ -20,7 +20,7 @@ class SalesKpiService
      * @param  string[]|null  $branchIds  null = every branch of the company
      * @return array<string, mixed>
      */
-    public function forDate(string $companyId, ?array $branchIds, ?string $date = null): array
+    public function forDate(string|array $companyId, ?array $branchIds, ?string $date = null): array
     {
         $day = Carbon::parse($date ?? 'today');
 
@@ -72,10 +72,10 @@ class SalesKpiService
      * @param  string[]|null  $branchIds
      * @return \Illuminate\Database\Eloquent\Collection<int, Operation>
      */
-    private function operations(string $companyId, ?array $branchIds, Carbon $day)
+    private function operations(string|array $companyId, ?array $branchIds, Carbon $day)
     {
         return Operation::query()
-            ->where('company_id', $companyId)
+            ->whereIn('company_id', (array) $companyId)
             ->where('module_key', 'sales')
             ->when($branchIds !== null, fn ($q) => $q->whereIn('branch_id', $branchIds))
             ->whereDate('operation_date', $day->toDateString())

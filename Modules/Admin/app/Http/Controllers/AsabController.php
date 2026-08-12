@@ -84,6 +84,48 @@ abstract class AsabController extends Controller
     }
 
     /**
+     * Company ids the caller may read. null = platform admin (unrestricted).
+     *
+     * Almost always exactly one — but a brand carries a company of its own, so
+     * an accountant assigned brands (or restaurants) beyond their own company
+     * covers each of those companies too. Use this instead of
+     * `$request->user()->company_id` in any WHERE clause, or that accountant's
+     * second brand silently disappears from the screen.
+     *
+     * @return string[]|null
+     */
+    protected function tenantCompanyIds(): ?array
+    {
+        $ctx = app(\Modules\Admin\Support\TenantContext::class);
+
+        return $ctx->isAdmin ? null : $ctx->companyIds();
+    }
+
+    /**
+     * Company ids to hand a service that filters by company_id. Never null: an
+     * admin on a tenant surface keeps their own (absent) company, which is
+     * exactly what `$request->user()->company_id` did before.
+     *
+     * @return array<int, string|null>
+     */
+    protected function tenantCompanyIdsFor(mixed $user): array
+    {
+        return $this->tenantCompanyIds() ?? [$user?->company_id];
+    }
+
+    /** Constrain a company_id-keyed query to tenantCompanyIds(). */
+    protected function scopeToTenantCompanies($query, string $column = 'company_id')
+    {
+        $companyIds = $this->tenantCompanyIds();
+
+        if ($companyIds !== null) {
+            $query->whereIn($column, $companyIds);
+        }
+
+        return $query;
+    }
+
+    /**
      * Brand ids the caller may touch. null = platform admin (unrestricted);
      * scope=all → every company brand; scoped → brands of the assigned branch
      * tree plus directly assigned brand ids. Fail-closed (empty array) when
@@ -102,7 +144,7 @@ abstract class AsabController extends Controller
         }
 
         $companyBrandIds = \Modules\Admin\Models\AsabBrand::query()
-            ->where('company_id', $ctx->companyId)->pluck('id')->all();
+            ->whereIn('company_id', $ctx->companyIds())->pluck('id')->all();
         if ($ctx->scope === 'all') {
             return $companyBrandIds;
         }

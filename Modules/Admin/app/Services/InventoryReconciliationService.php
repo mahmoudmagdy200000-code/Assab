@@ -32,7 +32,7 @@ class InventoryReconciliationService
     ) {}
 
     /** §9.1 — read-only reconciliation snapshot for a branch + date. */
-    public function snapshot(string $companyId, string $branchId, string $date): array
+    public function snapshot(string|array $companyId, string $branchId, string $date): array
     {
         $op = $this->inventoryOp($companyId, $branchId, $date);
         $payload = $op?->payload ?? [];
@@ -126,7 +126,7 @@ class InventoryReconciliationService
      *
      * @param  array<int, array{itemId:string, allocations:array<int, array{employeeId:string, qty:float|int}>}>  $itemsAllocations
      */
-    public function allocate(string $companyId, string $branchId, string $date, array $itemsAllocations, string $userId): array
+    public function allocate(string|array $companyId, string $branchId, string $date, array $itemsAllocations, string $userId): array
     {
         $op = $this->inventoryOp($companyId, $branchId, $date);
         if (! $op) {
@@ -154,7 +154,7 @@ class InventoryReconciliationService
                 $unitPrice = (int) ($prices[$itemId] ?? 0);
                 $rows = [];
                 foreach (($ia['allocations'] ?? []) as $a) {
-                    $emp = Employee::where('company_id', $companyId)->where('branch_id', $branchId)
+                    $emp = Employee::whereIn('company_id', (array) $companyId)->where('branch_id', $branchId)
                         ->where(fn ($q) => $q->where('id', $a['employeeId'])->orWhere('emp_number', $a['employeeId']))->first();
                     if (! $emp) {
                         throw new AsabException('VALIDATION_ERROR', 'Employee not found in branch', 'الموظف غير موجود في الفرع', 422, [
@@ -191,9 +191,9 @@ class InventoryReconciliationService
         return $this->snapshot($companyId, $branchId, $date);
     }
 
-    private function inventoryOp(string $companyId, string $branchId, string $date): ?Operation
+    private function inventoryOp(string|array $companyId, string $branchId, string $date): ?Operation
     {
-        return Operation::where('company_id', $companyId)
+        return Operation::whereIn('company_id', (array) $companyId)
             ->where('branch_id', $branchId)
             ->where('module_key', 'inventory')
             ->whereDate('operation_date', $date)

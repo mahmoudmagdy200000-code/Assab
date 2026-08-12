@@ -158,6 +158,10 @@ class BranchController extends AsabController
             // empty purchasing picker until the catalog was re-uploaded.
             $this->rawMaterials->syncBranchQuietly($branch);
 
+            // …and its shift templates, or the app fabricates a 09:00–17:00
+            // workday for a branch whose shifts were never configured.
+            app(\Modules\Admin\Services\ShiftScheduleBridgeService::class)->seedBranchQuietly($branch);
+
             return $this->created($this->present($branch));
         });
     }
@@ -210,6 +214,7 @@ class BranchController extends AsabController
             // joins a brand — seed its purchase items from that brand's catalog.
             if ($restaurant !== null) {
                 $this->rawMaterials->syncBranchQuietly($branch->fresh());
+                app(\Modules\Admin\Services\ShiftScheduleBridgeService::class)->seedBranchQuietly($branch->fresh());
             }
 
             return $this->ok($this->present($branch->fresh()));

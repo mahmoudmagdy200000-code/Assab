@@ -197,6 +197,7 @@ class OrgController extends AsabController
             // existed when the catalog was uploaded — a new branch needs its own
             // copy or its purchasing picker opens empty (2026-08-05).
             $this->rawMaterials->syncBranchQuietly($branch);
+            app(\Modules\Admin\Services\ShiftScheduleBridgeService::class)->seedBranchQuietly($branch);
 
             // Notify platform admins that a request awaits review.
             foreach (AsabUserRole::where('role_key', 'admin')->pluck('user_id') as $adminId) {

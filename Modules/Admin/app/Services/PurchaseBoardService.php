@@ -51,7 +51,7 @@ class PurchaseBoardService
      *               dateFrom?:?string, dateTo?:?string, page?:int, pageSize?:int}  $filters
      * @return array{groups:array, kpis:array, meta:array}
      */
-    public function board(string $companyId, ?array $assignedBranchIds, array $filters): array
+    public function board(string|array $companyId, ?array $assignedBranchIds, array $filters): array
     {
         $groupBy = ($filters['groupBy'] ?? 'supplier') === 'branch' ? 'branch' : 'supplier';
         $page = max(1, (int) ($filters['page'] ?? 1));
@@ -105,10 +105,10 @@ class PurchaseBoardService
      * @param  string[]|null  $assignedBranchIds
      * @return \Illuminate\Support\Collection<int, Operation>
      */
-    private function fetch(string $companyId, ?array $assignedBranchIds, array $filters)
+    private function fetch(string|array $companyId, ?array $assignedBranchIds, array $filters)
     {
         $q = Operation::query()
-            ->where('company_id', $companyId)
+            ->whereIn('company_id', (array) $companyId)
             ->where('module_key', 'purchases');
 
         // Zero-trust: the caller's assigned branches bound everything below.
@@ -333,7 +333,7 @@ class PurchaseBoardService
      * @param  \Illuminate\Support\Collection<int, Operation>  $scanned  the filtered set
      * @return \Illuminate\Support\Collection<int, array<string, mixed>>
      */
-    private function hydrate($cards, string $companyId, $scanned)
+    private function hydrate($cards, string|array $companyId, $scanned)
     {
         $ids = [];
         foreach ($cards as $card) {
@@ -465,7 +465,7 @@ class PurchaseBoardService
      * @param  Operation[]  $ops
      * @return array<string, array<int, array{id:string, date:string, price:int}>>
      */
-    private function priceHistory(string $companyId, array $ops): array
+    private function priceHistory(string|array $companyId, array $ops): array
     {
         $supplierIds = [];
         $newest = null;
@@ -484,7 +484,7 @@ class PurchaseBoardService
         }
 
         $rows = Operation::query()
-            ->where('company_id', $companyId)
+            ->whereIn('company_id', (array) $companyId)
             ->where('module_key', 'purchases')
             ->when($newest !== null, fn ($q) => $q->where('operation_date', '<=', $newest))
             ->orderByDesc('operation_date')

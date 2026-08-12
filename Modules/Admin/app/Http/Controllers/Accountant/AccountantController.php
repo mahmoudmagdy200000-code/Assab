@@ -136,7 +136,7 @@ class AccountantController extends AsabController
             $request->validate(['dateFrom' => 'sometimes|date', 'dateTo' => 'sometimes|date|after_or_equal:dateFrom']);
 
             return $this->ok($kpis->forRange(
-                $request->user()->company_id,
+                $this->tenantCompanyIdsFor($request->user()),
                 $this->assignedBranchIds(),
                 $request->query('dateFrom'),
                 $request->query('dateTo'),

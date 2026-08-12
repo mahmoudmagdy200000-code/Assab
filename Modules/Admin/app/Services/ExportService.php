@@ -130,9 +130,9 @@ class ExportService
      *
      * @param  array{brandId?:?string, branchId?:?string, date?:?string}  $filters
      */
-    public function inventory(string $format, string $companyId, array $filters): BinaryFileResponse
+    public function inventory(string $format, string|array $companyId, array $filters): BinaryFileResponse
     {
-        $q = Operation::where('company_id', $companyId)->where('module_key', 'inventory');
+        $q = Operation::whereIn('company_id', (array) $companyId)->where('module_key', 'inventory');
 
         if (! empty($filters['branchId'])) {
             $q->where('branch_id', $filters['branchId']);
@@ -552,7 +552,7 @@ class ExportService
      *
      * @param  array{moduleKey?:?string,status?:?string,branchId?:?string,brandId?:?string,dateFrom?:?string,dateTo?:?string,branchIds?:?array}  $filters
      */
-    public function operations(string $format, string $companyId, array $filters): BinaryFileResponse
+    public function operations(string $format, string|array $companyId, array $filters): BinaryFileResponse
     {
         $module = $filters['moduleKey'] ?? null;
         $ops = $this->filteredOperations($companyId, $filters);
@@ -629,7 +629,7 @@ class ExportService
      */
     private function filteredOperations(string $companyId, array $filters): \Illuminate\Support\Collection
     {
-        $q = Operation::where('company_id', $companyId);
+        $q = Operation::whereIn('company_id', (array) $companyId);
         if (($filters['branchIds'] ?? null) !== null) {
             $q->whereIn('branch_id', $filters['branchIds']);
         }
@@ -666,9 +666,9 @@ class ExportService
      *
      * @param  string[]|null  $branchIds
      */
-    public function assets(string $format, string $companyId, ?string $category, ?string $branchId, ?array $branchIds = null): BinaryFileResponse
+    public function assets(string $format, string|array $companyId, ?string $category, ?string $branchId, ?array $branchIds = null): BinaryFileResponse
     {
-        $q = Asset::where('company_id', $companyId);
+        $q = Asset::whereIn('company_id', (array) $companyId);
         if ($branchIds !== null) {
             $q->whereIn('branch_id', $branchIds);
         }

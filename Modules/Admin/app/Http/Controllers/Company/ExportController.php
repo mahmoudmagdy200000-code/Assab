@@ -50,7 +50,7 @@ class ExportController extends AsabController
     /** GET /company/me/inventory/export — variance sheet (FE completion request §1.8). */
     public function inventoryExport(Request $request): BinaryFileResponse
     {
-        return $this->exports->inventory($this->format($request), $request->user()->company_id, [
+        return $this->exports->inventory($this->format($request), $this->tenantCompanyIdsFor($request->user()), [
             'brandId' => $request->query('brandId'),
             'branchId' => $request->query('branchId'),
             'date' => $request->query('date'),
@@ -111,7 +111,7 @@ class ExportController extends AsabController
     {
         // Zero-trust: a custody outside the caller's branches reads as absent.
         $custody = $this->scopeToAssignedBranches(
-            CashCustody::where('company_id', $request->user()->company_id)
+            CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))
         )->findOrFail($id);
         $ledger = $this->custody->ledger($custody, $request->query('month'), 1, 2000);
 
@@ -124,7 +124,7 @@ class ExportController extends AsabController
      */
     public function operationsExport(Request $request): BinaryFileResponse
     {
-        return $this->exports->operations($this->format($request), $request->user()->company_id, [
+        return $this->exports->operations($this->format($request), $this->tenantCompanyIdsFor($request->user()), [
             'moduleKey' => $request->query('moduleKey'),
             'status' => $request->query('status'),
             'branchId' => $request->query('branchId'),
@@ -141,7 +141,7 @@ class ExportController extends AsabController
     {
         return $this->exports->assets(
             $this->format($request),
-            $request->user()->company_id,
+            $this->tenantCompanyIdsFor($request->user()),
             $request->query('category'),
             $request->query('branchId'),
             // Zero-trust: a branch-scoped accountant exports only their branches.

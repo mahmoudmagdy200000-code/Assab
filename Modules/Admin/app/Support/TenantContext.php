@@ -11,6 +11,21 @@ class TenantContext
 {
     public ?string $companyId = null;
 
+    /**
+     * EVERY company the caller may read, primary first.
+     *
+     * A brand auto-creates a company of its own (BrandCompanyResolver), so in
+     * practice «العلامة هي الشركة». Assigning an accountant a second brand — or a
+     * restaurant of one — therefore crosses a company boundary, and a single
+     * `company_id` silently hid that brand from every one of their screens
+     * (reported 2026-08-11: the restaurant was assigned, the accountant saw
+     * neither it nor its brand). The extra ids come ONLY from ids explicitly
+     * assigned to the user, so the scope stays assignment-driven, never open.
+     *
+     * @var string[]
+     */
+    public array $companyIds = [];
+
     public ?string $roleKey = null;
 
     /** all|brand|restaurant|branch */
@@ -57,5 +72,20 @@ class TenantContext
     public function hasTenant(): bool
     {
         return $this->companyId !== null;
+    }
+
+    /**
+     * The company ids to filter by. Falls back to the primary company so a
+     * context built by hand (tests, jobs) behaves exactly as before.
+     *
+     * @return string[]
+     */
+    public function companyIds(): array
+    {
+        if ($this->companyIds !== []) {
+            return $this->companyIds;
+        }
+
+        return $this->companyId !== null ? [$this->companyId] : [];
     }
 }

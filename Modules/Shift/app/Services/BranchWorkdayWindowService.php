@@ -21,11 +21,19 @@ class BranchWorkdayWindowService
 {
     private const MINUTES_PER_DAY = 1440;
 
-    /** Fallback when a branch has no shift templates yet (legacy branches). */
-    private const FALLBACK = ['start' => '09:00', 'end' => '17:00', 'totalHours' => 8.0, 'shiftCount' => 0];
+    /**
+     * Fallback when a branch has no shift templates yet (legacy branches).
+     *
+     * `isFallback` is part of the contract: a branch whose shifts were never
+     * configured used to render this 09:00–17:00 block as if it were a real
+     * shift — «لم أخصّص الشفتات لهذا الفرع، من أين ظهر هذا الشفت؟» (2026-08-11).
+     * The window still ships so layouts keep working; the flag is what lets a
+     * screen say «لم تُضبط الشفتات بعد» instead of inventing a workday.
+     */
+    private const FALLBACK = ['start' => '09:00', 'end' => '17:00', 'totalHours' => 8.0, 'shiftCount' => 0, 'isFallback' => true];
 
     /**
-     * @return array{start: string, end: string, totalHours: float, shiftCount: int}
+     * @return array{start: string, end: string, totalHours: float, shiftCount: int, isFallback: bool}
      */
     public function forBranch(?string $branchId): array
     {
@@ -61,6 +69,7 @@ class BranchWorkdayWindowService
             'end' => $this->toHHMM(($startMinutes + $totalMinutes) % self::MINUTES_PER_DAY),
             'totalHours' => round($totalMinutes / 60, 2),
             'shiftCount' => $shifts->count(),
+            'isFallback' => false,
         ];
     }
 

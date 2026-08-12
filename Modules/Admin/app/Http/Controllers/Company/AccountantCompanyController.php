@@ -56,7 +56,7 @@ class AccountantCompanyController extends AsabController
             $request->validate(['date' => 'sometimes|date']);
 
             return $this->ok($this->salesKpis->forDate(
-                $request->user()->company_id,
+                $this->tenantCompanyIdsFor($request->user()),
                 $this->assignedBranchIds(),
                 $request->query('date'),
             ));
@@ -70,7 +70,7 @@ class AccountantCompanyController extends AsabController
             $request->validate(['days' => 'sometimes|integer|min:1|max:31']);
 
             return $this->listResponse($this->completeness->days(
-                $request->user()->company_id,
+                $this->tenantCompanyIdsFor($request->user()),
                 $this->assignedBranchIds(),
                 (int) $request->query('days', 7),
             ));
@@ -81,10 +81,10 @@ class AccountantCompanyController extends AsabController
     public function dashboard(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $companyId = $request->user()->company_id;
+            $companyIds = $this->tenantCompanyIdsFor($request->user());
             $branchIds = $this->assignedBranchIds();
             $actor = $request->user();
-            $base = fn () => $this->scopeToAssignedBranches(Operation::where('company_id', $companyId));
+            $base = fn () => $this->scopeToAssignedBranches(Operation::whereIn('company_id', $companyIds));
 
             $kpis = $this->dashboards->kpis($actor, $branchIds);
             $modules = $this->dashboards->moduleGrid($actor, $branchIds);
@@ -126,7 +126,7 @@ class AccountantCompanyController extends AsabController
                 'allocations.*.amountHalalas' => 'required|integer|min:1',
                 'notes' => 'sometimes|nullable|string|max:1000',
             ]);
-            $op = $this->scopeToAssignedBranches(Operation::where('company_id', $request->user()->company_id))
+            $op = $this->scopeToAssignedBranches(Operation::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))
                 ->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id))->where('module_key', 'sales')->firstOrFail();
 
             $result = $this->salesVariance->assign($op, $data['allocations'], $data['notes'] ?? null, $request->user());
@@ -143,7 +143,7 @@ class AccountantCompanyController extends AsabController
     {
         return $this->run(function () use ($request, $branchId) {
             $num = $request->query('empNumber');
-            $emp = $this->scopeToAssignedBranches(Employee::where('company_id', $request->user()->company_id))
+            $emp = $this->scopeToAssignedBranches(Employee::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))
                 ->where('branch_id', $branchId)->where('emp_number', $num)->first();
             if (! $emp) {
                 throw new AsabException('NOT_FOUND', 'Employee not found', 'الموظف غير موجود', 404);
@@ -160,7 +160,7 @@ class AccountantCompanyController extends AsabController
             $request->validate(['dateFrom' => 'sometimes|date', 'dateTo' => 'sometimes|date|after_or_equal:dateFrom']);
 
             return $this->ok($this->expenseKpi->forRange(
-                $request->user()->company_id,
+                $this->tenantCompanyIdsFor($request->user()),
                 $this->assignedBranchIds(),
                 $request->query('dateFrom'),
                 $request->query('dateTo'),
@@ -298,7 +298,7 @@ class AccountantCompanyController extends AsabController
     public function updateAsset(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $asset = $this->scopeToAssignedBranches(Asset::where('company_id', $request->user()->company_id))->findOrFail($id);
+            $asset = $this->scopeToAssignedBranches(Asset::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))->findOrFail($id);
             $data = $request->validate([
                 'name' => 'sometimes|string|max:200', 'category' => 'sometimes|string|max:32', 'custodian' => 'sometimes|nullable|string|max:200',
                 'status' => ['sometimes', 'string', AssetEnums::statusRule()],
@@ -468,7 +468,7 @@ class AccountantCompanyController extends AsabController
             // brand in the company (client meeting: shift settings must load the
             // accountant's own brand, not a placeholder). null = admin/company-wide.
             $assignedBrandIds = $this->assignedBrandIds();
-            $brands = AsabBrand::where('company_id', $request->user()->company_id)
+            $brands = AsabBrand::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))
                 ->when($assignedBrandIds !== null, fn ($q) => $q->whereIn('id', $assignedBrandIds))
                 ->when($request->query('brandId'), fn ($q, $id) => $q->where('id', $id))
                 ->get();
@@ -543,7 +543,7 @@ class AccountantCompanyController extends AsabController
     public function saveShiftConfig(Request $request, \Modules\Admin\Services\ShiftConfigService $configService, \Modules\Admin\Services\ShiftScheduleBridgeService $scheduleBridge, string $brandId): JsonResponse
     {
         return $this->run(function () use ($request, $configService, $scheduleBridge, $brandId) {
-            $brand = AsabBrand::where('company_id', $request->user()->company_id)->findOrFail($brandId);
+            $brand = AsabBrand::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))->findOrFail($brandId);
             // Zero-trust: a scoped accountant may only configure their assigned
             // brands, not any brand that merely shares the company.
             $this->assertBrandAssigned($brandId);
@@ -580,7 +580,7 @@ class AccountantCompanyController extends AsabController
             // Zero-trust: out-of-scope branch ids read as absent (404), never as
             // «configurable».
             $this->assertBranchAssigned($branchId);
-            $branch = \Modules\Branch\Models\Branch::where('asab_company_id', $request->user()->company_id)
+            $branch = \Modules\Branch\Models\Branch::whereIn('asab_company_id', $this->tenantCompanyIdsFor($request->user()))
                 ->findOrFail($branchId);
             $data = $request->validate($this->shiftConfigRules());
 
@@ -616,7 +616,7 @@ class AccountantCompanyController extends AsabController
     {
         return $this->run(function () use ($request, $configService, $scheduleBridge, $branchId) {
             $this->assertBranchAssigned($branchId);
-            $branch = \Modules\Branch\Models\Branch::where('asab_company_id', $request->user()->company_id)
+            $branch = \Modules\Branch\Models\Branch::whereIn('asab_company_id', $this->tenantCompanyIdsFor($request->user()))
                 ->findOrFail($branchId);
 
             \Modules\Admin\Models\BranchShiftConfig::where('branch_id', $branchId)->delete();
@@ -641,7 +641,7 @@ class AccountantCompanyController extends AsabController
     {
         return $this->run(function () use ($request, $configService, $scheduleBridge, $branchId) {
             $this->assertBranchAssigned($branchId);
-            $branch = \Modules\Branch\Models\Branch::where('asab_company_id', $request->user()->company_id)
+            $branch = \Modules\Branch\Models\Branch::whereIn('asab_company_id', $this->tenantCompanyIdsFor($request->user()))
                 ->findOrFail($branchId);
 
             $cfg = \Modules\Admin\Models\BranchShiftConfig::where('branch_id', $branchId)->first();
@@ -694,7 +694,7 @@ class AccountantCompanyController extends AsabController
     public function regenerateShifts(Request $request, \Modules\Admin\Services\ShiftConfigService $configService, \Modules\Admin\Services\ShiftScheduleBridgeService $scheduleBridge, string $brandId): JsonResponse
     {
         return $this->run(function () use ($request, $configService, $scheduleBridge, $brandId) {
-            $brand = AsabBrand::where('company_id', $request->user()->company_id)->findOrFail($brandId);
+            $brand = AsabBrand::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))->findOrFail($brandId);
             $this->assertBrandAssigned($brandId);
 
             $cfg = BrandShiftConfig::where('brand_id', $brandId)->first();
@@ -716,7 +716,7 @@ class AccountantCompanyController extends AsabController
     public function cashTransactions(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $custody = $this->scopeToAssignedBranches(CashCustody::where('company_id', $request->user()->company_id))->findOrFail($id);
+            $custody = $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))->findOrFail($id);
 
             return $this->ok($this->custody->ledger(
                 $custody,
@@ -735,7 +735,7 @@ class AccountantCompanyController extends AsabController
     public function approveTransaction(Request $request, string $id, string $txnId): JsonResponse
     {
         return $this->run(function () use ($request, $id, $txnId) {
-            $custody = $this->scopeToAssignedBranches(CashCustody::where('company_id', $request->user()->company_id))->findOrFail($id);
+            $custody = $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))->findOrFail($id);
             $txn = CashTransaction::where('custody_id', $custody->id)->findOrFail($txnId);
 
             if ($txn->status === 'rejected') {
@@ -765,7 +765,7 @@ class AccountantCompanyController extends AsabController
     {
         return $this->run(function () use ($request, $id, $txnId) {
             $data = $request->validate(['reason' => 'required|string|max:255']);
-            $custody = $this->scopeToAssignedBranches(CashCustody::where('company_id', $request->user()->company_id))->findOrFail($id);
+            $custody = $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))->findOrFail($id);
             $txn = CashTransaction::where('custody_id', $custody->id)->findOrFail($txnId);
 
             if ($txn->status === 'rejected') {
@@ -793,7 +793,7 @@ class AccountantCompanyController extends AsabController
     {
         return $this->run(function () use ($request, $id) {
             $data = $request->validate(['newDepositHalalas' => 'sometimes|integer|min:0']);
-            $custody = $this->scopeToAssignedBranches(CashCustody::where('company_id', $request->user()->company_id))->findOrFail($id);
+            $custody = $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))->findOrFail($id);
 
             DB::transaction(function () use ($custody, $data, $request) {
                 $usedBefore = (int) $custody->used;
@@ -836,7 +836,7 @@ class AccountantCompanyController extends AsabController
 
     private function expenseOp(Request $request, string $invoiceId): Operation
     {
-        return $this->scopeToAssignedBranches(Operation::where('company_id', $request->user()->company_id))
+        return $this->scopeToAssignedBranches(Operation::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))
             ->where(fn ($q) => $q->where('id', $invoiceId)->orWhere('public_id', $invoiceId))
             ->where('module_key', 'expenses')->firstOrFail();
     }
@@ -845,7 +845,7 @@ class AccountantCompanyController extends AsabController
     {
         $this->assertBranchAssigned($branchId);
 
-        return Operation::where('company_id', $request->user()->company_id)->where('branch_id', $branchId)
+        return Operation::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))->where('branch_id', $branchId)
             ->where('module_key', 'inventory')->orderByDesc('operation_date')->first();
     }
 }

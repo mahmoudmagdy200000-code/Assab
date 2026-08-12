@@ -5,6 +5,7 @@ namespace Modules\Admin\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Services\TenantCompanyResolver;
 use Modules\Admin\Support\TenantContext;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -41,6 +42,20 @@ class ResolveTenant
             $ctx->restaurantIds = $assignment->restaurant_ids ?? [];
             $ctx->branchIds = $assignment->branch_ids ?? [];
             $ctx->moduleKeys = $assignment->module_keys ?? [];
+        }
+
+        // A brand carries a company of its own, so an accountant holding two
+        // brands legitimately spans two companies — the single company_id used
+        // to hide the second one entirely. Platform roles are excluded: their
+        // NULL company is the point, and deriving one would pin them to a tenant.
+        if (! $ctx->isAdmin && ! in_array($ctx->roleKey, TenantContext::PLATFORM_ROLES, true)) {
+            $ctx->companyIds = app(TenantCompanyResolver::class)
+                ->resolve($ctx->companyId, $ctx->brandIds, $ctx->restaurantIds);
+
+            // An account whose column was never filled but whose scope names a
+            // company is no longer inert — same rule asab:repair-user-companies
+            // applies, minus the wait for someone to run it.
+            $ctx->companyId ??= $ctx->companyIds[0] ?? null;
         }
 
         // A supplier or procurement manager with no company is a PLATFORM

@@ -18,7 +18,7 @@ class ExpenseKpiService
      * @param  string[]|null  $branchIds  assigned-branch scope (null = company-wide)
      * @return array<string, mixed>
      */
-    public function forRange(string $companyId, ?array $branchIds, ?string $from, ?string $to): array
+    public function forRange(string|array $companyId, ?array $branchIds, ?string $from, ?string $to): array
     {
         $from ??= now()->toDateString();
         $to ??= $from;
@@ -26,7 +26,7 @@ class ExpenseKpiService
         // `Operation::query()` keeps the SoftDeletes + tenant global scopes; the
         // explicit company filter pins a platform admin to the requested tenant.
         $ops = Operation::query()
-            ->where('company_id', $companyId)
+            ->whereIn('company_id', (array) $companyId)
             ->where('module_key', 'expenses')
             ->whereDate('operation_date', '>=', $from)
             ->whereDate('operation_date', '<=', $to)

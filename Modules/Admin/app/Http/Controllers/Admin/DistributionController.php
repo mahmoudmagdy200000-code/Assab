@@ -53,7 +53,9 @@ class DistributionController extends AsabController
             // to accountants (an accountant may hold a brand with no restaurant
             // yet, and its chip must still render a name).
             $assignedBrandIds = $accountants
-                ->flatMap(fn ($a) => $a->roleAssignments->firstWhere('role_key', 'accountant')?->brand_ids ?? [])
+                ->flatMap(fn ($a) => $this->scope->brandIdsForAssignment(
+                    $a->roleAssignments->firstWhere('role_key', 'accountant'),
+                ))
                 ->filter()->unique();
             $brandNames = AsabBrand::whereIn(
                 'id',
@@ -92,6 +94,10 @@ class DistributionController extends AsabController
                 $granted = $this->modules->grantedUnion($effective);
 
                 $brandIds = array_values(array_filter($assignment->brand_ids ?? []));
+                // What the accountant actually covers: assigning a restaurant
+                // brings its brand along, so the chip stops showing only the
+                // brand that happened to be picked first (2026-08-11).
+                $coveredBrandIds = $this->scope->brandIdsForAssignment($assignment);
 
                 return [
                     'id' => $acc->id, 'name' => $acc->name, 'avatar' => $acc->avatar,
@@ -99,13 +105,16 @@ class DistributionController extends AsabController
                     'headName' => $acc->reports_to_id ? ($headNames[$acc->reports_to_id] ?? null) : null,
                     // The accountant's own brand scope — «العلامة التجارية» reads
                     // it, and an empty array is exactly why their portal said «لا
-                    // توجد علامات تجارية مخصّصة لك بعد».
+                    // توجد علامات تجارية مخصّصة لك بعد». `brands` stays the STORED
+                    // array (the assignment endpoints round-trip it); the display
+                    // fields below carry the effective coverage.
                     'brands' => $brandIds,
+                    'coveredBrands' => $coveredBrandIds,
                     'brandsNamed' => array_values(array_map(
                         fn (string $id) => ['id' => $id, 'name' => $brandNames[$id] ?? null],
-                        $brandIds,
+                        $coveredBrandIds,
                     )),
-                    'brandCount' => count($brandIds),
+                    'brandCount' => count($coveredBrandIds),
                     // A companyless accountant is an INERT account: every company
                     // surface answers WRONG_TENANT. Surfaced so the screen can flag
                     // it instead of the admin discovering it from the user's phone.
@@ -412,6 +421,11 @@ class DistributionController extends AsabController
                     'module_keys' => $assignment->module_keys ?: self::DIST_MODULES,
                 ]);
                 $this->modules->resyncUnion($assignment);
+                // Same reason as assignments(): a companyless accountant is inert
+                // until the scope it just gained names their tenant.
+                $this->backfillCompanyFromScope(
+                    AsabUser::findOrFail($data['accountantId']), null, $ids->values()->all(),
+                );
             });
 
             return $this->noContent();

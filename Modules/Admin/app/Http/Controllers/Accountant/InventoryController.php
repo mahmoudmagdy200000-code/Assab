@@ -31,14 +31,14 @@ class InventoryController extends AsabController
     {
         return $this->run(function () use ($request) {
             $type = in_array($request->query('type'), ['daily', 'monthly'], true) ? $request->query('type') : 'monthly';
-            $companyId = $request->user()->company_id;
+            $companyIds = $this->tenantCompanyIdsFor($request->user());
             $branchIds = $this->assignedBranchIds();
             if ($branch = $request->query('branchId')) {
                 $this->assertBranchAssigned($branch);
                 $branchIds = [$branch];
             }
 
-            return $this->ok($this->review->overview($companyId, $branchIds, $type));
+            return $this->ok($this->review->overview($companyIds, $branchIds, $type));
         });
     }
 
@@ -117,8 +117,10 @@ class InventoryController extends AsabController
         return $this->run(function () use ($request) {
             $ids = $this->assignedBrandIds();
 
+            // whereIn: an accountant assigned a restaurant from another brand
+            // owns that brand's company too, and `where` dropped it silently.
             $brands = \Modules\Admin\Models\AsabBrand::query()
-                ->where('company_id', $request->user()->company_id)
+                ->whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))
                 ->when($ids !== null, fn ($q) => $q->whereIn('id', $ids))
                 ->orderBy('name')
                 ->get(['id', 'name', 'abbr']);
@@ -454,7 +456,7 @@ class InventoryController extends AsabController
             $this->assertBranchAssigned($branchId);
             $date = $request->query('date', now()->toDateString());
 
-            return $this->ok($this->reconciliation->snapshot($request->user()->company_id, $branchId, $date));
+            return $this->ok($this->reconciliation->snapshot($this->tenantCompanyIdsFor($request->user()), $branchId, $date));
         });
     }
 
@@ -473,7 +475,7 @@ class InventoryController extends AsabController
             $this->assertBranchAssigned($branchId);
 
             return $this->ok($this->reconciliation->allocate(
-                $request->user()->company_id,
+                $this->tenantCompanyIdsFor($request->user()),
                 $branchId,
                 $data['date'],
                 $data['items'],

@@ -6,7 +6,6 @@ use App\Support\TemporaryPassword;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
@@ -421,9 +420,15 @@ class UserController extends AsabController
      *
      * Also the zero-trust check that was missing: `brands` was never compared to
      * `companyId`, so a wizard could attach one company's accountant to another
-     * company's brand. Brands spanning two companies is refused outright — an
-     * accountant has ONE tenant, and silently keeping the first would hide half
-     * their scope.
+     * company's brand — an explicit `companyId` that contradicts the brands is
+     * still refused.
+     *
+     * Brands spanning companies are NOT refused any more. Admin "Add Brand"
+     * gives every brand a company of its own, so «two brands» and «two
+     * companies» are the same statement, and the 422 made a two-brand
+     * accountant impossible to create. The column keeps the FIRST brand's
+     * company as the primary tenant; the rest are resolved per request into
+     * TenantContext::$companyIds, so the whole scope is readable.
      *
      * @param  array<string, mixed>  $data
      */
@@ -435,24 +440,24 @@ class UserController extends AsabController
             return $sent;
         }
 
-        $companyIds = AsabBrand::withoutGlobalScope('tenant')
+        $brandCompanies = AsabBrand::withoutGlobalScope('tenant')
             ->whereIn('id', $data['brands'])
-            ->pluck('company_id')
-            ->filter()
-            ->unique()
-            ->values();
+            ->pluck('company_id', 'id');
 
-        if ($companyIds->count() > 1) {
-            throw new AsabException(
-                'BRANDS_SPAN_COMPANIES',
-                'The selected brands belong to different companies; an accountant serves one company.',
-                'العلامات المختارة تتبع شركات مختلفة — المحاسب يتبع شركة واحدة.',
-                422,
-                ['brands' => ['العلامات المختارة تتبع شركات مختلفة']],
-            );
-        }
+        // Ordered by the payload, so "the primary tenant is the first brand's
+        // company" is what the admin actually picked first, not row order.
+        $companyIds = collect($data['brands'])
+            ->map(fn ($brandId) => $brandCompanies[$brandId] ?? null)
+            ->filter()->unique()->values();
 
         $resolved = $companyIds->first();
+
+        // A sent companyId that matches ANY of the brands' companies is honoured
+        // as the primary tenant; one that matches none is the admin naming a
+        // company the brands do not belong to.
+        if ($sent !== null && $companyIds->isNotEmpty() && $companyIds->contains($sent)) {
+            return $sent;
+        }
 
         if ($sent !== null && $resolved !== null && $sent !== $resolved) {
             throw new AsabException(
@@ -568,6 +573,9 @@ class UserController extends AsabController
             $branchIds = array_merge($branchIds, $assignment->branch_ids ?? []);
             if ($assignment->role_key === 'accountant') {
                 $accountantIds[] = $u->id;
+                // The brands reached through an assigned RESTAURANT need a name
+                // too — they are what the row now renders.
+                $brandIds = array_merge($brandIds, $this->scope->brandIdsForAssignment($assignment));
             }
         }
 
@@ -611,6 +619,23 @@ class UserController extends AsabController
         ];
     }
 
+    /**
+     * Brands to DISPLAY for a user: an accountant's assigned brands plus the
+     * brands their assigned restaurants belong to (the row showed the old brand
+     * only, so a restaurant assigned from another brand looked unattached).
+     * Every other role displays exactly what is stored.
+     *
+     * @return string[]
+     */
+    private function displayBrandIds(?string $roleKey, ?AsabUserRole $assignment): array
+    {
+        if ($roleKey === 'accountant') {
+            return $this->scope->brandIdsForAssignment($assignment);
+        }
+
+        return $assignment->brand_ids ?? [];
+    }
+
     private function present(AsabUser $u, ?array $maps = null): array
     {
         $assignment = $u->roleAssignments->first();
@@ -633,6 +658,8 @@ class UserController extends AsabController
                 $assignment->module_keys ?? [],
             ];
 
+        $displayBrandIds = $this->displayBrandIds($roleKey, $assignment);
+
         return [
             'id' => $u->id,
             'name' => $u->name,
@@ -647,7 +674,13 @@ class UserController extends AsabController
             // not raw uuids (client meeting: "return the brand name, not the ID").
             // For an accountant these are the BRAND-DERIVED restaurants (the
             // stored array is empty by design) — render these, count these.
-            'brandsNamed' => $this->named($assignment->brand_ids ?? [], $maps['brand']),
+            // `brandsNamed` follows the same rule: it carries the brands the
+            // accountant EFFECTIVELY covers, so a restaurant assigned from
+            // another brand brings its brand onto the row (2026-08-11).
+            'brandsNamed' => $this->named($displayBrandIds, $maps['brand']),
+            // Ids of the same effective set, for a client that needs ids.
+            'coveredBrands' => $displayBrandIds,
+            'brandCount' => count($displayBrandIds),
             'restaurantsNamed' => $restaurantsNamed,
             'branchesNamed' => $this->named($assignment->branch_ids ?? [], $maps['branch']),
             // Coverage ids, for a client that needs the ids rather than labels.

@@ -162,13 +162,28 @@ class AccountantDashboardService
             return count($branchIds);
         }
 
-        return (int) Branch::where('asab_company_id', $actor->company_id)->count();
+        return (int) Branch::whereIn('asab_company_id', $this->companyIds($actor))->count();
+    }
+
+    /**
+     * Every company the actor covers, not just the column: an accountant's
+     * second brand carries a company of its own (TenantContext::$companyIds),
+     * and `where company_id` left its branches out of every count here.
+     *
+     * @return array<int, string|null>
+     */
+    private function companyIds(AsabUser $actor): array
+    {
+        $ctx = app(TenantContext::class);
+        $ids = $ctx->isAdmin ? [] : $ctx->companyIds();
+
+        return $ids !== [] ? $ids : [$actor->company_id];
     }
 
     /** @param  string[]|null  $branchIds */
     private function scoped(AsabUser $actor, ?array $branchIds): Builder
     {
-        $q = Operation::query()->where('company_id', $actor->company_id);
+        $q = Operation::query()->whereIn('company_id', $this->companyIds($actor));
         if ($branchIds !== null) {
             $q->whereIn('branch_id', $branchIds);
         }

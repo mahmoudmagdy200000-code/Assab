@@ -29,7 +29,7 @@ class PurchaseBoardController extends AsabController
             $filters = $this->filters($request);
 
             $result = $this->board->board(
-                $request->user()->company_id,
+                $this->tenantCompanyIdsFor($request->user()),
                 $this->assignedBranchIds(),
                 $filters,
             );
@@ -47,7 +47,7 @@ class PurchaseBoardController extends AsabController
         $filters['pageSize'] = 100;
 
         $result = $this->board->board(
-            $request->user()->company_id,
+            $this->tenantCompanyIdsFor($request->user()),
             $this->assignedBranchIds(),
             $filters,
         );
@@ -114,7 +114,7 @@ class PurchaseBoardController extends AsabController
             // company_id is stated explicitly — Operation's tenant scope steps
             // aside for platform roles, so no reader may inherit one.
             $ops = $this->scopeToAssignedBranches(
-                Operation::where('company_id', $request->user()->company_id)
+                Operation::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))
                     ->where('module_key', 'purchases')
                     ->whereIn('id', $data['operationIds'])
             )->get();

@@ -86,7 +86,13 @@ class AccountantCompanyBindingTest extends TestCase
         $this->assertNull(AsabUser::firstWhere('email', 'cross@acc.test'));
     }
 
-    public function test_brands_spanning_two_companies_are_refused(): void
+    /**
+     * Admin "Add Brand" gives every brand a company of its own, so two brands
+     * ARE two companies — refusing that made a two-brand accountant impossible.
+     * The column keeps the first brand's company; the second is reachable
+     * through TenantContext::$companyIds.
+     */
+    public function test_brands_spanning_two_companies_bind_the_first_brands_company(): void
     {
         $other = AsabCompany::create(['name' => 'Other', 'plan' => 'Basic', 'status' => 'active']);
         $otherBrand = AsabBrand::create([
@@ -99,8 +105,12 @@ class AccountantCompanyBindingTest extends TestCase
                 'name' => 'محاسب', 'email' => 'span@acc.test', 'role' => 'accountant',
                 'brands' => [$this->brand->id, $otherBrand->id],
             ])
-            ->assertStatus(422)
-            ->assertJsonPath('error.code', 'BRANDS_SPAN_COMPANIES');
+            ->assertStatus(201);
+
+        $this->assertSame(
+            $this->company->id,
+            AsabUser::firstWhere('email', 'span@acc.test')->company_id,
+        );
     }
 
     public function test_an_unknown_brand_is_a_validation_error(): void

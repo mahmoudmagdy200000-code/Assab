@@ -50,7 +50,7 @@ class TenantBranchResolver
             // Without this a platform account and a plain companyless one share
             // a key (both have no companyId) and inherit each other's answer.
             $ctx->isPlatform ? 'platform' : 'tenant',
-            $ctx->companyId ?? '-',
+            implode(',', $ctx->companyIds()) ?: '-',
             $ctx->scope,
             implode(',', $ctx->branchIds),
             implode(',', $ctx->restaurantIds),
@@ -72,7 +72,9 @@ class TenantBranchResolver
             return [];
         }
 
-        $q = Branch::query()->select('id')->where('asab_company_id', $ctx->companyId);
+        // whereIn, not where: an accountant's brands may each carry their own
+        // company, and their branches are still theirs (TenantContext::$companyIds).
+        $q = Branch::query()->select('id')->whereIn('asab_company_id', $ctx->companyIds());
 
         if ($ctx->scope !== 'all') {
             $q->where(function ($w) use ($ctx) {

@@ -46,7 +46,34 @@ class ShiftScheduleBridgeService
      *
      * @return int the number of (branch × window) template rows ensured
      */
-    public function regenerateForBrand(string $brandId): int
+    /**
+     * Seed one branch from ITS brand's saved config — the templates are created
+     * per brand at save time, so a branch created afterwards had none at all
+     * and the app fell back to a fabricated 09:00–17:00 workday (2026-08-11).
+     * Best-effort: a missing config or an unlinked branch is a no-op, never a
+     * failed branch creation.
+     */
+    public function seedBranchQuietly(\Modules\Branch\Models\Branch $branch): void
+    {
+        try {
+            $brandId = $branch->asab_brand_id
+                ?? ($branch->asab_restaurant_id
+                    ? \Modules\Admin\Models\AsabRestaurant::withoutGlobalScopes()
+                        ->whereKey($branch->asab_restaurant_id)->value('brand_id')
+                    : null);
+
+            if ($brandId !== null) {
+                $this->regenerateForBrand($brandId, [$branch->id]);
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
+    /**
+     * @param  string[]|null  $onlyBranchIds  limit the projection to these branches
+     */
+    public function regenerateForBrand(string $brandId, ?array $onlyBranchIds = null): int
     {
         $cfg = BrandShiftConfig::where('brand_id', $brandId)->first();
         if ($cfg === null) {
@@ -58,6 +85,9 @@ class ShiftScheduleBridgeService
         // `asab_brand_id` alone silently skipped every restaurant-linked branch,
         // which then had NO shift templates at all (2026-08-03 rule).
         $branchIds = $this->brandBranches->branchIds($brandId);
+        if ($onlyBranchIds !== null) {
+            $branchIds = array_values(array_intersect($branchIds, $onlyBranchIds));
+        }
         // A branch that carries its own schedule is NOT dragged back onto the
         // brand's on the next brand save.
         $overridden = BranchShiftConfig::whereIn('branch_id', $branchIds)->pluck('branch_id')->all();

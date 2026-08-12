@@ -76,14 +76,18 @@ trait BelongsToTenant
 
             if ($ctx->hasTenant()) {
                 $column = $builder->getModel()->getTable().'.company_id';
+                // A set, not one id: an accountant assigned a second brand owns
+                // a second company with it (see TenantContext::$companyIds).
+                // Single-company users resolve to exactly [companyId].
+                $companyIds = $ctx->companyIds();
 
                 if ($sharesPlatformRows) {
-                    $builder->where(fn ($q) => $q->where($column, $ctx->companyId)->orWhereNull($column));
+                    $builder->where(fn ($q) => $q->whereIn($column, $companyIds)->orWhereNull($column));
 
                     return;
                 }
 
-                $builder->where($column, $ctx->companyId);
+                $builder->whereIn($column, $companyIds);
 
                 return;
             }

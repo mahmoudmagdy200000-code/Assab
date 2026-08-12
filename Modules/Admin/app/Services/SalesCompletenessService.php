@@ -22,7 +22,7 @@ class SalesCompletenessService
      * @param  string[]|null  $branchIds  null = every branch of the company
      * @return array<int, array<string, mixed>> newest day first
      */
-    public function days(string $companyId, ?array $branchIds, int $days = 7): array
+    public function days(string|array $companyId, ?array $branchIds, int $days = 7): array
     {
         $days = max(1, min($days, 31));
         $branches = $this->branches($companyId, $branchIds);
@@ -30,7 +30,7 @@ class SalesCompletenessService
 
         $from = now()->subDays($days - 1)->startOfDay();
         $uploads = Operation::query()
-            ->where('company_id', $companyId)
+            ->whereIn('company_id', (array) $companyId)
             ->where('module_key', self::MODULE)
             ->when($branchIds !== null, fn ($q) => $q->whereIn('branch_id', $branchIds))
             ->where('operation_date', '>=', $from)
@@ -70,10 +70,10 @@ class SalesCompletenessService
     }
 
     /** @return array<string, string> branchId => name */
-    private function branches(string $companyId, ?array $branchIds): array
+    private function branches(string|array $companyId, ?array $branchIds): array
     {
         return Branch::query()
-            ->where('asab_company_id', $companyId)
+            ->whereIn('asab_company_id', (array) $companyId)
             ->when($branchIds !== null, fn ($q) => $q->whereIn('id', $branchIds))
             ->orderBy('name')
             ->pluck('name', 'id')

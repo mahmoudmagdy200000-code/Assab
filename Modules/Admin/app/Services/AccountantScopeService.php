@@ -64,6 +64,36 @@ class AccountantScopeService
         )->values();
     }
 
+    /**
+     * The brands an assignment EFFECTIVELY covers: the assigned brands plus the
+     * brands of any individually assigned restaurant.
+     *
+     * Assigning a restaurant from the distribution screen writes `restaurant_ids`
+     * only, so «العلامات التجارية» kept showing the old brand while the new
+     * restaurant sat in the same row (reported 2026-08-11). Derived rather than
+     * written back: writing the brand into `brand_ids` would silently extend the
+     * accountant to every OTHER restaurant of that brand, and un-assigning the
+     * one restaurant would no longer take the coverage away.
+     *
+     * @return string[]
+     */
+    public function brandIdsForAssignment(?AsabUserRole $assignment): array
+    {
+        if (! $assignment) {
+            return [];
+        }
+
+        $brandIds = array_values(array_filter($assignment->brand_ids ?? []));
+        $restaurantIds = $assignment->restaurant_ids ?? [];
+
+        if ($restaurantIds !== []) {
+            $brandIds = array_merge($brandIds, $this->allRestaurants()
+                ->whereIn('id', $restaurantIds)->pluck('brand_id')->filter()->all());
+        }
+
+        return array_values(array_unique($brandIds));
+    }
+
     /** @var array<string,AsabUser|null> per-request memo keyed by mobile branch id */
     private static array $responsibleAccountantCache = [];
 
