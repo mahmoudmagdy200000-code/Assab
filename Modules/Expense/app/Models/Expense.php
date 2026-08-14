@@ -35,6 +35,10 @@ class Expense extends Model
         'rejected_by',
         'rejected_at',
         'rejection_reason',
+        'approval_stage',
+        'decided_by_name',
+        'decided_by_role',
+        'decided_at',
     ];
 
     protected $casts = [
@@ -44,6 +48,8 @@ class Expense extends Model
         'submitted_at' => 'datetime',
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
+        'decided_at' => 'datetime',
+        'approval_stage' => \Modules\Expense\Enums\ExpenseApprovalStage::class,
     ];
 
     // Relationships
@@ -157,5 +163,22 @@ class Expense extends Model
     public function isRejected(): bool
     {
         return $this->status === 'rejected';
+    }
+
+    /**
+     * Whether the dashboard (accountant / head of accounts) has taken the
+     * record. Once it has, the brand owner is a spectator: the two approval
+     * cycles are exclusive, and letting both write would leave the mobile row
+     * and the ASAB operation disagreeing about who decided (meeting 2026-08-14).
+     */
+    public function isOwnedByAccounting(): bool
+    {
+        return $this->approval_stage?->isAccountingCycle() ?? false;
+    }
+
+    /** No actor — brand owner, accountant or head — may act any further. */
+    public function isDecisionLocked(): bool
+    {
+        return $this->approval_stage?->isTerminal() ?? false;
     }
 }

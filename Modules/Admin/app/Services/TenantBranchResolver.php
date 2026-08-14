@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Services;
 
+use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Support\TenantContext;
 use Modules\Branch\Models\Branch;
 
@@ -89,6 +90,19 @@ class TenantBranchResolver
                 }
                 if ($ctx->brandIds !== []) {
                     $w->orWhereIn('asab_brand_id', $ctx->brandIds);
+
+                    // A branch tagged to the brand only through its RESTAURANT
+                    // carries a NULL `asab_brand_id` — the common production
+                    // shape — so matching that column alone answered «no
+                    // branches» and every screen of a brand-scoped accountant
+                    // came back empty (2026-08-03 rule; hit again on the
+                    // expenses filters, 2026-08-14).
+                    $restaurantsOfBrands = AsabRestaurant::withoutGlobalScopes()
+                        ->whereIn('brand_id', $ctx->brandIds)->pluck('id')->all();
+                    if ($restaurantsOfBrands !== []) {
+                        $w->orWhereIn('asab_restaurant_id', $restaurantsOfBrands);
+                    }
+
                     $constrained = true;
                 }
                 if (! $constrained) {

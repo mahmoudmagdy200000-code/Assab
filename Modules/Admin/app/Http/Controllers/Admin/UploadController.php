@@ -358,15 +358,18 @@ class UploadController extends AsabController
         // BUG-9 write-through: surface the row's category in the mobile Expense
         // taxonomy (`categories`) so the app's «الأصناف»/«المصروفات» pickers are
         // not empty (raw-materials → purchase tab, sales-items → expense tab).
-        // «التصنيف» = parent, «اسم الفئة» = its sub-category. A sheet WITHOUT
-        // the sub column nests the ITEM NAME under its التصنيف instead — the
-        // mobile picker is strictly parent → children, so a flat parent renders
-        // as «No sub-categories found» and the meeting ask («اختار معدات →
-        // يجيب التلاجة والبوتاجاز») never shows without this.
+        // «التصنيف» = parent, «اسم الفئة» = its sub-category. When that cell is
+        // BLANK — which it is on every sheet exported from the template, since
+        // the sub-category is not stored on the catalog row — the ITEM NAME
+        // («اسم الصنف» / «اسم المادة») becomes the sub-category instead. The
+        // mobile picker is strictly parent → children, so a parent with no
+        // child renders «No sub-categories found» and the meeting ask («اختار
+        // معدات → يجيب التلاجة والبوتاجاز») never shows (reported 2026-08-14:
+        // غاز/معدات/الوجبات all landed as childless parents).
         $this->expenseTaxonomy->syncCategoryFor(
             $type,
             $category,
-            $hasSubCategory ? $subCategory : ($name !== '' ? $name : null),
+            $subCategory ?? ($name !== '' ? $name : null),
         );
 
         if ($type === 'raw-materials' && $name !== '') {

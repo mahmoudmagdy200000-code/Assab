@@ -37,7 +37,21 @@ class EventServiceProvider extends ServiceProvider
         // Two-worlds bridge (SRS §13 / MOB-1.1): a mobile-app expense becomes an
         // asab_operations row so the dashboard accountant can review it.
         ExpenseSubmittedEvent::class => [SyncLegacyExpenseOperation::class],
+        // A brand-owner decision travels the SAME way (mobile → operation): the
+        // bridge closes the mirrored operation so the accountant and the head
+        // can no longer act on it (meeting 2026-08-14, cycle 1).
         ExpenseApprovedEvent::class => [SyncLegacyExpenseOperation::class],
+        \Modules\Expense\Events\ExpenseRejectedEvent::class => [SyncLegacyExpenseOperation::class],
+
+        // Cycle 2 (accountant → head): each dashboard stage is mirrored back
+        // onto the mobile expense so the branch manager and the brand owner see
+        // who decided and where the record stands.
+        \Modules\Admin\Events\OperationApproved::class => [
+            [BridgeExpenseDecisionToLegacy::class, 'handleApproved'],
+        ],
+        \Modules\Admin\Events\OperationReturnedForReview::class => [
+            [BridgeExpenseDecisionToLegacy::class, 'handleReturnedForReview'],
+        ],
 
         // Shift close chain (ACC-6.4 / HEAD-2.5): final-approve closes the shift +
         // posts the cash gap; reject reopens it. The two Bridge*DecisionToLegacy

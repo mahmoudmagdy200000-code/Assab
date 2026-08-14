@@ -93,6 +93,9 @@ class ExpenseController extends BaseController
     {
         $data = [
             'expense_status' => ExpenseStatus::forApi(),
+            // Where the record is in the two-cycle approval chain — `status`
+            // alone cannot express «موافق عليه من المحاسب» (still pending).
+            'approval_stage' => \Modules\Expense\Enums\ExpenseApprovalStage::forApi(),
             'timeline_action' => ExpenseTimelineAction::forApi(),
             'timeline_status' => ExpenseTimelineStatus::forApi(),
             'timeline_performed_by_type' => ExpenseTimelinePerformedByType::forApi(),

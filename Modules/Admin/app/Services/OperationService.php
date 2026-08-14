@@ -58,8 +58,28 @@ class OperationService
                 null, ['type' => 'operation', 'id' => $fresh->id],
             );
         }
+        // The mobile record stays «pending» but learns WHO approved it, so the
+        // branch manager and the brand owner read «موافق عليه من المحاسب».
+        event(new \Modules\Admin\Events\OperationApproved($fresh, $actor));
 
         return $fresh;
+    }
+
+    /**
+     * The rejection an actor's ROLE means (meeting 2026-08-14). The head of
+     * accounts rejecting a record the accountant already approved does not send
+     * it back to the branch — it goes back to the ACCOUNTANT to review again.
+     * Every other case is the ordinary terminal rejection.
+     */
+    public function rejectAs(Operation $op, AsabUser $actor, string $reasonKey, ?string $notes = null): Operation
+    {
+        if ($op->status === Operation::STATUS_APPROVED && $actor->hasAnyAsabRole(['head'])) {
+            $reason = OperationEnums::resolveRejectionReason($reasonKey, $op->module_key);
+
+            return $this->returnForReview($op, $actor, trim(($reason['labelAr'] ?? $reasonKey).($notes ? ' — '.$notes : '')));
+        }
+
+        return $this->reject($op, $actor, $reasonKey, $notes);
     }
 
     /**
@@ -182,6 +202,7 @@ class OperationService
                 null, ['type' => 'operation', 'id' => $fresh->id],
             );
         }
+        event(new \Modules\Admin\Events\OperationReturnedForReview($fresh, $actor, $note));
 
         return $fresh;
     }

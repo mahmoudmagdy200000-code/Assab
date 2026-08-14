@@ -871,6 +871,22 @@ Route::prefix('v1')->group(function () {
                     Route::post('employees/{id}/settle-balance', [EmployeeController::class, 'settleBalance']);
                 });
 
+                /*
+                 | «رفض» on the company surface. Declared in its OWN accountant+head
+                 | group rather than inside either role block: Laravel matches the
+                 | first route registered for a URI and only THEN runs its
+                 | middleware, so putting it in the head block above would have
+                 | 403'd every accountant. The handler is role-aware — a head
+                 | rejecting an already-approved record returns it to the
+                 | accountant's queue instead of closing it (meeting 2026-08-14).
+                 | It was missing entirely, so the accountant could approve but
+                 | never reject from the portal.
+                 */
+                Route::middleware('asab.role:accountant,head')->group(function () {
+                    Route::post('operations/{id}/reject', [OperationController::class, 'reject']);
+                    Route::post('operations/{id}/request-clarification', [OperationController::class, 'requestClarification']);
+                });
+
                 // Cash custody (§5.3 ACC-8 + §5.2 HEAD-4) — the head OWNS تعزيز العهدة,
                 // so this block admits both accountant and head on the company surface.
                 Route::middleware('asab.role:accountant,head')->group(function () {

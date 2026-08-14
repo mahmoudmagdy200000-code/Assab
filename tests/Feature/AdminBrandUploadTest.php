@@ -352,6 +352,55 @@ class AdminBrandUploadTest extends TestCase
         $this->assertSame(2550, (int) $item->unit_price);
     }
 
+    public function test_a_blank_sub_category_cell_nests_the_item_name_instead(): void
+    {
+        $brand = $this->brand();
+
+        // The shipped template CARRIES the «اسم الفئة» column but the exported
+        // rows leave it empty (the sub-category is not stored on the catalog
+        // row), so every real client sheet looks like this. It used to produce
+        // childless parents and the app answered «No sub-categories found»
+        // (reported 2026-08-14: غاز / معدات / الوجبات).
+        $csv = 'رمز الصنف,اسم الصنف,التصنيف,اسم الفئة,وحدة البيع,السعر'."\n"
+            .'H4,تصليح غاز 1,غاز,,KG,700'."\n"
+            .'H2,تصليح بوتجاز,معدات,,KG,600'."\n";
+
+        $url = "/api/v1/admin/brands/{$brand->id}/upload/sales-items";
+        $this->upload($url, 'items.csv', $csv)->assertStatus(200);
+        $this->upload($url, 'items.csv', $csv)->assertStatus(200); // idempotent
+
+        $gas = Category::where('name', 'غاز')->whereNull('parent_id')->first();
+        $this->assertNotNull($gas, '«التصنيف» is the parent category');
+
+        $child = Category::where('name', 'تصليح غاز 1')->first();
+        $this->assertNotNull($child, 'the item name must nest under its التصنيف when «اسم الفئة» is blank');
+        $this->assertSame($gas->id, $child->parent_id);
+        $this->assertSame('expense', $child->type);
+
+        // غاز + تصليح غاز 1 + معدات + تصليح بوتجاز, no duplicates on re-upload.
+        $this->assertSame(4, Category::count());
+    }
+
+    public function test_a_blank_sub_category_cell_nests_the_material_name_for_purchases(): void
+    {
+        $brand = $this->brand();
+
+        $csv = 'رمز المادة,اسم المادة,التصنيف,اسم الفئة,وحدة القياس,التكلفة'."\n"
+            .'R1,صدور دجاج,دواجن,,كجم,22'."\n";
+
+        $this->upload("/api/v1/admin/brands/{$brand->id}/upload/raw-materials", 'items.csv', $csv)
+            ->assertStatus(200);
+
+        $parent = Category::where('name', 'دواجن')->whereNull('parent_id')->first();
+        $this->assertNotNull($parent);
+        $this->assertSame('purchase', $parent->type, 'raw materials feed the purchase taxonomy');
+
+        $child = Category::where('name', 'صدور دجاج')->first();
+        $this->assertNotNull($child, '«اسم المادة» must register as the sub-category');
+        $this->assertSame($parent->id, $child->parent_id);
+        $this->assertSame('purchase', $child->type);
+    }
+
     public function test_reupload_with_sub_column_reparents_an_old_flat_category(): void
     {
         $brand = $this->brand();

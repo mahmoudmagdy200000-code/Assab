@@ -69,10 +69,14 @@ class ExpenseInvoiceService
             return array_values($invoices);
         }
 
+        // `supplierName` / `expenseType` are what the mobile bridge writes at
+        // the payload root for a statement with no invoice rows (a quick-cash
+        // expense). Reading only `vendor`/`desc` rendered «المورد» blank on
+        // every bridged quick-cash row (2026-08-14).
         return [array_filter([
             'invNum' => $payload['invNum'] ?? null,
-            'vendor' => $payload['vendor'] ?? null,
-            'desc' => $payload['desc'] ?? ($payload['description'] ?? null),
+            'vendor' => $payload['vendor'] ?? ($payload['supplierName'] ?? null),
+            'desc' => $payload['desc'] ?? ($payload['description'] ?? ($payload['expenseType'] ?? null)),
             'date' => $payload['date'] ?? optional($op->operation_date)->toDateString(),
             'amountHalalas' => (int) $op->amount,
             'verified' => $payload['verified'] ?? false,

@@ -178,7 +178,10 @@ class OperationController extends AsabController
             ]);
 
             return $this->ok($this->present(
-                $this->service->reject(
+                // Role-aware: the head rejecting an ALREADY-approved record
+                // returns it to the accountant instead of closing it (SRS §5.4
+                // + meeting 2026-08-14).
+                $this->service->rejectAs(
                     $this->find($id),
                     $request->user(),
                     $data['reason'],
@@ -461,7 +464,7 @@ class OperationController extends AsabController
     {
         $collection = collect($ops);
         if ($collection->isEmpty()) {
-            return ['branches' => [], 'brands' => []];
+            return ['branches' => [], 'brands' => [], 'actors' => []];
         }
 
         $branches = Branch::whereIn('id', $collection->pluck('branch_id')->filter()->unique())
@@ -470,10 +473,54 @@ class OperationController extends AsabController
         $brands = \Modules\Admin\Models\AsabBrand::whereIn('id', $branches->pluck('asab_brand_id')->filter()->unique())
             ->get(['id', 'name'])->pluck('name', 'id');
 
+        // Who decided — the rows printed «مرفوضة» / «معتمدة» with no name, and
+        // the meeting asks for the deciding accountant's / head's name on the
+        // record («وتتكتب اسم رئيس الحسابات»). One query for the whole page.
+        $actorIds = $collection->flatMap(fn ($o) => [
+            $o->approved_by_id, $o->final_approved_by_id, $o->rejected_by_id,
+        ])->filter()->unique();
+
+        $actors = $actorIds->isEmpty()
+            ? collect()
+            : \Modules\Admin\Models\AsabUser::whereIn('id', $actorIds)->get(['id', 'name'])->pluck('name', 'id');
+
         return [
             'branches' => $branches->map(fn ($b) => ['name' => $b->name, 'brandId' => $b->asab_brand_id])->all(),
             'brands' => $brands->all(),
+            'actors' => $actors->all(),
         ];
+    }
+
+    /**
+     * «من اتخذ القرار» — the last decision on the record, whichever world it
+     * came from. A brand owner deciding in the mobile app is not an `asab_users`
+     * row, so their name rides in the bridged payload instead of an actor id.
+     *
+     * @return array{name: ?string, role: ?string, roleLabelAr: ?string}|null
+     */
+    private function decisionBy(Operation $op, array $actors): ?array
+    {
+        $legacy = $op->payload['legacyDecision'] ?? null;
+        if (is_array($legacy) && ($legacy['byName'] ?? null) !== null) {
+            return [
+                'name' => $legacy['byName'],
+                'role' => $legacy['byRole'] ?? null,
+                'roleLabelAr' => $legacy['byRoleLabelAr'] ?? null,
+            ];
+        }
+
+        [$actorId, $role, $roleLabelAr] = match ($op->status) {
+            Operation::STATUS_FINAL => [$op->final_approved_by_id, 'head', 'رئيس الحسابات'],
+            Operation::STATUS_REJECTED => [$op->rejected_by_id, null, null],
+            Operation::STATUS_APPROVED => [$op->approved_by_id, 'accountant', 'المحاسب'],
+            default => [null, null, null],
+        };
+
+        if ($actorId === null) {
+            return null;
+        }
+
+        return ['name' => $actors[$actorId] ?? null, 'role' => $role, 'roleLabelAr' => $roleLabelAr];
     }
 
     private function present(Operation $op, array $supplierNames = [], array $maps = []): array
@@ -483,6 +530,7 @@ class OperationController extends AsabController
         $match = OperationEnums::match($op->match);
         $branch = $maps['branches'][$op->branch_id] ?? null;
         $brandId = $branch['brandId'] ?? null;
+        $actors = $maps['actors'] ?? [];
 
         return [
             'id' => $op->id,
@@ -514,6 +562,10 @@ class OperationController extends AsabController
             'stage' => OperationEnums::stageFor($op->status, (bool) $op->erp_posted),
             'rejectReason' => $op->reject_reason,
             'rejectReasonKey' => OperationEnums::rejectionReasonKey($op->reject_reason, $op->module_key),
+            'approvedBy' => $op->approved_by_id ? ($actors[$op->approved_by_id] ?? null) : null,
+            'finalApprovedBy' => $op->final_approved_by_id ? ($actors[$op->final_approved_by_id] ?? null) : null,
+            'rejectedBy' => $op->rejected_by_id ? ($actors[$op->rejected_by_id] ?? null) : null,
+            'decisionBy' => $this->decisionBy($op, $actors),
             'isConditional' => (bool) $op->is_conditional,
             'isCorrection' => (bool) $op->is_correction,
             'erpPosted' => (bool) $op->erp_posted,

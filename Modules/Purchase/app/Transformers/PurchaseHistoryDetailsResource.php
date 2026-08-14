@@ -445,9 +445,10 @@ class PurchaseHistoryDetailsResource extends JsonResource
 
         if (! $itemId) {
             return [
-                'direct_supplier_price_same_item' => 'n/a',
-                'VIA_PURCHASING_OFFICER_same_item' => 'n/a',
-                'saving_amount' => 'n/a',
+                'direct_supplier_price_same_item' => 0.0,
+                'VIA_PURCHASING_OFFICER_same_item' => 0.0,
+                'saving_amount' => 0.0,
+                'has_comparison' => false,
             ];
         }
 
@@ -461,10 +462,14 @@ class PurchaseHistoryDetailsResource extends JsonResource
         // Calculate saving
         $savingAmount = $directSupplierTotal - $viaPOTotal;
 
+        // Always numeric — the app casts these `as num`, so a string here
+        // ("n/a") crashes the whole Via Purchasing Officer details screen.
+        // `has_comparison` carries the "no data" signal instead.
         return [
-            'direct_supplier_price_same_item' => $directSupplierTotal > 0 ? round($directSupplierTotal, 2) : 'n/a',
-            'VIA_PURCHASING_OFFICER_same_item' => $viaPOTotal > 0 ? round($viaPOTotal, 2) : 'n/a',
-            'saving_amount' => $savingAmount != 0 ? round($savingAmount, 2) : 'n/a',
+            'direct_supplier_price_same_item' => round($directSupplierTotal, 2),
+            'VIA_PURCHASING_OFFICER_same_item' => round($viaPOTotal, 2),
+            'saving_amount' => round($savingAmount, 2),
+            'has_comparison' => $directSupplierTotal > 0,
         ];
     }
 

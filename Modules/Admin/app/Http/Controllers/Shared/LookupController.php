@@ -21,16 +21,36 @@ use Modules\Branch\Models\Branch;
  */
 class LookupController extends AsabController
 {
+    /**
+     * GET /lookups/brands — «العلامة التجارية» filter of every scoped screen.
+     *
+     * Narrowed to the caller's ASSIGNMENT, not merely to their company: an
+     * accountant covering one brand of a four-brand company was offered all
+     * four, and the expenses screen answered «لا توجد بيانات» for the three
+     * they cannot read (2026-08-14). Admin stays unrestricted.
+     */
     public function brands(): JsonResponse
     {
+        $brandIds = $this->assignedBrandIds();
+        $companyIds = $this->tenantCompanyIds();
+
+        $brands = AsabBrand::query()
+            ->when($companyIds !== null, fn ($q) => $q->whereIn('company_id', $companyIds))
+            ->when($brandIds !== null, fn ($q) => $q->whereIn('id', $brandIds))
+            ->orderBy('name')
+            ->get(['id', 'name', 'abbr', 'color']);
+
         return $this->listResponse(
-            AsabBrand::orderBy('name')->get()->map(fn ($b) => ['id' => $b->id, 'name' => $b->name, 'abbr' => $b->abbr, 'color' => $b->color])->all()
+            $brands->map(fn ($b) => ['id' => $b->id, 'name' => $b->name, 'abbr' => $b->abbr, 'color' => $b->color])->all()
         );
     }
 
     public function restaurants(Request $request): JsonResponse
     {
-        $q = AsabRestaurant::query();
+        $brandIds = $this->assignedBrandIds();
+
+        $q = AsabRestaurant::query()
+            ->when($brandIds !== null, fn ($q) => $q->whereIn('brand_id', $brandIds));
         if ($brandId = $request->query('brandId')) {
             $q->where('brand_id', $brandId);
         }
@@ -38,14 +58,50 @@ class LookupController extends AsabController
         return $this->listResponse($q->orderBy('name')->get()->map(fn ($r) => ['id' => $r->id, 'name' => $r->name, 'brandId' => $r->brand_id])->all());
     }
 
+    /**
+     * GET /lookups/branches[?brandId=&restaurantId=] — «الفرع» filter.
+     *
+     * `Branch` is a legacy (mobile-domain) table with no tenant scope, so this
+     * used to hand every caller every branch in the platform. Two consequences,
+     * both reported 2026-08-14: a cross-company enumeration leak, and a «الفرع»
+     * dropdown whose options did not match the rows the screen could actually
+     * load. Scoped through the same resolver the operation reads use.
+     *
+     * `brandId` resolves through BrandBranchResolver — a branch tagged to the
+     * brand only through its restaurant carries a NULL `asab_brand_id`, and
+     * filtering on that column alone answers «no branches».
+     */
     public function branches(Request $request): JsonResponse
     {
-        $q = Branch::query();
+        $q = Branch::query()->select(['id', 'name', 'asab_brand_id', 'asab_restaurant_id']);
+
+        $assigned = app(\Modules\Admin\Services\TenantBranchResolver::class)
+            ->legacyBranchIds(app(\Modules\Admin\Support\TenantContext::class));
+        if ($assigned !== null) {
+            $q->whereIn('id', $assigned);
+        }
+
         if ($restaurantId = $request->query('restaurantId')) {
             $q->where('asab_restaurant_id', $restaurantId);
         }
+        if ($brandId = $request->query('brandId')) {
+            app(\Modules\Admin\Services\BrandBranchResolver::class)->applyFilter($q, $brandId, 'id');
+        }
 
-        return $this->listResponse($q->orderBy('name')->get()->map(fn ($b) => ['id' => $b->id, 'name' => $b->name])->all());
+        $branches = $q->orderBy('name')->get();
+
+        // The brand a restaurant-linked branch belongs to, so the FE can group
+        // «الفرع» under «العلامة التجارية» without a second round trip.
+        $brandOfRestaurant = AsabRestaurant::withoutGlobalScopes()
+            ->whereIn('id', $branches->pluck('asab_restaurant_id')->filter()->unique())
+            ->pluck('brand_id', 'id');
+
+        return $this->listResponse($branches->map(fn ($b) => [
+            'id' => $b->id,
+            'name' => $b->name,
+            'brandId' => $b->asab_brand_id ?? ($brandOfRestaurant[$b->asab_restaurant_id] ?? null),
+            'restaurantId' => $b->asab_restaurant_id,
+        ])->all());
     }
 
     /**

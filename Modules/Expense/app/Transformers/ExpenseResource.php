@@ -26,6 +26,21 @@ class ExpenseResource extends JsonResource
                 'label' => ucfirst($this->status),
                 'color' => $this->getStatusColor(),
             ],
+            // Where the record sits in the two-cycle approval chain, and who put
+            // it there («موافق عليه من المحاسب» / «معتمد من رئيس الحسابات» /
+            // «موافق عليه من مالك العلامة التجارية»). Empty strings, never null:
+            // the app casts these with `as String`.
+            'approval_stage' => [
+                'value' => (string) ($this->approval_stage?->value ?? ''),
+                'label' => (string) ($this->approval_stage?->label() ?? ''),
+                'label_ar' => (string) ($this->approval_stage?->labelAr() ?? ''),
+                'is_locked' => $this->isDecisionLocked(),
+            ],
+            'decided_by' => [
+                'name' => (string) ($this->decided_by_name ?? ''),
+                'role' => (string) ($this->decided_by_role ?? ''),
+                'decided_at' => $this->decided_at?->format('Y-m-d H:i:s') ?? '',
+            ],
             'created_at' => $this->created_at->format('Y-m-d H:i:s'),
         ];
     }

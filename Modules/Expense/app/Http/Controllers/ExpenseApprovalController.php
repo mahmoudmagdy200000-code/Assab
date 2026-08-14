@@ -85,7 +85,7 @@ class ExpenseApprovalController extends BaseController
         try {
             $expenseModel = $this->expenseRepository->findOrFail($expense);
 
-            $this->approvalService->approveExpense($expenseModel, auth()->id());
+            $this->approvalService->approveExpense($expenseModel, auth()->id(), auth()->user()->name);
 
             return $this->successResponse(
                 new ExpenseDetailResource($expenseModel->fresh()),
@@ -124,7 +124,7 @@ class ExpenseApprovalController extends BaseController
         try {
             $expenseModel = $this->expenseRepository->findOrFail($expense);
 
-            $this->approvalService->rejectExpense($expenseModel, auth()->id(), $request->reason);
+            $this->approvalService->rejectExpense($expenseModel, auth()->id(), $request->reason, auth()->user()->name);
 
             return $this->successResponse(
                 new ExpenseDetailResource($expenseModel->fresh()),

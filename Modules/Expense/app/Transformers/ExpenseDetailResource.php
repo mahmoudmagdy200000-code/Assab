@@ -40,6 +40,20 @@ class ExpenseDetailResource extends JsonResource
             'created_at' => $this->created_at?->format('Y-m-d H:i:s') ?? '',
             // A draft has no submitted_at; the list still renders a date for it.
             'submitted_at' => ($this->submitted_at ?? $this->created_at)?->format('Y-m-d H:i:s') ?? '',
+            // The two-cycle approval chain (meeting 2026-08-14). `status` alone
+            // cannot say «موافق عليه من المحاسب — بانتظار رئيس الحسابات»: that
+            // record is still «pending».
+            'approval_stage' => [
+                'value' => (string) ($this->approval_stage?->value ?? ''),
+                'label' => (string) ($this->approval_stage?->label() ?? ''),
+                'label_ar' => (string) ($this->approval_stage?->labelAr() ?? ''),
+                'is_locked' => $this->isDecisionLocked(),
+            ],
+            'decided_by' => [
+                'name' => (string) ($this->decided_by_name ?? ''),
+                'role' => (string) ($this->decided_by_role ?? ''),
+                'decided_at' => $this->decided_at?->format('Y-m-d H:i:s') ?? '',
+            ],
             'approval' => $this->getApprovalFragment(),
             'cancellation' => $this->getCancellationFragment(),
             'timelines' => $this->whenLoaded('timelines', fn () => \App\Http\Resources\UnifiedTimelineResource::collection($this->timelines)),
@@ -342,28 +356,66 @@ class ExpenseDetailResource extends JsonResource
         })->values()->toArray();
     }
 
+    /**
+     * Who decided, for the «تمت الموافقة/الرفض من …» header.
+     *
+     * A dashboard decision (accountant / head of accounts) leaves
+     * `approved_by`/`rejected_by` NULL — they are FKs to the legacy `users`
+     * table and the actor is an `asab_users` row — so the name comes off
+     * `decided_by_name` instead. Without this branch every accountant decision
+     * rendered as an anonymous status flip.
+     */
     private function getApprovalFragment(): ?array
     {
         $actorId = $this->approved_by ?? $this->rejected_by;
+
         if (! $actorId) {
-            return null;
+            if ($this->decided_by_name === null && $this->decided_by_role === null) {
+                return null;
+            }
+
+            return [
+                'id' => null,
+                'name' => (string) ($this->decided_by_name ?? ''),
+                'role' => (string) ($this->decided_by_role ?? ''),
+                'imageUrl' => null,
+                'status' => $this->status === 'rejected' ? 'rejected' : 'approved',
+                'stage' => (string) ($this->approval_stage?->value ?? ''),
+                'stage_label_ar' => (string) ($this->approval_stage?->labelAr() ?? ''),
+            ];
         }
 
         $brandOwner = \Modules\BrandOwner\Models\BrandOwner::find($actorId);
 
         return [
             'id' => $actorId,
-            'name' => $brandOwner?->name ?? 'Brand Owner',
-            'role' => 'brand_owner',
+            'name' => $brandOwner?->name ?? $this->decided_by_name ?? 'Brand Owner',
+            'role' => (string) ($this->decided_by_role ?? 'brand_owner'),
             'imageUrl' => $brandOwner?->image_url,
             'status' => $this->approved_by ? 'approved' : 'rejected',
+            'stage' => (string) ($this->approval_stage?->value ?? ''),
+            'stage_label_ar' => (string) ($this->approval_stage?->labelAr() ?? ''),
         ];
     }
 
     private function getCancellationFragment(): ?array
     {
-        if ($this->status !== 'rejected' || ! $this->rejected_by) {
+        if ($this->status !== 'rejected') {
             return null;
+        }
+
+        // Rejected by the accountant on the dashboard: no legacy actor id, the
+        // name rides in decided_by_name.
+        if (! $this->rejected_by) {
+            return $this->decided_by_name === null && $this->decided_by_role === null ? null : [
+                'cancellation_reason' => $this->rejection_reason,
+                'cancelled_at' => $this->rejected_at?->toIso8601String(),
+                'cancelled_by' => [
+                    'id' => null,
+                    'name' => $this->decided_by_name,
+                    'type' => $this->decided_by_role,
+                ],
+            ];
         }
 
         $brandOwner = \Modules\BrandOwner\Models\BrandOwner::find($this->rejected_by);
