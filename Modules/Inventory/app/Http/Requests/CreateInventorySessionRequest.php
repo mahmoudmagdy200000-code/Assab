@@ -3,6 +3,8 @@
 namespace Modules\Inventory\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Modules\Inventory\Models\DailyInventorySchedule;
+use Modules\Inventory\Models\DailyInventoryScheduleItem;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\PurchaseOrderItem;
@@ -59,6 +61,21 @@ class CreateInventorySessionRequest extends FormRequest
                         ->exists();
 
                     if ($existsAsBranchItem) {
+                        return;
+                    }
+
+                    // The count sheet is the branch's daily schedule, and an item
+                    // management put on it may never have been stocked here — the
+                    // service creates the missing pivot row rather than refusing
+                    // to count an item it just listed.
+                    $existsOnCountSheet = DailyInventoryScheduleItem::where('item_id', $value)
+                        ->whereIn(
+                            'daily_inventory_schedule_id',
+                            DailyInventorySchedule::where('branch_id', $branchId)->select('id')
+                        )
+                        ->exists();
+
+                    if ($existsOnCountSheet) {
                         return;
                     }
 

@@ -326,10 +326,11 @@ class SupplierController extends AsabController
      *
      * Three things can hold it back, and each is invisible to the supplier
      * otherwise (they would learn it from a branch manager who cannot find the
-     * item): a live global name/code collision means the bridge refused to touch
-     * an `items` row it does not own; a company-less (platform) supplier has no
-     * branch set to publish availability to; and a supplier record with no
-     * mobile login has nothing to hang the price row off.
+     * item): a name/code that matches a DELETED row of another catalog, which
+     * the bridge will not resurrect (a live match is shared, not blocked, since
+     * 2026-08-15); a company-less (platform) supplier has no branch set to
+     * publish availability to; and a supplier record with no mobile login has
+     * nothing to hang the price row off.
      *
      * @return array<string, mixed>
      */
@@ -340,8 +341,8 @@ class SupplierController extends AsabController
         if ($item->purchase_item_id === null) {
             $warnings[] = [
                 'code' => 'ITEM_NAME_TAKEN',
-                'message' => 'An item with this name/code already exists in the shared catalog and is owned by another party, so this row was not published to the app.',
-                'messageAr' => 'يوجد صنف بنفس الاسم/الرمز في الكتالوج المشترك يملكه طرف آخر، فلم يُنشر هذا الصنف في التطبيق.',
+                'message' => 'A deleted item with this name/code exists in the shared catalog and belongs to another party, so this row was not published to the app.',
+                'messageAr' => 'يوجد صنف محذوف بنفس الاسم/الرمز في الكتالوج المشترك يخصّ طرفاً آخر، فلم يُنشر هذا الصنف في التطبيق.',
             ];
         }
         if (! $item->company_id) {

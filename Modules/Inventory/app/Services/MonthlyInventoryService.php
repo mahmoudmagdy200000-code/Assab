@@ -38,7 +38,9 @@ class MonthlyInventoryService
      */
     public function getSetupInfo(string $branchId): array
     {
-        $items = $this->sessionService->getBranchItems($branchId, true);
+        // The monthly stock-take counts the branch's WHOLE assigned catalog —
+        // not the daily sheet management picks (getBranchItems).
+        $items = $this->sessionService->getAssignedBranchItems($branchId);
         $count = $items->count();
 
         $expectedMinutes = (int) min(
@@ -114,7 +116,7 @@ class MonthlyInventoryService
     {
         return DB::transaction(function () use ($data, $manager) {
             $branchId = $manager->branch_id;
-            $items = $this->sessionService->getBranchItems($branchId, true);
+            $items = $this->sessionService->getAssignedBranchItems($branchId);
             $count = $items->count();
             $expectedMinutes = (int) min(
                 max(self::MIN_EXPECTED_MINUTES, ceil($count * self::EXPECTED_MINUTES_PER_PRODUCT)),

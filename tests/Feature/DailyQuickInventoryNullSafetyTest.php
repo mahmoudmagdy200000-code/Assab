@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Inventory\Models\DailyInventorySchedule;
+use Modules\Inventory\Models\DailyInventoryScheduleItem;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\Item;
 use Tests\TestCase;
@@ -50,7 +52,30 @@ class DailyQuickInventoryNullSafetyTest extends TestCase
             'quantity' => 10,
         ]);
 
+        $this->scheduleForCount($item);
+
         return $item;
+    }
+
+    /**
+     * What the accountant's «تحديد أصناف الجرد اليومي» leaves behind: the count
+     * sheet. Without it the app lists nothing — that IS the contract now.
+     */
+    private function scheduleForCount(Item ...$items): DailyInventorySchedule
+    {
+        $schedule = DailyInventorySchedule::firstOrCreate(
+            ['branch_id' => $this->branch->id],
+            ['start_date' => today()->toDateString(), 'start_time' => '20:00', 'is_active' => true],
+        );
+
+        foreach ($items as $index => $item) {
+            DailyInventoryScheduleItem::firstOrCreate([
+                'daily_inventory_schedule_id' => $schedule->id,
+                'item_id' => $item->id,
+            ], ['sort_order' => $index]);
+        }
+
+        return $schedule;
     }
 
     public function test_branch_items_returns_strings_for_sparse_uploaded_rows(): void
@@ -89,6 +114,7 @@ class DailyQuickInventoryNullSafetyTest extends TestCase
             'price' => 9.25,
             'quantity' => 5,
         ]);
+        $this->scheduleForCount($item);
 
         $row = $this->actingAs($this->manager, 'sanctum')
             ->getJson('/api/v1/inventory/daily-quick/branch-items')

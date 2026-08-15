@@ -27,10 +27,11 @@ use Modules\Supplier\Models\Supplier as LegacySupplier;
  *    linked supplier and a price.
  *
  * CAUTION: items / branch_item / supplier_items are tenant-unscoped legacy
- * tables. Create-only like the raw-materials upload bridge
- * (UploadController::importCatalogRow): any code/name collision with a row
- * this bridge didn't create — live or soft-deleted — is skipped, never
- * overwritten. Runs inside the caller's DB transaction (no facades, DI only).
+ * tables. A live code/name match this bridge did not create is REFERENCED
+ * (linked, so the supplier gets its priced row) but never renamed or deleted —
+ * see resolveMobileItem and the `owns_purchase_item` flag; a soft-deleted
+ * foreign match is skipped outright. Runs inside the caller's DB transaction
+ * (no facades, DI only).
  */
 class ProcurementCatalogBridgeService
 {
@@ -45,19 +46,37 @@ class ProcurementCatalogBridgeService
     {
         $mobile = $this->resolveMobileItem($item);
         if ($mobile === null) {
-            return; // live collision with a row we don't own — skip, never clobber
+            return; // trashed row of another catalog — resurrecting it is not ours to do
         }
 
-        if ($item->purchase_item_id !== $mobile->id) {
-            $item->forceFill(['purchase_item_id' => $mobile->id])->save();
+        $item->forceFill(['purchase_item_id' => $mobile->id]);
+        if ($item->isDirty()) {
+            $item->save(); // also persists an ownership flag set while resolving
         }
 
-        $mobile->fill([
-            'name' => $item->name,
-            'unit' => $item->unit,
-            'category' => $item->category,
-            'is_active' => $item->status !== 'inactive',
-        ])->save();
+        if ($item->owns_purchase_item) {
+            $mobile->fill([
+                'name' => $item->name,
+                'unit' => $item->unit,
+                'category' => $item->category,
+                'is_active' => $item->status !== 'inactive',
+            ])->save();
+        } else {
+            // A shared row (same code as a brand upload or another supplier's
+            // catalog): fill blanks only. Renaming it would rewrite a list this
+            // supplier does not own — but REFERENCING it is exactly what makes
+            // the priced supplier_items row point at the item the branch stocks.
+            $fill = [];
+            if (trim((string) $mobile->unit) === '' && trim((string) $item->unit) !== '') {
+                $fill['unit'] = $item->unit;
+            }
+            if (trim((string) $mobile->category) === '' && trim((string) $item->category) !== '') {
+                $fill['category'] = $item->category;
+            }
+            if ($fill !== []) {
+                $mobile->fill($fill)->save();
+            }
+        }
 
         $this->seedBranchItems($item, $mobile);
         $this->syncPricedSupplierRow($item, $mobile);
@@ -75,10 +94,15 @@ class ProcurementCatalogBridgeService
             return;
         }
 
-        $mobile = PurchaseItem::find($item->purchase_item_id);
-        if ($mobile !== null) {
-            $mobile->fill(['is_active' => false])->save();
-            $mobile->delete(); // soft delete
+        // Only a row this bridge created may be deleted. A shared row belongs to
+        // the brand upload / another supplier that also sells it — deleting it
+        // would empty THEIR pickers; dropping the priced row below is enough.
+        if ($item->owns_purchase_item) {
+            $mobile = PurchaseItem::find($item->purchase_item_id);
+            if ($mobile !== null) {
+                $mobile->fill(['is_active' => false])->save();
+                $mobile->delete(); // soft delete
+            }
         }
 
         MobileSupplierItem::where('item_id', $item->purchase_item_id)
@@ -92,8 +116,10 @@ class ProcurementCatalogBridgeService
         // pivot); rows with quantity > 0 hold real stock and are kept.
         // Company-less (platform) items seeded no branch rows in the first
         // place — see seedBranchItems — so there is nothing to clean up, and
-        // `where($col, null)` would reach every unlinked branch instead.
-        if ($item->company_id) {
+        // `where($col, null)` would reach every unlinked branch instead. A
+        // shared row keeps its branch rows too: the item is still live for the
+        // catalog that owns it, and the branch counts it in the جرد.
+        if ($item->company_id && $item->owns_purchase_item) {
             BranchItem::where('item_id', $item->purchase_item_id)
                 ->whereIn('branch_id', Branch::where('asab_company_id', $item->company_id)->pluck('id'))
                 ->where('quantity', 0)
@@ -198,20 +224,29 @@ class ProcurementCatalogBridgeService
     }
 
     /**
-     * Create-only resolution into the global items table: reuse the linked
-     * row, else match by code (or name when codeless). Any unlinked match —
-     * live OR soft-deleted — may be another brand's row (items carries no
-     * tenant column), so it is skipped unless our own bridge created it
-     * (purchase_item_id linkage, set only at creation time). Stricter than
-     * the upload bridge, which restores trashed matches: resurrecting and
-     * renaming a foreign brand's deleted row would rewrite its history.
+     * Resolve the mobile `items` row this supplier item projects onto, and
+     * record on the asab row (in memory — syncItem persists it) whether the row
+     * is OURS to rewrite.
+     *
+     * `items.code` is UNIQUE and the table carries no tenant column, so a code
+     * already used by a brand's raw-material upload — or by another supplier
+     * selling the same thing — can never get a second row. Skipping such an
+     * item, as this bridge used to, left the supplier with no `supplier_items`
+     * row at all: the dashboard showed a full catalog while the app's «choose
+     * supplier for this item» came back empty, and `asab:bridge-backfill
+     * --catalog` re-ran the same skip (2026-08-15). We now LINK to the shared
+     * row — a reference clobbers nothing — and the ownership flag keeps the
+     * rename/delete paths off it.
+     *
+     * A TRASHED match is still skipped unless we own it: restoring another
+     * catalog's deleted item would put it back in their pickers.
      */
     private function resolveMobileItem(AsabSupplierItem $item): ?PurchaseItem
     {
         if ($item->purchase_item_id) {
             $linked = PurchaseItem::withTrashed()->find($item->purchase_item_id);
             if ($linked !== null) {
-                if ($linked->trashed()) {
+                if ($linked->trashed() && $item->owns_purchase_item) {
                     $linked->restore();
                 }
 
@@ -225,6 +260,8 @@ class ProcurementCatalogBridgeService
             ->first();
 
         if ($existing === null) {
+            $item->owns_purchase_item = true;
+
             return PurchaseItem::create([
                 'name' => $item->name,
                 'code' => $code !== '' ? $code : null,
@@ -234,8 +271,13 @@ class ProcurementCatalogBridgeService
             ]);
         }
 
-        if ($existing->trashed() && $this->createdByTenantBridge($existing->id, $item->company_id)) {
+        if (! $existing->trashed()) {
+            return $existing; // shared row: reference it, never rewrite it
+        }
+
+        if ($this->createdByTenantBridge($existing->id, $item->company_id)) {
             $existing->restore();
+            $item->owns_purchase_item = true;
 
             return $existing;
         }
@@ -245,7 +287,9 @@ class ProcurementCatalogBridgeService
 
     /**
      * Ownership signal for a trashed code/name match: only rows this tenant's
-     * bridge created (and thus linked) are safe to restore and rewrite.
+     * bridge created are safe to restore and rewrite. A merely LINKED row is
+     * not enough — since 2026-08-15 a link can point at a shared row this
+     * tenant never created.
      */
     private function createdByTenantBridge(string $mobileItemId, ?string $companyId): bool
     {
@@ -255,6 +299,7 @@ class ProcurementCatalogBridgeService
                 fn ($q) => $q->where('company_id', $companyId),
             )
             ->where('purchase_item_id', $mobileItemId)
+            ->where('owns_purchase_item', true)
             ->exists();
     }
 

@@ -791,6 +791,14 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             return $this->allOrderableSuppliers($filters, $branchId);
         }
 
+        // The picker sends whatever id the item row it opened carried: `item_id`
+        // is the catalog item, `id` is the branch_item pivot row. comparePrices
+        // has always accepted both; this one did not, and a pivot id matched no
+        // supplier catalog row — an empty list under «All Suppliers (n)».
+        if (! Item::whereKey($itemId)->exists()) {
+            $itemId = BranchItem::whereKey($itemId)->value('item_id') ?? $itemId;
+        }
+
         $query = SupplierItem::with('supplier')
             ->byItem($itemId)
             ->available()
@@ -1008,9 +1016,20 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
 
         // Get branches with inventory data from Daily Quick Inventory
         // Performance: Use optimized query to get latest inventory data for all branches
+        // A counted-and-approved session IS the branch's stock figure. Reading
+        // COMPLETED only hid every branch whose جرد ended with a discrepancy
+        // (that session stays PENDING_YOUR_CONFIRMATION — the branch reviewing
+        // the report never moves it on), so «from another branch» came back
+        // empty for branches that had just counted (2026-08-15).
+        $countedStatuses = [
+            InventorySessionStatus::COMPLETED,
+            InventorySessionStatus::APPROVED,
+            InventorySessionStatus::PENDING_YOUR_CONFIRMATION,
+        ];
+
         $branchesWithInventory = InventoryItem::where('item_id', $item->id)
-            ->whereHas('inventorySession', function ($query) {
-                $query->where('status', InventorySessionStatus::COMPLETED);
+            ->whereHas('inventorySession', function ($query) use ($countedStatuses) {
+                $query->whereIn('status', $countedStatuses);
             })
             ->whereHas('branch', function ($query) use ($excludeBranchId) {
                 $query->where('id', '!=', $excludeBranchId);

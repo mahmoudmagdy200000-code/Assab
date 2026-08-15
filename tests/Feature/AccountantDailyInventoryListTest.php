@@ -259,6 +259,25 @@ class AccountantDailyInventoryListTest extends TestCase
         $this->assertSame(1, DailyInventoryScheduleItem::where('daily_inventory_schedule_id', $schedule->id)->count());
     }
 
+    /** Emptying the selection is a real intent — and it must reach the app. */
+    public function test_an_empty_selection_clears_the_apps_count_sheet(): void
+    {
+        $raw = InventoryCatalogItem::where('type', InventoryCatalogItem::TYPE_RAW_MATERIAL)->pluck('id')->all();
+
+        $this->actingAs($this->accountant, 'sanctum')
+            ->putJson("/api/v1/accountant/inventory/branches/{$this->branch->id}/daily-list", ['items' => $raw])
+            ->assertSuccessful();
+
+        $this->actingAs($this->accountant, 'sanctum')
+            ->putJson("/api/v1/accountant/inventory/branches/{$this->branch->id}/daily-list", ['items' => []])
+            ->assertSuccessful()
+            ->assertJsonPath('savedCount', 0)
+            ->assertJsonPath('appListCount', 0);
+
+        $schedule = DailyInventorySchedule::where('branch_id', $this->branch->id)->firstOrFail();
+        $this->assertSame(0, DailyInventoryScheduleItem::where('daily_inventory_schedule_id', $schedule->id)->count());
+    }
+
     /** An existing legacy item is reused, never duplicated. */
     public function test_an_existing_mobile_item_is_reused(): void
     {

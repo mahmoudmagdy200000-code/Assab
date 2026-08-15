@@ -23,5 +23,9 @@ class SupplierItem extends Model
         'max_qty' => 'integer',
         'available' => 'boolean',
         'lead_time_days' => 'integer',
+        // Whether the linked mobile `items` row was created by this bridge —
+        // a shared row (same code as a brand upload / another supplier) is
+        // referenced, never renamed or deleted. Set by the bridge, not fillable.
+        'owns_purchase_item' => 'boolean',
     ];
 }

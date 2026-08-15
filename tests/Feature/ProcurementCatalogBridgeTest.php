@@ -206,19 +206,59 @@ class ProcurementCatalogBridgeTest extends TestCase
         $this->assertStringNotContainsString('FLR-01', $after->getContent());
     }
 
-    public function test_cross_brand_code_collision_is_skipped_without_clobbering(): void
+    /**
+     * `items.code` is UNIQUE, so a supplier item whose code already exists can
+     * never mint its own row. Skipping it left the supplier with NO priced row
+     * — a full dashboard catalog above an empty «choose supplier» list in the
+     * app (2026-08-15). The shared row is linked and left exactly as it was.
+     */
+    public function test_live_code_collision_links_without_clobbering(): void
     {
+        $supplier = $this->createSupplier();
         $other = PurchaseItem::create(['name' => 'صنف علامة أخرى', 'code' => 'SHARED-01', 'unit' => 'kg', 'is_active' => true]);
 
         $res = $this->as()->postJson('/api/v1/company/me/procurement/items', [
             'name' => 'صنفنا نحن', 'unit' => 'كجم', 'lastPriceHalalas' => 900, 'code' => 'SHARED-01',
+            'supplierId' => $supplier['asabId'],
         ]);
-        $res->assertCreated(); // the dashboard row is still created
+        $res->assertCreated();
 
         $asabItem = AsabSupplierItem::findOrFail($res->json('id'));
-        $this->assertNull($asabItem->purchase_item_id, 'live collision must not be linked');
+        $this->assertSame($other->id, $asabItem->purchase_item_id, 'the shared row must be linked, not skipped');
+        $this->assertFalse((bool) $asabItem->owns_purchase_item, 'a shared row is referenced, never owned');
+
         $this->assertSame('صنف علامة أخرى', $other->fresh()->name, 'other brand row must be untouched');
+        $this->assertSame('kg', $other->fresh()->unit);
         $this->assertSame(1, PurchaseItem::withTrashed()->where('code', 'SHARED-01')->count());
+
+        $priced = MobileSupplierItem::where('supplier_id', $supplier['legacyId'])
+            ->where('item_id', $other->id)->first();
+        $this->assertNotNull($priced, 'the supplier must still get its priced row for the shared item');
+        $this->assertEquals(9.00, (float) $priced->unit_price);
+    }
+
+    /** Destroying a shared item drops OUR price row and leaves the item alive. */
+    public function test_destroying_a_shared_item_never_deletes_the_other_catalogs_row(): void
+    {
+        $supplier = $this->createSupplier();
+        $other = PurchaseItem::create(['name' => 'أرز الآخرين', 'code' => 'SHARED-02', 'unit' => 'kg', 'is_active' => true]);
+
+        $created = $this->as()->postJson('/api/v1/company/me/procurement/items', [
+            'name' => 'أرزنا', 'unit' => 'كجم', 'lastPriceHalalas' => 1000, 'code' => 'SHARED-02',
+            'supplierId' => $supplier['asabId'],
+        ]);
+        $created->assertCreated();
+        $asabItem = AsabSupplierItem::findOrFail($created->json('id'));
+
+        $this->as()->deleteJson('/api/v1/company/me/procurement/items/'.$asabItem->id)->assertNoContent();
+
+        $shared = PurchaseItem::withTrashed()->findOrFail($other->id);
+        $this->assertFalse($shared->trashed(), 'a shared row must survive our delete');
+        $this->assertTrue((bool) $shared->is_active);
+
+        $priced = MobileSupplierItem::where('supplier_id', $supplier['legacyId'])
+            ->where('item_id', $other->id)->firstOrFail();
+        $this->assertFalse((bool) $priced->is_available, 'our price row must drop out of the picker');
     }
 
     public function test_soft_deleted_foreign_row_is_not_resurrected_or_renamed(): void

@@ -206,6 +206,38 @@ class PurchaseSupplierPickerTest extends TestCase
         ]);
     }
 
+    public function test_suppliers_for_an_item_are_found_by_item_id(): void
+    {
+        $item = $this->catalogItem('طماطم', stockedByBranch: true);
+
+        $rows = $this->actingAs($this->manager, 'sanctum')
+            ->getJson('/api/v1/purchase/orders/suppliers?item_id='.$item->id.'&search=')
+            ->assertStatus(200)
+            ->json('data');
+
+        $this->assertCount(1, $rows);
+        $this->assertSame($this->supplier->id, $rows[0]['supplier_id']);
+    }
+
+    /**
+     * The item cards carry both ids (`id` = the branch_item pivot row,
+     * `item_id` = the catalog item). Sending the pivot id matched no supplier
+     * catalog row — «All Suppliers (n)» above an empty list (2026-08-15).
+     */
+    public function test_suppliers_for_an_item_are_found_by_branch_item_id(): void
+    {
+        $item = $this->catalogItem('طماطم', stockedByBranch: true);
+        $pivotId = BranchItem::where('branch_id', $this->branch->id)->where('item_id', $item->id)->value('id');
+
+        $rows = $this->actingAs($this->manager, 'sanctum')
+            ->getJson('/api/v1/purchase/orders/suppliers?item_id='.$pivotId.'&search=')
+            ->assertStatus(200)
+            ->json('data');
+
+        $this->assertCount(1, $rows);
+        $this->assertSame($this->supplier->id, $rows[0]['supplier_id']);
+    }
+
     public function test_the_item_cards_supplier_count_matches_the_picker(): void
     {
         $sold = $this->catalogItem('طماطم', stockedByBranch: true);

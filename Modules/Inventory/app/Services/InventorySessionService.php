@@ -8,31 +8,41 @@ use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Inventory\Enums\DailyInventoryTimelineEventType;
 use Modules\Inventory\Enums\InventorySessionStatus;
+use Modules\Inventory\Models\DailyInventorySchedule;
+use Modules\Inventory\Models\DailyInventoryScheduleItem;
 use Modules\Inventory\Models\InventoryItem;
 use Modules\Inventory\Models\InventorySession;
 use Modules\Inventory\Models\InventorySessionTimeline;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Models\BranchItem;
+use Modules\Purchase\Models\Item;
 use Modules\Purchase\Models\PurchaseOrderItem;
 
 class InventorySessionService
 {
     /**
-     * Get branch items (from branch purchase configuration) for daily inventory.
-     * Items are only from those assigned to the branch (branch_item).
+     * The branch's daily count sheet: the items MANAGEMENT selected, i.e. the
+     * branch's daily-inventory schedule (written by the accountant's «تحديد
+     * أصناف الجرد اليومي» through DailyInventoryListBridgeService, or by the
+     * branch's own schedule screen) — never the whole branch_item pivot.
+     *
+     * Reading the pivot is why the app listed every uploaded item under
+     * «Products pre-selected by management» before anything had been selected
+     * or sent from the dashboard (2026-08-15). No schedule, or a schedule with
+     * no items, is an empty sheet — the same «0 صنف» the dashboard shows.
+     *
      * By default excludes items that are in an ACTIVE session (draft/pending/pending_your_action/pending_your_confirmation).
      * Items from completed, approved, or rejected sessions are always available again.
      *
-     * @param  bool  $includeAll  When true, return all branch items without any exclusion.
+     * @param  bool  $includeAll  When true, return the whole sheet without the active-session exclusion.
      */
     public function getBranchItems(string $branchId, bool $includeAll = false): Collection
     {
-        // whereHas('item'): a soft-deleted catalog item (deactivated on the
-        // dashboard while branch stock != 0) leaves a ghost branch_item whose
-        // every display field is null — the mobile app casts them to String.
-        $query = BranchItem::with(['item:id,name,code,logo,unit,category,subcategory'])
-            ->where('branch_id', $branchId)
-            ->whereHas('item');
+        $itemIds = $this->scheduledItemIds($branchId);
+
+        if ($itemIds->isEmpty()) {
+            return collect();
+        }
 
         if (! $includeAll) {
             $activeStatuses = [
@@ -48,30 +58,118 @@ class InventorySessionService
                 ->distinct()
                 ->pluck('item_id');
 
-            $query->whereNotIn('item_id', $itemIdsInActiveSessions);
+            $itemIds = $itemIds->diff($itemIdsInActiveSessions)->values();
+
+            if ($itemIds->isEmpty()) {
+                return collect();
+            }
         }
 
-        return $query
+        // A soft-deleted catalog item (deactivated on the dashboard while the
+        // branch still holds stock) must not surface: its every display field
+        // is null and the mobile app casts them to String.
+        $items = Item::whereIn('id', $itemIds)
+            ->get(['id', 'name', 'code', 'logo', 'unit', 'category', 'subcategory'])
+            ->keyBy('id');
+
+        // The pivot carries the branch's own price/quantity when it has one; a
+        // scheduled item the branch never stocked still belongs on the sheet.
+        $branchItems = BranchItem::where('branch_id', $branchId)
+            ->whereIn('item_id', $itemIds)
+            ->get()
+            ->keyBy('item_id');
+
+        return $itemIds
+            ->map(function ($itemId) use ($items, $branchItems) {
+                $item = $items->get($itemId);
+                if ($item === null) {
+                    return null;
+                }
+
+                $branchItem = $branchItems->get($itemId);
+
+                return [
+                    'id' => $branchItem?->id ?? $item->id,
+                    'branch_item_id' => $branchItem?->id,
+                    'item_id' => $item->id,
+                    // Uploaded catalog rows carry NULL code/unit/category and the
+                    // app casts these to String — coalesce like BranchItemResource.
+                    'item_name' => $item->name ?? '',
+                    'item_code' => $item->code ?? '',
+                    'item_logo' => $item->logo_url ?? '',
+                    'item_unit' => $item->unit ?? 'kg',
+                    'category' => $item->category ?? '',
+                    'subcategory' => $item->subcategory ?? '',
+                    'price' => $branchItem?->price ?? 0,
+                    'quantity' => $branchItem?->quantity ?? 0,
+                ];
+            })
+            ->filter()
+            ->sortBy('item_name')
+            ->values();
+    }
+
+    /**
+     * Every item ASSIGNED to the branch (the `branch_item` pivot) — the whole
+     * catalog it may hold, not the daily selection.
+     *
+     * This is the monthly stock-take's population: «الجرد الشهري» counts the
+     * branch's full catalog, while getBranchItems() is the DAILY sheet
+     * management picks. They were one method until 2026-08-15, which is why
+     * scoping the daily list to the schedule would otherwise have emptied the
+     * monthly count too.
+     */
+    public function getAssignedBranchItems(string $branchId): Collection
+    {
+        // whereHas('item'): a soft-deleted catalog item (deactivated on the
+        // dashboard while branch stock != 0) leaves a ghost branch_item whose
+        // every display field is null — the mobile app casts them to String.
+        return BranchItem::with(['item:id,name,code,logo,unit,category,subcategory'])
+            ->where('branch_id', $branchId)
+            ->whereHas('item')
             ->get()
             ->sortBy(fn ($bi) => $bi->item?->name ?? '')
             ->values()
-            ->map(function ($branchItem) {
-                return [
-                    'id' => $branchItem->id,
-                    'branch_item_id' => $branchItem->id,
-                    'item_id' => $branchItem->item_id,
-                    // Uploaded catalog rows carry NULL code/unit/category and the
-                    // app casts these to String — coalesce like BranchItemResource.
-                    'item_name' => $branchItem->item?->name ?? '',
-                    'item_code' => $branchItem->item?->code ?? '',
-                    'item_logo' => $branchItem->item?->logo_url ?? '',
-                    'item_unit' => $branchItem->item?->unit ?? 'kg',
-                    'category' => $branchItem->item?->category ?? '',
-                    'subcategory' => $branchItem->item?->subcategory ?? '',
-                    'price' => $branchItem->price,
-                    'quantity' => $branchItem->quantity,
-                ];
-            });
+            ->map(fn ($branchItem) => [
+                'id' => $branchItem->id,
+                'branch_item_id' => $branchItem->id,
+                'item_id' => $branchItem->item_id,
+                // Uploaded catalog rows carry NULL code/unit/category and the
+                // app casts these to String — coalesce like BranchItemResource.
+                'item_name' => $branchItem->item?->name ?? '',
+                'item_code' => $branchItem->item?->code ?? '',
+                'item_logo' => $branchItem->item?->logo_url ?? '',
+                'item_unit' => $branchItem->item?->unit ?? 'kg',
+                'category' => $branchItem->item?->category ?? '',
+                'subcategory' => $branchItem->item?->subcategory ?? '',
+                'price' => $branchItem->price,
+                'quantity' => $branchItem->quantity,
+            ]);
+    }
+
+    /**
+     * Item ids on the branch's daily schedule, in the order management chose.
+     * Active row first, then the most recent — the same row the dashboard
+     * bridge writes to (DailyInventoryListBridgeService::replaceScheduleItems).
+     *
+     * @return Collection<int, string>
+     */
+    private function scheduledItemIds(string $branchId): Collection
+    {
+        $scheduleId = DailyInventorySchedule::where('branch_id', $branchId)
+            ->orderByDesc('is_active')
+            ->orderByDesc('created_at')
+            ->value('id');
+
+        if ($scheduleId === null) {
+            return collect();
+        }
+
+        return DailyInventoryScheduleItem::where('daily_inventory_schedule_id', $scheduleId)
+            ->orderBy('sort_order')
+            ->pluck('item_id')
+            ->unique()
+            ->values();
     }
 
     /**
@@ -276,7 +374,25 @@ class InventorySessionService
         $branchItem = BranchItem::with('item')
             ->where('branch_id', $branchId)
             ->where('item_id', $identifier)
-            ->firstOrFail();
+            ->first();
+
+        if ($branchItem === null) {
+            // The count sheet is the schedule, and a scheduled item the branch
+            // never stocked has no pivot row yet — create it rather than fail
+            // the count on an item management itself put on the sheet.
+            if (! $this->scheduledItemIds($branchId)->contains($identifier)) {
+                throw (new \Illuminate\Database\Eloquent\ModelNotFoundException)
+                    ->setModel(BranchItem::class, [$identifier]);
+            }
+
+            $branchItem = BranchItem::create([
+                'branch_id' => $branchId,
+                'item_id' => $identifier,
+                'price' => 0,
+                'quantity' => 0,
+            ]);
+            $branchItem->load('item');
+        }
 
         $existingItem = InventoryItem::where('inventory_session_id', $sessionId)
             ->where('item_id', $identifier)

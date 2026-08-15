@@ -387,7 +387,11 @@ class InventoryController extends AsabController
     public function saveDailyList(Request $request, RealtimeBroadcaster $rt, NotificationService $notifications, string $branchId): JsonResponse
     {
         return $this->run(function () use ($request, $rt, $notifications, $branchId) {
-            $data = $request->validate(['items' => 'required|array', 'items.*' => 'string']);
+            // `present`, not `required`: an EMPTY selection is a real intent —
+            // the accountant emptying the branch's sheet — and the bridge
+            // already clears the app list for it. `required` rejected `[]` with
+            // a 422, so a list could be replaced but never cleared.
+            $data = $request->validate(['items' => 'present|array', 'items.*' => 'string']);
             $this->assertBranchAssigned($branchId);
 
             // A repeated id in one payload would hit the (branch_id,
