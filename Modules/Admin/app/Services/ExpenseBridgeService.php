@@ -2,8 +2,8 @@
 
 namespace Modules\Admin\Services;
 
+use App\Support\PublicUrl;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Modules\Admin\Models\ApprovalStep;
 use Modules\Admin\Models\Attachment;
 use Modules\Admin\Models\Operation;
@@ -277,7 +277,7 @@ class ExpenseBridgeService
                         'filename' => $a->file_name,
                         'mime_type' => $this->mime($a->file_type),
                         'size' => (int) $a->file_size,
-                        'public_url' => Storage::disk('public')->url($a->file_path),
+                        'public_url' => PublicUrl::for($a->file_path),
                         'label' => $a->invoice_detail_id !== null && isset($indexOf[$a->invoice_detail_id])
                             ? 'invoice:'.$indexOf[$a->invoice_detail_id]
                             : 'expense',
@@ -405,7 +405,7 @@ class ExpenseBridgeService
             'storageKey' => $a->file_path,
             // A real absolute URL — the raw storage key rendered as a broken
             // image on the dashboard.
-            'publicUrl' => Storage::disk('public')->url($a->file_path),
+            'publicUrl' => PublicUrl::for($a->file_path),
         ])->values()->all();
     }
 

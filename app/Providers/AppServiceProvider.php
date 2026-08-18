@@ -84,6 +84,17 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // Same shape as `supplier-auth`: a per-IP ceiling plus a tighter one per
+        // identifier, so one handset retrying cannot be used to walk the account
+        // list. The cashier auth routes carried NO limiter at all until
+        // 2026-08-15.
+        RateLimiter::for('cashier-auth', function (Request $request) {
+            return [
+                Limit::perMinute(20)->by($request->ip()),
+                Limit::perMinute(8)->by((string) $request->input('identifier')),
+            ];
+        });
+
         RateLimiter::for('purchase-write', function (Request $request) {
             return Limit::perMinute(40)->by((string) optional($request->user())->getAuthIdentifier() ?: $request->ip());
         });

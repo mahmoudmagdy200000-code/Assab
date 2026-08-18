@@ -186,6 +186,21 @@ class Cashier extends Authenticatable
         return $this->status === 'deactivated';
     }
 
+    /**
+     * The cashier's counterpart of `is_first_login` on the other three mobile
+     * account types (branch manager, brand owner, supplier).
+     *
+     * A cashier is created `pending` and carries no `is_first_login` column —
+     * `status` is the same fact under a different name. Naming it explicitly
+     * lets the shared activation contract (FirstLoginActivation::maySetPassword)
+     * apply here unchanged, instead of the cashier being the one surface with
+     * bespoke rules (meeting 2026-08-15).
+     */
+    public function isFirstLogin(): bool
+    {
+        return $this->isPending();
+    }
+
     public function hasActiveShift(): bool
     {
         return $this->shifts()

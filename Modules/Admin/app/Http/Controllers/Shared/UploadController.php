@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Http\Controllers\Shared;
 
+use App\Support\PublicUrl;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -81,7 +82,7 @@ class UploadController extends AsabController
                 'mime_type' => $file->getClientMimeType(),
                 'size' => $file->getSize(),
                 'storage_key' => $path,
-                'public_url' => Storage::disk('public')->url($path),
+                'public_url' => PublicUrl::for($path),
                 'label' => $request->input('label'),
                 'uploaded_by_id' => $request->user()->id,
                 'uploaded_at' => now(),
@@ -100,7 +101,7 @@ class UploadController extends AsabController
     {
         return $this->run(function () use ($id) {
             $a = Attachment::findOrFail($id);
-            $url = $a->public_url ?: (Storage::disk('public')->exists($a->storage_key) ? Storage::disk('public')->url($a->storage_key) : null);
+            $url = $a->public_url ?: (Storage::disk('public')->exists($a->storage_key) ? PublicUrl::for($a->storage_key) : null);
 
             return $this->ok(['url' => $url, 'expiresIn' => 600]);
         });

@@ -4,6 +4,7 @@ namespace Modules\Expense\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
 use App\Services\StreamUploadService;
+use App\Support\PublicUrl;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -420,7 +421,7 @@ class ExpenseAttachmentController extends BaseController
                                 'file_type' => $attachment->file_type,
                                 'file_size' => $attachment->file_size,
                                 'file_size_formatted' => $this->formatFileSize($attachment->file_size),
-                                'file_url' => Storage::disk('public')->url($attachment->file_path),
+                                'file_url' => PublicUrl::for($attachment->file_path),
                                 'created_at' => $attachment->created_at,
                             ];
                         }),
@@ -444,7 +445,7 @@ class ExpenseAttachmentController extends BaseController
                     'file_type' => $attachment->file_type,
                     'file_size' => $attachment->file_size,
                     'file_size_formatted' => $this->formatFileSize($attachment->file_size),
-                    'file_url' => Storage::disk('public')->url($attachment->file_path),
+                    'file_url' => PublicUrl::for($attachment->file_path),
                     'invoice_detail_id' => $attachment->invoice_detail_id,
                     'created_at' => $attachment->created_at,
                 ];
@@ -496,7 +497,7 @@ class ExpenseAttachmentController extends BaseController
             'file_type' => $attachment->file_type,
             'file_size' => $attachment->file_size,
             'file_size_formatted' => $this->formatFileSize($attachment->file_size),
-            'file_url' => Storage::disk('public')->url($path),
+            'file_url' => PublicUrl::for($path),
             'invoice_detail_id' => $invoiceDetailId,
             'created_at' => $attachment->created_at,
         ];

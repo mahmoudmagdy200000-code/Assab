@@ -39,6 +39,15 @@ class BranchManagerT12Test extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // The report chips are wall-clock derived: a submission after the
+        // report's 23:00 deadline reads «late», not «success»
+        // (BranchDailyReportsService::submittedLate). Left on the real clock the
+        // approval test passes all day and fails every night — it did, in the
+        // 2026-08-15 overnight run, and cost a re-run to prove it was not a
+        // regression. Pin the class to a mid-morning «today» instead.
+        $this->travelTo(now()->setTime(9, 0));
+
         $this->company = AsabCompany::create(['name' => 'T12 Co', 'plan' => 'Professional', 'status' => 'active']);
         $this->brand = AsabBrand::create(['company_id' => $this->company->id, 'name' => 'Brand T12', 'status' => 'active']);
         $this->branch = Branch::create([

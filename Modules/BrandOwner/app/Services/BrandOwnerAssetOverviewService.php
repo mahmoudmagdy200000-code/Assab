@@ -2,6 +2,7 @@
 
 namespace Modules\BrandOwner\Services;
 
+use App\Support\PublicUrl;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -69,7 +70,7 @@ class BrandOwnerAssetOverviewService
             'branch_id' => (string) $branch->id,
             'branch_name' => (string) ($branch->name ?? ''),
             'format' => $format,
-            'url' => Storage::disk('public')->url($path),
+            'url' => PublicUrl::for($path),
             'message' => "Report exported successfully in {$format} format.",
         ];
     }

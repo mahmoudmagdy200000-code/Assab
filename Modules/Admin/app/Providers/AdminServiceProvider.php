@@ -101,6 +101,7 @@ class AdminServiceProvider extends ServiceProvider
             \Modules\Admin\Console\Commands\InventoryDoctorCommand::class,
             \Modules\Admin\Console\Commands\RepairEmployeesCommand::class,
             \Modules\Admin\Console\Commands\AccountantDoctorCommand::class,
+            \Modules\Admin\Console\Commands\StorageDoctorCommand::class,
             \Modules\Admin\Console\Commands\GenerateRemindersCommand::class,
             \Modules\Admin\Console\Commands\DispatchRemindersCommand::class,
         ]);

@@ -15,9 +15,25 @@ use Modules\Cashier\Http\Controllers\ProfileController;
 |--------------------------------------------------------------------------
 */
 
-Route::prefix('cashier/auth')->group(function () {
+/*
+ | Public cashier auth. Every route here is throttled: these are unauthenticated
+ | credential endpoints and were the only mobile auth surface with no limiter at
+ | all (the other three carry `throttle:supplier-auth` or `throttle:6,1`).
+ */
+Route::prefix('cashier/auth')->middleware('throttle:cashier-auth')->group(function () {
     Route::post('/login', [LoginController::class, 'login']);
+
+    // Step 1 of the shared mobile first-login flow — sign in with the password
+    // the branch manager issued and receive the `first-login-token`. The cashier
+    // was the only account type missing it (meeting 2026-08-15).
+    Route::post('/first-login', [ActivationController::class, 'firstLogin']);
+
+    // Step 2 «activate Account». `/activate` is the name the shipped app calls;
+    // `/reset-password-first-login` is the name the other three surfaces use.
+    // Same handler, so either build activates a cashier.
     Route::post('/activate', [ActivationController::class, 'activate']);
+    Route::post('/reset-password-first-login', [ActivationController::class, 'activate']);
+
     Route::post('/forgot-password', [PasswordResetController::class, 'sendOTP']);
     Route::post('/verify-otp', [PasswordResetController::class, 'verifyOTP']);
     Route::post('/reset-password', [PasswordResetController::class, 'resetPassword']);

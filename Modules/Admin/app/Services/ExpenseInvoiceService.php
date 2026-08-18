@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Services;
 
+use App\Support\PublicUrl;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\AsabUser;
@@ -241,7 +242,7 @@ class ExpenseInvoiceService
         $byIndex = [];
         foreach ($this->stored($op) as $index => $invoice) {
             $byIndex[$index] = array_map(
-                fn ($a) => is_array($a) ? $a : ['publicUrl' => $a, 'filename' => basename((string) $a)],
+                fn ($a) => $this->document($a),
                 array_values($invoice['attachments'] ?? []),
             );
         }
@@ -256,9 +257,7 @@ class ExpenseInvoiceService
         // (the empty-invoices fallback in stored() already surfaces them).
         if ($byIndex !== []) {
             foreach (array_values($op->payload['attachments'] ?? []) as $a) {
-                $byIndex[$statementIndex][] = is_array($a)
-                    ? $a
-                    : ['publicUrl' => $a, 'filename' => basename((string) $a)];
+                $byIndex[$statementIndex][] = $this->document($a);
             }
         }
 
@@ -291,6 +290,37 @@ class ExpenseInvoiceService
         }
 
         return $byIndex;
+    }
+
+    /**
+     * One attachment entry out of `payload`, with its URL RE-DERIVED from the
+     * storage key.
+     *
+     * The payload holds a URL baked at bridge time, so every document uploaded
+     * while `APP_URL` carried a trailing slash reads `https://host//storage/…`
+     * — a 404 (reported 2026-08-15) — and every document predating the
+     * document-root fix carries the wrong prefix. Deriving here means a config
+     * change heals the whole history without rewriting any payload.
+     *
+     * @param  array<string, mixed>|string  $attachment
+     * @return array<string, mixed>
+     */
+    private function document(array|string $attachment): array
+    {
+        if (! is_array($attachment)) {
+            return [
+                'publicUrl' => PublicUrl::normalize($attachment),
+                'filename' => basename((string) $attachment),
+            ];
+        }
+
+        $key = trim((string) ($attachment['storageKey'] ?? ''));
+
+        return array_merge($attachment, [
+            'publicUrl' => $key !== ''
+                ? PublicUrl::for($key)
+                : PublicUrl::normalize($attachment['publicUrl'] ?? null),
+        ]);
     }
 
     /**

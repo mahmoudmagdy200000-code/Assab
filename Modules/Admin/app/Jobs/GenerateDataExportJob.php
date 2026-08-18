@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Jobs;
 
+use App\Support\PublicUrl;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -55,7 +56,7 @@ class GenerateDataExportJob implements ShouldQueue
             $job->update([
                 'status' => 'ready',
                 'storage_key' => $key,
-                'download_url' => Storage::disk('public')->url($key),
+                'download_url' => PublicUrl::for($key),
                 'expires_at' => now()->addDays(7),
             ]);
         } catch (\Throwable $e) {

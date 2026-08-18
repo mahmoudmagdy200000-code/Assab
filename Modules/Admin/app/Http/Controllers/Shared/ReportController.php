@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Http\Controllers\Shared;
 
+use App\Support\PublicUrl;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -406,7 +407,7 @@ class ReportController extends AsabController
                 'mime_type' => $file->getClientMimeType(),
                 'size' => $file->getSize(),
                 'storage_key' => $path,
-                'public_url' => Storage::disk('public')->url($path),
+                'public_url' => PublicUrl::for($path),
                 'label' => $reportKey,
                 'uploaded_by_id' => $request->user()->id ?? null,
                 'uploaded_at' => now(),

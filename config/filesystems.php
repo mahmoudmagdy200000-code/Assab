@@ -38,10 +38,32 @@ return [
             'report' => false,
         ],
 
+        /*
+         | NOTE: `root` is public_path('storage') — uploads are written STRAIGHT
+         | into public/storage, there is no symlink to storage/app/public. So
+         | `php artisan storage:link --force` REPLACES that directory with a
+         | symlink and destroys every uploaded receipt. Never run it here.
+         |
+         | `url` is the browsable prefix, which is not always APP_URL.'/storage':
+         | on a host whose document root is the project root rather than
+         | `public/`, the same file is served at `/public/storage/…`.
+         |
+         | The knob for that is ASSET_URL (`ASSET_URL=https://host/public`), NOT
+         | APP_URL — APP_URL also drives password-reset and signed-route links.
+         | Deriving this disk from ASSET_URL keeps `Storage::disk('public')->url()`
+         | (dashboard attachments) and `asset('storage/…')` (the mobile modules'
+         | images) pointing at the SAME place; setting only one of them fixes
+         | half the app and leaves the other half 404ing.
+         |
+         | FILESYSTEM_PUBLIC_URL stays available for the case where uploads move
+         | behind a CDN/S3 host of their own. The base is rtrim'd so a trailing
+         | slash cannot produce `https://host//storage/…`, which some web
+         | servers (Hostinger) 404 outright.
+         */
         'public' => [
             'driver' => 'local',
             'root' => public_path('storage'),
-            'url' => env('APP_URL').'/storage',
+            'url' => env('FILESYSTEM_PUBLIC_URL', rtrim((string) (env('ASSET_URL') ?: env('APP_URL')), '/').'/storage'),
             'visibility' => 'public',
         ],
 

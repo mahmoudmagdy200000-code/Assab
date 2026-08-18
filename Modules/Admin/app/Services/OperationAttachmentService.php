@@ -2,9 +2,9 @@
 
 namespace Modules\Admin\Services;
 
+use App\Support\PublicUrl;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Modules\Admin\Models\Attachment;
 use Modules\Admin\Models\Operation;
 
@@ -41,7 +41,7 @@ class OperationAttachmentService
                     'mime_type' => $file->getClientMimeType(),
                     'size' => $file->getSize(),
                     'storage_key' => $path,
-                    'public_url' => Storage::disk('public')->url($path),
+                    'public_url' => PublicUrl::for($path),
                     'label' => $op->module_key,
                     'uploaded_by_id' => $request->user()->id,
                     'uploaded_at' => now(),
