@@ -6,14 +6,17 @@ use App\Exceptions\FirstLoginRequiredException;
 use App\Services\FirstLoginPolicy;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
 use Modules\BrandOwner\Events\BrandOwnerPasswordChanged;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\BrandOwner\Models\BrandOwnerOtp;
+use Modules\Notification\Services\OtpDeliveryService;
 
 class AuthService
 {
-    public function __construct(private readonly FirstLoginPolicy $firstLoginPolicy) {}
+    public function __construct(
+        private readonly FirstLoginPolicy $firstLoginPolicy,
+        private readonly OtpDeliveryService $otpDelivery,
+    ) {}
 
     /**
      * Handle first login.
@@ -220,13 +223,11 @@ class AuthService
 
     private function sendOtpByEmail(string $email, string $otp): void
     {
-        // TODO: implement real mailer
-        Log::info("OTP for $email: $otp");
+        $this->otpDelivery->sendEmail($email, $otp);
     }
 
     private function sendOtpBySms(string $phone, string $otp): void
     {
-        // TODO: implement SMS provider
-        Log::info("OTP for $phone: $otp");
+        $this->otpDelivery->sendSms($phone, $otp);
     }
 }

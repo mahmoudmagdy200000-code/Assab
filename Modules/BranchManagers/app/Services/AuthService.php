@@ -6,17 +6,15 @@ use App\Exceptions\FirstLoginRequiredException;
 use App\Services\FirstLoginPolicy;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
 use Modules\BranchManagers\Events\PasswordChangedEvent;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Models\BranchManagerOtp;
-use Modules\Notification\Mail\NotificationMail;
-use Modules\Notification\Services\SmsProviders\SmsProviderInterface;
+use Modules\Notification\Services\OtpDeliveryService;
 
 class AuthService
 {
     public function __construct(
-        private SmsProviderInterface $smsProvider,
+        private readonly OtpDeliveryService $otpDelivery,
         private readonly FirstLoginPolicy $firstLoginPolicy,
     ) {}
 
@@ -242,10 +240,7 @@ class AuthService
      */
     private function sendOtpByEmail(string $email, string $otp)
     {
-        Mail::to($email)->send(new NotificationMail(
-            'Password Reset Code',
-            "Your password reset code is: {$otp}",
-        ));
+        $this->otpDelivery->sendEmail($email, $otp);
     }
 
     /**
@@ -253,7 +248,7 @@ class AuthService
      */
     private function sendOtpBySms(string $phone, string $otp)
     {
-        $this->smsProvider->send($phone, "Your password reset code is: {$otp}");
+        $this->otpDelivery->sendSms($phone, $otp);
     }
 
     /**

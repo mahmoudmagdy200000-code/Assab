@@ -3,16 +3,14 @@
 namespace Modules\Supplier\Services;
 
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
-use Modules\Notification\Mail\NotificationMail;
-use Modules\Notification\Services\SmsProviders\SmsProviderInterface;
+use Modules\Notification\Services\OtpDeliveryService;
 use Modules\Supplier\Models\Supplier;
 use Modules\Supplier\Models\SupplierOtp;
 
 class OTPService
 {
     public function __construct(
-        private SmsProviderInterface $smsProvider
+        private readonly OtpDeliveryService $otpDelivery
     ) {}
 
     /**
@@ -112,10 +110,7 @@ class OTPService
      */
     private function sendOtpByEmail(string $email, string $otp): void
     {
-        Mail::to($email)->send(new NotificationMail(
-            'Password Reset Code',
-            "Your password reset code is: {$otp}",
-        ));
+        $this->otpDelivery->sendEmail($email, $otp);
     }
 
     /**
@@ -123,6 +118,6 @@ class OTPService
      */
     private function sendOtpBySms(string $phone, string $otp): void
     {
-        $this->smsProvider->send($phone, "Your password reset code is: {$otp}");
+        $this->otpDelivery->sendSms($phone, $otp);
     }
 }

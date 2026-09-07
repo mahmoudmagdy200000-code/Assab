@@ -10,6 +10,7 @@ use Illuminate\Support\Str;
 use Laravel\Sanctum\PersonalAccessToken;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Notifications\PasswordResetLinkNotification;
 
 class AuthService
 {
@@ -23,6 +24,7 @@ class AuthService
         private readonly PermissionResolver $permissions,
         private readonly TwoFactorService $twoFactor,
         private readonly CredentialSyncService $credentials,
+        private readonly CredentialMailer $mailer,
     ) {}
 
     /**
@@ -220,7 +222,13 @@ class AuthService
             ['email' => $email],
             ['token' => $token, 'created_at' => now()],
         );
-        // Mail dispatch is environment-dependent; the token row is the contract here.
+
+        // The token row alone is not the contract: without this send the user
+        // never receives anything and the reset flow is dead end-to-end.
+        // CredentialMailer refuses the `log` mailer so the token cannot leak
+        // into storage/logs, and swallows transport errors so a mail outage
+        // still returns 204 (no account enumeration).
+        $this->mailer->send($user, new PasswordResetLinkNotification($token));
     }
 
     /**

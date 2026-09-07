@@ -4,12 +4,14 @@ namespace Modules\BrandOwner\Services;
 
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
 use Modules\BrandOwner\Models\BrandManager;
 use Modules\BrandOwner\Models\BrandManagerOtp;
+use Modules\Notification\Services\OtpDeliveryService;
 
 class BrandManagerAuthService
 {
+    public function __construct(private readonly OtpDeliveryService $otpDelivery) {}
+
     public function login(string $identifier, string $password): array
     {
         $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
@@ -126,11 +128,11 @@ class BrandManagerAuthService
 
     private function sendOtpByEmail(string $email, string $otp): void
     {
-        Log::info("BrandManager OTP for $email: $otp");
+        $this->otpDelivery->sendEmail($email, $otp);
     }
 
     private function sendOtpBySms(string $phone, string $otp): void
     {
-        Log::info("BrandManager OTP for $phone: $otp");
+        $this->otpDelivery->sendSms($phone, $otp);
     }
 }
