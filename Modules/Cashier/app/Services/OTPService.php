@@ -4,6 +4,7 @@ namespace Modules\Cashier\Services;
 
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Modules\Notification\Services\OtpDeliveryService;
 
 class OTPService
 {
@@ -12,6 +13,26 @@ class OTPService
     private const OTP_EXPIRY_MINUTES = 10;
 
     private const MAX_ATTEMPTS = 3;
+
+    public function __construct(
+        private readonly OtpDeliveryService $otpDelivery
+    ) {}
+
+    /**
+     * Generate the code and deliver it over the requested channel. Delivery
+     * lives here, not in the controller: the `phone` branch used to fall
+     * through with a TODO and still answered "OTP sent successfully".
+     *
+     * @return bool whether the code actually left the server
+     */
+    public function sendOTP(string $identifier, string $type): bool
+    {
+        $otp = $this->generateOTP($identifier, $type);
+
+        return $type === 'email'
+            ? $this->otpDelivery->sendEmail($identifier, $otp)
+            : $this->otpDelivery->sendSms($identifier, $otp);
+    }
 
     /**
      * Generate OTP

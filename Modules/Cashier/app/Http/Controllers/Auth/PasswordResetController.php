@@ -34,15 +34,14 @@ class PasswordResetController extends BaseController
             return $this->errorResponse('Your account is not active. Please contact your manager.', 403);
         }
 
-        $otp = $this->otpService->generateOTP(
+        $sent = $this->otpService->sendOTP(
             identifier: $request->identifier,
             type: $request->type
         );
 
-        if ($request->type === 'email') {
-            $cashier->notify(new \Modules\Cashier\Notifications\PasswordResetOTPNotification($otp));
+        if (! $sent) {
+            return $this->errorResponse('Could not deliver the verification code. Please try again.', 503);
         }
-        // TODO: SMS channel when type === 'phone'
 
         return $this->successResponse([
             'expires_at' => now()->addMinutes(10)->toDateTimeString(),

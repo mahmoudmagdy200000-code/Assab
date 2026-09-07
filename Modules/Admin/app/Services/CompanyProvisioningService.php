@@ -4,7 +4,6 @@ namespace Modules\Admin\Services;
 
 use App\Support\TemporaryPassword;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
