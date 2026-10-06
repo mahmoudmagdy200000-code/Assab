@@ -1,17 +1,27 @@
 # Runtime Baseline (Sprint 01)
 
-## Backend Repository (`Assab`)
-- **Current Branch:** `sprint/01-financial-foundation`
-- **HEAD Commit:** `7b895e61832ecc3fd59beb6b843dcaacfc0d7d9d`
-- **PHP Version:** `8.4.26`
-- **Composer:** Installation successful (`151 installs`), dependencies match `composer.lock`.
-- **Database Engine:** MySQL is the default in `.env.example`, while SQLite is used for in-memory testing (`DB_CONNECTION=sqlite` in `phpunit.xml`).
+## Authoritative Inputs Provenance
+- `ASSAB_AGENT_EXECUTION_AND_REVIEW_PROTOCOL.md` (Version: Original, SHA256: `A96607441BA525F277880225746DE3B61E5CC412B8274CDDC0B26398C8717051`)
+- `ASSAB_DATABASE_SCHEMA.md` (Version: 2.0, SHA256: `9DB0105B32C601F96E9EAE5AE44BFB19E8776EEF190B8C7221F3B2733EB4A6D4`)
+- `Assab-ERP-Cash-Cycle-Business-Rules-v2.0-EN.md` (Version: 2.0, SHA256: `7BB57AD79B520B1C46C6793AC6396C43024D6F25B30508049A1FAAE25C88EEB6`)
+- `Assab-ERP-Sprint-01-Agent-Implementation-Plan.md` (Version: 2.0, SHA256: `37583220BE76F3AB688BFDA3172070E07A65ED0B44507AEF97592344401F37E8`)
 
-## Dashboard Repository (`dashboard`)
-- **Current Branch:** `sprint/01-financial-foundation`
-- **HEAD Commit:** `0378530867c8a14706213768ce49553cefc203b2`
-- **Node Version:** `v22.22.2`
-- **Package Manager:** `pnpm 11.1.2`
+## Repository Provenance
+- **Backend (`Assab`) Branch:** `sprint/01-financial-foundation`
+- **Backend HEAD Commit:** `65a21656` (Includes `docs(S1-03)`)
+- **Dashboard (`dashboard`) Branch:** `sprint/01-financial-foundation`
+- **Dashboard HEAD Commit:** `0378530867c8a14706213768ce49553cefc203b2`
+- **Mobile (`AssabAPP`) Branch:** `main` (Reference ONLY)
+- **Mobile HEAD Commit:** `b2453481966fc1ae2cdfcac4161bbb29a3ba5828`
+
+## Execution Context
+- **Host System:** Windows OS 
+- **PHP Binary:** `C:\Users\COMPUMARTS\.config\herd\bin\php84\php.exe`
+- **PHP Version:** `8.4.26 (cli) (built: Sep 22 2026)`
+- **Composer Invocation:** `composer` (Version `2.10.2`)
+- **Node Binary:** `v22.22.2`
+- **Package Manager Invocation:** `pnpm` (Version `11.1.2`)
+- **Database Engine:** MySQL (Production/Local Default) / SQLite (in-memory for tests `DB_CONNECTION=sqlite`)
 
 ## Startup Instructions
 The following commands are sufficient for another developer to reproduce the startup and trace routes without invented endpoints:
@@ -49,9 +59,12 @@ pnpm dev
 - Cashiers: `cashier1001@nakhat.sa` (mobile app)
 
 ## Test Results & Blockers
-The following actual baseline checks were executed on the core financial shifts:
+**Tested SHA:** `7b895e61832ecc3fd59beb6b843dcaacfc0d7d9d` (Initial codebase prior to documentation)
 
-- `php artisan test tests/Feature/ShiftCycleFixesTest.php tests/Feature/ShiftCloseChainTest.php tests/Feature/ShiftHandoverVarianceCustodyTest.php tests/Feature/SalesVarianceAllocationTest.php tests/Feature/HandoverLedgerDateTest.php tests/NFR/Security/AuthenticationTest.php`
+**Exact Command Executed:**
+`php artisan test tests/Feature/ShiftCycleFixesTest.php tests/Feature/ShiftCloseChainTest.php tests/Feature/ShiftHandoverVarianceCustodyTest.php tests/Feature/SalesVarianceAllocationTest.php tests/Feature/HandoverLedgerDateTest.php tests/NFR/Security/AuthenticationTest.php`
+
+**Context:** Windows Host, PHP 8.4.26 via Laravel Herd, SQLite in-memory DB.
 
 **Actual Results:**
 - `Tests: 41 passed (144 assertions)`
