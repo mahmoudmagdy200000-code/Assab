@@ -1,6 +1,6 @@
-# S1-01 financial shift and cash-cycle API contract (source trace)
+# Sprint 01 financial shift and cash-cycle API contract (source trace)
 
-**S1-01 disposition: Ready for review; not Accepted.** The isolated 3310 environment and six focused test files passed (41 tests, 144 assertions). This contract remains a source trace: those tests do not verify every endpoint, role, payload, monetary conversion or event effect listed here. No TO-BE requirement is an AS-IS guarantee. Mahmoud owns business-rule acceptance; S1-02 has not started. See [verification.md](verification.md).
+**S1-01, S1-02, S1-03, and S1-04 documentation status: Ready for review; not Accepted.** The isolated 3310 environment and six focused test files have a recorded historical result (41 tests, 144 assertions). This contract remains a source trace: those tests do not verify every endpoint, role, payload, monetary conversion, state transition, permission, revision invariant, or event effect listed here. No TO-BE requirement is an AS-IS guarantee. Mahmoud owns business-rule acceptance. The S1-04 state/permission/revision matrix is in [state-permission-revision.md](state-permission-revision.md); see [verification.md](verification.md) for evidence boundaries.
 
 **Evidence boundary:** drafted from static source on 2026-10-07. Laravel route registration was verified (exit 0; 1,734 API routes). Later focused tests exercised their own in-process Laravel requests/services against the disposable MySQL test schema; they were not a complete API contract suite or a deployed HTTP-server check. Unless tied to a named passing assertion, status/envelope statements below remain static source findings. “AS-IS” means inspected behavior; “TO-BE” means the approved target, not delivered acceptance.
 
