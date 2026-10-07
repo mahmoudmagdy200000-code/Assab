@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Transformers;
 
+use App\Support\ShiftFinancialCalculator;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
@@ -233,10 +234,12 @@ class BranchManagerShiftResource extends JsonResource
         }
 
         if ($this->total_sales > 0 || $this->cash_collected > 0 || $this->card_payments > 0) {
+            $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($this->total_sales ?? 0);
+
             return [
                 'total_sales' => (float) ($this->total_sales ?? 0),
-                'net_sales' => (float) ($this->net_sales ?? 0),
-                'vat_amount' => (float) ($this->vat_amount ?? 0),
+                'net_sales' => (float) $salesCalculation['net'],
+                'vat_amount' => (float) $salesCalculation['vat'],
                 'cash_collected' => (float) ($this->cash_collected ?? 0),
                 'card_payments' => (float) ($this->card_payments ?? 0),
                 'aggregator_payments' => (float) ($this->aggregator_payments ?? 0),
@@ -263,8 +266,9 @@ class BranchManagerShiftResource extends JsonResource
             $totalVariance += $handover->variance_amount ?? 0;
         }
 
-        $vatAmount = $totalSales * 0.15;
-        $netSales = $totalSales - $vatAmount;
+        $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
+        $vatAmount = (float) $salesCalculation['vat'];
+        $netSales = (float) $salesCalculation['net'];
 
         return [
             'total_sales' => (float) $totalSales,

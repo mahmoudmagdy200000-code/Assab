@@ -500,9 +500,10 @@ class BranchManagerShiftService
         $updateData = [];
 
         if (isset($breakdown['sales'])) {
+            $salesCalculation = \App\Support\ShiftFinancialCalculator::calculateVatInclusiveSales($breakdown['sales']);
             $updateData['total_sales'] = $breakdown['sales'];
-            $updateData['vat_amount'] = $breakdown['sales'] * 0.15;
-            $updateData['net_sales'] = $breakdown['sales'] - $updateData['vat_amount'];
+            $updateData['vat_amount'] = $salesCalculation['vat'];
+            $updateData['net_sales'] = $salesCalculation['net'];
         }
 
         if (isset($breakdown['cash_collected'])) {

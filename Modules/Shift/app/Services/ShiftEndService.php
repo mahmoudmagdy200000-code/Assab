@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Services;
 
+use App\Support\ShiftFinancialCalculator;
 use Illuminate\Support\Facades\DB;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
@@ -20,8 +21,9 @@ class ShiftEndService
         try {
             // Calculate VAT and Net Sales
             $totalSales = $data['total_sales'];
-            $vatAmount = $totalSales * 0.15;
-            $netSales = $totalSales - $vatAmount;
+            $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
+            $vatAmount = $salesCalculation['vat'];
+            $netSales = $salesCalculation['net'];
 
             // Handle POS Receipt Upload
             $posReceiptPath = null;
@@ -182,15 +184,14 @@ class ShiftEndService
         }
     }
 
-    public function calculateNetSales(float $totalSales): array
+    public function calculateNetSales(string|int|float $totalSales): array
     {
-        $vatAmount = $totalSales * 0.15;
-        $netSales = $totalSales - $vatAmount;
+        $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
 
         return [
             'total_sales' => $totalSales,
-            'net_sales' => round($netSales, 2),
-            'vat_amount' => round($vatAmount, 2),
+            'net_sales' => (float) $salesCalculation['net'],
+            'vat_amount' => (float) $salesCalculation['vat'],
         ];
     }
 

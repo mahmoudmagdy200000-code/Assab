@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Http\Requests;
 
+use App\Support\ShiftFinancialCalculator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -186,10 +187,11 @@ class EndShiftRequest extends FormRequest
     {
         $validated = $this->validated();
 
-        // Calculate VAT (15%) and Net Sales
-        $totalSales = (float) $validated['total_sales'];
-        $vatAmount = round($totalSales * 0.15 / 1.15, 2); // Extract VAT from inclusive price
-        $netSales = round($totalSales - $vatAmount, 2);
+        // Extract VAT from the inclusive total through the shared calculation.
+        $totalSales = $validated['total_sales'];
+        $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
+        $vatAmount = (float) $salesCalculation['vat'];
+        $netSales = (float) $salesCalculation['net'];
 
         $validated['vat_amount'] = $vatAmount;
         $validated['net_sales'] = $netSales;

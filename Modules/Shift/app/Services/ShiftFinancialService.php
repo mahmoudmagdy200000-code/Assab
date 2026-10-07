@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Services;
 
+use App\Support\ShiftFinancialCalculator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -32,10 +33,12 @@ class ShiftFinancialService
     public function computeFinancialSummaryFromHandovers(BranchManagerShift $shift, Collection $shiftHandovers): array
     {
         if ($shift->total_sales > 0 || $shift->cash_collected > 0 || $shift->card_payments > 0) {
+            $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($shift->total_sales ?? 0);
+
             return [
                 'total_sales' => (float) ($shift->total_sales ?? 0),
-                'net_sales' => (float) ($shift->net_sales ?? 0),
-                'vat_amount' => (float) ($shift->vat_amount ?? 0),
+                'net_sales' => (float) $salesCalculation['net'],
+                'vat_amount' => (float) $salesCalculation['vat'],
                 'cash_collected' => (float) ($shift->cash_collected ?? 0),
                 'card_payments' => (float) ($shift->card_payments ?? 0),
                 'aggregator_payments' => (float) ($shift->aggregator_payments ?? 0),
@@ -58,8 +61,9 @@ class ShiftFinancialService
             $totalVariance += $handover->variance_amount ?? 0;
         }
 
-        $vatAmount = $totalSales * 0.15;
-        $netSales = $totalSales - $vatAmount;
+        $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
+        $vatAmount = (float) $salesCalculation['vat'];
+        $netSales = (float) $salesCalculation['net'];
 
         return [
             'total_sales' => (float) $totalSales,
@@ -101,15 +105,15 @@ class ShiftFinancialService
         $cashCollected = (float) ($request->cash_collected ?? $financialSummary['cash_collected'] ?? $managerShift->cash_collected ?? 0);
         $cardPayments = (float) ($request->card_payments ?? $financialSummary['card_payments'] ?? $managerShift->card_payments ?? 0);
         $aggregatorPayments = (float) ($request->aggregator_payments ?? $financialSummary['delivery_app_payments'] ?? $managerShift->aggregator_payments ?? 0);
-        $vatAmount = $totalSales * 0.15;
+        $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
 
         return [
             'total_sales' => $totalSales,
             'cash_collected' => $cashCollected,
             'card_payments' => $cardPayments,
             'aggregator_payments' => $aggregatorPayments,
-            'vat_amount' => $vatAmount,
-            'net_sales' => $totalSales - $vatAmount,
+            'vat_amount' => (float) $salesCalculation['vat'],
+            'net_sales' => (float) $salesCalculation['net'],
             'total_variance' => (float) ($financialSummary['total_variance'] ?? 0),
         ];
     }

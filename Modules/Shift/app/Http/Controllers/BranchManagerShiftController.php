@@ -953,8 +953,9 @@ class BranchManagerShiftController extends BaseController
             $cashCollected = (float) ($managerShift->cash_collected > 0 ? $managerShift->cash_collected : ($financialSummary['cash_collected'] ?? 0));
             $cardPayments = (float) ($managerShift->card_payments > 0 ? $managerShift->card_payments : ($financialSummary['card_payments'] ?? 0));
             $aggregatorPayments = (float) ($managerShift->aggregator_payments > 0 ? $managerShift->aggregator_payments : ($financialSummary['delivery_app_payments'] ?? 0));
-            $vatAmount = (float) ($managerShift->vat_amount > 0 ? $managerShift->vat_amount : ($totalSales * 0.15));
-            $netSales = (float) ($managerShift->net_sales > 0 ? $managerShift->net_sales : ($totalSales - $vatAmount));
+            $salesCalculation = \App\Support\ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
+            $vatAmount = (float) $salesCalculation['vat'];
+            $netSales = (float) $salesCalculation['net'];
             $closingBalance = (float) ($managerShift->handover_amount ?? $managerShift->closing_balance ?? 0);
             $variance = $totalSales - $closingBalance;
             $handoverStatus = $this->shiftService->normalizeHandoverStatus($managerShift->handover_status);
