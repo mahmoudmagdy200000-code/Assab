@@ -149,3 +149,42 @@ S1-01 is **Ready for review; not Accepted**. There is no remaining infrastructur
 * **R06 — RESOLVED:** route-map/API contract identify inline `Illuminate\Http\Request` validation and the unused end FormRequest; list the native Admin close mutation path and legacy middleware aliases; and preserve `CashierShiftObserver::updating` → `ShiftStartedEvent`/`ShiftEndedEvent` direction and pre-save / transaction timing. Financial writer and transaction traces are source-linked there.
 * **R07 S1-01 evidence — RESOLVED:** the executed result is 41 tests / 144 assertions / 0 failures / 0 errors; no text treats it as proof of the future acceptance scenario; S1-01 remains Ready for review, not Accepted.
 * **R08 — RESOLVED:** the fail-fast guard resolves Laravel's effective DB connection and allows `RefreshDatabase` only for `assab_s1_test` on loopback port 3310. `assab_s1_local` is explicitly protected as the migrated baseline. Current Dashboard startup uses `pnpm --filter @workspace/mockup-sandbox dev`; historical setup/recovery instructions are labeled non-current. Test evidence and the current 3310/test-schema workflow are separated from historical runs.
+
+## S1-02 contract documentation verification — 2026-10-07
+
+**S1-02 status: Ready for review; not Accepted.** `docs/sprint-01/money-contract.md` was rebuilt from current backend migrations/models/controllers/services/resources/bridges, Dashboard hooks/types/helper/screens and read-only AssabAPP payload models. Source SHAs are recorded in the contract. The field matrix covers gross, net, VAT, cards, apps, `cash_collected`, counted, opening, closing, expected, variance, handover and ledgers, including DB type/default/nullability, casts and current boundary representations. AS-IS gaps are separated from the BR-01–03/05–06/12–14 target.
+
+Checks executed for this documentation task:
+
+| Check | Command/context | Result and limit |
+|---|---|---|
+| Source reference/field inventory | Read-only source inspection against current migrations, models, active controller/service paths, bridges, resources, Dashboard source and AssabAPP source cited in `money-contract.md`; PowerShell checked `Test-Path` for all 39 cited source files and checked the 13 required money concepts in the contract. | PASS for the static trace and reference-path integrity. This is not runtime API or UI evidence. |
+| Contract arithmetic vector | PowerShell command below: decimal-string values convert to integer halalas and back; BR-03 example uses integer arithmetic. | PASS for the documented target arithmetic only. Does not call or test application conversion code. VAT rounding for other gross values remains a review decision. |
+| Cross-boundary application acceptance | No test command run; no application/Dashboard source changed and no database/API calls made. | NOT RUN: 115 through persisted DB/API/bridge/UI, explicit zero versus null, fractional values through actual adapters, and opening-count-once remain required S1-10/S1-14 integration evidence. |
+| Diff/scope review | `git diff --check`; `git status --short`; `git diff --stat`. | PASS: diff check is clean; exactly `money-contract.md`, `task-register.md`, and `verification.md` are modified. No application, migration, test, Dashboard or AssabAPP source changed. |
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$culture = [Globalization.CultureInfo]::InvariantCulture
+$values = '115.00', '0.00', '0.01', '115.37', '-20.00'
+foreach ($text in $values) {
+    $sar = [decimal]::Parse($text, $culture)
+    $scaled = $sar * 100
+    if ($scaled -ne [decimal]::Truncate($scaled)) { throw "unsupported scale: $text" }
+    $halalas = [long] $scaled
+    $roundTrip = ([decimal] $halalas) / 100
+    if ($roundTrip -ne $sar) { throw "round-trip mismatch: $text" }
+    Write-Output "$text SAR -> $halalas halalas -> $($roundTrip.ToString('0.00', $culture)) SAR"
+}
+$gross = [long] 11500; $cards = [long] 5000; $apps = [long] 2500
+$opening = [long] 1000; $counted = [long] 3000
+$net = [long] 10000; $vat = $gross - $net
+$expected = $gross - $cards - $apps + $opening
+$variance = $counted - $expected
+if ($net -ne 10000 -or $vat -ne 1500 -or $expected -ne 5000 -or $variance -ne -2000) {
+    throw 'BR-03 vector mismatch'
+}
+Write-Output "BR vector: net=$net VAT=$vat expected=$expected variance=$variance"
+```
+
+The task-register row moves S1-02 from Needs correction to Ready for review because the assigned source-trace deliverable is complete. This does not mark it Accepted or claim the future round-trip tests passed. Open review decisions are input scale, safe maximum, halala tax rounding and unset-versus-zero/API compatibility design. No migration, seed, database test, business-logic change, Dashboard change or mobile change was made. S1-03 has not started; high-impact implementation remains gated on S1-05 review.

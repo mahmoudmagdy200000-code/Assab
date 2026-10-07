@@ -1,51 +1,138 @@
-# Monetary Units and Semantics (Sprint 01)
+# S1-02 — Monetary units and field meanings
 
-> **S1-02 status: Needs correction; not Accepted.** This published document is a working source trace and target proposal. R01–R04 audit corrections remain. Its AS-IS statements are provisional observations, its baseline reference is developer-reported evidence, and the scenarios below are future acceptance targets. This document is not implementation authority.
+**Status: Ready for review; not Accepted.** This document completes the S1-02 source trace and proposes a money contract for review. It does not implement a calculation, change an API, select a schema migration, or establish runtime acceptance. S1-01 remains Ready for review and not Accepted. S1-03 has not started; this contract is not authority to implement it.
 
-## 1. AS-IS source trace: fields, DB types, API, UI, and casts
-We have mapped the following fields across the system (`gross`, `net`, `VAT`, `cards`, `apps`, `cash_collected`, `counted`, `opening`, `closing`, `expected`, `variance`, `handover`, `ledger`):
+## Scope and evidence
 
-**Database Layer (`decimal(12,2)` - SAR):**
-- All shift tables (`asab_cashier_shifts`, `asab_branch_manager_shifts`, `asab_shift_handovers`, `asab_shift_variances`) store monetary values as `decimal(12,2)` representing **SAR**.
-- Examples: `total_sales`, `net_sales`, `vat_amount`, `cash_collected`, `card_payments`, `opening_balance`, `closing_balance`, `expected_balance`, `variance`, `handover_amount`.
-- Nullable vs Default: Most fields default to `0.00` (e.g., `$table->decimal('total_sales', 12, 2)->default(0.00);`). Exceptions are purely variance allocations which may be nullable.
+The Sprint 01 Implementation Plan v2.0 assigns S1-02 to trace units, storage types, casts, null/default behavior and API/UI boundaries for gross, net, VAT, cards, apps, `cash_collected`, counted, opening, closing, expected, variance, handover and ledger. It requires distinct cash facts, exact arithmetic, zero preservation, and no inference of receipt from null/configured opening. The approved Business Rules v2.0 are normative: BR-01–03 define gross, tax and cash variance; BR-05–06 separate report closure, receipt confirmation and liability approval; BR-12–14 govern receipt-derived opening and corrected amounts.
 
-**Model Casts:**
-- Models explicitly cast these to `decimal:2`.
-- Example from `CashierShift`: `'opening_balance' => 'decimal:2', 'total_sales' => 'decimal:2'`.
+Current source was inspected without modifying application code, Dashboard code or AssabAPP. Source refs:
 
-**API Layer:**
-- **Mobile/Cashier APIs (`ShiftDetailResource`, `CashierShiftResource`):** Cast to float SAR (`(float) $this->total_sales`).
-- **Dashboard/Admin APIs (`Modules/Admin/app/Services/*`):** The Admin Bridge converts these `decimal(12,2)` SAR values into **integer halalas**. Examples found in `ShiftCloseService`: `'salesHalalas' => (int) $shift->sales_amount * 100`, `'openingFloatHalalas' => (int) ($shift->opening_float * 100)`.
+| Repository | Branch | Inspected HEAD |
+|---|---|---|
+| Backend (`Assab`) | `sprint/01-financial-foundation` | `991a331be5470069367edbcc870837a8808bd2ee` |
+| Dashboard | `sprint/01-financial-foundation` | `0378530867c8a14706213768ce49553cefc203b2` |
+| Mobile compatibility reference (`AssabAPP`, read-only) | `main` | `b2453481966fc1ae2cdfcac4161bbb29a3ba5828` |
 
-**UI Layer (Dashboard `money.ts`):**
-- Receives strictly **integer halalas**.
-- Uses `halalasToSAR (halalas / 100)` for display via `Intl.NumberFormat`.
-- Converts inputs via `sarToHalalas (Math.round(sar * 100))`.
+The source snapshot establishes AS-IS only. “TO-BE” statements below quote the approved business rules or identify a proposed technical contract requiring review. No application/API round-trip acceptance scenario was executed for S1-02.
 
-## 2. Concepts and target semantics (not all implemented)
-- **Cash Sales:** The calculated sum of cash transactions (`total_sales - card_payments - aggregator_payments`).
-- **Physical Counted Cash (`cash_collected`):** What the cashier physically counts in the drawer at the end of the shift.
-- **Requested Handover (`handover_amount`):** The amount of physical cash the cashier proposes to hand over to the manager (`asab_shift_handovers.handover_amount`).
-- **Confirmed Receipt:** The amount the manager actually confirms receiving and accepts responsibility for.
-- **Remaining Responsibility:** Any variance (shortage) that remains unallocated or unapproved remains the responsibility of the cashier until the accountant locks allocations.
-- **Does Counted Include Opening Float?** Yes, the physical counted cash in the drawer *includes* the opening float. The expected cash is `opening_float + cash_sales`.
+## Unit and arithmetic summary
 
-## 3. AS-IS source claims: trace math and zeroes (requires audit)
-- **Dashboard Boundaries:** Data crossing into the dashboard boundary is multiplied by 100 and converted to integers (`halalas`) to prevent floating-point inaccuracies. e.g. `(int) round(((float) $value) * 100)`.
-- **Exact Monetary Arithmetic:** The backend utilizes explicit `(float)` and `round()` logic when converting before hitting the boundary, and `decimal` in the DB.
-- **Confirmed Zero Rule:** Zero is explicitly stored as `0.00` (due to DB defaults) and must be treated as a confirmed zero, not as "missing data". A missing opening float is treated as exactly `0.00`, ensuring we do not double-count or ignore an intentional zero float. A `null` value in APIs translates to a `0` value unless specifically representing an unsubmitted state.
+- Currency is Saudi riyal (SAR); one riyal equals 100 halalas. Legacy Shift/Custody storage and mobile-facing amounts use decimal SAR. The Admin shift API and Dashboard DTO use integer halalas where the field name includes `Halalas`.
+- The existing boundaries are not uniform: legacy resources may serialize decimal casts as strings or explicitly cast them to floating-point JSON numbers; Admin presenters emit integer fields and deprecated aliases; Dashboard TypeScript models monetary amounts as `number`.
+- **S1-02 target arithmetic boundary:** use signed integer halalas for financial calculations and comparisons at the Admin/API boundary. Convert legacy decimal SAR using validated decimal text to/from integral halalas; do not use PHP binary floats or JavaScript floating-point multiplication as the authoritative money calculation. Reject unsupported precision instead of silently rounding it. Keep values within the consumer's exact integer range (`Number.MAX_SAFE_INTEGER`) when represented by JavaScript `number`.
+- This is a contract proposal, not a completed adapter. Existing MySQL decimal SAR columns remain unchanged here; whether an adapter or any schema work is needed belongs to S1-03. Tax division needs a reviewed halala-rounding rule for amounts whose exact net is between halalas; see “Open decisions.”
 
-## 4. Future acceptance scenario and planned verification
+## AS-IS field map
 
-**Future acceptance scenario (not established by the S1-01 baseline):**
-- When an accountant sets an opening float of `115.00` SAR on the dashboard:
-  1. Sent via Dashboard API as `11500` halalas.
-  2. The Admin bridge divides by 100: `round(11500 / 100, 2) = 115.00`.
-  3. Stored in the database as `115.00` (`decimal(12,2)`).
-  4. Sent to the Cashier mobile app as `115.00` (`float`).
-  5. Cashier counts cash including this `115.00`.
-  6. Submitted back, closed, and bridged to Dashboard: `115.00 * 100 = 11500` halalas.
-- **Opening is not added twice:** The bridge isolates `opening_float` from `cash_collected` during variance calculations (`cash_collected - (cash_sales + opening_float)`).
-- **Developer-reported S1-01 baseline evidence:** The six focused files ran against the isolated MySQL test schema and recorded 41 tests, 144 assertions, 0 failures, and 0 errors (`verification.md`). These existing baseline results do **not** verify this exact round-trip scenario and do not guarantee that a `115.00` float remains stable across this chain.
-- **Planned verification:** Add and run a dedicated test for this complete 115/50/25/10/30 scenario, checking persisted values and API/Dashboard boundary conversions. Until that test and the relevant implementation are reviewed, this remains a target, not a PASS result.
+SAR is the business currency required by BR-01–BR-03. A database default of zero is not proof that a user explicitly counted or confirmed zero. Unless noted, Eloquent model casts are `decimal:2` and thus decimal SAR; API resources are inconsistent about emitting the cast string directly versus casting it to PHP `float`.
+
+| Concept | Current persistence: type, nullable/default, casts | Current API/UI representation | AS-IS meaning and limitation |
+|---|---|---|---|
+| **Gross** (`total_sales`) | `cashier_shifts.total_sales` and `branch_manager_shifts.total_sales`: `DECIMAL(12,2) NOT NULL DEFAULT 0.00`; model cast `decimal:2`. Admin `asab_shifts.sales_amount`: unsigned `BIGINT NOT NULL DEFAULT 0`, cast integer; Admin `asab_operations.amount` is unsigned `BIGINT NOT NULL DEFAULT 0`. | Legacy end request accepts numeric SAR; legacy resources emit SAR numeric/string values. The legacy bridge multiplies SAR by 100 and writes integer `sales_amount` / `salesHalalas`. Dashboard `Shift.salesHalalas` is `number` (intended halalas). | Gross means the POS VAT-inclusive sale under BR-01. Admin shift bridge treats its integer value as halalas. Generic operation `amount` is not globally unit-safe; the shift pipeline passes `sales_amount` (halalas) into it. |
+| **Net** (`net_sales`) | Both legacy shift tables: `DECIMAL(12,2) NOT NULL DEFAULT 0.00`; casts `decimal:2`. No distinct net column on `asab_shifts`. | Legacy resources expose SAR values; not a first-class field in the Admin `Shift` DTO. | `ShiftEndService` currently computes `VAT = gross × 0.15` and `net = gross − VAT`; for VAT-inclusive gross 115 this gives VAT 17.25/net 97.75, contrary to BR-01's net 100/VAT 15. An `EndShiftRequest` contains a different formula but is not injected by the active `ShiftEndController` end routes. |
+| **VAT** (`vat_amount`) | Both legacy shift tables: `DECIMAL(12,2) NOT NULL DEFAULT 0.00`; casts `decimal:2`. No distinct Admin shift column. | Legacy response SAR numeric/string; Dashboard Admin shift DTO does not expose VAT as a dedicated `Shift` property. | Current active legacy service uses 15% of gross rather than extracting VAT from the inclusive amount. BR-01 requires `net = gross / 1.15`, `VAT = gross − net`, and forbids deducting VAT again from expected cash. |
+| **Cards** (`card_payments`) | `cashier_shifts.card_payments` and `branch_manager_shifts.card_payments`: `DECIMAL(12,2) NOT NULL DEFAULT 0.00`; casts `decimal:2`. | Legacy input is optional numeric SAR and resources return SAR. Admin bridge creates `cardTotalHalalas` in the operation payload; Dashboard close hook accepts optional integer-halalas `cardTotalHalalas`. No dedicated card column exists on `asab_shifts`. | A non-cash sales channel. Null/omission on the legacy request is defaulted to zero by the active service; no strict two-decimal validation is visible in the active inline validator. |
+| **Apps** (`aggregator_payments`) | Cashier sales are rows in `shift_sales_breakdown.amount`: `DECIMAL(12,2) NOT NULL`, no default; model cast `decimal:2`. No aggregate total column on `cashier_shifts`. `branch_manager_shifts.aggregator_payments`: `DECIMAL(12,2) NOT NULL DEFAULT 0.00`, cast `decimal:2`. | Legacy request sends `aggregators[].amount` in SAR; resources sum/emit amounts in SAR. Bridges convert each row/total to integer `amountHalalas` / `appsHalalas`; Admin close accepts optional `aggregatorTotalsHalalas`. | Delivery-app sales are customer sale values before commission (BR-02). Commission must not reduce shift sales or expected cash. The legacy controller's payment-breakdown equality check is commented out; the active end path does not enforce that invariant. |
+| **Cash-channel amount** (`cash_collected`) | Both legacy shift tables: `DECIMAL(12,2) NOT NULL DEFAULT 0.00`; casts `decimal:2`. | Legacy request/resource: numeric SAR. Admin manager bridge maps it to `cashHalalas`; cashier bridge maps it to `cashActualHalalas` only after adding opening. Dashboard close uses `cashActualHalalas` for actual drawer count. | In the mobile sales breakdown, `cash_collected` is the cash-sales channel and excludes opening float (the bridge comment and request breakdown invariant say so). It is **not** a separate physical drawer count. Missing input becomes zero in the active service, conflating omitted with explicit zero. |
+| **Counted cash** | No independent `counted_cash` column/request field was found in the inspected legacy cashier schema or end payload. Admin `asab_shifts.cash_actual`: nullable unsigned `BIGINT`; cast integer. | Native Dashboard close sends required integer-halalas `cashActualHalalas` (controller also accepts documented aliases); presenter returns `cashActualHalalas`, nullable while unset. | On the Admin path this is the actual drawer amount. On the legacy bridge it is synthesized as `cash_collected + opening_float`; it is not measured independently. This synthesized value cannot prove BR-03's independent count input. |
+| **Opening** (`opening_balance`, `opening_float`) | Legacy `cashier_shifts.opening_balance`, `branch_manager_shifts.opening_balance`, and `shifts.opening_float`: `DECIMAL(12,2) NOT NULL DEFAULT 0.00`; legacy casts `decimal:2`. Admin `asab_shifts.opening_float`: nullable unsigned `BIGINT` added in the later shift migration; cast integer. | Dashboard config/API uses `openingFloatHalalas`; opening endpoint accepts optional `openingCashHalalas`. `ShiftScheduleBridgeService` divides configured halalas by 100 to project SAR to the legacy schedule. Legacy resources expose SAR. | `CashierShiftObserver::creating` replaces null **or zero** opening with the schedule's configured `opening_float`; a configured default is not a receipt. A zero may therefore be overwritten. Admin opening may fall back to configured/default float when omitted. BR-12 requires opening cash to come from a confirmed receipt, not configuration alone. |
+| **Closing** (`closing_balance`) | Legacy cashier and manager shift columns: `DECIMAL(12,2) NOT NULL DEFAULT 0.00`; casts `decimal:2`. | Legacy resources return SAR (sometimes explicit float); handover presenters can fall back to closing balance. Admin shift has `cash_actual`, not a separate `closing_balance`. | The legacy field is reused as a cash-given/handover fallback and is not a stable, independently verified physical-count field. Do not equate it with `counted_cash` without endpoint-specific evidence. |
+| **Expected** (`expected_balance`, `cash_expected`) | Legacy shift `expected_balance`: `DECIMAL(12,2) NOT NULL DEFAULT 0.00`; cast `decimal:2`. Admin `asab_shifts.cash_expected`: nullable unsigned `BIGINT`, cast integer. | Legacy API exposes SAR. Admin presenter emits `cashExpectedHalalas` plus deprecated `cashExpected`; Dashboard type permits integer halalas. | `HandoverService::recordHandover` and `recordHandoverEdit` write legacy expected as `total_sales`; manager daily-close summaries also use total sales as expected. Those are not BR-03 expected cash because they omit confirmed opening and card/apps. Admin `ShiftCloseService` derives expected as opening + `max(0, sales − card − apps)` in halalas; the zero clamp is not in BR-03. |
+| **Variance** (`variance`, detail/allocation amounts) | Legacy shift variance: `DECIMAL(12,2) NOT NULL DEFAULT 0.00`; `shift_variance_details.variance_amount` decimal required and `assigned_amount` nullable; casts `decimal:2`. Admin `asab_shifts.variance`: nullable signed `BIGINT`; cast integer. | Legacy resource SAR; Admin presenter/API `varianceHalalas` signed integer; dashboard presents signed values. | Legacy `CashierShift::calculateVariance()` is gross minus cash-channel + cards + app breakdown (sales-channel reconciliation), not counted cash minus expected. Admin close uses `cash_actual − cash_expected`, so negative is shortage and positive is surplus, but its expected formula clamps negative cash sales. These are different current meanings. |
+| **Handover request / receipt** (`handover_amount`) | `cashier_shift_handovers.handover_amount`: `DECIMAL(12,2) NOT NULL`, no default; `variance_amount` decimal default zero. Manager shift handover column is decimal SAR with a legacy zero default. Model cast `decimal:2`. | Legacy request/resource carries SAR numeric values. Approving a handover changes its status/approver fields; no separate actual/confirmed amount column was found. Dashboard shift close is a report-review operation, not a handover receipt confirmation. | The saved amount begins as requested amount. Current approval marks that same request approved; a different actual receipt requires rejection/edit/re-request in the documented path. A pending request is not a confirmed receipt. |
+| **Ledger / operation amount** | `cashier_custody_transactions.amount` and `personal_ledger_transactions.amount`: `DECIMAL(12,2) NOT NULL`, casts `decimal:2`. `asab_operations.amount`: unsigned `BIGINT NOT NULL DEFAULT 0`; operation model casts integer. | Legacy custody/ledger APIs use SAR amounts. Shift pipeline `OperationFactory` receives the integer-halalas sales amount, with `*Halalas` fields in its JSON payload. | These are separate financial representations. Do not infer a universal unit from the generic `amount` field: use the owning table/module and operation payload contract. Ledger entries are effects, not counted-cash evidence. |
+
+### Null, default, and zero behavior
+
+The legacy monetary columns mostly default to `0.00`; active end services also replace omitted `cash_collected`/card values with zero. This loses the distinction between “not supplied” and “explicitly counted/confirmed zero.” Legacy resources often coalesce null to zero, and some handover serializers use truthiness, which can turn a real zero into a null/fallback. Conversely, the Admin close endpoint requires an integer `cashActualHalalas`, accepts zero, and stores nullable `cash_actual`; the response can distinguish unset (`null`) from confirmed zero (`0`). Dashboard `formatHalalas` renders null as an em dash and zero as a currency value.
+
+The target contract must preserve three distinct states where relevant: **unset/unconfirmed = null**, **explicit zero = 0**, **positive/negative amount = exact value**. Do not use `?:`, truthiness, or a configured opening as a receipt. Existing defaults and legacy serialization do not consistently preserve this distinction; changing storage or API shape is outside S1-02 and requires S1-03/S1-05 review.
+
+## Current conversion path: SAR ↔ halalas
+
+1. **Dashboard shift configuration:** JSON settings use `openingFloatHalalas`. `ShiftScheduleBridgeService::floatSarOf()` converts it to the legacy `shifts.opening_float` decimal SAR using integer `/ 100` followed by `round(..., 2)` (`Modules/Admin/app/Services/ShiftScheduleBridgeService.php:127-138`). The legacy `CashierShiftObserver::creating()` then copies configured template opening into `opening_balance` when it is null or zero (`Modules/Shift/app/Observers/CashierShiftObserver.php:23-38`).
+2. **Legacy mobile close:** the active `ShiftEndController` validates numeric SAR and `ShiftEndService` writes decimal SAR fields. `CashierShift`/ledger models cast decimal columns to `decimal:2`; `ShiftDetailResource` explicitly casts financial outputs to PHP floats (`Modules/Shift/app/Transformers/ShiftDetailResource.php:155-184`). `CashierShiftResource` mixes direct decimal casts and explicit floats (`Modules/Shift/app/Transformers/CashierShiftResource.php:46-68`). The API therefore does not have one stable JSON numeric/string representation across resources.
+3. **Cashier bridge:** `BridgeLegacyCashierShift::toHalalas()` is `(int) round(((float) $sar) * 100)` (`Modules/Admin/app/Listeners/BridgeLegacyCashierShift.php:80-98,152-155`). It maps gross, cash channel, opening, cards and app rows into integer-halalas Admin fields. It calls close with `cashActualHalalas = cash_collected + opening_float` (`:123-133`), which reconstructs a drawer amount from sales channels rather than forwarding an independent count.
+4. **Manager daily-close bridge:** `BridgeManagerDailyClose` converts total, cash, card, apps and variance from decimal SAR to halalas using the same float-multiply/round pattern (`Modules/Admin/app/Listeners/BridgeManagerDailyClose.php:72-80,103-106`). It does not produce an independent cashier drawer count.
+5. **Native Admin API:** `BranchCompanyController::openShift()` accepts optional integer `openingCashHalalas` and may use configured/default opening (`Modules/Admin/app/Http/Controllers/Company/BranchCompanyController.php:320-362`). `Accountant\\ShiftController::close()` requires nonnegative integer `cashActualHalalas` and calls the service (`Modules/Admin/app/Http/Controllers/Accountant/ShiftController.php:105-121`). `ShiftCloseService` performs integer arithmetic and emits `*Halalas` payload fields (`Modules/Admin/app/Services/ShiftCloseService.php:69-103`).
+6. **Admin response and Dashboard:** `ShiftPresenter` emits integer-halalas `salesHalalas`, `openingFloatHalalas`, `cashExpectedHalalas`, nullable `cashActualHalalas`, and signed `varianceHalalas`, while also keeping deprecated aliases (`Modules/Admin/app/Services/ShiftPresenter.php:60-72`). Dashboard declares those as TypeScript `number`/`number | null` (`dashboard/artifacts/mockup-sandbox/src/api/types/company.ts:767-790`). `api/money.ts` divides by 100 to format and multiplies by 100 plus `Math.round` for SAR input (`dashboard/artifacts/mockup-sandbox/src/api/money.ts:17-38`). The helpers use JavaScript `number`; no safe-integer or two-decimal validation exists there. Some `CompanyDashboard.tsx` inputs and display paths also inline `Math.round(parseFloat(value) * 100)` or `/ 100`, rather than consistently calling the helper.
+7. **Dashboard consumers:** `useOpenShift` sends optional integer `openingCashHalalas`; `useCloseShift` sends integer-halalas `cashActualHalalas`, optional card/apps totals (`dashboard/artifacts/mockup-sandbox/src/api/queries/shifts.ts:113-160`). `CompanyDashboard.tsx` is API-backed for these hooks and displays Admin shift data. `ShiftsModule.tsx` contains a local hard-coded sample array and is not evidence of API round-trip behavior.
+
+### Compatibility reference
+
+AssabAPP remains read-only. Its shift end request models use Dart `double` SAR fields such as `total_sales`, `cash_collected`, `card_payments`, aggregator `amount`, and `handover_amount`; no independent counted-cash field was found in the inspected end requests. These doubles neither guarantee exact binary arithmetic nor establish a formal currency unit on their own. Exact route/payload keys and source locations remain in `route-map.md` under “Mobile compatibility.” No Flutter change is proposed here.
+
+## AS-IS calculations and gaps
+
+| Path | Current behavior verified in source | Gap against BR / S1-02 |
+|---|---|---|
+| Legacy cashier end | Inline controller validation accepts `total_sales` numeric and optional numeric cash/card; service stores `VAT = total_sales × 0.15`, `net = total_sales − VAT`, missing channels as zero. A payment-breakdown validator exists but its controller call is commented out. | BR-01 requires extracting VAT from a VAT-inclusive amount. For 115, current service yields net 97.75 and VAT 17.25 instead of 100/15. Channel totals are not authoritatively reconciled on this path. |
+| Legacy variance | `CashierShift::calculateVariance()` computes `total_sales − (cash_collected + card_payments + sum(apps))`. | This is a channel reconciliation, not BR-03 physical-count variance. It omits confirmed opening and has no independent counted input. |
+| Native Admin shift close | `ShiftCloseService` computes `expected = opening + max(0, sales − card − apps)` and `variance = cashActual − expected`, all integer halalas. | Correct unit and sign shape, but `max(0, ...)` differs from BR-03's stated formula; actual API value depends on caller supplying a genuine count. The mobile bridge currently synthesizes one. |
+| Opening/receipt | Template/configured opening can default a new legacy shift; Admin open accepts/falls back to configured opening. Legacy handover approval marks the requested amount approved, with no separate amount actually received. | Configuration is not receipt. BR-12 requires confirmed receipt to become opening; pending/requested/zero must not silently imply transfer. |
+| Receipt/remaining responsibility | Legacy handover request is `handover_amount`; approval updates status. Admin shift review/approval is a separate operation. | Report submission, actual receipt and final liability are not one fact (BR-05/06). The current representation does not consistently record an actual partial receipt separately from the request. |
+| Conversion precision | PHP bridge converts a PHP float multiplied by 100 and rounded; Dashboard uses JS `number`, `Math.round(sar * 100)`, and `/ 100`. | These are not exact-decimal guarantees. Validate precision/range and convert using exact decimal text/integer minor units at the adapter boundary. |
+
+## S1-02 target semantics
+
+These meanings follow BR-01–03, BR-05–06 and BR-12–14. They describe the contract the implementation must preserve; they are not claims that current code already does so.
+
+1. **Gross sales** are VAT-inclusive POS gross. Delivery-app sales are recorded before commission. Cards/apps are sales-channel amounts, not cash movement or opening.
+2. **Net and VAT** are extracted from inclusive gross: `net = gross / 1.15`; `VAT = gross − net`. VAT is informational and is not deducted again from expected cash.
+3. **Cash sales** are the cash tender/channel portion of gross: `gross − cards − delivery-app sales` when no other cash movements apply. Keep this separate from physical count.
+4. **Physical counted cash** is an independently entered amount of cash physically in the drawer at close. It includes the confirmed opening cash physically present; it is not computed from sales channels. `cash_collected` in the legacy sales breakdown is not interchangeable with this count.
+5. **Opening cash** for a receiving shift is only the amount confirmed as received from the prior handover. Configuration/schedule values may propose a float but do not establish receipt. Confirmed zero is a real zero; null is not zero.
+6. **Expected cash** with no other cash movements is `gross − cards − apps + confirmed_opening`. Opening is added exactly once in expected; do not add it again to a counted value that already represents the total drawer.
+7. **Variance** is `counted − expected`: negative = shortage (shortage amount is its absolute value), positive = branch surplus, zero = balanced. A positive surplus never increases sales or creates employee liability.
+8. **Requested handover**, **confirmed receipt**, and **remaining responsibility** are separate amounts/states. Requesting or submitting does not transfer responsibility. Confirmation transfers only the confirmed amount; an unreceived remainder stays with the sender. A correction cannot rewrite a previously confirmed movement.
+9. **Ledger postings** represent actual transfer/liability effects. They must not be inferred from a report total, a request, a configured opening, or the existence of a projected Admin operation.
+
+### Exact arithmetic and boundary rules
+
+For API/Admin calculations, the proposed canonical value is integer halalas (`SAR amount × 100` only when crossing from validated legacy decimal SAR). Use decimal-string parsing that accepts only the agreed scale, validates sign/range, and produces integer halalas without a float intermediate. Use signed integers for variance and nonnegative integers for sales, counts and confirmed openings. Convert back to a fixed two-decimal SAR string at the legacy boundary; do not use float formatting as the authoritative conversion. The Dashboard's current `number` type is acceptable only for safe integer halalas after range validation; formatting is a presentation step.
+
+Target round-trip vectors (unit conversion, not application acceptance):
+
+| SAR input | Integer halalas | SAR output | Required property |
+|---:|---:|---:|---|
+| `115.00` | `11500` | `115.00` | Economically unchanged across boundaries |
+| `0.00` | `0` | `0.00` | Explicit zero remains zero, never null/fallback |
+| `0.01` | `1` | `0.01` | Smallest supported two-decimal SAR value round-trips |
+| `115.37` | `11537` | `115.37` | Fractional SAR amount round-trips exactly |
+| `-20.00` variance | `-2000` | `-20.00` | Shortage sign is preserved |
+
+Target BR-03 scenario: gross 11,500 halalas; cards 5,000; apps 2,500; confirmed opening 1,000; independent count 3,000. Net 10,000 and VAT 1,500 for this exact example; expected 5,000; variance −2,000 (shortage 2,000). Opening occurs once in expected, and the count is not derived from channel cash. This is a requirements vector, **not a run against current application code**.
+
+No general fractional-tax rounding rule is stated in BR-01. For a gross value whose exact `gross / 1.15` is between halalas, preserve `gross = rounded_net + VAT` by deriving VAT as the residual after rounding net, but the rounding mode (for example, half-up) needs explicit review. Do not silently assume the PHP/JavaScript default is the approved tax rule.
+
+## Acceptance and evidence status
+
+| Check | Status | Evidence / next verification |
+|---|---|---|
+| Source trace of DB types/defaults/nullability/casts and current APIs | **Source-verified** | Files/migrations/models/resources listed below; does not imply runtime HTTP serialization tests. |
+| Dashboard unit/helper/hooks/types and static sample distinction | **Source-verified** | Dashboard paths listed below; Dashboard typecheck from S1-01 is separate historical evidence and did not exercise S1-02 arithmetic. |
+| Mobile compatibility payload review | **Source-verified, read-only** | `route-map.md` Dart source anchors; no mobile implementation. |
+| 115 SAR end-to-end through storage/API/bridge/Dashboard | **NOT RUN** | Requires a dedicated integration test and actual API-to-UI data path; existing S1-01 tests do not prove it. |
+| Explicit zero/null round-trip | **NOT RUN** | Requires tests that distinguish nullable/unset from explicit zero at each boundary. |
+| Fractional SAR round-trip | **NOT RUN** | Unit vectors above define expected conversion only; application adapter tests remain required. |
+| Opening counted once / confirmed receipt as sole source | **NOT RUN** | Requires separate requested/confirmed/count values and integration assertions; current mobile bridge synthesizes count. |
+| VAT rule for arbitrary values | **Decision needed** | BR formula is clear; halala rounding mode for non-integral net remains unspecified. |
+
+## Open decisions for review
+
+1. Confirm the tax extraction rounding mode at halala precision for values where `gross / 1.15` is not an exact halala; the proposed residual rule keeps net + VAT equal gross.
+2. Confirm that input precision is exactly two decimal SAR places and excess precision is rejected rather than rounded. Current `numeric` validation does not enforce this.
+3. Confirm the safe maximum monetary amount used to guard PHP integer and JavaScript safe-integer conversion.
+4. Confirm how S1-03/S1-05 will represent unset versus explicit zero in legacy columns that default to zero, and how actual partial receipt is represented without rewriting existing API keys.
+5. Confirm which Admin aliases remain supported while making the `*Halalas` unit explicit; deprecated un-suffixed aliases are currently still emitted.
+
+## Source index
+
+- Legacy schema: `Modules/Shift/database/migrations/2025_10_09_152034_create_cashier_shifts_table.php:14-51`; `Modules/Shift/database/migrations/2025_11_09_093909_creat_branch_manager_shifts_table.php:11-56`; `Modules/Shift/database/migrations/2025_10_10_121058_create_shift_sales_breakdown_table.php:14-26`; `Modules/Shift/database/migrations/2025_10_10_121139_create_shift_variance_details_table.php:14-30`; `Modules/Shift/database/migrations/2025_12_01_133846_create_cashier_shift_handovers_table.php:11-48`; `Modules/Shift/database/migrations/2026_08_10_000002_add_opening_float_to_shifts_table.php:8-38`.
+- Legacy casts/math/API: `Modules/Shift/app/Models/CashierShift.php:51-63,208-220`; `Modules/Shift/app/Models/BranchManagerShift.php:74-98`; `Modules/Shift/app/Models/CashierShiftHandover.php:40-46`; `Modules/Shift/app/Http/Controllers/ShiftEndController.php:39-108,145-164`; `Modules/Shift/app/Services/ShiftEndService.php:18-72,185-205`; `Modules/Shift/app/Services/ShiftFinancialService.php:215-252`; `Modules/Shift/app/Transformers/ShiftDetailResource.php:155-184,198-245`; `Modules/Shift/app/Transformers/CashierShiftResource.php:46-70`.
+- Opening/handover: `Modules/Shift/app/Observers/CashierShiftObserver.php:23-38`; `Modules/Shift/app/Services/HandoverService.php:38-123,188-235,541-590,647-656`; `Modules/Admin/app/Services/ShiftScheduleBridgeService.php:127-138`; `Modules/Admin/app/Http/Controllers/Company/BranchCompanyController.php:320-362`.
+- Admin integer-halalas path: `Modules/Admin/database/migrations/2026_06_05_000001_create_asab_ops_detail_tables.php:45-64`; `Modules/Admin/database/migrations/2026_07_12_000001_add_shift_cashier_and_type.php:18-25`; `Modules/Admin/database/migrations/2026_06_02_000001_create_asab_layer_tables.php:166-195`; `Modules/Admin/app/Models/Shift.php:43-53`; `Modules/Admin/app/Services/ShiftPresenter.php:60-72`; `Modules/Admin/app/Services/ShiftCloseService.php:69-103`; `Modules/Admin/app/Listeners/BridgeLegacyCashierShift.php:80-98,123-155`; `Modules/Admin/app/Listeners/BridgeManagerDailyClose.php:72-80,103-106`; `Modules/Admin/app/Http/Controllers/Accountant/ShiftController.php:105-121`.
+- Ledgers: `Modules/Custody/database/migrations/2026_03_05_000001_create_cashier_custody_transactions_table.php:11-37`; `Modules/Custody/database/migrations/2025_10_09_151501_create_personal_ledger_transactions_table.php:11-37`; `Modules/Custody/app/Models/CashierCustodyTransaction.php:28-32`; `Modules/Custody/app/Models/PersonalLedgerTransaction.php:28-32`.
+- Dashboard: `artifacts/mockup-sandbox/src/api/money.ts:1-38`; `artifacts/mockup-sandbox/src/api/queries/shifts.ts:113-160`; `artifacts/mockup-sandbox/src/api/types/company.ts:767-790,820-846`; `artifacts/mockup-sandbox/src/components/mockups/asab/CompanyDashboard.tsx:4615-4635,4711-4714,4818-4821`; static sample: `artifacts/mockup-sandbox/src/components/mockups/asab/ShiftsModule.tsx:1-35`.
+- Normative sources: `project-docs/Assab-ERP-Cash-Cycle-Business-Rules-v2.0-EN.md:49-179`; `project-docs/Assab-ERP-Sprint-01-Agent-Implementation-Plan.md:147-156`.
