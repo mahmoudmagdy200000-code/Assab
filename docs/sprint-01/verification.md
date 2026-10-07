@@ -223,4 +223,50 @@ The current `BranchManagerShiftController::submitDailyReport()` path was traced 
 
 R02 remains **PARTIALLY RESOLVED**: the state design distinguishes cash-channel sales from independent counted-cash evidence, calls out the bridge-synthesized actual, and does not claim the 115/50/25/10/30 application proof. R05 remains **PARTIALLY RESOLVED**: the state design does not assume one row per shift or a deployed revision/receipt schema; duplicate/cardinality preflight is still NOT RUN, and endpoint-specific idempotency/retry decisions remain S1-05. S1-01/S1-02/S1-03 remain Ready for review; not Accepted.
 
-Static source-reference, route/scope, transition consistency, Business Rule mapping, revision invariant, daily-submit guard, and R02/R05 carry-forward checks: **PASS**. Runtime permission enforcement, new states, revision/receipt migrations, DB preflight, application acceptance, replay/concurrency, Dashboard, and mobile compatibility: **NOT RUN**. No future S1-05/S1-06 behavior is represented as implemented. Mahmoud review is outstanding; S1-05 was not started.
+Static source-reference, route/scope, transition consistency, Business Rule mapping, revision invariant, daily-submit guard, and R02/R05 carry-forward checks: **PASS**. Runtime permission enforcement, new states, revision/receipt migrations, DB preflight, application acceptance, replay/concurrency, Dashboard, and mobile compatibility: **NOT RUN**. This is the S1-04 as-of record; S1-05 work is recorded below.
+
+## S1-05 API blueprint and design review package — 2026-10-07
+
+**Status: Ready for Mahmoud design review / Not Accepted.** This task changed documentation only. `docs/sprint-01/api-contract.md` is the primary blueprint; this section supersedes the earlier statement that S1-05 had not started. The former source-trace and test evidence remain historical AS-IS evidence. Nothing here claims runtime enforcement or accepts S1-05 on Mahmoud's behalf. S1-06 remains blocked until the design review is complete.
+
+### Files and references inspected
+
+- Sprint plan v2.0 and Business Rules v2.0 English reference under `../project-docs/`.
+- `baseline.md`, `route-map.md`, `money-contract.md`, `schema-adr.md`, `state-permission-revision.md`, `api-contract.md`, `task-register.md`, and this verification file.
+- Backend route registrations: `Modules/Shift/routes/api.php`, `Modules/Admin/routes/api.php`; relevant Shift end/handover/variance and BranchManager controllers/services; Admin BranchCompany and Accountant Shift controllers, `ShiftCloseService`, `ShiftPresenter`, bridge/listener and idempotency middleware; current relevant migrations, models, observers/listeners, and existing focused test sources.
+- Read-only compatibility sources: Dashboard shift API hooks, types, money helpers, operation hooks and consumers under `../dashboard/`; AssabAPP end/handover request models and datasource under `../AssabAPP/`.
+- `Assab-Backend-Commit-Audit-2026-10-07-1.md` and `Assab-S1-01-S1-02-S1-03-Audit-2026-10-07.md` under `../project-docs/`, including carry-forward C01–C03/R02/R05 findings.
+
+### Decisions finalized for review
+
+- SAR legacy fields convert to integer halalas only at the explicit adapter; Company/Admin `*Halalas` remain integer halalas. Gross includes VAT; net is rounded half-up to the nearest halala from `gross×100/115`; VAT is the residual. Accept two decimal SAR digits, reject excess precision, and cap each nonnegative amount/aggregate at 999,999,999,999 halalas (SAR 9,999,999,999.99), subject to any narrower deployed column limit being a fail-closed implementation gate.
+- Null/omitted evidence is unknown; explicit zero is evidence only when the relevant count/receipt confirmation is explicitly present. Physical count remains independent of `cash_collected`; the current legacy bridge synthesis is forbidden as evidence. AssabAPP cannot satisfy the new count contract without future client work or an explicitly approved exception; no runtime closure is claimed.
+- Stable shift/report aggregate owns immutable revisions without requiring a handover. Each revision allows zero or multiple independently identified handover requests. Receipt has immutable request/revision/recipient/receiving-shift identity and amount; partial receipt transfers only confirmed value and leaves remainder with sender. Opening applies exactly once per receipt/receiving shift, with no settings fallback.
+- Report close, receipt, allocation, employee response, manager liability approval and accountant review remain separate facts. Branch manager final approval for each current shortage revision is required before daily submit; accountant is not liability authority; objection does not block handover; no automatic payroll deduction; surplus is branch-only.
+- Replay keys are bound to tenant/branch/actor/method/route/resource/revision/canonical payload; authorization precedes replay. Permanent business-effect identity prevents duplicates beyond the 90-day replay cache. Lock order and essential same-transaction write set are specified; projections/notifications run after commit only.
+- Existing legacy and Admin response envelopes, route families, fields and units are preserved as the compatibility boundary. New target evidence fields are additive, and unsupported old clients fail explicitly rather than having values inferred.
+
+### Verification results and boundaries
+
+| Check | Result | Evidence / limit |
+|---|---|---|
+| Source-reference verification | PASS | Primary plan, business rules and both audit files exist and were read; current route/controller/service/model/migration and frontend references were inspected. No runtime guarantee inferred. |
+| Route/request/response trace | PASS | Legacy `/api` and `/api/v1` Shift aliases, role groups, Company/Admin close/open/allocation, daily submit, operation review paths, existing success/error envelope families and consumer payloads traced against route files and controller source; target additions are labeled design. |
+| Money-unit consistency | PASS | 11,500/5,000/2,500/1,000/3,000-halalas vector recalculated by integer arithmetic; target net 10,000, VAT 1,500, expected 5,000, variance −2,000. Conversion count and null/zero rules reviewed. No app code run. |
+| State/revision consistency | PASS | C03 covered by aggregate-owned report revisions; optional request cardinality, current revision, stale-decision rejection, supersession and immutable receipt reviewed against S1-03/S1-04. |
+| Permission review | PASS | Target roles/scopes checked against route middleware and S1-04 matrix; accountant retained as review, manager as liability authority. Runtime enforcement NOT RUN. |
+| Idempotency design review | PASS | Actor/resource/route/revision/payload scope, authorization-before-replay, processing/completed/key-reuse/lost-response semantics, expiry, and durable business-effect uniqueness specified. No replay/concurrency test run. |
+| Transaction/writer-authority review | PASS | Deterministic lock order, retry policy, required atomic facts, post-commit projections, and single-authority/projection mapping reviewed against route-map. No DB transaction/concurrency execution. |
+| Compatibility review | PASS | Dashboard Admin halalas and Sanctum/tenant scope recorded; AssabAPP payload omission, legacy doubles, recipient-key mismatch and no-count limitation retained as exact GAP. Dashboard/mobile runtime acceptance NOT RUN. |
+| Audit carry-forward | PASS | R02 remains a runtime compatibility concern; C03 has a design resolution; C01/C02 and R01–R08 evidence treated as findings, not authority for redesign. |
+| `git diff --check` | PASS | Executed after edits; no whitespace errors. |
+| `git status --short` / allowed-file check | PASS | Only `docs/sprint-01/api-contract.md`, `docs/sprint-01/task-register.md`, and `docs/sprint-01/verification.md` changed. |
+| Full `git diff` review | PASS | Reviewed complete three-file documentation diff; no application/migration/test/Dashboard/AssabAPP source changed. |
+| Secret scan | PASS | Targeted token/password/private-key patterns returned no matches in changed files. |
+| Conflict-marker scan | PASS | Standard merge-conflict marker patterns returned no matches in changed files. |
+| Unrelated-file scan | PASS | Changed-file allowlist matches exactly the three permitted documentation files. |
+| Runtime routes/tests/migrations/concurrency/UI acceptance | NOT RUN | Documentation/design-only task; no runtime claim. |
+
+### Independent final audit
+
+All sixteen S1-05 post-edit audit assertions are individually listed in the final audit table in `api-contract.md` and are PASS as **design consistency checks only**. No assertion is a runtime PASS. The amount ceiling is bounded by existing legacy DECIMAL(12,2) evidence and JS/PHP integer limits; implementation must stop if an actual deployed schema is narrower. No application, migration, test, Dashboard, or AssabAPP file changed.
