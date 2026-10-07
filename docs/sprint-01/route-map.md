@@ -261,3 +261,18 @@ CashierShiftObserver directly constructs BranchManagerShiftListener and calls ha
 Admin OperationService::reject/finalApprove commits operation status and approval-step updates in its own transaction, then notifications and OperationRejected/OperationFinalApproved are dispatched. Consequently the later ShiftCloseService/employee-movement/legacy-feedback listener writes are not in the same explicit transaction as that terminal operation decision. No lockForUpdate was found in these inspected decision methods; public-ID unique retries in OperationSequence do not serialize decisions on the same shift or receipt.
 
 PersonalLedgerService::createTransactionFromHandover directly creates a personal_ledger_transactions row with receivingBranchManagerId (approving manager fallback), requested handover_amount and approved_at date. It has no separate service transaction; on the synchronous approval listener path it participates in the caller transaction, but the listener catches failure. This differs from the cashier accept postings performed after the service commit.
+
+## Final handoff route dispositions — proposed, 2026-10-07
+
+This source-backed target table covers live paths in C-1. It completes dispositions in documentation only; D3 remains unresolved, and it does not prove runtime writer ownership.
+
+| Route | Used by | Target behaviour | Shared service / validation | Task |
+|---|---|---|---|---|
+| `shifts/{shift}/reassign-with-handover` | AssabAPP | Report submit + handover request; explicit count, complete shortage allocation, revision 0→1, idempotency, same-branch recipient; no separate VAT/variance math. | Shared BR-01/03 calculation and report/handover validation. | S1-06 / S1-08 / S1-11 |
+| `workday/end`; `PUT workday/daily-close` | AssabAPP | Derive manager totals server-side; client variance rejected 422 or ignored per selected contract. Cashier-report writes **PENDING D3**; no edit authorized without cashier correction revision while pending. | Shared BR-01/03; report revision/authority checks. | S1-06 / S1-11 |
+| `shifts/{shift}/handover/rejection-decision`; `workday/handoffs/rejection/{shift}/decision` | AssabAPP | `approve_rejection` → 409 `INVALID_STATE`; `request_corrections` maps to correction flow. | BR-17 reject/correction state machine. | S1-11 |
+| `workday/handoffs/reject` | AssabAPP | Same contract as normal rejection. | Shared reject validation and preserved request history. | S1-11 |
+| `workday/daily-close/reopen` | AssabAPP / registered route | Reopen reuses server-derived branch/workday set and stable report identity; resubmission cannot double count. | Same set derivation, revisions, idempotent operation identity. | S1-07 |
+| `shifts/{shift}/variance` | Legacy route; direct caller to confirm | Target aliases compliant allocation command or retires route; owner or same-branch manager, with all assignees in-branch. **H2 is not implemented or authorized.** | Shared allocation validation; no H2 authority granted. | S1-07 / S1-11 |
+
+The table makes every listed path’s target disposition explicit. **Writers Unambiguous is not a runtime PASS.**

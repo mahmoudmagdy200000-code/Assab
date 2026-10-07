@@ -441,3 +441,11 @@ Test additive DDL and any backfill on a fresh disposable clone of the approved l
 - Idempotency/operation schema: `Modules/Admin/database/migrations/2026_06_02_000001_create_asab_layer_tables.php:151-195`; `Modules/Admin/app/Http/Middleware/IdempotencyKey.php:16-45`.
 - Existing consumer and transaction map: `docs/sprint-01/route-map.md`; API compatibility: `docs/sprint-01/api-contract.md`; current money and authority contract: `docs/sprint-01/money-contract.md`.
 - Audit evidence revalidated: `project-docs/Assab-Backend-Commit-Audit-2026-10-07-1.md:27-157`.
+
+## Final handoff schema/compatibility — proposals only
+
+This section supersedes conflicting technical target values elsewhere in this ADR. **D5 — PROPOSED — MAHMOUD REVIEW REQUIRED:** per-column ceilings from verified schema: DECIMAL(12,2) = SAR 9,999,999,999.99; `branch_manager_shifts.handover_amount` DECIMAL(10,2) = SAR 99,999,999.99. Global enforcement cannot exceed the narrowest participating column. No schema or migration changed.
+
+Confirmed opening is the sum of confirmed receipts bound to a shift; an empty set computes zero, while receipt-count evidence distinguishes no receipt from confirmed zero receipts. A configured float is never receipt evidence. Start before confirmation is allowed; a late receipt applies once to its bound shift. Manager opening uses personal sales-cash, not expense custody. Ledger/table mapping remains a technical proposal; `personal_ledger_transactions` is not mandated by Mohamed. D9 applies only to concrete insufficient-balance and permitted post-report receipt edges.
+
+**D4/D6 — PROPOSED — MAHMOUD REVIEW REQUIRED:** one proposed compatibility flag `config('shifts.contract_v2_enforced')`, with `.env.example` target documentation: ON test/staging and OFF production until compatible AssabAPP release; OFF preserves legacy behavior and identifies reports as not Contract v2. Preserve legacy `variance`/`variance_type` semantics and wire types. Proposed additive decimal-SAR keys: `expected_cash`, `counted_cash`, signed `cash_variance` (negative shortage), `cash_variance_type` (`shortage|surplus|balanced`). No runtime implementation is implied.

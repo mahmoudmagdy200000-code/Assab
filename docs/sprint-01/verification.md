@@ -239,7 +239,7 @@ Static source-reference, route/scope, transition consistency, Business Rule mapp
 
 ### Earlier design proposals (corrected/superseded below)
 
-- SAR legacy fields convert to integer halalas only at the explicit adapter; Company/Admin `*Halalas` remain integer halalas. Gross includes VAT; net is rounded half-up to the nearest halala from `gross×100/115`; VAT is the residual. Accept two decimal SAR digits, reject excess precision, and cap each nonnegative amount/aggregate at 999,999,999,999 halalas (SAR 9,999,999,999.99), subject to any narrower deployed column limit being a fail-closed implementation gate.
+- SAR legacy fields convert to integer halalas only at the explicit adapter; Company/Admin `*Halalas` remain integer halalas. Gross includes VAT; net is rounded half-up to the nearest halala from `gross×100/115`; VAT is the residual. Accept two decimal SAR digits, reject excess precision, and use verified per-column limits: DECIMAL(12,2) = SAR 9,999,999,999.99 and `branch_manager_shifts.handover_amount` DECIMAL(10,2) = SAR 99,999,999.99; validate every participating column.
 - Null/omitted evidence is unknown; explicit zero is evidence only when the relevant count/receipt confirmation is explicitly present. Physical count remains independent of `cash_collected`; the current legacy bridge synthesis is forbidden as evidence. AssabAPP cannot satisfy the new count contract without future client work or an explicitly approved exception; no runtime closure is claimed.
 - Stable shift/report aggregate owns immutable revisions without requiring a handover. Each revision allows zero or multiple independently identified handover requests. Receipt has immutable request/revision/recipient/destination identity and exact requested amount; an intentional partial transfer uses its own smaller request and leaves the remainder with sender. A mismatched unchanged request must be rejected and corrected. Opening applies exactly once per receipt/receiving shift, with no settings fallback.
 - Report close, receipt, allocation, employee response, manager liability approval and accountant review remain separate facts. Branch manager final approval for each current shortage revision is required before daily submit; accountant is not liability authority; objection does not block handover; no automatic payroll deduction; surplus is branch-only.
@@ -299,3 +299,26 @@ One model is now used in `schema-adr.md`, `state-permission-revision.md`, and `a
 Second-pass consistency checks are design/read-only results: BR-01–17 and BR-24/25 meaning is preserved; AC-01–13 and AC-18/20/21 have compatible target contracts, **not runtime PASS**. Count is independent of sales; receipt is independent of submission/liability; surplus is branch-only; manager approves current shortage allocation; accountant cannot assume employee liability authority; confirmed receipt is immutable; failed essential ledger/audit writes roll back with the source fact; one named writer owns each target effect. `schema-adr.md`, `state-permission-revision.md`, and `api-contract.md` were compared directly for aggregate/revision/request/receipt/mismatch/partial/destination/liability/replay/effect/writer meaning. The numeric rounding, precision, ceiling, JSON boundaries, pre-open receiving token, receipt-effect tuple and proposed target writer storage remain **technical proposals for Mahmoud**. The only potential Mohamed decision is a future exception allowing report close without independent physical count; this pass grants none.
 
 Historical S1-01 focused tests and route-list checks above were **not rerun** for this documentation correction. G09 and G10 remain respectively `SAFE TO DEFER TO IMPLEMENTATION / MIGRATION GATE` and `RUNTIME VALIDATION ONLY`. No S1-06 application implementation was performed.
+
+## Final documentation correction verification — 2026-10-07
+
+Documentation/source reconciliation only. Starting HEAD: `9a8e0ff75dc70e542420a8e4e3f78b46d7cd76f0`. The authoritative Mahmoud handoff and all eight existing sprint documents were read. No application/runtime tests, migrations, database operations, Dashboard edits, or AssabAPP edits were made.
+
+| Audit assertion | Result |
+|---|---|
+| No receipt computes opening 0; evidence state remains distinct | Documented |
+| Configured opening is never receipt evidence | Documented |
+| Start independent of confirmation; late receipt joins same shift once | Documented; post-report edge PENDING D9 only where permitted |
+| Manager opening uses personal sales-cash, never expense custody | Documented; storage remains proposed |
+| 500/480 reject/correct/resubmit/confirm; actual shortage remains sender-side | Documented |
+| Report submission differs from receipt confirmation | Documented |
+| Server submit trigger/set identified; no current client caller | Documented; client wiring deferred |
+| D3 manager edits to cashier figures remain unresolved | PENDING D3 |
+| D4–D7 proposals; D8 not authorized; D9 conditional only | Preserved |
+| Legacy variance keys unchanged; no mobile refresh invented | Documented as proposal/target |
+| No new employee system, manager-workday system, or approval layer | Preserved |
+| No runtime/application PASS claimed | Confirmed |
+
+S1-15 regression map: RX-01 → TX-02 / FIN-06; RX-02 → SEC-01; RX-03 → AUTH-02. Each regression requires status, amount, and relevant row-count assertions; `assertTrue(true)` is not evidence. MySQL is required for locking/concurrency; SQLite in-memory is insufficient. Tests remain NOT RUN.
+
+This correction is **READY FOR MAHMOUD DOCUMENTATION REVIEW / NOT ACCEPTED**. D1/D2 applied; D3 pending; D4–D7 proposed; D8 not authorized; D9 conditional/pending only where applicable. H1/H2 were not implemented and remain unauthorized. S1-06 was not started.

@@ -81,3 +81,22 @@ This is the **current recorded procedure**, not a command execution during the S
 From the Backend root, route registration can be inspected without invoking handlers: `& 'D:\claude\AssabERP\.tools\s1-01\php-8.4.26\php.exe' artisan route:list --path=api --json`. Before **each** test file, execute the complete effective-connection fail-fast guard in [verification.md](verification.md#current-test-safety-guard); it verifies the live selected DB is exactly `assab_s1_test` on loopback port 3310 and refuses the baseline. Then the known focused form is `& 'D:\claude\AssabERP\.tools\s1-01\php-8.4.26\php.exe' vendor/bin/phpunit --configuration phpunit.xml --do-not-cache-result --no-progress tests/Feature/ShiftCycleFixesTest.php`. Other recorded focused files are `ShiftCloseChainTest.php`, `ShiftHandoverVarianceCustodyTest.php`, `SalesVarianceAllocationTest.php`, `HandoverLedgerDateTest.php` under `tests/Feature`, and `tests/NFR/Security/AuthenticationTest.php`; run separately with the guard each time. These are historical S1-01 results, not reruns in this correction pass.
 
 Dashboard source package script is `pnpm --filter @workspace/mockup-sandbox dev` from the Dashboard root, using the recorded pnpm 10.34.6/Corepack and Node 22.22.2 toolchain. This is a source-backed command, not a claim that a dev server was started now. Archived environment/recovery documents are historical evidence only; do not revive their older ports, DB targets, reset or install instructions as current procedure.
+
+## Final handoff discovery addendum — 2026-10-07
+
+C-1…C-8 from Mahmoud’s authoritative final handoff are source-inspection findings, not runtime acceptance. Source: `project-docs/Assab-Final-Developer-Handoff-S1-01-S1-05-2026-10-07-1.md`.
+
+| ID | Discovery fact | Contract consequence |
+|---|---|---|
+| C-1 | AssabAPP calls uncovered reassignment, workday end/daily-close, and rejection-decision writers, plus shift start/end/handover. | Dispositions cover live client paths. |
+| C-2 | No client calls `POST …/workday/daily-close/submit`; App button flips a local flag; Dashboard has no caller. | Server guard remains S1-07; client wiring is later work. |
+| C-3 | App sends `to_branch_manager` with branch-manager type; backend ignores it and selects first active manager. | Target maps selected ID to `branch_manager_id`, without auto-selection. |
+| C-4 | App omits zero-valued channel/own-share fields; multipart amounts are decimal strings. | Omitted legacy channels mean zero; exact string parsing is feasible. |
+| C-5 | App displays inclusive VAT, but fractional display parsing truncates and current server VAT formula differs. | Server correction is S1-06; app display correction is later work. |
+| C-6 | App parses legacy `variance` as integer and `variance_type` as string. | Preserve legacy meaning/type; proposed semantic decimal-SAR keys are additive. |
+| C-7 | No legacy refresh flow/endpoint; 401 logs out; cashier expires after 30 days only with remember-me, otherwise no expiry; manager token has no expiry. | D7 remains proposed/blocked pending Mahmoud; Dashboard Admin auth is separate. |
+| C-8 | Dashboard branch open hard-codes 50,000 halalas; branch close sends no count and unsupported `registerClosingHalalas`; accountant close sends count but rounds excess precision; mutations lack stable keys. | Configured opening is not receipt evidence; later Dashboard work owns payload/precision/key corrections. |
+
+S1-15 regression record: RX-01 guards financial transfer effects/amounts (TX-02 / FIN-06); RX-02 validates same-branch authorization and zero unauthorized allocation rows (SEC-01); RX-03 validates legacy mobile auth/session behavior (AUTH-02). Each regression asserts status, amounts, and relevant row counts; `assertTrue(true)` is not evidence. MySQL locking/concurrency requires MySQL, not SQLite in-memory. Tests were not run in this documentation pass.
+
+D1: Execution Plan v2.0 controls scope, task numbering, and acceptance IDs; Agent Implementation Plan is an execution aid. No separate Execution Plan v2.0 mapping document was found in the inspected workspace/project-docs inventory. Record only mappings explicitly supplied by Mahmoud; do not invent unseen IDs.

@@ -21,7 +21,7 @@ The table below is the authoritative task status. Historical failures and their 
 | S1-11 | Preserve Corrections, Confirmed Handovers, and Opening Evidence | S1-04,S1-05,S1-08; coordinate S1-09 | Assab | Planned | Destructive/fixed-count paths discovered, not fixed |
 | S1-12 | Correct Dashboard Backend Session Lifecycle | S1-05 auth blueprint | Assab | Planned | No session change |
 | S1-13 | Correct Dashboard Refresh and Financial Retry | S1-09,S1-12 | dashboard | Planned | No retry/session change |
-| S1-14 | Deliver Real Dashboard Shift Data and Correct Numbers | S1-06–S1-11 + dashboard API contract; verify sessions with S1-13 | Assab + dashboard | Planned | Hook/fixture inventory only |
+| S1-14 | Deliver Real Dashboard Shift Data and Correct Numbers | Per D7, pending Mahmoud decision if authoritative plan still requires Flutter refresh | Assab + dashboard | PROPOSED / BLOCKED PENDING MAHMOUD DECISION | No legacy refresh contract; see C-7 and S1-12 design item |
 | S1-15 | Verify and Deliver the Complete Sprint | All preceding required tasks, explicit unresolved blockers | Assab + dashboard | Planned | This verification.md is baseline evidence, not sprint delivery |
 
 Task status is not inferred from commits alone. Future entries must link changed files, checks, relevant SHAs and known limitations. Mahmoud alone marks Accepted. Week-two/week-three/full expense behavior remains outside this run; retain requirements without claiming them delivered.
@@ -32,7 +32,7 @@ Task status is not inferred from commits alone. Future entries must link changed
 
 ## Requirement traceability
 
-The original A01–A18 matrix, BR-01–BR-25 titles, and AC-01–AC-21 matrix are reproduced below from the authoritative project-docs. They are requirements, **NOT RUN**, not baseline PASS results. They retain their own source namespaces: A01 is not a replacement/renaming of AC-01. See business-rule document for the complete normative text and scope, including expense requirements deferred to later weeks. No new acceptance/task identifiers are introduced.
+The original A01–A18 matrix, BR-01–BR-25 titles, and AC-01–AC-21 matrix are reproduced below from the authoritative project-docs. They are requirements, **NOT RUN**, not baseline PASS results. They retain their own source namespaces: A01 is not a replacement/renaming of AC-01. See business-rule document for the complete normative text and scope, including expense requirements deferred to later weeks. Historical A/AC traceability IDs are not v2.0 acceptance IDs; D1 mapping is recorded in the final handoff addendum below.
 
 
 ### Sprint acceptance: A01–A18
@@ -47,7 +47,7 @@ The original A01–A18 matrix, BR-01–BR-25 titles, and AC-01–AC-21 matrix ar
 | A06 | Submit before recipient receipt | Report submitted, sender still responsible; dashboard does not show receipt complete | 08,11,14 |
 | A07 | Reject1000→correct950→confirm | Corrected request/revision governs receipt; prior evidence retained | 11 |
 | A08 | Intentionally partial request confirmed in full→report correction; third rejection | Confirmed movement unchanged; remainder with sender; correction still possible | 11 |
-| A09 | Reject6150→correct/resubmit6100→confirm6100; opening from settings only; confirmedzero | New opening6100, prior50 stays sender; settings not proof; zero preserved | 10,11 |
+| A09 | Reject6150→correct/resubmit6100→confirm6100; no receipt → opening 0; settings never count as receipt; confirmedzero | New opening6100, prior50 stays sender; settings not proof; zero preserved | 10,11 |
 | A10 | Ledger/audit write fails | Required financial/report writes roll back together | 08 |
 | A11 | Concurrent duplicate intent, lost response, expired cache | One financial effect; recoverable result without reposting | 09,13 |
 | A12 | Same key/different payload or actor; outside company/branch | Safe conflict/isolation; no response leakage or unauthorized writes | 04,09 |
@@ -113,3 +113,21 @@ The original A01–A18 matrix, BR-01–BR-25 titles, and AC-01–AC-21 matrix ar
 | AC-19 | Accountant attempts expense approval | Deny approval; review permission does not grant approval authority | BR-23 and role matrix |
 | AC-20 | Branch expense-custody expense occurs during a shift | Expected shift cash remains unchanged by the expense | BR-04 |
 | AC-21 | Retry or failure during financial movement/audit persistence | No second effect and no partially persisted essential financial state | BR-25 |
+
+## Mahmoud final handoff mapping and status — 2026-10-07
+
+D1 applies: Execution Plan v2.0 is authoritative for scope, task numbering, and acceptance IDs; Agent Implementation Plan is an execution aid. The inspected workspace/project-docs inventory had no separate Execution Plan v2.0 mapping document. This register records mappings explicitly supplied by Mahmoud and does not invent unseen IDs. Legacy A01–A18 and AC-01–AC-21 below remain historical traceability namespaces, not v2.0 acceptance IDs; v2.0 controls any conflict. **A18 Dashboard data is outside v2.0 week 1 unless Mahmoud explicitly restores it.**
+
+| Acceptance ID | Mapping | Status |
+|---|---|---|
+| FIN-05 | Opening = confirmed receipts; no-receipt zero; configured float distinction; manager sales-cash transfer; start-before-confirmation; 500/480 correction. | Documentation applied; review only |
+| FIN-06 | Transfer/effect identity and exact-amount regression RX-01. | Regression mapped; runtime deferred |
+| FIN-11 | Employee objection is recorded without blocking handover; manager decides liability. | Scenario added; runtime deferred |
+| MOB-01 | Legacy mobile token facts and no-refresh contract. | D7 proposed / pending Mahmoud |
+| TX-02 | Financial transfer exactness, atomic effects, duplicate prevention; RX-01. | Regression mapped; runtime deferred |
+| SEC-01 | Same-branch authorization and zero-write outsider regression; RX-02. | Regression mapped; runtime deferred |
+| AUTH-02 | Legacy mobile lifecycle regression; RX-03. | Regression mapped; runtime deferred |
+
+S1-14 is **PROPOSED / BLOCKED PENDING MAHMOUD DECISION** if the authoritative plan requires Flutter refresh without a legacy backend refresh contract. Record mobile token lifecycle design in S1-12. This is D7 proposal, not approval. S1-06 STARTED: NO.
+
+Each future regression asserts status, amounts, and relevant row counts; `assertTrue(true)` is unacceptable. MySQL is required for locking/concurrency evidence, not SQLite in-memory. These tests were not run in this pass.
