@@ -8,6 +8,59 @@ use PHPUnit\Framework\TestCase;
 
 class ShiftFinancialCalculatorTest extends TestCase
 {
+    public function test_pending_incoming_cash_physically_present_is_not_surplus(): void
+    {
+        $result = ShiftFinancialCalculator::calculate(11500, 5000, 2500, 0, 5000, 1000);
+
+        $this->assertSame(4000, $result['expected']);
+        $this->assertSame(4000, $result['reconciledCounted']);
+        $this->assertSame(0, $result['variance']);
+        $this->assertSame(0, $result['shortage']);
+        $this->assertSame(0, $result['surplus']);
+    }
+
+    public function test_confirmation_reclassifies_the_same_cash_without_counting_it_twice(): void
+    {
+        $before = ShiftFinancialCalculator::calculate(11500, 5000, 2500, 0, 5000, 1000);
+        $after = ShiftFinancialCalculator::calculate(11500, 5000, 2500, 1000, 5000, 0);
+
+        $this->assertSame(5000, $after['expected']);
+        $this->assertSame(5000, $after['reconciledCounted']);
+        $this->assertSame(0, $after['variance']);
+        $this->assertSame($before['variance'], $after['variance']);
+        $this->assertSame(0, $after['surplus']);
+    }
+
+    public function test_a_pending_request_without_physical_cash_does_not_adjust_the_count(): void
+    {
+        // A 10 SAR request exists outside the calculator, but no cash arrived.
+        $result = ShiftFinancialCalculator::calculate(11500, 5000, 2500, 0, 4000, 0);
+
+        $this->assertSame(4000, $result['reconciledCounted']);
+        $this->assertSame(4000, $result['expected']);
+        $this->assertSame(0, $result['variance']);
+    }
+
+    public function test_explicit_zero_pending_cash_preserves_the_original_exact_vector(): void
+    {
+        $result = ShiftFinancialCalculator::calculate(11500, 5000, 2500, 1000, 3000, 0);
+
+        $this->assertSame(ShiftFinancialCalculator::calculate(11500, 5000, 2500, 1000, 3000), $result);
+        $this->assertSame([10000, 1500, 5000, -2000, 2000], [$result['net'], $result['vat'], $result['expected'], $result['variance'], $result['shortage']]);
+    }
+
+    public function test_pending_cash_cannot_exceed_the_physical_count(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        ShiftFinancialCalculator::calculate(11500, 5000, 2500, 0, 500, 1000);
+    }
+
+    public function test_pending_cash_cannot_be_negative(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        ShiftFinancialCalculator::calculate(11500, 5000, 2500, 0, 5000, -1);
+    }
+
     public function test_it_calculates_the_approved_exact_shift_vector(): void
     {
         $result = ShiftFinancialCalculator::calculate(11500, 5000, 2500, 1000, 3000);

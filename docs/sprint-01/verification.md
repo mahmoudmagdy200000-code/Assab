@@ -359,3 +359,39 @@ The successful S1-06 Pint run covered exactly these nine PHP files:
 - `Modules/Shift/database/factories/CashierShiftFactory.php`
 - `app/Support/ShiftFinancialCalculator.php`
 - `tests/Unit/ShiftFinancialCalculatorTest.php`
+
+## Targeted F1–F3 audit correction — 2026-10-07
+
+This current evidence supersedes earlier runtime/test-runner and external-reference update limitations, without rewriting historical audit/handoff files. Starting repository `D:\claude\AssabERP\Assab`, branch `sprint/01-financial-foundation`, HEAD `e8fc27577aeb75bb643e87c825bb0394424832e8`, and clean worktree matched the requested gate. Local origin tracking matched HEAD. PRE-GATE PASS for local checks; live remote verification was unavailable because `git ls-remote` returned `getaddrinfo() thread failed to start`. Published baseline is supplied by the user and agrees with local tracking; fresh remote equality is not claimed.
+
+F1: the pure calculator adds optional nonnegative integer-halalas pending incoming physically included in count, default zero and no greater than count. Expected still uses confirmed opening only; reconciled count subtracts pending classification. Source identity, physical presence and pending/confirmed exclusivity remain trusted-caller responsibilities. SAR cases A/B/C are in the money/API contracts; tests establish before/after confirmation without double counting, no adjustment for a request without physical cash, and unchanged mandatory original vector. No route receives fabricated inputs and no end-to-end transfer integration is claimed.
+
+F2: original cashier submission retains complete-allocation confirmation. Manager correction and its resulting allocation/final liability do not require cashier re-approval. Contracts include cards500→400, expected+100, variance−100/shortage100, immutable receipts, audit/notification and single recognition. Runtime liability enforcement remains S1-07/S1-11.
+
+F3: shift report submission is allowed with pending incoming transfer. Daily submission waits for every required transfer associated with the server-derived included shift/report set to complete the existing confirmed-receipt condition, even when shortage liability is approved. Unrelated out-of-scope pending transfers do not block. No new state or daily runtime gate was implemented; S1-07 owns enforcement.
+
+Current Sprint/repository documentation and external authoritative reference search found no explicit later Mahmoud approval of D5. **D5 COMPUTATIONAL POLICY — PENDING MAHMOUD APPROVAL**. Existing non-exact rounding is unchanged.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Focused PHPUnit | PASS — 15 tests, 54 assertions | Portable PHP 8.4.26, PHPUnit 12.4.0; `php vendor/bin/phpunit --configuration phpunit.xml --do-not-cache-result --no-progress tests/Unit/ShiftFinancialCalculatorTest.php`; executed with filesystem access needed by the installed autoloader, no DB boot. |
+| Changed PHP syntax | PASS — 2 files | `php -l` on calculator and focused test. |
+| Changed-file Pint | PASS — 2 files | `php vendor/bin/pint --test app/Support/ShiftFinancialCalculator.php tests/Unit/ShiftFinancialCalculatorTest.php`. |
+| Diff whitespace | PASS | `git diff --check`. |
+| Full-project Pint | NOT RERUN | Prior two unrelated style findings remain outside scope; see historical evidence above. |
+| Scope review | PASS | Calculator/tests and affected documentation only; no migrations, Dashboard, AssabAPP, H1/H2, D8 or unrelated refactor. S1-01–S1-06 not restarted; S1-07 not started. |
+
+| Sprint file | Disposition | Reason |
+|---|---|---|
+| baseline.md | NO CHANGE NEEDED | Baseline evidence remains historical/source inventory. |
+| route-map.md | NO CHANGE NEEDED | AS-IS routes/writers unchanged; no integration added. |
+| money-contract.md | UPDATED | F1 formulas/cases, F2 scope, F3 gate and D5 pending. |
+| schema-adr.md | NO CHANGE NEEDED | No schema introduced or approved; existing evidence gaps remain. |
+| state-permission-revision.md | UPDATED | Original/manager distinction and scoped required transfers. |
+| api-contract.md | UPDATED | F1 semantic contract and corrected F2/F3 guards/examples. |
+| task-register.md | UPDATED | Current correction status, tests and deferred ownership. |
+| verification.md | UPDATED | This executed evidence and scope audit. |
+
+**BUSINESS RULES REFERENCE UPDATED:** `D:\claude\AssabERP\project-docs\Assab-ERP-Cash-Cycle-Business-Rules-v2.0-EN.md`, outside Assab Git. BR-03 now defines pending/reconciled count with three examples; BR-07/§15 distinguish manager correction from original confirmation and define scoped required transfers. Version 2.0 and prior history are retained with a dated clarification entry. This resolves the earlier external-reference-update note for these decisions; the external file is not part of the Assab commit.
+
+One new correction commit is intended over the published baseline. Push/remote outcome is reported after committing in the final delivery; no unexecuted push result is claimed here. **AUDIT F1–F3 CORRECTIONS COMPLETE / READY FOR REVIEW** within the pure-calculator/contract scope; runtime lifecycle acceptance remains deferred. S1-07 STARTED: NO.

@@ -14,7 +14,11 @@ use InvalidArgumentException;
 class ShiftFinancialCalculator
 {
     /**
-     * @return array{net:int,vat:int,expected:int,variance:int,shortage:int,surplus:int,varianceType:string,roundingPendingD5:bool}
+     * Pending incoming is source-backed cash physically included in the count,
+     * still owned by the sender. Callers must resolve its transfer evidence;
+     * a pending request alone does not establish physical presence.
+     *
+     * @return array{net:int,vat:int,expected:int,reconciledCounted:int,variance:int,shortage:int,surplus:int,varianceType:string,roundingPendingD5:bool}
      */
     public static function calculate(
         int $grossHalalas,
@@ -22,11 +26,16 @@ class ShiftFinancialCalculator
         int $appsHalalas,
         int $confirmedOpeningHalalas,
         int $countedHalalas,
+        int $pendingIncomingCountedHalalas = 0,
     ): array {
-        foreach ([$grossHalalas, $cardsHalalas, $appsHalalas, $confirmedOpeningHalalas, $countedHalalas] as $amount) {
+        foreach ([$grossHalalas, $cardsHalalas, $appsHalalas, $confirmedOpeningHalalas, $countedHalalas, $pendingIncomingCountedHalalas] as $amount) {
             if ($amount < 0) {
                 throw new InvalidArgumentException('Shift amounts must be non-negative halalas.');
             }
+        }
+
+        if ($pendingIncomingCountedHalalas > $countedHalalas) {
+            throw new InvalidArgumentException('Pending incoming counted cash cannot exceed the physical count.');
         }
 
         // gross SAR / 1.15, represented in halalas, is gross * 20 / 23.
@@ -46,12 +55,14 @@ class ShiftFinancialCalculator
 
         $vatHalalas = $grossHalalas - $netHalalas;
         $expectedHalalas = $grossHalalas - $cardsHalalas - $appsHalalas + $confirmedOpeningHalalas;
-        $varianceHalalas = $countedHalalas - $expectedHalalas;
+        $reconciledCountedHalalas = $countedHalalas - $pendingIncomingCountedHalalas;
+        $varianceHalalas = $reconciledCountedHalalas - $expectedHalalas;
 
         return [
             'net' => $netHalalas,
             'vat' => $vatHalalas,
             'expected' => $expectedHalalas,
+            'reconciledCounted' => $reconciledCountedHalalas,
             'variance' => $varianceHalalas,
             'shortage' => max(0, -$varianceHalalas),
             'surplus' => max(0, $varianceHalalas),
