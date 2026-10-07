@@ -131,3 +131,7 @@ D1 applies: Execution Plan v2.0 is authoritative for scope, task numbering, and 
 S1-14 is **PROPOSED / BLOCKED PENDING MAHMOUD DECISION** if the authoritative plan requires Flutter refresh without a legacy backend refresh contract. Record mobile token lifecycle design in S1-12. This is D7 proposal, not approval. S1-06 STARTED: NO.
 
 Each future regression asserts status, amounts, and relevant row counts; `assertTrue(true)` is unacceptable. MySQL is required for locking/concurrency evidence, not SQLite in-memory. These tests were not run in this pass.
+
+## Approved decisions synchronized — 2026-10-07
+
+Current Sprint working-contract decisions now authorize Branch Manager direct cashier-report correction under preserved correction history, cashier notification, no cashier approval, immutable confirmed receipts, and one recalculation. Pending incoming receipt does not block shift report submission; sender responsibility, physical count and explicit pending state remain distinct, while accountant daily submission waits for required transfer completion. Excess manager transfer requests are rejected against available recorded sales-cash net of reservations/commitments, without movement or automatic shortage; unrecorded cash requires legitimate source recording, never expense custody. See `api-contract.md`, `money-contract.md`, and `state-permission-revision.md`. These decisions supersede D3/D9 pending wording in current Sprint docs; historical handoff/audit records retain their original as-of status.

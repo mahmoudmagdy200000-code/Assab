@@ -308,17 +308,22 @@ Documentation/source reconciliation only. Starting HEAD: `9a8e0ff75dc70e542420a8
 |---|---|
 | No receipt computes opening 0; evidence state remains distinct | Documented |
 | Configured opening is never receipt evidence | Documented |
-| Start independent of confirmation; late receipt joins same shift once | Documented; post-report edge PENDING D9 only where permitted |
+| Start independent of confirmation; late receipt joins same shift once | Documented; current report-submission behavior follows approved transfer decision |
 | Manager opening uses personal sales-cash, never expense custody | Documented; storage remains proposed |
 | 500/480 reject/correct/resubmit/confirm; actual shortage remains sender-side | Documented |
 | Report submission differs from receipt confirmation | Documented |
 | Server submit trigger/set identified; no current client caller | Documented; client wiring deferred |
-| D3 manager edits to cashier figures remain unresolved | PENDING D3 |
-| D4–D7 proposals; D8 not authorized; D9 conditional only | Preserved |
+| Branch Manager correction authority and safeguards | Approved and synchronized in current working docs |
+| D4–D8 status | D4–D7 proposals remain; D8 not authorized; D9 resolved for the transfer cases in this update |
 | Legacy variance keys unchanged; no mobile refresh invented | Documented as proposal/target |
 | No new employee system, manager-workday system, or approval layer | Preserved |
 | No runtime/application PASS claimed | Confirmed |
 
 S1-15 regression map: RX-01 → TX-02 / FIN-06; RX-02 → SEC-01; RX-03 → AUTH-02. Each regression requires status, amount, and relevant row-count assertions; `assertTrue(true)` is not evidence. MySQL is required for locking/concurrency; SQLite in-memory is insufficient. Tests remain NOT RUN.
 
-This correction is **READY FOR MAHMOUD DOCUMENTATION REVIEW / NOT ACCEPTED**. D1/D2 applied; D3 pending; D4–D7 proposed; D8 not authorized; D9 conditional/pending only where applicable. H1/H2 were not implemented and remain unauthorized. S1-06 was not started.
+This correction is **READY FOR MAHMOUD DOCUMENTATION REVIEW / NOT ACCEPTED**. D1/D2 applied; manager correction and transfer decisions synchronized; D4–D7 proposed; D8 not authorized; D9 is resolved for the newly approved cases. H1/H2 were not implemented and remain unauthorized. S1-06 was not started.
+
+## Approved decision synchronization verification — 2026-10-07
+
+The current working documents now reflect the user-approved decisions: Branch Manager direct report corrections with prior/new values, reason, actor/time, cashier notification, no cashier approval, immutable receipts and one recalculation; pending incoming transfer does not block shift report submission, drawer cash is counted, sender remains responsible, pending status is explicit/not surplus, and accountant daily submission waits for required transfer completion; excessive manager sales-cash transfers are rejected after reserved/committed balance checks without movement or automatic shortage, and cash must be legitimately recorded before transfer. Earlier D3/D9 entries in the historical handoff remain historical and are not current decision state. The only authoritative Business Rules copy identified is outside the repository write boundary; synchronization there remains required outside repository.
+**REFERENCE UPDATE REQUIRED OUTSIDE REPOSITORY.** The single current approved business-rules copy found is `D:\claude\AssabERP\project-docs\Assab-ERP-Cash-Cycle-Business-Rules-v2.0-EN.md`; it is outside the writable repository root, so it was not edited. The current Sprint plan copy, `D:\claude\AssabERP\project-docs\Assab-ERP-Sprint-01-Agent-Implementation-Plan.md`, is also outside the writable root and is an execution aid under D1, not the business-rule authority; it was not edited. No same-name duplicate of the v2.0 Business Rules file was found in the workspace search. The prior final handoff/audits are historical records and were intentionally left unchanged. Update the authoritative Business Rules version/change log and any needed current execution-plan cross-reference in the owning repository/location before declaring reference synchronization complete.
