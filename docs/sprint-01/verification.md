@@ -6,6 +6,18 @@
 
 `php -l Modules/Branch/database/factories/BranchFactory.php` passed. Each file below was rerun in a separate PHPUnit 12.4.0 / PHP 8.4.26 process with process-local MySQL credentials targeting **only** `assab_s1_test` on `127.0.0.1:3310`; every command exited 0. Full logs remain in the ignored workspace-local `.tools/s1-01/test-results-20261007-fixture1` directory and are not part of the proposed commit. The command form was `php vendor/bin/phpunit --configuration phpunit.xml --do-not-cache-result --no-progress <file>`, using the approved portable `php.exe`. No broad seed ran.
 
+## Command and repository-state evidence
+
+| Check | Command and context | Actual result | Tested repository state |
+|---|---|---|---|
+| Current Laravel route registration | From `D:\claude\AssabERP\Assab`: `D:\claude\AssabERP\.tools\s1-01\php-8.4.26\php.exe artisan route:list --path=api --json` | Reran for this documentation correction; exit 0; 1,734 registered routes. The focused full-URI records in `route-map.md` were individually matched to this output. Registration only; handlers were not invoked. | Backend `sprint/01-financial-foundation`, `33ecd35879f125d5de5c9fa7b1da0c7bc56a8adb`; application source unchanged during this check. |
+| Focused six-file PHPUnit baseline | From the Backend root, each file separately: `D:\claude\AssabERP\.tools\s1-01\php-8.4.26\php.exe vendor/bin/phpunit --configuration phpunit.xml --do-not-cache-result --no-progress <one test file>`; process-local `APP_ENV=testing`, `DB_CONNECTION=mysql`, `DB_HOST=127.0.0.1`, `DB_PORT=3310`, `DB_DATABASE=assab_s1_test`, `DB_USERNAME=assab_s1_test`; password loaded from protected workspace credential file and not printed. | Historical executed result: 41 tests, 144 assertions, 0 failures, 0 errors; six separate runs; no broad seed. | Exact test-run HEAD was not captured in retained logs. The source state included the BranchFactory correction later committed as `21d06ffe21fd7392c44c7980340e9c42d052a8f5`; this is not asserted as the exact tested SHA. **Historical / tested SHA not independently reconstructed.** |
+| Dashboard TypeScript no-emit | Earlier record: TypeScript 5.9.3 exit 0, but exact executed command and tested HEAD were not retained (**historical / command not independently reconstructed**). The current package script is `typecheck: tsc -p tsconfig.json --noEmit`. Current safe attempt from Dashboard root: `C:\Program Files\nodejs\node.exe D:\claude\AssabERP\.tools\s1-01\corepack\v1\pnpm\10.34.6\bin\pnpm.cjs --filter @workspace/mockup-sandbox typecheck`; process-local cache/state paths under `.tools\s1-01`. | Historical PASS remains qualified as prior evidence. Current attempt did **not** reach TypeScript: pnpm exited `-4048` with `EPERM` resolving `D:\claude\AssabERP\dashboard`. No source or lockfile was changed. | Historical tested SHA not captured. Current attempt used Dashboard `sprint/01-financial-foundation` at `0378530867c8a14706213768ce49553cefc203b2`. |
+| PHP syntax / Pint for BranchFactory | Historical recorded commands: `php -l Modules/Branch/database/factories/BranchFactory.php`; `php vendor/bin/pint --test Modules/Branch/database/factories/BranchFactory.php`. | Both historical checks passed; exact invocation environment and tested HEAD were not retained. **Historical / tested SHA not independently reconstructed.** | BranchFactory correction later committed as `21d06ffe21fd7392c44c7980340e9c42d052a8f5`; exact test-run SHA is unknown. |
+| MySQL migration and object baseline | Historical approved migration command recorded in `migration-preflight.md`: `php artisan migrate --database=mysql --no-interaction`, with migrator password supplied process-locally. Read-only migration/object inventory command details are in that document; the exact original inspection command transcript is not retained. | MySQL 8.4.11, `127.0.0.1:3310`, `assab_s1_local`; 283/283 migration records, 212 base tables, 2 views, 2 procedures, 179 foreign keys. Runtime PDO connectivity was separately recorded PASS. No seeds. **Historical / read-only inventory command not independently reconstructed.** | Backend application state at execution was not recorded by full SHA; the current provenance row elsewhere in `baseline.md` is a later review state, not the migration/test-run SHA. |
+
+The explicit test safety guard below remains mandatory before every destructive focused PHPUnit run. It resolves Laravel's effective test connection and permits `RefreshDatabase` only on `assab_s1_test`; the migrated `assab_s1_local` schema must never be refreshed.
+
 ## CURRENT TEST SAFETY GUARD
 
 Run from the `Assab` repository root. This guard checks Laravel's bootstrapped effective default connection, refuses any connection except MySQL at `127.0.0.1:3310/assab_s1_test`, refuses an explicit `DB_URL`, and opens a read-only connection to confirm the selected schema. It prints only a generic pass/refusal message; it never prints connection configuration or credentials. Set the test credentials in the current PowerShell process from the protected local credential file using the existing private credential-loading procedure; never put them in a tracked file or echo them.
@@ -103,15 +115,15 @@ At the end of this earlier test attempt, both schemas retained their migration r
 
 ## Earlier executed baseline evidence
 
-These are prior recorded results, not newly rerun commands during delivery review:
+This table preserves earlier recorded outcomes while incorporating the current route-list rerun and the current Dashboard typecheck attempt. The evidence table above distinguishes the new run from historical outcomes:
 
 | Check | Result | Evidence boundary |
 |---|---|---|
 | Portable tools, locked dependencies, Composer platform requirements | PASS | PHP 8.4.26, Composer 2.10.3, pnpm 10.34.6; no dependency upgrade |
 | Laravel package discovery | PASS | Exit 0; valid manifests with 12 package entries and 37 service providers |
 | Bounded first-party PHP lint | PASS | 1,173 files, zero syntax errors; vendor/generated files excluded |
-| Dashboard TypeScript no-emit check | PASS | TypeScript 5.9.3, exit 0; no Dashboard dev server/build claim |
-| API route registration | PASS | 1,734 routes; 29/29 corrected core method/path signatures; registration is not full endpoint acceptance |
+| Dashboard TypeScript no-emit check | Historical PASS; current attempt BLOCKED before TypeScript | Earlier TypeScript 5.9.3 exit 0 is retained as historical evidence with command/SHA not independently reconstructed. Current pnpm invocation failed at Node `realpath` with EPERM; details above. No Dashboard dev server/build claim. |
+| API route registration | PASS | Current rerun: 1,734 registered routes, exit 0; focused routes cross-checked against explicit records. An earlier 29-signature comparison is historical; registration is not full endpoint acceptance. |
 | Baseline migrations on isolated 3310 | PASS | 283/283; recorded 212 base tables, 2 views, 2 procedures, 179 FKs; not upgrade-safety evidence for populated databases |
 | Runtime PDO and read-only financial services | PASS | Runtime identity/schema/port verified; empty handover summary and custody balances were zero |
 | Prior service-check harness invocation | Corrected diagnostic failure | Exit 255 because the direct checking command omitted Composer autoload; corrected invocation exited 0; no app defect inferred |
@@ -131,3 +143,9 @@ Documentation review corrected stale current-status statements, archived superse
 | dashboard/pnpm-lock.yaml | 6A26FAC861BE4EFFD2CA272076EC92983BB87825FC0802C299F4E54D2C35EE1A |
 
 S1-01 is **Ready for review; not Accepted**. There is no remaining infrastructure or focused-fixture blocker. The S1-01 delivery separated the one-line fixture correction from its eight evidence documents; no local `.env`, credentials, tools, logs, databases or backup files were included. No S1-02 implementation was part of this baseline. A separately published S1-02 money-contract document is tracked as Needs correction in task-register.md.
+
+## Targeted audit closure carried forward
+
+* **R06 — RESOLVED:** route-map/API contract identify inline `Illuminate\Http\Request` validation and the unused end FormRequest; list the native Admin close mutation path and legacy middleware aliases; and preserve `CashierShiftObserver::updating` → `ShiftStartedEvent`/`ShiftEndedEvent` direction and pre-save / transaction timing. Financial writer and transaction traces are source-linked there.
+* **R07 S1-01 evidence — RESOLVED:** the executed result is 41 tests / 144 assertions / 0 failures / 0 errors; no text treats it as proof of the future acceptance scenario; S1-01 remains Ready for review, not Accepted.
+* **R08 — RESOLVED:** the fail-fast guard resolves Laravel's effective DB connection and allows `RefreshDatabase` only for `assab_s1_test` on loopback port 3310. `assab_s1_local` is explicitly protected as the migrated baseline. Current Dashboard startup uses `pnpm --filter @workspace/mockup-sandbox dev`; historical setup/recovery instructions are labeled non-current. Test evidence and the current 3310/test-schema workflow are separated from historical runs.

@@ -6,7 +6,7 @@
 
 The remaining S1-01 step is Mahmoud's review of the baseline package. Passing these existing tests does not constitute acceptance of the later Sprint 01 business rules; source-identified contract and monetary-unit gaps remain for their planned tasks. A Purchase test-data seeder still writes legacy `map_coordinates` but was not run and is outside this fixture correction. See [verification.md](verification.md) for the six-file result matrix and logs. Earlier outcomes below are historical.
 
-## Repository snapshot at initial discovery
+## INITIAL DISCOVERY SNAPSHOT
 
 All three repositories were successfully cloned during initial preparation. No historical reset was performed. The table below is an initial-discovery snapshot, not the current branch tips; subsequent local and published commits are preserved in Git history.
 
@@ -31,6 +31,25 @@ The four files in `project-docs` were inventoried. Execution protocol, business 
 | Assab-ERP-Cash-Cycle-Business-Rules-v2.0-EN.md | 7BB57AD79B520B1C46C6793AC6396C43024D6F25B30508049A1FAAE25C88EEB6 |
 | Assab-ERP-Sprint-01-Agent-Implementation-Plan.md | 37583220BE76F3AB688BFDA3172070E07A65ED0B44507AEF97592344401F37E8 |
 
+The supplied document versions and exact filenames are:
+
+| Supplied filename | Explicit version in source | SHA-256 |
+|---|---|---|
+| `ASSAB_AGENT_EXECUTION_AND_REVIEW_PROTOCOL.md` | 1.0 | A96607441BA525F277880225746DE3B61E5CC412B8274CDDC0B26398C8717051 |
+| `ASSAB_DATABASE_SCHEMA.md` | 2.0 — Final source-reviewed reference, dated 6 October 2026 | 9DB0105B32C601F96E9EAE5AE44BFB19E8776EEF190B8C7221F3B2733EB4A6D4 |
+| `Assab-ERP-Cash-Cycle-Business-Rules-v2.0-EN.md` | Business-rule version 2.0 | 7BB57AD79B520B1C46C6793AC6396C43024D6F25B30508049A1FAAE25C88EEB6 |
+| `Assab-ERP-Sprint-01-Agent-Implementation-Plan.md` | 2.0 — English, consolidated developer handoff | 37583220BE76F3AB688BFDA3172070E07A65ED0B44507AEF97592344401F37E8 |
+
+## CURRENT S1-01 REVIEW PROVENANCE
+
+Repository refs captured for this documentation correction on 2026-10-07. The initial-discovery values above remain historical and are not overwritten.
+
+| Repository role | Branch | HEAD |
+|---|---|---|
+| Backend `D:\claude\AssabERP\Assab` | `sprint/01-financial-foundation` | `33ecd35879f125d5de5c9fa7b1da0c7bc56a8adb` |
+| Dashboard `D:\claude\AssabERP\dashboard` | `sprint/01-financial-foundation` | `0378530867c8a14706213768ce49553cefc203b2` |
+| Mobile compatibility reference `D:\claude\AssabERP\AssabAPP` | `main` | `b2453481966fc1ae2cdfcac4161bbb29a3ba5828` |
+
 Mohamed's approved BR-01–BR-25 define requirements. Current code/tests establish current behavior. Mahmoud owns technical review and acceptance. Commit and publication actions require the applicable user authorization. Machine changes and acquisition of missing tools are outside this baseline. Historical documents are navigation aids, never reset instructions.
 
 Applicable `Assab/CLAUDE.md`: Controllers → FormRequests → Services → Repositories → Models, existing module layout and API envelopes; authorization and tenant scoping; atomic multi-table writes with locks; additive reversible migrations without editing shipped migrations; shared Support classes and dependency injection. Do not introduce app/Domain/Actions or strict_types wholesale. PHPStan is not installed; Pint/Pest are the relevant project gates. High-impact financial/security implementation requires the concrete blueprint at S1-05 before implementation.
@@ -51,6 +70,6 @@ The six test files ran in separate processes against the disposable schema. Each
 
 ## Review and remaining boundaries
 
-S1-01 is Ready for review, not Accepted. The test results establish existing behavior; they do not establish full BR-01–BR-25, A01–A18 or AC-01–AC-21 acceptance. API-contract UNKNOWN/REQUIRES VERIFICATION entries and source-identified financial gaps remain for Mahmoud's review and later authorized tasks. Dashboard typecheck passed previously; a Dashboard build/dev-server check and complete API-to-UI acceptance are not claimed.
+S1-01 is Ready for review, not Accepted. The test results establish existing behavior; they do not establish full BR-01–BR-25, A01–A18 or AC-01–AC-21 acceptance. API-contract UNKNOWN/REQUIRES VERIFICATION entries and source-identified financial gaps remain for Mahmoud's review and later authorized tasks. A Dashboard TypeScript no-emit check was previously recorded PASS, but its exact command and tested SHA were not retained; a current attempt stopped before TypeScript with pnpm `EPERM` while resolving the Dashboard directory. A Dashboard build/dev-server check and complete API-to-UI acceptance are not claimed.
 
 The only S1-01 application-code change is removal of the stale BranchFactory field. The Purchase test-data seeder's remaining reference is a separate backlog finding in task-register.md. Deployment requires no new migration, configuration, queue restart or cache clear for this fixture/docs change. The published S1-02/S1-03 documents are review artifacts only; they do not establish acceptance or authorize implementation. Historical setup/recovery proposals are archived in their own documents and must not be executed as current instructions.
