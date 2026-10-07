@@ -147,7 +147,7 @@ The source-discovered branch-manager override route includes the `handover` segm
 | Source of effect | Current writer / projection | Boundary and interpretation |
 |---|---|---|
 | Legacy report SOURCE / authoritative report writer | `cashier_shifts`; `ShiftEndService`, `VarianceCalculationService`, `BranchManagerShiftController` daily-close paths | Writes report fields and separate channel/variance detail paths. No single canonical report writer covers all legacy routes. |
-| Channel detail SOURCE / writer | `shift_sales_breakdown`; `VarianceCalculationService` and daily-close update path | Per-aggregator sales breakdown; replacement/deletion behavior is path-specific. |
+| Channel detail SOURCE / writer | `shift_sales_breakdown`; `ShiftEndService::saveSalesBreakdown` writes end-shift channel rows; `BranchManagerShiftService::updateSalesBreakdown` updates daily-close channel rows | `VarianceCalculationService` handles variance detail/alert writes and reads the calculated variance; it is not the channel-detail writer. Per-aggregator replacement/deletion behavior remains path-specific. |
 | Variance allocation SOURCE / writer | `shift_variance_details`; `VarianceCalculationService` and approval/update paths | Assignment/detail rows feed asynchronous ledger projection; actual ledger writes are described below. |
 | Handover request SOURCE / writer | `cashier_shift_handovers`, `shift_handover_status`; `HandoverService` | Requested transfer and decision/status; a pending request is not proof of received cash. |
 | Audit SOURCE / writer | `cashier_shift_history`; `CashierShift::recordHistory` called by shift/handover services | Generic action history; not a complete immutable revision or receipt ledger. |

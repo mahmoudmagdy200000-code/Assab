@@ -1,5 +1,17 @@
 # S1-01 verification evidence
 
+## Focused documentation audit corrections C01–C03 — 2026-10-07
+
+**S1-01 / S1-02 / S1-03 remain Ready for review; not Accepted.** This documentation-only correction was reviewed from branch HEAD `52ce4b0bcfe2f3e9842d5c76b268c27e067e5f3e`; it does not claim runtime acceptance.
+
+| Correction | Static recheck | Result and boundary |
+|---|---|---|
+| C01 — S1-01 writer attribution | `ShiftEndService::endShiftOnly()` calls `saveSalesBreakdown()`; that method creates `ShiftSalesBreakdown` rows. `VarianceCalculationService::recordVariance()` writes variance details/alerts, not channel rows. `route-map.md` summary row now matches its detailed trace. | RESOLVED. Current source inspected; no application behavior changed or executed. |
+| C02 — S1-02 receipt/report wording | Current `submitDailyReport()` closes the daily report without checking a confirmed receipt amount. BR-05–06/AC-07 permit report closure while receipt is unconfirmed and retain sender responsibility; BR-09 separately requires manager shortage-liability approval before daily submission. Contract text now states those as distinct facts and does not make receipt a precondition. Stale S1-03 “has not started” wording was corrected. | RESOLVED. Source and rule text inspected; no workflow/runtime test executed. |
+| C03 — S1-03 report revisions without handover | `ShiftEndService::endShiftOnly()` commits report data without creating a handover. Native Admin `ShiftCloseService::close()` updates `asab_shifts` and creates an Admin operation without a legacy handover. Existing legacy handover rows are shift-linked requests; no current report-revision entity was found. ADR now proposes a stable report aggregate/revision key and optional zero/one/many request associations, preserving request and receipt IDs across corrections. | RESOLVED as a design correction. Proposal remains subject to S1-05 review; no migration or application implementation/test was run. |
+
+`git diff --check` is the documentation whitespace check. No migration, seed, fixture, backend test, Dashboard test, or AssabAPP test was run. The proposed end-only → later handover request → receipt confirmation → correction fixture is planned only, not executed. S1-05 implementation remains unstarted.
+
 ## Focused MySQL rerun after BranchFactory correction — 2026-10-07 (current result)
 
 **S1-01 status: Ready for review; not Accepted.** The previously blocked 3310 test environment is operational and the focused fixture error is resolved. Only `Modules/Branch/database/factories/BranchFactory.php` changed: the obsolete `map_coordinates` factory field was removed. The Branch creation migration introduced the column (`Modules/Branch/database/migrations/2025_10_09_100000_create_branches_table.php:20`), but the later forward migration drops it (`2026_01_25_162355_modify_branches_table_add_new_fields.php:138-151`). Read-only `information_schema.COLUMNS` checks confirmed its absence from both fully migrated `assab_s1_local` and disposable `assab_s1_test`; `location` remains present, and `opening_hours` is `datetime`. The Branch model's fillable/casts do not include `map_coordinates`. No migration, model, business logic, or schema was changed.

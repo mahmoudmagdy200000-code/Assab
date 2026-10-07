@@ -15,8 +15,8 @@ The relevant plan requires a limited adapter where it satisfies the money contra
 | Concern | Decision | Reason and boundary |
 |---|---|---|
 | Existing money storage and SAR/halala conversion | **ADAPTER ONLY** | Legacy Shift tables/models use SAR `DECIMAL`; Admin `shifts` money fields use integer halalas. `BridgeLegacyCashierShift::toHalalas()` performs the legacy-to-Admin conversion. `ShiftCloseService` consumes integer halalas. Do not alter either storage representation, add another ×100, or run a global `/100` update. |
-| Handover revision identity and current-row lookup | **ADDITIVE MIGRATION REQUIRED** | Existing handover rows are mutable and have no revision identity. Proposed child revisions use the existing handover UUID as request identity and a unique revision number within that request. A shift-level unique index is not approved until duplicate/cardinality preflight and S1-05 business/API review resolve the current `hasOne` versus non-unique-data gap. |
-| Immutable report snapshots and history retention | **ADDITIVE MIGRATION REQUIRED** | `cashier_shift_history` is a generic action/old/new text log, not a complete revision snapshot. Current rejection reset hard-deletes handover and report-detail rows. A new revision snapshot record is needed; schema alone cannot enforce immutability, so append-only service behavior and tests are also required. |
+| Report revision identity and history retention | **ADDITIVE MIGRATION REQUIRED** | `cashier_shift_history` is a generic action/old/new text log, not a complete revision snapshot. Report identity belongs to a stable report/shift aggregate, independent of whether any handover request exists. Current rejection reset hard-deletes handover and report-detail rows. A new append-only report revision record is needed; schema alone cannot enforce immutability, so append-only service behavior and tests are also required. |
+| Handover request identity and report association | **ADDITIVE MIGRATION REQUIRED** | Existing handover rows are mutable requests with stable UUIDs but no report-revision identity. Proposed association records link zero, one, or multiple stable handover requests to a report revision. Shift-level request uniqueness remains unapproved until duplicate/cardinality preflight and S1-05 review resolve the current `hasOne` versus non-unique-data gap. |
 | Confirmed receipt identity and amount | **ADDITIVE MIGRATION REQUIRED** | Current requested handover amount/status does not provide a separate immutable confirmed amount/reference. Add a separate receipt record for forward confirmations; keep it distinct from request revisions. Never infer or backfill a receipt from settings, a requested amount, a legacy approval status, or an opening balance. |
 | Idempotency and financial-operation identity | **DECISION DEFERRED TO S1-05** | Current idempotency middleware stores a globally unique key, user, method/path, response, status, and expiry, but no tenant/resource/revision or payload hash. `asab_operations` has a unique public ID, while source identity is nullable and not unique. S1-05 must select endpoint-specific identity and same-key/different-payload behavior before choosing the final columns/indexes. Do not add `operation_id` or an unscoped handover key now. |
 | History preservation for legacy records | **ADDITIVE MIGRATION REQUIRED** | Preserve current report state as an explicitly identified initial snapshot only after preflight. Existing `cashier_shift_history` cannot reconstruct every prior report revision. Historical confirmed receipts cannot be synthesized; missing history remains an explicit gap. |
@@ -60,39 +60,38 @@ Preserve existing legacy request and response shapes while any additive revision
 
 `cashier_shift_handovers` currently has UUID primary key `id`, FK `cashier_shift_id` (cascade on shift delete), polymorphic recipient, requested `handover_amount`, `variance_amount`, files/notes/date/time, status, rejection metadata, approver metadata, and `handed_over_at`. Its migration creates ordinary indexes on `(handover_to_id, handover_to_type)`, `(approved_by_id, approved_by_type)`, `status`, `handover_date`, and `cashier_shift_id`; there is no unique constraint, revision/receipt/idempotency column, or FK on `related_handover_id` ledger references (`2025_12_01_133846_create_cashier_shift_handovers_table.php:11-54`). The separate `shift_handover_status` table's unique shift key is not uniqueness on the handover table.
 
-`CashierShift::handover()` is a `HasOne` relation (`Modules/Shift/app/Models/CashierShift.php:117-124`), but that relationship does not constrain the database or order multiple matching rows. `HandoverService::recordHandover()` inserts a row (`Modules/Shift/app/Services/HandoverService.php:38-123`); approval and cashier acceptance use `where(cashier_shift_id)->first()` (`:188-235,604-620`); rejection/edit paths update rows by shift (`:443-490,541-590`); and the rejection reset deletes all matching handover rows (`:383-416`). `CashierShiftResource` also has a direct fallback query by shift. These are reader/writer impacts, not proof that duplicate rows currently exist.
+`CashierShift::handover()` is a `HasOne` relation (`Modules/Shift/app/Models/CashierShift.php:117-124`), but that relationship does not constrain the database or order multiple matching rows. Current source has no report-revision model/table or relationship; this `HasOne` is only the legacy shift-to-request accessor, not report revision ownership. `HandoverService::recordHandover()` inserts a row (`Modules/Shift/app/Services/HandoverService.php:38-123`); approval and cashier acceptance use `where(cashier_shift_id)->first()` (`:188-235,604-620`); rejection/edit paths update rows by shift (`:443-490,541-590`); and the rejection reset deletes all matching handover rows (`:383-416`). `CashierShiftResource` also has a direct fallback query by shift. These are reader/writer impacts, not proof that duplicate rows currently exist.
 
-The existing UUID row ID is the only source-backed candidate stable request identity. It is not proven that multiple rows for one shift represent revisions rather than separate requests, retries, or inconsistent historical state. Never assign revision identity by `cashier_shift_id` alone and never assume one row per shift without querying and reviewing the data.
+The existing handover UUID is the source-backed stable request identity; it is not the report revision identity. It is not proven that multiple rows for one shift represent revisions rather than separate requests, retries, or inconsistent historical state. Never assign report revision identity by `cashier_shift_id` or handover request alone, and never assume one request per shift without querying and reviewing the data.
 
 ## 4. Proposed additive target model
 
 The following is the minimal target proposal for S1-05 review. Every table and field name in §4 is **PROPOSED**, not existing schema. No migration is authorized by this document.
 
-### 4.1 Revision snapshots
+### 4.1 Stable report aggregate and revision snapshots
 
-Add a child table such as `cashier_shift_handover_revisions` with:
+Report history must exist independently of handover requests. Add a stable report aggregate keyed by the source report owner, with identity **PROPOSED** as `(source_kind, source_shift_id)` (or an equivalent reviewed FK-safe representation): legacy cashier reports use `cashier_shifts.id`; a native Admin cashier-shift report uses `asab_shifts.id`. Where `asab_shifts.legacy_shift_id` identifies a mirrored legacy report, the mirror must resolve to the same legacy report aggregate rather than create a second report identity. Native Admin shifts without a legacy source use their own Admin shift ID. The current legacy `ShiftEndService::endShiftOnly()` completes and persists report totals/channel rows without creating a handover (`Modules/Shift/app/Services/ShiftEndService.php:17-57`). Native Admin `ShiftCloseService::close()` closes an `asab_shifts` row into the review pipeline and creates an Admin operation, not a legacy handover (`Modules/Admin/app/Services/ShiftCloseService.php:44-103`). Neither path may require a fabricated recipient or amount to obtain report identity. Final aggregate table/FK shape and treatment of any additional report types remain S1-05 blueprint decisions.
 
-- **PROPOSED** UUID primary key;
-- **PROPOSED** FK `cashier_shift_handover_id` to the existing handover row UUID (stable request identity);
-- **PROPOSED** positive `revision_number`;
-- **PROPOSED** canonical `snapshot` JSON containing the submitted report state and references to its sales-breakdown, variance/allocation, recipient, and evidence data;
-- **PROPOSED** `payload_sha256` over the canonical snapshot for comparison/integrity checks;
-- **PROPOSED** actor ID/type and recorded timestamp;
-- **PROPOSED** revision reason/state metadata needed to distinguish submitted, rejected, and resubmitted versions.
+Add **PROPOSED** `shift_report_revisions` owned by that stable report aggregate, with:
 
-Require **PROPOSED** `UNIQUE (cashier_shift_handover_id, revision_number)` and a **PROPOSED** index supporting parent/latest-revision reads. Writers must lock the parent/request row, require the expected current revision, allocate the next number in the same transaction, and reject stale updates. A changed payload is a new revision, never an overwrite. The payload hash is not a substitute for authorization or an immutable-write policy.
+- **PROPOSED** UUID primary key and FK to the stable report aggregate;
+- **PROPOSED** positive `revision_number`, unique within the aggregate;
+- **PROPOSED** canonical `snapshot` JSON for submitted report values, channel breakdown, count/expected/variance, allocation state, and evidence references;
+- **PROPOSED** `payload_sha256`, actor ID/type, recorded timestamp, and reason/state metadata.
 
-The immutable snapshot must retain, directly or via stable referenced child IDs, the submitted financial totals; channel breakdown; counted/expected/variance values; provisional and confirmed shortage allocations; request amount and recipient; evidence/attachment references; rejection reason; actor identity/type; submission timestamp; and the decision state needed to interpret that version. Receipt-confirmation amount, confirming recipient, confirmation timestamp, receipt reference, and confirmation evidence belong to the separate receipt record (§4.2), not a mutable prior snapshot. Preserve uploaded file objects and their references; a DB row containing a path alone does not preserve a file if another workflow deletes it.
+Require **PROPOSED** `UNIQUE (report_aggregate_id, revision_number)` and an index for aggregate/latest-revision reads. Writers lock the aggregate, compare the expected current revision, append the next revision atomically with the compatibility projection/decision, and reject stale writes. A changed payload appends; it never overwrites or deletes a prior snapshot. Current revision is the highest committed revision for that aggregate. A report lookup remains valid with zero linked handover requests. Preserve uploaded file objects as well as their references.
 
-Identity/selection rules: immutable revision identity is `(cashier_shift_handover_id, revision_number)` plus its UUID; a correction reuses its request parent UUID and appends a child revision rather than creating another parent. Current revision for an explicitly selected request is the highest committed revision number, read under a parent lock for writes. A shift lookup returns no request when there are no parents, returns the one parent only when exactly one exists, and fails closed for multiple parents pending reconciliation; it must never pick unordered `first()`. A new revision supersedes the previous report snapshot but does not erase it. A decision carrying a revision other than the current revision is stale and must return a conflict without writing. The final HTTP status/envelope is for S1-05. A receipt is immutable and remains linked to the revision it confirms even after a correction; no new revision may rewrite or delete its amount, ledger movement, or evidence.
+Handover requests are separate records with stable request UUIDs. Add a **PROPOSED** association such as `shift_report_revision_handover_requests(report_revision_id, handover_request_id)` so each report revision can have zero, one, or multiple linked requests. A request created after an end-only report links to the current report revision; a later correction appends a new report revision and may add a new association without changing the request UUID or deleting its earlier association. A correction may also have no handover request. Request association cardinality is many-to-many; do not infer report identity or revision number from a handover row.
 
-For a report change, the eventual implementation must atomically append the revision and update any compatibility projection/current pointer plus its database decision record; external file upload and notifications must stay outside the database transaction and be linked by durable evidence/outbox behavior. A receipt confirmation and its durable financial identity must be committed atomically before asynchronous projections are considered complete. Exact route events and outbox design are not established here and remain S1-05/S1-08/S1-09 work.
+Revision identity is `(report_aggregate_id, revision_number)` plus revision UUID, not `(cashier_shift_handover_id, revision_number)` and not shift-level handover cardinality. A decision against a non-current revision is stale and must conflict without writing; exact HTTP status/envelope is S1-05. A shift-to-current-request lookup may return zero, one, or multiple requests and must use an explicit request identity or fail closed when a route requires one; it must not choose unordered `first()`.
 
-Do **not** use `UNIQUE (cashier_shift_id, revision_number)`: the parent request UUID, not the shift ID, is the proposed revision identity. Do not add a `revision_number DEFAULT 1` to the mutable legacy table and claim that it captures history. The application must stop destructive reset paths from deleting prior revision snapshots. Existing legacy child tables may remain as a compatibility projection during an expand phase; their exact current-revision selection belongs in S1-05.
+Receipt confirmations remain immutable and retain their stable receipt UUID, request UUID, and confirming report-revision UUID after a correction. A correction must not rewrite/delete an existing request, receipt, receipt amount, ledger identity, or evidence; a new receipt is a new event. A report revision and linked request/receipt identities are separate facts. The proposed revision snapshot should retain the request IDs/association state relevant at submission, while the separate receipt record (§4.2) owns confirmed amount, recipient, time, reference, and evidence. For a report change, append the report revision and update any compatibility projection/current pointer plus its decision record atomically. Receipt confirmation and durable financial identity must be committed atomically before asynchronous projections complete. File upload, notifications, and outbox details remain S1-05/S1-08/S1-09 work.
+
+Do **not** make a report revision a child of a handover request, require a handover before report submission/close, or create a fake handover with an invented recipient/amount. Do not use `UNIQUE (cashier_shift_id, revision_number)` or `UNIQUE (cashier_shift_handover_id, revision_number)` as report revision identity. Do not add a revision number to mutable legacy tables and claim it captures history. Existing legacy report/detail rows may remain compatibility projections; their exact current-revision selection belongs in S1-05.
 
 ### 4.2 Receipt confirmations
 
-Add a separate append-only record such as **PROPOSED** `cashier_shift_handover_receipts` containing **PROPOSED** UUID identity, request and revision FKs, **PROPOSED** nonnegative integer `amount_halalas`, recipient actor ID/type, confirmed timestamp, optional external `receipt_reference`, and evidence references. One row represents one confirmed receipt event; multiple rows can represent explicitly supported partial receipts. A receipt is immutable after confirmation. Request, requested amount, receipt, and remaining unreceived responsibility are separate values.
+Add a separate append-only record such as **PROPOSED** `cashier_shift_handover_receipts` containing **PROPOSED** UUID identity, stable request UUID and report-revision UUID FKs, **PROPOSED** nonnegative integer `amount_halalas`, recipient actor ID/type, confirmed timestamp, optional external `receipt_reference`, and evidence references. One row represents one confirmed receipt event; multiple rows can represent explicitly supported partial receipts. A receipt is immutable after confirmation and keeps the revision it actually confirms even when the report later changes. Request, requested amount, receipt, and remaining unreceived responsibility are separate values.
 
 The proposed revision/receipt foreign keys must not cascade-delete historical evidence. Use restrictive/no-action delete behavior for the new evidence references and retain the legacy parent/shift records while evidence exists; the current parent FK on `cashier_shift_handovers` cascades from `cashier_shifts`, so deletion behavior must be reviewed as part of the additive migration design. A hard delete of a shift with revision/receipt children must be blocked or handled by a reviewed archival process, not cascade history away.
 
@@ -100,7 +99,7 @@ Use an explicit halala suffix for the proposed integer amount. Convert a legacy 
 
 ### 4.3 Shift-level request uniqueness is conditional
 
-The current code behaves as though it reads one current request per shift in several paths, but the database permits multiples. Before adding any unique `cashier_shift_id` constraint, run the duplicate preflight in §7 and determine with a business/data owner whether every repeated group is invalid duplication or a distinct historical request. If any group is ambiguous, stop: do not delete, merge, renumber, or auto-select rows. A one-current-request-per-shift constraint remains **deferred to S1-05** until this cardinality is approved and the data is reconciled. The per-request revision unique key above is independent of that decision.
+The current code behaves as though it reads one current request per shift in several paths, but the database permits multiples. Before adding any unique `cashier_shift_id` constraint, run the duplicate preflight in §7 and determine with a business/data owner whether every repeated group is invalid duplication or a distinct historical request. If any group is ambiguous, stop: do not delete, merge, renumber, or auto-select rows. A one-current-request-per-shift constraint remains **deferred to S1-05** until this cardinality is approved and the data is reconciled. Report revision uniqueness is instead scoped to the stable report aggregate and does not imply a request-cardinality constraint.
 
 ### 4.4 Idempotency and financial-operation identity
 
@@ -120,9 +119,9 @@ Logical financial-operation identity must therefore include the tenant/company, 
 | Custody and personal ledgers | Custody/personal-ledger services and event listeners consume existing handover/approval data; route-map and money-contract trace these writers and transaction timing. Some writes occur post-commit or are caught as best-effort. | Receipt confirmation becomes the authority for received-cash custody. Record stable source receipt/revision identity for deduplication only after S1-05 chooses the operation schema. Keep liability allocation/approval separate from custody. |
 | Dashboard | Dashboard native Admin fields are integer halalas; existing operation decision hooks concern Admin operations, not legacy handover receipt/revision. | Keep existing fields/aliases; add version/receipt data only after the API blueprint defines exact additive keys and behavior. Do not ask the Dashboard to infer a confirmed receipt from a requested amount. |
 | Flutter compatibility reference | Mobile models use legacy numeric SAR request fields and existing handover routes. The reference remains read-only. | Preserve legacy SAR payloads and response keys through an adapter. No Flutter change is proposed. |
-| Test fixtures and consumers | Existing focused baseline fixtures/tests exercise current schema/behavior; they do not establish revision/idempotency compatibility. | Update factories to create a request parent plus explicit revision/receipt records when implementation is approved. Add old-payload/new-response compatibility and stale-revision/idempotency tests. These checks are NOT RUN here. |
+| Test fixtures and consumers | Existing focused baseline fixtures/tests exercise current schema/behavior; they do not establish revision/idempotency compatibility. | Add report-only revision fixtures that require no handover; create explicit request links and receipt records only in scenarios that use them. Add old-payload/new-response compatibility and stale-revision/idempotency tests. These checks are NOT RUN here. |
 
-Fixture compatibility plan for the later implementation: the inspected tests create `CashierShiftHandover` rows directly in `tests/Feature/HandoverLedgerDateTest.php:64` and `tests/Feature/ShiftHandoverVarianceCustodyTest.php:49,105,224`; they will need an explicit initial revision only if they exercise revision-aware readers/writers. Receipt tests must create a separate receipt row and assert it remains after correction. Preserve existing `RefreshDatabase` migration order and legacy factory attributes; do not make all handover fixtures implicitly “received” or add broad seed data. Focused tests will cover one request/initial revision, correction/new snapshot, stale revision conflict, no-change retry, same-key/different-payload rejection, duplicate-row fail-closed behavior, receipt immutability, legacy SAR payload compatibility, and existing custody/ledger effects. These are planned only.
+Fixture compatibility plan for the later implementation: include the explicit scenario **end-only report revision → handover request later → receipt confirmed → report correction → earlier report revision and confirmed receipt remain preserved**. The initial `ShiftEndService::endShiftOnly()` revision has no handover parent; the later request links to that report revision without inventing a recipient/amount, and correction appends a report revision while preserving the existing request/receipt UUIDs and the revision each receipt confirmed. Also cover a native Admin close revision without a legacy handover. The inspected tests create `CashierShiftHandover` rows directly in `tests/Feature/HandoverLedgerDateTest.php:64` and `tests/Feature/ShiftHandoverVarianceCustodyTest.php:49,105,224`; they need explicit report/request associations only when exercising revision-aware paths, not an implicit report parent for all tests. Receipt tests must assert the receipt remains after correction. Preserve existing `RefreshDatabase` migration order and legacy factory attributes; do not make all handover fixtures implicitly “received” or add broad seed data. Additional focused tests will cover stale revision conflict, no-change retry, same-key/different-payload rejection, duplicate request fail-closed behavior, receipt immutability, legacy SAR payload compatibility, and existing custody/ledger effects. These are planned only.
 
 Known source-level read/write inventory (the route/API docs remain the exact route and payload authority):
 
@@ -130,7 +129,8 @@ Known source-level read/write inventory (the route/API docs remain the exact rou
 |---|---|---|
 | `Modules/Shift/app/Services/HandoverService.php` | Creates requests; selects first row by shift for approval/acceptance; edits/rejects by shift; reset hard-deletes rows; cashier acceptance records custody afterward. | All write paths need parent lock, expected revision, snapshot append, receipt-only confirmation, non-destructive correction, and idempotent financial effects. |
 | `Modules/Shift/app/Http/Controllers/ShiftHandoverController.php`; `CashierShiftController.php`; `BranchManagerShiftController.php` | Submit, accept/reject, manager decisions, current shift summaries, daily submit and selected detail by handover UUID. | Request validation/auth stays compatible; shift-level selection must fail closed on ambiguous duplicates; daily submit must check the approved current revision/required approvals. |
-| `Modules/Shift/app/Http/Controllers/ShiftEndController.php`; `Modules/Shift/app/Services/ShiftEndService.php` | End-only and end-with-handover write report totals, sales lines/history, handover path and variance. | Snapshot must capture the same transaction's report/channel/allocation state; do not break legacy SAR request shape or transaction/after-commit behavior without S1-05 design. |
+| `Modules/Shift/app/Http/Controllers/ShiftEndController.php`; `Modules/Shift/app/Services/ShiftEndService.php` | End-only can write report totals, sales lines/history without any handover; end-with-handover invokes the separate handover path. | End-only must create a report revision under the stable cashier-shift aggregate with zero requests; a later request links by stable IDs. Snapshot the report/channel/allocation state; do not break legacy SAR request shape or transaction/after-commit behavior without S1-05 design. |
+| `Modules/Admin/app/Services/ShiftCloseService.php`; `Modules/Admin/app/Models/Shift.php` | Native Admin close updates `asab_shifts` and creates an Admin review operation without creating a legacy handover request. | Preserve a native Admin report revision under its stable Admin shift aggregate; legacy-backed mirror shifts resolve to their legacy aggregate. No handover fabrication or new client behavior is implied. |
 | `Modules/Shift/app/Models/CashierShift.php`; `CashierShiftHandover.php`; `ShiftSalesBreakdown.php`; `ShiftVarianceDetail.php`; `CashierShiftHistory.php` | `HasOne` request, mutable request casts/fields, channel/allocation relationships, generic history. | Add explicit revision/receipt relationships; don't use `HasOne` as a uniqueness guarantee; keep old model/API projection during expand. |
 | `Modules/Shift/app/Transformers/CashierShiftResource.php`; `ShiftDetailResource.php`; `HandoverSummaryResource.php`; `HandoverDetailResource.php`; `VarianceSummaryResource.php` | Read current handover, amounts, approval/rejection and variance details; one fallback lookup is by shift ID. | Every summary/detail must share the approved current-revision resolver and preserve legacy field names/units. |
 | `Modules/Shift/app/Services/BranchManagerShiftService.php`; `ShiftFinancialService.php`; `VarianceCalculationService.php` | Manager/report financial summaries, handover selection, totals and allocation/variance reads/writes. | Select a deterministic revision and snapshot all relevant financial/detail rows; stale writes must not update a superseded report. |
@@ -147,7 +147,7 @@ BR-05/06 require sender responsibility for unreceived cash and keep report submi
 
 **AS-IS:** Legacy handover status and `approved_at`/`handed_over_at` do not provide a separately evidenced, immutable receipt amount. Rejection reset deletes handover, sales-breakdown, and variance-detail rows; generic shift history is not a full snapshot. The Admin operation pipeline has operation IDs but permits null source identity and current middleware does not bind the idempotency key to payload/resource. These are source observations, not claims that historical duplicates or missing data exist.
 
-**TO-BE:** Each submitted report revision is preserved. A correction produces a new revision. A confirmed receipt is a distinct immutable fact tied to the receiving actor and the relevant request/revision. Unreceived remainder stays with the sender until receipt confirmation. A stale revision cannot overwrite current state. Branch manager liability approval, employee response, accountant reporting, and cash custody remain separate authorities.
+**TO-BE:** Each submitted report revision is preserved under a stable report/shift aggregate, whether it has zero, one, or multiple linked handover requests. A correction produces a new report revision without changing stable request or receipt identity. A later request links to the correct current report revision; an earlier receipt remains linked to the revision it confirmed. End-only legacy and native Admin close paths do not fabricate handovers. Unreceived remainder stays with the sender until receipt confirmation. A stale revision cannot overwrite current state. Branch manager liability approval, employee response, accountant reporting, and cash custody remain separate authorities.
 
 **GAP:** Current row selection is nondeterministic if multiple handover rows exist for one shift; existing schema cannot express report revisions or confirmed receipt identity; the reset path destroys operational details; current idempotency replay does not detect same-key/different-payload; no database evidence was queried in this documentation task. These gaps require the S1-05 contract and later implementation/testing.
 
@@ -161,25 +161,36 @@ Run only on an isolated, backed-up target after S1-05 review. These are proposed
 -- Verify target identity before every read/write phase.
 SELECT @@hostname, @@port, DATABASE(), CURRENT_USER(), VERSION();
 
+-- Candidate stable report owners. Legacy-backed Admin mirror rows resolve to
+-- the legacy cashier-shift key and are not counted as a second report owner.
+SELECT 'legacy_cashier_shift' AS source_kind, id AS source_shift_id
+FROM cashier_shifts
+UNION ALL
+SELECT 'native_admin_shift' AS source_kind, id AS source_shift_id
+FROM asab_shifts
+WHERE legacy_shift_id IS NULL;
+
+-- Candidate duplicate mirror links that require reconciliation before mapping
+-- Admin rows to their legacy report aggregate.
+SELECT legacy_shift_id, COUNT(*) AS admin_mirrors
+FROM asab_shifts
+WHERE legacy_shift_id IS NOT NULL
+GROUP BY legacy_shift_id
+HAVING COUNT(*) > 1;
+
 -- Rows that prevent assuming one request per shift. Review every returned group and row.
 SELECT cashier_shift_id, COUNT(*) AS handover_rows
 FROM cashier_shift_handovers
 GROUP BY cashier_shift_id
 HAVING COUNT(*) > 1;
 
--- Candidate legacy key for the rejected (cashier_shift_id, revision=1) design.
-SELECT cashier_shift_id, 1 AS candidate_revision_number, COUNT(*) AS candidate_rows
-FROM cashier_shift_handovers
-GROUP BY cashier_shift_id
-HAVING COUNT(*) > 1;
-
--- Candidate key for the proposed (parent handover UUID, revision=1) design.
--- Existing id is a primary key; this is a reproducible mapping check, not proof
--- that history exists or that shift-level parent cardinality is valid.
-SELECT id AS proposed_parent_id, 1 AS candidate_revision_number, COUNT(*) AS candidate_rows
-FROM cashier_shift_handovers
-GROUP BY id
-HAVING COUNT(*) > 1;
+-- Proposed report revision key is aggregate + revision number, never request
+-- or shift ID alone. After candidate aggregate mapping, check the proposed key
+-- before inserting any imported initial/current snapshots.
+-- SELECT report_aggregate_id, revision_number, COUNT(*) AS duplicate_keys
+-- FROM shift_report_revisions
+-- GROUP BY report_aggregate_id, revision_number
+-- HAVING COUNT(*) > 1;
 
 SELECT h.id, h.cashier_shift_id, h.status, h.handover_amount, h.variance_amount,
        h.handover_to_id, h.handover_to_type, h.approved_by_id, h.approved_by_type,
@@ -207,9 +218,9 @@ WHERE approved_at IS NOT NULL OR handed_over_at IS NOT NULL OR status = 'approve
 ORDER BY cashier_shift_id, created_at, id;
 ```
 
-Do not backfill the second query's candidates as confirmed receipts. Review underlying event/ledger evidence with the business owner; if confirmation cannot be proven, preserve the legacy state as unknown rather than inventing a receipt.
+Do not treat approved/handed-over status or timestamp query results as confirmed receipts. Review underlying event/ledger evidence with the business owner; if confirmation cannot be proven, preserve the legacy state as unknown rather than inventing a receipt.
 
-The prior proposal's `UNIQUE (cashier_shift_id, revision_number)` with revision `1` for every existing row is specifically rejected. The duplicate-shift query above is the direct preflight for that invalid assumption. The proposed child uniqueness `(cashier_shift_handover_id, revision_number)` uses a distinct existing UUID per parent; verify candidate migration identity by counting unique parent IDs and reviewing all duplicate shift groups before generating revision 1 snapshots.
+The prior proposal's `UNIQUE (cashier_shift_id, revision_number)` and request-parent revision key are rejected as report identity. Reconcile candidate report aggregate ownership across legacy cashier rows and Admin mirrors/native shifts before creating revision 1 snapshots. A revision with no linked handover is valid; report-snapshot counts must include end-only and native Admin close reports, not only handover rows.
 
 ### 7.2 Existing idempotency/operation candidates
 
@@ -379,15 +390,15 @@ LEFT JOIN cashier_shift_handovers h ON h.id = p.related_handover_id
 WHERE p.related_handover_id IS NOT NULL AND h.id IS NULL;
 ```
 
-After migration/backfill, repeat all count/null/min/max/sum queries; verify duplicate counts for `(cashier_shift_id)` and `(parent UUID, revision_number)`; verify orphan counts for every new FK; verify receipt row count and confirmed-total sums separately; and test that shift-to-current-request returns exactly zero/one or an explicit ambiguity error, and request-to-current-revision returns the highest committed number. Any unapproved source count/totals change blocks rollout.
+After migration/backfill, repeat all count/null/min/max/sum queries; verify duplicate source report identities and `(report_aggregate_id, revision_number)`; verify orphan counts for every new FK; verify report revisions with zero linked requests remain readable; verify receipt row count and confirmed-total sums separately; and test that report-to-request returns zero/one/many as modeled while request/revision selection is explicit and deterministic. Any unapproved source count/totals change blocks rollout.
 
-The first three snapshot imports, if approved, must be count-reconciled against parent rows and explicitly list excluded/ambiguous parents. Preserve per-status and per-tenant counts and report every candidate confirmed historical row separately. Record the hash-manifest of reconciliation exports. A summary total alone is insufficient if row-level identity changed.
+Any approved initial snapshot import must be count-reconciled against its in-scope report aggregates and explicitly list excluded/ambiguous source identities. Preserve per-status and per-tenant counts and report every candidate confirmed historical row separately. Record the hash-manifest of reconciliation exports. A summary total alone is insufficient if row-level identity changed.
 
-After an approved revision backfill, compare the number of source handover parents with the number of imported initial snapshots and list every excluded/ambiguous parent by UUID with a disposition. Compare canonical snapshot amounts/recipient/status with source row values. Confirm no historical receipt rows were fabricated. Verify foreign keys, unique keys, nullability, tenant/branch associations, and representative legacy API reads. Only forward, newly confirmed receipts should populate the receipt table.
+After an approved revision backfill, compare the number of in-scope report aggregates (including report-only end-shift and native Admin close reports) with imported initial snapshots and list every excluded/ambiguous source identity with a disposition. Compare canonical snapshot values with the selected source report. Reconcile handover associations separately and confirm no historical receipt rows were fabricated. Verify foreign keys, unique keys, nullability, tenant/branch associations, and representative legacy API reads. Only forward, newly confirmed receipts should populate the receipt table.
 
 ### 7.4 Conditional backfill and rollback
 
-No confirmed-receipt backfill is allowed. If S1-05 confirms a current-state snapshot import is needed, it must be a separate, resumable, idempotent operation: deterministic parent UUID ordering; bounded chunks; checkpointed last ID; unique `(parent_id, revision_number)` prevents duplicate restart; transaction per chunk; dry-run counts; and a reconciliation report. Do not convert ambiguous duplicate shift rows automatically. Unknown historical unit rows are quarantined for human review rather than guessed.
+No confirmed-receipt backfill is allowed. If S1-05 confirms a current-state snapshot import is needed, it must be a separate, resumable, idempotent operation: deterministic report-aggregate identity ordering; bounded chunks; checkpointed last identity; unique `(report_aggregate_id, revision_number)` prevents duplicate restart; transaction per chunk; dry-run counts; and a reconciliation report. Do not convert ambiguous duplicate shift/request rows automatically. Unknown historical unit rows are quarantined for human review rather than guessed.
 
 Test additive DDL and any backfill on a fresh disposable clone of the approved local baseline first. Preserve a cold pre-change checkpoint and restore only to a separate empty recovery directory/schema. A schema `down()` can remove the new empty structures only before new revision/receipt evidence is written; deleting a populated receipt/revision table is data loss, so rollback after writes is **not lossless or authorized**. After any new financial evidence exists, recover by a reviewed forward correction or isolated restore from a verified checkpoint, never by dropping the evidence tables. Do not edit applied migrations.
 
@@ -398,6 +409,7 @@ Test additive DDL and any backfill on a fresh disposable clone of the approved l
 | Existing legacy/Admin monetary storage units and bridge conversion | **Source-verified** | Migration/model/service/bridge references in §2; corrects R01. No live SQL was run for S1-03. |
 | Handover identity, uniqueness, row selection and destructive writer paths | **Source-verified** | Migration, `HasOne`, `first()`, shift-wide update/delete references in §3; data multiplicity remains **UNKNOWN** without target DB preflight. |
 | Idempotency/operation key behavior | **Source-verified** | Middleware and schema references in §4.4; no replay/race test was run. |
+| Report-only, end-only, and native Admin report revision identity | **Design proposal; statically source-checked** | §4.1 distinguishes the stable report aggregate from zero/one/multiple optional handover associations and covers both source close paths; no migration or runtime test was executed. |
 | Revision/receipt schema proposal and rollback limitations | **Design proposal** | §4 and §7; no migration authored or executed. |
 | Migration/backfill fixture compatibility | **NOT RUN** | No S1-03 migration or fixture change was made. Requires S1-05-reviewed implementation and disposable DB. |
 | S1-02 round-trip, stale revision, receipt immutability, idempotency, legacy Dashboard/mobile compatibility | **NOT RUN** | Future acceptance coverage; do not infer from S1-01's historical 41-test/144-assertion baseline. |
@@ -407,10 +419,10 @@ Test additive DDL and any backfill on a fresh disposable clone of the approved l
 | Finding | Status | Correction |
 |---|---|---|
 | R01 — second SAR/halala conversion | **RESOLVED in this ADR** | Admin storage and close service already use halalas; bridge converts legacy SAR once. ADR explicitly prohibits the prior extra conversion and global `/100`. |
-| R05 — revision identity, readers/writers, duplicates | **RESOLVED in this ADR** | Uses the handover UUID as a candidate request identity, rejects shift-only revision keys, maps current row readers/writers, and makes duplicate/cardinality preflight a stop gate. Shift-level uniqueness is explicitly deferred pending evidence/approval. |
+| R05 — revision identity, readers/writers, duplicates | **RESOLVED in this ADR** | Report revision identity belongs to the stable report aggregate and not to a handover request; request UUIDs remain stable and link optionally to revisions. The ADR covers report-only end/native-close paths, maps current row readers/writers, and makes duplicate/cardinality preflight a stop gate. Shift-level request uniqueness is explicitly deferred pending evidence/approval. |
 | R07 — unsupported test/migration claims | **RESOLVED in this ADR** | S1-03 migration/backfill/acceptance tests are marked NOT RUN; S1-01 baseline evidence is not claimed as proof of future behavior. |
 
-**Task status: S1-03 — Ready for review; not Accepted.** The deliverable is a corrected source-based schema/compatibility ADR with explicit conditional decisions and no silent data assumptions. Review of the proposed request cardinality, revision/receipt schema, and S1-05 API contract remains required before implementation. S1-04 is not started by this task.
+**Task status: S1-03 — Ready for review; not Accepted.** The deliverable is a corrected source-based schema/compatibility ADR with explicit conditional decisions and no silent data assumptions. Review of the proposed report aggregate, request cardinality, revision/receipt schema, and S1-05 API contract remains required before implementation. S1-04 is separate from this correction.
 
 ### R07 evidence categories
 
