@@ -3,6 +3,7 @@
 namespace Modules\Shift\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
+use App\Support\ShiftMoneyValidation;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -467,20 +468,20 @@ class BranchManagerShiftController extends BaseController
     {
         $validator = Validator::make($request->all(), [
             'handover_to' => 'nullable|exists:branch_managers,id',
-            'handover_amount' => 'nullable|numeric|min:0',
+            'handover_amount' => 'nullable|'.ShiftMoneyValidation::MANAGER_HANDOVER_SAR,
             'handover_timing' => 'required|in:today,yesterday',
             'handover_notes' => 'nullable|string|max:500',
-            'total_sales' => 'nullable|numeric',
-            'cash_collected' => 'nullable|numeric|min:0',
-            'card_payments' => 'nullable|numeric|min:0',
-            'aggregator_payments' => 'nullable|numeric|min:0',
+            'total_sales' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'cash_collected' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'card_payments' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'aggregator_payments' => 'nullable|'.ShiftMoneyValidation::SAR,
             'cashier_breakdown' => 'nullable|array',
             'cashier_breakdown.*.cashier_id' => 'required_with:cashier_breakdown|exists:cashiers,id',
-            'cashier_breakdown.*.cash_collected' => 'nullable|numeric|min:0',
-            'cashier_breakdown.*.card_payments' => 'nullable|numeric|min:0',
-            'cashier_breakdown.*.delivery_app_payments' => 'nullable|numeric|min:0',
-            'cashier_breakdown.*.variance' => 'nullable|numeric',
-            'cashier_breakdown.*.sales' => 'nullable|numeric',
+            'cashier_breakdown.*.cash_collected' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'cashier_breakdown.*.card_payments' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'cashier_breakdown.*.delivery_app_payments' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'cashier_breakdown.*.variance' => 'nullable|'.ShiftMoneyValidation::SIGNED_SAR,
+            'cashier_breakdown.*.sales' => 'nullable|'.ShiftMoneyValidation::SAR,
         ]);
 
         if ($validator->fails()) {
@@ -627,19 +628,19 @@ class BranchManagerShiftController extends BaseController
     {
         $validator = Validator::make($request->all(), [
             'handover_to' => 'nullable|exists:branch_managers,id',
-            'handover_amount' => 'nullable|numeric|min:0',
+            'handover_amount' => 'nullable|'.ShiftMoneyValidation::MANAGER_HANDOVER_SAR,
             'handover_notes' => 'nullable|string|max:500',
-            'total_sales' => 'nullable|numeric',
-            'cash_collected' => 'nullable|numeric|min:0',
-            'card_payments' => 'nullable|numeric|min:0',
-            'aggregator_payments' => 'nullable|numeric|min:0',
+            'total_sales' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'cash_collected' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'card_payments' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'aggregator_payments' => 'nullable|'.ShiftMoneyValidation::SAR,
             'cashier_breakdown' => 'nullable|array',
             'cashier_breakdown.*.cashier_id' => 'required_with:cashier_breakdown|exists:cashiers,id',
-            'cashier_breakdown.*.cash_collected' => 'nullable|numeric|min:0',
-            'cashier_breakdown.*.card_payments' => 'nullable|numeric|min:0',
-            'cashier_breakdown.*.delivery_app_payments' => 'nullable|numeric|min:0',
-            'cashier_breakdown.*.variance' => 'nullable|numeric',
-            'cashier_breakdown.*.sales' => 'nullable|numeric',
+            'cashier_breakdown.*.cash_collected' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'cashier_breakdown.*.card_payments' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'cashier_breakdown.*.delivery_app_payments' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'cashier_breakdown.*.variance' => 'nullable|'.ShiftMoneyValidation::SIGNED_SAR,
+            'cashier_breakdown.*.sales' => 'nullable|'.ShiftMoneyValidation::SAR,
         ]);
 
         if ($validator->fails()) {

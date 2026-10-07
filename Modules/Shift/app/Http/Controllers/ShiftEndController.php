@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use App\Support\ShiftMoneyValidation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -47,21 +48,21 @@ class ShiftEndController extends Controller
     public function endShiftOnly(Request $request, string $shift): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'total_sales' => 'required|numeric|min:0',
-            'cash_collected' => 'sometimes|numeric|min:0',
-            'card_payments' => 'sometimes|numeric|min:0',
+            'total_sales' => 'required|'.ShiftMoneyValidation::SAR,
+            'cash_collected' => 'sometimes|'.ShiftMoneyValidation::SAR,
+            'card_payments' => 'sometimes|'.ShiftMoneyValidation::SAR,
             'aggregators' => 'sometimes|array',
             'aggregators.*.aggregator_id' => 'required_with:aggregators|exists:aggregators,id',
-            'aggregators.*.amount' => 'required_with:aggregators|numeric|min:0',
+            'aggregators.*.amount' => 'required_with:aggregators|'.ShiftMoneyValidation::SAR,
             'aggregators.*.notes' => 'nullable|string|max:255',
             'pos_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
             // Optional variance for shifts with variance but no handover yet
             'variance' => 'sometimes|array',
             'variance.responsibility_type' => 'required_with:variance|in:self,self_and_others,other_factors,mixed',
-            'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|numeric|min:0',
+            'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|'.ShiftMoneyValidation::SAR,
             'variance.other_cashiers' => 'sometimes|array',
             'variance.other_cashiers.*.cashier_id' => 'required_with:variance.other_cashiers|exists:cashiers,id',
-            'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|numeric|min:0',
+            'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|'.ShiftMoneyValidation::SAR,
             'variance.other_cashiers.*.notes' => 'nullable|string|max:255',
             'variance.reason' => 'required_if:variance.responsibility_type,other_factors,mixed|nullable|string|max:500',
             'variance.supporting_files' => 'sometimes|array',
@@ -201,12 +202,12 @@ class ShiftEndController extends Controller
     {
         $validator = Validator::make($request->all(), [
             // Sales information
-            'total_sales' => 'required|numeric|min:0',
-            'cash_collected' => 'sometimes|numeric|min:0',
-            'card_payments' => 'sometimes|numeric|min:0',
+            'total_sales' => 'required|'.ShiftMoneyValidation::SAR,
+            'cash_collected' => 'sometimes|'.ShiftMoneyValidation::SAR,
+            'card_payments' => 'sometimes|'.ShiftMoneyValidation::SAR,
             'aggregators' => 'sometimes|array',
             'aggregators.*.aggregator_id' => 'required_with:aggregators|exists:aggregators,id',
-            'aggregators.*.amount' => 'required_with:aggregators|numeric|min:0',
+            'aggregators.*.amount' => 'required_with:aggregators|'.ShiftMoneyValidation::SAR,
             'aggregators.*.notes' => 'nullable|string|max:255',
             'pos_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
 
@@ -216,16 +217,16 @@ class ShiftEndController extends Controller
             'branch_manager_id' => 'required_without_all:handover_to_type,next_cashier_id|nullable|exists:branch_managers,id',
 
             // Handover details
-            'handover_amount' => 'required|numeric|min:0',
+            'handover_amount' => 'required|'.ShiftMoneyValidation::SAR,
             'handover_notes' => 'nullable|string|max:500',
 
             // Variance information
             'variance' => 'sometimes|array',
             'variance.responsibility_type' => 'required_with:variance|in:self,self_and_others,other_factors,mixed',
-            'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|numeric|min:0',
+            'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|'.ShiftMoneyValidation::SAR,
             'variance.other_cashiers' => 'sometimes|array',
             'variance.other_cashiers.*.cashier_id' => 'required_with:variance.other_cashiers|exists:cashiers,id',
-            'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|numeric|min:0',
+            'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|'.ShiftMoneyValidation::SAR,
             'variance.other_cashiers.*.notes' => 'nullable|string|max:255',
             'variance.reason' => 'required_if:variance.responsibility_type,other_factors,mixed|nullable|string|max:500',
             'variance.supporting_files' => 'sometimes|array',
@@ -453,7 +454,7 @@ class ShiftEndController extends Controller
             'handover_to_type' => 'sometimes|in:cashier,branch_manager',
             'next_cashier_id' => 'required_without_all:handover_to_type,branch_manager_id|nullable|exists:cashiers,id',
             'branch_manager_id' => 'required_without_all:handover_to_type,next_cashier_id|nullable|exists:branch_managers,id',
-            'handover_amount' => 'required|numeric|min:0',
+            'handover_amount' => 'required|'.ShiftMoneyValidation::SAR,
             'handover_notes' => 'nullable|string|max:500',
             'variance' => 'sometimes|array',
             'variance.responsibility_type' => 'required_with:variance|in:self,self_and_others,other_factors,mixed',
@@ -626,7 +627,7 @@ class ShiftEndController extends Controller
     public function calculateSales(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'total_sales' => 'required|numeric|min:0',
+            'total_sales' => 'required|'.ShiftMoneyValidation::SAR,
         ]);
 
         if ($validator->fails()) {

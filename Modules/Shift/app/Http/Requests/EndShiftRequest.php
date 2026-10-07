@@ -3,6 +3,7 @@
 namespace Modules\Shift\Http\Requests;
 
 use App\Support\ShiftFinancialCalculator;
+use App\Support\ShiftMoneyValidation;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -26,16 +27,16 @@ class EndShiftRequest extends FormRequest
     {
         return [
             // Sales Information (Required)
-            'total_sales' => 'required|numeric|min:0',
+            'total_sales' => 'required|'.ShiftMoneyValidation::SAR,
 
             // Payment Breakdown
-            'cash_collected' => 'sometimes|numeric|min:0',
-            'card_payments' => 'sometimes|numeric|min:0',
+            'cash_collected' => 'sometimes|'.ShiftMoneyValidation::SAR,
+            'card_payments' => 'sometimes|'.ShiftMoneyValidation::SAR,
 
             // Payment Aggregators (Delivery Apps)
             'aggregators' => 'sometimes|array',
             'aggregators.*.aggregator_id' => 'required_with:aggregators|exists:aggregators,id',
-            'aggregators.*.amount' => 'required_with:aggregators|numeric|min:0',
+            'aggregators.*.amount' => 'required_with:aggregators|'.ShiftMoneyValidation::SAR,
             'aggregators.*.notes' => 'nullable|string|max:255',
 
             // POS Receipt
@@ -45,7 +46,7 @@ class EndShiftRequest extends FormRequest
             'with_handover' => 'sometimes|boolean',
             'handover_to_type' => 'required_if:with_handover,true|in:cashier,branch_manager',
             'next_cashier_id' => 'required_if:handover_to_type,cashier|nullable|exists:cashiers,id',
-            'handover_amount' => 'required_if:with_handover,true|nullable|numeric|min:0',
+            'handover_amount' => 'required_if:with_handover,true|nullable|'.ShiftMoneyValidation::SAR,
             'handover_notes' => 'nullable|string|max:500',
 
             // Variance Information (Optional - for shifts with variance)
@@ -56,12 +57,12 @@ class EndShiftRequest extends FormRequest
             ],
 
             // Self responsibility amount (for shared variance)
-            'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|nullable|numeric|min:0',
+            'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|nullable|'.ShiftMoneyValidation::SAR,
 
             // Other cashiers responsibility (for shared variance)
             'variance.other_cashiers' => 'sometimes|array',
             'variance.other_cashiers.*.cashier_id' => 'required_with:variance.other_cashiers|exists:cashiers,id',
-            'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|numeric|min:0',
+            'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|'.ShiftMoneyValidation::SAR,
             'variance.other_cashiers.*.notes' => 'nullable|string|max:255',
 
             // External factors reason (for other_factors and mixed)

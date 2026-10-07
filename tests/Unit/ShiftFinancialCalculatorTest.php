@@ -8,6 +8,19 @@ use PHPUnit\Framework\TestCase;
 
 class ShiftFinancialCalculatorTest extends TestCase
 {
+    public function test_supported_large_two_decimal_floats_match_exact_decimal_strings(): void
+    {
+        foreach (['9999999999.03', '1234567890.09', '9999999999.99'] as $amount) {
+            $this->assertSame(ShiftFinancialCalculator::sarToHalalas($amount), ShiftFinancialCalculator::sarToHalalas((float) $amount));
+        }
+    }
+
+    public function test_large_float_with_excess_precision_is_still_rejected(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        ShiftFinancialCalculator::sarToHalalas(9999999999.031);
+    }
+
     public function test_pending_incoming_cash_physically_present_is_not_surplus(): void
     {
         $result = ShiftFinancialCalculator::calculate(11500, 5000, 2500, 0, 5000, 1000);

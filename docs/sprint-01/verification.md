@@ -395,3 +395,28 @@ Current Sprint/repository documentation and external authoritative reference sea
 **BUSINESS RULES REFERENCE UPDATED:** `D:\claude\AssabERP\project-docs\Assab-ERP-Cash-Cycle-Business-Rules-v2.0-EN.md`, outside Assab Git. BR-03 now defines pending/reconciled count with three examples; BR-07/§15 distinguish manager correction from original confirmation and define scoped required transfers. Version 2.0 and prior history are retained with a dated clarification entry. This resolves the earlier external-reference-update note for these decisions; the external file is not part of the Assab commit.
 
 One new correction commit is intended over the published baseline. Push/remote outcome is reported after committing in the final delivery; no unexecuted push result is claimed here. **AUDIT F1–F3 CORRECTIONS COMPLETE / READY FOR REVIEW** within the pure-calculator/contract scope; runtime lifecycle acceptance remains deferred. S1-07 STARTED: NO.
+
+
+## Final targeted S1-06 validation correction — 2026-10-07
+
+PRE-GATE PASS for local checks: repository D:\claude\AssabERP\Assab, branch sprint/01-financial-foundation, HEAD f06964c18a60b2a44806fe5a8de74461d52bdaa9, clean tree and matching origin tracking; user supplied remote verification at the same SHA. Fresh ls-remote failed with getaddrinfo() thread failed to start, so live remote equality is not independently re-claimed. S1-07 not started.
+
+Source trace: registered cashier/branch-manager shifts/{shift}/end and end-with-handover → ShiftEndController inline Validator → ShiftEndService → ShiftFinancialCalculator::calculateVatInclusiveSales → sarToHalalas. Before correction numeric|min:0 admitted 1.001; the calculator rejected it and the end catch could return 500. calculate-sales uses the same service and lacked a local catch. Branch-manager workday/end and daily-close update also accept totals/breakdown sales that reach the calculator. EndShiftRequest exists separately and is now aligned without pretending it controls the registered end route.
+
+Shared request rules now check ordinary SAR decimal shape, at most two fractional digits, nonnegative amounts except signed variance, and the exact DECIMAL(12,2) / manager-handover DECIMAL(10,2) ceilings. Normal existing validation responses are 422; no broad exception masking was added. Calculator precision exceptions remain defensive. Inspection also exposed valid large JSON floats rejected solely by multiplication representation error; scale-aware machine epsilon fixes that without changing tax rounding, while large three-decimal values remain rejected.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Focused calculator | PASS — 17 tests / 58 assertions | Original 15 / 54 preserved plus large valid-float/string equivalence and excess-precision rejection. |
+| Registered-route/request feature tests | PASS — 26 tests / 234 assertions | End and handover aliases reject 1.001 and other precision/shape/range failures before service; preview returns real calculation; upper valid input passes; nested aggregator/allocation/manager sales and smaller manager boundary checked. |
+| Execution totals | PASS — 43 tests / 292 assertions | Combined run: 42 / 284; subsequently added nested route case: 1 / 8, executed separately. |
+| HTTP validation failure | PASS | Actual end route 1.001 → 422 with total_sales error; mocked service expects no end/calculation calls. |
+| Valid end input | PASS past validation | Dry-run missing-shift lookup yields 404, not validation failure; no business rows written. This is not persistence/lifecycle acceptance. |
+| PHP syntax / changed-file Pint | PASS — 7 PHP files | Calculator, shared rules, two controllers, request and two test files. |
+| Whitespace / scope | PASS | git diff --check; no migrations, Dashboard, AssabAPP, H1/H2, D8, liability/daily gate or unrelated refactor. |
+
+Executed with portable PHP 8.4.26 / PHPUnit 12.4.0. Commands: php vendor/bin/phpunit --configuration phpunit.xml --do-not-cache-result --no-progress tests/Unit/ShiftFinancialCalculatorTest.php tests/Feature/ShiftMoneyValidationTest.php; then the feature file with --filter test_nested_amount_validation_on_registered_routes. Tests isolate authentication middleware; nested reference-existence checks are mocked; valid end lookup uses DB pretend, no migrations or business writes. Pint --test and php -l cover all seven changed PHP files.
+
+Audit: **V1 PASS; V2 PASS; V3 PASS; V4 PASS; V5 PASS** for request-level per-column limits from migrations (no deployed-schema inspection or aggregate/persistence certification). **F1 PASS; F2 PASS; F3 PASS** in current money/API/state documents and the external Business Rules v2.0 reference; no changes to those decisions. State-permission-revision.md and the external reference need no update. Current docs/reference search found no explicit later Mahmoud D5 approval: **D5 COMPUTATIONAL POLICY — PENDING MAHMOUD APPROVAL**. Half-up net / residual VAT and roundingPendingD5 remain implemented compatibility behavior, not final approved policy.
+
+S1-06 overall: **READY FOR REVIEW / NOT ACCEPTED** within this correction scope. Later integration/liability/daily-close tasks remain deferred. One new commit is intended; post-commit push outcome is reported in final delivery, without rewriting published history. S1-07 STARTED: NO.

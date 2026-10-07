@@ -147,12 +147,12 @@ No general fractional-tax rounding rule is stated in BR-01. For a gross value wh
 | Explicit zero/null round-trip | **NOT RUN** | Requires tests that distinguish nullable/unset from explicit zero at each boundary. |
 | Fractional SAR round-trip | **NOT RUN** | Unit vectors above define expected conversion only; application adapter tests remain required. |
 | Opening counted once / confirmed receipt as sole source | **NOT RUN** | Requires separate requested/confirmed/count values and integration assertions; current mobile bridge synthesizes count. |
-| VAT rule for arbitrary values | **Decision needed** | BR formula is clear; halala rounding mode for non-integral net remains unspecified. |
+| VAT rule for arbitrary values | **Decision needed** | BR formula is clear; half-up compatibility behavior is implemented; formal approval for non-integral net remains pending (see current S1-06 note below). |
 
 ## Open decisions for review
 
 1. Confirm the tax extraction rounding mode at halala precision for values where `gross / 1.15` is not an exact halala; the proposed residual rule keeps net + VAT equal gross.
-2. Confirm that input precision is exactly two decimal SAR places and excess precision is rejected rather than rounded. Current `numeric` validation does not enforce this.
+2. Confirm that input precision is exactly two decimal SAR places and excess precision is rejected rather than rounded. The S1-06 correction below now enforces this on the affected Shift inputs; final D5 approval remains pending.
 3. Confirm the safe maximum monetary amount used to guard PHP integer and JavaScript safe-integer conversion.
 4. Confirm how S1-03/S1-05 will represent unset versus explicit zero in legacy columns that default to zero, and how actual partial receipt is represented without rewriting existing API keys.
 5. Confirm which Admin aliases remain supported while making the `*Halalas` unit explicit; deprecated un-suffixed aliases are currently still emitted.
@@ -190,3 +190,20 @@ Company/me close and variance-allocation routes are accountant-only where verifi
 ## Approved decision synchronization — 2026-10-07
 
 The user-approved decisions below supersede earlier pending wording in this current working contract. A Branch Manager may directly correct cashier report figures without cashier approval. Preserve old value, new value, reason, actor and timestamp; notify the cashier; confirmed receipts are immutable; recalculate report figures and resulting shortage once only. A pending incoming transfer does not block shift report submission. The sender remains responsible until confirmation; physical cash already in the drawer is included in counted cash; pending receipt state stays explicit and is not surplus. Daily submission to the accountant waits for completion of transfers required for that submission. Reject manager transfer requests exceeding available recorded sales-cash after reserved/committed amounts, with no financial movement or automatic shortage; unrecorded cash first requires its legitimate source to be recorded, and expense custody is never the source.
+
+
+## S1-06 enforced request validation — 2026-10-07
+
+This current implementation note supersedes earlier source statements that the affected shift inputs only have numeric validation. Legacy inputs remain SAR (JSON numbers or ordinary decimal strings); internal calculator arithmetic remains integer halalas. The shared ShiftMoneyValidation rules accept digits with an optional one/two-digit fraction, rejecting signs on nonnegative inputs, exponent strings, trailing decimal points and more than two fractional digits. JSON numbers are checked after JSON decoding; lexical exponent notation/trailing zeros are not recoverable from a decoded number. No invalid amount is truncated or rounded by validation.
+
+| Fields / storage | Precision and range (SAR) | Source |
+|---|---|---|
+| total_sales, cash_collected, card_payments, aggregator amounts, cashier breakdown sales/payment amounts, cashier handover and assigned shortage amounts | 0–9,999,999,999.99; at most 2 decimals | cashier_shifts, shift_sales_breakdown, cashier_shift_handovers, shift_variance_details and branch_manager_shifts totals: DECIMAL(12,2) in current migrations; decimal:2 money casts |
+| cashier_breakdown.*.variance | −9,999,999,999.99–9,999,999,999.99; at most 2 decimals | Signed variance / variance_amount DECIMAL(12,2); retain negative shortage meaning |
+| Manager workday handover_amount | 0–99,999,999.99; at most 2 decimals | branch_manager_shifts.handover_amount DECIMAL(10,2), 2025_11_30_221212 migration |
+
+Optional/nullable rules remain as before. These are per-input storage ceilings, not a claim that every aggregate or existing record is validated or that deployed schema was introspected. No conflicting later Shift money-column migration was found. Generic calculator integer inputs are not database columns; the request layer enforces the applicable storage boundary.
+
+**D5 COMPUTATIONAL POLICY — PENDING MAHMOUD APPROVAL.** Current authoritative sources contain no later explicit approval. Already implemented compatibility behavior: integer-halalas calculation, rejection of excess SAR precision, nearest-halalah/half-up VAT-inclusive net and VAT as gross minus rounded net; non-exact cases still expose roundingPendingD5. This round enforces HTTP 422 and storage ceilings before calculator calls. The float converter now tolerates machine representation error proportional to magnitude so valid DECIMAL(12,2) JSON numbers such as 9999999999.03 are accepted; three-decimal values remain rejected. This is not a financial tolerance or a change to VAT rounding. Final policy approval, global boundary adapters and non-exact business acceptance remain pending. Do not change compatibility rounding, precision policy or schema without the required approval.
+
+F1/F2/F3 verified unchanged: pendingIncomingCounted remains trusted/source-backed and unwired to legacy routes; original cashier allocation confirmation is distinct from manager correction without cashier re-approval; daily required transfers are server-scoped and unrelated transfers do not block. Runtime integration/liability/daily gating remain with S1-07/S1-10/S1-11.

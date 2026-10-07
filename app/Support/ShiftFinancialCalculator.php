@@ -87,7 +87,10 @@ class ShiftFinancialCalculator
 
             $scaled = $amount * 100;
             $rounded = round($scaled);
-            if (abs($scaled - $rounded) > 0.000001) {
+            // Allow binary representation error at the DECIMAL(12,2) boundary,
+            // not an additional decimal place or a business rounding tolerance.
+            $representationError = max(0.000001, abs($scaled) * PHP_FLOAT_EPSILON);
+            if (abs($scaled - $rounded) > $representationError) {
                 throw new InvalidArgumentException('SAR amount must have no more than two decimal places.');
             }
 
