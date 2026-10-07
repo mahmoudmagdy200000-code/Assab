@@ -130,4 +130,4 @@ Documentation review corrected stale current-status statements, archived superse
 | Assab/composer.lock | 225D5318D742B0B70245B603324DD875B5F09816B106CD2191F681F08F529789 |
 | dashboard/pnpm-lock.yaml | 6A26FAC861BE4EFFD2CA272076EC92983BB87825FC0802C299F4E54D2C35EE1A |
 
-S1-01 is **Ready for review; not Accepted**. There is no remaining infrastructure or focused-fixture blocker. Proposed commits separate the one-line fixture correction from the eight evidence documents; no local `.env`, credentials, tools, logs, databases or backup files belong in either commit. No S1-02 work was performed.
+S1-01 is **Ready for review; not Accepted**. There is no remaining infrastructure or focused-fixture blocker. The S1-01 delivery separated the one-line fixture correction from its eight evidence documents; no local `.env`, credentials, tools, logs, databases or backup files were included. No S1-02 implementation was part of this baseline. A separately published S1-02 money-contract document is tracked as Needs correction in task-register.md.
