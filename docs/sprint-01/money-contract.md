@@ -102,7 +102,7 @@ Case B reclassifies T1 once; it does not add 10 to physical count again. Default
 
 **Liability scope for the table below:** cashier confirmation requirements describe original cashier submission. A manager correction preserves old/new figures, reason, actor/time and confirmed receipts, notifies the cashier, recalculates once and recognizes any shortage once. Cards500→400 with otherwise unchanged inputs and previously balanced report gives expected+100, variance−100 and shortage100. The manager may perform the approved allocation/final liability action without cashier re-approval of the correction. Liability runtime is S1-07; correction/history is S1-11. Daily submission additionally waits for all server-derived `requiredHandovers` associated with the reports/shifts in that daily-close scope to complete confirmation; unrelated pending transfers outside the scope do not block it. Shift report submission remains allowed with pending incoming cash. See API contract §§7–8.
 
-**D5 COMPUTATIONAL POLICY — PENDING MAHMOUD APPROVAL.** The current reference search found no later explicit approval. Integer halalas, two-decimal SAR precision/rejection, half-up net with residual VAT, and per-column validation remain the proposed computational policy; this correction does not change S1-06 non-exact rounding behavior.
+**D5 APPROVED — MAHMOUD.** SAR inputs allow at most two decimal places; excess precision is rejected with HTTP 422 before calculation; validate against actual DB column limits; internal calculation uses integer halalas; VAT-inclusive net uses half-up rounding; VAT equals gross minus rounded net. The S1-06 request validators implement precision/range checks on inspected Shift APIs. The legacy result key roundingPendingD5 remains for compatibility and is not an unresolved approval.
 
 This flow distinguishes the physical handling/receipt of cash from assignment and final approval of shortage responsibility. The target authority below follows BR-05–BR-10 and BR-12. BR-11 is included for the separate accountant review of branch surplus. These are separate business facts under BR-06; a custody entry, report submission, employee response, or accountant action does not stand in for another fact. No new database field or event is assumed here.
 
@@ -134,7 +134,7 @@ Target round-trip vectors (unit conversion, not application acceptance):
 
 Target BR-03 scenario: gross 11,500 halalas; cards 5,000; apps 2,500; confirmed opening 1,000; independent count 3,000. Net 10,000 and VAT 1,500 for this exact example; expected 5,000; variance −2,000 (shortage 2,000). Opening occurs once in expected, and the count is not derived from channel cash. This is a requirements vector, **not a run against current application code**.
 
-No general fractional-tax rounding rule is stated in BR-01. For a gross value whose exact `gross / 1.15` is between halalas, preserve `gross = rounded_net + VAT` by deriving VAT as the residual after rounding net, but the rounding mode (for example, half-up) needs explicit review. Do not silently assume the PHP/JavaScript default is the approved tax rule.
+BR-01 does not specify a fractional-tax tie rule; Mahmoud approved D5: round VAT-inclusive net half-up to the nearest halala and derive VAT as the residual so gross equals rounded net plus VAT.
 
 ## Acceptance and evidence status
 
@@ -147,13 +147,13 @@ No general fractional-tax rounding rule is stated in BR-01. For a gross value wh
 | Explicit zero/null round-trip | **NOT RUN** | Requires tests that distinguish nullable/unset from explicit zero at each boundary. |
 | Fractional SAR round-trip | **NOT RUN** | Unit vectors above define expected conversion only; application adapter tests remain required. |
 | Opening counted once / confirmed receipt as sole source | **NOT RUN** | Requires separate requested/confirmed/count values and integration assertions; current mobile bridge synthesizes count. |
-| VAT rule for arbitrary values | **Decision needed** | BR formula is clear; half-up compatibility behavior is implemented; formal approval for non-integral net remains pending (see current S1-06 note below). |
+| VAT rule for arbitrary values | **APPROVED D5** | Half-up net rounding to halala; VAT is gross less rounded net. |
 
 ## Open decisions for review
 
-1. Confirm the tax extraction rounding mode at halala precision for values where `gross / 1.15` is not an exact halala; the proposed residual rule keeps net + VAT equal gross.
-2. Confirm that input precision is exactly two decimal SAR places and excess precision is rejected rather than rounded. The S1-06 correction below now enforces this on the affected Shift inputs; final D5 approval remains pending.
-3. Confirm the safe maximum monetary amount used to guard PHP integer and JavaScript safe-integer conversion.
+1. D5 approved: calculate net VAT-inclusive with half-up rounding at halala precision; VAT is gross less rounded net.
+2. D5 approved: accept at most two decimal SAR places and reject excess precision with HTTP 422 before calculation; affected Shift request paths enforce this.
+3. D5 approved actual per-column DB limits; current Shift request rules use migration-derived ceilings shown above. Cross-system integer-safe limits remain an adapter concern.
 4. Confirm how S1-03/S1-05 will represent unset versus explicit zero in legacy columns that default to zero, and how actual partial receipt is represented without rewriting existing API keys.
 5. Confirm which Admin aliases remain supported while making the `*Halalas` unit explicit; deprecated un-suffixed aliases are currently still emitted.
 
@@ -181,7 +181,7 @@ C-3 target adapter maps `to_branch_manager` to `branch_manager_id` when `handove
 
 **FIN-05 / FIN-06 vector:** gross 115, cards 50, apps 25, confirmed opening 10, count 30 ⇒ net 100, VAT 15, expected 50, variance −20, shortage 20. Allocation 12+8 is explicitly confirmed by cashier. Report may submit while outgoing cash remains unreceived. Legacy SAR wire example: `total_sales:"115.00"`, `card_payments:"50.00"`, `cash_collected:"25.00"`, `opening_balance:"10.00"`, proposed count `"30.00"`. Admin halala example: `grossHalalas:11500`, `cardsHalalas:5000`, `appsHalalas:2500`, `openingHalalas:1000`, `cashActualHalalas:3000`.
 
-**D5 — PROPOSED — MAHMOUD REVIEW REQUIRED:** actual per-column maxima: DECIMAL(12,2) = SAR 9,999,999,999.99; `branch_manager_shifts.handover_amount` DECIMAL(10,2) = SAR 99,999,999.99. Multipart parses received decimal strings exactly. JSON either uses shortest round-trip decimal conversion or requires decimal strings. Dashboard helper target rejects >2 decimal places before conversion; later client work S1-10/S1-13.
+**D5 APPROVED — MAHMOUD:** actual per-column maxima: DECIMAL(12,2) = SAR 9,999,999,999.99; `branch_manager_shifts.handover_amount` DECIMAL(10,2) = SAR 99,999,999.99. Multipart parses received decimal strings exactly. JSON either uses shortest round-trip decimal conversion or requires decimal strings. Dashboard helper target rejects >2 decimal places before conversion; later client work S1-10/S1-13.
 
 Company/me close and variance-allocation routes are accountant-only where verified. `/api/v1/accountant/shifts/{id}/close` currently has no `asab.idempotency` middleware.
 
@@ -204,6 +204,6 @@ This current implementation note supersedes earlier source statements that the a
 
 Optional/nullable rules remain as before. These are per-input storage ceilings, not a claim that every aggregate or existing record is validated or that deployed schema was introspected. No conflicting later Shift money-column migration was found. Generic calculator integer inputs are not database columns; the request layer enforces the applicable storage boundary.
 
-**D5 COMPUTATIONAL POLICY — PENDING MAHMOUD APPROVAL.** Current authoritative sources contain no later explicit approval. Already implemented compatibility behavior: integer-halalas calculation, rejection of excess SAR precision, nearest-halalah/half-up VAT-inclusive net and VAT as gross minus rounded net; non-exact cases still expose roundingPendingD5. This round enforces HTTP 422 and storage ceilings before calculator calls. The float converter now tolerates machine representation error proportional to magnitude so valid DECIMAL(12,2) JSON numbers such as 9999999999.03 are accepted; three-decimal values remain rejected. This is not a financial tolerance or a change to VAT rounding. Final policy approval, global boundary adapters and non-exact business acceptance remain pending. Do not change compatibility rounding, precision policy or schema without the required approval.
+**D5 APPROVED — MAHMOUD (current status).** Approved policy: integer-halalas arithmetic; max two decimal SAR places; reject excess precision with HTTP 422 before calculation; validate against actual DB column limits; half-up VAT-inclusive net; VAT equals gross minus rounded net. The implementation enforces these rules on affected Shift APIs. Scale-aware float tolerance handles binary representation error only and does not change accepted precision or financial rounding. The result-key name roundingPendingD5 remains for compatibility only. Later adapters remain assigned to their existing tasks.
 
 F1/F2/F3 verified unchanged: pendingIncomingCounted remains trusted/source-backed and unwired to legacy routes; original cashier allocation confirmation is distinct from manager correction without cashier re-approval; daily required transfers are server-scoped and unrelated transfers do not block. Runtime integration/liability/daily gating remain with S1-07/S1-10/S1-11.

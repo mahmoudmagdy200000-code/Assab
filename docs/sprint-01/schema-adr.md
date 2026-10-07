@@ -442,9 +442,9 @@ Test additive DDL and any backfill on a fresh disposable clone of the approved l
 - Existing consumer and transaction map: `docs/sprint-01/route-map.md`; API compatibility: `docs/sprint-01/api-contract.md`; current money and authority contract: `docs/sprint-01/money-contract.md`.
 - Audit evidence revalidated: `project-docs/Assab-Backend-Commit-Audit-2026-10-07-1.md:27-157`.
 
-## Final handoff schema/compatibility — proposals only
+## Final handoff schema/compatibility — D5 approved, remaining proposals
 
-This section supersedes conflicting technical target values elsewhere in this ADR. **D5 — PROPOSED — MAHMOUD REVIEW REQUIRED:** per-column ceilings from verified schema: DECIMAL(12,2) = SAR 9,999,999,999.99; `branch_manager_shifts.handover_amount` DECIMAL(10,2) = SAR 99,999,999.99. Global enforcement cannot exceed the narrowest participating column. No schema or migration changed.
+This section supersedes conflicting technical target values elsewhere in this ADR. **D5 APPROVED — MAHMOUD:** enforce per-column ceilings from verified schema and use integer-halalas arithmetic, two-decimal SAR inputs with excess rejected by HTTP 422, half-up VAT-inclusive net and residual VAT: DECIMAL(12,2) = SAR 9,999,999,999.99; `branch_manager_shifts.handover_amount` DECIMAL(10,2) = SAR 99,999,999.99. Global enforcement cannot exceed the narrowest participating column. No schema or migration changed.
 
 Confirmed opening is the sum of confirmed receipts bound to a shift; an empty set computes zero, while receipt-count evidence distinguishes no receipt from confirmed zero receipts. A configured float is never receipt evidence. Start before confirmation is allowed; a late receipt applies once to its bound shift. Manager opening uses personal sales-cash, not expense custody. Ledger/table mapping remains a technical proposal; `personal_ledger_transactions` is not mandated by Mohamed. D9 applies only to concrete insufficient-balance and permitted post-report receipt edges.
 
