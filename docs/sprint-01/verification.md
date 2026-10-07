@@ -330,7 +330,7 @@ The current working documents now reflect the user-approved decisions: Branch Ma
 
 ## S1-06 calculation implementation verification — 2026-10-07
 
-Starting state: `sprint/01-financial-foundation` at `31af7c8fed81897ae38e800a214183c879e37c13`, clean. The user directed continuation from the completed source trace and narrowed the prior blocker: D5 is a technical decision; legacy evidence gaps remain compatibility/integration limitations.
+Starting state: `sprint/01-financial-foundation` at `31af7c8fed81897ae38e800a214183c879e37c13`, clean. Implementation commit: `6fcce32c0f921d51821de76114c193cf5343bd27` (`fix(S1-06): unify inclusive VAT and shift cash calculations`). Push to `origin sprint/01-financial-foundation` was attempted once and failed with `getaddrinfo() thread failed to start`; no retry was made. Remote SHA is unverified. The user directed continuation from the completed source trace and narrowed the prior blocker: D5 is a technical decision; legacy evidence gaps remain compatibility/integration limitations.
 
 `app/Support/ShiftFinancialCalculator.php` is the shared semantic calculation path. It accepts integer-halalas gross, card, app, confirmed opening and counted values; returns net, residual VAT, expected, signed variance, shortage, surplus and variance type. `sarToHalalas()` rejects unsupported decimal precision. Non-exact tax values expose `roundingPendingD5`; the implementation retains the prior nearest-halalah compatibility behavior for two-decimal SAR storage without claiming that D5 is approved. The mandatory exact vector returns net 10,000, VAT 1,500, expected 5,000, variance −2,000 and shortage 2,000 halalas.
 
@@ -340,9 +340,22 @@ VAT extraction in cashier save/preview and branch-manager update/summary/resourc
 |---|---|---|
 | PHP syntax for changed PHP | PASS | Portable PHP 8.4.26 `php -l` on calculator, affected Shift files and focused unit test. |
 | Exact calculator runtime vector and cases | PASS | Direct PHP runtime verified mandatory vector, balanced/surplus/sign handling, zero opening, independent count, manager card correction, exact SAR↔halalas conversion and D5 pending flag. |
-| Focused PHPUnit test file | NOT RUN — ENVIRONMENT | The portable PHP runtime reports `vendor/autoload.php` as unreadable, so PHPUnit cannot bootstrap it. An earlier invocation stalled before producing output and was stopped; no DB connection or destructive test ran. The focused file is `tests/Unit/ShiftFinancialCalculatorTest.php`. |
-| Pint | NOT RUN — ENVIRONMENT | Pint cannot write its temporary file under `.tools/s1-01/temp`; setting `TEMP`/`TMP` to a temporary workspace path did not change its configured target. |
+| Focused S1-06 PHPUnit | PASS — 9 tests, 37 assertions | Latest executed result supplied by the user: PHP 8.4.26 / PHPUnit 12.4.0. Command: `php vendor/bin/phpunit --configuration phpunit.xml --do-not-cache-result --no-progress tests/Unit/ShiftFinancialCalculatorTest.php`. This supersedes the earlier autoload/environment limitation. Tests were not rerun during this evidence-only update. |
+| Pint on S1-06 changed PHP files | PASS — 9 files | Latest executed result supplied by the user for the nine files listed below; supersedes the earlier temporary-directory/environment limitation. |
+| Full-project Pint | FAIL — 1932 files checked, 2 pre-existing/out-of-scope style issues | Issues are in `Modules/BrandOwner/routes/api.php` and `Modules/FixedAssets/app/Services/HandoverService.php`. Neither file was modified by S1-06 or this evidence update. This is NOT an S1-06 blocker: both issues are outside S1-06 changed files, and all nine S1-06 changed PHP files pass Pint. |
 | `git diff --check` | PASS | No whitespace errors in the current diff. |
 | Fractional tax acceptance | PENDING D5 | No general rounding behavior is claimed as approved or accepted. |
 | Legacy count/opening evidence | GAP — LATER INTEGRATION | Current legacy contract and bridge do not provide source-backed independent count/confirmed receipt inputs. Test factories use the shared VAT calculator so generated completed-shift fixtures follow the corrected inclusive-tax behavior. |
-| S1-06 status | READY FOR REVIEW / NOT ACCEPTED | Exact calculation path and VAT corrections implemented; automated PHPUnit/Pint execution is limited by local dependencies/temp-write setup. S1-07 not started. |
+| S1-06 status | READY FOR REVIEW / NOT ACCEPTED | Focused PHPUnit and changed-file Pint pass. Full-project Pint has only the two out-of-scope issues noted above. D5 fractional acceptance and legacy evidence integration remain deferred. S1-07 not started. |
+
+The successful S1-06 Pint run covered exactly these nine PHP files:
+
+- `Modules/Shift/app/Http/Controllers/BranchManagerShiftController.php`
+- `Modules/Shift/app/Http/Requests/EndShiftRequest.php`
+- `Modules/Shift/app/Services/BranchManagerShiftService.php`
+- `Modules/Shift/app/Services/ShiftEndService.php`
+- `Modules/Shift/app/Services/ShiftFinancialService.php`
+- `Modules/Shift/app/Transformers/BranchManagerShiftResource.php`
+- `Modules/Shift/database/factories/CashierShiftFactory.php`
+- `app/Support/ShiftFinancialCalculator.php`
+- `tests/Unit/ShiftFinancialCalculatorTest.php`
