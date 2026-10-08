@@ -38,8 +38,8 @@ class ShiftFinancialService
 
             return [
                 'total_sales' => (float) ($shift->total_sales ?? 0),
-                'net_sales' => $split['net'] / 100,
-                'vat_amount' => $split['vat'] / 100,
+                'net_sales' => (float) ($split['net'] / 100),
+                'vat_amount' => (float) ($split['vat'] / 100),
                 'cash_collected' => (float) ($shift->cash_collected ?? 0),
                 'card_payments' => (float) ($shift->card_payments ?? 0),
                 'aggregator_payments' => (float) ($shift->aggregator_payments ?? 0),
@@ -69,8 +69,8 @@ class ShiftFinancialService
             $vatHalalas += $split['vat'];
         }
 
-        $vatAmount = $vatHalalas / 100;
-        $netSales = $netHalalas / 100;
+        $vatAmount = (float) ($vatHalalas / 100);
+        $netSales = (float) ($netHalalas / 100);
 
         return [
             'total_sales' => (float) $totalSales,
@@ -112,15 +112,24 @@ class ShiftFinancialService
         $cashCollected = (float) ($request->cash_collected ?? $financialSummary['cash_collected'] ?? $managerShift->cash_collected ?? 0);
         $cardPayments = (float) ($request->card_payments ?? $financialSummary['card_payments'] ?? $managerShift->card_payments ?? 0);
         $aggregatorPayments = (float) ($request->aggregator_payments ?? $financialSummary['delivery_app_payments'] ?? $managerShift->aggregator_payments ?? 0);
-        $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
+        if ($request->total_sales === null && isset($financialSummary['net_sales_halalas'], $financialSummary['vat_amount_halalas'])) {
+            // Total taken from the cashier shifts: store the sum of their stored splits, so the stored
+            // manager split equals what the summary/history views show for the same day.
+            $netSales = (float) ($financialSummary['net_sales_halalas'] / 100);
+            $vatAmount = (float) ($financialSummary['vat_amount_halalas'] / 100);
+        } else {
+            $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
+            $netSales = (float) $salesCalculation['net'];
+            $vatAmount = (float) $salesCalculation['vat'];
+        }
 
         return [
             'total_sales' => $totalSales,
             'cash_collected' => $cashCollected,
             'card_payments' => $cardPayments,
             'aggregator_payments' => $aggregatorPayments,
-            'vat_amount' => (float) $salesCalculation['vat'],
-            'net_sales' => (float) $salesCalculation['net'],
+            'vat_amount' => $vatAmount,
+            'net_sales' => $netSales,
             'total_variance' => (float) ($financialSummary['total_variance'] ?? 0),
         ];
     }

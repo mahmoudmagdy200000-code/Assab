@@ -239,8 +239,8 @@ class BranchManagerShiftResource extends JsonResource
 
             return [
                 'total_sales' => (float) ($this->total_sales ?? 0),
-                'net_sales' => $split['net'] / 100,
-                'vat_amount' => $split['vat'] / 100,
+                'net_sales' => (float) ($split['net'] / 100),
+                'vat_amount' => (float) ($split['vat'] / 100),
                 'cash_collected' => (float) ($this->cash_collected ?? 0),
                 'card_payments' => (float) ($this->card_payments ?? 0),
                 'aggregator_payments' => (float) ($this->aggregator_payments ?? 0),
@@ -274,8 +274,8 @@ class BranchManagerShiftResource extends JsonResource
             $vatHalalas += $split['vat'];
         }
 
-        $vatAmount = $vatHalalas / 100;
-        $netSales = $netHalalas / 100;
+        $vatAmount = (float) ($vatHalalas / 100);
+        $netSales = (float) ($netHalalas / 100);
 
         return [
             'total_sales' => (float) $totalSales,

@@ -965,8 +965,8 @@ class BranchManagerShiftController extends BaseController
             } else {
                 $split = \App\Support\ShiftFinancialCalculator::persistedSalesSplitHalalas($totalSales, 0, 0);
             }
-            $vatAmount = $split['vat'] / 100;
-            $netSales = $split['net'] / 100;
+            $vatAmount = (float) ($split['vat'] / 100);
+            $netSales = (float) ($split['net'] / 100);
             $closingBalance = (float) ($managerShift->handover_amount ?? $managerShift->closing_balance ?? 0);
             $variance = $totalSales - $closingBalance;
             $handoverStatus = $this->shiftService->normalizeHandoverStatus($managerShift->handover_status);

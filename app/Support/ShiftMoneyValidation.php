@@ -49,8 +49,9 @@ final class ShiftMoneyValidation
      * = total − payments) and sends the double's shortest text, such as "0.09999999999999432" or
      * "1.4210854715202004e-14". Those are normalized ("0.10", "0.00"). A real extra decimal place such
      * as "1.001", "0.009" or "123.456" is farther than REPRESENTATION_TOLERANCE_SAR from any two-decimal
-     * value, stays unchanged, and is still rejected by the SAR rules with HTTP 422. Positive-exponent
-     * text ("1e2") and JSON numbers are left unchanged.
+     * value, stays unchanged, and is still rejected by the SAR rules with HTTP 422. Exponent text is
+     * normalized only when it is noise around zero (Dart prints |x| < 1e-6 that way); "1e2" or "1e-2"
+     * stay unchanged and are rejected. JSON numbers are left unchanged.
      *
      * @param  list<string>  $fields
      */
@@ -94,6 +95,10 @@ final class ShiftMoneyValidation
 
         $rounded = round($amount, 2);
         if (abs($amount - $rounded) > self::REPRESENTATION_TOLERANCE_SAR) {
+            return null;
+        }
+
+        if (stripos($value, 'e') !== false && $rounded != 0.0) {
             return null;
         }
 

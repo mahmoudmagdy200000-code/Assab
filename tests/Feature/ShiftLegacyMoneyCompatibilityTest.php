@@ -99,7 +99,7 @@ class ShiftLegacyMoneyCompatibilityTest extends TestCase
         $this->assertSame('9.40', ShiftMoneyValidation::withoutRepresentationNoise('9.400000000000006'));
         $this->assertSame('0.00', ShiftMoneyValidation::withoutRepresentationNoise('1.4210854715202004e-14'));
         $this->assertSame('-0.30', ShiftMoneyValidation::withoutRepresentationNoise('-0.30000000000000004'));
-        foreach (['115', '115.5', '115.50', '1.001', '0.009', '1e2', '+1', '1.', 'abc'] as $unchanged) {
+        foreach (['115', '115.5', '115.50', '1.001', '0.009', '1e2', '1e-2', '5E-1', '1.5e-3', '+1', '1.', 'abc', 'NaN', 'INF'] as $unchanged) {
             $this->assertNull(ShiftMoneyValidation::withoutRepresentationNoise($unchanged), $unchanged);
         }
         $this->assertNull(ShiftMoneyValidation::withoutRepresentationNoise(0.30000000000000004));
@@ -171,5 +171,58 @@ class ShiftLegacyMoneyCompatibilityTest extends TestCase
         $this->assertSame(-5.0, $summary['total_sales']);
         $this->assertEquals(0, $summary['net_sales']);
         $this->assertEquals(0, $summary['vat_amount']);
+    }
+
+    /** Endpoints that moved from numeric|min:0 to the D5 SAR rules in this correction. */
+    private function newlyValidatedRequests(array $w, string $amount): array
+    {
+        [$branch, $manager, $cashier, $shift] = $w;
+        $other = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
+
+        return [
+            'record handover' => [$cashier, "/api/cashier/shifts/{$shift->id}/handover", ['next_cashier_id' => $other->id, 'handover_amount' => $amount], 'handover_amount'],
+            'edit after rejection' => [$cashier, "/api/cashier/shifts/{$shift->id}/handover/edit", ['handover_amount' => $amount], 'handover_amount'],
+            'record variance' => [$manager, "/api/branch-manager/shifts/{$shift->id}/variance", ['responsibility_type' => 'self_and_others', 'other_cashiers' => [['cashier_id' => $other->id, 'amount' => $amount]]], 'other_cashiers.0.amount'],
+            'reassign with handover' => [$manager, "/api/branch-manager/shifts/{$shift->id}/reassign-with-handover", ['new_cashier_id' => $other->id, 'handover_amount' => $amount], 'handover_amount'],
+        ];
+    }
+
+    public function test_newly_validated_endpoints_reject_a_real_extra_decimal(): void
+    {
+        foreach ($this->newlyValidatedRequests($this->world(), '40.123') as $name => [$actor, $url, $body, $field]) {
+            $this->actingAs($actor, 'sanctum')
+                ->post($url, $body, ['Accept' => 'application/json'])
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors($field);
+            $this->app['auth']->forgetGuards();
+        }
+    }
+
+    public function test_newly_validated_endpoints_accept_representation_noise(): void
+    {
+        foreach ($this->newlyValidatedRequests($this->world(), '40.00000000000001') as $name => [$actor, $url, $body, $field]) {
+            $response = $this->actingAs($actor, 'sanctum')->post($url, $body, ['Accept' => 'application/json']);
+            $this->assertNotSame(422, $response->status(), $name.': '.$response->getContent());
+            $this->app['auth']->forgetGuards();
+        }
+    }
+
+    public function test_manager_end_stores_the_summed_cashier_split_when_the_total_comes_from_the_shifts(): void
+    {
+        [, $manager] = $this->world();
+        $row = $this->managerRow($manager);
+        $service = app(ShiftFinancialService::class);
+        // Two cashier shifts of 115.50: each stored 100.43 / 15.07, so the day sums to 200.86 / 30.14,
+        // whereas the split of the summed gross 231.00 would be 200.87 / 30.13.
+        $summary = ['total_sales' => 231.0, 'cash_collected' => 0, 'card_payments' => 0, 'delivery_app_payments' => 0,
+            'total_variance' => 0, 'net_sales_halalas' => 20086, 'vat_amount_halalas' => 3014];
+
+        $fromShifts = $service->resolveFinancialValues(Request::create('/', 'POST', []), $summary, $row);
+        $this->assertSame(200.86, $fromShifts['net_sales']);
+        $this->assertSame(30.14, $fromShifts['vat_amount']);
+
+        $managerTyped = $service->resolveFinancialValues(Request::create('/', 'POST', ['total_sales' => '231.00']), $summary, $row);
+        $this->assertSame(200.87, $managerTyped['net_sales']);
+        $this->assertSame(30.13, $managerTyped['vat_amount']);
     }
 }
