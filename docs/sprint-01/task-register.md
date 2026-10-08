@@ -198,3 +198,5 @@ Starting published HEAD f06964c18a60b2a44806fe5a8de74461d52bdaa9. Monetary reque
 ## S1-07 APPROVE A implementation — current status
 
 The user authorized the additive schema and internal implementation. This supersedes the historical design-stop entry. The model/services and isolated persistence tests are ready for review; no full S1-07 acceptance, production deployment, real-source adapter, or legacy HTTP enforcement is claimed. The explicit integration boundaries are in `s1-07-implementation-handoff.md`. S1-08 and later tasks have not been started by this change.
+
+The current liability readiness check treats trusted nonnegative variance as having no liability requirement even when older shortage allocations exist. Those allocations and decisions remain historical; a later shortage requires a fresh current allocation/approval. Required receipt/scope checks remain independent and in force.

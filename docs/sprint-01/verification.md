@@ -512,3 +512,18 @@ php vendor/bin/pint --test Modules/Shift/app/Liability Modules/Shift/app/Models/
 S1-07: **INTERNAL IMPLEMENTATION READY FOR REVIEW / NOT ACCEPTED / END-TO-END INTEGRATION STILL BLOCKED**. The existing daily-submit route is not silently changed to reject all legacy workdays; the new guard is not advertised as active on it. No old approved status is promoted to confirmed receipt evidence or new liability approval. Review deployment/schema against MySQL before activating the future integration.
 
 **Integration onto the sprint branch (2026-10-08).** Commit `ea5e8d90` (`codex/s1-07-liability`, started from `217c2716`) was cherry-picked onto `sprint/01-financial-foundation` at `c18c2f23`. Only `task-register.md` and `verification.md` conflicted (documentation; both sides kept: S1-06 row from `c18c2f23`, S1-07 row from `ea5e8d90`; both verification entries). No code conflict; the S1-07 code does not use the calculator keys renamed in `c18c2f23`. After integration (PHP 8.3.6, SQLite in-memory): `ShiftLiabilityServiceTest`, `ShiftAllocationRulesTest`, `ShiftLegacyMoneyCompatibilityTest`, `ShiftFinancialCalculatorTest`, `ShiftMoneyValidationTest` → **OK, 100 tests / 453 assertions**; full suite → 1330 tests with the same 73 pre-existing failures as `217c2716`, **0 new**. This integration does not review or accept S1-07; its additive migration still needs review before S1-08 builds on it.
+
+## S1-07 corrected-report liability readiness — 2026-10-08
+
+The pre-fix logic was reproduced by inspection: `assertDailyReportReady()` returned early for nonnegative variance only if there was no allocation row. An existing shortage allocation therefore reached `current()` against a corrected balanced/surplus revision and failed as stale. The fix returns from the liability portion whenever the current trusted variance is nonnegative; the daily guard continues to check required receipt evidence after that call. No row is deleted or mutated by this readiness check.
+
+Regression coverage verifies shortage → zero and shortage → surplus readiness while preserving the old allocation, approval, and objection; it also verifies surplus → later shortage requires a fresh allocation and manager approval. The latter retains manager-correction behavior without cashier reconfirmation.
+
+| Check | Result | Evidence / boundary |
+|---|---|---|
+| Focused S1-07 service suite | PASS — 27 tests / 65 assertions | `ShiftLiabilityServiceTest.php`, isolated SQLite schema including the real additive migration. |
+| Combined S1-07/S1-06 focused regression | PASS — 102 tests / 469 assertions | Liability, allocation rules, calculator, money validation, and legacy compatibility files. Initial default-memory run exhausted 128 MB; rerun with 512 MB passed. |
+| PHP syntax and changed-file Pint | PASS | Both changed PHP files lint; Pint passed on those two files only. |
+| Migration | NO CHANGE | Existing S1-07 migration was reviewed, not edited or rerun against a production database. |
+
+S1-10/S1-11 evidence boundaries and fail-closed production provider remain unchanged. No HTTP route was wired, and no S1-08, S1-10, or S1-11 work was started.

@@ -36,3 +36,7 @@ The default `UnavailableLiabilityEvidence` deliberately throws 409. No fake sour
 ## Verification
 
 See the latest S1-07 entry in `verification.md` for executed tests and limitations. Tests build a separate in-memory SQLite connection and small fixture tables, run the actual additive migration and services, and never migrate or erase a configured external database. Existing S1-06 tests are run as a regression check. No full-project Pint cleanup is included.
+
+## Corrected report liability readiness
+
+When trusted current report evidence changes from a shortage to balanced or surplus, liability readiness has no current liability requirement. Any prior allocation, approval, and employee responses remain stored as historical evidence and are not consulted as current approval. This does not bypass the daily guard's independent required receipt checks or any scope/authorization/evidence checks. If a later correction changes the report back to shortage, the old allocation cannot match the new revision/amount; a fresh allocation and manager approval are required. Manager-origin correction still does not require cashier reconfirmation.

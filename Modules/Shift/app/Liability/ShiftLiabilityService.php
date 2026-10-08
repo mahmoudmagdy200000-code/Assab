@@ -152,12 +152,12 @@ final class ShiftLiabilityService
         if (! $report->completed) {
             throw new ConflictHttpException('REPORT_NOT_COMPLETED');
         }
-        // Zero/surplus is branch-only, but a previous shortage snapshot must not remain current.
-        $allocation = $this->latest($report->shiftId);
-        if ($report->varianceHalalas >= 0 && ! $allocation) {
+        // A nonnegative current report has no liability. Keep any prior shortage
+        // allocation as history without requiring it to match this revision.
+        if ($report->varianceHalalas >= 0) {
             return;
         }
-        $allocation = $this->current($report, $allocation?->version ?? 0);
+        $allocation = $this->current($report, $this->latest($report->shiftId)?->version ?? 0);
         $this->assertComplete($allocation);
         if ($report->varianceHalalas < 0 && (
             $allocation->manager_approval_status !== 'approved'

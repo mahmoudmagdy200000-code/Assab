@@ -358,6 +358,58 @@ class ShiftLiabilityServiceTest extends TestCase
         $this->ready();
     }
 
+    public function test_corrected_balanced_or_surplus_report_ignores_but_preserves_historical_shortage_allocation(): void
+    {
+        $allocation = $this->service->allocate($this->shiftId, $this->cashier, $this->shares(), 0, true);
+        $this->service->respond($this->shiftId, $this->cashier, 1, 'objected', 'Historical objection');
+        $this->service->approve($this->shiftId, $this->manager, 1, true);
+
+        foreach ([0, 500] as $index => $variance) {
+            $this->setEvidence($variance, 'r'.($index + 2));
+            $this->ready();
+
+            $this->assertSame(1, ShiftLiabilityAllocation::count());
+            $this->assertNull($allocation->fresh()->superseded_at);
+            $this->assertSame('approved', $allocation->fresh()->manager_approval_status);
+            $this->assertSame('objected', $allocation->shares()->where('responsible_type', 'cashier')->first()->employee_response_status);
+            $this->assertSame('Historical objection', $allocation->shares()->where('responsible_type', 'cashier')->first()->employee_response_reason);
+        }
+    }
+
+    public function test_surplus_then_new_shortage_requires_fresh_allocation_and_approval(): void
+    {
+        $historical = $this->service->allocate($this->shiftId, $this->cashier, $this->shares(), 0, true);
+        $this->service->approve($this->shiftId, $this->manager, 1, true);
+        $this->setEvidence(500, 'r2');
+        $this->ready();
+
+        $this->setEvidence(-1000, 'r3');
+        try {
+            $this->ready();
+            $this->fail('Historical shortage allocation must not satisfy a later shortage.');
+        } catch (ConflictHttpException $e) {
+            $this->assertSame('STALE_OR_MISSING_LIABILITY_ALLOCATION', $e->getMessage());
+        }
+
+        $current = $this->service->allocate($this->shiftId, $this->manager, [
+            ['type' => 'cashier', 'id' => $this->cashier->id, 'amount' => 1000],
+        ], 1, false, 'Corrected count establishes new shortage');
+        $this->assertSame('pending', $current->manager_approval_status);
+        $this->assertNotNull($historical->fresh()->superseded_at);
+        $this->assertSame('approved', $historical->fresh()->manager_approval_status);
+        $this->assertNull($current->cashier_confirmed_at);
+
+        try {
+            $this->ready();
+            $this->fail('Fresh shortage must require a fresh manager approval.');
+        } catch (ConflictHttpException $e) {
+            $this->assertSame('LIABILITY_APPROVAL_REQUIRED', $e->getMessage());
+        }
+
+        $this->service->approve($this->shiftId, $this->manager, 2);
+        $this->ready();
+    }
+
     public function test_missing_daily_evidence_is_not_treated_as_empty_completed_scope(): void
     {
         $guard = new DailyLiabilityGuard(new UnavailableLiabilityEvidence, $this->service, new ResponsibleActorResolver);
