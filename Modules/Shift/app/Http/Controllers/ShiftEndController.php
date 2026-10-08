@@ -170,18 +170,8 @@ class ShiftEndController extends Controller
                 'success' => false,
                 'message' => 'Shift not found',
             ], 404);
-        } catch (\Exception $e) {
-            Log::error('End shift only failed', [
-                'shift_id' => $shift,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to end shift',
-                'error' => $e->getMessage(),
-            ], 500);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'end shift only');
         }
     }
 
@@ -266,22 +256,8 @@ class ShiftEndController extends Controller
 
             // Check if branch_manager_id is provided (must be filled; ignore null/empty so cashier handover works)
             if ($request->filled('branch_manager_id')) {
-                $branchManager = \Modules\BranchManagers\Models\BranchManager::find($request->branch_manager_id);
-
-                if (! $branchManager) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Branch manager not found',
-                    ], 404);
-                }
-
-                // Verify branch manager belongs to the same branch
-                if ($branchManager->branch_id !== $shiftModel->shift->branch_id) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Branch manager does not belong to this branch',
-                    ], 400);
-                }
+                $branchManager = app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                    ->assertAssignedActiveManager($shiftModel->shift->branch_id, (string) $request->branch_manager_id);
 
                 $handoverToType = 'branch_manager';
                 $handoverToId = $branchManager->id;
@@ -289,17 +265,8 @@ class ShiftEndController extends Controller
             }
             // Check if handover_to_type is explicitly set to branch_manager
             elseif ($handoverToType === 'branch_manager') {
-                // Get branch manager for this branch
-                $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
-                    ->where('is_active', true)
-                    ->first();
-
-                if (! $branchManager) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'No active branch manager found for this branch',
-                    ], 400);
-                }
+                $branchManager = app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                    ->assignedActiveManager($shiftModel->shift->branch_id);
 
                 $handoverToId = $branchManager->id;
                 $handoverToName = $branchManager->name;
@@ -425,18 +392,8 @@ class ShiftEndController extends Controller
                 'success' => false,
                 'message' => 'Shift not found',
             ], 404);
-        } catch (\Exception $e) {
-            Log::error('End shift with handover failed', [
-                'shift_id' => $shift,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to end shift with handover',
-                'error' => $e->getMessage(),
-            ], 500);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'end shift with handover');
         }
     }
 
@@ -495,22 +452,8 @@ class ShiftEndController extends Controller
 
             // Check if branch_manager_id is provided (must be filled; ignore null/empty so cashier handover works)
             if ($request->filled('branch_manager_id')) {
-                $branchManager = \Modules\BranchManagers\Models\BranchManager::find($request->branch_manager_id);
-
-                if (! $branchManager) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Branch manager not found',
-                    ], 404);
-                }
-
-                // Verify branch manager belongs to the same branch
-                if ($branchManager->branch_id !== $shiftModel->shift->branch_id) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Branch manager does not belong to this branch',
-                    ], 400);
-                }
+                $branchManager = app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                    ->assertAssignedActiveManager($shiftModel->shift->branch_id, (string) $request->branch_manager_id);
 
                 $handoverToType = 'branch_manager';
                 $handoverToId = $branchManager->id;
@@ -518,17 +461,8 @@ class ShiftEndController extends Controller
             }
             // Check if handover_to_type is explicitly set to branch_manager
             elseif ($handoverToType === 'branch_manager') {
-                $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
-                    ->where('is_active', true)
-                    ->first();
-
-                if (! $branchManager) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'No active branch manager found',
-                    ], 400);
-                }
-
+                $branchManager = app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                    ->assignedActiveManager($shiftModel->shift->branch_id);
                 $handoverToId = $branchManager->id;
                 $handoverToName = $branchManager->name;
             }
@@ -571,7 +505,7 @@ class ShiftEndController extends Controller
                 $handoverData['variance_reason'] = $request->input('variance.reason');
             }
 
-            $updatedShift = $this->handoverService->recordHandover($shiftModel, $handoverData);
+            $updatedShift = $this->handoverService->recordHandover($shiftModel, $handoverData, $user);
 
             // Record variance if provided
             if ($request->has('variance') && $updatedShift->hasVariance()) {
@@ -605,17 +539,8 @@ class ShiftEndController extends Controller
                     ],
                 ],
             ]);
-        } catch (\Exception $e) {
-            Log::error('Start handover failed', [
-                'shift_id' => $shift,
-                'error' => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to record handover',
-                'error' => $e->getMessage(),
-            ], 500);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'start handover');
         }
     }
 
@@ -686,11 +611,8 @@ class ShiftEndController extends Controller
 
             $suggestedCashierId = $nextShift?->cashier_id;
 
-            // Get all active branch managers for this branch (handover can be to manager)
-            $branchManagers = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
-                ->where('is_active', true)
-                ->where('status', 'active')
-                ->get();
+            $branchManager = app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                ->assignedActiveManager($shiftModel->shift->branch_id);
 
             $availableCashiers = $allCashiers->map(function ($cashier) use ($suggestedCashierId) {
                 return [
@@ -709,39 +631,17 @@ class ShiftEndController extends Controller
             });
 
             $recipients = $availableCashiers->toArray();
-            $recipientIds = [];
-            foreach ($branchManagers as $branchManager) {
-                $recipients[] = [
-                    'id' => $branchManager->id,
-                    'name' => $branchManager->name.' (Branch Manager)',
-                    'image' => $branchManager->image ? asset('storage/'.$branchManager->image) : null,
-                    'type' => 'branch_manager',
-                    'is_available' => true,
-                    'disabled' => false,
-                    'reason_disabled' => null,
-                    'is_suggested' => false,
-                    'suggestion_reason' => 'Final handover to Branch Manager',
-                ];
-                $recipientIds[(string) $branchManager->id] = true;
-            }
-
-            // Always include logged-in branch manager for this branch (so they can receive handover even if not in active list)
-            $authUser = auth()->user();
-            if ($authUser instanceof \Modules\BranchManagers\Models\BranchManager
-                && (string) $authUser->branch_id === (string) $shiftModel->shift->branch_id
-                && empty($recipientIds[(string) $authUser->id])) {
-                $recipients[] = [
-                    'id' => $authUser->id,
-                    'name' => $authUser->name.' (Branch Manager)',
-                    'image' => $authUser->image ? asset('storage/'.$authUser->image) : null,
-                    'type' => 'branch_manager',
-                    'is_available' => true,
-                    'disabled' => false,
-                    'reason_disabled' => null,
-                    'is_suggested' => false,
-                    'suggestion_reason' => 'Final handover to Branch Manager',
-                ];
-            }
+            $recipients[] = [
+                'id' => $branchManager->id,
+                'name' => $branchManager->name.' (Branch Manager)',
+                'image' => $branchManager->image ? asset('storage/'.$branchManager->image) : null,
+                'type' => 'branch_manager',
+                'is_available' => true,
+                'disabled' => false,
+                'reason_disabled' => null,
+                'is_suggested' => false,
+                'suggestion_reason' => 'Final handover to Branch Manager',
+            ];
 
             return response()->json([
                 'success' => true,
@@ -749,15 +649,11 @@ class ShiftEndController extends Controller
                 'data' => [
                     'recipients' => $recipients,
                     'auto_handover_enabled' => ! is_null($suggestedCashierId),
-                    'has_branch_manager' => $branchManagers->isNotEmpty(),
+                    'has_branch_manager' => true,
                 ],
             ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve available recipients',
-                'error' => $e->getMessage(),
-            ], 500);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'available recipients');
         }
     }
 

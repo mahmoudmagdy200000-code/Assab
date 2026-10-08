@@ -55,7 +55,7 @@ class HandoverLedgerDateTest extends TestCase
         $this->shift = CashierShift::factory()->create([
             'cashier_id' => $this->cashier->id,
             'shift_id' => $template->id,
-            'shift_date' => today(),
+            'shift_date' => today()->subDay(),
             'status' => ShiftStatus::IN_PROGRESS,
             'cash_collected' => 5000.00,
             'total_sales' => 5000.00,
@@ -109,6 +109,7 @@ class HandoverLedgerDateTest extends TestCase
 
     public function test_actual_manager_confirmation_posts_receipt_linked_total_sales_credit(): void
     {
+        $this->assertSame(today()->subDay()->toDateString(), $this->shift->shift_date->toDateString());
         $this->approve();
 
         $receipt = CashierShiftHandoverReceipt::query()->sole();
@@ -117,6 +118,7 @@ class HandoverLedgerDateTest extends TestCase
         $this->assertSame('5000.00', $ledger->amount);
         $this->assertSame($receipt->id, $ledger->receipt_id);
         $this->assertSame($receipt->confirmed_at->toDateString(), $ledger->transaction_date->toDateString());
+        $this->assertSame(today()->toDateString(), $receipt->confirmed_at->toDateString());
         $this->assertSame($this->manager->id, $receipt->receiving_branch_manager_id);
         $this->assertSame(1, CashierShiftHistory::where('cashier_shift_id', $this->shift->id)->where('action', 'handover_confirmed')->count());
     }

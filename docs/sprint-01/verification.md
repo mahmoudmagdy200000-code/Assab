@@ -477,13 +477,13 @@ Implemented by Claude at Mahmoud's explicit request, after Claude's independent 
 | N-08.1 | `roundingPendingD5` → `netRounded`; calculator header states D5 as approved. | Calculator unit tests updated; half-up case 100.00 → 86.96 / 13.04 added. |
 | N-04 (P2) | `money-contract.md` FIN-01 vector wire forms replaced with the correct legacy (`cash_collected` 40 + `aggregators` 25) and Admin forms. | Doc diff. |
 | N-05 (P2) | v2.0 task and acceptance tables copied into `task-register.md`; FIN-05/FIN-06/RX-01/RX-03 descriptions corrected (`baseline.md`, `task-register.md`). | Doc diff. |
-| N-06 (P2) | Pending-incoming source, mismatch and post-submit rules added as **PROPOSED** (`money-contract.md`); D11 opened for Mohamed. | Doc diff. |
-| N-07 (P3) | D3/D9 provenance marked PENDING MAHMOUD CONFIRMATION; external BR file not authoritative until issued as v2.1. | Doc diff. |
+| N-06 (P2) | Historical proposal; D11's 500/480 physical pending-incoming rule and rule 3 for this case were approved by Mohamed on 2026-10-08. Structured evidence remains S1-10 and daily-submit integration remains S1-11. | `money-contract.md` decision synchronization. |
+| N-07 (P3) | Historical provenance gap; D3/D9 business decisions were confirmed as approved by Mohamed on 2026-10-08. This does not claim runtime completion. | `api-contract.md` approved decision synchronization. |
 | N-08.2–8.7 | ShiftCycleFixesTest note; D6 key consistency (`cash_variance`) in examples; route-map D3 and client-caller fixes; accountant alias roles and idempotency; D5 heading; removed `openingConfirmed` flag; C-7/D7 legacy token paragraph in `api-contract.md` §11; "Writers unambiguous" qualified. | Doc diff. |
 
 Commands (PHP 8.3.6, PHPUnit 12.4.0, SQLite in-memory): `php vendor/bin/phpunit tests/Feature/ShiftLegacyMoneyCompatibilityTest.php tests/Unit/ShiftFinancialCalculatorTest.php tests/Feature/ShiftMoneyValidationTest.php` → **OK, 62 tests / 389 assertions**. Full suite → 1292 tests, 71 errors + 2 failures; the 73 failing tests are identical by name to those at `217c2716` and `9a8e0ff` (RecurringOrder, Procurement and NFR suites); **0 new**. `./vendor/bin/pint --test` on the changed PHP files → PASS. A separate agent reviewed the diff before push (no blockers; its should-fix items are included in the follow-up).
 
-Not changed: no migration, no Dashboard or AssabAPP change, H1/H2 not implemented, S1-07 remains blocked. Open: D10 confirmation, D11 (Mohamed), D3/D9 provenance, N-03 replica count.
+Historical state at this S1-06 audit: no migration, no Dashboard or AssabAPP change, H1/H2 not implemented, S1-07 then remained blocked. Current decision state: D11/D12/D13 and D3/D9 are approved by Mohamed on 2026-10-08; D10 confirmation and N-03 replica count remain separate open items. Later task sections supersede historical implementation status.
 
 ## S1-07 APPROVE A internal implementation verification — 2026-10-08
 
@@ -577,6 +577,32 @@ S8-01 adds exact-amount confirmation and a correction lifecycle for cashier and 
 | Changed-file Pint | PASS — 23 PHP files | Changed-file `pint --test`; formatter fixes were confined to those files. |
 | PHP syntax / whitespace | PASS — 23 PHP files; `git diff --check` PASS | PHP 8.4.26. |
 | Full PHPUnit suite | NOT CLEAN — 1,364 tests / 7,534 assertions / 75 errors / 21 failures / 1 skipped | One serial run, PHP 8.4.26 + SQLite. Errors include temp-folder/file-read limitations and NFR SQLite `migrate:fresh`/transaction incompatibility. Failures are in RecurringOrder, Procurement, exports, credential/email, and NFR-facing tests; no S1-08 receipt/transfer/close test failed. This exceeds the historical baseline count of 73 failures, and the baseline test-name list is not retained here, so zero new failures is NOT confirmed. JUnit: `storage/logs/s1-08-phase2-full-suite-serial.xml` (local run artifact). |
-| Migration | Phase 2: NO CHANGE | Phase 2 did not rewrite an applied migration. Phase 1's additive manager-recipient migration is documented above. |
+| Migration | Phase 2: additive migration 000004 | `2026_10_08_000004_add_manager_recipient_receipt_fields.php` was added in Phase 2; no applied migration was rewritten. |
 
-S1-08 remains **Ready for review / Not Accepted**. The targeted S1-08 groups and all four `HandoverLedgerDateTest` cases pass, but the full-suite result cannot meet the no-new-failures gate until the 96 current failures/errors are compared by test name to the 73-failure baseline and the environment-dependent export/SQLite cases are separated. Do not commit on this evidence alone. S1-09 replay/idempotency, S1-10 trusted counted-cash evidence, and S1-11 public liability routes, full correction history, and daily-submit/reopen integration remain deferred. Production schema/DDL and MySQL concurrency remain open rollout follow-ups.
+S1-08 Phase 2 was committed at `569d00e77dea922c03782c001c3c26c2cd30cba9` after an exact `classname::method` comparison of its serial JUnit to the `c018fa01` baseline showed **zero new failure/error identities**. The earlier count-only caution above is historical and superseded by that comparison. Current Phase 3/4 and Mahmoud corrections are local and uncommitted; their final evidence is recorded below. S1-09 replay, S1-10 trusted count, and S1-11 public liability/full correction/daily-submit-reopen integration remain deferred.
+
+## S1-08 final Mahmoud decisions and deployment gates — 2026-10-08
+
+S8-09 is **APPROVED — DOCUMENTATION / RELEASE GATE ONLY**. No S1-08 code change restores the legacy coupling: confirming cash receipt neither approves nor posts the cashier's self-declared shortage. S1-11 final branch-manager liability approval must post exactly one cashier personal-ledger movement for that shortage, with no duplicate; there is **no release before S1-11** acceptance.
+
+S8-12 is **APPROVED — DRAIN-BEFORE-DEPLOY**. Resolve pending handovers in the current system by confirmation or rejection. After maintenance mode begins, run the read-only pending count in `s1-08-deployment-readiness.md`; only zero permits deployment. A nonzero result postpones deployment. No backfill is part of normal deployment. An exceptional unresolved historical request requires a separate, idempotent, evidence-preserving backfill design before proceeding.
+
+D12 dashboard/mobile branch-manager assignment now shares one transaction and rejects an occupied destination; the focused manager sync and credential tests pass (15 tests / 52 assertions). This SQLite evidence does not establish MySQL concurrency safety. Final focused and serial comparison results must be appended only after their runs complete.
+
+S8-05 is **RESOLVED** by Mahmoud's accounting decision: manager-to-cashier confirmation writes one `Handover to Cashier` manager personal-ledger cash-out with the receiving `cashier_name`, exact confirmed amount and receipt ID. The cashier custody entry remains `Handover Received`; manager available cash remains personal sales cash less pending outgoing requests, excluding expense custody. Existing `transaction_type` string(50) needs no migration. AssabAPP D4 must localize the English API value to `تسليم نقدية لكاشير`. Focused transfer evidence appears below.
+
+### Final corrected-worktree serial suite
+
+After aligning all eight prior current-only identities with the approved D12 and receipt-derived opening behavior, the corrected worktree ran each requested serial stage once with PHP 8.4.26, SQLite in-memory, `--do-not-cache-result`, and `--no-progress`. All three fresh JUnit files are valid. Unit, Feature, and NFR exited nonzero only for the retained baseline and SQLite environment failures listed by identity below. No stage was restarted.
+
+| Stage | Tests | Assertions | Errors | Failures | Skipped | JUnit |
+|---|---:|---:|---:|---:|---:|---|
+| Unit | 62 | 1,762 | 0 | 1 | 0 | `storage/logs/s1-08-corrected-final-unit.xml` |
+| Feature | 1,179 | 5,680 | 0 | 1 | 1 | `storage/logs/s1-08-corrected-final-feature.xml` |
+| NFR | 153 | 315 | 71 | 0 | 0 | `storage/logs/s1-08-corrected-final-nfr.xml` |
+| Combined | 1,394 | 7,757 | 71 | 2 | 1 | Logical merge by `classname::method` |
+| Accepted Phase 2 | 1,364 | 7,534 | 75 | 21 | 1 | `storage/logs/s1-08-phase2-full-suite-serial.xml` |
+
+The exact identity comparison against the accepted Phase 2 report yields **73 shared**, **23 Phase 2 only**, and **0 current only** failing/error identities. All eight formerly current-only identities are absent from the fresh reports. There are **0 status changes** among shared identities and **0 new product regressions**. The complete names are recorded in `s1-08-final-serial-comparison.md`. The 71 current NFR errors are SQLite `migrate:fresh`/VACUUM-in-transaction environment errors, all shared with Phase 2; the Unit RecurringOrder and Feature Procurement failures are also shared baseline identities. The focused rerun of the eight corrected identities passed **48 tests / 187 assertions**.
+
+Other focused evidence: manager branch synchronization and credential tests **15 / 52 PASS**; S1-08 shift, transfer, custody, and manager batch **120 / 636 PASS** before S8-05; S1-06/S1-07 **113 / 535 PASS**; S8-05 receipt and handover batch **54 / 276 PASS**, including the new 10 SAR manager cash-out, recipient name, same receipt, cashier custody, balance decrease, old-type absence, and duplicate confirmation rejection. Changed-file Pint `--test` passed for 36 PHP files, PHP syntax passed for all 36, and `git diff --check` passed. MySQL/deployment-equivalent locking validation remains unavailable and unproven.

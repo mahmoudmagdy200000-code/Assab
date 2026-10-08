@@ -2,6 +2,7 @@
 
 namespace Modules\Custody\Services;
 
+use Modules\Custody\Enums\TransactionType;
 use Modules\Custody\Models\PersonalLedgerTransaction;
 
 class PersonalLedgerService
@@ -124,7 +125,7 @@ class PersonalLedgerService
             'isCashIn' => $transaction->is_cash_in,
         ];
 
-        if ($transaction->transaction_type === 'Total Sales' && $transaction->cashier_name) {
+        if (in_array($transaction->transaction_type, [TransactionType::TOTAL_SALES->value, TransactionType::HANDOVER_TO_CASHIER->value], true) && $transaction->cashier_name) {
             $data['cashierName'] = $transaction->cashier_name;
         }
 
@@ -151,7 +152,7 @@ class PersonalLedgerService
             'dateTime' => $transaction->transaction_date->toIso8601String(),
         ];
 
-        if ($transaction->transaction_type === 'Total Sales' && $transaction->cashier_name) {
+        if (in_array($transaction->transaction_type, [TransactionType::TOTAL_SALES->value, TransactionType::HANDOVER_TO_CASHIER->value], true) && $transaction->cashier_name) {
             $data['cashierName'] = $transaction->cashier_name;
         }
 

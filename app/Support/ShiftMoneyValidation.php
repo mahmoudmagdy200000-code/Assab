@@ -29,6 +29,7 @@ final class ShiftMoneyValidation
         'card_payments',
         'aggregator_payments',
         'handover_amount',
+        'confirmed_amount',
         'aggregators.*.amount',
         'current_cashier_amount',
         'other_cashiers.*.amount',

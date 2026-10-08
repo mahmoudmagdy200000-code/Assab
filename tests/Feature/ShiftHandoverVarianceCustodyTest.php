@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
@@ -82,6 +83,105 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
         $this->assertDatabaseMissing('shift_handover_status', ['cashier_shift_id' => $cashierShift->id]);
         $this->assertDatabaseMissing('cashier_shift_handovers', ['cashier_shift_id' => $cashierShift->id]);
         $this->assertEquals(0, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->count());
+    }
+
+    public function test_required_custody_delete_failure_rolls_back_handover_rejection(): void
+    {
+        if (DB::getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('Failure trigger is SQLite-specific; deployment-equivalent DB coverage is separate.');
+        }
+
+        $branch = Branch::factory()->create();
+        $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
+        $sender = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
+        $recipient = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
+        $template = Shift::factory()->create(['branch_id' => $branch->id]);
+        $cashierShift = CashierShift::factory()->completed()->create([
+            'cashier_id' => $sender->id,
+            'shift_id' => $template->id,
+            'shift_date' => today(),
+            'next_cashier_id' => $recipient->id,
+            'total_sales' => 100,
+        ]);
+        ShiftHandoverStatus::create([
+            'cashier_shift_id' => $cashierShift->id,
+            'status' => HandoverStatus::PENDING,
+            'manager_approval_status' => 'pending',
+        ]);
+        $handover = CashierShiftHandover::create([
+            'cashier_shift_id' => $cashierShift->id,
+            'handover_to_id' => $recipient->id,
+            'handover_to_type' => 'cashier',
+            'handover_amount' => 100,
+            'variance_amount' => 0,
+            'handover_date' => today()->toDateString(),
+            'handover_time' => now(),
+            'status' => 'pending',
+        ]);
+        CashierCustodyTransaction::create([
+            'cashier_id' => $sender->id,
+            'transaction_type' => 'Total Sales',
+            'amount' => 100,
+            'is_cash_in' => true,
+            'related_shift_id' => $cashierShift->id,
+            'transaction_date' => now(),
+        ]);
+        $this->assertSame(1, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->count());
+        DB::statement("CREATE TRIGGER fail_revert_custody_delete BEFORE UPDATE OF deleted_at ON cashier_custody_transactions WHEN NEW.deleted_at IS NOT NULL BEGIN SELECT RAISE(ABORT, 'injected custody delete failure'); END");
+
+        try {
+            app(HandoverService::class)->rejectHandoverByCashier($cashierShift, $recipient->id, 'Reject handover', []);
+            $this->fail('Required custody cleanup must fail the rejection transaction.');
+        } catch (QueryException) {
+            $this->assertSame(ShiftStatus::COMPLETED, $cashierShift->fresh()->status);
+            $this->assertSame('pending', $handover->fresh()->status);
+            $this->assertDatabaseHas('shift_handover_status', ['cashier_shift_id' => $cashierShift->id]);
+            $this->assertSame(1, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->count());
+            $this->assertSame(0, DB::table('cashier_shift_history')->where('action', 'handover_rejected_shift_reverted')->count());
+        }
+    }
+
+    public function test_legacy_backfill_refuses_to_infer_receipt_or_liability_approval(): void
+    {
+        $branch = Branch::factory()->create();
+        $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
+        $cashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
+        $template = Shift::factory()->create(['branch_id' => $branch->id]);
+        $shift = CashierShift::factory()->completed()->create([
+            'cashier_id' => $cashier->id,
+            'shift_id' => $template->id,
+            'shift_date' => today(),
+            'variance' => -50,
+        ]);
+        ShiftVarianceDetail::create([
+            'cashier_shift_id' => $shift->id,
+            'variance_amount' => 50,
+            'variance_type' => VarianceType::SHORT,
+            'responsibility_type' => ResponsibilityType::I_WAS_RESPONSIBLE,
+            'responsible_cashier_id' => $cashier->id,
+            'assigned_amount' => 50,
+            'reason' => 'pending employee response',
+            'responsibility_status' => 'pending',
+        ]);
+        CashierShiftHandover::create([
+            'cashier_shift_id' => $shift->id,
+            'handover_to_id' => $manager->id,
+            'handover_to_type' => 'branch_manager',
+            'handover_amount' => 100,
+            'variance_amount' => -50,
+            'handover_date' => today()->toDateString(),
+            'handover_time' => now(),
+            'status' => 'approved',
+            'approved_by_id' => $manager->id,
+            'approved_by_type' => BranchManager::class,
+            'approved_at' => now(),
+        ]);
+
+        $this->assertSame(1, Artisan::call('custody:backfill-cashier-ledger'));
+        $this->assertSame('pending', $shift->varianceDetails()->sole()->responsibility_status);
+        $this->assertSame(0, CashierShiftHandoverReceipt::count());
+        $this->assertSame(0, CashierCustodyTransaction::count());
+        $this->assertSame(0, DB::table('personal_ledger_transactions')->count());
     }
 
     public function test_accept_handover_by_cashier_marks_shift_completed(): void

@@ -90,10 +90,13 @@ class DemoTopUpCommandTest extends TestCase
     /** A manager working today must never have their live shift rewritten. */
     public function test_it_never_touches_a_live_manager_day(): void
     {
-        $live = BranchManagerShift::create([
+        $live = BranchManagerShift::firstOrCreate([
             'branch_manager_id' => $this->manager->id,
             'shift_date' => today(),
+        ], [
             'branch_id' => $this->branch->id,
+        ]);
+        $live->update([
             'status' => 'active',
             'actual_start_time' => now()->subHour(),
         ]);

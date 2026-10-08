@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
+use Modules\Custody\Enums\TransactionType;
 use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Custody\Models\PersonalLedgerTransaction;
 use Modules\Shift\Models\BranchManagerCashTransfer;
@@ -56,7 +57,7 @@ class ShiftTransferReceiptService
                 ->select('cashier_shifts.id')
                 ->first();
 
-            if (! $destination || $destinationShift->status->value !== 'not_started') {
+            if (! $destination || ! in_array((string) $destinationShift->getRawOriginal('status'), ['not_started', 'in_progress'], true)) {
                 throw new ConflictHttpException('RECEIVING_SHIFT_NOT_AVAILABLE');
             }
 
@@ -65,18 +66,7 @@ class ShiftTransferReceiptService
                 $currentRevision = $this->revisions->recordManagerRevision($source, 'branch_manager', $actor->id, 0);
             }
 
-            $pendingReservedMinor = self::toMinorUnits((string) BranchManagerCashTransfer::query()
-                ->where('branch_manager_shift_id', $source->id)
-                ->where('status', 'pending')
-                ->sum('requested_amount'));
-            $confirmedMinor = self::toMinorUnits((string)
-                DB::table('cashier_shift_handover_receipts')
-                    ->join('branch_manager_cash_transfers', 'branch_manager_cash_transfers.id', '=', 'cashier_shift_handover_receipts.branch_manager_cash_transfer_id')
-                    ->where('branch_manager_cash_transfers.branch_manager_shift_id', $source->id)
-                    ->sum('cashier_shift_handover_receipts.confirmed_amount')
-            );
-            $reservedMinor = $pendingReservedMinor + $confirmedMinor;
-            $availableMinor = self::toMinorUnits((string) $source->cash_collected) - $reservedMinor;
+            $availableMinor = $this->availableManagerCashMinor($source->branch_manager_id);
 
             if ($requestedMinor > $availableMinor) {
                 throw new ConflictHttpException('INSUFFICIENT_RECORDED_SALES_CASH');
@@ -154,16 +144,7 @@ class ShiftTransferReceiptService
             if (! $revision) {
                 throw new ConflictHttpException('TRANSFER_REPORT_REVISION_REQUIRED');
             }
-            $pendingOtherMinor = self::toMinorUnits((string) BranchManagerCashTransfer::query()
-                ->where('branch_manager_shift_id', $source->id)
-                ->where('status', 'pending')
-                ->where('id', '<>', $transfer->id)
-                ->sum('requested_amount'));
-            $confirmedMinor = self::toMinorUnits((string) DB::table('cashier_shift_handover_receipts')
-                ->join('branch_manager_cash_transfers', 'branch_manager_cash_transfers.id', '=', 'cashier_shift_handover_receipts.branch_manager_cash_transfer_id')
-                ->where('branch_manager_cash_transfers.branch_manager_shift_id', $source->id)
-                ->sum('cashier_shift_handover_receipts.confirmed_amount'));
-            if ($newMinor + $pendingOtherMinor + $confirmedMinor > self::toMinorUnits((string) $source->cash_collected)) {
+            if ($newMinor > $this->availableManagerCashMinor($source->branch_manager_id)) {
                 throw new ConflictHttpException('INSUFFICIENT_RECORDED_SALES_CASH');
             }
 
@@ -243,6 +224,8 @@ class ShiftTransferReceiptService
             $stub = CashierShiftHandover::query()->whereKey($handoverId)->firstOrFail();
             $sourceSnapshot = CashierShift::withoutEagerLoads()->whereKey($stub->cashier_shift_id)->firstOrFail();
             $branchId = $sourceSnapshot->shift()->value('branch_id');
+            app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                ->assertAssignedActiveManager($branchId, $recipient->id);
             $managerWorkday = BranchManagerShift::query()
                 ->where('branch_manager_id', $recipient->id)
                 ->where('branch_id', $branchId)
@@ -412,9 +395,10 @@ class ShiftTransferReceiptService
             $managerShift = $source;
             PersonalLedgerTransaction::create([
                 'branch_manager_id' => $managerShift->branch_manager_id,
-                'transaction_type' => 'Transfer to Custody',
+                'transaction_type' => TransactionType::HANDOVER_TO_CASHIER->value,
                 'amount' => self::toSar($confirmedMinor),
                 'is_cash_in' => false,
+                'cashier_name' => $recipient->name,
                 'related_shift_id' => $managerShift->id,
                 'receipt_id' => $receipt->id,
                 'transaction_date' => now(),
@@ -461,7 +445,7 @@ class ShiftTransferReceiptService
                 $managerAudit->forceFill([
                     'cashier_shift_id' => $source->id,
                     'action' => 'handover_confirmed',
-                    'performed_by' => 0,
+                    'performed_by' => $managerDestination->branch_manager_id,
                     'performed_by_type' => 'branch_manager',
                     'old_value' => null,
                     'new_value' => $eventData + ['comment' => $comment],
@@ -476,7 +460,7 @@ class ShiftTransferReceiptService
         $history->forceFill([
             'cashier_shift_id' => $destination?->id ?? $source->id,
             'action' => 'cash_transfer_received',
-            'performed_by' => 0,
+            'performed_by' => $recipient?->id ?? $managerDestination?->branch_manager_id,
             'performed_by_type' => $recipient ? 'cashier' : 'branch_manager',
             'old_value' => null,
             'new_value' => $eventData,
@@ -496,7 +480,7 @@ class ShiftTransferReceiptService
         $matches = CashierShift::query()
             ->where('cashier_id', $recipient->id)
             ->whereDate('shift_date', $source->shift_date)
-            ->where('status', 'not_started')
+            ->whereIn('status', ['not_started', 'in_progress'])
             ->whereHas('shift', fn ($query) => $query->where('branch_id', $source->shift?->branch_id))
             ->limit(2)
             ->get();
@@ -539,9 +523,29 @@ class ShiftTransferReceiptService
         $destinationBranchId = $destination->shift?->branch_id;
         if ((string) $destination->cashier_id !== (string) $recipient->id
             || (string) $destinationBranchId !== (string) $branchId
-            || $destination->status->value !== 'not_started') {
+            || ! in_array((string) $destination->getRawOriginal('status'), ['not_started', 'in_progress'], true)) {
             throw new ConflictHttpException('RECEIVING_SHIFT_NOT_AVAILABLE');
         }
+    }
+
+    /** Confirmed personal-ledger cash less all pending manager transfer requests. */
+    private function availableManagerCashMinor(string $managerId): int
+    {
+        $ledgerMinor = PersonalLedgerTransaction::query()
+            ->where('branch_manager_id', $managerId)
+            // Liability/variance credits are claims, not confirmed sales cash.
+            ->where(fn ($query) => $query->where('is_cash_in', false)->orWhere('transaction_type', 'Total Sales'))
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get(['amount', 'is_cash_in'])
+            ->sum(fn (PersonalLedgerTransaction $row) => ($row->is_cash_in ? 1 : -1) * self::toMinorUnits((string) $row->amount));
+
+        $reservedMinor = self::toMinorUnits((string) BranchManagerCashTransfer::query()
+            ->whereHas('sourceWorkday', fn ($query) => $query->where('branch_manager_id', $managerId))
+            ->where('status', 'pending')
+            ->sum('requested_amount'));
+
+        return max(0, $ledgerMinor - $reservedMinor);
     }
 
     private function createCustodyMovement(CashierShiftHandoverReceipt $receipt, Cashier $cashier, string $type, bool $cashIn, int $minor, ?string $counterpart, ?string $sourceShiftId): void
@@ -567,7 +571,7 @@ class ShiftTransferReceiptService
         $history->forceFill([
             'cashier_shift_id' => $shift->id,
             'action' => $action,
-            'performed_by' => 0,
+            'performed_by' => $actorId,
             'performed_by_type' => $actorType,
             'old_value' => null,
             'new_value' => $details,

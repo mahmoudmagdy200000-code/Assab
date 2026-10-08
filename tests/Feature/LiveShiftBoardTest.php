@@ -86,7 +86,7 @@ class LiveShiftBoardTest extends TestCase
         $this->assertNotNull($mirror);
         $this->assertSame('active', $mirror->status);
         $this->assertSame($this->branch->id, $mirror->branch_id);
-        $this->assertSame(10000, $mirror->opening_float);
+        $this->assertSame(0, $mirror->opening_float);
 
         $res = $this->actingAs($this->accountant, 'sanctum')->getJson('/api/v1/accountant/shifts/live');
         $res->assertOk();
@@ -137,7 +137,9 @@ class LiveShiftBoardTest extends TestCase
             'emp_number' => 'EMP-0002', 'name' => 'كاشير 2', 'role' => 'cashier',
             'monthly_salary' => 0, 'status' => 'active',
         ]);
+        $otherTemplate = \Modules\Shift\Models\Shift::factory()->create(['branch_id' => $otherBranch->id]);
         $otherLegacy = CashierShift::factory()->create([
+            'shift_id' => $otherTemplate->id,
             'status' => ShiftStatus::IN_PROGRESS, 'actual_start_time' => now()->subHour(),
         ]);
         $otherEmployee->forceFill(['legacy_cashier_id' => $otherLegacy->cashier_id])->save();

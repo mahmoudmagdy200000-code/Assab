@@ -245,7 +245,7 @@ class ShiftLiabilityRealSchemaTest extends TestCase
 
     public function test_only_the_workday_manager_can_submit_or_reopen(): void
     {
-        $otherManager = BranchManager::factory()->create(['branch_id' => $this->branch->id]);
+        $otherManager = BranchManager::factory()->create(['branch_id' => $this->branch->id, 'status' => 'inactive', 'is_active' => false]);
         $this->report(500, 'r-surplus');
 
         foreach ([

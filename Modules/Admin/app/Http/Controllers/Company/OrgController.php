@@ -183,15 +183,19 @@ class OrgController extends AsabController
 
             // CMP-4: a tenant-created branch is inactive + pending_review until a
             // platform admin approves it («سيظهر بعد مراجعة الإدارة»).
-            $branch = \Modules\Branch\Models\Branch::create([
-                'name' => $data['name'], 'location' => $data['address'] ?? $data['city'],
-                'manager' => $data['managerName'] ?? null, 'status' => 'inactive',
-                'asab_review_status' => 'pending_review',
-                'asab_company_id' => $companyId, 'asab_brand_id' => $restaurant->brand_id, 'asab_restaurant_id' => $restaurant->id,
-                'asab_manager_user_id' => $data['managerUserId'] ?? null,
-                'asab_monthly_target' => $data['targetHalalas'] ?? null,
-            ]);
-            $this->managerSync->sync($data['managerUserId'] ?? null, $branch->id);
+            $branch = DB::transaction(function () use ($data, $companyId, $restaurant) {
+                $branch = \Modules\Branch\Models\Branch::create([
+                    'name' => $data['name'], 'location' => $data['address'] ?? $data['city'],
+                    'manager' => $data['managerName'] ?? null, 'status' => 'inactive',
+                    'asab_review_status' => 'pending_review',
+                    'asab_company_id' => $companyId, 'asab_brand_id' => $restaurant->brand_id, 'asab_restaurant_id' => $restaurant->id,
+                    'asab_manager_user_id' => $data['managerUserId'] ?? null,
+                    'asab_monthly_target' => $data['targetHalalas'] ?? null,
+                ]);
+                $this->managerSync->sync($data['managerUserId'] ?? null, $branch->id);
+
+                return $branch;
+            });
 
             // The brand's raw materials were seeded onto the branches that
             // existed when the catalog was uploaded — a new branch needs its own

@@ -86,8 +86,12 @@ class ShiftFinancialService
     /**
      * Calculate financial summary with Redis-backed caching.
      */
-    public function calculateFinancialSummary(BranchManagerShift $shift): array
+    public function calculateFinancialSummary(BranchManagerShift $shift, bool $skipCache = false): array
     {
+        if ($skipCache) {
+            return $this->computeFinancialSummary($shift);
+        }
+
         $cacheKey = "shift:{$shift->id}:{$shift->shift_date->format('Y-m-d')}:financial_summary";
 
         if (config('cache.default') === 'redis') {

@@ -4,6 +4,9 @@
 
 **Phase 1 starting baseline:** `c018fa01caaf439a5d5718d63b99fcefe6611835`.
 **Phase 2 starting baseline:** `9fc8ebacf99d23a1b43d27101420be65e4f5e5f0` on `sprint/01-financial-foundation`.
+**Phase 1 commit:** `9fc8ebacf99d23a1b43d27101420be65e4f5e5f0`.
+**Phase 2 commit:** `569d00e77dea922c03782c001c3c26c2cd30cba9`.
+**Phase 3/4 and correction pass:** local, uncommitted; not sprint acceptance.
 
 ## Implemented boundary
 
@@ -34,7 +37,7 @@ Required database write failures propagate and roll the entire confirmation back
 
 Additive migrations: `2026_10_08_000003_create_shift_report_transfer_receipts.php` and `2026_10_08_000004_add_manager_recipient_receipt_fields.php`.
 
-Migration 000003 creates stable report identity, manager-to-cashier request, and receipt structures; adds the handover revision FK and receipt-effect references/uniqueness. Migration 000004 minimally adds typed manager receiver/workday/confirmer FKs and makes cashier-only receipt fields nullable. No applied migration is edited. Rollback of 000004 refuses to run after manager receipt evidence exists. MySQL migration execution and production table sizes have not been checked; nullability changes and new FKs/indexes may require an approved online-DDL or maintenance plan.
+Migration 000003 was added in Phase 1. It creates stable report identity, manager-to-cashier request, and receipt structures; adds the handover revision FK and receipt-effect references/uniqueness. Migration 000004 was added in Phase 2. It minimally adds typed manager receiver/workday/confirmer FKs and makes cashier-only receipt fields nullable. No applied migration is edited. Rollback of 000004 refuses to run after manager receipt evidence exists. MySQL migration execution and production table sizes have not been checked; nullability changes and new FKs/indexes may require an approved online-DDL or maintenance plan.
 
 ## Deferred work
 
@@ -68,3 +71,22 @@ Manager review of cashier-to-cashier handover locks/re-reads the cashier shift, 
 Current focused verification: **33 tests / 134 assertions / 0 failures** across receipt/transfer, cashier close, handover variance, manager ledger, and native shift close/final approval files. A PHP 8.4.26 SQLite run verifies rollback and locked re-read behavior only. It does not prove MySQL lock ordering, deadlock safety, production transaction behavior, or migration/online-DDL safety. Broader regression and changed-file style/syntax checks are recorded in `verification.md` only after they are executed.
 
 S1-08 remains ready for review, not accepted. S1-09 replay/idempotency, S1-10 trusted counted-cash evidence, and S1-11 route/history/daily-submit integration remain deferred. MySQL concurrency and deployment DDL review remain open follow-ups.
+
+## Final Mahmoud correction pass and Mohamed decisions — 2026-10-08
+
+The current uncommitted pass preserves Phase 3/4 ownership and rollback corrections. `ShiftTransferReceiptService` remains the only authoritative receipt writer. Required receipt, cashier custody, manager ledger, opening, state, revision and audit writes stay within their owning transaction; bridge/statistics projections run after commit. The obsolete cashier-ledger backfill command now fails closed because approval is not receipt evidence. Manager close/correction locks manager workday, cashier rows in ascending ID order, then request rows and bypasses cached financial summaries; no MySQL lock validation is claimed.
+
+| Item | Current status |
+|---|---|
+| S8-01 / S8-02 | Exact confirmation and manager-bound recipient receipt remain atomic; mismatch requires reject → correct → exact confirm. Manager review of cashier-to-cashier remains pending and has no receipt effect. |
+| S8-03 / S8-04 | `not_started` and `in_progress` receiving shifts may receive exact cash once; completed or otherwise finalized shifts are refused. Configured float is not opening cash; zero receipts mean opening `0.00`. |
+| S8-05 | **Resolved.** Available manager transfer cash uses the personal sales-cash ledger less pending outgoing requests, never workday `cash_collected` or expense custody. Recipient confirmation posts one manager cash-out `Handover to Cashier` with `cashier_name` and the receipt ID; the cashier side remains `Handover Received`. The manager ledger exposes `cashierName`. Existing `transaction_type` is string(50), so no migration is required. |
+| S8-06 / S8-07 | Material report mutations advance revision; true actor UUID is retained. Handover domain/stale conflicts map to 409, scope failures to 403, validation to 422, and unexpected failures to a logged, generic 500. |
+| S8-08 / D12 | **Approved by Mohamed.** Only the uniquely assigned active manager of a branch may confirm or reject manager-addressed requests. Zero or multiple active assignments fail closed; manager create/activate/move is guarded in the domain. Historical data and concurrency require deployment preflight. |
+| S8-09 | **Approved — documentation/release gate only; no S1-08 code change.** Legacy self-shortage coupling stays disabled. **self-declared shortage ledger effect is posted on branch-manager final approval in S1-11; no release before S1-11**. Receipt confirmation itself does not approve or post that shortage. |
+| S8-10 / S8-11 | Reject responses reflect actual editability/state; manager correction requests retain the completed report and original request/history instead of destructive reset. Invalid legacy cashier rejection cannot erase a confirmed receipt. |
+| S8-12 | **Approved: drain-before-deploy.** Resolve all pending handovers on the current system by confirmation or rejection. In maintenance mode the read-only pending count must be zero; nonzero blocks deployment. No normal-deployment backfill; unresolved historical records require a separate idempotent, evidence-preserving contingency design. See `s1-08-deployment-readiness.md`. |
+
+**D11 approved:** For request 500 and recipient-confirmed 480 at rejection, physical pending/rejected incoming is 480 linked to the original request, not surplus; sender responsibility persists until correction and final confirmation. Structured amount-at-rejection evidence is S1-10; daily-submit waiting is S1-11. **D13 approved:** a late receipt after daily submission is a cashier-to-manager movement at its actual timestamp, without reopening or changing sales reporting. Full daily-close orchestration is S1-11.
+
+AssabAPP D4 compatibility work must account for `confirmed_amount`, `receiving_shift_id`, D12's `branch_manager_id`, `correction_reason`, recipient confirmation, rejection for correction and sender correction. It must also recognize API transaction type `Handover to Cashier` and display the Arabic UI label `تسليم نقدية لكاشير`; the API value stays English and localization belongs in the app. No client implementation is included. S1-09 generic replay, S1-10 trusted count/pending incoming evidence, and S1-11 public liability/full history/daily-submit/reopen stay outside this pass. Final test counts and exact full-suite comparison are in `verification.md` when available.

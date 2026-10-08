@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Shift\Models\BranchManagerCashTransfer;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
@@ -50,9 +51,8 @@ class BranchManagerShiftService
             return;
         }
 
-        // Branch-scoped: a handover addressed to any manager of the branch belongs
-        // to that branch's workday, regardless of which manager is viewing it.
         $handovers = CashierShiftHandover::where('handover_to_type', 'branch_manager')
+            ->whereIn('handover_to_id', $shifts->pluck('branch_manager_id')->unique())
             ->whereHas('cashierShift.shift', function ($q) use ($branchIds) {
                 $q->whereIn('branch_id', $branchIds);
             })
@@ -64,11 +64,11 @@ class BranchManagerShiftService
             $shiftDate = $cs?->shift_date?->format('Y-m-d');
             $branchId = $cs?->shift?->branch_id;
 
-            return ($shiftDate ?? '').'|'.($branchId ?? '');
+            return ($shiftDate ?? '').'|'.($branchId ?? '').'|'.$h->handover_to_id;
         });
 
         foreach ($shifts as $shift) {
-            $key = ($shift->shift_date?->format('Y-m-d') ?? '').'|'.($shift->branch_id ?? '');
+            $key = ($shift->shift_date?->format('Y-m-d') ?? '').'|'.($shift->branch_id ?? '').'|'.$shift->branch_manager_id;
             $shiftHandovers = $grouped->get($key, collect());
 
             $shift->setAttribute('handoffs_summary', [
@@ -293,9 +293,8 @@ class BranchManagerShiftService
 
         switch ($handoverType) {
             case 'to_manager':
-                // Branch-scoped: any manager of the branch sees handovers addressed
-                // to any branch manager of this branch (approval flow is branch-wide).
                 $query->where('handover_to_type', 'branch_manager')
+                    ->where('handover_to_id', $managerShift->branch_manager_id)
                     ->where(function ($q) use ($managerShift) {
                         $shiftDate = $managerShift->shift_date;
                         $sevenDaysAgo = $shiftDate->copy()->subDays(7);
@@ -454,6 +453,7 @@ class BranchManagerShiftService
             // Single query to fetch all handovers (branch-scoped: cashier shift ids
             // are already limited to this branch and workday)
             $handovers = CashierShiftHandover::where('handover_to_type', 'branch_manager')
+                ->where('handover_to_id', $managerShift->branch_manager_id)
                 ->whereIn('cashier_shift_id', $cashierShifts->pluck('id'))
                 ->get()
                 ->keyBy('cashier_shift_id');
@@ -461,8 +461,8 @@ class BranchManagerShiftService
             // Process updates
             foreach ($cashierBreakdown as $breakdown) {
                 $cashierShift = $cashierShifts[$breakdown['cashier_id'] ?? ''] ?? null;
-                $this->processCashierBreakdownItem($breakdown, $cashierShifts, $handovers);
-                if ($cashierShift) {
+                $changed = $this->processCashierBreakdownItem($breakdown, $cashierShifts, $handovers);
+                if ($cashierShift && $changed) {
                     $current = $this->revisions->currentCashierRevision($cashierShift);
                     $this->revisions->recordCashierRevision(
                         $cashierShift,
@@ -481,29 +481,41 @@ class BranchManagerShiftService
     /**
      * Process single cashier breakdown item
      */
-    private function processCashierBreakdownItem(array $breakdown, $cashierShifts, $handovers): void
+    private function processCashierBreakdownItem(array $breakdown, $cashierShifts, $handovers): bool
     {
         $cashierId = $breakdown['cashier_id'] ?? null;
         if (! $cashierId || ! isset($cashierShifts[$cashierId])) {
-            return;
+            return false;
         }
 
         $cashierShift = $cashierShifts[$cashierId];
         $updateData = $this->prepareShiftUpdateData($breakdown);
+        $changed = false;
 
         if (! empty($updateData)) {
-            $cashierShift->update($updateData);
+            $cashierShift->fill($updateData);
+            if ($cashierShift->isDirty(array_keys($updateData))) {
+                $cashierShift->save();
+                $changed = true;
+            }
         }
 
         // Update handover variance
         if (isset($breakdown['variance']) && isset($handovers[$cashierShift->id])) {
-            $handovers[$cashierShift->id]->update(['variance_amount' => $breakdown['variance']]);
+            $handover = $handovers[$cashierShift->id];
+            $handover->fill(['variance_amount' => $breakdown['variance']]);
+            if ($handover->isDirty('variance_amount')) {
+                $handover->save();
+                $changed = true;
+            }
         }
 
         // Update sales breakdown
         if (isset($breakdown['delivery_app_payments'])) {
-            $this->updateSalesBreakdown($cashierShift, $breakdown['delivery_app_payments']);
+            $changed = $this->updateSalesBreakdown($cashierShift, $breakdown['delivery_app_payments']) || $changed;
         }
+
+        return $changed;
     }
 
     /**
@@ -538,16 +550,21 @@ class BranchManagerShiftService
     /**
      * Update sales breakdown
      */
-    private function updateSalesBreakdown(CashierShift $cashierShift, float $amount): void
+    private function updateSalesBreakdown(CashierShift $cashierShift, float $amount): bool
     {
         $existingBreakdown = $cashierShift->salesBreakdown;
 
         if ($existingBreakdown->isEmpty()) {
-            return;
+            return false;
         }
 
         if ($existingBreakdown->count() === 1) {
-            $existingBreakdown->first()->update(['amount' => $amount]);
+            $item = $existingBreakdown->first();
+            $item->fill(['amount' => $amount]);
+            if (! $item->isDirty('amount')) {
+                return false;
+            }
+            $item->save();
         } else {
             $aggregatorId = $existingBreakdown->first()->aggregator_id;
             $existingBreakdown->each->delete();
@@ -558,14 +575,50 @@ class BranchManagerShiftService
                 'amount' => $amount,
             ]);
         }
+
+        return true;
     }
 
     /**
      * Calculate financial summary (delegates to ShiftFinancialService).
      */
-    public function calculateFinancialSummary(BranchManagerShift $shift): array
+    public function calculateFinancialSummary(BranchManagerShift $shift, bool $skipCache = false): array
     {
-        return $this->financialService()->calculateFinancialSummary($shift);
+        return $this->financialService()->calculateFinancialSummary($shift, $skipCache);
+    }
+
+    /**
+     * Lock the cashier inputs and manager-directed requests used by a manager
+     * close/correction. The manager row is locked by the caller first.
+     */
+    public function lockCashierFinancialInputs(BranchManagerShift $managerShift): void
+    {
+        $from = $managerShift->shift_date->copy()->subDays(7)->toDateString();
+        $through = $managerShift->shift_date->toDateString();
+
+        $cashierShiftIds = CashierShift::query()
+            ->whereBetween('shift_date', [$from, $through])
+            ->whereHas('shift', fn ($query) => $query->where('branch_id', $managerShift->branch_id))
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get(['id'])
+            ->pluck('id');
+
+        if ($cashierShiftIds->isNotEmpty()) {
+            CashierShiftHandover::query()
+                ->whereIn('cashier_shift_id', $cashierShiftIds)
+                ->where('handover_to_type', 'branch_manager')
+                ->where('handover_to_id', $managerShift->branch_manager_id)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+        }
+
+        BranchManagerCashTransfer::query()
+            ->where('branch_manager_shift_id', $managerShift->id)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
     }
 
     // =====================================================================

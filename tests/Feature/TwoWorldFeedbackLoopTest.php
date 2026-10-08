@@ -159,9 +159,10 @@ class TwoWorldFeedbackLoopTest extends TestCase
         $shift = Shift::where('legacy_shift_id', $legacy->id)->firstOrFail();
         $op = Operation::where('module_key', 'shifts')->where('payload->shiftId', $shift->id)->firstOrFail();
 
-        // float 10000 + cash portion 30000 = 40000 expected == 40000 in drawer.
-        $this->assertSame(40000, $op->payload['cashExpectedHalalas']);
-        $this->assertSame(40000, $op->payload['cashActualHalalas']);
+        // A declared opening without confirmed receipt is reset at creation;
+        // only the 30000 collected cash is included in both values.
+        $this->assertSame(30000, $op->payload['cashExpectedHalalas']);
+        $this->assertSame(30000, $op->payload['cashActualHalalas']);
         $this->assertSame(0, $op->payload['varianceHalalas']);
         $this->assertSame(0, (int) $shift->fresh()->variance);
     }

@@ -91,7 +91,7 @@ class ShiftEndService
             DB::commit();
 
             return $shift->fresh(['cashier', 'shift', 'nextCashier']);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             DB::rollBack();
             throw $e;
         }
@@ -120,19 +120,20 @@ class ShiftEndService
             // إذا لم يتم تمرير handover_to_id، ابحث عنه بناءً على النوع
             if (! $handoverToId) {
                 if ($handoverToType === 'branch_manager') {
-                    // Check if branch_manager_id is provided directly
-                    if (! empty($data['branch_manager_id'])) {
-                        $handoverToId = $data['branch_manager_id'];
-                    } else {
-                        // إذا كان handover للبرانش مانجر، احصل على branch_manager_id من البرانش
-                        $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shift->shift->branch_id)
-                            ->where('is_active', true)
-                            ->first();
-                        $handoverToId = $branchManager?->id;
-                    }
+                    $manager = app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                        ->assignedActiveManager($shift->shift->branch_id);
+                    $handoverToId = $manager->id;
                 } else {
                     // handover للكاشير التالي
                     $handoverToId = $data['next_cashier_id'] ?? null;
+                }
+            }
+
+            if ($handoverToType === 'branch_manager') {
+                app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                    ->assertAssignedActiveManager($shift->shift->branch_id, (string) $handoverToId);
+                if (! empty($data['branch_manager_id']) && (string) $data['branch_manager_id'] !== (string) $handoverToId) {
+                    throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('ONLY_ASSIGNED_BRANCH_MANAGER_RECIPIENT');
                 }
             }
 
@@ -152,12 +153,12 @@ class ShiftEndService
                 'shift_id' => $shift->id,
             ]);
 
-            $this->handoverService->recordHandover($shift, $handoverData);
+            $this->handoverService->recordHandover($shift, $handoverData, $actor);
 
             DB::commit();
 
             return $shift->fresh();
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             DB::rollBack();
             throw $e;
         }

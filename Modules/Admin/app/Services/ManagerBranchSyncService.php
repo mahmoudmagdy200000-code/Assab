@@ -2,8 +2,13 @@
 
 namespace Modules\Admin\Services;
 
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\AsabIdentityMap;
+use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\BranchManagers\Services\BranchManagerService;
 
 /**
  * Meeting 2026-08-03 «فرع جديد وفيه بيانات قديمة»: assigning a manager to a
@@ -16,8 +21,9 @@ use Modules\BranchManagers\Models\BranchManager;
  * branch. This service is the missing half — it repoints the legacy row through
  * the identity map.
  *
- * Best-effort by design: an unlinked dashboard user (no mobile login yet) is a
- * no-op, and a failure must never roll back the dashboard-side assignment.
+ * Unlinked dashboard users have no mobile row to move. A linked manager's
+ * branch assignment is required: an occupied destination must fail the whole
+ * dashboard/mobile assignment rather than leave divergent branch identities.
  */
 class ManagerBranchSyncService
 {
@@ -38,43 +44,54 @@ class ManagerBranchSyncService
             return false;
         }
 
-        // The accountant's roster is the THIRD place a manager's branch is
-        // recorded, and it was the one nobody moved — so «كشف حساب الموظفين»
-        // filtered by the new branch came back without its own manager
-        // (2026-08-10). Runs first and independently: a manager with no mobile
-        // login at all still belongs on the roster.
-        $this->roster->sync($asabUserId, $branchId);
-
         try {
-            $legacyId = $this->identity->legacyIdFor(AsabIdentityMap::ENTITY_BRANCH_MANAGER, $asabUserId);
-            if ($legacyId === null) {
-                return false;
-            }
+            return DB::transaction(function () use ($asabUserId, $branchId): bool {
+                Branch::query()->whereKey($branchId)->lockForUpdate()->firstOrFail();
+                $this->assertDestinationAvailable($asabUserId, $branchId);
+                $this->roster->sync($asabUserId, $branchId);
 
-            $manager = BranchManager::find($legacyId);
-            if ($manager === null || $manager->branch_id === $branchId) {
-                return false;
-            }
+                $legacyId = $this->identity->legacyIdFor(AsabIdentityMap::ENTITY_BRANCH_MANAGER, $asabUserId);
+                $manager = $legacyId ? BranchManager::find($legacyId) : null;
+                if ($manager === null || $manager->branch_id === $branchId) {
+                    return false;
+                }
 
-            $previous = $manager->branch_id;
-            $manager->forceFill(['branch_id' => $branchId])->save();
+                $previous = $manager->branch_id;
+                $manager->forceFill(['branch_id' => $branchId])->save();
+                $this->log->info('manager-branch-sync: legacy branch repointed', [
+                    'asab_user_id' => $asabUserId,
+                    'branch_manager_id' => $manager->id,
+                    'from_branch_id' => $previous,
+                    'to_branch_id' => $branchId,
+                ]);
 
-            // The move is auditable: the manager's mobile history stays on the
-            // old branch, so support needs to know when the cut-over happened.
-            $this->log->info('manager-branch-sync: legacy branch repointed', [
-                'asab_user_id' => $asabUserId,
-                'branch_manager_id' => $manager->id,
-                'from_branch_id' => $previous,
-                'to_branch_id' => $branchId,
-            ]);
-
-            return true;
+                return true;
+            });
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             $this->log->warning('manager-branch-sync: failed', [
                 'asab_user_id' => $asabUserId, 'branch_id' => $branchId, 'error' => $e->getMessage(),
             ]);
 
-            return false;
+            throw new AsabException('MANAGER_BRANCH_SYNC_FAILED', 'Manager branch assignment failed', 'تعذر تعيين مدير الفرع', 500);
         }
+    }
+
+    public function assertDestinationAvailable(?string $asabUserId, ?string $branchId): void
+    {
+        if ($asabUserId === null || $branchId === null) {
+            return;
+        }
+
+        $legacyId = $this->identity->legacyIdFor(AsabIdentityMap::ENTITY_BRANCH_MANAGER, $asabUserId);
+        $manager = $legacyId ? BranchManager::find($legacyId) : null;
+        if ($manager === null || $manager->branch_id === $branchId) {
+            return;
+        }
+
+        $candidate = clone $manager;
+        $candidate->branch_id = $branchId;
+        app(BranchManagerService::class)->assertActiveAssignmentAvailable($candidate);
     }
 }
