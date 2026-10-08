@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Observers;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Modules\Shift\Events\ShiftEndedEvent;
@@ -106,14 +107,25 @@ class CashierShiftObserver
      */
     private function updateManagerShift(CashierShift $cashierShift): void
     {
-        try {
-            $this->managerShiftListener->handle($cashierShift);
-        } catch (\Exception $e) {
-            // Log error but don't fail the main operation
-            Log::error('Failed to update manager shift in observer', [
-                'shift_id' => $cashierShift->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
+        $shiftId = $cashierShift->getKey();
+
+        // This is a non-authoritative dashboard/statistics projection. Run it
+        // only after the financial transaction releases the cashier row; the
+        // manager close path locks manager -> cashier, so doing the reverse
+        // here could form a deadlock cycle.
+        DB::afterCommit(function () use ($cashierShift, $shiftId): void {
+            $committedShift = CashierShift::query()->find($shiftId) ?? $cashierShift;
+
+            try {
+                $this->managerShiftListener->handle($committedShift);
+            } catch (\Exception $e) {
+                // This projection must not turn a committed financial write into
+                // a reported failure.
+                Log::error('Failed to update manager shift in observer', [
+                    'shift_id' => $shiftId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        });
     }
 }

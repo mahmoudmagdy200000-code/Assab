@@ -1,0 +1,364 @@
+<?php
+
+namespace Modules\Shift\Services;
+
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use Modules\BranchManagers\Models\BranchManager;
+use Modules\Cashier\Models\Cashier;
+use Modules\Custody\Models\CashierCustodyTransaction;
+use Modules\Custody\Models\PersonalLedgerTransaction;
+use Modules\Shift\Models\BranchManagerCashTransfer;
+use Modules\Shift\Models\BranchManagerShift;
+use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\CashierShiftHandover;
+use Modules\Shift\Models\CashierShiftHandoverReceipt;
+use Modules\Shift\Models\CashierShiftHistory;
+use Modules\Shift\Models\ShiftHandoverStatus;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
+
+/** Sole S1-08 writer for confirmed transfer receipts and their required effects. */
+class ShiftTransferReceiptService
+{
+    public function __construct(private ShiftReportRevisionService $revisions) {}
+
+    public function requestManagerCashTransfer(
+        BranchManagerShift $source,
+        Cashier $destinationCashier,
+        CashierShift $destinationShift,
+        string $amount,
+        BranchManager $actor
+    ): BranchManagerCashTransfer {
+        $requestedMinor = self::toMinorUnits($amount);
+
+        if ($requestedMinor < 0) {
+            throw ValidationException::withMessages(['requested_amount' => 'Amount must be nonnegative.']);
+        }
+
+        return DB::transaction(function () use ($source, $destinationCashier, $destinationShift, $actor, $amount, $requestedMinor) {
+            $source = BranchManagerShift::query()->whereKey($source->id)->lockForUpdate()->firstOrFail();
+            $destinationShift = CashierShift::query()->whereKey($destinationShift->id)->lockForUpdate()->firstOrFail();
+
+            if ((string) $source->branch_manager_id !== (string) $actor->id
+                || (string) $source->branch_id !== (string) $actor->branch_id) {
+                throw new AccessDeniedHttpException('ONLY_SOURCE_BRANCH_MANAGER');
+            }
+
+            $destination = DB::table('cashier_shifts')
+                ->join('cashiers', 'cashiers.id', '=', 'cashier_shifts.cashier_id')
+                ->join('shifts', 'shifts.id', '=', 'cashier_shifts.shift_id')
+                ->join('branches', 'branches.id', '=', 'shifts.branch_id')
+                ->where('cashiers.id', $destinationCashier->id)
+                ->where('cashier_shifts.id', $destinationShift->id)
+                ->where('cashier_shifts.cashier_id', $destinationCashier->id)
+                ->where('branches.id', $source->branch_id)
+                ->select('cashier_shifts.id')
+                ->first();
+
+            if (! $destination || $destinationShift->status->value !== 'not_started') {
+                throw new ConflictHttpException('RECEIVING_SHIFT_NOT_AVAILABLE');
+            }
+
+            $currentRevision = $this->revisions->currentManagerRevision($source);
+            if (! $currentRevision) {
+                $currentRevision = $this->revisions->recordManagerRevision($source, 'branch_manager', $actor->id, 0);
+            }
+
+            $pendingReservedMinor = self::toMinorUnits((string) BranchManagerCashTransfer::query()
+                ->where('branch_manager_shift_id', $source->id)
+                ->where('status', 'pending')
+                ->sum('requested_amount'));
+            $confirmedMinor = self::toMinorUnits((string)
+                DB::table('cashier_shift_handover_receipts')
+                    ->join('branch_manager_cash_transfers', 'branch_manager_cash_transfers.id', '=', 'cashier_shift_handover_receipts.branch_manager_cash_transfer_id')
+                    ->where('branch_manager_cash_transfers.branch_manager_shift_id', $source->id)
+                    ->sum('cashier_shift_handover_receipts.confirmed_amount')
+            );
+            $reservedMinor = $pendingReservedMinor + $confirmedMinor;
+            $availableMinor = self::toMinorUnits((string) $source->cash_collected) - $reservedMinor;
+
+            if ($requestedMinor > $availableMinor) {
+                throw new ConflictHttpException('INSUFFICIENT_RECORDED_SALES_CASH');
+            }
+
+            return BranchManagerCashTransfer::create([
+                'branch_manager_shift_id' => $source->id,
+                'destination_cashier_id' => $destinationCashier->id,
+                'destination_cashier_shift_id' => $destinationShift->id,
+                'report_revision_id' => $currentRevision->id,
+                'created_by_id' => $actor->id,
+                'requested_amount' => $amount,
+                'status' => 'pending',
+            ]);
+        });
+    }
+
+    public function confirmHandover(
+        string $handoverId,
+        Cashier $recipient,
+        string $confirmedAmount,
+        ?string $receivingShiftId = null,
+        ?string $comment = null
+    ): CashierShiftHandoverReceipt {
+        return DB::transaction(function () use ($handoverId, $recipient, $confirmedAmount, $receivingShiftId, $comment) {
+            $handoverStub = CashierShiftHandover::query()->whereKey($handoverId)->firstOrFail();
+            $sourceSnapshot = CashierShift::query()->whereKey($handoverStub->cashier_shift_id)->firstOrFail();
+            $destinationSnapshot = $this->resolveReceivingShift($sourceSnapshot, $recipient, $receivingShiftId);
+            [$source, $destination] = $this->lockCashierShiftsInOrder($sourceSnapshot->id, $destinationSnapshot->id);
+            $handover = CashierShiftHandover::query()->whereKey($handoverId)->lockForUpdate()->firstOrFail();
+
+            if ($handover->handover_to_type !== 'cashier' || (string) $handover->handover_to_id !== (string) $recipient->id) {
+                throw new AccessDeniedHttpException('ONLY_NAMED_CASHIER_RECIPIENT');
+            }
+            if ($handover->status !== 'pending') {
+                throw new ConflictHttpException('HANDOVER_NOT_PENDING');
+            }
+
+            $revision = $this->revisions->currentCashierRevision($source);
+            if (! $revision || (string) $revision->id !== (string) $handover->report_revision_id) {
+                throw new ConflictHttpException('STALE_REPORT_REVISION');
+            }
+
+            $this->assertReceivingShift($source, $destination, $recipient);
+
+            return $this->recordReceipt(
+                $handover,
+                null,
+                $source,
+                $destination,
+                $recipient,
+                $revision->id,
+                $confirmedAmount,
+                $comment
+            );
+        });
+    }
+
+    public function confirmManagerCashTransfer(
+        string $transferId,
+        Cashier $recipient,
+        string $confirmedAmount
+    ): CashierShiftHandoverReceipt {
+        return DB::transaction(function () use ($transferId, $recipient, $confirmedAmount) {
+            $stub = BranchManagerCashTransfer::query()->whereKey($transferId)->firstOrFail();
+            $source = BranchManagerShift::query()->whereKey($stub->branch_manager_shift_id)->lockForUpdate()->firstOrFail();
+            $destination = CashierShift::query()->whereKey($stub->destination_cashier_shift_id)->lockForUpdate()->firstOrFail();
+            $transfer = BranchManagerCashTransfer::query()->whereKey($transferId)->lockForUpdate()->firstOrFail();
+
+            if ((string) $transfer->branch_manager_shift_id !== (string) $source->id
+                || (string) $transfer->destination_cashier_shift_id !== (string) $destination->id) {
+                throw new ConflictHttpException('TRANSFER_CHANGED_DURING_CONFIRMATION');
+            }
+
+            if ((string) $transfer->destination_cashier_id !== (string) $recipient->id
+                || (string) $destination->cashier_id !== (string) $recipient->id) {
+                throw new AccessDeniedHttpException('ONLY_NAMED_CASHIER_RECIPIENT');
+            }
+            if ($transfer->status !== 'pending') {
+                throw new ConflictHttpException('TRANSFER_NOT_PENDING');
+            }
+            $currentRevision = $this->revisions->currentManagerRevision($source);
+            if (! $transfer->report_revision_id || ! $currentRevision || (string) $currentRevision->id !== (string) $transfer->report_revision_id) {
+                throw new ConflictHttpException('TRANSFER_REPORT_REVISION_REQUIRED');
+            }
+
+            $this->assertReceivingShiftBranch($source->branch_id, $destination, $recipient);
+
+            return $this->recordReceipt(
+                null,
+                $transfer,
+                $source,
+                $destination,
+                $recipient,
+                $transfer->report_revision_id,
+                $confirmedAmount,
+                null
+            );
+        });
+    }
+
+    private function recordReceipt(
+        ?CashierShiftHandover $handover,
+        ?BranchManagerCashTransfer $managerTransfer,
+        CashierShift|BranchManagerShift $source,
+        CashierShift $destination,
+        Cashier $recipient,
+        string $revisionId,
+        string $confirmedAmount,
+        ?string $comment
+    ): CashierShiftHandoverReceipt {
+        if (($handover === null) === ($managerTransfer === null)) {
+            throw new \LogicException('Receipt requires exactly one transfer source.');
+        }
+
+        $confirmedMinor = self::toMinorUnits($confirmedAmount);
+        $requestedMinor = self::toMinorUnits((string) ($handover?->handover_amount ?? $managerTransfer?->requested_amount));
+        if ($confirmedMinor < 0 || $confirmedMinor > $requestedMinor) {
+            throw ValidationException::withMessages(['confirmed_amount' => 'Confirmed amount must be between zero and the requested amount.']);
+        }
+
+        $receipt = CashierShiftHandoverReceipt::create([
+            'cashier_shift_handover_id' => $handover?->id,
+            'branch_manager_cash_transfer_id' => $managerTransfer?->id,
+            'receiving_cashier_shift_id' => $destination->id,
+            'receiving_cashier_id' => $recipient->id,
+            'report_revision_id' => $revisionId,
+            'confirmed_amount' => self::toSar($confirmedMinor),
+            'confirmed_by_id' => $recipient->id,
+            'confirmed_at' => now(),
+        ]);
+
+        if ($confirmedMinor > 0 && $handover) {
+            $sender = $source->cashier;
+            if (! $sender) {
+                throw new ConflictHttpException('SENDING_CASHIER_REQUIRED');
+            }
+            $this->createCustodyMovement($receipt, $sender, 'Handover Sent', false, $confirmedMinor, $recipient->name, $source->id);
+            $this->createCustodyMovement($receipt, $recipient, 'Handover Received', true, $confirmedMinor, $sender->name, $source->id);
+        } elseif ($confirmedMinor > 0 && $managerTransfer) {
+            /** @var BranchManagerShift $managerShift */
+            $managerShift = $source;
+            PersonalLedgerTransaction::create([
+                'branch_manager_id' => $managerShift->branch_manager_id,
+                'transaction_type' => 'Transfer to Custody',
+                'amount' => self::toSar($confirmedMinor),
+                'is_cash_in' => false,
+                'related_shift_id' => $managerShift->id,
+                'receipt_id' => $receipt->id,
+                'transaction_date' => now(),
+            ]);
+            $this->createCustodyMovement($receipt, $recipient, 'Handover Received', true, $confirmedMinor, $managerShift->branchManager?->name, null);
+            $managerTransfer->update(['status' => 'confirmed']);
+        } else {
+            $managerTransfer?->update(['status' => 'confirmed']);
+        }
+
+        if ($handover) {
+            $handover->update([
+                'status' => 'approved',
+                'approved_by_id' => $recipient->id,
+                'approved_by_type' => Cashier::class,
+                'approved_at' => now(),
+            ]);
+            ShiftHandoverStatus::query()->where('cashier_shift_id', $handover->cashier_shift_id)->firstOrFail()
+                ->approve($recipient->id, Cashier::class, $comment);
+        }
+
+        $openingMinor = self::toMinorUnits((string) CashierShiftHandoverReceipt::query()
+            ->where('receiving_cashier_shift_id', $destination->id)
+            ->sum('confirmed_amount'));
+        $destination->update(['opening_balance' => self::toSar($openingMinor)]);
+
+        $eventData = [
+            'receipt_id' => $receipt->id,
+            'confirmed_amount' => self::toSar($confirmedMinor),
+            'receiving_cashier_shift_id' => $destination->id,
+            'report_revision_id' => $revisionId,
+        ];
+        if ($handover) {
+            $source->recordHistory('handover_confirmed', null, $eventData + ['comment' => $comment]);
+        }
+        $history = new CashierShiftHistory;
+        $history->forceFill([
+            'cashier_shift_id' => $destination->id,
+            'action' => 'cash_transfer_received',
+            'performed_by' => $recipient->id,
+            'performed_by_type' => 'cashier',
+            'old_value' => null,
+            'new_value' => $eventData,
+            'notes' => $comment,
+            'created_at' => now(),
+        ])->save();
+
+        return $receipt;
+    }
+
+    private function resolveReceivingShift(CashierShift $source, Cashier $recipient, ?string $receivingShiftId): CashierShift
+    {
+        if ($receivingShiftId) {
+            return CashierShift::query()->whereKey($receivingShiftId)->firstOrFail();
+        }
+
+        $matches = CashierShift::query()
+            ->where('cashier_id', $recipient->id)
+            ->whereDate('shift_date', $source->shift_date)
+            ->where('status', 'not_started')
+            ->whereHas('shift', fn ($query) => $query->where('branch_id', $source->shift?->branch_id))
+            ->limit(2)
+            ->get();
+
+        if ($matches->count() !== 1) {
+            throw new ConflictHttpException('RECEIVING_SHIFT_ID_REQUIRED');
+        }
+
+        return $matches->first();
+    }
+
+    /** @return array{CashierShift, CashierShift} source then destination */
+    private function lockCashierShiftsInOrder(string $sourceId, string $destinationId): array
+    {
+        if ($sourceId === $destinationId) {
+            throw new ConflictHttpException('RECEIVING_SHIFT_NOT_AVAILABLE');
+        }
+
+        $ids = [$sourceId, $destinationId];
+        sort($ids, SORT_STRING);
+        $locked = [];
+
+        foreach ($ids as $id) {
+            $locked[$id] = CashierShift::withoutEagerLoads()
+                ->whereKey($id)
+                ->lockForUpdate()
+                ->firstOrFail();
+        }
+
+        return [$locked[$sourceId], $locked[$destinationId]];
+    }
+
+    private function assertReceivingShift(CashierShift $source, CashierShift $destination, Cashier $recipient): void
+    {
+        $this->assertReceivingShiftBranch($source->shift?->branch_id, $destination, $recipient);
+    }
+
+    private function assertReceivingShiftBranch(?string $branchId, CashierShift $destination, Cashier $recipient): void
+    {
+        $destinationBranchId = $destination->shift?->branch_id;
+        if ((string) $destination->cashier_id !== (string) $recipient->id
+            || (string) $destinationBranchId !== (string) $branchId
+            || $destination->status->value !== 'not_started') {
+            throw new ConflictHttpException('RECEIVING_SHIFT_NOT_AVAILABLE');
+        }
+    }
+
+    private function createCustodyMovement(CashierShiftHandoverReceipt $receipt, Cashier $cashier, string $type, bool $cashIn, int $minor, ?string $counterpart, ?string $sourceShiftId): void
+    {
+        CashierCustodyTransaction::create([
+            'cashier_id' => $cashier->id,
+            'transaction_type' => $type,
+            'amount' => self::toSar($minor),
+            'is_cash_in' => $cashIn,
+            'counterpart_name' => $counterpart,
+            'related_shift_id' => $sourceShiftId,
+            'related_handover_id' => $receipt->cashier_shift_handover_id,
+            'receipt_id' => $receipt->id,
+            'transaction_date' => now(),
+        ]);
+    }
+
+    private static function toMinorUnits(string $amount): int
+    {
+        if (! preg_match('/\A\d+(?:\.\d{1,2})?\z/', $amount)) {
+            throw ValidationException::withMessages(['amount' => 'Amount must be a nonnegative SAR value with at most two decimals.']);
+        }
+
+        [$whole, $fraction] = array_pad(explode('.', $amount, 2), 2, '');
+
+        return ((int) $whole * 100) + (int) str_pad($fraction, 2, '0');
+    }
+
+    private static function toSar(int $minor): string
+    {
+        return intdiv($minor, 100).'.'.str_pad((string) ($minor % 100), 2, '0', STR_PAD_LEFT);
+    }
+}

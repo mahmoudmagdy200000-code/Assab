@@ -20,6 +20,8 @@ class BranchManagerShiftService
 
     private ?ShiftFinancialService $financialService = null;
 
+    public function __construct(private ShiftReportRevisionService $revisions) {}
+
     /**
      * Lazily resolve ShiftFinancialService to break the circular dependency
      * (ShiftFinancialService depends on this class).
@@ -443,6 +445,8 @@ class BranchManagerShiftService
                 ->whereHas('shift', function ($q) use ($managerShift) {
                     $q->where('branch_id', $managerShift->branch_id);
                 })
+                ->orderBy('id')
+                ->lockForUpdate()
                 ->with('salesBreakdown')
                 ->get()
                 ->keyBy('cashier_id');
@@ -456,7 +460,17 @@ class BranchManagerShiftService
 
             // Process updates
             foreach ($cashierBreakdown as $breakdown) {
+                $cashierShift = $cashierShifts[$breakdown['cashier_id'] ?? ''] ?? null;
                 $this->processCashierBreakdownItem($breakdown, $cashierShifts, $handovers);
+                if ($cashierShift) {
+                    $current = $this->revisions->currentCashierRevision($cashierShift);
+                    $this->revisions->recordCashierRevision(
+                        $cashierShift,
+                        'branch_manager',
+                        $managerShift->branch_manager_id,
+                        $current?->revision_number ?? 0
+                    );
+                }
             }
         });
 

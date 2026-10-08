@@ -15,6 +15,7 @@ use Modules\Shift\Enums\VarianceType;
 use Modules\Shift\Events\VarianceRecorded;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
+use Modules\Shift\Models\CashierShiftHandoverReceipt;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Models\ShiftHandoverStatus;
 use Modules\Shift\Models\ShiftVarianceDetail;
@@ -88,6 +89,13 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
         $c2 = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
         $shiftTemplate = Shift::factory()->create(['branch_id' => $branch->id]);
 
+        $receivingShift = CashierShift::factory()->create([
+            'cashier_id' => $c2->id,
+            'shift_id' => $shiftTemplate->id,
+            'shift_date' => today(),
+            'status' => ShiftStatus::NOT_STARTED,
+        ]);
+
         $cashierShift = CashierShift::factory()->completed()->create([
             'cashier_id' => $c1->id,
             'shift_id' => $shiftTemplate->id,
@@ -102,6 +110,13 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
             'manager_approval_status' => 'pending',
         ]);
 
+        $revision = app(\Modules\Shift\Services\ShiftReportRevisionService::class)->recordCashierRevision(
+            $cashierShift,
+            'cashier',
+            $c1->id,
+            0
+        );
+
         CashierShiftHandover::create([
             'cashier_shift_id' => $cashierShift->id,
             'handover_to_id' => $c2->id,
@@ -111,12 +126,20 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
             'handover_date' => today()->toDateString(),
             'handover_time' => now(),
             'status' => 'pending',
+            'report_revision_id' => $revision->id,
         ]);
 
         $service = app(HandoverService::class);
-        $service->acceptHandoverByCashier($cashierShift->fresh(['handoverStatus']), $c2->id, null);
+        $service->acceptHandoverByCashier($cashierShift->fresh(['handoverStatus']), $c2->id, '200.00', $receivingShift->id, null);
 
         $this->assertSame(ShiftStatus::COMPLETED, $cashierShift->fresh()->status);
+        $this->assertSame(1, CashierShiftHandoverReceipt::count());
+        $this->assertDatabaseHas('cashier_shift_handover_receipts', [
+            'receiving_cashier_shift_id' => $receivingShift->id,
+            'confirmed_amount' => '200.00',
+            'report_revision_id' => $revision->id,
+        ]);
+        $this->assertSame(200.0, (float) $receivingShift->fresh()->opening_balance);
         $this->assertDatabaseHas('cashier_shift_handovers', [
             'cashier_shift_id' => $cashierShift->id,
             'status' => 'approved',
@@ -259,8 +282,9 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
             'responsibility_status' => 'approved',
         ]);
 
-        // Cashier ledger: cash-out for the handover + the variance entry (Over → cash-in).
-        $this->assertDatabaseHas('cashier_custody_transactions', [
+        // Manager approval preserves variance accounting, but does not prove
+        // physical transfer receipt or post a handover custody movement.
+        $this->assertDatabaseMissing('cashier_custody_transactions', [
             'cashier_id' => $cashier->id,
             'related_shift_id' => $cashierShift->id,
             'transaction_type' => 'Handover Sent',
@@ -278,10 +302,11 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
             'transaction_type' => 'Variance from Cashier',
             'related_shift_id' => $cashierShift->id,
         ]);
-        $this->assertDatabaseHas('personal_ledger_transactions', [
+        $this->assertDatabaseMissing('personal_ledger_transactions', [
             'branch_manager_id' => $manager->id,
             'transaction_type' => 'Total Sales',
             'related_handover_id' => $handover->id,
         ]);
+        $this->assertSame(0, \Modules\Shift\Models\CashierShiftHandoverReceipt::count());
     }
 }

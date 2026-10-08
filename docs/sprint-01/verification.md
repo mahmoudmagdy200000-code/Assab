@@ -544,3 +544,21 @@ Implemented by Claude at Mahmoud's request on top of `a946b1f4` (developer's sta
 Commands (PHP 8.3.6, PHPUnit 12.4.0, SQLite in-memory): S1-06 + S1-07 focused files (`ShiftLiabilityRealSchemaTest`, `ShiftLiabilityServiceTest`, `ShiftAllocationRulesTest`, `ShiftLegacyMoneyCompatibilityTest`, `ShiftFinancialCalculatorTest`, `ShiftMoneyValidationTest`) → **OK, 113 tests / 535 assertions**. Full suite → 1343 tests; the 73 failing tests are the same by name as at `217c2716` (RecurringOrder, Procurement, NFR); **0 new**. Pint `--test` on the changed PHP files → PASS. A separate agent reviewed the diff before commit; its findings (carry-over lock per workday, MySQL gap-lock-free reads, locked version read, doc corrections) are included.
 
 Not run / not claimed: MySQL locking and concurrency; any HTTP route (none uses this layer); a real `LiabilityEvidenceSource` (still `UnavailableLiabilityEvidence`). S1-08 not started.
+
+## S1-08 Phase 1 implementation verification — 2026-10-08
+
+Implemented locally from `c018fa01caaf439a5d5718d63b99fcefe6611835`, at Mahmoud's approval and within the receipt/transfer/revision boundary. This entry is implementation evidence, not independent review or task acceptance.
+
+| Check | Result | Boundary |
+|---|---|---|
+| New receipt and transfer tests + existing handover/custody regression | PASS — 15 tests / 68 assertions | `ShiftTransferReceiptTest.php`, `ShiftHandoverVarianceCustodyTest.php`; real migrated SQLite schema. |
+| Combined S1-06/S1-07, custody, handover, and S1-08 focused regression | PASS — 142 tests / 676 assertions | Includes `ShiftLiabilityRealSchemaTest`, `ShiftLiabilityServiceTest`, allocation rules, legacy compatibility, calculator, money validation, T09 custody, owner-transfer receipt, handover variance/custody, and new transfer receipt tests. |
+| Final direct receipt/handover rerun | PASS — 15 tests / 69 assertions | Repeated after the cashier acceptance controller was tightened to require a pending handover addressed to that cashier. |
+| PHP syntax | PASS | All 22 changed/new PHP files. |
+| Changed-file Pint | PASS | Only the 22 changed/new PHP files; 5 existing style issues in touched files fixed. |
+| Whitespace check | PASS | `git diff --check`. |
+| New migration | SQLite up exercised by focused tests; rollback path reviewed statically | No production migration executed; no MySQL schema or lock test. |
+
+The first test attempt exposed an unsupported `Blueprint::check()` call; it was removed because this Laravel version has no such API. Exactly-one-source is enforced by the sole service writer, while each typed source FK is unique and constrained. The next run exposed and fixed a missing `cashier_shifts` join. Regression testing also confirmed that legacy manager approval must retain its variance-review effect while no longer posting handover custody/receipt evidence; this behavior is preserved and tested.
+
+Not run: the full project suite; MySQL lock/deadlock/concurrency behavior; deployment table-size/online-DDL preflight. No new public endpoints, daily-submit/reopen wiring, trusted count adapter, S1-10 evidence source, generic replay framework, or S1-11 correction history were added. See `s1-08-implementation-handoff.md` for the resulting transaction/lock order and boundaries.

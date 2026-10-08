@@ -16,6 +16,7 @@ use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Services\BranchManagerShiftService;
 use Modules\Shift\Services\HandoverService;
+use Modules\Shift\Services\ShiftReportRevisionService;
 use Modules\Shift\Transformers\BranchManagerShiftResource;
 
 class BranchManagerShiftController extends BaseController
@@ -30,7 +31,8 @@ class BranchManagerShiftController extends BaseController
 
     public function __construct(
         private BranchManagerShiftService $shiftService,
-        private HandoverService $handoverService
+        private HandoverService $handoverService,
+        private ShiftReportRevisionService $reportRevisions
     ) {}
 
     // =========================================================================
@@ -504,6 +506,7 @@ class BranchManagerShiftController extends BaseController
             DB::beginTransaction();
 
             try {
+                $managerShift = BranchManagerShift::query()->whereKey($managerShift->id)->lockForUpdate()->firstOrFail();
                 if ($request->has('cashier_breakdown') && is_array($request->cashier_breakdown)) {
                     $this->shiftService->bulkUpdateCashierShifts($request->cashier_breakdown, $managerShift);
                 }
@@ -543,6 +546,13 @@ class BranchManagerShiftController extends BaseController
                 }
 
                 $managerShift->update($updateData);
+                $currentRevision = $this->reportRevisions->currentManagerRevision($managerShift);
+                $this->reportRevisions->recordManagerRevision(
+                    $managerShift,
+                    'branch_manager',
+                    $manager->id,
+                    $currentRevision?->revision_number ?? 0
+                );
 
                 $handoverStatus = $this->shiftService->normalizeHandoverStatus($managerShift->handover_status);
                 $currentTime = $handoverTime->format(self::DATETIME_FORMAT);
@@ -664,6 +674,7 @@ class BranchManagerShiftController extends BaseController
             DB::beginTransaction();
 
             try {
+                $managerShift = BranchManagerShift::query()->whereKey($managerShift->id)->lockForUpdate()->firstOrFail();
                 if ($request->has('cashier_breakdown') && is_array($request->cashier_breakdown)) {
                     $this->shiftService->bulkUpdateCashierShifts($request->cashier_breakdown, $managerShift);
                 }
@@ -699,6 +710,13 @@ class BranchManagerShiftController extends BaseController
                 }
 
                 $managerShift->update($updateData);
+                $currentRevision = $this->reportRevisions->currentManagerRevision($managerShift);
+                $this->reportRevisions->recordManagerRevision(
+                    $managerShift,
+                    'branch_manager',
+                    $manager->id,
+                    $currentRevision?->revision_number ?? 0
+                );
                 $this->shiftService->clearShiftCaches($managerShift);
                 $managerShift->refresh();
                 $managerShift->load('nextManager');

@@ -3,7 +3,11 @@
 namespace Modules\Shift\Services;
 
 use App\Support\ShiftFinancialCalculator;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Modules\Cashier\Models\Cashier;
+use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\ShiftSalesBreakdown;
@@ -12,24 +16,26 @@ class ShiftEndService
 {
     public function __construct(
         private HandoverService $handoverService,
-        private VarianceCalculationService $varianceService
+        private VarianceCalculationService $varianceService,
+        private ShiftReportRevisionService $revisions
     ) {}
 
-    public function endShiftOnly(CashierShift $shift, array $data): CashierShift
+    public function endShiftOnly(CashierShift $shift, array $data, Model $actor): CashierShift
     {
+        $data = $this->stageExternalFiles($shift, $data);
+
         DB::beginTransaction();
         try {
+            $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+            if ($shift->status !== ShiftStatus::IN_PROGRESS) {
+                throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('SHIFT_NO_LONGER_OPEN');
+            }
+
             // Calculate VAT and Net Sales
             $totalSales = $data['total_sales'];
             $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
             $vatAmount = $salesCalculation['vat'];
             $netSales = $salesCalculation['net'];
-
-            // Handle POS Receipt Upload
-            $posReceiptPath = null;
-            if (isset($data['pos_receipt'])) {
-                $posReceiptPath = $this->uploadPOSReceipt($data['pos_receipt'], $shift->id);
-            }
 
             // Update Shift
             $shift->update([
@@ -39,14 +45,18 @@ class ShiftEndService
                 'vat_amount' => $vatAmount,
                 'cash_collected' => $data['cash_collected'] ?? 0,
                 'card_payments' => $data['card_payments'] ?? 0,
-                'pos_receipt' => $posReceiptPath,
+                'pos_receipt' => $data['pos_receipt'] ?? null,
                 'actual_end_time' => now(),
             ]);
 
-            // Save Sales Breakdown (Aggregators)
-            if (! empty($data['aggregators'])) {
-                $this->saveSalesBreakdown($shift, $data['aggregators']);
-            }
+            // Replace the mutable channel projection in the same report transaction.
+            $this->saveSalesBreakdown($shift, $data['aggregators'] ?? []);
+
+            $revision = $this->revisions->recordCashierRevision(
+                $shift,
+                $actor instanceof Cashier ? 'cashier' : 'branch_manager',
+                (string) $actor->getKey()
+            );
 
             // Record History
             $shift->recordHistory('ended_without_handover', [
@@ -56,57 +66,52 @@ class ShiftEndService
                 'total_sales' => $totalSales,
                 'net_sales' => $netSales,
                 'vat_amount' => $vatAmount,
+                'report_revision_id' => $revision->id,
+                'report_revision' => $revision->revision_number,
             ]);
+
+            // This report declaration is not a transfer receipt, but it is part of
+            // the report's financial effects and therefore shares the transaction.
+            $cashAmount = (string) ($shift->cash_collected ?? '0.00');
+            if (Cashier::whereKey($shift->cashier_id)->exists() && (float) $cashAmount > 0) {
+                CashierCustodyTransaction::create([
+                    'cashier_id' => $shift->cashier_id,
+                    'transaction_type' => 'Total Sales',
+                    'amount' => $cashAmount,
+                    'is_cash_in' => true,
+                    'related_shift_id' => $shift->id,
+                    'transaction_date' => now(),
+                ]);
+            }
+
+            if (! empty($data['variance']) && $shift->hasVariance()) {
+                $this->varianceService->recordVariance($shift, $data['variance']);
+            }
 
             DB::commit();
 
-            // Record Cash-IN (Total Sales) for the cashier — they are declaring
-            // they hold this cash at end of shift. Cash-OUT happens later via handover.
-            if ($shift->cashier_id) {
-                try {
-                    $cashAmount = (float) ($shift->cash_collected ?? $shift->closing_balance ?? 0);
-                    if ($cashAmount > 0) {
-                        $cashier = \Modules\Cashier\Models\Cashier::find($shift->cashier_id);
-                        if ($cashier) {
-                            $existing = \Modules\Custody\Models\CashierCustodyTransaction::where('related_shift_id', $shift->id)
-                                ->where('cashier_id', $cashier->id)
-                                ->where('transaction_type', 'Total Sales')
-                                ->first();
-
-                            if (! $existing) {
-                                \Modules\Custody\Models\CashierCustodyTransaction::create([
-                                    'cashier_id' => $cashier->id,
-                                    'transaction_type' => 'Total Sales',
-                                    'amount' => $cashAmount,
-                                    'is_cash_in' => true,
-                                    'counterpart_name' => null,
-                                    'related_shift_id' => $shift->id,
-                                    'transaction_date' => now(),
-                                ]);
-                            }
-                        }
-                    }
-                } catch (\Exception $e) {
-                    \Illuminate\Support\Facades\Log::warning('Failed to record end-shift-only Total Sales', [
-                        'shift_id' => $shift->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
-
-            return $shift->fresh();
+            return $shift->fresh(['cashier', 'shift', 'nextCashier']);
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;
         }
     }
 
-    public function endShiftWithHandover(CashierShift $shift, array $data): CashierShift
+    public function endShiftWithHandover(CashierShift $shift, array $data, Model $actor): CashierShift
     {
+        // Stage uploads before the outer report + handover transaction begins.
+        if (($data['pos_receipt'] ?? null) instanceof UploadedFile) {
+            $data['pos_receipt'] = $this->uploadPOSReceipt($data['pos_receipt'], $shift->id);
+        }
+        if (! empty($data['variance']['supporting_files']) && is_array($data['variance']['supporting_files'])) {
+            $data['variance']['supporting_files'] = $this->varianceService->stageSupportingFiles($data['variance']['supporting_files'], $shift->id);
+            $data['variance_files'] = $this->handoverService->stageVarianceFiles($data['variance']['supporting_files'], $shift->id);
+        }
+
         DB::beginTransaction();
         try {
             // First, end the shift
-            $shift = $this->endShiftOnly($shift, $data);
+            $shift = $this->endShiftOnly($shift, $data, $actor);
 
             // تحديد نوع الـ handover: للكاشير التالي أو للبرانش مانجر
             $handoverToType = $data['handover_to_type'] ?? 'cashier';
@@ -149,11 +154,6 @@ class ShiftEndService
 
             $this->handoverService->recordHandover($shift, $handoverData);
 
-            // Check for variance
-            if ($shift->hasVariance() && ! empty($data['variance'])) {
-                $this->varianceService->recordVariance($shift, $data['variance']);
-            }
-
             DB::commit();
 
             return $shift->fresh();
@@ -168,6 +168,18 @@ class ShiftEndService
         $filename = 'shift_'.$shiftId.'_'.time().'.'.$file->getClientOriginalExtension();
 
         return $file->storeAs('receipts', $filename, 'public');
+    }
+
+    private function stageExternalFiles(CashierShift $shift, array $data): array
+    {
+        if (($data['pos_receipt'] ?? null) instanceof UploadedFile) {
+            $data['pos_receipt'] = $this->uploadPOSReceipt($data['pos_receipt'], $shift->id);
+        }
+        if (! empty($data['variance']['supporting_files']) && is_array($data['variance']['supporting_files'])) {
+            $data['variance']['supporting_files'] = $this->varianceService->stageSupportingFiles($data['variance']['supporting_files'], $shift->id);
+        }
+
+        return $data;
     }
 
     private function saveSalesBreakdown(CashierShift $shift, array $aggregators): void

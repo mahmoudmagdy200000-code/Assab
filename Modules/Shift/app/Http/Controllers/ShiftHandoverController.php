@@ -28,7 +28,16 @@ class ShiftHandoverController extends Controller
     {
         try {
             $cashier = auth()->user();
-            $shiftModel = CashierShift::with(['handoverStatus', 'handover'])->findOrFail($shift);
+            $validator = Validator::make($request->all(), [
+                'confirmed_amount' => 'required|'.ShiftMoneyValidation::SAR,
+                'receiving_shift_id' => 'nullable|uuid|exists:cashier_shifts,id',
+                'comment' => 'nullable|string|max:500',
+            ]);
+            if ($validator->fails()) {
+                return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+            }
+
+            $shiftModel = CashierShift::withoutEagerLoads()->findOrFail($shift);
 
             // Sender must not change status.
             if ((string) $shiftModel->cashier_id === (string) $cashier->id) {
@@ -39,16 +48,23 @@ class ShiftHandoverController extends Controller
             }
 
             // Determine the actual recipient from the handover record
-            $handover = $shiftModel->handover;
-            if ($handover && $handover->handover_to_type === 'branch_manager') {
+            $handover = CashierShiftHandover::query()
+                ->where('cashier_shift_id', $shiftModel->id)
+                ->where('status', 'pending')
+                ->first();
+            if (! $handover) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No pending handover exists for this shift',
+                ], 409);
+            }
+            if ($handover->handover_to_type !== 'cashier') {
                 return response()->json([
                     'success' => false,
                     'message' => 'Forbidden: This handover is designated for a branch manager',
                 ], 403);
             }
-
-            $recipientId = $handover?->handover_to_id ?? $shiftModel->next_cashier_id;
-            if ((string) $recipientId !== (string) $cashier->id) {
+            if ((string) $handover->handover_to_id !== (string) $cashier->id) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized: This handover is not for you',
@@ -58,6 +74,8 @@ class ShiftHandoverController extends Controller
             $this->handoverService->acceptHandoverByCashier(
                 $shiftModel,
                 $cashier->id,
+                (string) $request->input('confirmed_amount'),
+                $request->input('receiving_shift_id'),
                 $request->get('comment')
             );
 

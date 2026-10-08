@@ -127,12 +127,7 @@ class ShiftEndController extends Controller
             }
 
             // End shift
-            $updatedShift = $this->shiftEndService->endShiftOnly($shiftModel, $data);
-
-            // Handle variance if provided
-            if ($request->has('variance') && $updatedShift->hasVariance()) {
-                $this->varianceService->recordVariance($updatedShift, $request->variance);
-            }
+            $updatedShift = $this->shiftEndService->endShiftOnly($shiftModel, $data, $user);
 
             // Reload shift with relationships
             $updatedShift = $updatedShift->fresh()->loadFullRelationships();
@@ -367,7 +362,7 @@ class ShiftEndController extends Controller
             }
 
             // End shift with handover
-            $updatedShift = $this->shiftEndService->endShiftWithHandover($shiftModel, $data);
+            $updatedShift = $this->shiftEndService->endShiftWithHandover($shiftModel, $data, $user);
 
             // Reload with relationships
             $updatedShift = CashierShift::with([

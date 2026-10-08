@@ -110,6 +110,17 @@ class BranchManagerShift extends Model
         return $this->belongsTo(Branch::class);
     }
 
+    public function cashTransfers(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(BranchManagerCashTransfer::class, 'branch_manager_shift_id');
+    }
+
+    public function reportAggregate(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(ShiftReportAggregate::class, 'source_id')
+            ->where('source_type', 'branch_manager_shift');
+    }
+
     public function nextManager(): BelongsTo
     {
         return $this->belongsTo(BranchManager::class, 'next_manager_id');
